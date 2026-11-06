@@ -48,7 +48,7 @@ Considered and **kept**:
 - Mockups and marketing screenshots: synthetic fixture content. They still need the owner's
   visual approval on the image sheet.
 
-## Open items for the owner (as of the first dry run, 2026-11-06)
+## Open items for the owner (as of the first dry run, 2026-11-06; resolved before publishing)
 
 1. **Operator workspace paths** (scan kind `operator-path`): `docs/spec.md:19`,
    `docs/research/arc_behavior_spec.md:61` and `docs/research/onboarding_and_import.md:188`
@@ -143,14 +143,20 @@ gh repo edit <org>/<name> --visibility public --accept-visibility-change-consequ
 Only step 7 creates anything outside this machine. **Agents never run steps 7 and 8.** The lead
 runs them after the owner's go.
 
-## After launch
+## After launch (published 2026-11-06)
 
-- **Do not develop in the old checkout any more.** It shares no commits with the public
-  repository, and pushing any of its branches there would publish the old history as a new
-  branch. Clone the public repository and point agents at the new clone. Port any unreleased work
-  as patches (`git format-patch` from the old checkout, then `git am` in the new clone), and scan
-  the patches first.
-- Keep the old repository private and archived (`gh repo archive`). Don't rename the new one over
-  the old one's name, and don't transfer the old one.
-- Turn on secret scanning and push protection for the public repository. Keep `infra/launch/` in
-  the tree: `scan.sh` works on any exported tree and on release source archives too.
+The public repository (`GITHUB_REPO` in `apps/marketing/src/lib/site.ts`) was created from root commit
+`b4fc36a` (private source `b08b14a`). The private repository was renamed, and the private checkout's
+`origin` points to its new name. Development stays in the private checkout (owner's decision, 2026-11-06):
+
+- **`infra/launch/sync-public.sh`** publishes the reviewed `origin/main` as one new public commit: the tree at
+  that revision minus `exclude.txt`, the same privacy scan as `fresh-repo.sh` on the tree and on the commit
+  message (the subjects of the private commits since the last sync), and a fast-forward push of `main`. It
+  refuses to run if the public clone holds a private commit or the private checkout points at the public
+  repository. The last published private revision is in `../status/public-sync.rev`. Cron runs it hourly.
+- The public clone is `../public-airc`; `AIRC_PUBLIC_REMOTE` must equal its origin. Never add the public
+  repository as a remote of the private checkout, and never push private branches or tags there.
+- The public `main` is protected (no force pushes, no deletion, linear history), with secret scanning and
+  push protection on. A push of private history is non-fast-forward and is refused.
+- The hand-added private patterns (the owner's real Space and profile names, name) are in
+  `../private-patterns.txt`, outside the repo. Add new private words there.
