@@ -18,6 +18,8 @@ struct ExtensionAction: Identifiable, Equatable {
     var isEnabled: Bool
     /// The action runs on this page (Chrome greys it out on pages extensions can't touch, like the Web Store).
     var isActive: Bool
+    /// Why no extension runs on this page (a WebKit page of the Chromium build), for its tooltip and the list.
+    var unavailable: String?
 
     static func color(_ hex: Any?) -> NSColor? {
         guard let s = hex as? String, let c = RGBA(hex: s.hasPrefix("#") ? String(s.dropFirst()) : s) else { return nil }
@@ -41,7 +43,8 @@ extension WindowController {
         guard !installed.isEmpty else { return [] }
         let ids = installed.compactMap { $0["id"] as? String }
         let page = shownTabID.flatMap { id in store.tab(id)?.profileID == currentProfileID ? engineTab(for: id) : nil }
-        let states = page.map { engine.extensionActions(ids, for: $0) } ?? [:]
+        let unavailable = extensionsUnavailable(on: page)
+        let states = unavailable == nil ? page.map { engine.extensionActions(ids, for: $0) } ?? [:] : [:]
         return installed.compactMap { e in
             guard let id = e["id"] as? String else { return nil }
             let s = states[id] ?? [:]
@@ -50,8 +53,17 @@ extension WindowController {
             return ExtensionAction(id: id, name: name, title: title, icon: engine.extensionActionIcon(s),
                                    badge: s["badgeText"] as? String ?? "", badgeColor: ExtensionAction.color(s["badgeColor"]),
                                    badgeTextColor: ExtensionAction.color(s["badgeTextColor"]),
-                                   isEnabled: e["enabled"] as? Bool ?? true, isActive: s["enabled"] as? Bool ?? (page != nil))
+                                   isEnabled: e["enabled"] as? Bool ?? true,
+                                   isActive: unavailable == nil && s["enabled"] as? Bool ?? (page != nil), unavailable: unavailable)
         }
+    }
+
+    /// "Extensions don't run on Spotify": a page in Safari's engine (docs/user/protected-media.md) has none of
+    /// Chromium's extensions. Nil where they run.
+    func extensionsUnavailable(on page: EngineTab?) -> String? {
+        guard let page, ProtectedMedia.isWebKitPage(page) else { return nil }
+        let name = ProtectedMedia.shared.service(of: page.url) ?? page.url.map { URLRules.displayHost($0.absoluteString) } ?? ""
+        return name.isEmpty ? "Extensions don't run on this page" : "Extensions don't run on \(name)"
     }
 
     var pinnedExtensionIDs: [String] { app?.settings.values.pinnedExtensions[currentProfileID] ?? [] }
@@ -82,6 +94,10 @@ extension WindowController {
             showToast("Open a page to use this extension")
             return false
         }
+        if let why = extensionsUnavailable(on: page) {
+            showToast(why)
+            return false
+        }
         let shown = engine.presentExtensionAction(id, for: page, anchorRect: rect.intersection(view.bounds), in: view)
         // The action may change its badge.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.refreshExtensionButtons() }
@@ -103,6 +119,7 @@ extension WindowController {
         p.animates = true
         p.appearance = NSAppearance(named: ui.isDark ? .darkAqua : .aqua)
         let list = ExtensionsList(actions: actions, pinned: Set(pinnedExtensionIDs),
+                                  note: extensionsListNote(),
                                   onRun: { [weak self, weak p] id in
                                       p?.close()
                                       guard let self, let field = self.pageView(for: self.currentSpaceID)?.urlField else { return }
@@ -126,6 +143,10 @@ extension WindowController {
         let menu = NSMenu()
         let actions = extensionActions()
         if actions.isEmpty { menu.addItem(withTitle: "No extensions in this profile", action: nil, keyEquivalent: "").isEnabled = false }
+        if let note = extensionsListNote() {
+            menu.addItem(withTitle: note, action: nil, keyEquivalent: "").isEnabled = false
+            menu.addItem(.separator())
+        }
         let pinned = Set(pinnedExtensionIDs)
         for a in actions {
             let item = menu.add(a.title + (a.badge.isEmpty ? "" : "  " + a.badge)) { [weak self] in
@@ -144,6 +165,12 @@ extension WindowController {
         menu.add("Manage Extensions…") { [weak self] in self?.openExtensionsPage() }
         menu.add("Chrome Web Store…") { [weak self] in self?.navigate(to: URL(string: "https://chromewebstore.google.com/")!, newTab: true) }
         menu.popUp(positioning: nil, at: NSPoint(x: 12, y: AircMetrics.Sidebar.urlFieldTop), in: root)
+    }
+
+    /// The list's line for a page where extensions don't run, and why.
+    func extensionsListNote() -> String? {
+        let page = shownTabID.flatMap { id in store.tab(id)?.profileID == currentProfileID ? engineTab(for: id) : nil }
+        return extensionsUnavailable(on: page).map { $0 + ": it plays with Safari's engine." }
     }
 
     func openExtensionsPage() { navigate(to: URL(string: "chrome://extensions")!, newTab: true) }
@@ -178,6 +205,8 @@ extension WindowController {
 private struct ExtensionsList: View {
     let actions: [ExtensionAction]
     @State var pinned: Set<String>
+    /// Why the shown page runs none of them (Safari's engine).
+    let note: String?
     let onRun: (String) -> Void
     let onPin: (String, Bool) -> Void
     let onManage: () -> Void
@@ -203,6 +232,15 @@ private struct ExtensionsList: View {
         VStack(alignment: .leading, spacing: 2) {
             Text("Extensions").aircFont(AircFont.caption).foregroundStyle(ui.surfaceTextTertiary.color)
                 .padding(.horizontal, 8).padding(.bottom, 4)
+            if let note {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: "safari").font(.system(size: 11, weight: .medium)).foregroundStyle(ui.surfaceTextSecondary.color)
+                        .frame(width: 20)
+                    Text(note).aircFont(AircFont.callout).foregroundStyle(ui.surfaceTextSecondary.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 8).padding(.bottom, 6)
+            }
             if actions.isEmpty {
                 Text("No extensions in this profile yet.").aircFont(AircFont.body).foregroundStyle(ui.surfaceTextSecondary.color)
                     .padding(.horizontal, 8).padding(.vertical, 6)
@@ -220,7 +258,7 @@ private struct ExtensionsList: View {
                     .buttonStyle(.plain)
                     .disabled(!a.isEnabled)
                     .opacity(a.isEnabled && a.isActive ? 1 : 0.45)
-                    .help(a.isEnabled ? a.title : "\(a.name) is turned off")
+                    .help(!a.isEnabled ? "\(a.name) is turned off" : a.unavailable ?? a.title)
                     AircSwitch(isOn: Binding(get: { pinned.contains(a.id) }, set: { on in
                         if on { pinned.insert(a.id) } else { pinned.remove(a.id) }
                         onPin(a.id, on)
@@ -302,8 +340,8 @@ final class ExtensionButton: NSView {
     func configure(_ a: ExtensionAction, palette: Palette) {
         image.image = a.icon ?? Symbols.image("puzzlepiece.extension", size: 13, weight: .medium)
         image.contentTintColor = a.icon == nil ? palette.glyph : nil
-        toolTip = a.title
-        setAccessibilityLabel(a.title)
+        toolTip = a.unavailable ?? a.title
+        setAccessibilityLabel(a.unavailable.map { "\(a.title): \($0)" } ?? a.title)
         hoverFill = palette.hover
         CATransaction.begin()
         CATransaction.setDisableActions(true)

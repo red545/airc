@@ -2,7 +2,7 @@
 # Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
 # Linux entrypoint: send a built copy's dSYMs (scripts/build-app.sh writes them to build/dSYMs on the Mac) to PostHog
 # error tracking, so Airc's crash reports get function names (docs/user/telemetry.md, "Crash reports"). Best effort:
-# publish.sh calls it after a publish and ignores its exit code.
+# deferred.sh retries queued builds outside the ship lock.
 #
 #   infra/updates/upload-symbols.sh [--dry-run] [REMOTE]   REMOTE: the build copy on the Mac (default arcfork/nightly)
 #
@@ -21,8 +21,8 @@ CLI=${POSTHOG_CLI:-$HOME/.local/bin/posthog-cli}
 CREDENTIALS=${AIRC_POSTHOG_CLI_ENV:-$(dirname "$ROOT")/secrets/posthog-cli.env}
 POSTHOG_HOST=${AIRC_POSTHOG_HOST:-https://eu.posthog.com}
 STATE=${AIRC_SYMBOLS_DIR:-$(dirname "$ROOT")/symbols}
-[[ -x "$CLI" ]] || { echo "symbols: skipped, no posthog-cli at $CLI"; exit 0; }
-[[ -n $DRY || -f "$CREDENTIALS" ]] || { echo "symbols: skipped, no credentials file"; exit 0; }
+[[ -x "$CLI" ]] || { echo "symbols: skipped, no posthog-cli at $CLI"; exit 1; }
+[[ -n $DRY || -f "$CREDENTIALS" ]] || { echo "symbols: skipped, no credentials file"; exit 1; }
 mkdir -p "$STATE"
 touch "$STATE/uploaded.txt"
 exec 7>"$STATE/.lock"
@@ -31,8 +31,9 @@ ssh_mac() { timeout --kill-after=10s 2m ssh -o BatchMode=yes -o ConnectTimeout=1
 
 # What the build made: "UUID<TAB>dSYM name" per architecture, and the release it belongs to.
 listing=$(ssh_mac "cd $REMOTE/build/dSYMs 2>/dev/null && for d in *.dSYM; do xcrun dwarfdump --uuid \"\$d\" | sed -E \"s/^UUID: ([0-9A-F-]+) .*/\\1	\$d/\"; done") \
-  || { echo "symbols: no dSYMs in $REMOTE/build/dSYMs"; exit 0; }
+  || { echo "symbols: no dSYMs in $REMOTE/build/dSYMs"; exit 1; }
 plist="$REMOTE/build/Airc-Chromium.app/Contents/Info.plist"
+[[ "$REMOTE" != arcfork/update-jobs/* ]] || plist="$REMOTE/build/Info.plist"
 version=$(ssh_mac "plutil -extract CFBundleShortVersionString raw -o - $plist" 2>/dev/null || echo 0.0.0)
 build=$(ssh_mac "plutil -extract CFBundleVersion raw -o - $plist" 2>/dev/null || echo 0)
 [[ $version =~ ^[0-9.]+$ && $build =~ ^[0-9]+$ ]] || { version=0.0.0; build=0; }
@@ -52,7 +53,7 @@ STAGE=$(mktemp -d "$STATE/stage.XXXXXX")
 trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$STAGE/dSYMs" "$STAGE/bin"
 for name in "${new[@]}"; do
-  rsync -az "$HOST:$REMOTE/build/dSYMs/$name" "$STAGE/dSYMs/" || { echo "symbols: couldn't copy $name" >&2; exit 1; }
+  rsync -az --partial --timeout=30 "$HOST:$REMOTE/build/dSYMs/$name" "$STAGE/dSYMs/" || { echo "symbols: couldn't copy $name" >&2; exit 1; }
 done
 # posthog-cli reads each dSYM's UUID with Xcode's dwarfdump and thins universal ones (Sparkle's) with lipo; this box
 # has neither.

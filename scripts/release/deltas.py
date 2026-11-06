@@ -29,6 +29,11 @@ def signature(path):
     if not match or int(match[2]) != path.stat().st_size:
         raise ValueError('Invalid Sparkle signature metadata')
     return {'signature': match[1], 'size': int(match[2])}
+# Migrate the dev cache once; all cached apps stay invisible to Spotlight.
+legacy = Path.home()/'arcfork/updates-cache/dev'
+if cache == Path.home()/'arcfork/updates-cache.noindex/dev' and legacy.exists() and not cache.exists():
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    legacy.rename(cache)
 cache.mkdir(parents=True, exist_ok=True)
 # Refuse to grow the cache on a full build Mac. The app and a delta need scratch space.
 free = shutil.disk_usage(cache).free

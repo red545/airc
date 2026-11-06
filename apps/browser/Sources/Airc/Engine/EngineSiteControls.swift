@@ -117,11 +117,13 @@ struct SiteSecurity: Equatable {
     }
 }
 
-/// What the page is doing now. Capture is the devices' real use, not what the page reports.
+/// What the page is doing now. Capture is the devices' real use, not what the page reports; the location is the page
+/// script's word (SiteUse.swift), added by SiteControlsCenter.
 struct SiteActivity: Equatable {
     var camera = false
     var microphone = false
     var screen = false
+    var location = false
     var blockedPopups: [BlockedPopup] = []
 
     var isCapturing: Bool { camera || microphone || screen }

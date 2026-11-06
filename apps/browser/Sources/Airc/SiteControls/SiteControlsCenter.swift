@@ -4,7 +4,7 @@ import AppKit
 /// Site Controls for the whole app (SB-2): the engine's per-profile settings, one permission observer per profile, a
 /// cache of each site's permissions (the URL field asks on every redraw), and a notice when something changes, for the
 /// URL field's indicators and the open panel. Nothing polls (MEM-6): changes come from the engine's permission
-/// observer and its capture, pop-up, zoom and connection notifications.
+/// observer and its capture, pop-up, zoom and connection notifications, and from the page script's location use.
 final class SiteControlsCenter {
     /// Posted on the main thread. userInfo: `profile` (its directory) for settings, `tab` (EngineTab) for activity.
     static let didChange = Notification.Name("AircSiteControlsDidChange")
@@ -83,6 +83,15 @@ final class SiteControlsCenter {
     /// For the panel's "Reset" and the field's indicator: the site has a setting of its own.
     func hasCustomPermissions(origin: String, in profile: EngineProfile) -> Bool {
         permissions(origin: origin, in: profile).values.contains { $0.isCustom }
+    }
+
+    // MARK: Activity
+
+    /// The engine's capture and pop-ups, with the location from the page script (SiteUse).
+    func activity(of tab: EngineTab) -> SiteActivity {
+        var a = engine.siteActivity(of: tab)
+        a.location = SiteUse.shared.locationInUse(tab)
+        return a
     }
 
     /// The app changed a zoom or a page by itself (⌘+, the panel): the panel and the field follow.

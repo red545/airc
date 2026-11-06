@@ -307,10 +307,15 @@ extension WindowController {
     func beginRenameSpace(_ spaceID: String, in row: NSView, titleFrame: NSRect) {
         guard let s = store.space(spaceID) else { return }
         InlineEditor.begin(in: row, frame: titleFrame, text: s.name, font: AircFont.spaceName.appFont) { [weak self] text in
-            let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty else { return }
-            try? self?.store.updateSpace(spaceID) { $0.name = name }
+            self?.renameSpace(spaceID, to: text)
         }
+    }
+
+    /// Rename (the header's field, Manage Spaces): an empty name keeps the old one.
+    func renameSpace(_ spaceID: String, to text: String) {
+        let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, store.space(spaceID)?.name != name else { return }
+        try? store.updateSpace(spaceID) { $0.name = name }
     }
 
     func renameCurrentSpace() {
@@ -425,7 +430,7 @@ extension WindowController {
         m.addItem(.separator())
         m.add("New Folder…") { [weak self] in _ = try? self?.store.createFolder(inSpace: spaceID) }
         m.addItem(.separator())
-        m.add("Manage Spaces…") { [weak self] in self?.showStub("Manage Spaces") }
+        m.add("Manage Spaces…") { [weak self] in self?.showManageSpaces() }
         m.addItem(.separator())
         m.add("Delete Space") { [weak self] in self?.deleteSpace(spaceID) }.isEnabled = store.state.spaces.count > 1
         return m
@@ -580,7 +585,7 @@ extension WindowController {
         guard let s = store.space(spaceID), store.state.spaces.count > 1 else { return }
         let alert = NSAlert()
         alert.messageText = "Delete “\(s.name)”?"
-        alert.informativeText = "This deletes the Space and closes its tabs. Its Today tabs go to the Archive."
+        alert.informativeText = deleteSpaceMessage(spaceID)
         alert.addButton(withTitle: "Delete Space")
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.hasDestructiveAction = true
@@ -596,6 +601,24 @@ extension WindowController {
             }
             self.showToast("Space deleted! Use ⌘Z to undo.")
         }
+    }
+
+    /// What deleting a Space does to its tabs, in numbers (SB-23).
+    func deleteSpaceMessage(_ spaceID: String) -> String {
+        func count(_ n: Int, _ one: String, _ many: String) -> String { n == 1 ? "1 \(one)" : "\(n) \(many)" }
+        let today = store.todayTabs(ofSpace: spaceID).count
+        let items = store.state.items.values.filter { $0.spaceID == spaceID && !$0.isFavorite }
+        let pinned = items.filter { $0.kind != .folder }.count
+        let folders = items.filter { $0.kind == .folder }.count
+        var parts = ["Its open tabs close."]
+        if today > 0 { parts.append("Its \(count(today, "Today tab goes", "Today tabs go")) to the Archive, where the Library can restore them.") }
+        if pinned + folders > 0 {
+            let what = [pinned > 0 ? count(pinned, "pinned tab", "pinned tabs") : nil, folders > 0 ? count(folders, "folder", "folders") : nil]
+                .compactMap { $0 }.joined(separator: " and ")
+            parts.append("Its \(what) \(pinned + folders == 1 ? "is" : "are") deleted with it.")
+        }
+        parts.append("Its profile stays. You can undo this with ⌘Z.")
+        return parts.joined(separator: " ")
     }
 
     /// SP-13 with Arc's confirm ("Don't ask again").
@@ -635,13 +658,20 @@ extension WindowController {
         }
     }
 
-    func changeSpaceIcon(_ spaceID: String) {
-        guard let page = pageView(for: spaceID) else { return }
-        if spaceID != currentSpaceID { switchToSpace(spaceID, animated: true) }
+    /// Change Space Icon…, beside the Space's header; from Manage Spaces, beside its row (`anchor`), staying where it is.
+    func changeSpaceIcon(_ spaceID: String, anchor: (view: NSView, rect: NSRect)? = nil) {
+        let at: (view: NSView, rect: NSRect)
+        if let anchor {
+            at = anchor
+        } else {
+            guard let page = pageView(for: spaceID) else { return }
+            if spaceID != currentSpaceID { switchToSpace(spaceID, animated: true) }
+            at = (page.header, page.header.bounds)
+        }
         let picker = EmojiPicker(onPick: { [weak self] e in
             try? self?.store.updateSpace(spaceID) { $0.icon = e.map(SpaceIcon.emoji) }
         })
-        Popover.show(picker, size: NSSize(width: 273, height: 273), relativeTo: page.header.bounds, of: page.header, edge: .maxX)
+        Popover.show(picker, size: NSSize(width: 273, height: 273), relativeTo: at.rect, of: at.view, edge: .maxX)
     }
 
     func changeFolderIcon(_ itemID: String) {
@@ -651,11 +681,13 @@ extension WindowController {
         Popover.show(picker, size: NSSize(width: 273, height: 273), relativeTo: anchor.bounds, of: anchor, edge: .maxX)
     }
 
-    /// Edit Theme Color… (TH-1): swatches, intensity, grain and appearance; recolours live.
-    func editTheme(_ spaceID: String) {
+    /// Edit Theme Color… (TH-1): swatches, intensity, grain and appearance; recolours live. The Space is shown while it's
+    /// edited; the picker sits beside its header, or beside `anchor` (Manage Spaces' row).
+    func editTheme(_ spaceID: String, anchor: (view: NSView, rect: NSRect)? = nil) {
         guard let s = store.space(spaceID), let page = pageView(for: spaceID) else { return }
         if spaceID != currentSpaceID { switchToSpace(spaceID, animated: true) }
-        showThemePicker(theme: s.theme, relativeTo: page.header.bounds, of: page.header) { [weak self] theme in
+        let at = anchor ?? (page.header, page.header.bounds)
+        showThemePicker(theme: s.theme, relativeTo: at.rect, of: at.view) { [weak self] theme in
             AppTelemetry.shared.record(.themeChanged, atMostEvery: 60)
             try? self?.store.updateSpace(spaceID) { $0.theme = theme }
         }

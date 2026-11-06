@@ -271,6 +271,13 @@ extension ChromiumWindow {
         chromiumTabs(for: profile) + (webKit.made?.tabs(for: profile) ?? [])
     }
 
+    /// A WebKit page the app unloaded (Browser/TabUnloading.swift) opens again with its history and scroll position,
+    /// while its site still plays in WebKit. Nil: open it as any page.
+    func openWebKitTab(restoring state: Any, url: URL, profile: EngineProfile) -> EngineTab? {
+        guard media.engine(for: url) == .webKit, let wk = engine.webKitProfile(for: profile) else { return nil }
+        return webKit.window.openTab(restoring: state, profile: wk, hostProfile: profile)
+    }
+
     /// The URL bar picks the engine again; a sign-in host stays where it is.
     func load(_ url: URL, in tab: EngineTab) {
         let current: PageEngine = tab is WebKitTab ? .webKit : .chromium
@@ -380,17 +387,45 @@ extension ChromiumWindow {
     }
 
     /// SB-55 for a WebKit page: leaving its tab in the key window sends a playing video to the system's picture in
-    /// picture, when the profile has automatic picture in picture on.
+    /// picture (WebKit's own, AVKit's window: Airc's PiP controls draw over Chromium's PiP window only), when the profile
+    /// has automatic picture in picture on and the site isn't set to never (Settings → Picture in Picture).
     func autoPictureInPicture(_ page: WebKitTab) {
-        guard !page.isClosed, window.isKeyWindow, (page.profile as? ChromiumProfile)?.core.autoPictureInPictureEnabled == true
-        else { return }
+        let refusal = autoPictureInPictureRefusal(page)
+        #if AIRC_TESTING
+        HybridTesting.autoPictureInPicture.append((page: ObjectIdentifier(page), result: refusal ?? "requested"))
+        #endif
+        guard refusal == nil else { return }
+        Self.requestPictureInPicture(page, completion: nil)
+    }
+
+    /// Why leaving `page` doesn't ask for picture in picture, or nil when it does.
+    func autoPictureInPictureRefusal(_ page: WebKitTab) -> String? {
+        if page.isClosed { return "closed" }
+        guard (page.profile as? ChromiumProfile)?.core.autoPictureInPictureEnabled == true else { return "automatic picture in picture is off" }
+        if let origin = page.url.flatMap({ WindowController.pictureInPictureOrigin($0.absoluteString) }),
+           (NSApp.delegate as? AppDelegate)?.settings?.values.pipSites[origin] == false {
+            return "off for this site"
+        }
+        // As Chromium's own: only when the person leaves the tab in the window they use.
+        return window.isKeyWindow ? nil : "the window isn't key"
+    }
+
+    /// The page's playing video asks for WebKit's picture in picture: "requested", "already" (one is up) or "none".
+    static func requestPictureInPicture(_ page: WebKitTab, completion: ((String) -> Void)?) {
         page.evaluate("""
         (function(){ if (document.pictureInPictureElement) return 'already';
           var v = Array.prototype.find.call(document.querySelectorAll('video'), function(v){
             return !v.paused && !v.ended && v.readyState > 2 && !v.disablePictureInPicture; });
           if (!v || !v.requestPictureInPicture) return 'none';
           v.requestPictureInPicture().catch(function(){}); return 'requested'; })()
-        """, completion: nil)
+        """) { completion?($0 as? String ?? "none") }
     }
 }
+
+#if AIRC_TESTING
+/// What leaving each WebKit page decided (`--script followups3`).
+enum HybridTesting {
+    static var autoPictureInPicture: [(page: ObjectIdentifier, result: String)] = []
+}
+#endif
 #endif

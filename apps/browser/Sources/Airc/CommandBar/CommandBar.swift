@@ -47,11 +47,30 @@ struct CommandResult {
     }
 }
 
+/// What the Command Bar asks of the window it opens in: the main window (its Space's profile, SP-24) or a private
+/// window (its own tabs only, no history).
+protocol CommandBarHost: AnyObject {
+    /// "🏡 Personal": whose results these are; nil hides the chip.
+    var commandBarChip: String? { get }
+    /// ⌘L and a click on the URL field open the bar over the field (the docked sidebar shows it).
+    var commandBarAnchorsToURLField: Bool { get }
+    /// The history searched off the main thread, and the profile it's for; nil searches none.
+    var commandBarHistory: (store: HistoryStore, profileID: String)? { get }
+    /// The search engine and the session key for live suggestions; nil while they're off.
+    var commandBarSuggestions: (engine: SearchEngine, profileID: String)? { get }
+    func inlineCompletion(for typed: String) -> InlineCompletion.Match?
+    func siteCompletion(for typed: String, history: [HistoryMatch]) -> CommonSites.Completion?
+    func commandResults(for query: String, mode: CommandBarMode, inline: InlineCompletion.Match?,
+                        inlineSite: CommonSites.Site?, suggestions: [String], history: [HistoryMatch]) -> [CommandResult]
+    func closeCommandBar()
+    func performCommand(_ action: CommandResult.Action, newTab: Bool, typed: Bool)
+}
+
 /// The Command Bar (CB-1, Arc ref §5): a centred 765 pt panel, 64 pt input row, opens in one frame. ⌘L and a click on
 /// the URL field open it over the URL field instead, as Arc does. Typing completes known addresses inline
 /// (`InlineCompletion`); "/" or Tab on an empty field switches to actions only.
 final class CommandBarView: NSView, NSTextFieldDelegate {
-    weak var controller: WindowController?
+    weak var host: CommandBarHost?
     private(set) var mode: CommandBarMode
     var palette: Palette { didSet { applyPalette() } }
     private let panel = FlippedView()
@@ -87,10 +106,10 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     /// The built-in site the inline completion came from, when nothing of yours completed what was typed.
     private(set) var inlineSite: CommonSites.Site?
 
-    init(mode: CommandBarMode, palette: Palette, controller: WindowController) {
+    init(mode: CommandBarMode, palette: Palette, host: CommandBarHost) {
         self.mode = mode
         self.palette = palette
-        self.controller = controller
+        self.host = host
         super.init(frame: .zero)
         wantsLayer = true
         panel.wantsLayer = true
@@ -293,13 +312,11 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     }
 
     private func updateChip() {
-        guard let c = controller else { return }
-        let s = c.store.space(c.currentSpaceID)
-        let p = c.store.profile(ofSpace: c.currentSpaceID)
+        guard let host else { return }
         // Results come from this profile only (SP-24); the chip says which.
-        let text = [s.map(\.iconLabel), p.name].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
+        let text = host.commandBarChip ?? ""
         if chip.stringValue != text { chip.stringValue = text }
-        let hidden = c.store.state.profiles.count < 2
+        let hidden = host.commandBarChip == nil
         if chip.isHidden != hidden { chip.isHidden = hidden }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -348,13 +365,13 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
 
     override func mouseDown(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
-        if !panelRect.contains(p) { controller?.closeCommandBar() }
+        if !panelRect.contains(p) { host?.closeCommandBar() }
     }
 
     /// Over the URL field (⌘L, click) when the sidebar is docked; centred otherwise (⌘T, hidden sidebar). Its left edge
     /// is the field's and its input row is centred on the field, so it reads as the field growing (Arc ref §2.2).
     private func anchoredRect(in bounds: NSRect, height: CGFloat) -> NSRect? {
-        guard mode == .editURL, let c = controller, c.sidebarFraction >= 1, c.revealController?.isRevealed != true else { return nil }
+        guard mode == .editURL, host?.commandBarAnchorsToURLField == true else { return nil }
         let x = sidebarFrame.minX + AircMetrics.Sidebar.inset
         let fieldMid = AircMetrics.Sidebar.urlFieldTop + AircMetrics.Sidebar.urlFieldHeight / 2
         let top = fieldMid - AircMetrics.CommandBar.inputHeight / 2
@@ -423,7 +440,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     }
 
     func update(allowCompletion: Bool = true) {
-        guard let c = controller else { return }
+        guard let c = host else { return }
         let q = typed
         // History is searched off the main thread (H5). Until its answer arrives, the previous matches that still match
         // keep their rows, so typing on doesn't make them jump.
@@ -463,12 +480,11 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     }
 
     private func requestHistory(for q: String) {
-        guard let c = controller, let h = c.app?.history, !isActionsMode,
+        guard let source = host?.commandBarHistory, !isActionsMode,
               !q.trimmingCharacters(in: .whitespaces).isEmpty else { historyHits = []; return }
-        let profile = c.store.profile(ofSpace: c.currentSpaceID).id
-        h.search(q, profileID: profile, limit: 8) { [weak self] hits in
+        source.store.search(q, profileID: source.profileID, limit: 8) { [weak self] hits in
             MainActor.assumeIsolated {
-                guard let self, let c = self.controller, self.typed == q else { return }
+                guard let self, let c = self.host, self.typed == q else { return }
                 self.historyHits = hits
                 let keep = self.selected
                 self.results = c.commandResults(for: q, mode: self.mode, inline: self.inline, inlineSite: self.inlineSite,
@@ -483,10 +499,9 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     }
 
     private func requestSuggestions(for q: String) {
-        guard let c = controller, !isActionsMode, URLRules.normalizeInput(q) == nil,
-              q.trimmingCharacters(in: .whitespaces).count >= 2, c.app?.settings.values.suggestionsEnabled ?? true else { return }
-        let profile = c.store.profile(ofSpace: c.currentSpaceID)
-        SuggestionService.shared.fetch(q, engine: profile.searchEngine, profileID: profile.id) { [weak self] list in
+        guard let c = host, !isActionsMode, URLRules.normalizeInput(q) == nil,
+              q.trimmingCharacters(in: .whitespaces).count >= 2, let source = c.commandBarSuggestions else { return }
+        SuggestionService.shared.fetch(q, engine: source.engine, profileID: source.profileID) { [weak self] list in
             guard let self, self.typed == q, !list.isEmpty else { return }
             self.suggestions = list
             self.suggestionQuery = q
@@ -548,7 +563,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
                 update(allowCompletion: false)
                 return true
             }
-            controller?.closeCommandBar()
+            host?.closeCommandBar()
             return true
         default:
             return false
@@ -560,8 +575,8 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         let r = results[selected]
         // Chosen: now its icon may come from the network (rows never ask for one while you type).
         CommandRowView.fetchIcon(of: r)
-        controller?.closeCommandBar()
-        controller?.performCommand(r.action, newTab: mode == .newTab, typed: true)
+        host?.closeCommandBar()
+        host?.performCommand(r.action, newTab: mode == .newTab, typed: true)
     }
 }
 
@@ -874,7 +889,26 @@ final class CommandRowView: NSView {
 
 // MARK: - Results and actions
 
-extension WindowController {
+extension WindowController: CommandBarHost {
+    var commandBarChip: String? {
+        guard store.state.profiles.count > 1 else { return nil }
+        let s = store.space(currentSpaceID)
+        let p = store.profile(ofSpace: currentSpaceID)
+        return [s.map(\.iconLabel), p.name].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    var commandBarAnchorsToURLField: Bool { sidebarFraction >= 1 && revealController?.isRevealed != true }
+
+    var commandBarHistory: (store: HistoryStore, profileID: String)? {
+        app?.history.map { ($0, store.profile(ofSpace: currentSpaceID).id) }
+    }
+
+    var commandBarSuggestions: (engine: SearchEngine, profileID: String)? {
+        guard app?.settings.values.suggestionsEnabled ?? true else { return nil }
+        let profile = store.profile(ofSpace: currentSpaceID)
+        return (profile.searchEngine, profile.id)
+    }
+
     func openCommandBar(mode: CommandBarMode) {
         if let bar = commandBar {
             // ⌘T / ⌘L again closes it (Arc ref §5).
@@ -889,7 +923,7 @@ extension WindowController {
                 spare.reuse(mode: mode, palette: currentPalette)
                 return spare
             }
-            return CommandBarView(mode: mode, palette: currentPalette, controller: self)
+            return CommandBarView(mode: mode, palette: currentPalette, host: self)
         }
         commandBar = bar
         let profile = store.profile(ofSpace: currentSpaceID)

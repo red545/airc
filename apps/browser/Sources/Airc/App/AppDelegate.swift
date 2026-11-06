@@ -201,6 +201,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         // BST-1: the Boosts part of the engine's page script, before the first page opens.
         BoostCenter.start(engine: engine)
+        // SB-2: the page script's location and device-ask part (SiteUse.swift), on the same script.
+        SiteUse.start()
         profiles = ProfileHost(store: store, engine: engine)
         promptCenter = PromptCenter(engine: engine)
         installLinkRouter()

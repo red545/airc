@@ -49,7 +49,8 @@ enum CommandMenus {
             BrowserCommand("New Tab", "t", .command) { $0.openCommandBar(mode: .newTab) },
             BrowserCommand("Open Location…", "l", .command) { $0.openCommandBar(mode: .editURL) },
             BrowserCommand("New Window", "n", .command) { $0.showStub("New windows") },
-            BrowserCommand("New Private Window", "n", [.command, .shift]) { $0.showStub("Private windows") },
+            // PW-1 (Browser/PrivateWindow.swift): in a private window, ⇧⌘N opens another one of the same profile.
+            BrowserCommand("New Private Window", "n", [.command, .shift]) { c in if let app = c.app { PrivateBrowsing.shared.open(app: app) } },
             BrowserCommand("New Little Arc Window", "n", [.command, .option]) { $0.app?.openLittleArc(url: nil) },
             nil,
             // LA-1: these act in a Little Arc window (LittleArcController.handleKey); the main window has nothing to move.
@@ -62,7 +63,7 @@ enum CommandMenus {
             BrowserCommand("Close Other Tabs", "w", [.command, .option]) { $0.clearToday() },
             BrowserCommand("Reopen Closed Tab", "t", [.command, .shift]) { $0.undo() },
             nil,
-            BrowserCommand("Save Page As…", "s", [.command, .shift]) { $0.showStub("Save Page") },
+            BrowserCommand("Save Page As…", "s", [.command, .shift]) { $0.savePage() },
             BrowserCommand("Print…", "p", .command) { $0.printPage() },
         ]
     }
@@ -117,6 +118,7 @@ enum CommandMenus {
             c.append(BrowserCommand("Space \(n)", "\(n)", .control) { $0.switchToSpace(number: n) })
         }
         c.append(nil)
+        c.append(BrowserCommand("Manage Spaces…") { $0.showManageSpaces() })
         c.append(BrowserCommand("Delete Space…") { $0.deleteSpace($0.currentSpaceID) })
         return c
     }
@@ -184,6 +186,13 @@ final class CommandMenuItem: NSMenuItem {
     weak var app: AppDelegate?
     @objc func fire() {
         guard let c = app?.controller, let command else { return }
+        // A private window takes its own shortcuts and the menu commands that make sense there (PrivateWindow.swift).
+        if let p = PrivateBrowsing.shared.window(for: NSApp.keyWindow) {
+            if let e = NSApp.currentEvent, e.type == .keyDown, p.handleKey(e) { return }
+            if p.perform(menuTitle: command.title) { return }
+            if ["New Window", "New Little Arc Window"].contains(command.title) { command.run(c) }
+            return
+        }
         // A Little Arc window takes its own shortcuts; the main window's commands don't reach into it.
         if let little = app?.littleArc(for: NSApp.keyWindow) {
             if let e = NSApp.currentEvent, e.type == .keyDown, little.handleKey(e) { return }
@@ -425,6 +434,7 @@ enum KeyMonitor {
                 return nil
             }
             if let little = app.littleArc(for: event.window) { return little.handleKey(event) ? nil : event }
+            if let p = PrivateBrowsing.shared.window(for: event.window) { return p.handleKey(event) ? nil : event }
             guard let c = app.controller, event.window === c.window else { return event }
             // Full screen (Arc): Esc goes to the page; a second press, or holding it, leaves full screen.
             // Peek: Esc closes it. So does Site Controls (first: it's above the page).

@@ -29,7 +29,8 @@ picture (video, call or document), a new Space, a new profile, a new Favorite, a
 the Back/Forward history menu, a download started or finished, Site Controls, the default-browser prompt (shown,
 accepted, declined), an extension installed (never which), an update installed, the sidebar's update button shown
 or clicked, a theme change, Live Calendar turned on or a meeting joined from it (never the meeting, its link or
-its time), and a Boost changed in its editor (never the site, its style or its code).
+its time), a Boost changed in its editor (never the site, its style or its code), and a private window opened
+(nothing about its pages, ever).
 
 Numbers are only ever sent as ranges: "6-10 Spaces", "250-500 ms", never the exact value.
 

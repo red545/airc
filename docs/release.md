@@ -383,26 +383,48 @@ References: [Sparkle setup](https://sparkle-project.org/documentation/),
 [Apple notarization](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution),
 [seed format](https://github.com/sparkle-project/Sparkle/blob/2.10.1/generate_keys/main.swift).
 
-## Private dev channel (tailnet only)
+## Private dev channel (local to the build Mac)
 
-This is the authorized exception to the production/ad-hoc publication restriction
-above. Developer ID signing is available through private operator configuration; dev ZIPs are not automatically notarized. The dev feed is hosted by
-`infra/updates/serve.sh`: a loopback Python static server in tmux `airc-updates`,
-port 3482, with tailnet-only HTTPS Serve on 8482. No Funnel. The directory defaults
-to `../updates` beside the checkout; override with `AIRC_UPDATES_DIR`. An empty
-feed is created until the first accepted build. Start the script again after host
-reboot. Feed and archive responses use no-cache.
+The dev channel has one user, running on the build Mac itself. Signed ZIPs and
+EdDSA deltas now stay in `~/arcfork/updates-local/`. `infra/updates/local-feed.sh`
+installs `~/Library/LaunchAgents/org.airc.devfeed.plist`, serving **only that
+folder**, bound to **127.0.0.1:3483**. It uses the existing Python interpreter and
+`server.py` copied into `~/arcfork/tools/devfeed/`; no new dependencies or root.
+Launchd starts it at login and restarts failures. Directory listings and symlink
+escapes are refused (including HEAD requests). This is never exposed by Serve or
+Funnel. Server logs live beside its script.
 
-The operator's local `airc.env` beside the checkout (on the Linux box) supplies:
+Dev builds default to `http://127.0.0.1:3483/appcast.xml`. `nightly.sh` selects that
+URL regardless of an older `AIRC_UPDATE_FEED` in private operator configuration.
+The dev plist enables `NSAllowsLocalNetworking`; public builds retain their ATS
+policy. Sparkle still verifies every archive and delta against the same EdDSA
+public key. No certificate exception or trusted self-signed certificate is needed.
+Apple documents local networking in [NSAllowsLocalNetworking](https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity/nsallowslocalnetworking).
+
+The operator's `airc.env` beside the checkout still sets `AIRC_DEV_CHANNEL=1`,
+signing configuration, and optional `AIRC_MAC_HOST`, `AIRC_UPDATES_DIR` and
+`AIRC_STATUS_DIR`. Never commit it; `AIRC_UPDATES_CONFIG` overrides its path.
+
+**Switch-over.** Keep the Linux HTTPS service (`infra/updates/serve.sh`) running.
+Each publish atomically mirrors the small appcast there; its newest enclosures
+point to **the client's loopback server**, not Linux. The old app fetches this feed,
+downloads the signed payload locally, and installs a build whose SUFeedURL is the
+local feed. Older retained items can still name Linux archives. This is an
+appcast bridge, not an HTTP redirect or a Sparkle preference change. It requires
+the LaunchAgent to be installed first, which publication ensures. Keep the bridge
+until the owner has restarted into a local-feed build; do not modify their app,
+preferences, profile or Keychain to force migration. No large transition upload.
+
+**Remove the service** on the build Mac:
 
 ```sh
-export AIRC_DEV_CHANNEL=1
-export AIRC_UPDATE_FEED=https://YOUR-TAILNET-HOST:8482/dev/appcast.xml
-# Optional: AIRC_MAC_HOST, AIRC_UPDATES_DIR
+launchctl bootout "gui/$(id -u)/org.airc.devfeed"
+rm ~/Library/LaunchAgents/org.airc.devfeed.plist
+# Once no installed dev app relies on it:
+rm -rf ~/arcfork/tools/devfeed ~/arcfork/updates-local
 ```
 
-Do not commit this file. `AIRC_UPDATES_CONFIG` overrides its path. `infra/nightly.sh` and
-`infra/updates/publish.sh` source it when present.
+Removing it stops dev updates until reinstalled or the app moves to another feed.
 
 **Signing the owner's builds.** Ad-hoc signatures change code identity on every update, causing repeated
 Keychain and TCC approvals. Use a Developer ID Application identity in a dedicated keychain on the build Mac.
@@ -412,8 +434,7 @@ The operator's private `airc.env` sets `AIRC_SIGN_IDENTITY`, `AIRC_SIGN_KEYCHAIN
 `AIRC_SIGN_KEYCHAIN_PASSWORD_FILE` to the identity and Mac paths; it never contains the password itself.
 Do not enable these until both Sparkle migration proofs and the signed launch smoke pass.
 
-`nightly.sh` forwards these settings but explicitly builds and tests with `AIRC_SIGN_IDENTITY=-`, including the
-post-publish WebKit suite. `publish.sh` forwards them separately to `prepare-mac.sh`. After the tests, prepare
+`nightly.sh` forwards these settings but explicitly builds and tests with `AIRC_SIGN_IDENTITY=-`, with WebKit advice confined to the full nightly run. `publish.sh` forwards them separately to `prepare-mac.sh`. After the tests, prepare
 copies the tested Chromium bundle into staging and `sign.py` unlocks the dedicated keychain immediately before
 signing that copy, inside out: real Mach-O files, nested helpers/apps/XPCs, frameworks (including Sparkle), then
 the outer app. Developer ID uses hardened runtime, secure timestamps and no disable-library-validation.
@@ -437,7 +458,7 @@ may show it twice), and re-grant the Bluetooth, microphone and camera permission
 **What a dev build does** (`AIRC_DEV_CHANNEL=1 AIRC_UPDATE_FEED=… scripts/build-app.sh`): Sparkle is embedded from
 `~/arcfork/tools/sparkle` and the bundles are signed by `scripts/release/sign.py`. `Airc-Chromium.app` gets
 `AircDevChannel`, channel `dev`, `SUFeedURL` from the environment, automatic checks, `SUAutomaticallyUpdate` and a
-3600 s interval. It checks at launch and hourly and downloads by itself. Once Sparkle has downloaded the update and
+3600 s interval. It checks at launch, every ten minutes, and after wake, and downloads by itself. Once Sparkle has downloaded the update and
 checked its EdDSA signature against `SUPublicEDKey`, a toast and an app-menu item under "Check for Updates…" read
 “A new version of Airc is ready. Restart to update”. Choosing the item installs the update and relaunches Airc
 (Sparkle's immediate install, no further dialog), and quitting installs it too. Every step is appended to
@@ -461,33 +482,46 @@ starts and ends); failures appear in `Updates.log` only. Telemetry: `update.read
 `update.restart_clicked` per click. `--script updatebutton` tests it all on a fake `ReadyUpdate`, never the real
 updater or feed.
 
-**Publishing.** `infra/nightly.sh` passes the commit (`AIRC_SOURCE_REV`) and the dev flags to the build. When the
-run is green (every package test and every snapshot check on both engines), it runs `infra/updates/publish.sh`. A
-red run logs `publish-dev` as skipped. In `--ship` mode Chromium snapshots gate publication; WebKit snapshots
-run afterwards as advice. `publish.sh` sends `prepare-mac.sh` to the Mac, which checks the bundle's dev channel,
-Chromium engine, feed, public key and signature, stages it, signs after testing, and runs the plain launch smoke
-as described above. It signs the archive with the Mac's EdDSA key; the key never leaves the Mac. Back on Linux, `publish.py` verifies the archive's signature against the committed public key,
-requires an increasing `YYYYmmddHHMM` build and a source commit, refuses a test install's build for
-`/dev/appcast.xml`, writes release notes from `git log`, publishes the feed atomically and keeps five versions.
-Evidence goes to `artifacts/release/dev-channel/publish.*` beside the checkout. By hand, after a build in a Mac
-copy: `infra/updates/publish.sh arcfork/work/NAME`.
+**Publishing.** Package tests and Chromium snapshot checks gate `--ship`.
+`prepare-mac.sh` signs the tested copy and runs its launch smoke. `publish.py` runs
+on the Mac, verifies EdDSA using CryptoKit (Linux tests use OpenSSL), validates
+identity/channel/source, writes immutable enclosures, then atomically replaces
+the appcast. It retains five releases. A first local publish seeds its history
+from the old Linux feed so existing published delta sources remain eligible.
+The acknowledged cache migrates to `~/arcfork/updates-cache.noindex/dev`; three
+prior apps plus one pending candidate remain, all unregistered from Launch Services.
+Only metadata (build, version, source, SHA-256, size, delta list), the appcast and
+small text evidence return to Linux. Work pages retain their `Info.plist` evidence.
+`infra/updates/publish.sh arcfork/nightly` can publish an already built candidate.
+
+`defer-mac.sh` freezes dSYMs and snapshots as APFS clones in
+`~/arcfork/update-jobs/<run>/` before nightly's next export removes the build.
+After local publish and this local staging, `nightly.sh` releases the ship lock
+explicitly, then renders status and starts `airc-deferred` in tmux. It never
+refreshes the owner's try copies. The shipping loop no longer gates on uplink.
+`deferred.sh` has its own lock and checks `link_ok` (2 MB within ten seconds) before
+copying anything large. It retries every ten minutes; failures preserve the job.
+Symbols upload on Linux with the existing private PostHog credentials, then
+screenshots refresh status/marketing. UUID acknowledgements avoid repeated uploads.
+Missing credentials or upload failures retain the queue. Inspect disk usage if
+an outage lasts days; unacknowledged jobs are deliberately never dropped.
+`touch <status-dir>/deferred-force-slow` forces this gate closed for a ship proof;
+remove it afterwards. Logs: `<status-dir>/deferred.log` and each run's
+`upload-symbols.log`, `deferred.log`, `lock.log`. The lock never covers these copies.
 
 **Installing for the owner** (the lead, with the owner's OK, once): `infra/updates/install.sh build/Airc-Chromium.app`
 on the Mac, in the build copy, installs `~/Applications/Airc.app`. It refuses an existing installation and a bundle
 that isn't a dev-channel Chromium build. `AIRC_INSTALL_DIR=<dir>` installs elsewhere (update proofs).
 
-**Proving an update (N → N+1) without touching the owner's data.** Sparkle relaunches the updated app through
-Launch Services, without the command line or environment, so a test install must carry its options in its bundle:
-build N and N+1 with `AIRC_BUNDLE_ID=org.airc.Airc.updateproof` (its own preferences and caches) and
-`AIRC_LAUNCH_ARGS='--automated --skip-onboarding --data-dir <throwaway>/data'` (its own data folder, the mock
-Keychain, no focus), and a feed of their own: `AIRC_UPDATE_FEED=https://YOUR-TAILNET-HOST:8482/proof/dev/appcast.xml`
-with `AIRC_UPDATES_DIR=<updates dir>/proof` for `publish.sh`, and `AIRC_UPDATES_CONFIG=/dev/null` so the operator
-config doesn't replace them. Install N with `AIRC_INSTALL_DIR=<throwaway>`, publish N+1, then launch N with
-`open -g --env AIRC_UPDATE_RESTART_WHEN_READY=1`: once the update is ready, the app chooses its own "Restart to
-update" menu item. `<throwaway>/data/Updates.log` shows N's check, download, verification and install, then N+1's
-launch. Afterwards remove the proof feed folder, the throwaway folder and the proof bundle ID's files under
-`~/Library` (Preferences, Caches, HTTPStorages, Saved Application State). Evidence of the first proof:
-`artifacts/release/dev-channel/` beside the checkout.
+**Proving loopback updates without touching the owner.** With signing path settings
+exported on the Mac, run `infra/updates/prove-local.sh`. It compiles a tiny Sparkle
+app with a unique bundle ID, an isolated home and its own ephemeral loopback port.
+Both versions are Developer ID signed; the fixture uses the old app's ATS policy
+so a successful delta install also qualifies the transition's HTTP enclosure.
+It opens with `open -g`, records download/verification/install/relaunch, checks the
+new build and signature, unregisters the installed fixture and quits. Capture
+stdout (including HTTP GETs) and `build/local-feed-proof/result.log`, then delete
+that scratch build. This tests Sparkle transport and installer, not Airc's UI.
 
 API references: [Sparkle gentle reminders](https://sparkle-project.org/documentation/gentle-reminders/),
 [updater API](https://sparkle-project.org/documentation/api-reference/Classes/SPUUpdater.html) and

@@ -46,7 +46,7 @@ final class TelemetryEventTests: XCTestCase {
         "pip.open", "space.create", "profile.create", "favorite.add", "air_traffic.rule_add", "find.open",
         "history_menu.open", "download.start", "download.complete", "site_controls.open", "default_browser.prompt",
         "extension.install", "update.install", "theme.change", "calendar.enable", "calendar.join", "telemetry.smoke",
-        "update.ready_shown", "update.restart_clicked", "boost.save",
+        "update.ready_shown", "update.restart_clicked", "boost.save", "private_window.open",
     ]
 
     static let variants: Set<String> = ["new_tab", "edit_url", "2", "3", "4", "shortcut", "link", "video", "call", "document",
@@ -84,7 +84,7 @@ final class TelemetryEventTests: XCTestCase {
         + [.downloadStarted, .downloadCompleted, .siteControlsOpened]
         + TelemetryFeature.DefaultBrowserAction.allCases.map { .defaultBrowser($0) }
         + [.extensionInstalled, .updateInstalled, .themeChanged, .calendarEnable, .calendarJoin, .telemetrySmoke,
-           .updateReadyShown, .updateRestartClicked, .boostSaved]
+           .updateReadyShown, .updateRestartClicked, .boostSaved, .privateWindowOpen]
 
     /// One of every event, with extreme numbers too.
     static let allEvents: [TelemetryEvent] = {
@@ -149,9 +149,10 @@ final class TelemetryEventTests: XCTestCase {
             case .updateReadyShown: 24
             case .updateRestartClicked: 25
             case .boostSaved: 26
+            case .privateWindowOpen: 27
             }
         }
-        XCTAssertEqual(Set(Self.allFeatures.map(index)), Set(0...26))
+        XCTAssertEqual(Set(Self.allFeatures.map(index)), Set(0...27))
         XCTAssertEqual(Set(Self.allFeatures.map(\.name)), Self.featureNames)
         func covered(_ e: TelemetryEvent) -> String {
             switch e {

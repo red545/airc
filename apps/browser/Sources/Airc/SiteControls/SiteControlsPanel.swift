@@ -8,8 +8,9 @@ import SwiftUI
 // Site Controls (SB-2; Arc's "Site Control Center"): the URL field's slider button (shown on hover, 30 × 30 at the
 // field's right end, research §2.2) or one of its indicators opens a card under the field, where the permission
 // prompts hang (PagePrompts.swift): the site with its favicon and connection (certificate on click), what the page
-// uses now and any blocked pop-up, the site's permissions in this Space's profile, its zoom, its cookies and storage,
-// and Copy link. It grows from the field on Arc's popover spring (`grow`) and closes with Esc, a click outside, or when
+// uses now (camera, microphone, screen, location), what macOS keeps from Airc that the site wants (SystemPrivacy.swift),
+// the pop-ups it blocked, the site's permissions in this Space's profile, its zoom, its cookies and storage, and Copy
+// link. It grows from the field on Arc's popover spring (`grow`) and closes with Esc, a click outside, or when
 // the page it describes goes off screen. Every change applies at once.
 //
 // Arc's panel itself isn't measured in the research note; the card follows the prompt card's geometry (surface,
@@ -39,6 +40,8 @@ final class SiteControlsModel: ObservableObject {
     @Published var confirmingClear = false
     @Published private(set) var clearing = false
     @Published private(set) var activity = SiteActivity()
+    /// What the site is allowed or asked for and macOS denies Airc (System Settings → Privacy & Security).
+    @Published private(set) var systemBlocked: [SystemPrivacy.Kind] = []
     /// The site's Boost (BST-1), if it has one.
     @Published private(set) var boost: Boost?
     /// The menu button the permission menu hangs from.
@@ -77,6 +80,7 @@ final class SiteControlsModel: ObservableObject {
         security = center?.engine.siteSecurity(of: page) ?? SiteSecurity()
         reloadPermissions()
         reloadActivity()
+        reloadSystem()
         reloadZoom()
         reloadBoost()
     }
@@ -94,9 +98,37 @@ final class SiteControlsModel: ObservableObject {
 
     func reloadActivity() {
         guard let page, let center else { return }
-        let a = center.engine.siteActivity(of: page)
+        let a = center.activity(of: page)
         if a != activity { activity = a }
     }
+
+    /// A kind shows when macOS denies it and the site may use it (allowed here), uses it, or asked for it.
+    func reloadSystem() {
+        guard let page, isWebsite else { if !systemBlocked.isEmpty { systemBlocked = [] }; return }
+        let asked = SiteUse.shared.asked(page)
+        let k = SystemPrivacy.Kind.allCases.filter { kind in
+            let allowed = kind.permission.map { permissions[$0]?.effective == .allow } ?? false
+            let using = switch kind {
+            case .camera: activity.camera
+            case .microphone: activity.microphone
+            case .location: activity.location
+            case .screen: activity.screen
+            }
+            return (allowed || using || SiteUse.Ask(rawValue: kind.rawValue).map(asked.contains) == true) && SystemPrivacy.blocks(kind)
+        }
+        if k != systemBlocked { systemBlocked = k }
+    }
+
+    /// The permission's row says macOS keeps it from Airc.
+    func systemBlocks(_ p: SitePermission) -> Bool { systemBlocked.contains { $0.permission == p } }
+
+    /// The kinds with no listed permission row to say it (screen recording; every kind on an engine without
+    /// permissions) get a row of their own.
+    var systemRows: [SystemPrivacy.Kind] {
+        systemBlocked.filter { k in k.permission.map { !permissionsAvailable || !listed.contains($0) } ?? true }
+    }
+
+    func openSystemSettings(_ kind: SystemPrivacy.Kind) { SystemPrivacy.openSettings(kind) }
 
     func reloadZoom() {
         guard let page else { return }
@@ -199,6 +231,15 @@ final class SiteControlsModel: ObservableObject {
         if always { reloadPermissions() }
     }
 
+    /// The site's pop-ups and redirects are allowed in this profile (its own setting or the default).
+    var popupsAllowed: Bool { permissions[.popups]?.effective == .allow }
+
+    /// "Always allow pop-ups for this site": from now on they open; the ones blocked so far stay listed to open.
+    func allowPopups() {
+        guard !popupsAllowed, set(.popups, to: .allow) else { return }
+        controller?.showToast("Pop-ups from \(host) open from now on")
+    }
+
     var siteSettingsURL: URL? { origin.flatMap { center?.engine.siteSettingsURL(origin: $0) } }
 
     func openSiteSettings() {
@@ -281,6 +322,7 @@ final class SiteControlsModel: ObservableObject {
         if activity.screen { parts.append("your screen") }
         if activity.camera { parts.append("your camera") }
         if activity.microphone { parts.append("your microphone") }
+        if activity.location { parts.append("your location") }
         guard !parts.isEmpty else { return nil }
         let list = parts.count == 1 ? parts[0] : parts.dropLast().joined(separator: ", ") + " and " + parts.last!
         return "Using " + list
@@ -325,7 +367,11 @@ struct SiteControlsCard: View {
                 boostRow
             }
             if let using = model.usingText { usingRow(using) }
-            ForEach(model.activity.blockedPopups, id: \.id) { popupRow($0) }
+            ForEach(model.systemRows, id: \.self) { systemRow($0) }
+            if !model.activity.blockedPopups.isEmpty {
+                divider
+                popupsSection
+            }
             if model.isWebsite {
                 divider
                 permissionsSection
@@ -432,7 +478,8 @@ struct SiteControlsCard: View {
 
     private func usingRow(_ text: String) -> some View {
         HStack(spacing: 8) {
-            Circle().fill(Color(nsColor: .systemRed)).frame(width: 6, height: 6).frame(width: 20)
+            // Red for a device in use, blue for the location alone (as the URL field's icons).
+            Circle().fill(Color(nsColor: model.activity.isCapturing ? .systemRed : .systemBlue)).frame(width: 6, height: 6).frame(width: 20)
             Text(text).aircFont(AircFont.body).foregroundStyle(ui.surfaceText.color)
             Spacer(minLength: 0)
         }
@@ -442,22 +489,73 @@ struct SiteControlsCard: View {
         .testAnchor("site.using")
     }
 
-    private func popupRow(_ p: BlockedPopup) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "rectangle.on.rectangle.slash").font(.system(size: 12, weight: .medium))
-                .foregroundStyle(ui.surfaceTextSecondary.color).frame(width: 20)
+    /// macOS keeps something from Airc that the site wants, where no permission row says it.
+    private func systemRow(_ kind: SystemPrivacy.Kind) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle").font(.system(size: 12, weight: .medium))
+                .foregroundStyle(ui.surfaceTextSecondary.color).frame(width: 20, height: 18)
             VStack(alignment: .leading, spacing: 0) {
-                Text("Pop-up blocked").aircFont(AircFont.body).foregroundStyle(ui.surfaceText.color)
-                Text(URLRules.displayHost(p.url)).aircFont(AircFont.callout).foregroundStyle(ui.surfaceTextTertiary.color).lineLimit(1)
+                Text(kind.offText).aircFont(AircFont.body).foregroundStyle(ui.surfaceText.color).lineLimit(1)
+                    .frame(height: 18)
+                HStack(spacing: 4) {
+                    Text("In macOS settings").aircFont(AircFont.callout).foregroundStyle(ui.surfaceTextTertiary.color).lineLimit(1)
+                    Spacer(minLength: 4)
+                    Button("Open Settings") { model.openSystemSettings(kind) }.buttonStyle(.airc(.plain, size: .small))
+                        .help("System Settings → Privacy & Security")
+                        .testAnchor("site.systemOpen.\(kind.rawValue)")
+                }
+                .frame(height: 24)
             }
-            Spacer(minLength: 4)
-            Button("Open") { model.openPopup(p, always: false) }.buttonStyle(.airc(.secondary, size: .small))
-            Button("Always") { model.openPopup(p, always: true) }.buttonStyle(.airc(.plain, size: .small))
-                .help("Open it, and allow this site's pop-ups from now on")
         }
         .padding(.horizontal, inset)
         .padding(.top, AircSpacing.s)
-        .testAnchor("site.popup")
+        .testAnchor("site.system.\(kind.rawValue)")
+    }
+
+    /// The pop-ups the engine blocked on this page, each to open, and the site's switch to let them through from now on.
+    private var popupsSection: some View {
+        let popups = model.activity.blockedPopups
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "rectangle.on.rectangle.slash").font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(ui.surfaceTextSecondary.color).frame(width: 20)
+                Text(popups.count == 1 ? "Pop-up blocked" : "\(popups.count) pop-ups blocked")
+                    .aircFont(AircFont.body).foregroundStyle(ui.surfaceText.color)
+                    .testAnchor("site.popupsTitle")
+                Spacer(minLength: 0)
+            }
+            .frame(height: 28)
+            ForEach(popups, id: \.id) { p in
+                HStack(spacing: 8) {
+                    Text(p.url.isEmpty || p.url == "about:blank" ? "A blank page" : URLRules.displayURL(p.url))
+                        .aircFont(AircFont.callout).foregroundStyle(ui.surfaceTextSecondary.color)
+                        .lineLimit(1).truncationMode(.middle)
+                        .help(p.url)
+                    Spacer(minLength: 4)
+                    Button("Open") { model.openPopup(p, always: false) }.buttonStyle(.airc(.secondary, size: .small))
+                        .testAnchor("site.popupOpen")
+                }
+                .frame(height: 28)
+                .padding(.leading, 28)
+                .testAnchor("site.popup")
+            }
+            Button { model.allowPopups() } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: model.popupsAllowed ? "checkmark" : "rectangle.on.rectangle").font(.system(size: 11, weight: .semibold))
+                        .frame(width: 20)
+                    Text(model.popupsAllowed ? "Pop-ups allowed for this site" : "Always allow pop-ups for this site").aircFont(AircFont.body)
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(ui.surfaceTextSecondary.color)
+                .frame(height: 28)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(model.popupsAllowed || !model.permissionsAvailable)
+            .help("Pop-ups and redirects of \(model.host) open from now on, in this profile")
+            .testAnchor("site.popupsAllow")
+        }
+        .padding(.horizontal, inset)
     }
 
     // MARK: Safari's engine
@@ -594,13 +692,35 @@ struct SiteControlsCard: View {
     }
 
     private func permissionRow(_ p: SitePermission) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            permissionLine(p)
+            if model.systemBlocks(p), let kind = SystemPrivacy.Kind.allCases.first(where: { $0.permission == p }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 9, weight: .semibold))
+                    Text("Off in macOS").aircFont(AircFont.callout).lineLimit(1)
+                    Spacer(minLength: 4)
+                    Button("Open Settings") { model.openSystemSettings(kind) }.buttonStyle(.airc(.plain, size: .small))
+                        .help("System Settings → Privacy & Security → \(p.title)")
+                        .testAnchor("site.systemOpen.\(kind.rawValue)")
+                }
+                .foregroundStyle(ui.surfaceTextSecondary.color)
+                .frame(height: 24)
+                .padding(.leading, 28 + inset)
+                .padding(.trailing, inset)
+                .padding(.bottom, 2)
+                .testAnchor("site.system.\(kind.rawValue)")
+            }
+        }
+    }
+
+    private func permissionLine(_ p: SitePermission) -> some View {
         let value = model.permissions[p] ?? SitePermissionValue(state: .default, effective: .ask)
         return HStack(spacing: 8) {
             Image(systemName: p.symbol).font(.system(size: 12, weight: .medium))
                 .foregroundStyle(ui.surfaceTextSecondary.color).frame(width: 20)
             Text(p.title).aircFont(AircFont.body).foregroundStyle(ui.surfaceText.color).lineLimit(1)
             if isLive(p) {
-                Circle().fill(Color(nsColor: .systemRed)).frame(width: 5, height: 5).help("In use now")
+                Circle().fill(Color(nsColor: p == .location ? .systemBlue : .systemRed)).frame(width: 5, height: 5).help("In use now")
             }
             Spacer(minLength: 4)
             Button { openMenu(p) } label: {
@@ -630,6 +750,7 @@ struct SiteControlsCard: View {
 
     private func isLive(_ p: SitePermission) -> Bool {
         (p == .camera && model.activity.camera) || (p == .microphone && model.activity.microphone)
+            || (p == .location && model.activity.location)
     }
 
     // MARK: Zoom
@@ -949,6 +1070,10 @@ extension WindowController {
             },
             nc.addObserver(forName: BoostCenter.didChange, object: nil, queue: .main) { [weak panel] _ in
                 panel?.model.reloadBoost()
+            },
+            // Back from System Settings: what macOS allows Airc may have changed.
+            nc.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak panel] _ in
+                panel?.model.reloadSystem()
             },
             nc.addObserver(forName: ProtectedMedia.widevineAsked, object: nil, queue: .main) { [weak panel] note in
                 guard let model = panel?.model, (note.object as? EngineTab) === model.page else { return }

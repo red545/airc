@@ -22,10 +22,23 @@ NS = 'http://www.andymatuschak.org/xml-namespaces/sparkle'
 ET.register_namespace('sparkle', NS)
 def tag(name): return '{' + NS + '}' + name
 
+def verify(root, stage, payload, public, signature):
+    if sys.platform == 'darwin':
+        subprocess.run(['swift', str(root/'infra/updates/verify.swift'), public, signature, str(payload)], check=True)
+    else:
+        with tempfile.TemporaryDirectory(dir=stage) as temp:
+            key, sig = Path(temp)/'public.der', Path(temp)/'signature'
+            key.write_bytes(bytes.fromhex('302a300506032b6570032100') + base64.b64decode(public, validate=True))
+            sig.write_bytes(base64.b64decode(signature, validate=True))
+            subprocess.run(['openssl', 'pkeyutl', '-verify', '-pubin', '-keyform', 'DER', '-inkey', str(key),
+                            '-rawin', '-in', str(payload), '-sigfile', str(sig)], check=True)
+
+
 def publish(root, dest, stage, feed):
     url = urlsplit(feed)
-    if url.scheme != 'https' or not url.netloc or url.query or url.fragment or not url.path.endswith('/dev/appcast.xml'):
-        raise ValueError('Expected HTTPS /dev/appcast.xml without query or fragment')
+    local = url.scheme == 'http' and url.hostname == '127.0.0.1' and url.port == 3483 and url.path == '/appcast.xml'
+    if not (local or (url.scheme == 'https' and url.netloc and url.path.endswith('/dev/appcast.xml'))) or url.query or url.fragment or url.username or url.password:
+        raise ValueError('Expected HTTPS dev feed or the exact loopback dev feed, without credentials/query/fragment')
     info = plistlib.loads((stage / 'Info.plist').read_bytes())
     version = str(info['CFBundleVersion'])
     if not re.fullmatch(r'[0-9]{12}', version):
@@ -34,7 +47,7 @@ def publish(root, dest, stage, feed):
         raise ValueError('Wrong app/channel/feed')
     # The dev feed (/dev/appcast.xml) only takes the real app: never a test install with its own identity or bundled
     # options (an update proof's, which publishes to a feed of its own).
-    if url.path == '/dev/appcast.xml':
+    if local or url.path == '/dev/appcast.xml':
         app_id = plistlib.loads((root / 'apps/browser/Resources/Info.plist').read_bytes())['CFBundleIdentifier']
         if info.get('CFBundleIdentifier') != app_id or 'AircLaunchArguments' in info:
             raise ValueError('A test build never goes to the dev feed')
@@ -45,14 +58,8 @@ def publish(root, dest, stage, feed):
     archive = stage / 'update.zip'
     if not sig or int(sig[2]) != archive.stat().st_size:
         raise ValueError('Invalid signature metadata/length')
-    # Verify transfer and signing independently using the committed public key.
-    with tempfile.TemporaryDirectory(dir=stage) as temp:
-        key, signature = Path(temp)/'public.der', Path(temp)/'signature'
-        key.write_bytes(bytes.fromhex('302a300506032b6570032100') + base64.b64decode(public, validate=True))
-        signature.write_bytes(base64.b64decode(sig[1], validate=True))
-        subprocess.run(['openssl', 'pkeyutl', '-verify', '-pubin', '-keyform', 'DER', '-inkey', str(key),
-                        '-rawin', '-in', str(archive), '-sigfile', str(signature)], check=True)
-    folder = dest / 'dev'
+    verify(root, stage, archive, public, sig[1])
+    folder = dest if local else dest / 'dev'
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / 'appcast.xml'
     tree = ET.parse(path) if path.exists() else ET.ElementTree(ET.fromstring('<rss version="2.0"><channel><title>Airc dev</title></channel></rss>'))
@@ -70,20 +77,21 @@ def publish(root, dest, stage, feed):
         if (folder/name).exists(): raise ValueError('Immutable delta already exists')
         if payload.is_symlink() or payload.stat().st_size != delta['size']:
             raise ValueError('Invalid delta length')
-        with tempfile.TemporaryDirectory(dir=stage) as temp:
-            key, signature = Path(temp)/'public.der', Path(temp)/'signature'
-            key.write_bytes(bytes.fromhex('302a300506032b6570032100') + base64.b64decode(public, validate=True))
-            signature.write_bytes(base64.b64decode(delta['signature'], validate=True))
-            subprocess.run(['openssl', 'pkeyutl', '-verify', '-pubin', '-keyform', 'DER', '-inkey', str(key),
-                            '-rawin', '-in', str(payload), '-sigfile', str(signature)], check=True)
+        verify(root, stage, payload, public, delta['signature'])
     revision = info['AircRevision']
     if not re.fullmatch('[0-9a-f]{7,40}', revision):
         raise ValueError('Build must record a source commit')
-    git = lambda *args: subprocess.check_output(['git', '-C', str(root), *args], text=True).strip()
-    revision = git('rev-parse', '--verify', revision + '^{commit}')
-    prior = items[0].findtext('sourceCommit') if items else None
-    span = f'{prior}..{revision}' if prior else revision
-    notes = git('log', '-15', '--format=%s', span)
+    if local:
+        source = json.loads((root/'build/dev-source.json').read_text())
+        if not source['revision'].startswith(revision):
+            raise ValueError('Source metadata does not match bundle')
+        revision, notes = source['revision'], source['notes']
+    else:
+        git = lambda *args: subprocess.check_output(['git', '-C', str(root), *args], text=True).strip()
+        revision = git('rev-parse', '--verify', revision + '^{commit}')
+        prior = items[0].findtext('sourceCommit') if items else None
+        span = f'{prior}..{revision}' if prior else revision
+        notes = git('log', '-15', '--format=%s', span)
     filename = f'Airc-{version}.zip'
     target = folder / filename
     if target.exists():
@@ -118,7 +126,12 @@ def publish(root, dest, stage, feed):
     for old in folder.glob('*.delta'):
         match = re.fullmatch(r'Airc-([0-9]{12})-[0-9]{12}\.delta', old.name)
         if match and match[1] not in kept: old.unlink()
-    (stage/'published-sha256.txt').write_text(hashlib.sha256(target.read_bytes()).hexdigest() + '\n')
+    digest = hashlib.sha256(target.read_bytes()).hexdigest()
+    (stage/'published-sha256.txt').write_text(digest + '\n')
+    metadata = dict(build=version, version=info['CFBundleShortVersionString'], revision=revision,
+                    sha256=digest, size=target.stat().st_size, deltas=deltas)
+    (folder/'published.json.tmp').write_text(json.dumps(metadata, indent=2)+'\n')
+    os.replace(folder/'published.json.tmp', folder/'published.json')
 
 if __name__ == '__main__':
     publish(*(Path(x) for x in sys.argv[1:4]), sys.argv[4])

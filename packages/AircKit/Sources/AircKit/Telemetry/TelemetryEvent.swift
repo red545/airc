@@ -222,6 +222,8 @@ public enum TelemetryFeature: Sendable, Equatable {
     case updateRestartClicked
     /// A Boost changed in the editor (once per editing session). Never the site, its style or its code.
     case boostSaved
+    /// A private window opened (⇧⌘N). Nothing about its pages, ever.
+    case privateWindowOpen
     /// The one manual smoke event that checks a new key end to end.
     case telemetrySmoke
 
@@ -274,6 +276,7 @@ public enum TelemetryFeature: Sendable, Equatable {
         case .updateReadyShown: "update.ready_shown"
         case .updateRestartClicked: "update.restart_clicked"
         case .boostSaved: "boost.save"
+        case .privateWindowOpen: "private_window.open"
         case .telemetrySmoke: "telemetry.smoke"
         }
     }

@@ -6,6 +6,10 @@ spec=importlib.util.spec_from_file_location('publisher', pathlib.Path(__file__).
 p=importlib.util.module_from_spec(spec); spec.loader.exec_module(p)
 class TestPublish(unittest.TestCase):
  def test_transaction(self):
+  self.transaction(False)
+ def test_local_transaction(self):
+  self.transaction(True)
+ def transaction(self, local):
   with tempfile.TemporaryDirectory() as tmp:
    r=pathlib.Path(tmp); s=r/'stage'; s.mkdir(); d=r/'updates'
    def run(*a): return subprocess.check_output(a,stderr=subprocess.DEVNULL)
@@ -17,7 +21,10 @@ class TestPublish(unittest.TestCase):
    (r/'infra/release').mkdir(parents=True); (r/'infra/release/sparkle-public-key.txt').write_text(public)
    (r/'apps/browser/Resources').mkdir(parents=True)
    (r/'apps/browser/Resources/Info.plist').write_bytes(plistlib.dumps(dict(CFBundleIdentifier='org.example.app')))
-   feed='https://updates.example.invalid/dev/appcast.xml'
+   feed='http://127.0.0.1:3483/appcast.xml' if local else 'https://updates.example.invalid/dev/appcast.xml'
+   (r/'build').mkdir()
+   (r/'build/dev-source.json').write_text(json.dumps(dict(revision=rev,notes='Local notes')))
+   folder=d if local else d/'dev'
    for n in range(6):
     info=dict(CFBundleVersion=str(202611050100+n),CFBundleShortVersionString='0.1.0',AircDevChannel=True,SUFeedURL=feed,AircDefaultEngine='chromium',SUPublicEDKey=public,AircRevision=rev,CFBundleIdentifier='org.example.app')
     (s/'Info.plist').write_bytes(plistlib.dumps(info)); (s/'update.zip').write_bytes(b'archive fixture '+str(n).encode())
@@ -29,21 +36,27 @@ class TestPublish(unittest.TestCase):
      dsig=base64.b64encode(run('openssl','pkeyutl','-sign','-inkey',str(r/'key'),'-rawin','-in',str(delta))).decode()
      (s/'deltas.json').write_text(json.dumps([{'file':delta.name,'from':str(202611050099+n),'size':delta.stat().st_size,'signature':dsig}]))
      original=delta.read_bytes(); delta.write_bytes(b'corrupt'+original[7:])
-     before=(d/'dev/appcast.xml').read_bytes()
+     before=(folder/'appcast.xml').read_bytes()
      with self.assertRaises((ValueError,subprocess.CalledProcessError)): p.publish(r,d,s,feed)
-     self.assertEqual((d/'dev/appcast.xml').read_bytes(),before)
+     self.assertEqual((folder/'appcast.xml').read_bytes(),before)
      delta.write_bytes(original)
     p.publish(r,d,s,feed)
-   self.assertEqual(len(ET.parse(d/'dev/appcast.xml').findall('.//'+p.tag('deltas'))),5)
+   self.assertEqual(len(ET.parse(folder/'appcast.xml').findall('.//'+p.tag('deltas'))),5)
    (s/'deltas.json').unlink()
-   xml=d/'dev/appcast.xml'; before=xml.read_bytes()
+   xml=folder/'appcast.xml'; before=xml.read_bytes()
    self.assertEqual(len(ET.fromstring(before).findall('./channel/item')),5)
-   self.assertEqual(len(list((d/'dev').glob('*.zip'))),5)
+   self.assertEqual(len(list(folder.glob('*.zip'))),5)
    with self.assertRaises(ValueError): p.publish(r,d,s,feed)
    info['CFBundleVersion']='202611050106'; (s/'Info.plist').write_bytes(plistlib.dumps(info))
    (s/'update.zip').write_bytes(b'corrupt fixture 5')
    with self.assertRaises((ValueError,subprocess.CalledProcessError)): p.publish(r,d,s,feed)
    self.assertEqual(xml.read_bytes(),before)
+   if local:
+    for bad in ('http://0.0.0.0:3483/appcast.xml','http://127.0.0.1:3484/appcast.xml'):
+     with self.assertRaises(ValueError): p.publish(r,d,s,bad)
+    meta=json.loads((folder/'published.json').read_text())
+    self.assertEqual(meta['build'], '202611050105')
+    return
    with self.assertRaises(ValueError): p.publish(r,d,s,feed.replace('https:','http:'))
    # A test install (own identity or bundled options) never goes to the dev feed; its own proof feed takes it.
    (s/'update.zip').write_bytes(b'archive fixture 6')

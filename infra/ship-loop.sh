@@ -17,24 +17,13 @@ LOG="$STATUS/ship-loop.log"
 last=""
 
 note() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" >> "$LOG"; }
-link_ok() {
-  local t0 t1 limit=${AIRC_SHIP_MIN_LINK_SECONDS:-10}
-  t0=$(date +%s)
-  timeout $((limit + 5)) ssh -o ConnectTimeout=15 "${AIRC_MAC_HOST:-mac}" 'head -c 2000000 /dev/zero' > /dev/null 2>&1 || return 1
-  t1=$(date +%s)
-  (( t1 - t0 <= limit ))
-}
 
 note "ship loop started"
 while true; do
   head=$(git -C "$ROOT" rev-parse HEAD)
   newest=$(git -C "$ROOT" log -1 --format=%ct)
-  # A slow Mac uplink (the owner's laptop on a weak network) turns the 190 MB publish copy into hours with the lock
-  # held: wait until 2 MB come back from the Mac within 10 s (AIRC_SHIP_MIN_LINK_SECONDS), checked every 10 minutes.
-  if [[ $head != "$last" ]] && (( $(date +%s) - newest >= QUIET )) && ! link_ok; then
-    note "Mac link slow; waiting"
-    sleep 540
-  elif [[ $head != "$last" ]] && (( $(date +%s) - newest >= QUIET )) && flock -n "$STATUS/.lock" true; then
+  # Only deferred artifact uploads depend on the Mac's uplink speed.
+  if [[ $head != "$last" ]] && (( $(date +%s) - newest >= QUIET )) && flock -n "$STATUS/.lock" true; then
     note "run for $(git -C "$ROOT" rev-parse --short HEAD)"
     "$ROOT/infra/nightly.sh" --ship >> "$LOG" 2>&1
     run=$(ls -td "$STATUS"/runs/*/ 2>/dev/null | head -1)

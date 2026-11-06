@@ -3,8 +3,9 @@ import AppKit
 import AircDesign
 
 /// The URL field's small icons (SB-2), as Arc and Chrome show them: the page is using the screen, the camera or the
-/// microphone (red, while the device is actually in use), the site may use your location, a pop-up was blocked, the
-/// site is boosted (BST-1), or the site has a setting of its own (the Site Controls glyph stays, where its hover button
+/// microphone (red, while the device is actually in use), it is using your location (blue, while a watch runs and
+/// shortly after a read; SiteUse.swift), a pop-up was blocked, the site is boosted (BST-1), or the site has a setting
+/// of its own (the Site Controls glyph stays, where its hover button
 /// would be). A click opens Site Controls. They follow the engine's notifications through SiteControlsCenter; the field redraws them as it redraws
 /// itself (URLFieldView.configure), and nothing polls.
 final class SiteIndicatorsView: NSView {
@@ -102,6 +103,7 @@ final class SiteIndicatorsView: NSView {
     private func tint(for kind: Kind) -> NSColor {
         switch kind {
         case .screen, .camera, .microphone: NSColor.systemRed
+        case .location: NSColor.systemBlue
         default: palette?.glyph ?? .secondaryLabelColor
         }
     }
@@ -127,18 +129,17 @@ final class SiteIndicatorsView: NSView {
     static func kinds(for page: EngineTab?) -> [Kind] {
         guard let page, !page.isClosed, let center = SiteControlsCenter.shared else { return [] }
         center.watch(page)
-        let a = center.engine.siteActivity(of: page)
+        let a = center.activity(of: page)
         var k: [Kind] = []
         if a.screen { k.append(.screen) }
         if a.camera { k.append(.camera) }
         if a.microphone { k.append(.microphone) }
+        if a.location { k.append(.location) }
         if let origin = SiteOrigin.of(page.url) {
             let p = center.permissions(origin: origin, in: page.profile)
-            // Chromium doesn't say when a page reads the location; an allowed site may, so its arrow shows.
-            if p[.location]?.state == .allow { k.append(.location) }
             if !a.blockedPopups.isEmpty { k.append(.popup) }
             if BoostCenter.shared?.activeBoost(for: page.url) != nil { k.append(.boost) }
-            if p.contains(where: { $0.value.isCustom && !($0.key == .location && $0.value.state == .allow) }) { k.append(.custom) }
+            if p.contains(where: { $0.value.isCustom }) { k.append(.custom) }
         } else if !a.blockedPopups.isEmpty {
             k.append(.popup)
         }
@@ -162,7 +163,7 @@ final class SiteIndicatorsView: NSView {
         case .screen: "This page is sharing your screen"
         case .camera: "This page is using your camera"
         case .microphone: "This page is using your microphone"
-        case .location: "This site can use your location"
+        case .location: "This page is using your location"
         case .popup: "Pop-up blocked"
         case .boost: "This site is boosted"
         case .custom: "Site Controls (this site has its own settings)"

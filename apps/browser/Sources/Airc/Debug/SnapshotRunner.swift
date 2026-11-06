@@ -99,6 +99,9 @@ final class SnapshotRunner {
         case "crashreports": crashReportsScenario()
         case "crashvis": crashVisibilityScenario()
         case "followups": followupsScenario()
+        case "followups3": followups3Scenario()
+        case "private": privateWindowScenario()
+        case "managespaces": manageSpacesScenario()
         case "marketing": marketingScenario()   // product shots, not a check: scripts/marketing-shots.sh only
         default:
             note("unknown script \(script)")
@@ -569,7 +572,7 @@ final class SnapshotRunner {
             let root = c.root
             root.layoutSubtreeIfNeeded()
             root.displayIfNeeded()
-            let overlays: [NSView] = [c.commandBar, c.newSpacePanel, c.createProfilePanel, c.folderPreview.panel, c.siteControls, c.boostEditor,
+            let overlays: [NSView] = [c.commandBar, c.newSpacePanel, c.createProfilePanel, c.manageSpacesPanel, c.folderPreview.panel, c.siteControls, c.boostEditor,
                                       CalendarCard.shared.panel, c.peek?.view, c.prompts.bubble, c.prompts.passwords.view,
                                       c.toast.isHidden ? nil : c.toast, c.protectedMediaToast].compactMap { $0 }
             overlays.forEach { $0.isHidden = true }

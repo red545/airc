@@ -32,7 +32,10 @@ menu, which can't be drawn off screen; `profiles.webp` shows profiles through Cr
 | `pinned-split.webp` | Pinned splits | A split pinned as one row in Studio (Bauhaus and Helvetica) | 2026-11-06 | 202611061538 (6312e1a) |
 | `favorite-split.webp` | Favorite splits | A split as one Favorite tile in the Work profile (Linear and SwiftUI), dark | 2026-11-06 | 202611061538 (6312e1a) |
 | `peek.webp` | Peek | A link from the Lisbon article opens over the page: the map of Belém | 2026-11-06 | 202611061538 (6312e1a) |
-| `little-arc.webp` | Little Arc | A link from another app in its own small window, over the Personal Space | 2026-11-06 | 202611061538 (6312e1a) |
+| `little-arc.webp` | Little Arc | A link from another app in its own small window, over the Personal Space | 2026-11-06 | 202611062051 (abc32c5) |
+| `private-window.webp` | Private windows | A private window (⇧⌘N): dark, its own tabs and New Tab, nothing kept, on Wikipedia's Private browsing | 2026-11-06 | 202611062051 (abc32c5) |
+| `private-window-start.webp` | Private windows: a new one | A new private window before its first tab: what it keeps and what it doesn't | 2026-11-06 | 202611062051 (abc32c5) |
+| `manage-spaces.webp` | Manage Spaces | Every Space in one card: drag to reorder, rename, icon, theme, profile and delete | 2026-11-06 | 202611062051 (abc32c5) |
 | `media-controls.webp` | Media controls | A radio tab playing in the background, its artwork and controls in the sidebar, over Kyoto on Wikivoyage | 2026-11-06 | 202611061538 (6312e1a) |
 | `calendar.webp` | Live Calendar | The Calendar Favorite counting down to the next meeting, and its card with Join | 2026-11-06 | 202611061538 (6312e1a) |
 | `calendar-join.webp` | Live Calendar, Join | A minute before: the meeting and Join under the Favorites | 2026-11-06 | 202611061538 (6312e1a) |

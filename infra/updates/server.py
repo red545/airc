@@ -15,13 +15,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def list_directory(self, path):
         self.send_error(404)
 
-    def do_GET(self):
+    def send_head(self):
         target = Path(self.translate_path(self.path)).resolve()
         if not target.is_relative_to(Path(self.directory).resolve()):
             self.send_error(403)
             return
-        super().do_GET()
+        return super().send_head()
 
 if __name__ == '__main__':
-    http.server.ThreadingHTTPServer(('127.0.0.1', 3482),
+    http.server.ThreadingHTTPServer(('127.0.0.1', int(sys.argv[2]) if len(sys.argv) > 2 else 3482),
         partial(Handler, directory=sys.argv[1])).serve_forever()

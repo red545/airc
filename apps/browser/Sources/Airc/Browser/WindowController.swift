@@ -431,7 +431,7 @@ final class WindowController: NSObject, NSWindowDelegate {
             self.prepareSparePage()
             self.card.prewarmEmptyView()
             if self.spareCommandBar == nil && self.commandBar == nil {
-                let bar = CommandBarView(mode: .newTab, palette: self.currentPalette, controller: self)
+                let bar = CommandBarView(mode: .newTab, palette: self.currentPalette, host: self)
                 bar.preloadRows(AircMetrics.CommandBar.maxRows)
                 self.root.addSubview(bar)
                 bar.park()
@@ -615,7 +615,9 @@ final class WindowController: NSObject, NSWindowDelegate {
         if let p = pages[tabID] { return p }
         guard let tab = store.tab(tabID), let profile = profiles.engineProfile(for: tab.profileID) else { return nil }
         let url = URL(string: tab.url).flatMap { URLRules.isNewTab($0.absoluteString) ? nil : $0 }
-        let page = engineWindow.openTab(url: url, profile: profile, foreground: false)
+        // MEM-3: a WebKit page unloaded after the timeout comes back with its history and scroll position.
+        let page = reopenUnloadedPage(tabID, url: url, profile: profile)
+            ?? engineWindow.openTab(url: url, profile: profile, foreground: false)
         adopt(page, as: tabID)
         return page
     }

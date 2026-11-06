@@ -50,7 +50,7 @@ Status: **works** (already there, checked), **added** (this pass), **different**
 |---|---|---|---|---|
 | New tab (Command Bar) | ⌘T | Command Bar | works | Browser-first, as Chrome reserves it |
 | Edit URL | ⌘L | Command Bar on the URL | works | Page first (CB-3) |
-| New window / incognito / blank window | ⌘N / ⇧⌘N / ⌃⌘N | ⌘N stub, ⇧⌘N private windows in progress, ⌃⌘N none | missing | Windows belong to the multi-window work |
+| New window / incognito / blank window | ⌘N / ⇧⌘N / ⌃⌘N | ⌘N stub, ⇧⌘N New Private Window, ⌃⌘N none | ⇧⌘N works | Browser-first. In a private window ⇧⌘N opens another of the same session; ⌘N and ⌃⌘N wait for the multi-window work |
 | Close tab (archive) | ⌘W | Archive Tab | works | |
 | Close window | ⇧⌘W | File › Close Window | added | Browser-first. Closing the last window quits, as with the red button |
 | Close other tabs | ⌥⌘W | File › Close Other Tabs | added | The other Today tabs go to the Archive, as with Clear. Pinned tabs and Favorites stay. Per the lead, Arc's key. Not in the research notes |
@@ -95,7 +95,7 @@ Chrome's keys where Arc doesn't override them:
 | Print / Settings | ⌘P / ⌘, | Print, Settings | works |
 | Paste and Match Style | ⇧⌘V, ⌥⇧⌘V | Edit › Paste and Match Style | added |
 | Search tabs | ⇧⌘A | Tabs › Search Tabs… (the Command Bar) | added |
-| Save page | ⇧⌘S | Save Page As… | in progress (Arc moved it from ⌘S) |
+| Save page | ⇧⌘S | Save Page As… | works (Arc moved it from ⌘S): Airc's save panel with Web Page, Complete / HTML Only / Single File on Chromium; Print → Save as PDF where the engine can't save the page |
 | Reading mode | ⌥⌘R | — | missing (no reading mode) |
 
 Other keys in the request that neither Arc's map nor Chrome has: ⌘\, ⇧⌘⌫ (Clear is ⇧⌘K) and ⌥⌘T. They aren't bound.

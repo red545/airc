@@ -117,8 +117,8 @@ GIT_REV="${AIRC_SOURCE_REV:-$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null 
 # Private dev channel (docs/release.md): AIRC_DEV_CHANNEL=1 and the operator's HTTPS feed (AIRC_UPDATE_FEED, from local
 # config, never committed). Embeds Sparkle; the Chromium bundle checks at launch and hourly and downloads by itself.
 if [[ ${AIRC_DEV_CHANNEL:-0} == 1 ]]; then
-  : "${AIRC_UPDATE_FEED:?Dev builds require the operator feed URL}"
-  [[ "$AIRC_UPDATE_FEED" == https://* ]] || { echo "AIRC_UPDATE_FEED must be an https URL" >&2; exit 2; }
+  export AIRC_UPDATE_FEED=${AIRC_UPDATE_FEED:-http://127.0.0.1:3483/appcast.xml}
+  [[ "$AIRC_UPDATE_FEED" == https://* || "$AIRC_UPDATE_FEED" == http://127.0.0.1:3483/appcast.xml ]] || { echo "AIRC_UPDATE_FEED must be HTTPS or the local dev feed" >&2; exit 2; }
   export SPARKLE_ROOT=${SPARKLE_ROOT:-$HOME/arcfork/tools/sparkle}
   [[ -d "$SPARKLE_ROOT/Sparkle.framework" ]] || { echo 'Run scripts/release/setup-sparkle.sh first' >&2; exit 1; }
   export AIRC_UPDATE_CHANNEL=dev
@@ -225,6 +225,7 @@ PY
     [[ $channel == dev && -z "$chromium" ]] && channel=stable
     /usr/libexec/PlistBuddy -c "Add :AircUpdateChannel string $channel" "$app/Contents/Info.plist"
     if [[ $channel == dev ]]; then
+      /usr/libexec/PlistBuddy -c 'Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true' "$app/Contents/Info.plist"
       /usr/libexec/PlistBuddy -c 'Add :AircDevChannel bool true' "$app/Contents/Info.plist"
       /usr/libexec/PlistBuddy -c 'Set :SUEnableAutomaticChecks true' "$app/Contents/Info.plist"
       /usr/libexec/PlistBuddy -c 'Add :SUAutomaticallyUpdate bool true' "$app/Contents/Info.plist"
@@ -391,6 +392,24 @@ if [[ -n "$SNAPSHOTS" ]]; then
       launch --script followups --data-dir "$home/Followups" --airc-data-dir="$home/Followups" --airc-test=modalDialogs
     else
       launch --script followups --ephemeral --data-dir "$home/Followups"
+    fi
+    # PW-1 private windows on loopback pages (PrivateWindowCheck.swift): nothing kept, no cookies across sessions or
+    # profiles, ⌘T ⌘W ⇧⌘N in the window; and SB-21 Manage Spaces (ManageSpacesCheck.swift): reorder, rename, delete.
+    launch --script private --ephemeral --data-dir "$home/Private"
+    launch --script managespaces --ephemeral --data-dir "$home/ManageSpaces"
+    # Site Controls and Safari's-engine pages (Followups3Check.swift), on loopback pages: the location in use (the page
+    # script's made-up position, never CoreLocation), macOS's privacy answers as a test override (never a prompt, never
+    # System Settings), and on Chromium the blocked pop-ups and the WebKit pages ("localhost" plays a listed service):
+    # a Boost, the extension buttons (an unpacked test extension, on the engine's test gate: --airc-test decides it at
+    # startup), a Little Arc link, unloading and picture in picture. No account, no camera, microphone or screen.
+    if [[ $engine == chromium ]]; then
+      mkdir -p "$home/Followups3/Chromium"
+      open -g -n -W --env "CFFIXED_USER_HOME=$home" --env "AIRC_SHIP_GATE=${AIRC_SHIP_GATE:-0}" --env "AIRC_WEBKIT_HOSTS=localhost" \
+        "$app" --args --engine=chromium --snapshot "$out" --script followups3 --data-dir "$home/Followups3" --airc-data-dir="$home/Followups3" \
+        --airc-test=unpackedExtension
+      grep -qx "\[followups3\]" "$out/log.txt" 2>/dev/null || echo "FAIL followups3: the app wrote no log (crashed or never started)" >> "$out/log.txt"
+    else
+      launch --script followups3 --ephemeral --data-dir "$home/Followups3"
     fi
     ls "$home/Library" 2>/dev/null | sed 's/^/  wrote in snapshot home: /'
     ls "$out" | tr '\n' ' '; echo

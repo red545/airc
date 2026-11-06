@@ -861,4 +861,29 @@ extension ChromiumTab {
         ChromiumPageScripts.received(self, kind: kind, json: json, frame: frame, main: main, origin: origin)
     }
 }
+
+// Private windows (Browser/PrivateWindow.swift): the off-the-record profile of a Space's profile, one per profile while
+// any private window uses it (Chrome's incognito session), destroyed after the last one closes.
+extension ChromiumEngine {
+    func offTheRecordProfile(for profile: EngineProfile, completion: @escaping (EngineProfile?) -> Void) {
+        guard let p = profile as? ChromiumProfile else { return completion(nil) }
+        core.offTheRecordProfile(for: p.core) { [self] otr, error in
+            if let error { NSLog("Airc: no off-the-record profile: \(error)") }
+            guard let otr else { return completion(nil) }
+            let w = wrap(otr)
+            // Its DRM pages (HybridEngine.swift) get a store of their own that never touches the disk: by its folder
+            // name, an off-the-record profile would get its parent's persistent store.
+            if w.hybrid.webKit == nil { w.hybrid.webKit = webKit.makePrivateProfile() }
+            completion(w)
+        }
+    }
+    /// The engine destroys it once no window uses it any more; calling again after that does nothing.
+    func releaseOffTheRecordProfile(_ profile: EngineProfile) {
+        guard let p = profile as? ChromiumProfile, p.core.offTheRecord else { return }
+        profiles.removeValue(forKey: ObjectIdentifier(p.core))
+        p.hybrid.webKit = nil
+        core.release(p.core)
+    }
+    func isDestroyed(_ profile: EngineProfile) -> Bool { (profile as? ChromiumProfile)?.core.destroyed ?? true }
+}
 #endif

@@ -192,7 +192,8 @@ extension SnapshotRunner {
             expectJS("perm('notifications')", "denied", "the page sees notifications blocked")
             expectJS("perm('clipboard-read')", "granted", "the page sees the clipboard allowed")
             expectIndicator(.custom, true, "the URL field shows the site's own settings")
-            expectIndicator(.location, true, "the URL field shows the location arrow for an allowed site")
+            // The arrow shows while the page uses the location (SiteUse.swift; --script followups3), not for an allowed site.
+            expectIndicator(.location, false, "no location arrow for an allowed site that isn't using its location")
             clickPanel("site.reset")
             step { [self] done in
                 waitUntil({ model()?.hasCustomPermissions == false }, timeout: 3) {

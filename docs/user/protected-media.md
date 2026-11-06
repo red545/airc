@@ -61,29 +61,31 @@ profile, so a test instance with its own `--data-dir` never shares yours. It liv
 
 ## What a WebKit page doesn't have (and what happens instead)
 
-- **Chrome extensions**, including password managers' autofill: their buttons do nothing on these pages. Sign in once
-  by hand, or from the password manager's own app.
+- **Chrome extensions**, including password managers' autofill: their buttons are dimmed on these pages, with
+  "Extensions don't run on Spotify", and the ⌘E list says so too. Sign in once by hand, or from the password
+  manager's own app.
 - **Chromium's logins and cookies**: the first visit to a service signs in again, in WebKit. Imported Arc logins and
   cookies are in Chromium, not here.
 - **Chromium's site settings and permission prompts**: WebKit asks per request, and Site Controls lists no saved
   permissions for the page.
 - **DevTools**: ⌥⌘I opens Safari's Web Inspector in its own window (or right-click → Inspect Element).
-- **Arc's picture in picture window**: a video goes to the system's picture in picture window with its own controls.
-  Leaving the tab sends a playing video there when automatic picture in picture is on (Settings → General); the
-  per-site exceptions apply to Chromium pages only.
+- **Arc's picture in picture window**: a video goes to the system's picture in picture window with its own controls
+  (WebKit draws it; Airc's controls can't go over it). Leaving the tab in the window you're using sends a playing video
+  there when automatic picture in picture is on (Settings → General), except on sites set to never.
 - **Chromium's fullscreen**: a fullscreen video uses WebKit's own fullscreen window, as in Safari; Esc leaves it.
-- **In-place tab sleep**: WebKit pages don't sleep after the unload timeout (Chromium's sleep can't hold them); they
-  stay loaded. Closing and reopening the tab loads the address again, without its back/forward list.
+- **Chromium's tab sleep**: Airc unloads a WebKit page itself after the same inactive-tab timeout (Settings →
+  General), by the same rules: never the tab on screen, one playing audio or video, one in picture in picture, one
+  using the camera, microphone or screen, one still loading, or one with typed-in form input. Its web view closes; the
+  tab keeps its title and icon, and comes back with its back/forward list and scroll position when you show it.
 - **The Chromium session**: Chromium's history and Command Bar suggestions still record WebKit pages (the app keeps
   history), but Chromium's own `chrome://` pages don't see them.
-- **Boosts**: the app's page script, which carries your Boost's style and code, runs on WebKit pages too (as a
-  WKUserScript in the page's main frame).
 
 ## What works the same
 
 The sidebar's media tray and its buttons (through the page's Media Session), find (⌘F, with a match count), zoom
-(⌘+/⌘−/⌘0, per tab), downloads (in the same Downloads list), Little Arc, splits with one engine per pane, Peek, the
-toast and Site Controls.
+(⌘+/⌘−/⌘0, per tab), downloads (in the same Downloads list), Little Arc (a link in its page to a service moves to
+WebKit in place, as in the main window), splits with one engine per pane, Peek, the toast, Boosts (colours, fonts and
+CSS from the first paint, edits live) and Site Controls (with the page's location use and what macOS keeps from Airc).
 
 ## Testing
 
@@ -97,6 +99,12 @@ toast and Site Controls.
   Controls' switch both ways, with no Chromium permissions listed on a WebKit page; after a relaunch the tab comes back
   in WebKit with its cookie, and the store is deleted. No account, no camera or microphone (the media check plays a
   canvas stream). It runs in the Chromium suite (`scripts/build-app.sh --snapshots`).
+- `--script followups3` (both engines; on Chromium with `AIRC_WEBKIT_HOSTS=localhost` and the engine's test gate,
+  `--airc-data-dir`): on loopback WebKit pages, a Boost's style at document start and live; the extension buttons
+  dimmed with "Extensions don't run on localhost" (an unpacked test extension); a Little Arc link handing off in place;
+  a hidden WebKit page unloading after the timeout and coming back with its history and scroll, while one playing a
+  video stays; picture in picture on leaving the tab (the request itself needs a key window: FAIL-ENV in a background
+  run). In the suite.
 - `--script fairplay` (needs the network): EZDRM's public FairPlay test stream plays, muted, in a WebKit page
   (key system, certificate, licence, keys, advancing time). WebKit's legacy FairPlay API (`WebKitMediaKeys`) plays
   this HLS stream; the modern EME path gives a decode error for it.

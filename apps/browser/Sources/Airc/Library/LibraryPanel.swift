@@ -135,6 +135,21 @@ struct LibraryView: View {
     }
 
     private var spaces: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Reorder, rename, icon, theme, profile and delete, for every Space in one card (ManageSpacesPanel).
+            HStack {
+                Spacer()
+                Button("Manage Spaces…") { model.controller?.showManageSpaces() }
+                    .buttonStyle(.airc(.secondary, size: .small))
+                    .testAnchor("library.manageSpaces")
+            }
+            .padding(.horizontal, 22)
+            .padding(.top, 12)
+            spaceList
+        }
+    }
+
+    private var spaceList: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(model.controller?.store.orderedSpaces ?? []) { s in
@@ -220,7 +235,7 @@ private struct ArchiveRow: View {
 /// the pointer closes the Library.
 final class LibraryPanelHost: NSView {
     let model: LibraryModel
-    private var host: NSHostingView<LibraryView>?
+    private var host: AircFirstClickHostingView<LibraryView>?
     private weak var controller: WindowController?
     let back = GlyphButton(symbol: "chevron.left", size: 15)
 
@@ -251,7 +266,8 @@ final class LibraryPanelHost: NSView {
         if let host {
             host.rootView = view
         } else {
-            let h = NSHostingView(rootView: view)
+            // The first click works, as on the sidebar it covers (Arc), also while the window isn't in front.
+            let h = AircFirstClickHostingView(rootView: view)
             h.frame = bounds
             h.autoresizingMask = [.width, .height]
             addSubview(h, positioned: .below, relativeTo: back.superview == nil ? nil : back)

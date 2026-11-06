@@ -281,15 +281,26 @@ final class CreateProfilePanelHost: NSView {
         host.frame = card.bounds
     }
 
-    /// The step changed: the card grows or shrinks around its centre. SwiftUI applies the new step's layout on a later
-    /// run-loop turn, and animates it, so the card follows the content's fitting size for the next 0.4 s; sized once,
-    /// right after the change, it could keep the old step's height and cut off the new step's button (seen under load).
-    func relayout() { followFittingSize(until: CACurrentMediaTime() + 0.4) }
+    /// The content changed (the step, a ticked Space that brings the summary line, the name): the card grows or shrinks
+    /// around its centre. SwiftUI applies a change on a later run-loop turn, and animates it, so the card follows the
+    /// content's fitting size for the next 0.4 s after each change, in one loop however many changes come; sized once,
+    /// right after a change, it could keep the old height and cut off the button (seen under load). Followed on step
+    /// changes only, it kept step two's first height when ticking a Space added the summary line, and "Create Profile"
+    /// hung below the card, where clicks miss it.
+    func relayout() {
+        followUntil = CACurrentMediaTime() + 0.4
+        guard !following else { return }
+        following = true
+        followFittingSize()
+    }
 
-    private func followFittingSize(until deadline: CFTimeInterval) {
+    private var following = false
+    private var followUntil: CFTimeInterval = 0
+
+    private func followFittingSize() {
         if host.fittingSize != card.frame.size { layoutIn(page: pageRect) }
-        guard CACurrentMediaTime() < deadline else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60) { [weak self] in self?.followFittingSize(until: deadline) }
+        guard CACurrentMediaTime() < followUntil else { following = false; return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60) { [weak self] in self?.followFittingSize() }
     }
 
     // A click on the scrim cancels, like Esc.
@@ -357,7 +368,8 @@ extension WindowController {
         root.addSubview(panel, positioned: .below, relativeTo: toast)
         panel.layoutIn(page: card.frame)
         panel.layer?.fade(from: 0, to: 1, duration: 0.15)
-        stepObserver = model.$step.dropFirst().sink { [weak panel] _ in DispatchQueue.main.async { panel?.relayout() } }
+        // Every change of the card's model, not only its step (the summary line comes with the first ticked Space).
+        stepObserver = model.objectWillChange.sink { [weak panel] _ in DispatchQueue.main.async { panel?.relayout() } }
     }
 
     /// Changes a Space's profile without asking (the Create Profile card already said what happens).

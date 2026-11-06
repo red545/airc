@@ -110,6 +110,7 @@ Requirement IDs (`SB-…`, `SP-…`) are for tracking and tests. "Arc ref" point
 
 - **SB-20** Emoji or icon plus name. Hover shows a ••• button; pressing the row folds the pinned section.
 - **SB-21** Space menu, in this order: Change Icon… · Rename… · Edit Theme… · **Profile ›** · — · New Folder… · — · Manage Spaces… · — · Delete Space.
+  **Manage Spaces…** (also in the Spaces menu and atop the Library's Spaces tab) is one card over the page, the sidebar live beside it: a row per Space; drag a row to reorder; click its name to rename; its icon, theme disc and profile pill open the Space menu's own pickers; the trash asks first and says what happens to the Space's tabs (Today tabs to the Archive, pinned tabs and folders deleted, the profile kept, ⌘Z undoes).
 - **SB-22** **Profile indicator** (Arc lacked one): on hover over the Space name, show the profile name and the Google account avatar signed into it. The footer icon gets a thin ring in the profile's colour.
 - **SB-23** Delete asks to confirm. Today tabs go to the Archive, with "Use ⌘Z to undo".
 
@@ -148,7 +149,7 @@ Requirement IDs (`SB-…`, `SP-…`) are for tracking and tests. "Arc ref" point
 
 ### 2.8 Hide, reveal and the Library (Arc ref §2.10, §5)
 
-- **SB-60** ⌘S hides or shows the sidebar (110 ms hide, 100 ms show, ease-out). Chrome's "Save Page" moves to ⇧⌘S.
+- **SB-60** ⌘S hides or shows the sidebar (110 ms hide, 100 ms show, ease-out). Chrome's "Save Page" moves to ⇧⌘S: Airc's save panel with Chrome's formats (Web Page, Complete · HTML Only · Single File), saved by the engine (AircTab -savePageTo:format:completion:); where the engine can't save the page (WebKit, Chrome's own pages), it offers Print → Save as PDF instead.
 - **SB-61** Hidden sidebar: holding the pointer at the window edge for about 100 ms slides a floating sidebar over the page, which doesn't move. Spring in about 175 ms with a slight overshoot. Only in the key window, and only when the pointer moves into the edge strip.
 - **SB-62** Library: Archived tabs (searchable; restore returns a tab to its Space), Downloads, Spaces. Slides in from the left. Its back button sits exactly where the footer's Library button was (Arc), so a second click without moving the pointer closes it; ✕, ⇧⌘L and Esc close it too.
 
@@ -295,6 +296,7 @@ A full-window, chromeless onboarding (native window around a React page rendered
   - "Open in" via ⌘O moves the page into the most recent Space, ⌥⌘O lets you choose a Space; the page moves without reloading;
   - Little Arc windows auto-archive after 6 h;
   - a mini player keeps media playing when it's closed.
+- **PW-1 Private windows** (⇧⌘N): a dark window of its own with a simple sidebar (the address field, its tabs, New Tab, and "Private" with an eye-slash where the Space name is; no Spaces, Favorites or pinned items, as in Arc's incognito window). Its pages use the off-the-record profile of the current Space's profile (one session per profile, shared by its private windows, as in Chrome); on WebKit, and for DRM pages in the Chromium build, a non-persistent data store. Airc keeps nothing of it: no history, no session restore, no Archive, nothing in ⌘T's history, no telemetry about its pages (only `private_window.open`). Its cookies and site data go when the last private window of the profile closes. ⌘T opens its own Command Bar (its tabs, built-in sites and search, no history), ⌘W closes a tab, ⇧⌘N opens another private window. ⌘N (more ordinary windows) is later.
 - **SV-1 Split View**:
   - drag a tab onto a tab, or use ⌃⇧+ / the "+" menu, for 2–4 panes, horizontal or vertical, with resizable dividers;
   - a split is one row in the sidebar, and "Separate All Tabs" undoes it;

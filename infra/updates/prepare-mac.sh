@@ -5,7 +5,7 @@
 set -euo pipefail
 fail() { echo "prepare-mac.sh: $*" >&2; exit 1; }
 ROOT=$PWD
-: "${AIRC_UPDATE_FEED:?Set the private HTTPS feed}"
+: "${AIRC_UPDATE_FEED:?Set the dev feed}"
 APP="$ROOT/build/Airc-Chromium.app"
 OUT="$ROOT/build/dev-update"
 PLIST="$APP/Contents/Info.plist"
@@ -62,7 +62,7 @@ ditto -c -k --sequesterRsrc --keepParent "$OUT/Airc.app" "$OUT/update.zip"
 "$sparkle/bin/sign_update" --ed-key-file "$key" "$OUT/update.zip" > "$OUT/signature.txt"
 cp "$STAGED" "$OUT/Info.plist"
 # Up to three acknowledged published source apps, plus one pending copy. Keys stay on the Mac.
-python3 scripts/release/deltas.py "$OUT/Airc.app" "$OUT" "$HOME/arcfork/updates-cache/dev"
+python3 scripts/release/deltas.py "$OUT/Airc.app" "$OUT" "$HOME/arcfork/updates-cache.noindex/dev"
 shasum -a 256 "$OUT/update.zip" > "$OUT/sha256.txt"
 # The smoke launched the staged copy, which registered it with Launch Services under the owner's identity: unregister it
 # before deleting it, or links from other apps go to a missing app.

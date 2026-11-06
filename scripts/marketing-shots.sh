@@ -5,7 +5,7 @@
 #   scripts/marketing-shots.sh                        build on the build Mac, shoot every part, write both sets
 #   scripts/marketing-shots.sh --no-build             shoot with this copy's last build
 #   scripts/marketing-shots.sh --parts views,media    only these parts (browser, views, media, calls, settings, onboarding,
-#                                                     boosts, drm)
+#                                                     boosts, drm, basics)
 #
 # From the Linux box, through scripts/mac.sh (copy name: AIRC_MAC_WORK, default marketingshots). On the build Mac:
 #   1. scripts/build-app.sh --no-test, linking the Chromium framework at CHROMIUM_OUT (default: the release build,
@@ -23,7 +23,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PARTS="browser views media calls settings onboarding boosts drm"
+PARTS="browser views media calls settings onboarding boosts drm basics"
 BUILD=1
 ON_MAC=0
 while [ $# -gt 0 ]; do
@@ -50,6 +50,9 @@ pinned-split|Pinned splits|A split pinned as one row in Studio (Bauhaus and Helv
 favorite-split|Favorite splits|A split as one Favorite tile in the Work profile (Linear and SwiftUI), dark
 peek|Peek|A link from the Lisbon article opens over the page: the map of Belém
 little-arc|Little Arc|A link from another app in its own small window, over the Personal Space
+private-window|Private windows|A private window (⇧⌘N): dark, its own tabs and New Tab, nothing kept, on Wikipedia'"'"'s Private browsing
+private-window-start|Private windows: a new one|A new private window before its first tab: what it keeps and what it doesn'"'"'t
+manage-spaces|Manage Spaces|Every Space in one card: drag to reorder, rename, icon, theme, profile and delete
 media-controls|Media controls|A radio tab playing in the background, its artwork and controls in the sidebar, over Kyoto on Wikivoyage
 calendar|Live Calendar|The Calendar Favorite counting down to the next meeting, and its card with Join
 calendar-join|Live Calendar, Join|A minute before: the meeting and Join under the Favorites

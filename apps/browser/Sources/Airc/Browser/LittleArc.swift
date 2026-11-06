@@ -524,6 +524,27 @@ extension LittleArcController: EngineWindowDelegate {
     }
 
     func engineWindow(_ window: EngineWindow, tab: EngineTab, didChangeFullscreen fullscreen: Bool) {}
+
+    /// A link in the page to a DRM service (docs/user/protected-media.md) opens again in Safari's engine, here, as in
+    /// the main window; not while the window closes or plays on as the mini player.
+    func engineWindowCanReplaceTabs(_ window: EngineWindow) -> Bool { !closing && !isMiniPlayer && !miniPlayerPending }
+
+    func engineWindow(_ window: EngineWindow, replace old: EngineTab, with new: EngineTab) -> Bool {
+        guard old === page, !closing, !isMiniPlayer else { return false }
+        let focused = (self.window.firstResponder as? NSView)?.isDescendant(of: old.view) == true
+        prompts.dropAll(for: old)
+        old.delegate = nil
+        new.delegate = self
+        page = new
+        engineWindow.activateTab(new)
+        app?.engine.setPictureInPictureWindowActive(new, active: self.window.isKeyWindow)
+        self.window.initialFirstResponder = new.view
+        if focused { new.focus() }
+        prompts.refresh()
+        refreshChrome()
+        noteActivity()
+        return true
+    }
 }
 
 extension LittleArcController: EngineTabDelegate {

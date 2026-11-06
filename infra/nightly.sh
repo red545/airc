@@ -55,7 +55,7 @@ mac() { ssh -o ConnectTimeout=15 "$HOST" "zsh -lc $(printf '%q' "$*")"; }
 
 # Preserve the existing remote command while supplying dev flags to the build.
 if [[ ${AIRC_DEV_CHANNEL:-0} == 1 ]]; then
-  : "${AIRC_UPDATE_FEED:?Dev publishing requires the operator feed URL}"
+  AIRC_UPDATE_FEED=http://127.0.0.1:3483/appcast.xml
   mac() {
     local command
     printf -v command 'export AIRC_DEV_CHANNEL=1 AIRC_UPDATE_CHANNEL=dev AIRC_UPDATE_FEED=%q AIRC_SIGN_IDENTITY=%q AIRC_SIGN_KEYCHAIN=%q AIRC_SIGN_KEYCHAIN_PASSWORD_FILE=%q; export SPARKLE_ROOT="$HOME/arcfork/tools/sparkle"; %s' "$AIRC_UPDATE_FEED" "${AIRC_SIGN_IDENTITY:-}" "${AIRC_SIGN_KEYCHAIN:-}" "${AIRC_SIGN_KEYCHAIN_PASSWORD_FILE:-}" "$*"
@@ -63,7 +63,16 @@ if [[ ${AIRC_DEV_CHANNEL:-0} == 1 ]]; then
   }
 fi
 
-finish() { python3 "$ROOT/infra/status.py" "$STATUS" --live; exit 0; }
+finish() {
+  # Explicitly unlock before status rendering or starting background workers. No child inherits fd 9.
+  flock -u 9; exec 9>&-
+  printf '%s ship lock released\n' "$(date -u +%FT%TZ)" >> "$RUN/lock.log"
+  if ! tmux has-session -t airc-deferred 2>/dev/null; then
+    tmux new -d -s airc-deferred "bash '$ROOT/infra/updates/deferred.sh' >> '$STATUS/deferred.log' 2>&1"
+  fi
+  python3 "$ROOT/infra/status.py" "$STATUS" --live
+  exit 0
+}
 
 if ! step mac-online mac 'sw_vers -productVersion; pmset -g batt | head -2; df -h / | tail -1'; then
   finish
@@ -98,22 +107,17 @@ if in_head scripts/build-app.sh; then
       step publish-dev bash -c 'echo "not published: a test or snapshot check failed (see the steps above)"; exit 3'
     fi
   fi
-  if [[ -n $SNAPSHOT_GATE ]]; then
+  if [[ -n $SNAPSHOT_GATE && $SHIP == 0 ]]; then
     # Advice, not a gate: the WebKit dev engine's checks on the same build, after the owner's build is out.
     step snapshots-webkit mac "cd ~/$REMOTE && AIRC_SIGN_IDENTITY=- caffeinate -i -s scripts/build-app.sh --no-test --engine webkit --snapshots build/snapshots-webkit"
   fi
-  # Refresh the owner's copy whenever the bundles were built, even if a check failed (the status page shows it).
-  if ssh -o ConnectTimeout=15 "$HOST" "test -d ~/$REMOTE/build/Airc.app"; then
-    # The copy the owner opens to try the latest build (~/arcfork/try/Airc.app); skipped while it's running.
-    step try-copy mac "[ -d ~/Applications/Airc.app ] && { echo 'the owner runs ~/Applications/Airc.app, which updates itself; try copies are no longer refreshed'; exit 3; }; pgrep -f 'arcfork/try/Airc' >/dev/null && { echo 'Airc is open; keeping the current copies'; exit 3; }; mkdir -p ~/arcfork/try && rsync -a --delete ~/$REMOTE/build/Airc.app/ ~/arcfork/try/Airc.app/ && if [ -d ~/$REMOTE/build/Airc-Chromium.app ]; then rsync -a --delete ~/$REMOTE/build/Airc-Chromium.app/ ~/arcfork/try/Airc-Chromium.app/; fi; rm -rf ~/arcfork/try/Airc-new.app"
-  fi
-  rsync -az "$HOST:$REMOTE/build/snapshots/" "$RUN/snapshots/" >/dev/null 2>&1 || true
-  # The homepage's "What works" list and screenshots come from the newest green run. Best effort: it only rewrites
-  # files in the working tree (apps/marketing/src/data/status.json, src/assets/shots/app-*.webp); committing and
-  # deploying them stays a person's call.
-  if command -v node >/dev/null 2>&1 && [[ -d $ROOT/apps/marketing/node_modules ]]; then
-    ( cd "$ROOT/apps/marketing" && AIRC_STATUS_DIR="$STATUS" node scripts/sync-status.mjs ) >> "$RUN/site-sync.log" 2>&1 || true
-  fi
+  # Persist uploads locally before the next export replaces nightly. APFS clones cost no uplink.
+  step defer-artifacts mac "cd ~/$REMOTE && bash infra/updates/defer-mac.sh $STAMP"
+  # Text check results are small and keep the work/status pages current even while images wait.
+  timeout 45s rsync -az --include='*/' --include='*.txt' --exclude='*' \
+    "$HOST:$REMOTE/build/snapshots/" "$RUN/snapshots/" >> "$RUN/metadata-copy.log" 2>&1 || true
+  if [[ $SHIP == 1 ]]; then finish; fi
+
 fi
 
 # Performance is intrusive enough to reserve for 23:00–07:00 UTC, unless requested.
