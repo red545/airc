@@ -1,0 +1,79 @@
+--- a/apps/browser/Sources/Airc/Engine/ChromiumEngine.swift
++++ b/apps/browser/Sources/Airc/Engine/ChromiumEngine.swift
+@@ -155,6 +155,12 @@
+     func loadProfile(directory: String, completion: @escaping (EngineProfile?) -> Void) {
+         core.loadProfile(directory: directory) { [self] profile in
+             completion(profile.map(wrap))
++        }
++    }
++    /// Cleanup only: rejects default and any profile loaded during this engine session.
++    func deleteUnloadedProfile(directory: String, completion: @escaping ([String: Any]) -> Void) {
++        core.deleteUnloadedProfile(directory: directory) { result in
++            completion(result as? [String: Any] ?? ["deleted": false, "reason": "invalid engine response"])
+         }
+     }
+     func deleteProfile(_ profile: EngineProfile, completion: @escaping (Bool) -> Void) {
+--- a/apps/browser/Sources/Airc/Import/CredentialImport.swift
++++ b/apps/browser/Sources/Airc/Import/CredentialImport.swift
+@@ -72,14 +72,13 @@
+             }
+             importer(logins, cookies, engineProfile) { l, c in
+                 let error = (l["error"] as? String) ?? (c["error"] as? String)
+-                // Newer engines verify what the password store kept ("saved"; duplicates are "skipped" and keep the
+-                // stored login); older ones only report what they handed over ("submitted").
+-                let saved = (l["saved"] as? Int) ?? (l["submitted"] as? Int) ?? 0
++                // Count verified storage only. Submission is not an import success.
++                let saved = l["saved"] as? Int ?? 0
+                 if let error, saved + (c["accepted"] as? Int ?? 0) == 0 {
+                     return finish(.failed(sent, error))
+                 }
+                 finish(CredentialImport.EngineResult(
+-                    loginsImported: saved, loginsRejected: l["rejected"] as? Int ?? 0,
++                    loginsImported: saved, loginsRejected: l["rejected"] as? Int ?? 0, loginsSkipped: l["skipped"] as? Int ?? 0,
+                     cookiesImported: c["accepted"] as? Int ?? 0, cookiesRejected: c["rejected"] as? Int ?? 0,
+                     error: error))
+             }
+@@ -93,12 +92,12 @@
+ }
+ 
+ enum CredentialImport {
+-    /// What the engine reported for one profile. Its "submitted" logins are handed to Chromium's password store, whose
+-    /// completion has no per-row result (PROFILE-SERVICES.md); "rejected" rows are ones Chromium doesn't take
+-    /// (app or federated logins, partitioned or invalid cookies).
++    /// Imported logins were read back from the store; existing keys count as skipped.
++    /// The adapter also returns ordered per-row statuses and rejection reasons.
+     struct EngineResult: Equatable {
+         var loginsImported = 0
+         var loginsRejected = 0
++        var loginsSkipped = 0
+         var cookiesImported = 0
+         var cookiesRejected = 0
+         /// Set when the engine couldn't store anything; every row sent counts as failed then.
+@@ -148,7 +147,7 @@
+         mutating func add(engine r: EngineResult, profileID: String) {
+             loginsImported += r.loginsImported
+             cookiesImported += r.cookiesImported
+-            skipped += r.loginsRejected + r.cookiesRejected
++            skipped += r.loginsSkipped + r.loginsRejected + r.cookiesRejected
+             failed += r.loginsFailed + r.cookiesFailed
+             if let e = r.error {
+                 problems["engine: " + e, default: 0] += 1
+--- a/apps/browser/Sources/Airc/Browser/ProfileHost.swift
++++ b/apps/browser/Sources/Airc/Browser/ProfileHost.swift
+@@ -159,6 +159,16 @@
+                 createdSpares = createdSpares.filter { $0 != dir }
+                 continue
+             }
++            #if canImport(AircCore)
++            if let chromium = engine as? ChromiumEngine {
++                chromium.deleteUnloadedProfile(directory: dir) { [weak self] result in
++                    if result["deleted"] as? Bool == true {
++                        self?.createdSpares = self?.createdSpares.filter { $0 != dir } ?? []
++                    }
++                }
++                continue
++            }
++            #endif
+             engine.loadProfile(directory: dir) { [weak self] e in
+                 guard let self else { return }
+                 guard let e else { return }

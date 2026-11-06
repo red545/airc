@@ -1,0 +1,1091 @@
+---
+import { Image } from "astro:assets";
+import Shot from "../components/Shot.astro";
+import Layout from "../layouts/Layout.astro";
+import icon from "../assets/icon.png";
+import heroLight from "../assets/shots/hero-light.webp";
+import heroDark from "../assets/shots/hero-dark.webp";
+import importShot from "../assets/shots/import.webp";
+import spacePersonal from "../assets/shots/space-personal.webp";
+import spaceWork from "../assets/shots/space-work.webp";
+import sidebarPersonal from "../assets/shots/sidebar-personal.webp";
+import commandBar from "../assets/shots/command-bar.webp";
+import { ARC_END, CONTACT_EMAIL, WAITLIST_URL, daysUntil } from "../lib/site";
+
+const daysLeft = daysUntil(ARC_END);
+
+const sidebarParts = [
+  {
+    at: 9.4,
+    title: "Command bar",
+    body: "Click the address or press ⌘T for open tabs, history, search and commands. Results come from this Space's profile only.",
+  },
+  { at: 17.3, title: "Favorites", body: "Your everyday sites as tiles above the Space name. Gmail shows an unread dot." },
+  {
+    at: 46,
+    title: "Pinned tabs and folders",
+    body: "Pinned tabs stay where you put them and never archive. Folders nest as deep as you like.",
+  },
+  {
+    at: 66.4,
+    title: "Auto-archive",
+    body: "Today's tabs you haven't looked at for 12 hours move to the archive. Make it a day, a week or a month.",
+  },
+  {
+    at: 85.6,
+    title: "Today",
+    body: "New tabs land here, newest first. Clear sweeps them away, and ⌘Z brings them back.",
+  },
+];
+
+const steps = [
+  {
+    title: "Watch",
+    body: "An agent follows Google's release feed and picks up every new Chrome release for the Mac, including the weekly security fixes.",
+  },
+  {
+    title: "Rebase",
+    body: "It moves Airc onto the new Chromium. Airc's code lives in its own layer with a short list of one-line hooks, so there is little to move and breakage shows up as compile errors.",
+  },
+  {
+    title: "Build and test",
+    body: "A full build on a real Mac, signed and notarized, then the smoke tests. A person reviews the result before it goes out.",
+  },
+  {
+    title: "Ship",
+    body: "Through the beta channel first; actively exploited fixes go out straight away. If a minor feature breaks, it ships switched off rather than holding back a security fix.",
+  },
+];
+
+const faqs = [
+  {
+    q: "Do Chrome extensions work?",
+    a: "Yes. Airc is built on Chromium, so you install extensions from the Chrome Web Store. As in Arc, extensions belong to a profile, so each one has its own set.",
+  },
+  {
+    q: "Can I sign in with Google?",
+    a: "Yes. Signing in to Gmail, Calendar, Docs and every other site works as in Chrome, and each profile can hold a different Google account. Chrome Sync, Google's own bookmark and password sync, is only available in Chrome itself, so Airc doesn't offer it.",
+  },
+  {
+    q: "Is it free?",
+    a: "Yes. Airc is free, needs no account, and will be open source under the Apache-2.0 licence from the day it launches.",
+  },
+  {
+    q: "Is there a Windows version?",
+    a: "No. Airc is a native Mac app, for macOS 14 or later on Apple silicon. There are no plans for Windows, Linux or Intel Macs.",
+  },
+  {
+    q: "What about privacy?",
+    a: "No telemetry by default. Crash reports are opt-in and never include URLs or page titles. When you import from Arc, your logins are decrypted and re-encrypted on your Mac and never leave it.",
+  },
+  {
+    q: "Arc may stop before Airc ships. Can I still import?",
+    a: "Yes, as long as Arc's data is still on your Mac. Keep Arc installed: Airc reads its files directly, even after Arc itself has stopped working.",
+  },
+];
+---
+
+<Layout>
+  <!-- 1. Hero -->
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="bloom" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    <div class="container hero-inner">
+      <div class="hero-icon rise">
+        <Image src={icon} alt="Airc app icon" width={88} height={88} densities={[1, 2]} format="webp" quality={90} loading="eager" />
+      </div>
+      <p class="pill rise" style="--d: 60ms"><span class="dot" aria-hidden="true"></span>For macOS · Coming soon</p>
+      <h1 id="hero-title" class="rise" style="--d: 120ms">The sidebar you love.<br class="br-wide" /> A&nbsp;browser that keeps going.</h1>
+      <p class="hero-sub rise" style="--d: 200ms">
+        Airc is an Arc-style browser for the Mac, built on Chromium. Spaces with their own logins, Favorites, pinned
+        tabs and the command bar, the way Arc did them. Built and maintained by AI.
+      </p>
+      <div class="hero-actions rise" style="--d: 280ms">
+        <a class="btn btn-primary" href={WAITLIST_URL}>Join the waitlist</a>
+        <a class="btn btn-quiet" href="#arc">See what comes over from Arc</a>
+      </div>
+      <p class="hero-meta rise" style="--d: 320ms">Free · macOS 14+ on Apple silicon · Open source at launch</p>
+    </div>
+    <div class="container hero-shot rise" style="--d: 380ms">
+      <Shot
+        class="shot"
+        src={heroLight}
+        dark={heroDark}
+        eager
+        sizes="(max-width: 1260px) calc(100vw - 2 * clamp(20px, 5vw, 40px)), 1180px"
+        alt="An Airc window on the Mac desktop: a coloured sidebar with Favorites, pinned tabs, folders and today's tabs, and the web page beside it as a card."
+      />
+    </div>
+  </section>
+
+  <!-- 2. Arc is going away -->
+  <section id="arc" class="section arc" aria-labelledby="arc-title">
+    <div class="container arc-grid">
+      <div class="arc-copy reveal">
+        <p class="eyebrow">
+          <span class="dot" style="--c: var(--peach-2)" aria-hidden="true"></span>
+          <span id="arc-days" data-end={ARC_END.toISOString()}>{daysLeft} days</span> until Arc stops
+        </p>
+        <h2 id="arc-title">Arc is going away on 22&nbsp;December&nbsp;2026. Your sidebar doesn't have&nbsp;to.</h2>
+        <p class="lead">
+          Airc finds Arc on your Mac and rebuilds your sidebar while you watch. It takes about a minute.
+        </p>
+        <ul class="checks">
+          <li>Spaces, with their names, icons and colours</li>
+          <li>Pinned tabs and folders, nested as they were</li>
+          <li>Favorites, kept per profile</li>
+          <li>Logins and saved passwords. macOS asks for your Mac password once.</li>
+        </ul>
+        <p class="note">Everything is read and converted on your Mac. Nothing is uploaded.</p>
+      </div>
+      <figure class="arc-shot reveal">
+        <Shot
+          class="shot"
+          src={importShot}
+          sizes="(max-width: 900px) calc(100vw - 2 * clamp(20px, 5vw, 40px)), 680px"
+          alt="Airc's onboarding window: 'Bring your Arc with you.' It found Arc with 6 Spaces, 3 profiles and 84 tabs, and offers to import Spaces, Favorites and logins, while the sidebar on the left fills in."
+        />
+      </figure>
+    </div>
+  </section>
+
+  <!-- 3. Spaces with real profiles -->
+  <section id="spaces" class="section" aria-labelledby="spaces-title">
+    <div class="container">
+      <header class="section-head reveal">
+        <p class="eyebrow"><span class="dot" style="--c: var(--mint)" aria-hidden="true"></span>Spaces</p>
+        <h2 id="spaces-title">Spaces with real profiles.</h2>
+        <p class="lead">
+          Every Space can have its own profile, with its own logins, history, saved passwords and extensions. Your work
+          Gmail lives in one Space and your personal Gmail in the next.
+        </p>
+      </header>
+
+      <div class="pager reveal">
+        <fieldset class="seg">
+          <legend class="visually-hidden">Show a Space</legend>
+          <input type="radio" name="space" id="sp-personal" checked />
+          <label for="sp-personal"><span aria-hidden="true">🏡</span> Personal</label>
+          <input type="radio" name="space" id="sp-work" />
+          <label for="sp-work"><span aria-hidden="true">💼</span> Work</label>
+          <span class="seg-knob" aria-hidden="true"></span>
+        </fieldset>
+        <div class="stage">
+          <div class="track">
+            <Shot
+              class="shot page"
+              src={spacePersonal}
+              sizes="(max-width: 1260px) calc(100vw - 2 * clamp(20px, 5vw, 40px) - 2 * clamp(12px, 4vw, 48px)), 1084px"
+              alt="The Personal Space in mint green, signed in with a personal account: Gmail, Calendar, Maps and YouTube as Favorites."
+            />
+            <Shot
+              class="shot page"
+              src={spaceWork}
+              sizes="(max-width: 1260px) calc(100vw - 2 * clamp(20px, 5vw, 40px) - 2 * clamp(12px, 4vw, 48px)), 1084px"
+              alt="The Work Space in deep blue, using the Acme profile: different Favorites, different tabs and a different Google account, in the same window."
+            />
+          </div>
+        </div>
+      </div>
+
+      <div class="trio">
+        <div class="reveal">
+          <h3>Separate logins</h3>
+          <p>A profile is a real Chromium profile. Cookies, history and passwords never mix between them.</p>
+        </div>
+        <div class="reveal">
+          <h3>Swipe to switch</h3>
+          <p>Two fingers across the sidebar, <kbd>⌃</kbd><kbd>1</kbd>–<kbd>9</kbd>, or a click in the Space bar. The account changes with the colour.</p>
+        </div>
+        <div class="reveal">
+          <h3>One window</h3>
+          <p>No second window per account, so fullscreen just works. A new profile is one step from the sidebar.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. The sidebar -->
+  <section id="sidebar" class="section" aria-labelledby="sidebar-title">
+    <div class="container">
+      <header class="section-head reveal">
+        <p class="eyebrow"><span class="dot" style="--c: var(--lilac)" aria-hidden="true"></span>Sidebar</p>
+        <h2 id="sidebar-title">The sidebar, exactly like Arc.</h2>
+        <p class="lead">
+          Built to Arc's own measurements, down to the row height and the springs. If you used Arc, your hands already
+          know it.
+        </p>
+      </header>
+
+      <div class="anatomy">
+        <div class="anatomy-stage reveal">
+          <div class="anatomy-sidebar">
+            <Image
+              src={sidebarPersonal}
+              alt="Airc's sidebar: the address, four Favorites, the Personal Space with pinned tabs and a folder, the divider with Clear, then today's tabs."
+              widths={[228, 342, 456]}
+              sizes="(max-width: 560px) 200px, 260px"
+              format="webp"
+              quality={86}
+            />
+            {sidebarParts.map((p, i) => (
+              <span class="marker" style={`--at: ${p.at}%`} aria-hidden="true">{i + 1}</span>
+            ))}
+          </div>
+        </div>
+        <ol class="anatomy-list">
+          {sidebarParts.map((p) => (
+            <li class="reveal">
+              <h3>{p.title}</h3>
+              <p>{p.body}</p>
+            </li>
+          ))}
+        </ol>
+      </div>
+
+      <dl class="specs reveal" aria-label="Measurements">
+        <div><dt>Sidebar</dt><dd>228 pt</dd></div>
+        <div><dt>Row pitch</dt><dd>41 pt</dd></div>
+        <div><dt>Favorite tiles</dt><dd>47 pt</dd></div>
+        <div><dt>Space switch</dt><dd>0.19 s spring</dd></div>
+        <div><dt>Hover</dt><dd>1 frame</dd></div>
+      </dl>
+
+      <figure class="cb reveal">
+        <Shot
+          class="shot"
+          src={commandBar}
+          sizes="(max-width: 1260px) calc(100vw - 2 * clamp(20px, 5vw, 40px)), 1180px"
+          alt="The command bar over the page: typing 'gma' completes to mail.google.com and offers to switch to the open Gmail tab."
+        />
+        <figcaption><kbd>⌘</kbd><kbd>T</kbd> opens the command bar. It suggests open tabs first, so you switch instead of opening a duplicate.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- 5. Built and maintained by AI -->
+  <section id="ai" class="section ai" aria-labelledby="ai-title">
+    <div class="container">
+      <div class="ai-panel">
+        <header class="section-head reveal">
+          <p class="eyebrow"><span class="dot" style="--c: var(--sky)" aria-hidden="true"></span>How it's built</p>
+          <h2 id="ai-title">Built and maintained by&nbsp;AI.</h2>
+          <p class="lead">
+            A browser is only as safe as its last update. Airc is designed so that keeping up with Chromium is routine
+            work for AI agents, every week, with a person signing off.
+          </p>
+        </header>
+        <ol class="steps">
+          {steps.map((s, i) => (
+            <li class="reveal">
+              <span class="step-n">{String(i + 1).padStart(2, "0")}</span>
+              <h3>{s.title}</h3>
+              <p>{s.body}</p>
+            </li>
+          ))}
+        </ol>
+        <div class="oss reveal">
+          <span class="badge">Apache-2.0</span>
+          <p>
+            Open source at launch: the app, the Chromium patches and the playbook the agents work from. Anyone can read
+            how it's made, and build it themselves.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. FAQ -->
+  <section id="faq" class="section" aria-labelledby="faq-title">
+    <div class="container faq">
+      <header class="faq-head reveal">
+        <h2 id="faq-title">Questions</h2>
+        <p class="muted">Something else? <a href={`mailto:${CONTACT_EMAIL}`}>Email us</a>.</p>
+      </header>
+      <div class="faq-list">
+        {faqs.map((f) => (
+          <details class="reveal">
+            <summary>{f.q}<span class="chev" aria-hidden="true"></span></summary>
+            <p>{f.a}</p>
+          </details>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- Closing call to action -->
+  <section class="section closing" aria-labelledby="closing-title">
+    <div class="bloom bloom-soft" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    <div class="container closing-inner reveal">
+      <Image src={icon} alt="" width={72} height={72} densities={[1, 2]} format="webp" quality={90} />
+      <h2 id="closing-title">Be there on day one.</h2>
+      <p class="lead">Join the waitlist and we'll email you when Airc is ready to download. Nothing else.</p>
+      <a class="btn btn-primary" href={WAITLIST_URL}>Join the waitlist</a>
+    </div>
+  </section>
+
+  <script is:inline>
+    // Keeps the countdown right on a cached page. Without JavaScript, the build-time number stays.
+    (function () {
+      var el = document.getElementById("arc-days");
+      if (!el) return;
+      var d = Math.max(0, Math.ceil((Date.parse(el.dataset.end) - Date.now()) / 864e5));
+      el.textContent = d === 1 ? "1 day" : d + " days";
+    })();
+  </script>
+</Layout>
+
+<style>
+  /* ---------------------------------------------------------------- shared */
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .section {
+    position: relative;
+    padding: clamp(80px, 12vw, 152px) 0 0;
+  }
+
+  .section-head {
+    max-width: 720px;
+  }
+
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-2);
+  }
+
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--c, var(--accent));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--c, var(--accent)) 22%, transparent);
+    flex: none;
+  }
+
+  h2 {
+    font-size: clamp(30px, 4.4vw, 48px);
+    line-height: 1.08;
+    font-weight: 600;
+    letter-spacing: -0.032em;
+  }
+
+  h3 {
+    font-size: 17px;
+    line-height: 1.35;
+    font-weight: 600;
+    letter-spacing: -0.016em;
+  }
+
+  .lead {
+    margin-top: 18px;
+    font-size: clamp(17px, 1.6vw, 19px);
+    line-height: 1.55;
+    letter-spacing: -0.014em;
+    color: var(--text-2);
+    max-width: 620px;
+  }
+
+  /* ---------------------------------------------------------------- bloom (the icon's pastels) */
+  .bloom {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  .bloom i {
+    position: absolute;
+    width: 46vmax;
+    height: 46vmax;
+    border-radius: 50%;
+    filter: blur(70px);
+    opacity: 0.38;
+  }
+
+  .bloom i:nth-child(1) { background: #5fe3b4; left: -12vmax; top: -18vmax; }
+  .bloom i:nth-child(2) { background: #7fb0ff; left: 22%; top: -26vmax; }
+  .bloom i:nth-child(3) { background: #c79bff; right: -10vmax; top: -16vmax; }
+  .bloom i:nth-child(4) { background: #ff93c0; right: 18%; top: 2vmax; width: 30vmax; height: 30vmax; opacity: 0.26; }
+
+  @media (prefers-color-scheme: dark) {
+    .bloom i { opacity: 0.2; }
+    .bloom i:nth-child(4) { opacity: 0.14; }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .bloom i { animation: drift 24s ease-in-out infinite alternate; }
+    .bloom i:nth-child(2) { animation-duration: 30s; animation-delay: -8s; }
+    .bloom i:nth-child(3) { animation-duration: 27s; animation-delay: -4s; }
+    .bloom i:nth-child(4) { animation-duration: 33s; animation-delay: -12s; }
+  }
+
+  @keyframes drift {
+    to { transform: translate3d(4vmax, 3vmax, 0) scale(1.08); }
+  }
+
+  /* ---------------------------------------------------------------- 1. hero */
+  .hero {
+    position: relative;
+    isolation: isolate;
+    padding-top: clamp(48px, 7vw, 80px);
+  }
+
+  .hero-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .hero-icon :global(img) {
+    width: 88px;
+    height: 88px;
+    filter: drop-shadow(0 8px 18px rgb(80 40 140 / 0.22)) drop-shadow(0 1px 2px rgb(0 0 0 / 0.12));
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 28px;
+    padding: 5px 12px 5px 10px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-2);
+    background: color-mix(in srgb, var(--surface) 70%, transparent);
+    box-shadow: inset 0 0 0 0.5px var(--line-strong);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+  }
+
+  .pill .dot {
+    --c: var(--mint);
+    width: 6px;
+    height: 6px;
+  }
+
+  .hero h1 {
+    margin-top: 20px;
+    max-width: 15ch;
+    font-size: clamp(40px, 6vw, 72px);
+    line-height: 1.03;
+    font-weight: 600;
+    letter-spacing: -0.04em;
+  }
+
+  .hero-sub {
+    margin-top: 24px;
+    max-width: 600px;
+    font-size: clamp(17px, 1.7vw, 20px);
+    line-height: 1.55;
+    letter-spacing: -0.016em;
+    color: var(--text-2);
+  }
+
+  .hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 32px;
+  }
+
+  .hero-meta {
+    margin-top: 18px;
+    text-wrap: balance;
+    font-size: 13px;
+    color: var(--text-3);
+  }
+
+  .hero-shot {
+    margin-top: clamp(40px, 5vw, 64px);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .rise {
+      animation: rise 0.7s var(--ease-out) both;
+      animation-delay: var(--d, 0ms);
+    }
+  }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(14px); }
+    to { opacity: 1; transform: none; }
+  }
+
+  @media (min-width: 1000px) {
+    .hero h1 { max-width: none; }
+  }
+
+  @media (max-width: 999px) {
+    .br-wide { display: none; }
+  }
+
+  @media (max-width: 480px) {
+    .hero-actions { flex-direction: column; align-items: stretch; width: 100%; }
+    .hero-meta { max-width: 260px; }
+  }
+
+  /* ---------------------------------------------------------------- 2. Arc */
+  .arc-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    gap: clamp(32px, 5vw, 64px);
+    align-items: center;
+  }
+
+  .arc h2 {
+    font-size: clamp(30px, 3.9vw, 44px);
+  }
+
+  .arc .eyebrow span[id] {
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+  }
+
+  .checks {
+    display: grid;
+    gap: 10px;
+    margin-top: 28px;
+    padding: 0;
+    list-style: none;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  .checks li {
+    position: relative;
+    padding-left: 30px;
+  }
+
+  .checks li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 1px;
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    background:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M5.5 10.2l3 3 6-6.4' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+        center / 20px no-repeat,
+      linear-gradient(135deg, var(--peach), var(--peach-2));
+    box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.08);
+  }
+
+  .note {
+    margin-top: 24px;
+    font-size: 14px;
+    color: var(--text-3);
+  }
+
+  .arc-shot {
+    margin: 0;
+  }
+
+  @media (max-width: 900px) {
+    .arc-grid { grid-template-columns: 1fr; }
+  }
+
+  /* ---------------------------------------------------------------- 3. Spaces */
+  .pager {
+    margin-top: 48px;
+  }
+
+  .seg {
+    position: relative;
+    display: inline-grid;
+    grid-template-columns: 1fr 1fr;
+    margin: 0 0 20px;
+    padding: 3px;
+    border: 0;
+    border-radius: 12px;
+    background: var(--fill);
+    box-shadow: inset 0 0 0 0.5px var(--line);
+  }
+
+  .seg input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .seg label {
+    position: relative;
+    z-index: 1;
+    padding: 7px 18px;
+    border-radius: 9px;
+    font-size: 14px;
+    font-weight: 500;
+    text-align: center;
+    color: var(--text-2);
+    cursor: pointer;
+    transition: color 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .seg input:checked + label {
+    color: var(--text);
+  }
+
+  .seg input:focus-visible + label {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  .seg-knob {
+    position: absolute;
+    top: 3px;
+    bottom: 3px;
+    left: 3px;
+    width: calc(50% - 3px);
+    border-radius: 9px;
+    background: var(--surface);
+    box-shadow: 0 0.5px 1px rgb(0 0 0 / 0.12), 0 1px 3px rgb(0 0 0 / 0.06), inset 0 0 0 0.5px var(--line);
+    transition: transform 0.32s var(--spring-settle);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .seg-knob { background: rgb(255 255 255 / 0.12); }
+  }
+
+  .stage {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    padding: clamp(12px, 4vw, 48px);
+    border-radius: clamp(14px, 2vw, 24px);
+    box-shadow: inset 0 0 0 0.5px var(--line);
+  }
+
+  /* The room takes the Space's colour; the window is the object on it. The colour leads the slide (Arc). */
+  .stage::before,
+  .stage::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    transition: opacity 0.12s ease-out;
+  }
+
+  .stage::before {
+    background: linear-gradient(135deg, color-mix(in srgb, var(--mint) 55%, #fff), color-mix(in srgb, var(--sky) 45%, #fff));
+  }
+
+  .stage::after {
+    background: linear-gradient(135deg, var(--ocean), color-mix(in srgb, var(--ocean-2) 70%, #0b2a4a));
+    opacity: 0;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .stage::before {
+      background: linear-gradient(135deg, color-mix(in srgb, var(--mint) 45%, #0d1a16), color-mix(in srgb, var(--sky) 30%, #10161f));
+    }
+  }
+
+  .track {
+    display: flex;
+    gap: clamp(24px, 6vw, 96px);
+    transition: transform 0.5s var(--spring-settle);
+  }
+
+  .track :global(.page) {
+    flex: 0 0 100%;
+  }
+
+  .pager:has(#sp-work:checked) .track {
+    transform: translateX(calc(-100% - clamp(24px, 6vw, 96px)));
+  }
+
+  .pager:has(#sp-work:checked) .stage::after {
+    opacity: 1;
+  }
+
+  .pager:has(#sp-work:checked) .seg-knob {
+    transform: translateX(100%);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .track { transition: none; }
+    .seg-knob { transition: none; }
+  }
+
+  .trio {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 32px;
+    margin-top: 48px;
+  }
+
+  .trio p,
+  .anatomy-list p,
+  .steps p {
+    margin-top: 6px;
+    font-size: 15px;
+    line-height: 1.55;
+    color: var(--text-2);
+  }
+
+  @media (max-width: 760px) {
+    .trio { grid-template-columns: 1fr; gap: 24px; }
+  }
+
+  /* ---------------------------------------------------------------- 4. Sidebar */
+  .anatomy {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    gap: clamp(32px, 6vw, 80px);
+    align-items: center;
+    margin-top: 48px;
+  }
+
+  .anatomy-stage {
+    display: grid;
+    place-items: center;
+    padding: clamp(24px, 5vw, 56px) 0;
+    border-radius: clamp(14px, 2vw, 24px);
+    background: linear-gradient(160deg, color-mix(in srgb, var(--lilac) 38%, var(--bg)), color-mix(in srgb, var(--pink) 30%, var(--bg)));
+    box-shadow: inset 0 0 0 0.5px var(--line);
+  }
+
+  .anatomy-sidebar {
+    position: relative;
+    width: 260px;
+    aspect-ratio: 228 / 660;
+    border-radius: 14px;
+    box-shadow: var(--shadow-shot);
+  }
+
+  .anatomy-sidebar :global(img) {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top;
+    border-radius: 14px;
+  }
+
+  .marker {
+    position: absolute;
+    top: var(--at);
+    right: -13px;
+    translate: 0 -50%;
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    font-size: 12px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: #fff;
+    background: var(--accent);
+    box-shadow: 0 0 0 3px var(--surface), 0 4px 10px rgb(0 0 0 / 0.18);
+  }
+
+  .anatomy-list {
+    counter-reset: part;
+    display: grid;
+    gap: 24px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .anatomy-list li {
+    counter-increment: part;
+    position: relative;
+    padding-left: 40px;
+  }
+
+  .anatomy-list li::before {
+    content: counter(part);
+    position: absolute;
+    left: 0;
+    top: 0;
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent-text);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+
+  @media (max-width: 900px) {
+    .anatomy { grid-template-columns: 1fr; }
+  }
+
+  @media (max-width: 560px) {
+    .anatomy-sidebar { width: 200px; }
+  }
+
+  .specs {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    margin: 56px 0 0;
+    border-radius: 14px;
+    box-shadow: inset 0 0 0 0.5px var(--line-strong);
+    overflow: hidden;
+  }
+
+  .specs div {
+    padding: 16px 18px;
+    box-shadow: -0.5px 0 0 var(--line-strong);
+  }
+
+  .specs dt {
+    font-size: 13px;
+    color: var(--text-3);
+  }
+
+  .specs dd {
+    margin: 2px 0 0;
+    font-family: var(--mono);
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--text);
+    letter-spacing: -0.01em;
+  }
+
+  @media (max-width: 760px) {
+    .specs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .specs div { box-shadow: -0.5px 0 0 var(--line-strong), 0 -0.5px 0 var(--line-strong); }
+    .specs div:last-child { grid-column: span 2; }
+  }
+
+  .cb {
+    margin: clamp(56px, 8vw, 96px) 0 0;
+  }
+
+  .cb figcaption {
+    margin-top: 20px;
+    font-size: 15px;
+    color: var(--text-2);
+    text-align: center;
+  }
+
+  /* ---------------------------------------------------------------- 5. AI */
+  .ai-panel {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    padding: clamp(32px, 6vw, 72px);
+    border-radius: clamp(18px, 2.4vw, 28px);
+    color: #f4f2ef;
+    background: #141210;
+    box-shadow: 0 0 0 0.5px rgb(255 255 255 / 0.06), 0 30px 80px -30px rgb(20 10 40 / 0.45);
+  }
+
+  .ai-panel::before {
+    content: "";
+    position: absolute;
+    inset: -30% -10% auto 30%;
+    height: 90%;
+    z-index: -1;
+    background:
+      radial-gradient(closest-side, rgb(127 176 255 / 0.32), transparent),
+      radial-gradient(closest-side at 70% 40%, rgb(199 155 255 / 0.28), transparent);
+    filter: blur(30px);
+  }
+
+  .ai-panel h2,
+  .ai-panel h3 {
+    color: #fff;
+  }
+
+  .ai-panel .eyebrow,
+  .ai-panel .lead,
+  .ai-panel .steps p,
+  .ai-panel .oss p {
+    color: rgb(244 242 239 / 0.66);
+  }
+
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0;
+    margin: 56px 0 0;
+    padding: 0;
+    list-style: none;
+    border-top: 0.5px solid rgb(255 255 255 / 0.14);
+  }
+
+  .steps li {
+    padding: 24px 24px 0 0;
+  }
+
+  .steps li + li {
+    padding-left: 24px;
+    border-left: 0.5px solid rgb(255 255 255 / 0.1);
+  }
+
+  .step-n {
+    display: block;
+    margin-bottom: 14px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: #9ec2ff;
+  }
+
+  @media (max-width: 960px) {
+    .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .steps li:nth-child(3) { padding-left: 0; border-left: 0; }
+  }
+
+  @media (max-width: 560px) {
+    .steps { grid-template-columns: 1fr; }
+    .steps li, .steps li + li { padding: 20px 0 0; border-left: 0; }
+  }
+
+  .oss {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 56px;
+    padding-top: 24px;
+    border-top: 0.5px solid rgb(255 255 255 / 0.14);
+  }
+
+  .oss p {
+    font-size: 15px;
+    max-width: 640px;
+  }
+
+  .badge {
+    flex: none;
+    padding: 4px 10px;
+    border-radius: 7px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    color: #fff;
+    background: rgb(255 255 255 / 0.08);
+    box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.18);
+  }
+
+  @media (max-width: 560px) {
+    .oss { flex-direction: column; align-items: flex-start; }
+  }
+
+  /* ---------------------------------------------------------------- 6. FAQ */
+  .faq {
+    display: grid;
+    grid-template-columns: minmax(0, 4fr) minmax(0, 7fr);
+    gap: 32px clamp(32px, 6vw, 80px);
+  }
+
+  .faq-head p {
+    margin-top: 12px;
+    font-size: 15px;
+  }
+
+  .faq-head a {
+    color: var(--accent-text);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+
+  details {
+    border-bottom: 0.5px solid var(--line-strong);
+  }
+
+  details:first-child {
+    border-top: 0.5px solid var(--line-strong);
+  }
+
+  summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 20px 0;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.016em;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .chev {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    margin-right: 4px;
+    border-right: 1.75px solid var(--text-3);
+    border-bottom: 1.75px solid var(--text-3);
+    transform: translateY(-3px) rotate(45deg);
+    transition: transform 0.2s var(--ease-out);
+  }
+
+  details[open] .chev {
+    transform: translateY(2px) rotate(-135deg);
+  }
+
+  details p {
+    padding: 0 40px 22px 0;
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--text-2);
+  }
+
+  @media (max-width: 760px) {
+    .faq { grid-template-columns: 1fr; }
+    details p { padding-right: 0; }
+  }
+
+  /* ---------------------------------------------------------------- closing */
+  .closing {
+    isolation: isolate;
+    padding-bottom: clamp(80px, 12vw, 140px);
+  }
+
+  .bloom-soft {
+    top: 30%;
+    -webkit-mask-image: radial-gradient(closest-side, #000 40%, transparent);
+    mask-image: radial-gradient(closest-side, #000 40%, transparent);
+  }
+
+  .bloom-soft i {
+    top: 10% !important;
+    opacity: 0.22;
+  }
+
+  .closing-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .closing-inner :global(img) {
+    width: 72px;
+    height: 72px;
+    margin-bottom: 28px;
+    filter: drop-shadow(0 6px 14px rgb(80 40 140 / 0.2));
+  }
+
+  .closing .lead {
+    margin: 14px auto 32px;
+    text-wrap: balance;
+  }
+</style>

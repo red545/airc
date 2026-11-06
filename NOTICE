@@ -1,0 +1,31 @@
+Airc
+Copyright 2026 The Airc Authors
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Airc builds on and includes third-party software under its own licences:
+
+- Chromium (BSD-3-Clause and others), https://www.chromium.org
+- ArdiaCore, part of Ardia (https://github.com/mantrakp04/ardia), Copyright 2026 Mantra Patel, Apache-2.0.
+  engine/core is a port of ArdiaCore's own files (engine/ardiacore/src/ardia/core). Ported files keep their
+  original copyright line and state that they were changed. Ardia's GPL-3.0 patches to Helium are not used.
+
+Add an entry here whenever code is copied from another project (for example T3 Code, MIT,
+https://github.com/pingdotgg/t3code), with its copyright line and licence.
+
+engine/core/: ported from ArdiaCore, Copyright 2026 Mantra Patel.
+Apache License 2.0; modified by The Airc Authors. Source: mantrakp04/ardia,
+commit efda065 (engine/ardiacore/src/ardia/core only; no GPL patch series).
+engine/host/reference/: ArdiaCore spike acceptance harness, Copyright 2026
+Mantra Patel, Apache License 2.0; modified by The Airc Authors. Source:
+mantrakp04/ardia commit 00951870d74d11f4332da877db1382c270508635.
+
+engine/patches/001–046: integration hooks adapted from ArdiaCore apply.sh,
+Copyright 2026 Mantra Patel, Apache License 2.0; modified by The Airc Authors.
+engine/host/build.sh: adapted from the ArdiaCore spike build script at commit
+00951870d74d11f4332da877db1382c270508635, Copyright 2026 Mantra Patel,
+Apache License 2.0; modified by The Airc Authors.
+
+packages/AircKit/Sources/AircKit/ProtectedMedia.swift: the DRM-site rules are adapted from Cra's
+ProtectedMedia.swift (https://github.com/VictorKildahl/cra), Copyright (c) 2026 Victor Kildahl,
+MIT License; the full notice is kept in that file.

@@ -1,0 +1,10 @@
+[
+  {
+    "path": "Contents/Frameworks/Airc Framework.framework/Versions/{CHROMIUM_VERSION}/Airc Framework",
+    "kind": "home-path",
+    "literal": "/Users/",
+    "sections": ["__TEXT,__const"],
+    "count": 1,
+    "reason": "Chromium's components/url_formatter/url_fixer.cc FixupHomedir: kHome (a static const char array, so __TEXT,__const), the generic root that a typed ~otheruser path expands under on macOS; no user's name, not a build path"
+  }
+]

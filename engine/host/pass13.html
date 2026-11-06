@@ -1,0 +1,32 @@
+<!doctype html><meta charset="utf-8"><title>Pass 13 synthetic call</title>
+<video id="tile" autoplay muted playsinline></video>
+<audio id="music" src="/tone.wav" autoplay loop></audio>
+<script>
+const loadID=crypto.randomUUID(), events=[]; let stream, a, b;
+function state(){return {loadID, peers:[a?.connectionState,b?.connectionState],
+ tracks:stream?.getTracks().map(t=>({kind:t.kind,ready:t.readyState,enabled:t.enabled})), events:[...events], error:window.failure||null};}
+async function start(){
+ document.cookie='pass13=cookie; path=/'; localStorage.setItem('pass13','storage');
+ stream=await navigator.mediaDevices.getUserMedia({audio:true,video:true});
+ a=new RTCPeerConnection();b=new RTCPeerConnection();
+ a.onicecandidate=e=>e.candidate&&b.addIceCandidate(e.candidate);
+ b.onicecandidate=e=>e.candidate&&a.addIceCandidate(e.candidate);
+ b.ontrack=e=>tile.srcObject=e.streams[0];stream.getTracks().forEach(t=>a.addTrack(t,stream));
+ await a.setLocalDescription(await a.createOffer());await b.setRemoteDescription(a.localDescription);
+ await b.setLocalDescription(await b.createAnswer());await a.setRemoteDescription(b.localDescription);
+ await tile.play(); await music.play();
+ navigator.mediaSession.metadata=new MediaMetadata({title:'Synthetic track',artist:'Airc fixture',album:'Pass 13',artwork:[{src:'/art.svg',sizes:'96x96',type:'image/svg+xml'}]});
+ for(const action of ['play','pause','stop','previoustrack','nexttrack','seekbackward','seekforward','seekto','enterpictureinpicture'])
+  navigator.mediaSession.setActionHandler(action, details=>events.push(details.action));
+ navigator.mediaSession.setActionHandler('togglemicrophone',()=>{
+  const t=stream.getAudioTracks()[0];t.enabled=!t.enabled;navigator.mediaSession.setMicrophoneActive(t.enabled);events.push('togglemicrophone');});
+ navigator.mediaSession.setActionHandler('togglecamera',()=>{
+  const t=stream.getVideoTracks()[0];t.enabled=!t.enabled;navigator.mediaSession.setCameraActive(t.enabled);events.push('togglecamera');});
+ navigator.mediaSession.setActionHandler('hangup',()=>{stop();events.push('hangup');});
+ navigator.mediaSession.setMicrophoneActive(true);navigator.mediaSession.setCameraActive(true);
+ navigator.mediaSession.setPositionState({duration:120,position:10,playbackRate:1});
+ navigator.mediaSession.playbackState='playing';
+}
+function stop(){stream?.getTracks().forEach(t=>t.stop());a?.close();b?.close();music.pause();}
+// The host starts capture after the Site Controls reset assertions.
+</script>

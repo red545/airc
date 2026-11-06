@@ -1,0 +1,19 @@
+--- a/components/remote_cocoa/app_shim/native_widget_mac_nswindow.mm
++++ b/components/remote_cocoa/app_shim/native_widget_mac_nswindow.mm
+@@ -5,1 +5,2 @@
+ #import "components/remote_cocoa/app_shim/native_widget_mac_nswindow.h"
++#include "airc/core/airc_pip_window_hooks.h"  // nogncheck
+@@ -700,2 +701,3 @@
+ - (void)sendEvent:(NSEvent*)event {
++  if (g_airc_pip_window_event && g_airc_pip_window_event(self, event)) return;
+   // TODO(bokan): Tracing added temporarily to diagnose crbug.com/1039833.
+--- a/components/remote_cocoa/app_shim/mouse_capture.mm
++++ b/components/remote_cocoa/app_shim/mouse_capture.mm
+@@ -5,1 +5,2 @@
+ #import "components/remote_cocoa/app_shim/mouse_capture.h"
++#include "airc/core/airc_pip_window_hooks.h"  // nogncheck
+@@ -102,3 +103,3 @@
+     if (![NSApp isActive] && [event type] == NSEventTypeLeftMouseDown &&
+-        handled) {
++        handled && !(g_airc_pip_nonactivating && g_airc_pip_nonactivating(event.window))) {
+       [NSApp activateIgnoringOtherApps:YES];

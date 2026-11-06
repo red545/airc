@@ -1,0 +1,32 @@
+<!doctype html><meta charset="utf-8"><title>Call survival</title>
+<style>body { background: #193349; color: white; font: 20px system-ui } video { width: 320px }</style>
+<div id="tiles"><video id="v" autoplay muted playsinline></video><button id="mute">Mute</button><button id="leave">Leave</button></div>
+<script>
+const id=crypto.randomUUID(), events=[]; let stream, a, b, pip;
+function state(){return {id, time:Date.now(), visibility:document.visibilityState, discarded:document.wasDiscarded,
+  peers:[a?.connectionState,b?.connectionState], tracks:stream?.getTracks().map(t=>({kind:t.kind,state:t.readyState,enabled:t.enabled})),
+  pip:!!window.documentPictureInPicture?.window, restored:tiles.ownerDocument===document, events:[...events]};}
+setInterval(()=>fetch('/beat',{method:'POST',body:JSON.stringify(state())}).catch(()=>{}),250);
+async function start(){
+  stream=await navigator.mediaDevices.getUserMedia({audio:true,video:true});
+  stream.getTracks().forEach(t=>t.onended=()=>events.push('ended:'+t.kind));
+  a=new RTCPeerConnection(); b=new RTCPeerConnection();
+  a.onicecandidate=e=>e.candidate&&b.addIceCandidate(e.candidate);
+  b.onicecandidate=e=>e.candidate&&a.addIceCandidate(e.candidate);
+  b.ontrack=e=>v.srcObject=e.streams[0];
+  stream.getTracks().forEach(t=>a.addTrack(t,stream));
+  await a.setLocalDescription(await a.createOffer()); await b.setRemoteDescription(a.localDescription);
+  await b.setLocalDescription(await b.createAnswer()); await a.setRemoteDescription(b.localDescription);
+  await v.play(); events.push('started');
+  navigator.mediaSession.setActionHandler('enterpictureinpicture',async()=>{
+    try { pip=await documentPictureInPicture.requestWindow({width:380,height:300});
+      pip.document.body.append(tiles);events.push('pip-open');
+      pip.onpagehide=()=>{document.body.append(tiles);events.push('pip-close');};
+    }catch(e){events.push('pip-error:'+e.name);}
+  });
+  mute.onclick=()=>stream.getAudioTracks().forEach(t=>t.enabled=!t.enabled);
+  leave.onclick=stop;
+}
+function stop(){stream?.getTracks().forEach(t=>t.stop());a?.close();b?.close();pip?.close();}
+start().catch(e=>events.push('error:'+e.name));
+</script>

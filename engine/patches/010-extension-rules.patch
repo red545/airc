@@ -1,0 +1,105 @@
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/extensions/browser/api/declarative_net_request/action_tracker.cc
++++ b/extensions/browser/api/declarative_net_request/action_tracker.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "extensions/browser/api/declarative_net_request/action_tracker.h"
++#include "airc/core/airc_content_hooks.h"  // nogncheck
+ 
+ #include <list>
+ #include <map>
+@@ -29,6 +30,13 @@
+ #include "extensions/common/permissions/permissions_data.h"
+ #include "services/network/public/mojom/fetch_api.mojom-shared.h"
+ 
++// Airc: Airc (engine/airc) counts what extensions' rules did to a tab's requests.
++void (*g_airc_dnr_rule_matched)(
++    content::BrowserContext* browser_context,
++    int tab_id,
++    const extensions::declarative_net_request::RequestAction& action,
++    const extensions::WebRequestInfo& request) = nullptr;
++
+ namespace extensions::declarative_net_request {
+ 
+ namespace {
+@@ -124,6 +132,11 @@
+                                   const WebRequestInfo& request_info) {
+   const int tab_id =
+       GetTabIdForMatchedRule(browser_context_, request_info.frame_data.tab_id);
++  // Airc: Airc
++  if (g_airc_dnr_rule_matched) {
++    g_airc_dnr_rule_matched(browser_context_, tab_id, request_action,
++                                 request_info);
++  }
+ 
+   dnr_api::RequestDetails request_details = CreateRequestDetails(request_info);
+   request_details.tab_id = tab_id;
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/extensions/browser/api/declarative_net_request/rules_monitor_service.cc
++++ b/extensions/browser/api/declarative_net_request/rules_monitor_service.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "extensions/browser/api/declarative_net_request/rules_monitor_service.h"
++#include "airc/core/airc_content_hooks.h"  // nogncheck
+ 
+ #include <algorithm>
+ #include <utility>
+@@ -57,6 +58,13 @@
+ #include "extensions/common/permissions/api_permission.h"
+ #include "tools/json_schema_compiler/util.h"
+ 
++// Airc: Airc (engine/airc) holds a profile's navigations until a content blocker's
++// rulesets are in force.
++void (*g_airc_dnr_rulesets_in_force)(
++    content::BrowserContext* browser_context,
++    const extensions::ExtensionId& extension_id,
++    bool all_loaded) = nullptr;
++
+ namespace extensions {
+ namespace declarative_net_request {
+ 
+@@ -599,8 +607,13 @@
+         continue;
+       }
+ 
+-      if (!helper.GetStaticRulesetChecksum(extension->id(), source.id(),
+-                                           expected_ruleset_checksum)) {
++      const bool indexed = helper.GetStaticRulesetChecksum(
++          extension->id(), source.id(), expected_ruleset_checksum);
++      // Airc: Airc. A component extension was never installed, so
++      // nothing indexed its rulesets: index them now, as for a ruleset
++      // enabled after install (no expected checksum), and keep the checksum.
++      if (!indexed &&
++          !Manifest::IsComponentLocation(extension->location())) {
+         // This might happen on prefs corruption.
+         LogLoadRulesetResult(LoadRulesetResult::kErrorChecksumNotFound);
+         ruleset_failed_to_load = true;
+@@ -608,7 +621,9 @@
+       }
+ 
+       RulesetInfo static_ruleset(std::move(source));
+-      static_ruleset.set_expected_checksum(expected_ruleset_checksum);
++      if (indexed) {
++        static_ruleset.set_expected_checksum(expected_ruleset_checksum);
++      }
+       load_data.rulesets.push_back(std::move(static_ruleset));
+     }
+ 
+@@ -1102,6 +1117,13 @@
+       .SetReadyToExecuteApiCalls();
+   update_dynamic_or_session_rules_queue_map_[load_data.extension_id]
+       .SetReadyToExecuteApiCalls();
++
++  // Airc: Airc
++  if (g_airc_dnr_rulesets_in_force) {
++    g_airc_dnr_rulesets_in_force(
++        context_, load_data.extension_id,
++        !notify_ruleset_failed_to_load && !global_rule_limit_exceeded);
++  }
+ }
+ 
+ void RulesMonitorService::OnNewStaticRulesetsLoaded(

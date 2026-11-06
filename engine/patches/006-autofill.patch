@@ -1,0 +1,66 @@
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/chrome/browser/ui/autofill/autofill_popup_controller_impl.cc
++++ b/chrome/browser/ui/autofill/autofill_popup_controller_impl.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/ui/autofill/autofill_popup_controller_impl.h"
++#include "airc/core/airc_hooks.h"  // nogncheck
+ 
+ #include <algorithm>
+ #include <optional>
+@@ -293,6 +294,11 @@
+ 
+ AutofillPopupControllerImpl::~AutofillPopupControllerImpl() = default;
+ 
++// Airc: Airc (engine/airc) hears of each dropdown shown.
++void (*g_airc_autofill_suggestions_shown)(
++    content::WebContents* web_contents,
++    base::span<const Suggestion> suggestions) = nullptr;
++
+ void AutofillPopupControllerImpl::Show(
+     UiSessionId ui_session_id,
+     std::vector<Suggestion> suggestions,
+@@ -403,7 +409,15 @@
+       Hide(SuggestionHidingReason::kViewDestroyed);
+       return;
+     }
++    auto airc_alive = GetWeakPtr();
+     if (!view_->Show(autoselect_first_suggestion)) {
++      // Airc: Airc hears of a dropdown on screen whose search bar couldn't
++      // take focus (an app that isn't active), which Chrome doesn't count as shown.
++      if (airc_alive && view_ && g_airc_autofill_suggestions_shown &&
++          IsRootPopup() && web_contents_) {
++        g_airc_autofill_suggestions_shown(web_contents_.get(),
++                                               non_filtered_suggestions_);
++      }
+       return;
+     }
+ 
+@@ -434,6 +448,11 @@
+           base::BindOnce(&AutofillSuggestionController::Hide, GetWeakPtr(),
+                          SuggestionHidingReason::kFadeTimerExpired));
+     }
++  }
++  // Airc: Airc
++  if (g_airc_autofill_suggestions_shown && IsRootPopup() && web_contents_) {
++    g_airc_autofill_suggestions_shown(web_contents_.get(),
++                                           non_filtered_suggestions_);
+   }
+   delegate_->OnSuggestionsShown(non_filtered_suggestions_, GetPopupMetadata());
+# Copyright 2026 The Airc Authors; Apache-2.0.
+--- a/chrome/browser/ui/autofill/address_bubbles_controller.cc
++++ b/chrome/browser/ui/autofill/address_bubbles_controller.cc
+@@ -312,6 +312,11 @@
+ }
+ 
+ void AddressBubblesController::MaybeShowIOSDektopAddressPromo() {
++  // A host window has no Chrome toolbar on which to anchor an iOS promo.
++  auto* window = BrowserWindow::FindBrowserWindowWithWebContents(web_contents());
++  if (!window || !window->AsBrowserView()) {
++    return;
++  }
+   BrowserWindowInterface* browser =
+       BrowserWindow::FindBrowserWindowWithWebContents(web_contents())
+           ->AsBrowserView()

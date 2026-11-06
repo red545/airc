@@ -1,0 +1,43 @@
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/content/browser/renderer_host/render_widget_host_view_base.cc
++++ b/content/browser/renderer_host/render_widget_host_view_base.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "content/browser/renderer_host/render_widget_host_view_base.h"
++#include "airc/core/airc_content_hooks.h"  // nogncheck
+ 
+ #include <optional>
+ 
+@@ -401,6 +402,9 @@
+   return bg_color ? SkColorGetA(*bg_color) == SK_AlphaOPAQUE : true;
+ }
+ 
++// Airc: Airc (engine/airc) has a translucent page background.
++bool g_airc_opacity_from_default_color = false;
++
+ void RenderWidgetHostViewBase::CopyBackgroundColorIfPresentFrom(
+     const RenderWidgetHostView& other) {
+   const RenderWidgetHostViewBase& other_base =
+@@ -414,10 +418,19 @@
+     return;
+   }
+   bool was_opaque = IsBackgroundColorOpaque();
++  // Airc: Airc
++  const auto airc_opaque = [this] {
++    return !default_background_color_ ||
++           SkColorGetA(*default_background_color_) == SK_AlphaOPAQUE;
++  };
++  if (g_airc_opacity_from_default_color) {
++    was_opaque = airc_opaque();
++  }
+   content_background_color_ = other_base.content_background_color_;
+   default_background_color_ = other_base.default_background_color_;
+   UpdateBackgroundColor();
+-  bool opaque = IsBackgroundColorOpaque();
++  bool opaque = g_airc_opacity_from_default_color ? airc_opaque()
++                                                       : IsBackgroundColorOpaque();
+   if (was_opaque != opaque && host()->owner_delegate()) {
+     host()->owner_delegate()->SetBackgroundOpaque(opaque);
+   }

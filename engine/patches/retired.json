@@ -1,0 +1,17 @@
+{
+  "chrome/browser/chrome_content_browser_client.cc": {
+    "before": "b17feacbe58f8d000c40c8eb3b1d6ac8b98a2dd734466e9eee091de951f98522",
+    "after": "82157215241656c2c30d93bd30483f3c8b86563e823d9e0a1dd2b7242fb1d514",
+    "patch": "retired/browser-client.patch"
+  },
+  "chrome/browser/chrome_browser_main.cc": {
+    "before": "6386e69814d99b3ca0f3f5d778635f5225c8a4d0810b892f552170add01f0dc3",
+    "after": "7943281cd27f6d9fafeabfdbea389b904f6e6a8fede660f408fe86bb57d92089",
+    "patch": "retired/browser-startup.patch"
+  },
+  "chrome/browser/component_updater/chrome_component_updater_configurator.cc": {
+    "before": "7bce6636be081d8dce3cac8391b943afb3e67be1ab7dbff4bbc9ca9fbb423051",
+    "after": "51d9f02d5e33ac7600cc3c689af4ddadf67831329962338fb6407f54d76fb37a",
+    "patch": "retired/widevine-updater-config.patch"
+  }
+}

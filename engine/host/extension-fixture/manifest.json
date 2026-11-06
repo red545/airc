@@ -1,0 +1,1 @@
+{"manifest_version":3,"name":"Airc synthetic action","version":"1.0","permissions":["storage","activeTab"],"action":{"default_popup":"popup.html"}}

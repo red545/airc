@@ -1,0 +1,44 @@
+{
+  "dev": {
+    "resizeFrames": 120,
+    "resizeCPUms": {
+      "median": 0.264,
+      "p95": 1.461,
+      "max": 2.382
+    },
+    "resizeObserverNotifications": [
+      10,
+      19,
+      19,
+      19
+    ],
+    "peekOpenCPUms": 12.484,
+    "moveCPUms": 0.877,
+    "videoTimeBeforeMove": 0.332485,
+    "videoTimeAfterMove": 0.657973,
+    "scrollBeforeMove": 100,
+    "scrollAfterMove": 99.5,
+    "locked": true
+  },
+  "release": {
+    "resizeFrames": 120,
+    "resizeCPUms": {
+      "median": 0.181,
+      "p95": 0.755,
+      "max": 1.246
+    },
+    "resizeObserverNotifications": [
+      10,
+      19,
+      19,
+      19
+    ],
+    "peekOpenCPUms": 10.009,
+    "moveCPUms": 0.473,
+    "videoTimeBeforeMove": 0.325196,
+    "videoTimeAfterMove": 0.644317,
+    "scrollBeforeMove": 100,
+    "scrollAfterMove": 99.5,
+    "locked": true
+  }
+}

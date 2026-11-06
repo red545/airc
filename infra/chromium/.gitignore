@@ -1,0 +1,6 @@
+state.json
+pending-update.md
+*.log
+.*.lock
+__pycache__/
+reports/

@@ -1,0 +1,188 @@
+{
+  "version": 1,
+  "profiles": [
+    "Personal",
+    "Work",
+    "Research"
+  ],
+  "spaces": [
+    {
+      "id": 0,
+      "profile": 0
+    },
+    {
+      "id": 1,
+      "profile": 0
+    },
+    {
+      "id": 2,
+      "profile": 1
+    },
+    {
+      "id": 3,
+      "profile": 1
+    },
+    {
+      "id": 4,
+      "profile": 2
+    },
+    {
+      "id": 5,
+      "profile": 2
+    }
+  ],
+  "tabs": [
+    {
+      "url": "https://en.wikipedia.org/wiki/Web_browser",
+      "space": 0,
+      "recent": true
+    },
+    {
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript",
+      "space": 1,
+      "recent": true
+    },
+    {
+      "url": "https://github.com/swiftlang/swift",
+      "space": 2,
+      "recent": true
+    },
+    {
+      "url": "https://news.ycombinator.com/",
+      "space": 3,
+      "recent": true
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Computer_memory",
+      "space": 4,
+      "recent": true
+    },
+    {
+      "url": "https://developer.mozilla.org/en-US/docs/Web/CSS",
+      "space": 5,
+      "recent": true
+    },
+    {
+      "url": "https://github.com/WebKit/WebKit",
+      "space": 0,
+      "recent": true
+    },
+    {
+      "url": "https://www.bbc.com/news",
+      "space": 1,
+      "recent": true
+    },
+    {
+      "url": "https://www.youtube.com/",
+      "space": 2,
+      "recent": false
+    },
+    {
+      "url": "https://www.youtube.com/feed/trending",
+      "space": 3,
+      "recent": false
+    },
+    {
+      "url": "https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit",
+      "space": 4,
+      "recent": false
+    },
+    {
+      "url": "https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/htmlview",
+      "space": 5,
+      "recent": false
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Swift_(programming_language)",
+      "space": 0,
+      "recent": false
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Chromium_(web_browser)",
+      "space": 1,
+      "recent": false
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/MacOS",
+      "space": 2,
+      "recent": false
+    },
+    {
+      "url": "https://developer.mozilla.org/en-US/docs/Web/HTML",
+      "space": 3,
+      "recent": false
+    },
+    {
+      "url": "https://developer.mozilla.org/en-US/docs/Web/API",
+      "space": 4,
+      "recent": false
+    },
+    {
+      "url": "https://developer.mozilla.org/en-US/docs/Web/Performance",
+      "space": 5,
+      "recent": false
+    },
+    {
+      "url": "https://github.com/chromium/chromium",
+      "space": 0,
+      "recent": false
+    },
+    {
+      "url": "https://github.com/apple/swift-nio",
+      "space": 1,
+      "recent": false
+    },
+    {
+      "url": "https://github.com/mozilla/gecko-dev",
+      "space": 2,
+      "recent": false
+    },
+    {
+      "url": "https://www.theguardian.com/international",
+      "space": 3,
+      "recent": false
+    },
+    {
+      "url": "https://www.npr.org/",
+      "space": 4,
+      "recent": false
+    },
+    {
+      "url": "https://www.reuters.com/",
+      "space": 5,
+      "recent": false
+    },
+    {
+      "url": "https://arstechnica.com/",
+      "space": 0,
+      "recent": false
+    },
+    {
+      "url": "https://www.theverge.com/",
+      "space": 1,
+      "recent": false
+    },
+    {
+      "url": "https://www.nature.com/news",
+      "space": 2,
+      "recent": false
+    },
+    {
+      "url": "https://www.bbc.com/sport",
+      "space": 3,
+      "recent": false
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Garbage_collection_(computer_science)",
+      "space": 4,
+      "recent": false
+    },
+    {
+      "url": "https://developer.mozilla.org/en-US/docs/Web/API/Performance",
+      "space": 5,
+      "recent": false
+    }
+  ],
+  "page_timeout_seconds": 20,
+  "notes": "Public unauthenticated pages only, including the public Google Sheets API example sheet. Never authenticate. Chrome loads all 30; Airc should retain 22 unloaded entries."
+}

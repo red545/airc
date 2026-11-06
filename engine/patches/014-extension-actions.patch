@@ -1,0 +1,91 @@
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/chrome/browser/extensions/api/extension_action/extension_action_api.cc
++++ b/chrome/browser/extensions/api/extension_action/extension_action_api.cc
+@@ -3,11 +3,13 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/extensions/api/extension_action/extension_action_api.h"
++#include "airc/core/airc_hooks.h"  // nogncheck
+ 
+ #include <stddef.h>
+ 
+ #include <algorithm>
+ #include <memory>
++#include <optional>
+ #include <string>
+ #include <utility>
+ 
+@@ -60,6 +62,14 @@
+ using content::WebContents;
+ using extensions::browser_window_util::GetLastActiveBrowserWithProfile;
+ 
++// Airc: Airc (engine/airc) shows action popups in the host's own panel. Empty: not
++// its Browser; true: shown (it runs `callback`); false: refused, with `error`.
++std::optional<bool> (*g_airc_open_action_popup)(
++    BrowserWindowInterface& browser,
++    const extensions::Extension& extension,
++    ShowPopupCallback& callback,
++    std::string* error) = nullptr;
++
+ namespace extensions {
+ 
+ namespace {
+@@ -140,6 +150,13 @@
+                         const Extension& extension,
+                         std::string* error,
+                         ShowPopupCallback callback) {
++  // Airc: Airc
++  if (g_airc_open_action_popup) {
++    if (std::optional<bool> shown = g_airc_open_action_popup(
++            browser, extension, callback, error)) {
++      return *shown;
++    }
++  }
+ #if !BUILDFLAG(IS_ANDROID)
+   // On Android, the extension toolbar exists if and only if ExtensionsContainer
+   // exists, so the check below is sufficient.
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/chrome/browser/ui/views/extensions/extension_action_delegate_desktop.cc
++++ b/chrome/browser/ui/views/extensions/extension_action_delegate_desktop.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/ui/views/extensions/extension_action_delegate_desktop.h"
++#include "airc/core/airc_hooks.h"  // nogncheck
+ 
+ #include <utility>
+ 
+@@ -207,6 +208,9 @@
+ 
+ bool ExtensionActionDelegateDesktop::AcceleratorPressed(
+     const ui::Accelerator& accelerator) {
++  if (g_airc_reserved_accelerator && g_airc_reserved_accelerator(accelerator)) {
++    return false;
++  }
+   return model_->TryHandleAcceleratorPress();
+ }
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/chrome/browser/extensions/extension_action_storage_manager.cc
++++ b/chrome/browser/extensions/extension_action_storage_manager.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/extensions/extension_action_storage_manager.h"
++#include "airc/core/airc_hooks.h"  // nogncheck
+ 
+ #include <stdint.h>
+ 
+@@ -270,6 +271,10 @@
+     return;
+ 
+   SetDefaultsFromValue(value->GetDict(), action);
++  if (g_airc_embedder) {
++    ExtensionActionDispatcher::Get(browser_context_)
++        ->NotifyChange(action, nullptr, browser_context_);
++  }
+ }
+ 
+ StateStore* ExtensionActionStorageManager::GetStateStore() {

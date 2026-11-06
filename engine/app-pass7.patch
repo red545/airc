@@ -1,0 +1,32 @@
+--- a/apps/browser/Sources/Airc/App/main.swift
++++ b/apps/browser/Sources/Airc/App/main.swift
+@@ -1,7 +1,4 @@
+ import AppKit
+-#if canImport(AircCore)
+-import AircCore
+-#endif
+ 
+ AppPaths.prepare(LaunchOptions.current)
+ 
+@@ -10,20 +7,12 @@
+     // Chromium runs the app: AircEngine.run owns the message loop and installs its NSApplication subclass, so
+     // NSApplication must not exist before it. The app starts in engineDidStart.
+     var delegate: AppDelegate?
+-    let runtime = ChromiumRuntime {
++    let status = ChromiumRuntime.run(arguments: AppPaths.chromiumArguments(LaunchOptions.current)) {
+         delegate = AppDelegate()
+         NSApp.delegate = delegate
+         NSApp.setActivationPolicy(.regular)
+         delegate?.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+     }
+-    let strings = AppPaths.chromiumArguments(LaunchOptions.current).map { strdup($0)! }
+-    var argv: [UnsafePointer<CChar>?] = strings.map { UnsafePointer($0) } + [nil]
+-    let status = argv.withUnsafeMutableBufferPointer { buffer in
+-        buffer.baseAddress!.withMemoryRebound(to: UnsafePointer<CChar>.self, capacity: buffer.count) {
+-            AircEngine.run(argc: Int32(strings.count), argv: $0, delegate: runtime)
+-        }
+-    }
+-    strings.forEach { free($0) }
+     delegate?.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
+     exit(status)
+ }

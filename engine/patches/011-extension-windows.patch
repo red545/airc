@@ -1,0 +1,62 @@
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/chrome/browser/extensions/browser_window_util.cc
++++ b/chrome/browser/extensions/browser_window_util.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/extensions/browser_window_util.h"
++#include "airc/core/airc_hooks.h"  // nogncheck
+ 
+ #include "chrome/browser/profiles/profile.h"
+ #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
+@@ -34,6 +35,12 @@
+ 
+   if (restrict_to_normal_browsers &&
+       browser.GetType() != BrowserWindowInterface::TYPE_NORMAL) {
++    return false;
++  }
++
++  // Airc: Airc. The host's own hidden pages are no extension's window.
++  if (g_airc_hidden_from_extensions &&
++      g_airc_hidden_from_extensions(&browser)) {
+     return false;
+   }
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/chrome/browser/ui/extensions/extension_install_ui_desktop.cc
++++ b/chrome/browser/ui/extensions/extension_install_ui_desktop.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/ui/extensions/extension_install_ui_desktop.h"
++#include "airc/core/airc_hooks.h"  // nogncheck
+ 
+ #include <string>
+ #include <utility>
+@@ -63,6 +64,12 @@
+ #include "chrome/common/url_constants.h"
+ #endif
+ 
++// Airc: Airc (engine/airc) shows the post-install UI for the windows it hosts.
++bool (*g_airc_extension_installed)(
++    Profile* profile,
++    scoped_refptr<const extensions::Extension> extension,
++    const SkBitmap* icon) = nullptr;
++
+ using content::BrowserThread;
+ using content::WebContents;
+ using extensions::Extension;
+@@ -130,6 +137,12 @@
+     return;
+   }
+ 
++  // Airc: Airc
++  if (g_airc_extension_installed &&
++      g_airc_extension_installed(profile(), extension, icon)) {
++    return;
++  }
++
+   // Extensions aren't enabled by default in incognito so we confirm
+   // the install in a normal window.
+   Profile* current_profile = profile()->GetOriginalProfile();

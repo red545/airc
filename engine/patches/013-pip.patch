@@ -1,0 +1,127 @@
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/chrome/browser/picture_in_picture/auto_picture_in_picture_tab_strip_observer_helper.h
++++ b/chrome/browser/picture_in_picture/auto_picture_in_picture_tab_strip_observer_helper.h
+@@ -46,6 +46,10 @@
+       const TabStripModelChange& change,
+       const TabStripSelectionChange& selection) override;
+ 
++  // Airc: Airc's host showed or hid `contents`: if it is this helper's tab, read it
++  // again, as on a strip change (true).
++  bool AircHostVisibilityChanged(content::WebContents* contents);
++
+  private:
+   void UpdateIsTabActivated(const TabStripModel* tab_strip_model);
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/chrome/browser/picture_in_picture/auto_picture_in_picture_tab_strip_observer_helper.cc
++++ b/chrome/browser/picture_in_picture/auto_picture_in_picture_tab_strip_observer_helper.cc
+@@ -3,6 +3,11 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/picture_in_picture/auto_picture_in_picture_tab_strip_observer_helper.h"
++#include "airc/core/airc_hooks.h"  // nogncheck
++
++#include <set>
++
++#include "base/no_destructor.h"
+ 
+ #include "chrome/browser/ui/browser_tab_strip_tracker.h"
+ #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
+@@ -10,6 +15,40 @@
+ #include "chrome/browser/ui/tabs/tab_strip_model.h"
+ #include "components/tabs/public/split_tab_data.h"
+ #include "components/tabs/public/tab_interface.h"
++
++// Airc: Airc (engine/airc) shows tabs itself: 1 shown, 0 hidden, -1 the strip decides.
++int (*g_airc_tab_shown_by_host)(content::WebContents*) = nullptr;
++
++namespace {
++// Airc: Airc: the helpers observing a strip, to tell of the host's changes.
++std::set<AutoPictureInPictureTabStripObserverHelper*>& AircObserving() {
++  static base::NoDestructor<std::set<AutoPictureInPictureTabStripObserverHelper*>> helpers;
++  return *helpers;
++}
++}  // namespace
++
++// Airc: Airc
++void AircAutoPictureInPictureHostVisibilityChanged(
++    content::WebContents* contents) {
++  for (AutoPictureInPictureTabStripObserverHelper* helper : AircObserving()) {
++    if (helper->AircHostVisibilityChanged(contents)) {
++      return;
++    }
++  }
++}
++
++bool AutoPictureInPictureTabStripObserverHelper::AircHostVisibilityChanged(
++    content::WebContents* contents) {
++  if (!is_observing_ || GetObservedWebContents() != contents) {
++    return false;
++  }
++  const bool old_is_tab_activated = is_tab_activated_;
++  UpdateIsTabActivated(GetCurrentTabStripModel());
++  if (is_tab_activated_ != old_is_tab_activated) {
++    RunCallback(is_tab_activated_);
++  }
++  return true;
++}
+ 
+ // static
+ std::unique_ptr<AutoPictureInPictureTabObserverHelperBase>
+@@ -37,6 +76,7 @@
+     return;
+   }
+   is_observing_ = true;
++  AircObserving().insert(this);  // Airc: Airc
+ 
+   auto* tab_strip_model = GetCurrentTabStripModel();
+   UpdateIsTabActivated(tab_strip_model);
+@@ -49,6 +89,7 @@
+     return;
+   }
+   is_observing_ = false;
++  AircObserving().erase(this);  // Airc: Airc
+ 
+   if (observed_tab_strip_model_) {
+     observed_tab_strip_model_->RemoveObserver(this);
+@@ -105,6 +146,14 @@
+   // until it's been placed back into a tabstrip to prevent triggering the
+   // callback unnecessarily.
+   if (tab_strip_model) {
++    // Airc: Airc (a split's other pane is shown, a tab under the host's own page isn't)
++    const int shown = g_airc_tab_shown_by_host
++                          ? g_airc_tab_shown_by_host(GetObservedWebContents())
++                          : -1;
++    if (shown >= 0) {
++      is_tab_activated_ = shown == 1;
++      return;
++    }
+     // If there is not currently a selected tab, then the tabstrip is still
+     // starting up and we should not change our state.
+     if (tab_strip_model->active_index() == TabStripModel::kNoTab) {
+@@ -164,7 +213,13 @@
+     return nullptr;
+   }
+ 
+-  return observed_tab_strip_model_->GetActiveWebContents();
++  content::WebContents* active = observed_tab_strip_model_->GetActiveWebContents();
++  // Airc: Airc (a tab the host hides isn't the one the user went to)
++  if (active && g_airc_tab_shown_by_host &&
++      g_airc_tab_shown_by_host(active) == 0) {
++    return nullptr;
++  }
++  return active;
+ }
+ 
+ bool AutoPictureInPictureTabStripObserverHelper::IsTabActivated() {
+--- a/chrome/browser/picture_in_picture/auto_picture_in_picture_tab_helper.cc
++++ b/chrome/browser/picture_in_picture/auto_picture_in_picture_tab_helper.cc
+@@ -5,1 +5,2 @@
+-#include "chrome/browser/picture_in_picture/auto_picture_in_picture_tab_helper.h"
++#include "chrome/browser/picture_in_picture/auto_picture_in_picture_tab_helper.h"
++#include "airc/core/airc_content_hooks.h"  // nogncheck
+@@ -665,1 +666,2 @@
+-  // Don't try to autopip if picture-in-picture is currently disabled.
++  if (g_airc_auto_pip_allowed && !g_airc_auto_pip_allowed(web_contents())) return false;
++  // Don't try to autopip if picture-in-picture is currently disabled.

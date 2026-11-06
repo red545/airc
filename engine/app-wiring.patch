@@ -1,0 +1,87 @@
+--- a/apps/browser/Sources/Airc/App/main.swift
++++ b/apps/browser/Sources/Airc/App/main.swift
+@@ -1,7 +1,20 @@
+ import AppKit
+ 
+-// With the Chromium engine, AircEngine runs the app (+[AircEngine runWithArgc:argv:delegate:]);
+-// with the WebKit dev engine, a normal NSApplication does.
++#if canImport(AircCore)
++if ChromiumRuntime.requested {
++    // Do not instantiate NSApplication before Chromium installs BrowserCrApplication.
++    var delegate: AppDelegate?
++    let status = ChromiumRuntime.run {
++        delegate = AppDelegate()
++        NSApp.delegate = delegate
++        NSApp.setActivationPolicy(.regular)
++        delegate?.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
++    }
++    delegate?.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
++    exit(status)
++}
++#endif
++
+ let app = NSApplication.shared
+ let delegate = AppDelegate()
+ app.delegate = delegate
+--- a/apps/browser/Sources/Airc/App/AppDelegate.swift
++++ b/apps/browser/Sources/Airc/App/AppDelegate.swift
+@@ -84,7 +84,12 @@
+         settings = AppSettings(directory: AppPaths.dataDirectory)
+         history = (try? HistoryStore(path: AppPaths.history.path)) ?? (try! HistoryStore(path: nil))
+         // Scripted runs never keep web data (cookies, caches), even when the store persists.
++        #if canImport(AircCore)
++        if ChromiumRuntime.requested { engine = ChromiumEngine() }
++        else { engine = WebKitEngine(ephemeral: options.ephemeral || options.snapshotDir != nil) }
++        #else
+         engine = WebKitEngine(ephemeral: options.ephemeral || options.snapshotDir != nil)
++        #endif
+         profiles = ProfileHost(store: store, engine: engine)
+         NSApp.mainMenu = MainMenu.build(app: self)
+         keyMonitor = KeyMonitor.install(app: self)
+--- a/scripts/build-app.sh
++++ b/scripts/build-app.sh
+@@ -30,7 +30,13 @@
+ fi
+ 
+ echo "== swift build ($CONFIG)"
+-swift build --package-path "$ROOT/apps/browser" -c "$CONFIG" 2>&1 | grep -vE "^\[[0-9]+/[0-9]+\] (Compiling|Emitting)" | tail -40
++ENGINE_FLAGS=()
++if [[ -n "${CHROMIUM_OUT:-}" ]]; then
++  ENGINE_FLAGS=(-Xswiftc -I -Xswiftc "$ROOT/engine/core/public"
++    -Xlinker "$CHROMIUM_OUT/Airc Framework.framework/Airc Framework"
++    -Xlinker -rpath -Xlinker @executable_path/../Frameworks)
++fi
++swift build --package-path "$ROOT/apps/browser" -c "$CONFIG" "${ENGINE_FLAGS[@]}" 2>&1 | grep -vE "^\[[0-9]+/[0-9]+\] (Compiling|Emitting)" | tail -40
+ [[ ${PIPESTATUS[0]} == 0 ]] || { echo "build failed" >&2; exit 1; }
+ BIN="$(swift build --package-path "$ROOT/apps/browser" -c "$CONFIG" --show-bin-path)/Airc"
+ 
+@@ -43,7 +49,11 @@
+ GIT_REV="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo dev)"
+ /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(date +%Y%m%d%H%M)" "$APP/Contents/Info.plist"
+ /usr/libexec/PlistBuddy -c "Add :AircRevision string $GIT_REV" "$APP/Contents/Info.plist" 2>/dev/null || true
+-codesign --force --sign - --timestamp=none "$APP"
++if [[ -n "${CHROMIUM_OUT:-}" ]]; then
++  "$ROOT/engine/embed-framework.sh" "$APP" "$CHROMIUM_OUT"
++else
++  codesign --force --sign - --timestamp=none "$APP"
++fi
+ codesign --verify "$APP" && echo "signed (ad hoc)"
+ 
+ if [[ -n "$SNAPSHOTS" ]]; then
+--- a/apps/browser/Sources/Airc/Browser/WindowController.swift
++++ b/apps/browser/Sources/Airc/Browser/WindowController.swift
+@@ -170,6 +170,14 @@
+ 
+     func windowDidExitFullScreen(_ notification: Notification) { positionTrafficLights() }
+ 
++    func windowShouldClose(_ sender: NSWindow) -> Bool {
++        #if canImport(AircCore)
++        return ChromiumRuntime.closeWindow(engineWindow)
++        #else
++        return true
++        #endif
++    }
++
+     func windowWillClose(_ notification: Notification) {
+         saveWindowFrame()
+         try? store.flush()

@@ -1,0 +1,22 @@
+// Copyright 2026 Mantra Patel
+// SPDX-License-Identifier: Apache-2.0
+// Modified by The Airc Authors
+
+module airc.mojom;
+
+interface AircRendererConfig {
+  SetPageScript(string script);
+};
+
+interface AircPageHost {
+  Post(string kind, string json);
+};
+
+interface AircPage {
+  CallPage(string kind, string json);
+  Execute(string code);
+  Evaluate(string code) => (string? json);
+  PictureInPictureDocument() => (string? document);
+  EnterPictureInPictureForUser(string document) => (bool opened);
+  SetPageColor(string color);
+};

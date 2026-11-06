@@ -1,0 +1,32 @@
+--- a/apps/browser/Sources/Airc/Engine/BrowserEngine.swift
++++ b/apps/browser/Sources/Airc/Engine/BrowserEngine.swift
+@@ -19,6 +19,14 @@
+ protocol BrowserEngine: AnyObject {
+     /// "WebKit" or "Chromium <version>", for About and logs.
+     var name: String { get }
++    func installedExtensions(for profile: EngineProfile) -> [[String: Any]]
++    func extensionActions(_ ids: [String], for tab: EngineTab) -> [String: [String: Any]]
++    func extensionActionIcon(_ state: [String: Any]) -> NSImage?
++    @discardableResult func executeExtensionAction(_ id: String, for tab: EngineTab) -> String
++    @discardableResult func presentExtensionAction(_ id: String, for tab: EngineTab,
++                                                   anchorRect: NSRect, in view: NSView) -> Bool
++    func closeExtensionPopup(in window: EngineWindow)
++
+     var reportsPageShortcuts: Bool { get }
+     /// Loads (or creates) the profile stored in `directory` (AircEngine -loadProfile:completion:).
+     /// Directory names are fixed per profile and never reused.
+@@ -31,6 +39,14 @@
+ }
+ 
+ extension BrowserEngine {
++    func installedExtensions(for profile: EngineProfile) -> [[String: Any]] { [] }
++    func extensionActions(_ ids: [String], for tab: EngineTab) -> [String: [String: Any]] { [:] }
++    func extensionActionIcon(_ state: [String: Any]) -> NSImage? { nil }
++    func executeExtensionAction(_ id: String, for tab: EngineTab) -> String { "none" }
++    func presentExtensionAction(_ id: String, for tab: EngineTab,
++                                anchorRect: NSRect, in view: NSView) -> Bool { false }
++    func closeExtensionPopup(in window: EngineWindow) {}
++
+     /// CB-3: the engine tells the app whether a page used a ⌘/⌃ shortcut (EngineTabDelegate
+     /// tab(_:didReceiveShortcut:pageUsedIt:)). Without it the browser's shortcuts always come first.
+     var reportsPageShortcuts: Bool { false }

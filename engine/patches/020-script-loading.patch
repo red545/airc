@@ -1,0 +1,71 @@
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/extensions/browser/extension_user_script_loader.cc
++++ b/extensions/browser/extension_user_script_loader.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "extensions/browser/extension_user_script_loader.h"
++#include "airc/core/airc_content_hooks.h"  // nogncheck
+ 
+ #include <stddef.h>
+ 
+@@ -58,6 +59,8 @@
+ 
+ using content::BrowserContext;
+ 
++bool g_airc_script_loader_ready_at_once = false;
++
+ namespace extensions {
+ 
+ namespace {
+@@ -571,6 +574,11 @@
+   // Wait for the extension system to be ready before declaring this loader
+   // ready. This ensures that other parts of the system (like the state store or
+   // content verifier) are available.
++  if (g_airc_script_loader_ready_at_once &&
++      ExtensionSystem::Get(browser_context)->ready().is_signaled()) {
++    OnExtensionSystemReady();
++    return;
++  }
+   ExtensionSystem::Get(browser_context)
+       ->ready()
+       .Post(FROM_HERE,
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/chrome/browser/extensions/user_script_listener.cc
++++ b/chrome/browser/extensions/user_script_listener.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/extensions/user_script_listener.h"
++#include "airc/core/airc_content_hooks.h"  // nogncheck
+ 
+ #include <memory>
+ 
+@@ -27,6 +28,8 @@
+ 
+ using content::NavigationThrottle;
+ 
++bool g_airc_scripts_wait_at_response = false;
++
+ namespace extensions {
+ 
+ class UserScriptListener::Throttle : public NavigationThrottle {
+@@ -49,7 +52,15 @@
+   // NavigationThrottle implementation:
+   ThrottleCheckResult WillStartRequest() override {
+     // Only defer requests if Resume has not yet been called.
+-    if (should_defer_) {
++    if (should_defer_ && !g_airc_scripts_wait_at_response) {
++      did_defer_ = true;
++      return DEFER;
++    }
++    return PROCEED;
++  }
++
++  ThrottleCheckResult WillProcessResponse() override {
++    if (should_defer_ && g_airc_scripts_wait_at_response) {
+       did_defer_ = true;
+       return DEFER;
+     }

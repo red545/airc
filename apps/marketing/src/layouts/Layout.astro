@@ -1,0 +1,96 @@
+---
+import { getImage, Image } from "astro:assets";
+import "@fontsource-variable/inter/wght.css";
+import "../styles/global.css";
+import iconSmall from "../assets/icon-small.png";
+import heroLight from "../assets/shots/hero-light.webp";
+import { CONTACT_EMAIL, TAGLINE, WAITLIST_URL } from "../lib/site";
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = "Airc: the Arc-style browser for macOS",
+  description = "Arc's sidebar, Spaces with their own logins, and the command bar, on Chromium. Import from Arc in a minute. Built and maintained by AI, open source at launch.",
+} = Astro.props;
+
+// Link unfurlers want a 1200 × 630 JPG at an absolute URL.
+const social = await getImage({ src: heroLight, width: 1200, height: 630, fit: "cover", format: "jpg", quality: 85 });
+const socialUrl = new URL(social.src, Astro.site);
+const canonical = new URL(Astro.url.pathname, Astro.site);
+const year = new Date().getFullYear();
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#FCFBFA" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#110F0E" media="(prefers-color-scheme: dark)" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Airc" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={socialUrl} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="The Airc browser window: a mint-green sidebar with Favorites, pinned tabs and today's tabs, next to the page." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={socialUrl} />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="nav">
+      <div class="nav-inner">
+        <a href="/" class="brand" aria-label="Airc home">
+          <Image src={iconSmall} alt="" width={28} height={28} densities={[1, 2]} format="png" loading="eager" />
+          <span>Airc</span>
+        </a>
+        <nav class="nav-links" aria-label="Sections">
+          <a href="#arc">Import</a>
+          <a href="#spaces">Spaces</a>
+          <a href="#sidebar">Sidebar</a>
+          <a href="#ai">How it's built</a>
+          <a href="#faq">FAQ</a>
+        </nav>
+        <a class="btn btn-quiet btn-sm" href={WAITLIST_URL}>Join the waitlist</a>
+      </div>
+    </header>
+
+    <main id="main">
+      <slot />
+    </main>
+
+    <footer class="footer">
+      <div class="container footer-inner">
+        <div class="footer-brand">
+          <Image src={iconSmall} alt="" width={24} height={24} densities={[1, 2]} format="png" />
+          <div>
+            <p><strong>Airc</strong> · {TAGLINE}.</p>
+            <p class="muted">A browser for macOS. Open source at launch, Apache-2.0.</p>
+          </div>
+        </div>
+        <div class="footer-meta">
+          <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
+          <p class="muted">
+            © {year} Airc. Arc is a trademark of The Browser Company. Airc is an independent project, not affiliated
+            with or endorsed by The Browser Company.
+          </p>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

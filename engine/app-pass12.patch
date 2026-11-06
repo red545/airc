@@ -1,0 +1,110 @@
+--- a/apps/browser/Sources/Airc/Engine/BrowserEngine.swift
++++ b/apps/browser/Sources/Airc/Engine/BrowserEngine.swift
+@@ -91,9 +91,14 @@
+     /// The page opened a tab. App-initiated `openTab` calls don't come back through here.
+     func engineWindow(_ window: EngineWindow, didInsertTab tab: EngineTab, opener: EngineTab?,
+                       disposition: TabDisposition)
+-    /// The page closed itself (window.close()).
++    /// The page closed itself or completed a host-requested close.
+     func engineWindow(_ window: EngineWindow, tabRequestedClose tab: EngineTab)
++    func engineWindow(_ window: EngineWindow, tabCancelledClose tab: EngineTab)
+     func engineWindow(_ window: EngineWindow, tab: EngineTab, didChangeFullscreen fullscreen: Bool)
++}
++
++extension EngineWindowDelegate {
++    func engineWindow(_ window: EngineWindow, tabCancelledClose tab: EngineTab) {}
+ }
+ 
+ protocol EngineWindow: AnyObject {
+--- a/apps/browser/Sources/Airc/Engine/ChromiumEngine.swift
++++ b/apps/browser/Sources/Airc/Engine/ChromiumEngine.swift
+@@ -100,6 +100,19 @@
+     // the user explicitly supplies an edited value to resolvePasswordPrompt.
+     var passwordPromptDidChange: ((EngineTab, [String: Any]) -> Void)?
+     var autofillPromptDidChange: ((EngineTab, [String: Any]) -> Void)?
++    // Opt-in only after installing a picker. Rows contain an opaque "index" string;
++    // empty rows dismiss it. Call accept after a deliberate user selection.
++    var usesHostPasswordSuggestions = false
++    @discardableResult func acceptAutofillSuggestion(in tab: EngineTab, index: Int) -> Bool {
++        (tab as? ChromiumTab)?.core.acceptAutofillSuggestion(index) ?? false
++    }
++    func hideAutofillSuggestions(in tab: EngineTab) {
++        (tab as? ChromiumTab)?.core.hideAutofillSuggestions()
++    }
++    func enterPictureInPictureForHost(_ tab: EngineTab, completion: @escaping (String, Bool) -> Void) {
++        guard let tab = tab as? ChromiumTab else { completion("none", false); return }
++        tab.core.enterPictureInPicture(forHost: completion)
++    }
+     var autofillSuggestionsDidChange: ((EngineTab, [[String: String]]) -> Void)?
+     func passwordPrompt(for tab: EngineTab) -> [String: Any]? {
+         (tab as? ChromiumTab)?.core.passwordPrompt
+@@ -376,17 +389,12 @@
+     }
+     func window(_ window: AircWindow, didRemove tab: AircTab) {
+         let key = ObjectIdentifier(tab)
+-        let wrapper = wrappedTabs[key]
+         DispatchQueue.main.async { [weak self] in
+             guard let self else { return }
+             // Moved out and straight back (moveTab): still ours.
+             if let profile = tab.profile, self.core.tabs(for: profile).contains(where: { $0 === tab }) { return }
+             if self.selected?.core === tab { self.selected = nil }
+             self.wrappedTabs.removeValue(forKey: key)
+-            // A close the app asked for (⌘W, Clear Today) isn't reported through tabWillClose: the engine reports only
+-            // the page closing itself. Its removal is the sign that its unload handlers let it go ("Leave"). The app
+-            // ignores a page it has already forgotten.
+-            if let wrapper, wrapper.owner === self, tab.closed { self.delegate?.engineWindow(self, tabRequestedClose: wrapper) }
+         }
+     }
+     fileprivate func pageClosed(_ tab: ChromiumTab) {
+@@ -545,6 +553,16 @@
+     }
+     func tabDidChangeDiscarded(_ tab: AircTab) { owner?.engine.discardedStateDidChange?(self) }
+     func tabWillClose(_ tab: AircTab) { dismissDevTools(); owner?.pageClosed(self) }
++    func tabDidClose(forHost tab: AircTab) { dismissDevTools(); owner?.pageClosed(self) }
++    func tabDidCancelClose(_ tab: AircTab) {
++        DispatchQueue.main.async { [weak self] in
++            guard let self, let owner = self.owner else { return }
++            owner.delegate?.engineWindow(owner, tabCancelledClose: self)
++        }
++    }
++    func tabWantsPasswordSuggestions(_ tab: AircTab) -> Bool {
++        owner?.engine.usesHostPasswordSuggestions == true
++    }
+     func tabDidChangeTitle(_ tab: AircTab) { delegate?.tabDidChangeTitle(self) }
+     func tabDidChangeURL(_ tab: AircTab) { delegate?.tabDidChangeURL(self) }
+     func tabDidChangeLoading(_ tab: AircTab) { delegate?.tabDidChangeLoading(self) }
+--- a/apps/browser/Sources/Airc/Browser/WindowController.swift
++++ b/apps/browser/Sources/Airc/Browser/WindowController.swift
+@@ -747,7 +747,7 @@
+             if page.isClosed { closingTabs.remove(id); ready.append(id); continue }
+             archiveNow(ready, reason: reason, label: label)
+             archiveQueue = ArchiveQueue(current: id, rest: Array(ids[(n + 1)...]), reason: reason, label: label, returnTo: returnTo ?? shownTabID)
+-            watchForStay(id)
++            if !(app?.engine is ChromiumEngine) { watchForStay(id) }
+             // A page that only runs its handlers closes within a moment; one that asks shows the question with its tab.
+             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                 guard let self, self.archiveQueue?.current == id, self.pages[id]?.isClosed == false else { return }
+@@ -1070,6 +1070,12 @@
+         }
+     }
+ 
++    func engineWindow(_ window: EngineWindow, tabCancelledClose tab: EngineTab) {
++        guard let id = tabID(for: tab) else { return }
++        closingTabs.remove(id)
++        if archiveQueue?.current == id { stopArchiveQueue(stayedOn: id) }
++    }
++
+     func engineWindow(_ window: EngineWindow, tabRequestedClose tab: EngineTab) {
+         if peek?.page === tab { return peekPageClosed(tab) }
+         guard let id = tabID(for: tab) else { return }
+--- a/apps/browser/Sources/Airc/Browser/Peek.swift
++++ b/apps/browser/Sources/Airc/Browser/Peek.swift
+@@ -117,7 +117,7 @@
+         if request.disposition == "window" { return true }
+         // A pinned tab or Favorite opening another site in a new tab.
+         let pinned = store.tab(openerID)?.itemID != nil
+-        return pinned && request.disposition == "foreground_tab" && Self.crossSite(opener.url, request.url)
++        return pinned && (request.disposition == "current_tab" || (request.disposition == "foreground_tab" && Self.crossSite(opener.url, request.url)))
+     }
+ 
+     /// Different sites: the last two labels of the host (or the whole host for an IP address or a one-label host).

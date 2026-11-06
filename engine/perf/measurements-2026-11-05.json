@@ -1,0 +1,760 @@
+{
+  "date": "2026-11-05",
+  "airc_version": "156.0.8078.88",
+  "chrome_version": "156.0.8078.80",
+  "display": "locked/asleep",
+  "core_blob": "bd6a28c1cc2dc4c4e5371982046720c4faff59bd",
+  "qualification": "Diagnostic only; see PERFORMANCE.md for failed DOM checks, process churn and shared-machine caveats. CPU corrected with independently calibrated 125/3 timebase where needed.",
+  "runs": {
+    "engine-before-two": {
+      "first_renderer_capture_s": 1.4270542080048472,
+      "elapsed_s": 60.09222824999597,
+      "groups": {
+        "browser": {
+          "MB": 93.783648,
+          "count": 1
+        },
+        "GPU": {
+          "MB": 52.053336,
+          "count": 1
+        },
+        "network": {
+          "MB": 26.068288,
+          "count": 1
+        },
+        "utility": {
+          "MB": 32.083016,
+          "count": 3
+        },
+        "renderer": {
+          "MB": 219.66955200000004,
+          "count": 6
+        }
+      },
+      "total_MB": 423.65784,
+      "CPU_percent": 0.5136254870030065,
+      "interrupt_wakeups_per_s": 8.703288515516732,
+      "package_idle_wakeups_per_s": 0.8819776124711027,
+      "idle_disk_written": 131072,
+      "data_bytes": 16332542,
+      "data_allocated": 21114880,
+      "process_churn": [],
+      "pages": 2,
+      "flags": [],
+      "all": false,
+      "chrome": false,
+      "CPU_correction": "Raw counters mislabeled cpu_ns were Mach ticks; multiplied by 125/3",
+      "model_named_bytes": 0,
+      "pages_without_error": 2,
+      "page_failures": [],
+      "total_processes": 12,
+      "live_process_disk_written": 10211328
+    },
+    "engine-measured-two": {
+      "first_renderer_capture_s": 0.5929838750162162,
+      "elapsed_s": 60.064407958998345,
+      "groups": {
+        "browser": {
+          "MB": 78.743064,
+          "count": 1
+        },
+        "GPU": {
+          "MB": 59.393368,
+          "count": 1
+        },
+        "network": {
+          "MB": 34.538648,
+          "count": 1
+        },
+        "utility": {
+          "MB": 76.1726,
+          "count": 3
+        },
+        "renderer": {
+          "MB": 254.95896000000002,
+          "count": 5
+        }
+      },
+      "total_MB": 503.80664,
+      "CPU_percent": 0.3620634189026753,
+      "interrupt_wakeups_per_s": 7.125684153786462,
+      "package_idle_wakeups_per_s": 1.6815282699355905,
+      "idle_disk_written": 86016,
+      "data_bytes": 17604556,
+      "data_allocated": 22560768,
+      "process_churn": [],
+      "pages": 2,
+      "live_process_disk_written": 13426688,
+      "first_contentful_paint_s": 0.5734939575195312,
+      "flags": [],
+      "all": false,
+      "chrome": false,
+      "model_named_bytes": 0,
+      "pages_without_error": 2,
+      "page_failures": [],
+      "total_processes": 11
+    },
+    "engine-chrome-two": {
+      "first_renderer_capture_s": 2.1953919579973444,
+      "elapsed_s": 60.099891916965134,
+      "groups": {
+        "browser": {
+          "MB": 135.907128,
+          "count": 1
+        },
+        "GPU": {
+          "MB": 117.163424,
+          "count": 1
+        },
+        "network": {
+          "MB": 31.360104,
+          "count": 1
+        },
+        "utility": {
+          "MB": 94.212392,
+          "count": 4
+        },
+        "renderer": {
+          "MB": 321.545936,
+          "count": 7
+        }
+      },
+      "total_MB": 700.188984,
+      "CPU_percent": 2.5839303263288667,
+      "interrupt_wakeups_per_s": 14.908512668174618,
+      "package_idle_wakeups_per_s": 3.5108216216348707,
+      "idle_disk_written": 34476032,
+      "data_bytes": 181216536,
+      "data_allocated": 183783424,
+      "process_churn": [],
+      "pages": 2,
+      "flags": [],
+      "all": false,
+      "chrome": true,
+      "CPU_correction": "Raw counters mislabeled cpu_ns were Mach ticks; multiplied by 125/3",
+      "model_named_bytes": 56472475,
+      "pages_without_error": 2,
+      "page_failures": [],
+      "total_processes": 14,
+      "live_process_disk_written": 99545088
+    },
+    "engine-before-eight-2": {
+      "first_renderer_capture_s": 2.604481707967352,
+      "elapsed_s": 60.07352070795605,
+      "groups": {
+        "browser": {
+          "MB": 134.907848,
+          "count": 1
+        },
+        "GPU": {
+          "MB": 64.50544,
+          "count": 1
+        },
+        "network": {
+          "MB": 41.829552,
+          "count": 1
+        },
+        "utility": {
+          "MB": 12.157936,
+          "count": 1
+        },
+        "renderer": {
+          "MB": 604.502176,
+          "count": 9
+        }
+      },
+      "total_MB": 857.9029519999999,
+      "CPU_percent": 0.4994806027634641,
+      "interrupt_wakeups_per_s": 10.82007500708902,
+      "package_idle_wakeups_per_s": 0.0,
+      "idle_disk_written": 4096,
+      "data_bytes": 34202246,
+      "data_allocated": 40161280,
+      "process_churn": [],
+      "pages": 8,
+      "flags": [],
+      "all": false,
+      "chrome": false,
+      "CPU_correction": "Raw counters mislabeled cpu_ns were Mach ticks; multiplied by 125/3",
+      "model_named_bytes": 0,
+      "pages_without_error": 7,
+      "page_failures": [
+        {
+          "url": "https://en.wikipedia.org/wiki/Computer_memory",
+          "error": "timed out"
+        }
+      ],
+      "total_processes": 13,
+      "live_process_disk_written": 14200832
+    },
+    "engine-measured-eight": {
+      "first_renderer_capture_s": 5.689216915983707,
+      "elapsed_s": 60.091011915996205,
+      "groups": {
+        "renderer": {
+          "MB": 589.2305839999999,
+          "count": 8
+        },
+        "browser": {
+          "MB": 100.877968,
+          "count": 1
+        },
+        "GPU": {
+          "MB": 66.880856,
+          "count": 1
+        },
+        "network": {
+          "MB": 37.766344,
+          "count": 1
+        },
+        "utility": {
+          "MB": 25.625656,
+          "count": 1
+        }
+      },
+      "total_MB": 820.3814079999999,
+      "CPU_percent": 1.0767532370806363,
+      "interrupt_wakeups_per_s": 5.4417456051019295,
+      "package_idle_wakeups_per_s": 0.9485611605223546,
+      "idle_disk_written": 24576,
+      "data_bytes": 30451830,
+      "data_allocated": 37933056,
+      "process_churn": [],
+      "pages": 8,
+      "live_process_disk_written": 42139648,
+      "first_contentful_paint_s": 5.0524742603302,
+      "flags": [],
+      "all": false,
+      "chrome": false,
+      "model_named_bytes": 0,
+      "pages_without_error": 7,
+      "page_failures": [
+        {
+          "url": "https://en.wikipedia.org/wiki/Computer_memory",
+          "error": "timed out"
+        }
+      ],
+      "total_processes": 12
+    },
+    "engine-chrome-eight": {
+      "first_renderer_capture_s": 3.3055434589623474,
+      "elapsed_s": 60.0856502079987,
+      "groups": {
+        "browser": {
+          "MB": 176.015472,
+          "count": 1
+        },
+        "GPU": {
+          "MB": 278.398608,
+          "count": 1
+        },
+        "network": {
+          "MB": 39.715968,
+          "count": 1
+        },
+        "utility": {
+          "MB": 49.498176,
+          "count": 2
+        },
+        "renderer": {
+          "MB": 766.7560480000001,
+          "count": 12
+        }
+      },
+      "total_MB": 1310.384272,
+      "CPU_percent": 1.9104019224108513,
+      "interrupt_wakeups_per_s": 12.565396186717027,
+      "package_idle_wakeups_per_s": 3.0456523207539283,
+      "idle_disk_written": 10518528,
+      "data_bytes": 180209949,
+      "data_allocated": 186265600,
+      "process_churn": [
+        18338
+      ],
+      "pages": 8,
+      "flags": [],
+      "all": false,
+      "chrome": true,
+      "CPU_correction": "Raw counters mislabeled cpu_ns were Mach ticks; multiplied by 125/3",
+      "model_named_bytes": 56475012,
+      "pages_without_error": 8,
+      "page_failures": [],
+      "total_processes": 17,
+      "live_process_disk_written": 122568704
+    },
+    "engine-chrome-all": {
+      "first_renderer_capture_s": 3.4714284589863382,
+      "elapsed_s": 60.07374500000151,
+      "groups": {
+        "renderer": {
+          "MB": 3176.631688,
+          "count": 46
+        },
+        "utility": {
+          "MB": 101.19185599999999,
+          "count": 4
+        },
+        "browser": {
+          "MB": 250.775664,
+          "count": 1
+        },
+        "GPU": {
+          "MB": 204.26108,
+          "count": 1
+        },
+        "network": {
+          "MB": 61.4412,
+          "count": 1
+        }
+      },
+      "total_MB": 3794.301488,
+      "CPU_percent": 4.891441274941756,
+      "interrupt_wakeups_per_s": 48.52369367017033,
+      "package_idle_wakeups_per_s": 11.069727715493404,
+      "idle_disk_written": 10891264,
+      "data_bytes": 235902476,
+      "data_allocated": 246222848,
+      "process_churn": [],
+      "pages": 30,
+      "flags": [],
+      "all": true,
+      "chrome": true,
+      "CPU_correction": "Raw counters mislabeled cpu_ns were Mach ticks; multiplied by 125/3",
+      "model_named_bytes": 56475012,
+      "pages_without_error": 30,
+      "page_failures": [],
+      "total_processes": 53,
+      "live_process_disk_written": 308547584
+    },
+    "engine-measured-no-spare": {
+      "first_renderer_capture_s": 0.8450259999954142,
+      "elapsed_s": 60.09602125000674,
+      "groups": {
+        "browser": {
+          "MB": 100.714104,
+          "count": 1
+        },
+        "GPU": {
+          "MB": 67.126688,
+          "count": 1
+        },
+        "network": {
+          "MB": 40.273072,
+          "count": 1
+        },
+        "utility": {
+          "MB": 25.60932,
+          "count": 1
+        },
+        "renderer": {
+          "MB": 550.399136,
+          "count": 7
+        }
+      },
+      "total_MB": 784.1223200000001,
+      "CPU_percent": 1.148469403870764,
+      "interrupt_wakeups_per_s": 4.825610647226791,
+      "package_idle_wakeups_per_s": 0.6656014685830056,
+      "idle_disk_written": 24576,
+      "data_bytes": 30444638,
+      "data_allocated": 37924864,
+      "process_churn": [],
+      "pages": 8,
+      "live_process_disk_written": 43331584,
+      "first_contentful_paint_s": 0.7629497051239014,
+      "flags": [
+        "--disable-features=SpareRendererForSitePerProcess"
+      ],
+      "all": false,
+      "chrome": false,
+      "model_named_bytes": 0,
+      "pages_without_error": 7,
+      "page_failures": [
+        {
+          "url": "https://en.wikipedia.org/wiki/Computer_memory",
+          "error": "timed out"
+        }
+      ],
+      "total_processes": 11
+    },
+    "engine-measured-limit": {
+      "first_renderer_capture_s": 0.8552716659614816,
+      "elapsed_s": 60.06310675002169,
+      "groups": {
+        "browser": {
+          "MB": 100.82884,
+          "count": 1
+        },
+        "GPU": {
+          "MB": 67.257688,
+          "count": 1
+        },
+        "network": {
+          "MB": 40.469608,
+          "count": 1
+        },
+        "utility": {
+          "MB": 25.592912,
+          "count": 1
+        },
+        "renderer": {
+          "MB": 569.928672,
+          "count": 7
+        }
+      },
+      "total_MB": 804.07772,
+      "CPU_percent": 0.2226931376638317,
+      "interrupt_wakeups_per_s": 5.077992406709629,
+      "package_idle_wakeups_per_s": 0.6326679064097243,
+      "idle_disk_written": 49152,
+      "data_bytes": 30441211,
+      "data_allocated": 37916672,
+      "process_churn": [],
+      "pages": 8,
+      "live_process_disk_written": 43130880,
+      "first_contentful_paint_s": 0.757850170135498,
+      "flags": [
+        "--renderer-process-limit=8"
+      ],
+      "all": false,
+      "chrome": false,
+      "model_named_bytes": 0,
+      "pages_without_error": 7,
+      "page_failures": [
+        {
+          "url": "https://en.wikipedia.org/wiki/Computer_memory",
+          "error": "timed out"
+        }
+      ],
+      "total_processes": 11
+    },
+    "engine-measured-all": {
+      "first_renderer_capture_s": 1.340478875034023,
+      "elapsed_s": 60.07797462499002,
+      "groups": {
+        "renderer": {
+          "MB": 3341.3344,
+          "count": 39
+        },
+        "utility": {
+          "MB": 106.13996800000001,
+          "count": 4
+        },
+        "browser": {
+          "MB": 244.205704,
+          "count": 1
+        },
+        "GPU": {
+          "MB": 90.211744,
+          "count": 1
+        },
+        "network": {
+          "MB": 66.307392,
+          "count": 1
+        }
+      },
+      "total_MB": 3848.199208,
+      "CPU_percent": 8.76300291057103,
+      "interrupt_wakeups_per_s": 46.373067956940346,
+      "package_idle_wakeups_per_s": 10.619532432350303,
+      "idle_disk_written": 6467584,
+      "data_bytes": 94851679,
+      "data_allocated": 102473728,
+      "process_churn": [
+        24853
+      ],
+      "pages": 30,
+      "live_process_disk_written": 190304256,
+      "first_contentful_paint_s": 1.1846981048583984,
+      "flags": [],
+      "all": true,
+      "chrome": false,
+      "model_named_bytes": 138823,
+      "pages_without_error": 27,
+      "page_failures": [
+        {
+          "url": "https://en.wikipedia.org/wiki/Garbage_collection_(computer_science)",
+          "error": "timed out"
+        },
+        {
+          "url": "https://en.wikipedia.org/wiki/MacOS",
+          "error": "timed out"
+        },
+        {
+          "url": "https://en.wikipedia.org/wiki/Computer_memory",
+          "error": "timed out"
+        }
+      ],
+      "total_processes": 46
+    }
+  },
+  "launch": {
+    "engine-launch2-after-1": {
+      "launch_only": true,
+      "first_renderer_capture_s": 0.4586733329924755,
+      "first_contentful_paint_s": 0.4480757713317871,
+      "pages": 3,
+      "flags": [],
+      "chrome": false,
+      "all_page_targets_responded": true
+    },
+    "engine-launch2-after-2": {
+      "launch_only": true,
+      "first_renderer_capture_s": 0.4529332499951124,
+      "first_contentful_paint_s": 0.4444589614868164,
+      "pages": 3,
+      "flags": [],
+      "chrome": false,
+      "all_page_targets_responded": true
+    },
+    "engine-launch2-after-3": {
+      "launch_only": true,
+      "first_renderer_capture_s": 0.6996458750218153,
+      "first_contentful_paint_s": 0.5982179641723633,
+      "pages": 3,
+      "flags": [],
+      "chrome": false,
+      "all_page_targets_responded": true
+    },
+    "engine-launch2-before-1": {
+      "launch_only": true,
+      "first_renderer_capture_s": 20.936115625023376,
+      "first_contentful_paint_s": 1.0159449577331543,
+      "pages": 3,
+      "flags": [],
+      "chrome": false,
+      "all_page_targets_responded": true
+    },
+    "engine-launch2-before-2": {
+      "launch_only": true,
+      "first_renderer_capture_s": 0.5878986250027083,
+      "first_contentful_paint_s": 0.554987907409668,
+      "pages": 3,
+      "flags": [],
+      "chrome": false,
+      "all_page_targets_responded": true
+    },
+    "engine-launch2-before-3": {
+      "launch_only": true,
+      "first_renderer_capture_s": 20.485009207972325,
+      "first_contentful_paint_s": 0.5356290340423584,
+      "pages": 3,
+      "flags": [],
+      "chrome": false,
+      "all_page_targets_responded": true
+    },
+    "engine-launch2-chrome-1": {
+      "launch_only": true,
+      "first_renderer_capture_s": 0.6748606250039302,
+      "first_contentful_paint_s": 0.6196978092193604,
+      "pages": 3,
+      "flags": [],
+      "chrome": true,
+      "all_page_targets_responded": true
+    },
+    "engine-launch2-chrome-2": {
+      "launch_only": true,
+      "first_renderer_capture_s": 0.6727450839825906,
+      "first_contentful_paint_s": 0.6158552169799805,
+      "pages": 3,
+      "flags": [],
+      "chrome": true,
+      "all_page_targets_responded": true
+    },
+    "engine-launch2-chrome-3": {
+      "launch_only": true,
+      "first_renderer_capture_s": 0.706534750002902,
+      "first_contentful_paint_s": 0.651360273361206,
+      "pages": 3,
+      "flags": [],
+      "chrome": true,
+      "all_page_targets_responded": true
+    },
+    "engine-launch2-rollback": {
+      "launch_only": true,
+      "first_renderer_capture_s": 20.620776832976844,
+      "first_contentful_paint_s": 0.7070879936218262,
+      "pages": 3,
+      "flags": [
+        "--airc-switches=quietModels=off,quietHistory=off,quietCommerce=off,quietTranslateDownloads=off,quietTelemetry=off,quietVariations=off,quietSync=off"
+      ],
+      "chrome": false,
+      "all_page_targets_responded": true
+    },
+    "engine-launch2-rollback-quietCommerce": {
+      "launch_only": true,
+      "first_renderer_capture_s": 0.4892392080510035,
+      "first_contentful_paint_s": 0.47690606117248535,
+      "pages": 3,
+      "flags": [
+        "--airc-switches=quietCommerce=off"
+      ],
+      "chrome": false,
+      "all_page_targets_responded": true
+    },
+    "engine-launch2-rollback-quietHistory": {
+      "launch_only": true,
+      "first_renderer_capture_s": 0.44563137501245365,
+      "first_contentful_paint_s": 0.43488025665283203,
+      "pages": 3,
+      "flags": [
+        "--airc-switches=quietHistory=off"
+      ],
+      "chrome": false,
+      "all_page_targets_responded": true
+    },
+    "engine-launch2-rollback-quietModels": {
+      "launch_only": true,
+      "first_renderer_capture_s": 0.449957708013244,
+      "first_contentful_paint_s": 0.43877315521240234,
+      "pages": 3,
+      "flags": [
+        "--airc-switches=quietModels=off"
+      ],
+      "chrome": false,
+      "all_page_targets_responded": true
+    },
+    "engine-launch2-rollback-quietSync": {
+      "launch_only": true,
+      "first_renderer_capture_s": 0.46516870899358764,
+      "first_contentful_paint_s": 0.45740199089050293,
+      "pages": 3,
+      "flags": [
+        "--airc-switches=quietSync=off"
+      ],
+      "chrome": false,
+      "all_page_targets_responded": true
+    },
+    "engine-launch2-rollback-quietTelemetry": {
+      "launch_only": true,
+      "first_renderer_capture_s": 0.4342464579967782,
+      "first_contentful_paint_s": 0.42296695709228516,
+      "pages": 3,
+      "flags": [
+        "--airc-switches=quietTelemetry=off"
+      ],
+      "chrome": false,
+      "all_page_targets_responded": true
+    },
+    "engine-launch2-rollback-quietTranslateDownloads": {
+      "launch_only": true,
+      "first_renderer_capture_s": 0.45686425000894815,
+      "first_contentful_paint_s": 0.44551825523376465,
+      "pages": 3,
+      "flags": [
+        "--airc-switches=quietTranslateDownloads=off"
+      ],
+      "chrome": false,
+      "all_page_targets_responded": true
+    },
+    "engine-launch2-rollback-quietVariations": {
+      "launch_only": true,
+      "first_renderer_capture_s": 0.5349572079721838,
+      "first_contentful_paint_s": 0.49964308738708496,
+      "pages": 3,
+      "flags": [
+        "--airc-switches=quietVariations=off"
+      ],
+      "chrome": false,
+      "all_page_targets_responded": true
+    }
+  },
+  "safety_probe": {
+    "engine-safety-after": [
+      {
+        "url": "https://testsafebrowsing.appspot.com/s/phishing.html",
+        "title": "",
+        "timeOrigin": 1793852755282.5,
+        "state": "complete",
+        "textLength": 546,
+        "paint": [
+          {
+            "name": "first-paint",
+            "ms": 224
+          },
+          {
+            "name": "first-contentful-paint",
+            "ms": 224
+          }
+        ],
+        "error": false
+      },
+      {
+        "url": "https://example.com/",
+        "title": "Example Domain",
+        "timeOrigin": 1793852755295.9,
+        "state": "complete",
+        "textLength": 917,
+        "paint": [],
+        "error": false
+      }
+    ],
+    "engine-safety-before": [
+      {
+        "url": "https://testsafebrowsing.appspot.com/s/phishing.html",
+        "title": "",
+        "timeOrigin": 1793852730705.2,
+        "state": "complete",
+        "textLength": 546,
+        "paint": [
+          {
+            "name": "first-paint",
+            "ms": 192
+          },
+          {
+            "name": "first-contentful-paint",
+            "ms": 192
+          }
+        ],
+        "error": false
+      },
+      {
+        "url": "https://example.com/",
+        "title": "Example Domain",
+        "timeOrigin": 1793852730718.4,
+        "state": "complete",
+        "textLength": 917,
+        "paint": [],
+        "error": false
+      }
+    ],
+    "engine-safety-chrome": [
+      {
+        "url": "https://example.com/",
+        "title": "Example Domain",
+        "timeOrigin": 1793852779830.1,
+        "state": "complete",
+        "textLength": 917,
+        "paint": [
+          {
+            "name": "first-paint",
+            "ms": 108
+          },
+          {
+            "name": "first-contentful-paint",
+            "ms": 108
+          }
+        ],
+        "error": false
+      },
+      {
+        "url": "https://testsafebrowsing.appspot.com/s/phishing.html",
+        "title": "",
+        "timeOrigin": 1793852779697,
+        "state": "complete",
+        "textLength": 546,
+        "paint": [
+          {
+            "name": "first-paint",
+            "ms": 352
+          },
+          {
+            "name": "first-contentful-paint",
+            "ms": 352
+          }
+        ],
+        "error": false
+      }
+    ]
+  }
+}

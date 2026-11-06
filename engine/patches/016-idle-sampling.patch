@@ -1,0 +1,77 @@
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/chrome/browser/performance_manager/user_tuning/cpu_health_tracker.cc
++++ b/chrome/browser/performance_manager/user_tuning/cpu_health_tracker.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/performance_manager/user_tuning/cpu_health_tracker.h"
++#include "airc/core/airc_hooks.h"  // nogncheck
+ 
+ #include <algorithm>
+ #include <memory>
+@@ -22,6 +23,8 @@
+ #include "components/performance_manager/public/graph/page_node.h"
+ #include "components/performance_manager/public/resource_attribution/page_context.h"
+ #include "content/public/browser/browser_thread.h"
++
++bool g_airc_skip_cpu_health_sampling = false;
+ 
+ namespace performance_manager::user_tuning {
+ 
+@@ -44,7 +47,8 @@
+               .AddResourceType(resource_attribution::ResourceType::kCPUTime)
+               .CreateScopedQuery()) {
+   std::unique_ptr<system_cpu::CpuProbe> cpu_probe =
+-      system_cpu::CpuProbe::Create();
++      g_airc_skip_cpu_health_sampling ? nullptr
++                                       : system_cpu::CpuProbe::Create();
+   if (cpu_probe) {
+     cpu_probe->StartSampling();
+     cpu_probe_timer_.Start(
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/components/memory_pressure/system_memory_pressure_evaluator_mac.cc
++++ b/components/memory_pressure/system_memory_pressure_evaluator_mac.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "components/memory_pressure/system_memory_pressure_evaluator_mac.h"
++#include "airc/core/airc_content_hooks.h"  // nogncheck
+ 
+ #include <CoreFoundation/CoreFoundation.h>
+ #include <dlfcn.h>
+@@ -23,6 +24,12 @@
+ #include "base/task/thread_pool.h"
+ #include "base/time/time.h"
+ #include "components/memory_pressure/multi_source_memory_pressure_monitor.h"
++
++int g_airc_disk_space_check_seconds = 0;
++
++namespace {
++constexpr base::ByteSize kAircRelaxedDiskSpace = base::GiB(20);
++}
+ 
+ namespace memory_pressure::mac {
+ 
+@@ -189,6 +196,20 @@
+     disk_pressure_vote_ = new_disk_vote;
+     UpdatePressureAndManageNotifications();
+   }
++
++  if (g_airc_disk_space_check_seconds > 0) {
++    const base::TimeDelta period =
++        disk_space_info.has_value() &&
++                disk_space_info->available > kAircRelaxedDiskSpace
++            ? base::Seconds(g_airc_disk_space_check_seconds)
++            : kDiskSpaceCheckPeriod;
++    if (disk_space_check_timer_.GetCurrentDelay() != period) {
++      disk_space_check_timer_.Start(
++          FROM_HERE, period,
++          base::BindRepeating(&SystemMemoryPressureEvaluator::CheckDiskSpace,
++                              weak_ptr_factory_.GetWeakPtr()));
++    }
++  }
+ }
+ 
+ void SystemMemoryPressureEvaluator::UpdatePressureAndManageNotifications() {

@@ -1,0 +1,59 @@
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/chrome/browser/download/download_crx_util.cc
++++ b/chrome/browser/download/download_crx_util.cc
+@@ -5,6 +5,7 @@
+ // Download code which handles CRX files (extensions, themes, apps, ...).
+ 
+ #include "chrome/browser/download/download_crx_util.h"
++#include "airc/core/airc_hooks.h"  // nogncheck
+ 
+ #include <memory>
+ 
+@@ -40,6 +41,10 @@
+ 
+ namespace download_crx_util {
+ 
++// Airc: Airc (engine/airc) shows the install prompt itself, without a tab.
++bool g_airc_prompts_without_tab = false;
++
++
+ namespace {
+ 
+ bool g_allow_offstore_install_for_testing = false;
+@@ -64,6 +69,13 @@
+   content::WebContents* web_contents =
+       content::DownloadItemUtils::GetWebContents(
+           const_cast<DownloadItem*>(&download_item));
++  // Airc: Airc
++  if (!web_contents && g_airc_prompts_without_tab) {
++    return std::make_unique<ExtensionInstallPrompt>(
++        profile, gfx::NativeWindow(),
++        std::make_unique<extensions::InstallPromptData>(
++            extensions::InstallPromptData::UNSET_PROMPT_TYPE));
++  }
+   if (!web_contents) {
+     BrowserWindowInterface* browser =
+         extensions::browser_window_util::GetLastActiveBrowserWithProfile(
+# Copyright 2026 The Airc Authors; Apache-2.0.
+--- a/chrome/browser/extensions/extension_install_prompt.cc
++++ b/chrome/browser/extensions/extension_install_prompt.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/extensions/extension_install_prompt.h"
++#include "airc/core/airc_hooks.h"  // nogncheck
+ 
+ #include <optional>
+ #include <utility>
+@@ -291,6 +292,10 @@
+   if (AutoConfirmPromptIfEnabled())
+     return;
+ 
++  if (g_airc_extension_install_prompt &&
++      g_airc_extension_install_prompt(profile_, show_params_->GetParentWebContents(),
++                                     *prompt_, &done_callback_))
++    return;
+   if (show_dialog_callback_.is_null())
+     show_dialog_callback_ = GetDefaultShowDialogCallback();
+   // TODO(crbug.com/40625151): Use OnceCallback and eliminate the need for

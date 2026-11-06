@@ -1,0 +1,121 @@
+# Link and initialize the embedded framework and its resources.
+001-framework.patch
+# Supply the host BrowserWindow and keep empty profile Browsers alive.
+002-window.patch
+# Guard Chrome UI that requires a visible BrowserView.
+003-viewless-ui.patch
+# Hand startup and macOS application routing to the host.
+004-startup.patch
+# Route permission UI and visibility through the attached host page.
+005-permissions.patch
+# Re-host suggestion popups.
+006-autofill.patch
+# Respect host page background opacity.
+007-opacity.patch
+# Let the host confirm external application launches.
+008-external-protocol.patch
+# Exclude temporary host pages from browsing history.
+009-history.patch
+# Notify the host when extension blocking rules become ready.
+010-extension-rules.patch
+# Route extension windows and installed UI to the host.
+011-extension-windows.patch
+# Route CRX confirmation to the host instead of an invisible Views bubble.
+012-extension-install.patch
+# Use host page visibility for automatic picture-in-picture.
+013-pip.patch
+# Route action popups and restore action state.
+014-extension-actions.patch
+# Let the app reserve local and global extension shortcuts.
+015-extension-shortcuts.patch
+# Reduce inherited background CPU and disk-space polling.
+016-idle-sampling.patch
+# Adjust host extension storage quota accounting.
+017-extension-quota.patch
+# Scope hybrid authenticator discovery to visible host requests.
+018-webauthn.patch
+# Make Bluetooth scans and polling demand-driven.
+019-bluetooth.patch
+# Report user-script readiness for navigation holds.
+020-script-loading.patch
+# Keep Airc credentials separate from Chromium safe storage.
+021-keychain.patch
+# Route password prompts to the app-owned window.
+022-passwords.patch
+# Route device selection to app-owned UI.
+023-device-chooser.patch
+
+# Per-file seam audit, Chromium 156.0.8078.88. Counts exclude retired hooks only
+# after exact restoration to upstream bytes. No weak/override linker symbols were
+# found for these concrete definitions; do not replace them by duplicate sources.
+# KeyedServiceFactory testing substitutions are not production registrations.
+# FILE chrome/BUILD.gn | Links core into chrome_dll | Seam: Single GN dependency hook already; no second GN touch
+# FILE chrome/app/chrome_main.cc | Constructs AircMainDelegate in framework and helpers | Seam: ChromeMain owns delegate construction; subclass still needs entry hook
+# FILE chrome/browser/ui/browser_window/internal/browser_window_features.cc | Constructs AircWebContentsDelegate before tab features | Seam: Features factory injection is test-only; production factory hook retained
+# FILE chrome/browser/ui/read_anything/read_anything_side_panel_controller.cc | Avoids CHECK_IS_TEST for absent side panel | Seam: BrowserWindowInterface lacks a viewless capability; private construction path
+# FILE chrome/browser/ui/toasts/toast_controller.cc | Refuses toasts without a real anchor | Seam: Toast feature owns concrete controller; no production replacement factory found
+# FILE chrome/browser/ui/browser_commands.cc | Closes pinned tabs without hidden toast | Seam: BrowserWindow delegate does not intercept this free-function command path
+# FILE chrome/browser/ui/webui/settings/settings_clear_browsing_data_handler.cc | Skips event requiring a BrowserView element | Seam: WebUI handler has no host delegate for its ElementTracker event
+# FILE chrome/browser/ui/browser.cc | Creates host window and keeps empty profile browsers alive | Seam: Custom window parameter is CHECK_IS_TEST; TabStripEmpty is not an override seam
+# FILE chrome/app/chrome_main_delegate.cc | Host resource delegate and startup/crash behavior | Seam: MainDelegate overrides exist; base implementation owns private initialization order; candidate for further extraction
+# FILE chrome/browser/chrome_browser_main_mac.mm | Leaves NSApp delegate and menus with host | Seam: MainParts wrapping cannot skip only the private AppController initialization
+# FILE chrome/browser/policy/chrome_browser_policy_connector.cc | Avoids loading Chromium platform policy for Airc | Seam: BrowserProcess owns concrete connector; provider replacement setters are test-only
+# FILE chrome/browser/ui/views/permissions/permission_prompt_factory.cc | Creates app permission requests | Seam: Permissions client calls free factory; test factory setter is not a production seam
+# FILE chrome/browser/ui/sad_tab_controller.cc | Avoids BrowserView dereference after renderer failure | Seam: WebContentsObserver can report crash but cannot prevent original controller dereference
+# FILE chrome/browser/ui/autofill/autofill_popup_controller_impl.cc | Rehosts suggestion view and emits displayed rows | Seam: Autofill client owns concrete popup; view factory hook retained
+# FILE content/browser/renderer_host/render_widget_host_view_base.cc | Preserves default-background opacity on renderer changes | Seam: Public background setter exists; copy/owner opacity propagation is internal
+# FILE chrome/browser/external_protocol/external_protocol_handler.cc | Requests app confirmation while retaining Chrome launch checks | Seam: ContentBrowserClient override exists but would replace anti-flood/policy pipeline; delegate setter is test-only
+# FILE chrome/browser/history/history_tab_helper.cc | Excludes temporary host tabs from persistent history | Seam: History observer runs after write; cannot veto eligibility
+# FILE extensions/browser/api/declarative_net_request/action_tracker.cc | Counts DNR matches for host tabs | Seam: Public debug event is permission-limited; no equivalent production native observer found
+# FILE extensions/browser/api/declarative_net_request/rules_monitor_service.cc | Reports installed rules and indexes component rulesets | Seam: KeyedServiceFactory is concrete; observers do not replace checksum/indexing behavior
+# FILE chrome/browser/extensions/browser_window_util.cc | Finds hosted extension browsers | Seam: GlobalBrowserCollection observer cannot change visibility filter in this helper
+# FILE chrome/browser/ui/extensions/extension_install_ui_desktop.cc | Routes post-install UI into host | Seam: Install UI uses concrete factory; no per-window production delegate found
+# FILE chrome/browser/download/download_crx_util.cc | Anchors downloaded CRX confirmation to host | Seam: Download observer cannot replace prompt construction before confirmation
+# FILE chrome/browser/picture_in_picture/auto_picture_in_picture_tab_strip_observer_helper.h | Declares host-visibility notification | Seam: Observer base exists; factory hardcodes desktop helper; declaration could move to free-function hook
+# FILE chrome/browser/picture_in_picture/auto_picture_in_picture_tab_strip_observer_helper.cc | Uses actual host page visibility for auto-PiP | Seam: TabStrip activation alone differs from host visibility across profiles
+# FILE components/permissions/permission_request_manager.cc | Uses host visibility for permission eligibility | Seam: WebContents visibility observer exists but TabInterface subscriptions override it
+# FILE chrome/browser/ui/views/file_system_access/file_system_access_restore_permission_bubble_view.cc | Routes restored file grants to app | Seam: Free factory owns callback; no replacement delegate exposed
+# FILE chrome/browser/ui/tabs/tab_dialog_manager.cc | Keeps dialogs tied to visible host page | Seam: Concrete TabFeatures-owned manager; observers do not override visibility computation
+# FILE chrome/browser/extensions/api/extension_action/extension_action_api.cc | Opens extension action popup in host | Seam: Extension API uses free helper before BrowserWindow methods; hook required
+# FILE chrome/browser/ui/views/extensions/extension_keybinding_registry_views.cc | Reserves app shortcuts | Seam: Views registry is concrete; delegate does not expose reservation predicate
+# FILE chrome/browser/ui/views/extensions/extension_action_delegate_desktop.cc | Reserves app shortcuts for extension actions | Seam: Action delegate can receive accelerators independently of registry
+# FILE chrome/browser/extensions/extension_commands_global_registry.cc | Reserves global shortcuts for host | Seam: Global registry factory exposes no production reservation delegate
+# FILE chrome/browser/performance_manager/user_tuning/cpu_health_tracker.cc | Disables inherited system CPU sampling | Seam: Feature disabling also changes intervention policy; private probe has no equivalent setter
+# FILE components/memory_pressure/system_memory_pressure_evaluator_mac.cc | Relaxes disk polling only above 20 GiB free | Seam: Private timer; replacing evaluator must preserve native pressure votes
+# FILE extensions/browser/api/storage/settings_storage_quota_enforcer.cc | Defers usage scan for exempt storage writes | Seam: Concrete storage wrapper; no production factory registration seam found
+# FILE device/fido/cable/v2_discovery.h | Declares hybrid scan gating state | Seam: Discovery subclass cannot override private StartCableDiscovery
+# FILE device/fido/cable/v2_discovery.cc | Starts hybrid scanning only for visible requests | Seam: Discovery factory exists but private scan pipeline needs redesign for subclassing
+# FILE chrome/browser/webauthn/authenticator_request_dialog_model.cc | Signals hybrid prompt visibility/destruction | Seam: Observer interface exists; candidate core observer needs production model registration
+# FILE device/bluetooth/bluetooth_low_energy_adapter_apple.h | Adds central-state callback | Seam: Existing BluetoothAdapter observers do not expose this exact internal transition
+# FILE device/bluetooth/bluetooth_low_energy_adapter_apple.mm | Reports central-state updates to polling policy | Seam: Delegate callback internal to adapter; no production factory seam found
+# FILE device/bluetooth/bluetooth_adapter_mac.h | Stores demand-driven polling state | Seam: Adapter factory replacement setter is test-only
+# FILE device/bluetooth/bluetooth_adapter_mac.mm | Avoids continuous idle polling | Seam: Private PollAdapter and delayed-task ownership; observer cannot cancel timer
+# FILE chrome/browser/extensions/extension_action_storage_manager.cc | Notifies restored action defaults | Seam: StateStore callback is private; registry load notification occurs too early
+# FILE extensions/browser/extension_user_script_loader.cc | Signals already-ready extension system synchronously | Seam: OneShotEvent readiness exists; loader construction hardcodes posted callback
+# FILE chrome/browser/extensions/user_script_listener.cc | Holds scripts at response instead of request | Seam: ContentBrowserClient can add throttles but cannot remove this private throttle
+# FILE chrome/browser/chrome_resource_bundle_helper.cc | Preserves host resource delegate on reload | Seam: MainDelegate startup override does not cover later locale reload
+# FILE components/os_crypt/common/keychain_password_mac.mm | Pins Airc Safe Storage identity | Seam: OSCrypt backend hardcodes names; GN branding does not supply them
+# FILE chrome/browser/ui/views/passwords/password_bubble_view_base.cc | Routes password bubble lifecycle to host | Seam: PasswordsModelDelegate describes state; free Views show/hide path still needs host hook
+# FILE chrome/browser/extensions/extension_install_prompt.cc | Routes extension permission confirmation to host | Seam: Default dialog callback factory is hardcoded; observer cannot replace it
+# FILE chrome/browser/ui/views/permissions/chooser_bubble_ui.cc | Routes USB/Bluetooth/etc selection into host | Seam: Permission chooser creation uses free factory; controller is reusable in core
+# RETIRED chrome/browser/chrome_content_browser_client.cc | Core BrowserURLHandlerCreated override filters only HandleWebUI registration; retains all other Chrome handlers.
+
+# Return the owning BrowserWindow for host tabs; fixes address-autofill crash.
+# FILE chrome/browser/ui/views/frame/browser_view.cc | Resolves host tabs to their actual BrowserWindow, not a null BrowserView | Seam: free static lookup has no factory; generic tab ownership fixes all callers with one touch
+# RETIRED chrome/browser/chrome_browser_main.cc | Existing core no-startup-window switch selects silent launch; Chrome owns the run loop, host ExtraParts supplies keepalive.
+# FILE chrome/browser/ui/autofill/address_bubbles_controller.cc | Skips iOS toolbar promo after accepting an address in a host window | Seam: unconditional AsBrowserView dereference precedes feature eligibility; no observer can prevent it
+# FILE chrome/browser/component_updater/registration.cc | Skip actor safety lists in the embedded browser. | Seam: component registration is a free function with no per-component registration delegate.
+024-actor-list-policy.patch
+
+# FILE chrome/browser/picture_in_picture/auto_picture_in_picture_tab_helper.cc | Enforce the Airc master/profile auto-PiP switch even when a site has an allow exception. | Seam: no upstream eligibility policy callback; one guard before unmodified Chromium eligibility checks.
+# FILE chrome/browser/ui/autofill/chrome_autofill_client.cc | Hand password rows and root-view field bounds to the host before screen-space conversion; invalidate rows on hide. | Seam: concrete client owns popup construction; delegate supplies suggestions but cannot replace the popup.
+025-password-picker.patch
+# FILE components/remote_cocoa/app_shim/native_widget_mac_nswindow.mm | Route tagged PiP pointer events into core; retain native controls and resizing. | Seam: native window event dispatch has no host event delegate.
+# FILE components/remote_cocoa/app_shim/mouse_capture.mm | Exclude tagged nonactivating PiP from capture's explicit app-activation fallback. | Seam: activation fallback is private to the capture event handler.
+026-pip-window.patch
+
+027-widevine-policy.patch
+# FILE components/component_updater/component_updater_service.cc | Per-Widevine update opt-out, HTTPS and persisted protected-content preference. | Seam: no upstream per-ID opt-out before update request assembly.
+# FILE chrome/browser/component_updater/widevine_cdm_component_installer.cc | Per-Widevine update opt-out, HTTPS and persisted protected-content preference. | Seam: no upstream per-ID opt-out before update request assembly.
+# FILE chrome/browser/prefs/browser_prefs.cc | Per-Widevine update opt-out, HTTPS and persisted protected-content preference. | Seam: no upstream per-ID opt-out before update request assembly.
+# FILE components/update_client/op_download.cc | Enforce HTTPS for Widevine payloads in protocol 4 download pipelines. | Seam: requires_network_encryption gates checks and pings but not download operations.

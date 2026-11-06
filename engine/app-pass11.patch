@@ -1,0 +1,173 @@
+--- a/apps/browser/Sources/Airc/Engine/BrowserEngine.swift
++++ b/apps/browser/Sources/Airc/Engine/BrowserEngine.swift
+@@ -16,7 +16,21 @@
+ // `WebKitEngine` implements the same protocols with WKWebView and one WKWebsiteDataStore per
+ // profile, so logins are already separate per profile in the dev engine.
+ 
++struct EngineLinkRequest {
++    let url: URL
++    let source: String
++    let disposition: String
++    let sourceBundleID: String?
++    let userGesture: Bool
++    let opener: EngineTab?
++}
++enum EngineHostingError: Error { case rejected(String) }
++
+ protocol BrowserEngine: AnyObject {
++    /// Main-thread policy; true consumes the link. Defer tab mutation to the next turn.
++    var linkRouter: ((EngineLinkRequest) -> Bool)? { get set }
++    /// Call inside application(_:open:) while its Apple event is current.
++    func routeExternalURL(_ url: URL) -> Bool
+     /// "WebKit" or "Chromium <version>", for About and logs.
+     var name: String { get }
+     func installedExtensions(for profile: EngineProfile) -> [[String: Any]]
+@@ -42,6 +56,8 @@
+ }
+ 
+ extension BrowserEngine {
++    var linkRouter: ((EngineLinkRequest) -> Bool)? { get { nil } set {} }
++    func routeExternalURL(_ url: URL) -> Bool { false }
+     func installedExtensions(for profile: EngineProfile) -> [[String: Any]] { [] }
+     func extensionActions(_ ids: [String], for tab: EngineTab) -> [String: [String: Any]] { [:] }
+     func extensionActionIcon(_ state: [String: Any]) -> NSImage? { nil }
+@@ -81,6 +97,13 @@
+ }
+ 
+ protocol EngineWindow: AnyObject {
++    /// 1–4 distinct live tabs, each in an app-owned view belonging to this window.
++    /// Reuse views and resize their frames; don't call this for every divider tick.
++    func presentPanes(_ panes: [(tab: EngineTab, host: NSView)], focused: EngineTab) throws
++    func focusPane(_ tab: EngineTab)
++    /// Same-profile transfer; wrapper, WebContents, media and delegate identity survive.
++    func moveTab(_ tab: EngineTab, profile: EngineProfile, to host: NSView) throws
++    func openPeek(url: URL, opener: EngineTab, in host: NSView) throws -> EngineTab
+     var window: NSWindow { get }
+     /// The view the engine attaches the active tab's page view to. The app lays it out inside the
+     /// page card.
+@@ -186,3 +209,17 @@
+ extension EngineTabDelegate {
+     func tab(_ tab: EngineTab, didReceiveShortcut combo: String, pageUsedIt: Bool) {}
+ }
++
++// WebKit remains buildable; it must explicitly implement live hosting before using these UI paths.
++extension EngineWindow {
++    func presentPanes(_ panes: [(tab: EngineTab, host: NSView)], focused: EngineTab) throws {
++        throw EngineHostingError.rejected("multiPaneUnsupported")
++    }
++    func focusPane(_ tab: EngineTab) { tab.focus() }
++    func moveTab(_ tab: EngineTab, profile: EngineProfile, to host: NSView) throws {
++        throw EngineHostingError.rejected("liveMoveUnsupported")
++    }
++    func openPeek(url: URL, opener: EngineTab, in host: NSView) throws -> EngineTab {
++        throw EngineHostingError.rejected("peekUnsupported")
++    }
++}
+--- a/apps/browser/Sources/Airc/Engine/ChromiumEngine.swift
++++ b/apps/browser/Sources/Airc/Engine/ChromiumEngine.swift
+@@ -5,6 +5,11 @@
+ 
+ // Construct only from engineDidStart. AircEngine.run owns the process message loop.
+ final class ChromiumEngine: BrowserEngine {
++    var linkRouter: ((EngineLinkRequest) -> Bool)? {
++        get { ChromiumRuntime.linkRouter }
++        set { ChromiumRuntime.linkRouter = newValue }
++    }
++    func routeExternalURL(_ url: URL) -> Bool { core.routeExternalURL(url.absoluteString) }
+     let core: AircEngine
+     private var profiles: [ObjectIdentifier: ChromiumProfile] = [:]
+     init() {
+@@ -261,9 +266,57 @@
+         if foreground { activateTab(result) }
+         return result
+     }
++    func presentPanes(_ panes: [(tab: EngineTab, host: NSView)], focused: EngineTab) throws {
++        let tabs = panes.compactMap { $0.tab as? ChromiumTab }
++        guard (1...4).contains(panes.count), tabs.count == panes.count,
++              Set(tabs.map { ObjectIdentifier($0) }).count == panes.count,
++              Set(panes.map { ObjectIdentifier($0.host) }).count == panes.count,
++              tabs.allSatisfy({ $0.owner === self && !$0.isClosed }),
++              panes.allSatisfy({ $0.host.window === window }),
++              tabs.contains(where: { $0 === focused }) else {
++            throw EngineHostingError.rejected("invalidPanes")
++        }
++        for tab in wrappedTabs.values where !tabs.contains(where: { $0 === tab }) {
++            tab.core.setPageVisible(false)
++        }
++        for (index, pane) in panes.enumerated() {
++            tabs[index].core.independentZoom = true
++            tabs[index].core.attach(to: pane.host)
++        }
++        focusPane(focused)
++    }
++    func focusPane(_ tab: EngineTab) {
++        guard let tab = tab as? ChromiumTab, tab.owner === self, tab.core.pageVisible else { return }
++        selected = tab
++        core.activate(tab.core)
++        tab.core.focus()
++    }
++    func moveTab(_ tab: EngineTab, profile: EngineProfile, to host: NSView) throws {
++        guard let tab = tab as? ChromiumTab, let profile = profile as? ChromiumProfile else {
++            throw EngineHostingError.rejected("wrongEngine")
++        }
++        if let error = core.moveTab(tab.core, profile: profile.core, to: host) {
++            throw EngineHostingError.rejected(error)
++        }
++        let key = ObjectIdentifier(tab.core)
++        if let old = tab.owner, old !== self {
++            old.wrappedTabs.removeValue(forKey: key)
++            if old.selected === tab { old.selected = nil }
++        }
++        tab.owner = self
++        wrappedTabs[key] = tab
++    }
++    func openPeek(url: URL, opener: EngineTab, in host: NSView) throws -> EngineTab {
++        guard let opener = opener as? ChromiumTab,
++              let tab = core.openPeek(url: url.absoluteString, opener: opener.core, in: host) else {
++            throw EngineHostingError.rejected("invalidPeek")
++        }
++        return wrap(tab)
++    }
+     func activateTab(_ tab: EngineTab) {
+         guard let tab = tab as? ChromiumTab, tab.owner === self, !tab.isClosed else { return }
+-        if selected !== tab { selected?.core.setPageVisible(false) }
++        // Returning to normal presentation hides every other pane/overlay.
++        wrappedTabs.values.filter { $0 !== tab }.forEach { $0.core.setPageVisible(false) }
+         selected = tab
+         core.activate(tab.core)
+         tab.core.attach(to: hostView)
+@@ -299,6 +352,7 @@
+         let key = ObjectIdentifier(tab)
+         DispatchQueue.main.async { [weak self] in
+             guard let self else { return }
++            if let profile = tab.profile, self.core.tabs(for: profile).contains(where: { $0 === tab }) { return }
+             if self.selected?.core === tab { self.selected = nil }
+             self.wrappedTabs.removeValue(forKey: key)
+         }
+@@ -470,7 +524,8 @@
+         owner?.engine.pictureInPictureDidChange?(self, state)
+     }
+     func tab(_ tab: AircTab, requestsActivation reason: String) {
+-        owner?.engine.pictureInPictureRequestsTab?(self)
++        if reason == "page", core.pageVisible { owner?.focusPane(self) }
++        else { owner?.engine.pictureInPictureRequestsTab?(self) }
+     }
+     func tabDidChangeFavicon(_ tab: AircTab) { delegate?.tabDidChangeFavicon(self) }
+     func tabDidChangeNavigationState(_ tab: AircTab) { delegate?.tabDidChangeNavigationState(self) }
+@@ -519,6 +574,16 @@
+ // Minimal startup bridge. Product permission/chooser UI must replace the default
+ // dismissals below before daily use. Never silently grant a page permission.
+ final class ChromiumRuntime: NSObject, AircEngineDelegate {
++    static var linkRouter: ((EngineLinkRequest) -> Bool)?
++    func engine(_ engine: AircEngine, routeLink request: [String: Any], opener: AircTab?) -> Bool {
++        guard let raw = request["url"] as? String, let url = URL(string: raw) else { return false }
++        return Self.linkRouter?(EngineLinkRequest(url: url,
++            source: request["source"] as? String ?? "page",
++            disposition: request["disposition"] as? String ?? "foreground_tab",
++            sourceBundleID: request["sourceBundleID"] as? String,
++            userGesture: request["userGesture"] as? Bool ?? false,
++            opener: opener?.delegate as? ChromiumTab)) ?? false
++    }
+     private let started: () -> Void
+     init(started: @escaping () -> Void) { self.started = started }
+     static func closeWindow(_ window: EngineWindow) -> Bool {

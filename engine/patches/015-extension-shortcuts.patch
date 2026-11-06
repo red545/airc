@@ -1,0 +1,114 @@
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/chrome/browser/ui/views/extensions/extension_keybinding_registry_views.cc
++++ b/chrome/browser/ui/views/extensions/extension_keybinding_registry_views.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/ui/views/extensions/extension_keybinding_registry_views.h"
++#include "airc/core/airc_hooks.h"  // nogncheck
+ 
+ #include "chrome/browser/extensions/commands/command_service.h"
+ #include "chrome/browser/extensions/extension_commands_global_registry.h"
+@@ -16,6 +17,9 @@
+ #include "ui/views/focus/focus_manager.h"
+ 
+ DEFINE_USER_DATA(ExtensionKeybindingRegistryViews);
++
++// Airc: Airc. True when the key being pressed runs one of the host's reserved commands.
++bool (*g_airc_reserved_accelerator)(const ui::Accelerator& accelerator) = nullptr;
+ 
+ ExtensionKeybindingRegistryViews::ExtensionKeybindingRegistryViews(
+     Profile* profile,
+@@ -91,6 +95,9 @@
+ 
+ bool ExtensionKeybindingRegistryViews::AcceleratorPressed(
+     const ui::Accelerator& accelerator) {
++  if (g_airc_reserved_accelerator && g_airc_reserved_accelerator(accelerator)) {
++    return false;
++  }
+   return ExtensionKeybindingRegistry::NotifyEventTargets(accelerator);
+ }
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/chrome/browser/extensions/extension_commands_global_registry.cc
++++ b/chrome/browser/extensions/extension_commands_global_registry.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/extensions/extension_commands_global_registry.h"
++#include "airc/core/airc_hooks.h"  // nogncheck
+ 
+ #include "base/functional/bind.h"
+ #include "base/lazy_instance.h"
+@@ -16,6 +17,7 @@
+ #include "extensions/browser/pref_names.h"
+ #include "extensions/buildflags/buildflags.h"
+ #include "extensions/common/extension.h"
++#include "extensions/browser/extension_registry.h"
+ #include "ui/base/accelerators/command.h"
+ #include "ui/base/accelerators/global_accelerator_listener/global_accelerator_listener.h"
+ 
+@@ -30,6 +32,11 @@
+ #endif
+ 
+ static_assert(BUILDFLAG(ENABLE_EXTENSIONS_CORE));
++
++// Airc: Airc. True when the accelerator is bound to one of the host's reserved commands.
++bool (*g_airc_reserved_global_accelerator)(const ui::Accelerator& accelerator) = nullptr;
++// Airc: Airc. Called when shortcut handling resumes.
++void (*g_airc_global_shortcuts_resumed)() = nullptr;
+ 
+ namespace extensions {
+ 
+@@ -203,6 +210,10 @@
+   if (!instance) {
+     return false;
+   }
++  if (g_airc_reserved_global_accelerator &&
++      g_airc_reserved_global_accelerator(accelerator)) {
++    return false;
++  }
+   return instance->RegisterAccelerator(accelerator, this);
+ }
+ 
+@@ -224,6 +235,9 @@
+   instance->SetShortcutHandlingSuspended(suspended);
+   if (registry_for_active_window()) {
+     registry_for_active_window()->SetShortcutHandlingSuspended(suspended);
++  }
++  if (!suspended && g_airc_global_shortcuts_resumed) {
++    g_airc_global_shortcuts_resumed();
+   }
+ }
+ 
+@@ -238,4 +252,29 @@
+   CommandExecuted(extension_id, command_id, ui::Accelerator());
+ }
+ 
++namespace {
++
++class AircGlobalRegistryAccess : public ExtensionCommandsGlobalRegistry {
++ public:
++  static void Reregister(ExtensionCommandsGlobalRegistry* registry,
++                         content::BrowserContext* context) {
++    for (const scoped_refptr<const Extension>& extension :
++         ExtensionRegistry::Get(context)->enabled_extensions()) {
++      (registry->*(&AircGlobalRegistryAccess::RemoveExtensionKeybinding))(
++          extension.get(), std::string());
++      (registry->*(&AircGlobalRegistryAccess::AddExtensionKeybindings))(
++          extension.get(), std::string());
++    }
++  }
++};
++
++}  // namespace
++
++void AircReregisterGlobalCommands(content::BrowserContext* context) {
++  if (ExtensionCommandsGlobalRegistry* registry =
++          ExtensionCommandsGlobalRegistry::Get(context)) {
++    AircGlobalRegistryAccess::Reregister(registry, context);
++  }
++}
++
+ }  // namespace extensions

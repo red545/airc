@@ -1,0 +1,225 @@
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/chrome/BUILD.gn
++++ b/chrome/BUILD.gn
+@@ -1341,6 +1341,7 @@
+       "//components/webapps/isolated_web_apps:scheme",
+       "//content/public/app",
+       "//third_party/cld_3/src/src:cld_3",
++      "//airc/core",  # Airc: Airc (engine/airc)
+     ]
+ 
+     if (is_chromeos) {
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/chrome/app/chrome_main.cc
++++ b/chrome/app/chrome_main.cc
+@@ -33,6 +33,7 @@
+ 
+ #if BUILDFLAG(IS_MAC)
+ #include "chrome/app/chrome_main_mac.h"
++#include "airc/core/airc_main_delegate.h"  // nogncheck
+ #include "chrome/common/mac/detect_inappropriate_exit.h"
+ #endif
+ 
+@@ -131,7 +132,8 @@
+       base::TimeTicks::FromInternalValue(preread_end_ticks)};
+   ChromeMainDelegate chrome_main_delegate(timestamps);
+ #else  // BUILDFLAG(IS_WIN)
+-  ChromeMainDelegate chrome_main_delegate(
++  // Airc: Airc's delegate (engine/airc), a ChromeMainDelegate.
++  airc::AircMainDelegate chrome_main_delegate(
+       {.exe_entry_point_ticks = base::TimeTicks::Now()});
+ #endif
+   content::ContentMainParams params(&chrome_main_delegate);
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/chrome/app/chrome_main_delegate.cc
++++ b/chrome/app/chrome_main_delegate.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/app/chrome_main_delegate.h"
++#include "airc/core/airc_hooks.h"  // nogncheck
+ 
+ #include <stddef.h>
+ 
+@@ -832,6 +833,11 @@
+ 
+ }  // namespace
+ 
++// Airc: Airc (engine/airc) embeds Chrome: it does some of Chrome's startup itself.
++bool g_airc_embedder = false;
++// Airc: Airc's ResourceBundle delegate (its product strings).
++ui::ResourceBundle::Delegate* g_airc_resource_bundle_delegate = nullptr;
++
+ #if BUILDFLAG(IS_ANDROID)
+ ChromeMainDelegate::ChromeMainDelegate()
+     : ChromeMainDelegate(StartupTimestamps{}) {}
+@@ -989,7 +995,8 @@
+       new net::NetworkChangeNotifierFactoryAndroid());
+ #endif
+ 
+-  bool record = true;
++  // Airc: Airc records no core system profile.
++  bool record = !g_airc_embedder;
+ #if BUILDFLAG(IS_ANDROID)
+   record =
+       base::FeatureList::IsEnabled(chrome::android::kUmaBackgroundSessions);
+@@ -1546,31 +1553,34 @@
+   }
+ #endif
+ 
+-  crash_reporter::InitializeCrashKeys();
++  // Airc: Airc has no crash reporter, and sets up its data dir itself.
++  if (!g_airc_embedder) {
++    crash_reporter::InitializeCrashKeys();
+ 
+ #if BUILDFLAG(IS_POSIX)
+-  ChromeCrashReporterClient::Create();
++    ChromeCrashReporterClient::Create();
+ #endif
+ 
+ #if BUILDFLAG(IS_MAC)
+-  InitMacCrashReporter(command_line, process_type);
+-  SetUpInstallerPreferences(command_line);
++    InitMacCrashReporter(command_line, process_type);
++    SetUpInstallerPreferences(command_line);
+ #endif
+ 
+ #if !defined(BUILDING_CHROME_RENDERER)
+-  // Initialize the user data dir for any process type that needs it.
+-  if (chrome::ProcessNeedsProfileDir(process_type)) {
+-    InitializeUserDataDir(base::CommandLine::ForCurrentProcess());
+-  }
+-
+-  // Register component_updater PathProvider after DIR_USER_DATA overridden by
+-  // command line flags. Maybe move the chrome PathProvider down here also?
+-  component_updater::RegisterPathProvider(chrome::DIR_COMPONENTS,
+-                                          chrome::DIR_USER_DATA);
++    // Initialize the user data dir for any process type that needs it.
++    if (chrome::ProcessNeedsProfileDir(process_type)) {
++      InitializeUserDataDir(base::CommandLine::ForCurrentProcess());
++    }
++
++    // Register component_updater PathProvider after DIR_USER_DATA overridden by
++    // command line flags. Maybe move the chrome PathProvider down here also?
++    component_updater::RegisterPathProvider(chrome::DIR_COMPONENTS,
++                                            chrome::DIR_USER_DATA);
+ #else   // !defined(BUILDING_CHROME_RENDERER)
+-  // Renderers on Windows never require a profile directory.
+-  CHECK(!chrome::ProcessNeedsProfileDir(process_type));
++    // Renderers on Windows never require a profile directory.
++    CHECK(!chrome::ProcessNeedsProfileDir(process_type));
+ #endif  // !defined(BUILDING_CHROME_RENDERER)
++  }
+ 
+ #if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_WIN)
+   // Android does InitLogging when library is loaded. Skip here.
+@@ -1667,7 +1677,8 @@
+ #else
+     const std::string loaded_locale =
+         ui::ResourceBundle::InitSharedInstanceWithLocale(
+-            locale, nullptr, ui::ResourceBundle::LOAD_COMMON_RESOURCES);
++            locale, g_airc_resource_bundle_delegate,  // Airc: Airc
++            ui::ResourceBundle::LOAD_COMMON_RESOURCES);
+ 
+     base::FilePath resources_pack_path;
+     base::PathService::Get(chrome::FILE_RESOURCES_PACK, &resources_pack_path);
+@@ -1677,42 +1688,45 @@
+     CHECK(!loaded_locale.empty()) << "Locale could not be found for " << locale;
+   }
+ 
++  // Airc: Airc has no crash reporter.
++  if (!g_airc_embedder) {
+ #if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_MAC)
+-  // Zygote needs to call InitCrashReporter() in RunZygote().
+-  if (process_type != switches::kZygoteProcess &&
+-      !command_line.HasSwitch(switches::kDisableCrashpadForTesting)) {
+-    if (command_line.HasSwitch(switches::kPreCrashpadCrashTest)) {
+-      // Crash for the purposes of testing the handling of crashes that happen
+-      // before crashpad is initialized. Please leave this check immediately
+-      // before the crashpad initialization; the amount of memory used at this
+-      // point is important to the test.
+-      base::ImmediateCrash();
++    // Zygote needs to call InitCrashReporter() in RunZygote().
++    if (process_type != switches::kZygoteProcess &&
++        !command_line.HasSwitch(switches::kDisableCrashpadForTesting)) {
++      if (command_line.HasSwitch(switches::kPreCrashpadCrashTest)) {
++        // Crash for the purposes of testing the handling of crashes that happen
++        // before crashpad is initialized. Please leave this check immediately
++        // before the crashpad initialization; the amount of memory used at this
++        // point is important to the test.
++        base::ImmediateCrash();
++      }
++#if BUILDFLAG(IS_ANDROID)
++      crash_reporter::InitializeCrashpad(process_type.empty(), process_type);
++      if (process_type.empty()) {
++        base::android::InitJavaExceptionReporter();
++        UninstallPureJavaExceptionHandler();
++      } else {
++        base::android::InitJavaExceptionReporterForChildProcess();
++      }
++#else
++      crash_reporter::InitializeCrashpad(process_type.empty(), process_type);
++      crash_reporter::SetFirstChanceExceptionHandler(
++          v8::TryHandleWebAssemblyTrapPosix);
++#endif  // BUILDFLAG(IS_ANDROID)
+     }
++#endif  // BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_MAC)
++
+ #if BUILDFLAG(IS_ANDROID)
+-    crash_reporter::InitializeCrashpad(process_type.empty(), process_type);
+-    if (process_type.empty()) {
+-      base::android::InitJavaExceptionReporter();
+-      UninstallPureJavaExceptionHandler();
+-    } else {
+-      base::android::InitJavaExceptionReporterForChildProcess();
+-    }
+-#else
+-    crash_reporter::InitializeCrashpad(process_type.empty(), process_type);
+-    crash_reporter::SetFirstChanceExceptionHandler(
+-        v8::TryHandleWebAssemblyTrapPosix);
++    CHECK_EQ(base::android::GetLibraryProcessType(),
++             process_type.empty() ? base::android::PROCESS_BROWSER
++                                  : base::android::PROCESS_CHILD);
+ #endif  // BUILDFLAG(IS_ANDROID)
+-  }
+-#endif  // BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_MAC)
+-
+-#if BUILDFLAG(IS_ANDROID)
+-  CHECK_EQ(base::android::GetLibraryProcessType(),
+-           process_type.empty() ? base::android::PROCESS_BROWSER
+-                                : base::android::PROCESS_CHILD);
+-#endif  // BUILDFLAG(IS_ANDROID)
+-
+-  // After all the platform Breakpads have been initialized, store the command
+-  // line for crash reporting.
+-  crash_keys::SetCrashKeysFromCommandLine(command_line);
++
++    // After all the platform Breakpads have been initialized, store the command
++    // line for crash reporting.
++    crash_keys::SetCrashKeysFromCommandLine(command_line);
++  }
+ 
+ #if BUILDFLAG(ENABLE_PDF) && !defined(BUILDING_CHROME_RENDERER)
+   MaybePatchGdiGetFontData();
+# Copyright 2026 The Airc Authors; Apache-2.0.
+--- a/chrome/browser/chrome_resource_bundle_helper.cc
++++ b/chrome/browser/chrome_resource_bundle_helper.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/chrome_resource_bundle_helper.h"
++#include "airc/core/airc_hooks.h"  // nogncheck
+ 
+ #include "base/command_line.h"
+ #include "base/path_service.h"
+@@ -86,7 +87,8 @@
+   // On a POSIX OS other than ChromeOS, the parameter that is passed to the
+   // method InitSharedInstance is ignored.
+   std::string actual_locale = ui::ResourceBundle::InitSharedInstanceWithLocale(
+-      preferred_locale, nullptr, ui::ResourceBundle::LOAD_COMMON_RESOURCES);
++      preferred_locale, g_airc_resource_bundle_delegate,
++      ui::ResourceBundle::LOAD_COMMON_RESOURCES);
+   CHECK(!actual_locale.empty())
+       << "Locale could not be found for " << preferred_locale;

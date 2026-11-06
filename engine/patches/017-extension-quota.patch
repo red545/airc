@@ -1,0 +1,81 @@
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/extensions/browser/api/storage/settings_storage_quota_enforcer.cc
++++ b/extensions/browser/api/storage/settings_storage_quota_enforcer.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "extensions/browser/api/storage/settings_storage_quota_enforcer.h"
++#include "airc/core/airc_content_hooks.h"  // nogncheck
+ 
+ #include <memory>
+ 
+@@ -13,6 +14,22 @@
+ #include "extensions/common/extension_api.h"
+ 
+ using value_store::ValueStore;
++
++bool g_airc_lazy_storage_usage = false;
++
++namespace {
++
++template <typename Write>
++value_store::ValueStore::WriteResult AircWriteAfterValueRestore(Write write) {
++  value_store::ValueStore::WriteResult result = write();
++  if (result.status().restore_status ==
++      value_store::ValueStore::VALUE_RESTORE_DELETE_SUCCESS) {
++    result = write();
++  }
++  return result;
++}
++
++}
+ 
+ namespace extensions {
+ 
+@@ -114,6 +131,11 @@
+ 
+ ValueStore::WriteResult SettingsStorageQuotaEnforcer::Set(
+     WriteOptions options, const std::string& key, const base::Value& value) {
++  if (g_airc_lazy_storage_usage && !usage_calculated_ &&
++      (options & IGNORE_QUOTA)) {
++    return AircWriteAfterValueRestore(
++        [&] { return HandleResult(delegate_->Set(options, key, value)); });
++  }
+   LazyCalculateUsage();
+   size_t new_used_total = used_total_;
+   std::map<std::string, size_t> new_used_per_setting = used_per_setting_;
+@@ -142,6 +164,11 @@
+ ValueStore::WriteResult SettingsStorageQuotaEnforcer::Set(
+     WriteOptions options,
+     const base::DictValue& values) {
++  if (g_airc_lazy_storage_usage && !usage_calculated_ &&
++      (options & IGNORE_QUOTA)) {
++    return AircWriteAfterValueRestore(
++        [&] { return HandleResult(delegate_->Set(options, values)); });
++  }
+   LazyCalculateUsage();
+   size_t new_used_total = used_total_;
+   std::map<std::string, size_t> new_used_per_setting = used_per_setting_;
+@@ -175,6 +202,10 @@
+ 
+ ValueStore::WriteResult SettingsStorageQuotaEnforcer::Remove(
+     const std::string& key) {
++  if (g_airc_lazy_storage_usage && !usage_calculated_) {
++    return AircWriteAfterValueRestore(
++        [&] { return HandleResult(delegate_->Remove(key)); });
++  }
+   LazyCalculateUsage();
+   WriteResult result = HandleResult(delegate_->Remove(key));
+   if (!result.status().ok())
+@@ -197,6 +228,10 @@
+ }
+ 
+ ValueStore::WriteResult SettingsStorageQuotaEnforcer::Clear() {
++  if (g_airc_lazy_storage_usage && !usage_calculated_) {
++    return AircWriteAfterValueRestore(
++        [&] { return HandleResult(delegate_->Clear()); });
++  }
+   LazyCalculateUsage();
+   WriteResult result = HandleResult(delegate_->Clear());
+   if (!result.status().ok())

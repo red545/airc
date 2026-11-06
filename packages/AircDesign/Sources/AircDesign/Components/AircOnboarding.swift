@@ -1,0 +1,225 @@
+// Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
+
+import SwiftUI
+
+/// One onboarding step, laid out for the floating onboarding window (`AircFloatingWindow`, 760 × 540, spec
+/// ON-5). It mirrors the browser window it will become: the live sidebar preview sits on the theme at the
+/// left (228 pt, the real sidebar width), and the step card sits where the page card will be, inset 10 pt
+/// with 14 pt corners (concentric with the window's 24). Without a preview the card fills the window.
+///
+/// ```swift
+/// window.setContent(
+///     AircOnboardingPage(step: 2, of: 5, title: "Bring your Arc with you.",
+///                        subtitle: "Spaces, pinned tabs, Favorites and logins, in under a minute.",
+///                        drawsBackground: false) {        // the window draws the theme
+///         SidebarPreview(plan)
+///     } content: {
+///         ImportChecklist()
+///     } actions: {
+///         Button("Start fresh") { … }.buttonStyle(.airc(.plain, size: .large))
+///         Spacer()
+///         Button("Import everything") { … }.buttonStyle(.airc(.primary, size: .large))
+///     }
+///     .aircTheme(theme)
+/// )
+/// ```
+public struct AircOnboardingPage<Preview: View, Content: View, Actions: View>: View {
+    private let step: Int
+    private let total: Int
+    private let title: String
+    private let subtitle: String?
+    private let drawsBackground: Bool
+    private let translucency: AircTranslucency
+    private let preview: Preview
+    private let content: Content
+    private let actions: Actions
+
+    @Environment(\.aircTheme) private var theme
+
+    /// A step with a live preview on the left. `drawsBackground: false` when the window already draws the
+    /// theme (`AircFloatingWindow.background`).
+    public init(step: Int, of total: Int, title: String, subtitle: String? = nil,
+                drawsBackground: Bool = true, translucency: AircTranslucency = .off,
+                @ViewBuilder preview: () -> Preview,
+                @ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
+        self.step = step
+        self.total = total
+        self.title = title
+        self.subtitle = subtitle
+        self.drawsBackground = drawsBackground
+        self.translucency = translucency
+        self.preview = preview()
+        self.content = content()
+        self.actions = actions()
+    }
+
+    private var hasPreview: Bool { Preview.self != EmptyView.self }
+
+    public var body: some View {
+        let inset = AircMetrics.Onboarding.cardInset
+        ZStack(alignment: .topLeading) {
+            if drawsBackground {
+                SpaceBackground(theme, translucency: translucency)
+            }
+            HStack(spacing: 0) {
+                if hasPreview {
+                    preview
+                        .frame(width: AircMetrics.Onboarding.previewWidth)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .clipped()
+                }
+                AircOnboardingCard(step: step, of: total, title: title, subtitle: subtitle, fills: true) { content } actions: { actions }
+                    .padding(.vertical, inset)
+                    .padding(.trailing, inset)
+                    .padding(.leading, hasPreview ? 0 : inset)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+extension AircOnboardingPage where Preview == EmptyView {
+    /// A step without a preview: the card fills the window, inset 10 pt.
+    public init(step: Int, of total: Int, title: String, subtitle: String? = nil,
+                drawsBackground: Bool = true, translucency: AircTranslucency = .off,
+                @ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
+        self.init(step: step, of: total, title: title, subtitle: subtitle, drawsBackground: drawsBackground,
+                  translucency: translucency, preview: { EmptyView() }, content: content, actions: actions)
+    }
+}
+
+/// The onboarding card alone: 522 × 520 pt (the card next to the preview in the 760 × 540 window), 32 pt
+/// padding, 14 pt corners, step dots, title, subtitle, content, and an actions row pinned to the bottom. The
+/// size is fixed so steps cross-fade in place.
+public struct AircOnboardingCard<Content: View, Actions: View>: View {
+    public static var size: CGSize { AircMetrics.Onboarding.cardSize }
+
+    private let step: Int
+    private let total: Int
+    private let title: String
+    private let subtitle: String?
+    private let fills: Bool
+    private let content: Content
+    private let actions: Actions
+
+    @Environment(\.aircTheme) private var theme
+
+    public init(step: Int, of total: Int, title: String, subtitle: String? = nil,
+                @ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
+        self.init(step: step, of: total, title: title, subtitle: subtitle, fills: false, content: content, actions: actions)
+    }
+
+    init(step: Int, of total: Int, title: String, subtitle: String?, fills: Bool,
+         @ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
+        self.step = step
+        self.total = total
+        self.title = title
+        self.subtitle = subtitle
+        self.fills = fills
+        self.content = content()
+        self.actions = actions()
+    }
+
+    public var body: some View {
+        let shape = RoundedRectangle(cornerRadius: AircMetrics.Onboarding.cardRadius, style: .continuous)
+        let card = VStack(alignment: .leading, spacing: 0) {
+            AircStepIndicator(step: step, of: total)
+                .padding(.bottom, 24)
+            Text(title)
+                .aircFont(AircFont.title1)
+                .foregroundStyle(theme.surfaceText.color)
+                .fixedSize(horizontal: false, vertical: true)
+            if let subtitle {
+                Text(subtitle)
+                    .aircFont(AircFont.lead)
+                    .foregroundStyle(theme.surfaceTextSecondary.color)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 8)
+            }
+            content
+                .padding(.top, 24)
+            Spacer(minLength: 20)
+            HStack(spacing: 8) { actions }
+        }
+        .padding(AircMetrics.Onboarding.cardPadding)
+        return Group {
+            if fills {
+                card.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            } else {
+                card.frame(width: Self.size.width, height: Self.size.height, alignment: .topLeading)
+            }
+        }
+        .background(shape.fill(theme.surface.color))
+        .overlay(shape.inset(by: 0.25).stroke((theme.isDark ? AircColor.white(0.06) : AircColor.black(0.08)).color, lineWidth: 0.5))
+        .aircShadow(theme.isDark ? .cardDark : .card)
+    }
+}
+
+/// The welcome and finish steps: art (the app icon, or the member card), a display title in SF Pro Rounded,
+/// a lead and centred actions, straight on the window's theme. Text uses the theme's ink, so its contrast
+/// floors hold on any theme.
+public struct AircOnboardingHero<Art: View, Actions: View>: View {
+    private let title: String
+    private let subtitle: String?
+    private let art: Art
+    private let actions: Actions
+    @Environment(\.aircTheme) private var theme
+
+    public init(title: String, subtitle: String? = nil, @ViewBuilder art: () -> Art, @ViewBuilder actions: () -> Actions) {
+        self.title = title
+        self.subtitle = subtitle
+        self.art = art()
+        self.actions = actions()
+    }
+
+    public var body: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            art
+            Text(title)
+                .aircFont(AircFont.display)
+                .foregroundStyle(theme.text.color)
+                .multilineTextAlignment(.center)
+                .padding(.top, 28)
+            if let subtitle {
+                Text(subtitle)
+                    .aircFont(AircFont.lead)
+                    .foregroundStyle(theme.textSecondary.color)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 440)
+                    .padding(.top, 10)
+            }
+            HStack(spacing: 10) { actions }
+                .padding(.top, 32)
+            Spacer(minLength: 0)
+        }
+        .padding(AircSpacing.xxxl)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Step dots: the current step is a 20 × 6 accent capsule, the others 6 pt dots.
+public struct AircStepIndicator: View {
+    private let step: Int
+    private let total: Int
+    @Environment(\.aircTheme) private var theme
+
+    /// `step` is 1-based.
+    public init(step: Int, of total: Int) {
+        self.step = step
+        self.total = total
+    }
+
+    public var body: some View {
+        HStack(spacing: 6) {
+            ForEach(1...max(1, total), id: \.self) { i in
+                Capsule()
+                    .fill((i == step ? theme.accent : theme.surfaceText.alpha(i < step ? 0.30 : 0.14)).color)
+                    .frame(width: i == step ? 20 : 6, height: 6)
+            }
+        }
+        .aircAnimation(AircSpring.toggle, value: step)
+        .accessibilityElement()
+        .accessibilityLabel("Step \(step) of \(total)")
+    }
+}

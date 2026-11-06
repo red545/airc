@@ -1,0 +1,84 @@
+<!doctype html><meta charset="utf-8"><title>Airc Widevine qualification</title>
+<!-- Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0 -->
+<video id="video" muted autoplay preload="auto" playsinline controls width="640"></video><pre id="log"></pre>
+<script>
+// Isolated synthetic fixture. No device APIs and no account authentication.
+window.evidence = {events: [], phase: 'waiting'};
+function record(event, detail) {
+  evidence.events.push({event, detail});
+  document.querySelector('#log').textContent = JSON.stringify(evidence, null, 2);
+}
+window.probe = async () => {
+  evidence.phase = 'eme';
+  try {
+    const access = await navigator.requestMediaKeySystemAccess('com.widevine.alpha', [{
+      initDataTypes: ['cenc'], sessionTypes: ['temporary'],
+      audioCapabilities: [{contentType: 'audio/mp4; codecs="mp4a.40.2"'}],
+      videoCapabilities: [{contentType: 'video/mp4; codecs="avc1.42E01E"', robustness: 'SW_SECURE_CRYPTO'}]
+    }]);
+    record('access', access.keySystem);
+    const keys = await access.createMediaKeys();
+    record('keys', true);
+    const session = keys.createSession();
+    // Widevine version-0 PSSH with a synthetic key ID; no license is requested
+    // from a server for this probe. Only the CDM's message event is recorded.
+    const pssh = new Uint8Array(50);
+    new DataView(pssh.buffer).setUint32(0, 50);
+    pssh.set([112,115,115,104], 4);
+    pssh.set([0xed,0xef,0x8b,0xa9,0x79,0xd6,0x4a,0xce,0xa3,0xc8,0x27,0xdc,0xd5,0x1d,0x21,0xed],12);
+    new DataView(pssh.buffer).setUint32(28,18);
+    pssh.set([0x12,0x10],32);
+    pssh.fill(1,34);
+    const message = new Promise((resolve,reject) => {
+      const timer = setTimeout(()=>reject(new Error('CDM message timeout')),15000);
+      session.addEventListener('message', e => {
+        clearTimeout(timer); record('license-message',{type:e.messageType,bytes:e.message.byteLength}); resolve();
+      },{once:true});
+    });
+    // Attach the rejection handler immediately, even if generateRequest rejects.
+    await Promise.all([message, session.generateRequest('cenc',pssh)]);
+    await session.close();
+    evidence.phase = 'eme-complete';
+  } catch(e) { record('eme-error', {name:e.name,message:e.message}); evidence.phase='eme-failed'; }
+  return evidence;
+};
+window.playDemo = async () => {
+  evidence.phase='playback';
+  try {
+    await new Promise((resolve,reject)=>{
+      const script=document.createElement('script');
+      script.src='https://ajax.googleapis.com/ajax/libs/shaka-player/4.16.3/shaka-player.compiled.js';
+      script.onload=resolve; script.onerror=()=>reject(new Error('Shaka load failed'));
+      document.head.append(script);
+    });
+    record("shaka-loaded",shaka.Player.version);
+    shaka.polyfill.installAll();
+    const video=document.querySelector('video');
+    video.muted=true; video.autoplay=true; video.preload='auto';
+    for(const type of ['loadstart','loadedmetadata','error'])
+      video.addEventListener(type,()=>record('video-'+type,{ready:video.readyState,network:video.networkState,error:video.error?.message,visibility:document.visibilityState}));
+    const bounded = (promise, label, ms) => Promise.race([promise,
+      new Promise((_, reject)=>setTimeout(()=>reject(new Error(label+' timeout')),ms))]);
+    const player=new shaka.Player();
+    const attaching=player.attach(video);
+    setTimeout(()=>{video.play().catch(()=>{});},0);
+    await bounded(attaching,'player.attach',20000);
+    record('player-attached',true);
+    window.player=player;
+    player.configure({drm:{servers:{'com.widevine.alpha':'https://cwip-shaka-proxy.appspot.com/no_auth'}}});
+    player.getNetworkingEngine().registerRequestFilter((type,request)=>{
+      if(type===shaka.net.NetworkingEngine.RequestType.LICENSE) record('demo-license-request',request.uris);
+    });
+    player.addEventListener('error',e=>record('player-error',{code:e.detail.code,data:String(e.detail.data)}));
+    await bounded(player.load('https://storage.googleapis.com/shaka-demo-assets/angel-one-widevine/dash.mpd'),'player.load',60000);
+    record('player-loaded',true);
+    await video.play();
+    const start=video.currentTime;
+    await new Promise(r=>setTimeout(r,5000));
+    record('playback',{start,end:video.currentTime,keySystem:player.keySystem(),paused:video.paused});
+    evidence.phase=video.currentTime>start+2?'playback-complete':'playback-stalled';
+    video.pause();
+  } catch(e) {record('playback-error',{name:e.name,message:e.message,code:e.code,data:String(e.data)}); evidence.phase='playback-failed';}
+  return evidence;
+};
+</script>

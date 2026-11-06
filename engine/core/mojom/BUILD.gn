@@ -1,0 +1,9 @@
+# Copyright 2026 Mantra Patel
+# SPDX-License-Identifier: Apache-2.0
+# Modified by The Airc Authors
+
+import("//mojo/public/tools/bindings/mojom.gni")
+
+mojom("mojom") {
+  sources = [ "airc.mojom" ]
+}

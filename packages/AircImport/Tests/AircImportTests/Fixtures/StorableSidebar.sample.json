@@ -1,0 +1,638 @@
+{
+ "version": 1,
+ "sidebar": {
+  "containers": [
+   {
+    "littleBrowser": {
+     "_0": "W-1"
+    }
+   },
+   {
+    "spaces": [],
+    "items": [],
+    "topAppsContainerIDs": []
+   },
+   {
+    "global": {}
+   },
+   {
+    "spaces": [
+     "thebrowser.company.defaultPersonalSpaceID",
+     {
+      "id": "thebrowser.company.defaultPersonalSpaceID",
+      "profile": {
+       "default": {}
+      },
+      "newContainerIDs": [
+       {
+        "pinned": {}
+       },
+       "PIN-1",
+       {
+        "unpinned": {
+         "_0": {
+          "shared": {}
+         }
+        }
+       },
+       "TODAY-1"
+      ],
+      "containerIDs": [
+       "pinned",
+       "PIN-1",
+       "unpinned",
+       "TODAY-1"
+      ],
+      "customInfo": {
+       "iconType": {
+        "emoji_v2": "🏠"
+       },
+       "windowTheme": {
+        "primaryColorPalette": {
+         "midTone": {
+          "red": 0.557,
+          "green": 0.863,
+          "blue": 0.753,
+          "alpha": 1
+         }
+        }
+       }
+      }
+     },
+     "S-2",
+     {
+      "id": "S-2",
+      "title": "Work",
+      "profile": {
+       "custom": {
+        "_0": {
+         "directoryBasename": "Profile 1",
+         "machineID": "M"
+        }
+       }
+      },
+      "containerIDs": [
+       "unpinned",
+       "TODAY-2",
+       "pinned",
+       "PIN-2"
+      ],
+      "customInfo": {
+       "iconType": {
+        "emoji": 127912
+       },
+       "windowTheme": {
+        "background": {
+         "single": {
+          "_0": {
+           "style": {
+            "color": {
+             "_0": {
+              "blendedSingleColor": {
+               "_0": {
+                "color": {
+                 "red": 0.95,
+                 "green": 0.8,
+                 "blue": 0.55,
+                 "alpha": 1
+                }
+               }
+              }
+             }
+            }
+           }
+          }
+         }
+        }
+       }
+      }
+     },
+     "S-3",
+     {
+      "id": "S-3",
+      "title": "Personal",
+      "profile": true,
+      "newContainerIDs": [
+       {
+        "unpinned": {
+         "_0": {
+          "shared": {}
+         }
+        }
+       },
+       "TODAY-3",
+       {
+        "pinned": {}
+       },
+       "PIN-3"
+      ],
+      "customInfo": {
+       "iconType": {
+        "icon": "briefcase"
+       }
+      }
+     }
+    ],
+    "items": [
+     "PIN-1",
+     {
+      "id": "PIN-1",
+      "parentID": null,
+      "childrenIds": [
+       "T-SHEET",
+       "T-MODEL",
+       "F-ACME",
+       "T-GH1",
+       "T-GH2",
+       "T-LOCAL"
+      ],
+      "title": null,
+      "data": {
+       "itemContainer": {
+        "containerType": {
+         "spaceItems": {
+          "_0": "thebrowser.company.defaultPersonalSpaceID"
+         }
+        }
+       }
+      }
+     },
+     "T-SHEET",
+     {
+      "id": "T-SHEET",
+      "parentID": "PIN-1",
+      "childrenIds": [],
+      "title": null,
+      "createdAt": 783000000,
+      "isUnread": false,
+      "data": {
+       "tab": {
+        "savedURL": "https://docs.google.com/spreadsheets/d/abc/edit",
+        "savedTitle": "Budget - Google Sheets",
+        "timeLastActiveAt": 783100000,
+        "savedMuteStatus": "allowAudio"
+       }
+      }
+     },
+     "T-MODEL",
+     {
+      "id": "T-MODEL",
+      "parentID": "PIN-1",
+      "childrenIds": [],
+      "title": "Sam's Roadmap",
+      "createdAt": 783000000,
+      "isUnread": false,
+      "data": {
+       "tab": {
+        "savedURL": "https://www.notion.so/team/roadmap",
+        "savedTitle": "Roadmap",
+        "timeLastActiveAt": 783100000,
+        "savedMuteStatus": "allowAudio"
+       }
+      }
+     },
+     "F-ACME",
+     {
+      "id": "F-ACME",
+      "parentID": "PIN-1",
+      "childrenIds": [
+       "T-TR1",
+       "F-SUB",
+       "SV-1"
+      ],
+      "title": "Acme",
+      "data": {
+       "list": {}
+      }
+     },
+     "T-TR1",
+     {
+      "id": "T-TR1",
+      "parentID": "F-ACME",
+      "childrenIds": [],
+      "title": null,
+      "createdAt": 783000000,
+      "isUnread": false,
+      "data": {
+       "tab": {
+        "savedURL": "https://acme.example/dashboard",
+        "savedTitle": "Acme Dashboard",
+        "timeLastActiveAt": 783100000,
+        "savedMuteStatus": "allowAudio"
+       }
+      }
+     },
+     "F-SUB",
+     {
+      "id": "F-SUB",
+      "parentID": "F-ACME",
+      "childrenIds": [
+       "T-FIG"
+      ],
+      "title": "Design",
+      "data": {
+       "list": {}
+      }
+     },
+     "T-FIG",
+     {
+      "id": "T-FIG",
+      "parentID": "F-SUB",
+      "childrenIds": [],
+      "title": null,
+      "createdAt": 783000000,
+      "isUnread": false,
+      "data": {
+       "tab": {
+        "savedURL": "https://www.figma.com/file/xyz",
+        "savedTitle": "Figma - Acme",
+        "timeLastActiveAt": 783100000,
+        "savedMuteStatus": "allowAudio"
+       }
+      }
+     },
+     "SV-1",
+     {
+      "id": "SV-1",
+      "parentID": "F-ACME",
+      "childrenIds": [
+       "T-SPL1",
+       "T-SPL2"
+      ],
+      "data": {
+       "splitView": {
+        "layout": "horizontal"
+       }
+      }
+     },
+     "T-SPL1",
+     {
+      "id": "T-SPL1",
+      "parentID": "SV-1",
+      "childrenIds": [],
+      "title": null,
+      "createdAt": 783000000,
+      "isUnread": false,
+      "data": {
+       "tab": {
+        "savedURL": "https://example.com/left",
+        "savedTitle": "Left",
+        "timeLastActiveAt": 783100000,
+        "savedMuteStatus": "allowAudio"
+       }
+      }
+     },
+     "T-SPL2",
+     {
+      "id": "T-SPL2",
+      "parentID": "SV-1",
+      "childrenIds": [],
+      "title": null,
+      "createdAt": 783000000,
+      "isUnread": false,
+      "data": {
+       "tab": {
+        "savedURL": "https://example.com/right",
+        "savedTitle": "Right",
+        "timeLastActiveAt": 783100000,
+        "savedMuteStatus": "allowAudio"
+       }
+      }
+     },
+     "T-GH1",
+     {
+      "id": "T-GH1",
+      "parentID": "PIN-1",
+      "childrenIds": [],
+      "title": null,
+      "createdAt": 783000000,
+      "isUnread": false,
+      "data": {
+       "tab": {
+        "savedURL": "https://github.com/example/browser-tools",
+        "savedTitle": "Browser Tools",
+        "timeLastActiveAt": 783100000,
+        "savedMuteStatus": "allowAudio"
+       }
+      }
+     },
+     "T-GH2",
+     {
+      "id": "T-GH2",
+      "parentID": "PIN-1",
+      "childrenIds": [],
+      "title": null,
+      "createdAt": 783000000,
+      "isUnread": false,
+      "data": {
+       "tab": {
+        "savedURL": "https://github.com/octocat",
+        "savedTitle": "octocat (The Octocat)",
+        "timeLastActiveAt": 783100000,
+        "savedMuteStatus": "allowAudio"
+       }
+      }
+     },
+     "T-LOCAL",
+     {
+      "id": "T-LOCAL",
+      "parentID": "PIN-1",
+      "childrenIds": [],
+      "title": null,
+      "createdAt": 783000000,
+      "isUnread": false,
+      "data": {
+       "tab": {
+        "savedURL": "http://localhost:3000/lp",
+        "savedTitle": "localhost:3000/lp",
+        "timeLastActiveAt": 783100000,
+        "savedMuteStatus": "allowAudio"
+       }
+      }
+     },
+     "TODAY-1",
+     {
+      "id": "TODAY-1",
+      "parentID": null,
+      "childrenIds": [
+       "T-YT",
+       "E-1"
+      ],
+      "title": null,
+      "data": {
+       "itemContainer": {
+        "containerType": {
+         "spaceItems": {
+          "_0": "thebrowser.company.defaultPersonalSpaceID"
+         }
+        }
+       }
+      }
+     },
+     "T-YT",
+     {
+      "id": "T-YT",
+      "parentID": "TODAY-1",
+      "childrenIds": [],
+      "title": null,
+      "createdAt": 783000000,
+      "isUnread": false,
+      "data": {
+       "tab": {
+        "savedURL": "https://www.youtube.com/watch?v=rapid",
+        "savedTitle": "A video",
+        "timeLastActiveAt": 783100000,
+        "savedMuteStatus": "allowAudio"
+       }
+      }
+     },
+     "E-1",
+     {
+      "id": "E-1",
+      "parentID": "TODAY-1",
+      "childrenIds": [],
+      "data": {
+       "easel": {
+        "easelID": "EASEL"
+       }
+      }
+     },
+     "PIN-2",
+     {
+      "id": "PIN-2",
+      "parentID": null,
+      "childrenIds": [
+       "T-DASH"
+      ],
+      "title": null,
+      "data": {
+       "itemContainer": {
+        "containerType": {
+         "spaceItems": {
+          "_0": "S-2"
+         }
+        }
+       }
+      }
+     },
+     "T-DASH",
+     {
+      "id": "T-DASH",
+      "parentID": "PIN-2",
+      "childrenIds": [],
+      "title": null,
+      "createdAt": 783000000,
+      "isUnread": false,
+      "data": {
+       "tab": {
+        "savedURL": "https://dashboard.stripe.com/",
+        "savedTitle": "Stripe",
+        "timeLastActiveAt": 783100000,
+        "savedMuteStatus": "allowAudio"
+       }
+      }
+     },
+     "TODAY-2",
+     {
+      "id": "TODAY-2",
+      "parentID": null,
+      "childrenIds": [],
+      "title": null,
+      "data": {
+       "itemContainer": {
+        "containerType": {
+         "spaceItems": {
+          "_0": "S-2"
+         }
+        }
+       }
+      }
+     },
+     "PIN-3",
+     {
+      "id": "PIN-3",
+      "parentID": null,
+      "childrenIds": [],
+      "data": {
+       "itemContainer": {
+        "containerType": {
+         "spaceItems": {
+          "_0": "S-3"
+         }
+        }
+       }
+      }
+     },
+     "T-ORPHAN-ORDER",
+     {
+      "id": "T-ORPHAN-ORDER",
+      "parentID": "PIN-3",
+      "childrenIds": [],
+      "title": null,
+      "createdAt": 783000000,
+      "isUnread": false,
+      "data": {
+       "tab": {
+        "savedURL": "https://linear.app/team",
+        "savedTitle": "Linear",
+        "timeLastActiveAt": 783100000,
+        "savedMuteStatus": "allowAudio"
+       }
+      }
+     },
+     "TODAY-3",
+     {
+      "id": "TODAY-3",
+      "parentID": null,
+      "childrenIds": [],
+      "title": null,
+      "data": {
+       "itemContainer": {
+        "containerType": {
+         "spaceItems": {
+          "_0": "S-3"
+         }
+        }
+       }
+      }
+     },
+     "FAV-D",
+     {
+      "id": "FAV-D",
+      "parentID": null,
+      "childrenIds": [
+       "T-GMAIL",
+       "T-CAL"
+      ],
+      "title": null,
+      "data": {
+       "itemContainer": {
+        "containerType": {
+         "topApps": {
+          "_0": {
+           "default": {}
+          }
+         }
+        }
+       }
+      }
+     },
+     "T-GMAIL",
+     {
+      "id": "T-GMAIL",
+      "parentID": "FAV-D",
+      "childrenIds": [],
+      "title": null,
+      "createdAt": 783000000,
+      "isUnread": false,
+      "data": {
+       "tab": {
+        "savedURL": "https://mail.google.com/mail/u/0/#inbox",
+        "savedTitle": "Inbox (3) - me@example.com - Gmail",
+        "timeLastActiveAt": 783100000,
+        "savedMuteStatus": "allowAudio"
+       }
+      }
+     },
+     "T-CAL",
+     {
+      "id": "T-CAL",
+      "parentID": "FAV-D",
+      "childrenIds": [],
+      "title": null,
+      "createdAt": 783000000,
+      "isUnread": false,
+      "data": {
+       "tab": {
+        "savedURL": "https://calendar.google.com/calendar/u/0/r",
+        "savedTitle": "Google Calendar",
+        "timeLastActiveAt": 783100000,
+        "savedMuteStatus": "allowAudio"
+       }
+      }
+     },
+     "FAV-P1",
+     {
+      "id": "FAV-P1",
+      "parentID": null,
+      "childrenIds": [
+       "T-GMAIL2",
+       "T-SLACK"
+      ],
+      "title": null,
+      "data": {
+       "itemContainer": {
+        "containerType": {
+         "topApps": {
+          "_0": {
+           "custom": {
+            "_0": {
+             "directoryBasename": "Profile 1",
+             "machineID": "M"
+            }
+           }
+          }
+         }
+        }
+       }
+      }
+     },
+     "T-GMAIL2",
+     {
+      "id": "T-GMAIL2",
+      "parentID": "FAV-P1",
+      "childrenIds": [],
+      "title": null,
+      "createdAt": 783000000,
+      "isUnread": false,
+      "data": {
+       "tab": {
+        "savedURL": "https://mail.google.com/mail/u/1/#inbox",
+        "savedTitle": "Inbox - work@example.com",
+        "timeLastActiveAt": 783100000,
+        "savedMuteStatus": "allowAudio"
+       }
+      }
+     },
+     "T-SLACK",
+     {
+      "id": "T-SLACK",
+      "parentID": "FAV-P1",
+      "childrenIds": [],
+      "title": null,
+      "createdAt": 783000000,
+      "isUnread": false,
+      "data": {
+       "tab": {
+        "savedURL": "https://app.slack.com/client/T1",
+        "savedTitle": "Slack",
+        "timeLastActiveAt": 783100000,
+        "savedMuteStatus": "allowAudio"
+       }
+      }
+     }
+    ],
+    "topAppsContainerIDs": [
+     {
+      "default": {}
+     },
+     "FAV-D",
+     {
+      "custom": {
+       "_0": {
+        "directoryBasename": "Profile 1",
+        "machineID": "M"
+       }
+      }
+     },
+     "FAV-P1"
+    ]
+   }
+  ]
+ },
+ "sidebarSyncState": {
+  "items": [],
+  "spaceModels": [],
+  "container": {}
+ }
+}

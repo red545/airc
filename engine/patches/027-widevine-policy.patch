@@ -1,0 +1,77 @@
+# Copyright 2026 The Airc Authors; Apache-2.0.
+--- a/components/component_updater/component_updater_service.cc
++++ b/components/component_updater/component_updater_service.cc
+@@ -2,6 +2,7 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#include "airc/core/airc_drm_policy.h"  // nogncheck
+ #include "components/component_updater/component_updater_service.h"
+ 
+ #include <stdint.h>
+@@ -496,6 +497,7 @@
+   std::vector<std::optional<CrxComponent>> crxs;
+   for (std::optional<ComponentRegistration> item :
+        component_updater::GetCrxComponents(components_, ids)) {
++    if (item && !airc::AllowComponentUpdate(item->app_id)) item.reset();
+     crxs.push_back(item ? std::optional<CrxComponent>{ToCrxComponent(*item)}
+                         : std::nullopt);
+   }
+--- a/chrome/browser/component_updater/widevine_cdm_component_installer.cc
++++ b/chrome/browser/component_updater/widevine_cdm_component_installer.cc
+@@ -2,6 +2,7 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#include "airc/core/airc_drm_policy.h"  // nogncheck
+ #include "chrome/browser/component_updater/widevine_cdm_component_installer.h"
+ 
+ #include <stdint.h>
+@@ -281,6 +282,7 @@
+ }
+ 
+ bool WidevineCdmComponentInstallerPolicy::RequiresNetworkEncryption() const {
++  if (g_airc_protected_content_enabled) return true;
+   return false;
+ }
+ 
+--- a/chrome/browser/prefs/browser_prefs.cc
++++ b/chrome/browser/prefs/browser_prefs.cc
+@@ -2,6 +2,7 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#include "airc/core/airc_drm_policy.h"  // nogncheck
+ #include "chrome/browser/prefs/browser_prefs.h"
+ 
+ #include <array>
+@@ -1521,6 +1522,7 @@
+ }
+ 
+ void RegisterLocalState(PrefRegistrySimple* registry) {
++  registry->RegisterBooleanPref(airc::kProtectedContentPref, true);
+   // Call outs to individual subsystems that register Local State (browser-wide)
+   // prefs en masse. See RegisterProfilePrefs for per-profile prefs. Please
+   // keep this list alphabetized.
+--- a/components/update_client/op_download.cc
++++ b/components/update_client/op_download.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "components/update_client/op_download.h"
++#include "airc/core/airc_drm_network.h"  // nogncheck
+ 
+ #include <stdint.h>
+ 
+@@ -154,9 +155,9 @@
+       config->GetCrxDownloaderFactory()->MakeCrxDownloader(
+           config->GetProdId(),
+           CanDoBackgroundDownload(is_foreground,
+-                                  config->EnabledBackgroundDownloader(), size));
++                                  airc::ComponentBackgroundDownloader(id, config->EnabledBackgroundDownloader()), size));
+   cancellation->OnCancel(crx_downloader->StartDownload(
+-      urls, hash,
++      airc::ComponentDownloadURLs(id, urls), hash,
+       base::BindRepeating(
+           [](CrxDownloader::ProgressCallback progress_callback,
+              int64_t file_size, int64_t downloaded_bytes,

@@ -1,0 +1,26 @@
+{
+  "profiles": [
+    "Profile One",
+    "Profile Two"
+  ],
+  "spaces": [
+    {
+      "profile": 0
+    },
+    {
+      "profile": 1
+    }
+  ],
+  "tabs": [
+    {
+      "space": 0,
+      "recent": true,
+      "url": "https://accounts.google.com/ServiceLogin?service=mail"
+    },
+    {
+      "space": 1,
+      "recent": true,
+      "url": "https://accounts.google.com/ServiceLogin?service=cl"
+    }
+  ]
+}

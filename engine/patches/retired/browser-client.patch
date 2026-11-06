@@ -1,0 +1,24 @@
+--- a/chrome/browser/chrome_content_browser_client.cc
++++ b/chrome/browser/chrome_content_browser_client.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/chrome_content_browser_client.h"
++#include "airc/core/airc_hooks.h"  // nogncheck
+ 
+ #include <algorithm>
+ #include <iterator>
+@@ -5156,8 +5157,11 @@
+ #endif  // BUILDFLAG(IS_ANDROID)
+ 
+   // chrome: & friends.
+-  handler->AddHandlerPair(&ChromeContentBrowserClient::HandleWebUI,
+-                          &ChromeContentBrowserClient::HandleWebUIReverse);
++  // Airc: Airc maps its own URLs (as CEF's build did).
++  if (!g_airc_embedder) {
++    handler->AddHandlerPair(&ChromeContentBrowserClient::HandleWebUI,
++                            &ChromeContentBrowserClient::HandleWebUIReverse);
++  }
+ }
+ 
+ base::FilePath ChromeContentBrowserClient::GetDefaultDownloadDirectory() {

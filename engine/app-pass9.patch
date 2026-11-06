@@ -1,0 +1,37 @@
+diff --git a/apps/browser/PASS9-UI.md b/apps/browser/PASS9-UI.md
+new file mode 100644
+--- /dev/null
++++ b/apps/browser/PASS9-UI.md
+@@ -0,0 +1,32 @@
++# Pass 9 app presentation requests
++
++Engine qualification does not establish these app-owned journeys. This is a
++handoff specification, not an implemented or tested UI change.
++
++1. Permissions: replace ChromiumRuntime's unconditional dismiss in
++   engine(_:permissionRequest:tab:) with a presenter routed by originating
++   AircTab/profile/window. Display origin, requested capability, Allow, Deny and
++   close. Resolve the request ID exactly once; close maps to dismiss. Honour
++   request-dismissed callbacks and dismiss on tab/profile/window changes. Anchor
++   to the real URL field using setUIAnchor(view:rect:), converting coordinates
++   only through the engine's uiAnchorRectInScreen. Test camera/microphone with
++   fake devices; test notifications/location independently. Verify allow and
++   deny, offscreen/background-tab suppression, and anchor geometry on resize.
++2. Passwords: subscribe to ChromiumEngine.passwordPromptDidChange and present
++   save/update at that same URL anchor. Use existing save/reject APIs and retain
++   originating tab identity. Do not log the password. Verify synthetic submit,
++   visible save, accept, reload, fill and isolation from the second profile.
++3. DevTools: ChromiumTab currently presents ChromiumToolsPanel. Provide explicit
++   dock/undock/re-dock state, lay out the page and tools together, preserve the
++   tools target across transitions, and test Option-Command-I through MainMenu.
++   Moving a native view alone does not prove Chromium's docking controls work.
++4. Add a bounded, nonactivating native qualification scenario to SnapshotRunner:
++   local fixtures, a small owned window, real Option-Command-U/I events, owned
++   CGWindowListCreateImage captures, print/PDF and upload panel selections, and
++   an unconditional shutdown/fixture cleanup path. The engine host's source URL
++   navigation is not an app shortcut test. App snapshots assembled from view
++   rendering are not evidence for these native surfaces.
++
++Native fullscreen and Japanese input-source switching need an interaction policy
++that preserves the owner's foreground app and input configuration. Do not enable
++an input source, take focus, or label those paths passed to unblock the table.

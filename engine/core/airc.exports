@@ -1,0 +1,15 @@
+# Copyright 2026 Mantra Patel
+# SPDX-License-Identifier: Apache-2.0
+# Modified by The Airc Authors
+
+_AircMain
+_OBJC_CLASS_$_AircEngine
+_OBJC_METACLASS_$_AircEngine
+_OBJC_CLASS_$_AircProfile
+_OBJC_METACLASS_$_AircProfile
+_OBJC_CLASS_$_AircWindow
+_OBJC_METACLASS_$_AircWindow
+_OBJC_CLASS_$_AircTab
+_OBJC_METACLASS_$_AircTab
+_OBJC_CLASS_$_AircPageView
+_OBJC_METACLASS_$_AircPageView

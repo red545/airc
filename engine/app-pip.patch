@@ -1,0 +1,35 @@
+--- /dev/null
++++ b/apps/browser/PIP-INTEGRATION.md
+@@ -0,0 +1,32 @@
++# SB-55 application integration still required
++
++The ChromiumEngine methods are already wired; they are not the product UI.
++Promote them to a BrowserEngine capability with safe WebKit no-op defaults.
++
++Settings: per-profile “Automatically show videos and calls in picture-in-picture”
++toggle, initially reflecting autoPictureInPictureEnabled(profile). Each edit calls
++setAutoPictureInPictureEnabled(profile, enabled:). Off overrides site allows.
++Site Controls: Automatic PiP choice Default / Allow / Block; call
++setAutoPictureInPictureException(profile, origin: origin, enabled: nil/true/false).
++Keep the displayed exceptions in the app's profile settings model. Engine content
++settings persist the effective rules. Do not treat page paths as separate sites.
++
++On tab/Space switch retain the existing detach/attach calls. After attaching, set
++setPictureInPictureWindowActive(tab, active: hostWindow.isKeyWindow). Send false
++to the selected tab when its host resigns key; true when it becomes key again.
++Do not send “active” simply because a tab was attached in a background window.
++Do not create another Browser or fake a user gesture to trigger PiP.
++
++Subscribe to pictureInPictureDidChange to track the owning EngineTab. Subscribe
++to pictureInPictureRequestsTab to select its model's window, Space, then tab and
++focus its page. Chromium already draws a return-to-tab button for video and
++Document PiP. If a platform/UI variant lacks it, draw a Back to tab control tied
++to the same model action. Closing PiP alone must not be treated as leaving a call.
++
++Placement is engine-owned, default bottom-right with a 20 point margin. Drag and
++resize persist per profile. Optional “Reset PiP position” calls
++setPictureInPictureFrame(profile, frame: .zero). Do not reposition to top-right.
++
++Site-provided Document PiP owns mute/camera/leave controls and track state.
++Fallback camera-tile UI for sites without Document PiP is not implemented.
++No application UI or native window switching is qualified by this patch.

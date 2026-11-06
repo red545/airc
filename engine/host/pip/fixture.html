@@ -1,0 +1,54 @@
+<!doctype html><meta charset="utf-8"><title>Airc synthetic PiP</title>
+<style>body{background:#193349;color:white;font:20px system-ui}video{width:360px}button{font:inherit;margin:10px}canvas{display:none}</style>
+<h1>Local synthetic video / call</h1><div id="tiles"><video id="video" width="360" playsinline loop></video><button id="mute">Mute</button><button id="leave">Leave</button></div><canvas id="canvas" width="640" height="360"></canvas>
+<script>
+const loadID=crypto.randomUUID();
+setInterval(()=>fetch('/beat',{method:'POST',body:JSON.stringify({id:loadID,time:Date.now(),...state()})}).catch(()=>{}),250);
+let stream, pc1, pc2, pip, timer; window.events=[]; window.inputs=[];
+const video=document.querySelector('video'), tiles=document.querySelector('#tiles');
+window.start=async function(mode){
+  window.mode=mode;events.push('starting');
+  if(mode==='call') {
+    stream=await navigator.mediaDevices.getUserMedia({video:true,audio:true});
+    pc1=new RTCPeerConnection();pc2=new RTCPeerConnection();
+    pc1.onicecandidate=e=>e.candidate&&pc2.addIceCandidate(e.candidate);
+    pc2.onicecandidate=e=>e.candidate&&pc1.addIceCandidate(e.candidate);
+    pc2.ontrack=e=>video.srcObject=e.streams[0];
+    stream.getTracks().forEach(t=>pc1.addTrack(t,stream));
+    await pc1.setLocalDescription(await pc1.createOffer());await pc2.setRemoteDescription(pc1.localDescription);
+    await pc2.setLocalDescription(await pc2.createAnswer());await pc1.setRemoteDescription(pc2.localDescription);
+    video.muted=true;await video.play();
+    navigator.mediaSession.setActionHandler('enterpictureinpicture',async()=>{
+      events.push('action');
+      try {
+        pip=await documentPictureInPicture.requestWindow({width:400,height:340});
+        pip.document.head.append(document.querySelector('style').cloneNode(true));
+        pip.document.body.style.cssText='background:#193349;color:white;font:20px system-ui';
+        for(const type of ['pointerdown','pointerup','click']) pip.document.addEventListener(type,e=>inputs.push({type,target:e.target.id,x:e.clientX,y:e.clientY,trusted:e.isTrusted}));
+        pip.document.body.append(tiles); events.push('document-enter');
+        pip.addEventListener('pagehide',()=>{document.body.prepend(tiles);events.push('document-exit')},{once:true});
+      } catch(e){events.push(e.name+':'+e.message)}
+    });
+    mute.onclick=()=>{stream.getAudioTracks().forEach(t=>t.enabled=!t.enabled);events.push('mute');};
+    leave.onclick=()=>{stream.getTracks().forEach(t=>t.stop());pc1.close();pc2.close();events.push('leave');pip?.close();};
+  } else {
+    // A recorded A/V file, not live capture (capture disqualifies browser-initiated PiP).
+    const ctx=canvas.getContext('2d');let n=0;
+    timer=setInterval(()=>{ctx.fillStyle='#194b65';ctx.fillRect(0,0,640,360);ctx.fillStyle='white';ctx.font='40px sans-serif';ctx.fillText('Airc video '+n++,50,170)},50);
+    const ac=new AudioContext();events.push('audio-context');await ac.resume();events.push('audio-ready');const osc=ac.createOscillator(), gain=ac.createGain(), dest=ac.createMediaStreamDestination();
+    gain.gain.value=0.025;osc.connect(gain).connect(dest);osc.start();
+    const source=mode==='audio'?new MediaStream():canvas.captureStream(20);source.addTrack(dest.stream.getAudioTracks()[0]);
+    const mimeType=mode==='audio'?'audio/webm;codecs=opus':'video/webm;codecs=vp8,opus';
+    const rec=new MediaRecorder(source,{mimeType}), chunks=[];
+    rec.ondataavailable=e=>chunks.push(e.data);rec.start();events.push('recording');
+    await new Promise(r=>setTimeout(r,1800));await new Promise(r=>{rec.onstop=r;rec.stop()});
+    events.push('recorded');source.getTracks().forEach(t=>t.stop());osc.stop();await ac.close();clearInterval(timer);
+    if(mode==='audio'){video.remove();window.player=new Audio();} else window.player=video;
+    player.autoplay=mode==='muted';player.src=URL.createObjectURL(new Blob(chunks,{type:mimeType}));player.loop=true;player.muted=mode==='muted';
+    events.push('play');await player.play();events.push('playing');video.addEventListener('enterpictureinpicture',()=>events.push('video-enter'));video.addEventListener('leavepictureinpicture',()=>events.push('video-exit'));
+  }
+  return {ready:true,mode,playing:mode==='call'?!video.paused:!player.paused};
+};
+window.state=()=>({events,inputs,connected:pc1?.connectionState==='connected'&&pc2?.connectionState==='connected',live:stream?.getTracks().every(t=>t.readyState==='live'),doc:!!documentPictureInPicture.window,video:!!document.pictureInPictureElement,
+  restored:tiles.ownerDocument===document,paused:window.player?.paused,readyState:(window.player||video).readyState,muted:stream?.getAudioTracks().every(t=>!t.enabled),left:stream?.getTracks().every(t=>t.readyState==='ended')});
+</script>

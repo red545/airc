@@ -1,0 +1,24 @@
+# Copyright 2026 The Airc Authors; Apache-2.0.
+--- a/chrome/browser/ui/views/permissions/chooser_bubble_ui.cc
++++ b/chrome/browser/ui/views/permissions/chooser_bubble_ui.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include <string>
++#include "airc/core/airc_hooks.h"  // nogncheck
+ 
+ #include "base/functional/callback_helpers.h"
+ #include "base/memory/raw_ptr.h"
+@@ -362,6 +363,12 @@
+   }
+   BrowserWindowInterface* browser = host->browser;
+ 
++  base::OnceClosure hosted_close;
++  if (g_airc_device_chooser &&
++      g_airc_device_chooser(host->contents, &controller,
++                           &host->fullscreen_blocker, &hosted_close))
++    return hosted_close;
++
+   auto bubble = std::make_unique<ChooserBubbleUiViewDelegate>(
+       browser, host->contents, std::move(controller),
+       std::move(host->fullscreen_blocker));

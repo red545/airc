@@ -1,0 +1,20 @@
+# Copyright 2026 The Airc Authors; Apache-2.0.
+--- a/chrome/browser/component_updater/registration.cc
++++ b/chrome/browser/component_updater/registration.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/component_updater/registration.h"
++#include "airc/core/airc_service_policy.h"  // nogncheck
+ 
+ #include "base/feature_list.h"
+ #include "base/files/file_path.h"
+@@ -160,7 +161,7 @@
+   RegisterPrivateVerificationTokensComponentIfEnabled(cus);
+   RegisterFirstPartySetsComponent(cus);
+   RegisterPrivacySandboxAttestationsComponent(cus);
+-  RegisterActorSafetyListsComponent(cus, base::OnceClosure());
++  if (!g_airc_skip_actor_safety_lists) RegisterActorSafetyListsComponent(cus, base::OnceClosure());
+   if (history_embeddings::IsHistoryEmbeddingsFeatureEnabled()) {
+     RegisterHistorySearchStringsComponent(cus);
+   }

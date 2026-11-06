@@ -1,0 +1,141 @@
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/chrome/browser/ui/browser_window/internal/browser_window_features.cc
++++ b/chrome/browser/ui/browser_window/internal/browser_window_features.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/ui/browser_window/public/browser_window_features.h"
++#include "airc/core/airc_hooks.h"  // nogncheck
+ 
+ #include <memory>
+ 
+@@ -243,6 +244,18 @@
+ #include "chrome/browser/ui/overscroll_pref_manager.h"
+ #endif  // defined(USE_AURA)
+ 
++// Airc: Airc (engine/airc) makes the WebContentsDelegate of the Browsers it hosts.
++std::unique_ptr<BrowserWebContentsDelegate> (
++    *g_airc_create_web_contents_delegate)(
++    BrowserWindowInterface* browser,
++    ExclusiveAccessManager& exclusive_access_manager,
++    chrome::BrowserCommandController& command_controller,
++    UnloadController& unload_controller,
++    web_app::AppBrowserController* app_browser_controller,
++    BrowserWindow& window,
++    DesktopBrowserWindowCapabilities& capabilities,
++    BrowserUiController& browser_ui_controller) = nullptr;
++
+ BrowserWindowFeatures::BrowserWindowFeatures() = default;
+ BrowserWindowFeatures::~BrowserWindowFeatures() = default;
+ 
+@@ -812,11 +825,21 @@
+ 
+   // Must be after exclusive_access_manager_,
+   // desktop_browser_window_capabilities_, and browser_ui_controller_.
+-  browser_web_contents_delegate_ = std::make_unique<BrowserWebContentsDelegate>(
+-      browser, *exclusive_access_manager_, *browser_command_controller_,
+-      *unload_controller_, app_browser_controller_.get(),
+-      *BrowserWindow::FromBrowser(browser),
+-      *desktop_browser_window_capabilities_, *browser_ui_controller_);
++  // Airc: Airc
++  if (g_airc_create_web_contents_delegate) {
++    browser_web_contents_delegate_ = g_airc_create_web_contents_delegate(
++        browser, *exclusive_access_manager_, *browser_command_controller_,
++        *unload_controller_, app_browser_controller_.get(),
++        *BrowserWindow::FromBrowser(browser),
++        *desktop_browser_window_capabilities_, *browser_ui_controller_);
++  }
++  if (!browser_web_contents_delegate_) {
++    browser_web_contents_delegate_ = std::make_unique<BrowserWebContentsDelegate>(
++        browser, *exclusive_access_manager_, *browser_command_controller_,
++        *unload_controller_, app_browser_controller_.get(),
++        *BrowserWindow::FromBrowser(browser),
++        *desktop_browser_window_capabilities_, *browser_ui_controller_);
++  }
+ 
+   // Must be after exclusive_access_manager_.
+ #if !BUILDFLAG(IS_CHROMEOS)
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/chrome/browser/ui/browser.cc
++++ b/chrome/browser/ui/browser.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/ui/browser.h"
++#include "airc/core/airc_hooks.h"  // nogncheck
+ 
+ #include <stddef.h>
+ 
+@@ -264,6 +265,9 @@
+   return browser;
+ }
+ 
++// Airc: Airc (engine/airc) supplies the window of a Browser it hosts.
++BrowserWindow* (*g_airc_browser_window_factory)(Browser*) = nullptr;
++
+ Browser::Browser(BrowserWindowCreateParams params)
+     : type_(params.type),
+       profile_(&*params.profile),
+@@ -306,12 +310,19 @@
+   features_ = std::make_unique<BrowserWindowFeatures>();
+   features_->Init(this);
+ 
+-  if (custom_window) {
++  // Airc: Airc's own window for a Browser it makes (tests only, otherwise).
++  if (custom_window && !g_airc_browser_window_factory) {
+     CHECK_IS_TEST() << "BrowserWindowCreateParams::window is a test-only param";
+   }
++  // Airc: Airc may host a Browser Chrome makes itself.
++  BrowserWindow* const hosted_window =
++      !custom_window && g_airc_browser_window_factory
++          ? g_airc_browser_window_factory(this)
++          : nullptr;
+   window_ =
+-      custom_window
+-          ? std::unique_ptr<BrowserWindow, BrowserWindowDeleter>(custom_window)
++      custom_window || hosted_window
++          ? std::unique_ptr<BrowserWindow, BrowserWindowDeleter>(
++                custom_window ? custom_window : hosted_window)
+           : BrowserWindow::CreateBrowserWindow(this, user_gesture,
+                                                in_tab_dragging);
+# Copyright 2026 The Airc Authors; Apache-2.0.
+--- a/chrome/browser/ui/browser.cc
++++ b/chrome/browser/ui/browser.cc
+@@ -626,6 +626,8 @@
+ }
+ 
+ void Browser::TabStripEmpty() {
++  if (g_airc_keeps_window_without_tabs && g_airc_keeps_window_without_tabs(this))
++    return;
+   // A touch tab drag session may still be delivering OS touch events to this
+   // window's native widget. Destroying it mid-gesture would strand the drag, so
+   // let TabDragController take ownership of closing this browser once the drag
+# Copyright 2026 The Airc Authors; Apache-2.0.
+--- a/chrome/browser/ui/views/frame/browser_view.cc
++++ b/chrome/browser/ui/views/frame/browser_view.cc
+@@ -1172,6 +1172,12 @@
+ // static
+ BrowserWindow* BrowserWindow::FindBrowserWindowWithWebContents(
+     content::WebContents* web_contents) {
++  // Prefer tab ownership: embedded browsers need not have a BrowserView, and
++  // multiple profile browsers may share one native window.
++  if (auto* browser =
++          GlobalBrowserCollection::GetInstance()->FindBrowserWithTab(web_contents)) {
++    return BrowserWindow::FromBrowser(browser);
++  }
+   // Check first to see if the we can find a top level widget for the
+   // `web_contents`. This covers the case of searching for the browser window
+   // associated with a non-tab contents and the active tab contents. Fall back
+@@ -1184,9 +1190,7 @@
+     return BrowserView::GetBrowserViewForNativeWindow(
+         widget->GetNativeWindow());
+   }
+-  const auto* browser =
+-      GlobalBrowserCollection::GetInstance()->FindBrowserWithTab(web_contents);
+-  return browser ? BrowserView::GetBrowserViewForBrowser(browser) : nullptr;
++  return nullptr;
+ }
+ 
+ // static

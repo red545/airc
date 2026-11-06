@@ -1,0 +1,9 @@
+# Approved scan hits: <path glob><TAB><kind><TAB><reason>. One file:kind pair per line.
+# An entry approves every hit of that kind in that file, so keep globs narrow and reasons
+# specific. The scanner warns about entries that no longer match anything.
+apps/browser/Sources/Airc/Debug/CredentialCheck.swift	email	Android credential realm (an android:// URI with user info) in a synthetic Login Data fixture, not a mailbox.
+infra/release/file-key.swift	gitleaks:generic-api-key	The file name "sparkle_ed25519_private" of a key kept outside the repo; no key material is in the file.
+scripts/release/test_scan_bundle.py	tailnet-domain	A synthetic "fixture" host under the tailnet domain, used to prove the bundle scanner redacts tailnet names.
+infra/release/telemetry.json	gitleaks:generic-api-key	PostHog project key (phc_): public by design, a write-only ingestion key that ships inside every app build
+packages/AircKit/Tests/AircKitTests/CrashReportTests.swift	home-path-other	Synthetic home-folder paths in fixtures that prove crash reports strip them
+packages/AircKit/Tests/AircKitTests/BoostTests.swift	home-path-other	A synthetic local-file URL in a home folder, proving Boosts ignore local files

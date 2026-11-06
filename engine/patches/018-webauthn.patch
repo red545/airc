@@ -1,0 +1,185 @@
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/device/fido/cable/v2_discovery.h
++++ b/device/fido/cable/v2_discovery.h
+@@ -91,6 +91,8 @@
+   // FidoDeviceDiscovery:
+   void StartInternal() override;
+ 
++  static void SetHybridUiShown(const void* model, bool shown);
++
+  private:
+   // UnpairedKeys are keys that are conveyed by QR code or that come from the
+   // server, i.e. keys that enable interactions with unpaired phones.
+@@ -149,6 +151,7 @@
+   base::flat_set<std::array<uint8_t, kAdvertSize>> observed_adverts_;
+   bool started_ = false;
+   bool device_committed_ = false;
++  bool scan_wanted_ = false;
+ 
+   base::WeakPtrFactory<Discovery> weak_factory_{this};
+ };
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/device/fido/cable/v2_discovery.cc
++++ b/device/fido/cable/v2_discovery.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "device/fido/cable/v2_discovery.h"
++#include "airc/core/airc_content_hooks.h"  // nogncheck
+ 
+ #include "base/containers/to_array.h"
+ #include "base/feature_list.h"
+@@ -10,6 +11,7 @@
+ #include "base/functional/callback.h"
+ #include "base/functional/callback_helpers.h"
+ #include "base/metrics/histogram_functions.h"
++#include "base/no_destructor.h"
+ #include "base/strings/string_number_conversions.h"
+ #include "base/task/sequenced_task_runner.h"
+ #include "components/device_event_log/device_event_log.h"
+@@ -33,9 +35,21 @@
+ #include "device/fido/mac/util.h"
+ #endif
+ 
++bool g_airc_hybrid_scan_on_demand = false;
++
+ namespace device::cablev2 {
+ 
+ namespace {
++
++base::flat_set<const void*>& ModelsShowingHybrid() {
++  static base::NoDestructor<base::flat_set<const void*>> models;
++  return *models;
++}
++
++std::vector<base::WeakPtr<Discovery>>& ScanWaiters() {
++  static base::NoDestructor<std::vector<base::WeakPtr<Discovery>>> waiters;
++  return *waiters;
++}
+ 
+ // Client name for logging in BLE scanning.
+ constexpr char kScanClientName[] = "FIDO";
+@@ -93,6 +107,11 @@
+ }
+ 
+ Discovery::~Discovery() {
++  if (scan_wanted_) {
++    std::erase_if(ScanWaiters(), [this](const base::WeakPtr<Discovery>& waiter) {
++      return !waiter || waiter.get() == this;
++    });
++  }
+   if (adapter_) {
+     adapter_->RemoveObserver(this);
+   }
+@@ -213,6 +232,9 @@
+       base::BindOnce(&Discovery::PairingIsInvalid, weak_factory_.GetWeakPtr(),
+                      std::move(pairing_copy)),
+       event_callback_));
++  if (g_airc_hybrid_scan_on_demand && scan_wanted_ && !discovery_session_) {
++    StartCableDiscovery();
++  }
+ }
+ 
+ void Discovery::PairingIsInvalid(std::unique_ptr<Pairing> pairing) {
+@@ -405,7 +427,48 @@
+ 
+ #endif  // BUILDFLAG(IS_CHROMEOS)
+ 
++void Discovery::SetHybridUiShown(const void* model, bool shown) {
++  base::flat_set<const void*>& models = ModelsShowingHybrid();
++  const bool was_shown = !models.empty();
++  if (shown) {
++    models.insert(model);
++  } else {
++    models.erase(model);
++  }
++  if (was_shown == !models.empty()) {
++    return;
++  }
++  std::vector<base::WeakPtr<Discovery>> live;
++  for (const base::WeakPtr<Discovery>& waiter : ScanWaiters()) {
++    if (waiter) {
++      live.push_back(waiter);
++    }
++  }
++  ScanWaiters() = live;
++  for (const base::WeakPtr<Discovery>& discovery : live) {
++    if (!discovery) {
++      continue;
++    }
++    if (!models.empty()) {
++      discovery->StartCableDiscovery();
++    } else if (discovery->tunnels_pending_advert_.empty()) {
++      discovery->discovery_session_.reset();
++    }
++  }
++}
++
+ void Discovery::StartCableDiscovery() {
++  if (g_airc_hybrid_scan_on_demand) {
++    if (!scan_wanted_) {
++      scan_wanted_ = true;
++      std::erase_if(ScanWaiters(),
++                    [](const base::WeakPtr<Discovery>& waiter) { return !waiter; });
++      ScanWaiters().push_back(weak_factory_.GetWeakPtr());
++    }
++    if (ModelsShowingHybrid().empty() && tunnels_pending_advert_.empty()) {
++      return;
++    }
++  }
+ #if BUILDFLAG(IS_CHROMEOS)
+   if (floss::features::IsFlossEnabled()) {
+     device::BluetoothLowEnergyScanFilter::Pattern google_pattern(
+@@ -450,6 +513,10 @@
+ void Discovery::OnStartDiscoverySession(
+     std::unique_ptr<BluetoothDiscoverySession> session) {
+   FIDO_LOG(DEBUG) << "Discovery session started.";
++  if (g_airc_hybrid_scan_on_demand && ModelsShowingHybrid().empty() &&
++      tunnels_pending_advert_.empty()) {
++    return;
++  }
+   SetDiscoverySession(std::move(session));
+ }
+ 
+@@ -458,3 +525,7 @@
+ }
+ 
+ }  // namespace device::cablev2
++
++void AircSetHybridUiShown(const void* model, bool shown) {
++  device::cablev2::Discovery::SetHybridUiShown(model, shown);
++}
+# ArdiaCore integration adapted for upstream Chromium.
+# Copyright 2026 Mantra Patel; Apache-2.0. Modified by The Airc Authors.
+--- a/chrome/browser/webauthn/authenticator_request_dialog_model.cc
++++ b/chrome/browser/webauthn/authenticator_request_dialog_model.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/webauthn/authenticator_request_dialog_model.h"
++#include "airc/core/airc_content_hooks.h"  // nogncheck
+ 
+ #include <memory>
+ #include <optional>
+@@ -139,6 +140,7 @@
+     : frame_host_id(FrameHostIdFromMaybeNull(render_frame_host)) {}
+ 
+ AuthenticatorRequestDialogModel::~AuthenticatorRequestDialogModel() {
++  AircSetHybridUiShown(this, false);
+   for (auto& observer : observers) {
+     observer.OnModelDestroyed(this);
+   }
+@@ -159,6 +161,11 @@
+ 
+   const StepUIType previous_ui_type = step_ui_type(step_);
+   step_ = step;
++  if (g_airc_hybrid_scan_on_demand) {
++    AircSetHybridUiShown(this, step_ == Step::kCableV2QRCode ||
++                                    step_ == Step::kCableV2Connecting ||
++                                    step_ == Step::kCableV2Connected);
++  }
+   ui_disabled_ = false;
+ 
+   const StepUIType ui_type = step_ui_type(step_);

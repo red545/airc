@@ -1,0 +1,32 @@
+--- a/chrome/browser/component_updater/chrome_component_updater_configurator.cc
++++ b/chrome/browser/component_updater/chrome_component_updater_configurator.cc
+@@ -2,6 +2,7 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#include "airc/core/airc_drm_policy.h"  // nogncheck
+ #include "chrome/browser/component_updater/chrome_component_updater_configurator.h"
+ 
+ #include <memory>
+@@ -161,11 +162,13 @@
+ 
+ std::vector<GURL> ChromeConfigurator::UpdateUrl() const {
+   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
++  if (g_airc_widevine_only) return airc::AllowDRMUpdates() ? std::vector<GURL>{GURL("https://update.googleapis.com/service/update2/json")} : std::vector<GURL>{};
+   return configurator_impl_.UpdateUrl();
+ }
+ 
+ std::vector<GURL> ChromeConfigurator::PingUrl() const {
+   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
++  if (g_airc_widevine_only) return {};
+   return configurator_impl_.PingUrl();
+ }
+ 
+@@ -262,6 +265,7 @@
+ 
+ bool ChromeConfigurator::EnabledBackgroundDownloader() const {
+   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
++  if (g_airc_widevine_only) return false;
+   return configurator_impl_.EnabledBackgroundDownloader();
+ }
+ 

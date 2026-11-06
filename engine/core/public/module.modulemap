@@ -1,0 +1,4 @@
+module AircCore {
+  header "Airc.h"
+  export *
+}

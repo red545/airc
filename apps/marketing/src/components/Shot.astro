@@ -1,0 +1,61 @@
+---
+// A product shot: responsive WebP, with an optional dark-mode variant picked by prefers-color-scheme.
+import type { ImageMetadata } from "astro";
+import { getImage } from "astro:assets";
+
+interface Props {
+  src: ImageMetadata;
+  dark?: ImageMetadata;
+  alt: string;
+  sizes: string;
+  widths?: number[];
+  eager?: boolean;
+  class?: string;
+}
+
+const {
+  src,
+  dark,
+  alt,
+  sizes,
+  widths = [640, 960, 1280, 1920, 2560],
+  eager = false,
+  class: className,
+} = Astro.props;
+
+const usable = (img: ImageMetadata) => widths.filter((w) => w <= img.width);
+const build = (img: ImageMetadata) =>
+  getImage({ src: img, widths: usable(img), format: "webp", quality: 80 });
+
+const light = await build(src);
+const darkImage = dark ? await build(dark) : undefined;
+const fallback = await getImage({ src, width: Math.min(1280, src.width), format: "webp", quality: 80 });
+---
+
+<picture class={className}>
+  {darkImage && <source media="(prefers-color-scheme: dark)" srcset={darkImage.srcSet.attribute} sizes={sizes} type="image/webp" />}
+  <source srcset={light.srcSet.attribute} sizes={sizes} type="image/webp" />
+  <img
+    src={fallback.src}
+    alt={alt}
+    width={src.width}
+    height={src.height}
+    loading={eager ? "eager" : "lazy"}
+    fetchpriority={eager ? "high" : "auto"}
+    decoding="async"
+  />
+</picture>
+
+<style>
+  picture {
+    display: block;
+  }
+
+  img {
+    width: 100%;
+    height: auto;
+    border-radius: clamp(8px, 1.1vw, 14px);
+    box-shadow: var(--shadow-shot);
+    background: var(--bg-sunk);
+  }
+</style>

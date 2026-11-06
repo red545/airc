@@ -1,0 +1,5 @@
+# Paths left out of the fresh public repository, for legal or privacy reasons only.
+# Open source means everything else stays; tidiness is not a reason to exclude.
+# Format: <path or git glob>  # <reason>   (the reason is required; see docs/launch/public-repo.md)
+docs/launch-audit.md  # Privacy: a map into the private history (commit IDs and the kinds of personal data they hold) and a description of the operator's local machine state.
+docs/launch-checklist.md  # Privacy: internal launch to-do list that names the owner's personal deployment account; drop unless the owner scrubs it and wants it public.

@@ -1,0 +1,4 @@
+module CArcCrypto [system] {
+    header "shim.h"
+    export *
+}

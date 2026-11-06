@@ -1,0 +1,15 @@
+# Copyright 2026 The Airc Authors; Apache-2.0.
+--- a/components/os_crypt/common/keychain_password_mac.mm
++++ b/components/os_crypt/common/keychain_password_mac.mm
+@@ -35,8 +35,9 @@
+ const char kDefaultServiceName[] = "Chrome Safe Storage";
+ const char kDefaultAccountName[] = "Chrome";
+ #else
+-const char kDefaultServiceName[] = "Chromium Safe Storage";
+-const char kDefaultAccountName[] = "Chromium";
++// Permanent Airc identity. Never share Chromium's encryption key.
++const char kDefaultServiceName[] = "Airc Safe Storage";
++const char kDefaultAccountName[] = "Airc";
+ #endif
+ 
+ // These values are persisted to logs. Entries should not be renumbered and

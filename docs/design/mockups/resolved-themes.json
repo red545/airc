@@ -1,0 +1,2134 @@
+{
+  "ember" : {
+    "dark" : {
+      "accent" : "rgba(205, 72, 0, 1.000)",
+      "background" : "rgba(105, 33, 35, 1.000)",
+      "colors" : [
+        "#F0642A",
+        "#B0254A"
+      ],
+      "fieldFill" : "rgba(250, 251, 255, 0.100)",
+      "focusRing" : "rgba(205, 72, 0, 0.750)",
+      "gradient" : [
+        {
+          "color" : "rgba(240, 100, 42, 1.000)",
+          "location" : 0
+        },
+        {
+          "color" : "rgba(235, 95, 47, 1.000)",
+          "location" : 0.0625
+        },
+        {
+          "color" : "rgba(229, 90, 52, 1.000)",
+          "location" : 0.125
+        },
+        {
+          "color" : "rgba(224, 85, 56, 1.000)",
+          "location" : 0.1875
+        },
+        {
+          "color" : "rgba(218, 81, 59, 1.000)",
+          "location" : 0.25
+        },
+        {
+          "color" : "rgba(213, 76, 62, 1.000)",
+          "location" : 0.3125
+        },
+        {
+          "color" : "rgba(208, 71, 64, 1.000)",
+          "location" : 0.375
+        },
+        {
+          "color" : "rgba(202, 65, 67, 1.000)",
+          "location" : 0.4375
+        },
+        {
+          "color" : "rgba(197, 60, 69, 1.000)",
+          "location" : 0.5
+        },
+        {
+          "color" : "rgba(192, 55, 70, 1.000)",
+          "location" : 0.5625
+        },
+        {
+          "color" : "rgba(186, 49, 72, 1.000)",
+          "location" : 0.625
+        },
+        {
+          "color" : "rgba(181, 43, 73, 1.000)",
+          "location" : 0.6875
+        },
+        {
+          "color" : "rgba(176, 37, 74, 1.000)",
+          "location" : 0.75
+        },
+        {
+          "color" : "rgba(176, 37, 74, 1.000)",
+          "location" : 1
+        }
+      ],
+      "grain" : 0.154,
+      "hoverFill" : "rgba(250, 251, 255, 0.100)",
+      "inactiveText" : "rgba(250, 251, 255, 0.902)",
+      "inactiveTextSecondary" : "rgba(250, 251, 255, 0.617)",
+      "inlineCompletionHighlight" : "rgba(205, 72, 0, 0.300)",
+      "inlineCompletionText" : "rgba(250, 251, 255, 0.460)",
+      "isDark" : true,
+      "layerOpacity" : 0.52549999999999997,
+      "materialPassThrough" : 0.5,
+      "materialTint" : "rgba(90, 93, 92, 1.000)",
+      "onAccent" : "rgba(255, 255, 255, 1.000)",
+      "overlay" : null,
+      "pressedFill" : "rgba(250, 251, 255, 0.065)",
+      "selectedFill" : "rgba(250, 251, 255, 0.200)",
+      "selectedHasShadow" : false,
+      "separator" : "rgba(250, 251, 255, 0.150)",
+      "surface" : "rgba(43, 32, 31, 1.000)",
+      "surfaceBorder" : "rgba(250, 251, 255, 0.100)",
+      "surfaceHover" : "rgba(250, 251, 255, 0.060)",
+      "surfaceSelected" : "rgba(205, 72, 0, 0.260)",
+      "surfaceText" : "rgba(250, 251, 255, 0.940)",
+      "surfaceTextSecondary" : "rgba(250, 251, 255, 0.620)",
+      "surfaceTextTertiary" : "rgba(250, 251, 255, 0.400)",
+      "text" : "rgba(250, 251, 255, 0.920)",
+      "textDisabled" : "rgba(250, 251, 255, 0.260)",
+      "textSecondary" : "rgba(250, 251, 255, 0.620)",
+      "textTertiary" : "rgba(250, 251, 255, 0.400)",
+      "tileFill" : "rgba(250, 251, 255, 0.100)",
+      "tileHoverFill" : "rgba(250, 251, 255, 0.180)",
+      "underlay" : "rgba(0, 0, 0, 1.000)",
+      "underlayMore" : 0.98999999999999999,
+      "underlaySubtle" : 0.98999999999999999
+    },
+    "light" : {
+      "accent" : "rgba(205, 72, 0, 1.000)",
+      "background" : "rgba(105, 33, 35, 1.000)",
+      "colors" : [
+        "#F0642A",
+        "#B0254A"
+      ],
+      "fieldFill" : "rgba(250, 251, 255, 0.100)",
+      "focusRing" : "rgba(205, 72, 0, 0.750)",
+      "gradient" : [
+        {
+          "color" : "rgba(240, 100, 42, 1.000)",
+          "location" : 0
+        },
+        {
+          "color" : "rgba(235, 95, 47, 1.000)",
+          "location" : 0.0625
+        },
+        {
+          "color" : "rgba(229, 90, 52, 1.000)",
+          "location" : 0.125
+        },
+        {
+          "color" : "rgba(224, 85, 56, 1.000)",
+          "location" : 0.1875
+        },
+        {
+          "color" : "rgba(218, 81, 59, 1.000)",
+          "location" : 0.25
+        },
+        {
+          "color" : "rgba(213, 76, 62, 1.000)",
+          "location" : 0.3125
+        },
+        {
+          "color" : "rgba(208, 71, 64, 1.000)",
+          "location" : 0.375
+        },
+        {
+          "color" : "rgba(202, 65, 67, 1.000)",
+          "location" : 0.4375
+        },
+        {
+          "color" : "rgba(197, 60, 69, 1.000)",
+          "location" : 0.5
+        },
+        {
+          "color" : "rgba(192, 55, 70, 1.000)",
+          "location" : 0.5625
+        },
+        {
+          "color" : "rgba(186, 49, 72, 1.000)",
+          "location" : 0.625
+        },
+        {
+          "color" : "rgba(181, 43, 73, 1.000)",
+          "location" : 0.6875
+        },
+        {
+          "color" : "rgba(176, 37, 74, 1.000)",
+          "location" : 0.75
+        },
+        {
+          "color" : "rgba(176, 37, 74, 1.000)",
+          "location" : 1
+        }
+      ],
+      "grain" : 0.154,
+      "hoverFill" : "rgba(250, 251, 255, 0.100)",
+      "inactiveText" : "rgba(250, 251, 255, 0.902)",
+      "inactiveTextSecondary" : "rgba(250, 251, 255, 0.617)",
+      "inlineCompletionHighlight" : "rgba(205, 72, 0, 0.300)",
+      "inlineCompletionText" : "rgba(250, 251, 255, 0.460)",
+      "isDark" : true,
+      "layerOpacity" : 0.52549999999999997,
+      "materialPassThrough" : 0.5,
+      "materialTint" : "rgba(90, 93, 92, 1.000)",
+      "onAccent" : "rgba(255, 255, 255, 1.000)",
+      "overlay" : null,
+      "pressedFill" : "rgba(250, 251, 255, 0.065)",
+      "selectedFill" : "rgba(250, 251, 255, 0.200)",
+      "selectedHasShadow" : false,
+      "separator" : "rgba(250, 251, 255, 0.150)",
+      "surface" : "rgba(43, 32, 31, 1.000)",
+      "surfaceBorder" : "rgba(250, 251, 255, 0.100)",
+      "surfaceHover" : "rgba(250, 251, 255, 0.060)",
+      "surfaceSelected" : "rgba(205, 72, 0, 0.260)",
+      "surfaceText" : "rgba(250, 251, 255, 0.940)",
+      "surfaceTextSecondary" : "rgba(250, 251, 255, 0.620)",
+      "surfaceTextTertiary" : "rgba(250, 251, 255, 0.400)",
+      "text" : "rgba(250, 251, 255, 0.920)",
+      "textDisabled" : "rgba(250, 251, 255, 0.260)",
+      "textSecondary" : "rgba(250, 251, 255, 0.620)",
+      "textTertiary" : "rgba(250, 251, 255, 0.400)",
+      "tileFill" : "rgba(250, 251, 255, 0.100)",
+      "tileHoverFill" : "rgba(250, 251, 255, 0.180)",
+      "underlay" : "rgba(0, 0, 0, 1.000)",
+      "underlayMore" : 0.98999999999999999,
+      "underlaySubtle" : 0.98999999999999999
+    }
+  },
+  "forest" : {
+    "dark" : {
+      "accent" : "rgba(96, 126, 0, 1.000)",
+      "background" : "rgba(48, 75, 35, 1.000)",
+      "colors" : [
+        "#2A8A5C",
+        "#7A9A2E"
+      ],
+      "fieldFill" : "rgba(250, 251, 255, 0.100)",
+      "focusRing" : "rgba(96, 126, 0, 0.750)",
+      "gradient" : [
+        {
+          "color" : "rgba(42, 138, 92, 1.000)",
+          "location" : 0
+        },
+        {
+          "color" : "rgba(52, 139, 89, 1.000)",
+          "location" : 0.0625
+        },
+        {
+          "color" : "rgba(60, 141, 87, 1.000)",
+          "location" : 0.125
+        },
+        {
+          "color" : "rgba(68, 142, 84, 1.000)",
+          "location" : 0.1875
+        },
+        {
+          "color" : "rgba(75, 144, 81, 1.000)",
+          "location" : 0.25
+        },
+        {
+          "color" : "rgba(82, 145, 77, 1.000)",
+          "location" : 0.3125
+        },
+        {
+          "color" : "rgba(88, 146, 74, 1.000)",
+          "location" : 0.375
+        },
+        {
+          "color" : "rgba(94, 148, 70, 1.000)",
+          "location" : 0.4375
+        },
+        {
+          "color" : "rgba(100, 149, 66, 1.000)",
+          "location" : 0.5
+        },
+        {
+          "color" : "rgba(106, 150, 62, 1.000)",
+          "location" : 0.5625
+        },
+        {
+          "color" : "rgba(111, 152, 57, 1.000)",
+          "location" : 0.625
+        },
+        {
+          "color" : "rgba(117, 153, 52, 1.000)",
+          "location" : 0.6875
+        },
+        {
+          "color" : "rgba(122, 154, 46, 1.000)",
+          "location" : 0.75
+        },
+        {
+          "color" : "rgba(122, 154, 46, 1.000)",
+          "location" : 1
+        }
+      ],
+      "grain" : 0.154,
+      "hoverFill" : "rgba(250, 251, 255, 0.100)",
+      "inactiveText" : "rgba(250, 251, 255, 0.902)",
+      "inactiveTextSecondary" : "rgba(250, 251, 255, 0.617)",
+      "inlineCompletionHighlight" : "rgba(96, 126, 0, 0.300)",
+      "inlineCompletionText" : "rgba(250, 251, 255, 0.460)",
+      "isDark" : true,
+      "layerOpacity" : 0.50549999999999995,
+      "materialPassThrough" : 0.5,
+      "materialTint" : "rgba(90, 93, 92, 1.000)",
+      "onAccent" : "rgba(255, 255, 255, 1.000)",
+      "overlay" : null,
+      "pressedFill" : "rgba(250, 251, 255, 0.065)",
+      "selectedFill" : "rgba(250, 251, 255, 0.200)",
+      "selectedHasShadow" : false,
+      "separator" : "rgba(250, 251, 255, 0.150)",
+      "surface" : "rgba(31, 37, 28, 1.000)",
+      "surfaceBorder" : "rgba(250, 251, 255, 0.100)",
+      "surfaceHover" : "rgba(250, 251, 255, 0.060)",
+      "surfaceSelected" : "rgba(96, 126, 0, 0.260)",
+      "surfaceText" : "rgba(250, 251, 255, 0.940)",
+      "surfaceTextSecondary" : "rgba(250, 251, 255, 0.620)",
+      "surfaceTextTertiary" : "rgba(250, 251, 255, 0.400)",
+      "text" : "rgba(250, 251, 255, 0.920)",
+      "textDisabled" : "rgba(250, 251, 255, 0.260)",
+      "textSecondary" : "rgba(250, 251, 255, 0.620)",
+      "textTertiary" : "rgba(250, 251, 255, 0.400)",
+      "tileFill" : "rgba(250, 251, 255, 0.100)",
+      "tileHoverFill" : "rgba(250, 251, 255, 0.180)",
+      "underlay" : "rgba(0, 0, 0, 1.000)",
+      "underlayMore" : 0.97999999999999998,
+      "underlaySubtle" : 0.97999999999999998
+    },
+    "light" : {
+      "accent" : "rgba(96, 126, 0, 1.000)",
+      "background" : "rgba(48, 75, 35, 1.000)",
+      "colors" : [
+        "#2A8A5C",
+        "#7A9A2E"
+      ],
+      "fieldFill" : "rgba(250, 251, 255, 0.100)",
+      "focusRing" : "rgba(96, 126, 0, 0.750)",
+      "gradient" : [
+        {
+          "color" : "rgba(42, 138, 92, 1.000)",
+          "location" : 0
+        },
+        {
+          "color" : "rgba(52, 139, 89, 1.000)",
+          "location" : 0.0625
+        },
+        {
+          "color" : "rgba(60, 141, 87, 1.000)",
+          "location" : 0.125
+        },
+        {
+          "color" : "rgba(68, 142, 84, 1.000)",
+          "location" : 0.1875
+        },
+        {
+          "color" : "rgba(75, 144, 81, 1.000)",
+          "location" : 0.25
+        },
+        {
+          "color" : "rgba(82, 145, 77, 1.000)",
+          "location" : 0.3125
+        },
+        {
+          "color" : "rgba(88, 146, 74, 1.000)",
+          "location" : 0.375
+        },
+        {
+          "color" : "rgba(94, 148, 70, 1.000)",
+          "location" : 0.4375
+        },
+        {
+          "color" : "rgba(100, 149, 66, 1.000)",
+          "location" : 0.5
+        },
+        {
+          "color" : "rgba(106, 150, 62, 1.000)",
+          "location" : 0.5625
+        },
+        {
+          "color" : "rgba(111, 152, 57, 1.000)",
+          "location" : 0.625
+        },
+        {
+          "color" : "rgba(117, 153, 52, 1.000)",
+          "location" : 0.6875
+        },
+        {
+          "color" : "rgba(122, 154, 46, 1.000)",
+          "location" : 0.75
+        },
+        {
+          "color" : "rgba(122, 154, 46, 1.000)",
+          "location" : 1
+        }
+      ],
+      "grain" : 0.154,
+      "hoverFill" : "rgba(250, 251, 255, 0.100)",
+      "inactiveText" : "rgba(250, 251, 255, 0.902)",
+      "inactiveTextSecondary" : "rgba(250, 251, 255, 0.617)",
+      "inlineCompletionHighlight" : "rgba(96, 126, 0, 0.300)",
+      "inlineCompletionText" : "rgba(250, 251, 255, 0.460)",
+      "isDark" : true,
+      "layerOpacity" : 0.50549999999999995,
+      "materialPassThrough" : 0.5,
+      "materialTint" : "rgba(90, 93, 92, 1.000)",
+      "onAccent" : "rgba(255, 255, 255, 1.000)",
+      "overlay" : null,
+      "pressedFill" : "rgba(250, 251, 255, 0.065)",
+      "selectedFill" : "rgba(250, 251, 255, 0.200)",
+      "selectedHasShadow" : false,
+      "separator" : "rgba(250, 251, 255, 0.150)",
+      "surface" : "rgba(31, 37, 28, 1.000)",
+      "surfaceBorder" : "rgba(250, 251, 255, 0.100)",
+      "surfaceHover" : "rgba(250, 251, 255, 0.060)",
+      "surfaceSelected" : "rgba(96, 126, 0, 0.260)",
+      "surfaceText" : "rgba(250, 251, 255, 0.940)",
+      "surfaceTextSecondary" : "rgba(250, 251, 255, 0.620)",
+      "surfaceTextTertiary" : "rgba(250, 251, 255, 0.400)",
+      "text" : "rgba(250, 251, 255, 0.920)",
+      "textDisabled" : "rgba(250, 251, 255, 0.260)",
+      "textSecondary" : "rgba(250, 251, 255, 0.620)",
+      "textTertiary" : "rgba(250, 251, 255, 0.400)",
+      "tileFill" : "rgba(250, 251, 255, 0.100)",
+      "tileHoverFill" : "rgba(250, 251, 255, 0.180)",
+      "underlay" : "rgba(0, 0, 0, 1.000)",
+      "underlayMore" : 0.97999999999999998,
+      "underlaySubtle" : 0.97999999999999998
+    }
+  },
+  "grape" : {
+    "dark" : {
+      "accent" : "rgba(125, 89, 235, 1.000)",
+      "background" : "rgba(68, 47, 113, 1.000)",
+      "colors" : [
+        "#7A4CF0",
+        "#E0559F",
+        "#3A4FD8"
+      ],
+      "fieldFill" : "rgba(250, 251, 255, 0.100)",
+      "focusRing" : "rgba(125, 89, 235, 0.750)",
+      "gradient" : [
+        {
+          "color" : "rgba(122, 76, 240, 1.000)",
+          "location" : 0
+        },
+        {
+          "color" : "rgba(130, 79, 234, 1.000)",
+          "location" : 0.0625
+        },
+        {
+          "color" : "rgba(139, 82, 227, 1.000)",
+          "location" : 0.125
+        },
+        {
+          "color" : "rgba(147, 85, 221, 1.000)",
+          "location" : 0.1875
+        },
+        {
+          "color" : "rgba(156, 86, 214, 1.000)",
+          "location" : 0.25
+        },
+        {
+          "color" : "rgba(164, 88, 208, 1.000)",
+          "location" : 0.3125
+        },
+        {
+          "color" : "rgba(173, 89, 201, 1.000)",
+          "location" : 0.375
+        },
+        {
+          "color" : "rgba(181, 89, 195, 1.000)",
+          "location" : 0.4375
+        },
+        {
+          "color" : "rgba(190, 89, 188, 1.000)",
+          "location" : 0.5
+        },
+        {
+          "color" : "rgba(198, 89, 181, 1.000)",
+          "location" : 0.5625
+        },
+        {
+          "color" : "rgba(207, 88, 174, 1.000)",
+          "location" : 0.625
+        },
+        {
+          "color" : "rgba(215, 87, 166, 1.000)",
+          "location" : 0.6875
+        },
+        {
+          "color" : "rgba(224, 85, 159, 1.000)",
+          "location" : 0.75
+        },
+        {
+          "color" : "rgba(224, 85, 159, 1.000)",
+          "location" : 1
+        }
+      ],
+      "grain" : 0.154,
+      "hoverFill" : "rgba(250, 251, 255, 0.100)",
+      "inactiveText" : "rgba(250, 251, 255, 0.902)",
+      "inactiveTextSecondary" : "rgba(250, 251, 255, 0.626)",
+      "inlineCompletionHighlight" : "rgba(125, 89, 235, 0.300)",
+      "inlineCompletionText" : "rgba(250, 251, 255, 0.460)",
+      "isDark" : true,
+      "layerOpacity" : 0.55549999999999999,
+      "materialPassThrough" : 0.5,
+      "materialTint" : "rgba(90, 93, 92, 1.000)",
+      "onAccent" : "rgba(255, 255, 255, 1.000)",
+      "overlay" : "rgba(58, 79, 216, 1.000)",
+      "pressedFill" : "rgba(250, 251, 255, 0.065)",
+      "selectedFill" : "rgba(250, 251, 255, 0.200)",
+      "selectedHasShadow" : false,
+      "separator" : "rgba(250, 251, 255, 0.150)",
+      "surface" : "rgba(35, 33, 43, 1.000)",
+      "surfaceBorder" : "rgba(250, 251, 255, 0.100)",
+      "surfaceHover" : "rgba(250, 251, 255, 0.060)",
+      "surfaceSelected" : "rgba(125, 89, 235, 0.260)",
+      "surfaceText" : "rgba(250, 251, 255, 0.940)",
+      "surfaceTextSecondary" : "rgba(250, 251, 255, 0.620)",
+      "surfaceTextTertiary" : "rgba(250, 251, 255, 0.400)",
+      "text" : "rgba(250, 251, 255, 0.920)",
+      "textDisabled" : "rgba(250, 251, 255, 0.260)",
+      "textSecondary" : "rgba(250, 251, 255, 0.630)",
+      "textTertiary" : "rgba(250, 251, 255, 0.400)",
+      "tileFill" : "rgba(250, 251, 255, 0.100)",
+      "tileHoverFill" : "rgba(250, 251, 255, 0.180)",
+      "underlay" : "rgba(0, 0, 0, 1.000)",
+      "underlayMore" : 0.96999999999999997,
+      "underlaySubtle" : 0.96999999999999997
+    },
+    "light" : {
+      "accent" : "rgba(125, 89, 235, 1.000)",
+      "background" : "rgba(68, 47, 113, 1.000)",
+      "colors" : [
+        "#7A4CF0",
+        "#E0559F",
+        "#3A4FD8"
+      ],
+      "fieldFill" : "rgba(250, 251, 255, 0.100)",
+      "focusRing" : "rgba(125, 89, 235, 0.750)",
+      "gradient" : [
+        {
+          "color" : "rgba(122, 76, 240, 1.000)",
+          "location" : 0
+        },
+        {
+          "color" : "rgba(130, 79, 234, 1.000)",
+          "location" : 0.0625
+        },
+        {
+          "color" : "rgba(139, 82, 227, 1.000)",
+          "location" : 0.125
+        },
+        {
+          "color" : "rgba(147, 85, 221, 1.000)",
+          "location" : 0.1875
+        },
+        {
+          "color" : "rgba(156, 86, 214, 1.000)",
+          "location" : 0.25
+        },
+        {
+          "color" : "rgba(164, 88, 208, 1.000)",
+          "location" : 0.3125
+        },
+        {
+          "color" : "rgba(173, 89, 201, 1.000)",
+          "location" : 0.375
+        },
+        {
+          "color" : "rgba(181, 89, 195, 1.000)",
+          "location" : 0.4375
+        },
+        {
+          "color" : "rgba(190, 89, 188, 1.000)",
+          "location" : 0.5
+        },
+        {
+          "color" : "rgba(198, 89, 181, 1.000)",
+          "location" : 0.5625
+        },
+        {
+          "color" : "rgba(207, 88, 174, 1.000)",
+          "location" : 0.625
+        },
+        {
+          "color" : "rgba(215, 87, 166, 1.000)",
+          "location" : 0.6875
+        },
+        {
+          "color" : "rgba(224, 85, 159, 1.000)",
+          "location" : 0.75
+        },
+        {
+          "color" : "rgba(224, 85, 159, 1.000)",
+          "location" : 1
+        }
+      ],
+      "grain" : 0.154,
+      "hoverFill" : "rgba(250, 251, 255, 0.100)",
+      "inactiveText" : "rgba(250, 251, 255, 0.902)",
+      "inactiveTextSecondary" : "rgba(250, 251, 255, 0.626)",
+      "inlineCompletionHighlight" : "rgba(125, 89, 235, 0.300)",
+      "inlineCompletionText" : "rgba(250, 251, 255, 0.460)",
+      "isDark" : true,
+      "layerOpacity" : 0.55549999999999999,
+      "materialPassThrough" : 0.5,
+      "materialTint" : "rgba(90, 93, 92, 1.000)",
+      "onAccent" : "rgba(255, 255, 255, 1.000)",
+      "overlay" : "rgba(58, 79, 216, 1.000)",
+      "pressedFill" : "rgba(250, 251, 255, 0.065)",
+      "selectedFill" : "rgba(250, 251, 255, 0.200)",
+      "selectedHasShadow" : false,
+      "separator" : "rgba(250, 251, 255, 0.150)",
+      "surface" : "rgba(35, 33, 43, 1.000)",
+      "surfaceBorder" : "rgba(250, 251, 255, 0.100)",
+      "surfaceHover" : "rgba(250, 251, 255, 0.060)",
+      "surfaceSelected" : "rgba(125, 89, 235, 0.260)",
+      "surfaceText" : "rgba(250, 251, 255, 0.940)",
+      "surfaceTextSecondary" : "rgba(250, 251, 255, 0.620)",
+      "surfaceTextTertiary" : "rgba(250, 251, 255, 0.400)",
+      "text" : "rgba(250, 251, 255, 0.920)",
+      "textDisabled" : "rgba(250, 251, 255, 0.260)",
+      "textSecondary" : "rgba(250, 251, 255, 0.630)",
+      "textTertiary" : "rgba(250, 251, 255, 0.400)",
+      "tileFill" : "rgba(250, 251, 255, 0.100)",
+      "tileHoverFill" : "rgba(250, 251, 255, 0.180)",
+      "underlay" : "rgba(0, 0, 0, 1.000)",
+      "underlayMore" : 0.96999999999999997,
+      "underlaySubtle" : 0.96999999999999997
+    }
+  },
+  "lemon" : {
+    "dark" : {
+      "accent" : "rgba(167, 142, 12, 1.000)",
+      "background" : "rgba(214, 232, 173, 1.000)",
+      "colors" : [
+        "#F4DA6E",
+        "#9BDB8A"
+      ],
+      "fieldFill" : "rgba(20, 17, 15, 0.050)",
+      "focusRing" : "rgba(167, 142, 12, 0.550)",
+      "gradient" : [
+        {
+          "color" : "rgba(244, 218, 110, 1.000)",
+          "location" : 0
+        },
+        {
+          "color" : "rgba(237, 218, 113, 1.000)",
+          "location" : 0.0625
+        },
+        {
+          "color" : "rgba(231, 219, 115, 1.000)",
+          "location" : 0.125
+        },
+        {
+          "color" : "rgba(224, 219, 118, 1.000)",
+          "location" : 0.1875
+        },
+        {
+          "color" : "rgba(217, 219, 121, 1.000)",
+          "location" : 0.25
+        },
+        {
+          "color" : "rgba(210, 219, 123, 1.000)",
+          "location" : 0.3125
+        },
+        {
+          "color" : "rgba(202, 219, 125, 1.000)",
+          "location" : 0.375
+        },
+        {
+          "color" : "rgba(195, 219, 128, 1.000)",
+          "location" : 0.4375
+        },
+        {
+          "color" : "rgba(187, 219, 130, 1.000)",
+          "location" : 0.5
+        },
+        {
+          "color" : "rgba(180, 219, 132, 1.000)",
+          "location" : 0.5625
+        },
+        {
+          "color" : "rgba(172, 219, 134, 1.000)",
+          "location" : 0.625
+        },
+        {
+          "color" : "rgba(164, 219, 136, 1.000)",
+          "location" : 0.6875
+        },
+        {
+          "color" : "rgba(155, 219, 138, 1.000)",
+          "location" : 0.75
+        },
+        {
+          "color" : "rgba(155, 219, 138, 1.000)",
+          "location" : 1
+        }
+      ],
+      "grain" : 0.11000000000000001,
+      "hoverFill" : "rgba(20, 17, 15, 0.050)",
+      "inactiveText" : "rgba(20, 17, 15, 0.731)",
+      "inactiveTextSecondary" : "rgba(20, 17, 15, 0.510)",
+      "inlineCompletionHighlight" : "rgba(167, 142, 12, 0.180)",
+      "inlineCompletionText" : "rgba(20, 17, 15, 0.450)",
+      "isDark" : false,
+      "layerOpacity" : 0.64550000000000007,
+      "materialPassThrough" : 0.5,
+      "materialTint" : "rgba(232, 235, 234, 1.000)",
+      "onAccent" : "rgba(17, 15, 14, 1.000)",
+      "overlay" : null,
+      "pressedFill" : "rgba(20, 17, 15, 0.065)",
+      "selectedFill" : "rgba(255, 255, 255, 0.850)",
+      "selectedHasShadow" : true,
+      "separator" : "rgba(20, 17, 15, 0.150)",
+      "surface" : "rgba(250, 253, 244, 1.000)",
+      "surfaceBorder" : "rgba(20, 17, 15, 0.080)",
+      "surfaceHover" : "rgba(20, 17, 15, 0.040)",
+      "surfaceSelected" : "rgba(167, 142, 12, 0.120)",
+      "surfaceText" : "rgba(20, 17, 15, 0.900)",
+      "surfaceTextSecondary" : "rgba(20, 17, 15, 0.580)",
+      "surfaceTextTertiary" : "rgba(20, 17, 15, 0.380)",
+      "text" : "rgba(20, 17, 15, 0.860)",
+      "textDisabled" : "rgba(20, 17, 15, 0.260)",
+      "textSecondary" : "rgba(20, 17, 15, 0.600)",
+      "textTertiary" : "rgba(20, 17, 15, 0.420)",
+      "tileFill" : "rgba(20, 17, 15, 0.050)",
+      "tileHoverFill" : "rgba(20, 17, 15, 0.090)",
+      "underlay" : "rgba(255, 255, 255, 1.000)",
+      "underlayMore" : 0.40000000000000002,
+      "underlaySubtle" : 0.69999999999999996
+    },
+    "light" : {
+      "accent" : "rgba(167, 142, 12, 1.000)",
+      "background" : "rgba(214, 232, 173, 1.000)",
+      "colors" : [
+        "#F4DA6E",
+        "#9BDB8A"
+      ],
+      "fieldFill" : "rgba(20, 17, 15, 0.050)",
+      "focusRing" : "rgba(167, 142, 12, 0.550)",
+      "gradient" : [
+        {
+          "color" : "rgba(244, 218, 110, 1.000)",
+          "location" : 0
+        },
+        {
+          "color" : "rgba(237, 218, 113, 1.000)",
+          "location" : 0.0625
+        },
+        {
+          "color" : "rgba(231, 219, 115, 1.000)",
+          "location" : 0.125
+        },
+        {
+          "color" : "rgba(224, 219, 118, 1.000)",
+          "location" : 0.1875
+        },
+        {
+          "color" : "rgba(217, 219, 121, 1.000)",
+          "location" : 0.25
+        },
+        {
+          "color" : "rgba(210, 219, 123, 1.000)",
+          "location" : 0.3125
+        },
+        {
+          "color" : "rgba(202, 219, 125, 1.000)",
+          "location" : 0.375
+        },
+        {
+          "color" : "rgba(195, 219, 128, 1.000)",
+          "location" : 0.4375
+        },
+        {
+          "color" : "rgba(187, 219, 130, 1.000)",
+          "location" : 0.5
+        },
+        {
+          "color" : "rgba(180, 219, 132, 1.000)",
+          "location" : 0.5625
+        },
+        {
+          "color" : "rgba(172, 219, 134, 1.000)",
+          "location" : 0.625
+        },
+        {
+          "color" : "rgba(164, 219, 136, 1.000)",
+          "location" : 0.6875
+        },
+        {
+          "color" : "rgba(155, 219, 138, 1.000)",
+          "location" : 0.75
+        },
+        {
+          "color" : "rgba(155, 219, 138, 1.000)",
+          "location" : 1
+        }
+      ],
+      "grain" : 0.11000000000000001,
+      "hoverFill" : "rgba(20, 17, 15, 0.050)",
+      "inactiveText" : "rgba(20, 17, 15, 0.731)",
+      "inactiveTextSecondary" : "rgba(20, 17, 15, 0.510)",
+      "inlineCompletionHighlight" : "rgba(167, 142, 12, 0.180)",
+      "inlineCompletionText" : "rgba(20, 17, 15, 0.450)",
+      "isDark" : false,
+      "layerOpacity" : 0.64550000000000007,
+      "materialPassThrough" : 0.5,
+      "materialTint" : "rgba(232, 235, 234, 1.000)",
+      "onAccent" : "rgba(17, 15, 14, 1.000)",
+      "overlay" : null,
+      "pressedFill" : "rgba(20, 17, 15, 0.065)",
+      "selectedFill" : "rgba(255, 255, 255, 0.850)",
+      "selectedHasShadow" : true,
+      "separator" : "rgba(20, 17, 15, 0.150)",
+      "surface" : "rgba(250, 253, 244, 1.000)",
+      "surfaceBorder" : "rgba(20, 17, 15, 0.080)",
+      "surfaceHover" : "rgba(20, 17, 15, 0.040)",
+      "surfaceSelected" : "rgba(167, 142, 12, 0.120)",
+      "surfaceText" : "rgba(20, 17, 15, 0.900)",
+      "surfaceTextSecondary" : "rgba(20, 17, 15, 0.580)",
+      "surfaceTextTertiary" : "rgba(20, 17, 15, 0.380)",
+      "text" : "rgba(20, 17, 15, 0.860)",
+      "textDisabled" : "rgba(20, 17, 15, 0.260)",
+      "textSecondary" : "rgba(20, 17, 15, 0.600)",
+      "textTertiary" : "rgba(20, 17, 15, 0.420)",
+      "tileFill" : "rgba(20, 17, 15, 0.050)",
+      "tileHoverFill" : "rgba(20, 17, 15, 0.090)",
+      "underlay" : "rgba(255, 255, 255, 1.000)",
+      "underlayMore" : 0.40000000000000002,
+      "underlaySubtle" : 0.69999999999999996
+    }
+  },
+  "lilac" : {
+    "dark" : {
+      "accent" : "rgba(124, 101, 175, 1.000)",
+      "background" : "rgba(231, 196, 229, 1.000)",
+      "colors" : [
+        "#B9A2F2",
+        "#EFA3C4"
+      ],
+      "fieldFill" : "rgba(20, 17, 15, 0.050)",
+      "focusRing" : "rgba(124, 101, 175, 0.550)",
+      "gradient" : [
+        {
+          "color" : "rgba(185, 162, 242, 1.000)",
+          "location" : 0
+        },
+        {
+          "color" : "rgba(190, 162, 238, 1.000)",
+          "location" : 0.0625
+        },
+        {
+          "color" : "rgba(194, 163, 235, 1.000)",
+          "location" : 0.125
+        },
+        {
+          "color" : "rgba(199, 163, 231, 1.000)",
+          "location" : 0.1875
+        },
+        {
+          "color" : "rgba(203, 163, 227, 1.000)",
+          "location" : 0.25
+        },
+        {
+          "color" : "rgba(208, 163, 223, 1.000)",
+          "location" : 0.3125
+        },
+        {
+          "color" : "rgba(212, 163, 220, 1.000)",
+          "location" : 0.375
+        },
+        {
+          "color" : "rgba(217, 163, 216, 1.000)",
+          "location" : 0.4375
+        },
+        {
+          "color" : "rgba(221, 163, 212, 1.000)",
+          "location" : 0.5
+        },
+        {
+          "color" : "rgba(226, 163, 208, 1.000)",
+          "location" : 0.5625
+        },
+        {
+          "color" : "rgba(230, 163, 204, 1.000)",
+          "location" : 0.625
+        },
+        {
+          "color" : "rgba(235, 163, 200, 1.000)",
+          "location" : 0.6875
+        },
+        {
+          "color" : "rgba(239, 163, 196, 1.000)",
+          "location" : 0.75
+        },
+        {
+          "color" : "rgba(239, 163, 196, 1.000)",
+          "location" : 1
+        }
+      ],
+      "grain" : 0.11000000000000001,
+      "hoverFill" : "rgba(20, 17, 15, 0.050)",
+      "inactiveText" : "rgba(20, 17, 15, 0.731)",
+      "inactiveTextSecondary" : "rgba(20, 17, 15, 0.510)",
+      "inlineCompletionHighlight" : "rgba(124, 101, 175, 0.180)",
+      "inlineCompletionText" : "rgba(20, 17, 15, 0.450)",
+      "isDark" : false,
+      "layerOpacity" : 0.64550000000000007,
+      "materialPassThrough" : 0.5,
+      "materialTint" : "rgba(232, 235, 234, 1.000)",
+      "onAccent" : "rgba(255, 255, 255, 1.000)",
+      "overlay" : null,
+      "pressedFill" : "rgba(20, 17, 15, 0.065)",
+      "selectedFill" : "rgba(255, 255, 255, 0.850)",
+      "selectedHasShadow" : true,
+      "separator" : "rgba(20, 17, 15, 0.150)",
+      "surface" : "rgba(255, 249, 254, 1.000)",
+      "surfaceBorder" : "rgba(20, 17, 15, 0.080)",
+      "surfaceHover" : "rgba(20, 17, 15, 0.040)",
+      "surfaceSelected" : "rgba(124, 101, 175, 0.120)",
+      "surfaceText" : "rgba(20, 17, 15, 0.900)",
+      "surfaceTextSecondary" : "rgba(20, 17, 15, 0.580)",
+      "surfaceTextTertiary" : "rgba(20, 17, 15, 0.380)",
+      "text" : "rgba(20, 17, 15, 0.860)",
+      "textDisabled" : "rgba(20, 17, 15, 0.260)",
+      "textSecondary" : "rgba(20, 17, 15, 0.600)",
+      "textTertiary" : "rgba(20, 17, 15, 0.420)",
+      "tileFill" : "rgba(20, 17, 15, 0.050)",
+      "tileHoverFill" : "rgba(20, 17, 15, 0.090)",
+      "underlay" : "rgba(255, 255, 255, 1.000)",
+      "underlayMore" : 0.55000000000000004,
+      "underlaySubtle" : 0.69999999999999996
+    },
+    "light" : {
+      "accent" : "rgba(124, 101, 175, 1.000)",
+      "background" : "rgba(231, 196, 229, 1.000)",
+      "colors" : [
+        "#B9A2F2",
+        "#EFA3C4"
+      ],
+      "fieldFill" : "rgba(20, 17, 15, 0.050)",
+      "focusRing" : "rgba(124, 101, 175, 0.550)",
+      "gradient" : [
+        {
+          "color" : "rgba(185, 162, 242, 1.000)",
+          "location" : 0
+        },
+        {
+          "color" : "rgba(190, 162, 238, 1.000)",
+          "location" : 0.0625
+        },
+        {
+          "color" : "rgba(194, 163, 235, 1.000)",
+          "location" : 0.125
+        },
+        {
+          "color" : "rgba(199, 163, 231, 1.000)",
+          "location" : 0.1875
+        },
+        {
+          "color" : "rgba(203, 163, 227, 1.000)",
+          "location" : 0.25
+        },
+        {
+          "color" : "rgba(208, 163, 223, 1.000)",
+          "location" : 0.3125
+        },
+        {
+          "color" : "rgba(212, 163, 220, 1.000)",
+          "location" : 0.375
+        },
+        {
+          "color" : "rgba(217, 163, 216, 1.000)",
+          "location" : 0.4375
+        },
+        {
+          "color" : "rgba(221, 163, 212, 1.000)",
+          "location" : 0.5
+        },
+        {
+          "color" : "rgba(226, 163, 208, 1.000)",
+          "location" : 0.5625
+        },
+        {
+          "color" : "rgba(230, 163, 204, 1.000)",
+          "location" : 0.625
+        },
+        {
+          "color" : "rgba(235, 163, 200, 1.000)",
+          "location" : 0.6875
+        },
+        {
+          "color" : "rgba(239, 163, 196, 1.000)",
+          "location" : 0.75
+        },
+        {
+          "color" : "rgba(239, 163, 196, 1.000)",
+          "location" : 1
+        }
+      ],
+      "grain" : 0.11000000000000001,
+      "hoverFill" : "rgba(20, 17, 15, 0.050)",
+      "inactiveText" : "rgba(20, 17, 15, 0.731)",
+      "inactiveTextSecondary" : "rgba(20, 17, 15, 0.510)",
+      "inlineCompletionHighlight" : "rgba(124, 101, 175, 0.180)",
+      "inlineCompletionText" : "rgba(20, 17, 15, 0.450)",
+      "isDark" : false,
+      "layerOpacity" : 0.64550000000000007,
+      "materialPassThrough" : 0.5,
+      "materialTint" : "rgba(232, 235, 234, 1.000)",
+      "onAccent" : "rgba(255, 255, 255, 1.000)",
+      "overlay" : null,
+      "pressedFill" : "rgba(20, 17, 15, 0.065)",
+      "selectedFill" : "rgba(255, 255, 255, 0.850)",
+      "selectedHasShadow" : true,
+      "separator" : "rgba(20, 17, 15, 0.150)",
+      "surface" : "rgba(255, 249, 254, 1.000)",
+      "surfaceBorder" : "rgba(20, 17, 15, 0.080)",
+      "surfaceHover" : "rgba(20, 17, 15, 0.040)",
+      "surfaceSelected" : "rgba(124, 101, 175, 0.120)",
+      "surfaceText" : "rgba(20, 17, 15, 0.900)",
+      "surfaceTextSecondary" : "rgba(20, 17, 15, 0.580)",
+      "surfaceTextTertiary" : "rgba(20, 17, 15, 0.380)",
+      "text" : "rgba(20, 17, 15, 0.860)",
+      "textDisabled" : "rgba(20, 17, 15, 0.260)",
+      "textSecondary" : "rgba(20, 17, 15, 0.600)",
+      "textTertiary" : "rgba(20, 17, 15, 0.420)",
+      "tileFill" : "rgba(20, 17, 15, 0.050)",
+      "tileHoverFill" : "rgba(20, 17, 15, 0.090)",
+      "underlay" : "rgba(255, 255, 255, 1.000)",
+      "underlayMore" : 0.55000000000000004,
+      "underlaySubtle" : 0.69999999999999996
+    }
+  },
+  "midnight" : {
+    "dark" : {
+      "accent" : "rgba(96, 110, 181, 1.000)",
+      "background" : "rgba(25, 29, 46, 1.000)",
+      "colors" : [
+        "#3B4470",
+        "#1B1E2E"
+      ],
+      "fieldFill" : "rgba(250, 251, 255, 0.100)",
+      "focusRing" : "rgba(96, 110, 181, 0.750)",
+      "gradient" : [
+        {
+          "color" : "rgba(59, 68, 112, 1.000)",
+          "location" : 0
+        },
+        {
+          "color" : "rgba(56, 65, 106, 1.000)",
+          "location" : 0.0625
+        },
+        {
+          "color" : "rgba(53, 61, 100, 1.000)",
+          "location" : 0.125
+        },
+        {
+          "color" : "rgba(51, 58, 95, 1.000)",
+          "location" : 0.1875
+        },
+        {
+          "color" : "rgba(48, 55, 89, 1.000)",
+          "location" : 0.25
+        },
+        {
+          "color" : "rgba(45, 52, 83, 1.000)",
+          "location" : 0.3125
+        },
+        {
+          "color" : "rgba(43, 48, 78, 1.000)",
+          "location" : 0.375
+        },
+        {
+          "color" : "rgba(40, 45, 72, 1.000)",
+          "location" : 0.4375
+        },
+        {
+          "color" : "rgba(37, 42, 67, 1.000)",
+          "location" : 0.5
+        },
+        {
+          "color" : "rgba(35, 39, 62, 1.000)",
+          "location" : 0.5625
+        },
+        {
+          "color" : "rgba(32, 36, 56, 1.000)",
+          "location" : 0.625
+        },
+        {
+          "color" : "rgba(30, 33, 51, 1.000)",
+          "location" : 0.6875
+        },
+        {
+          "color" : "rgba(27, 30, 46, 1.000)",
+          "location" : 0.75
+        },
+        {
+          "color" : "rgba(27, 30, 46, 1.000)",
+          "location" : 1
+        }
+      ],
+      "grain" : 0.13200000000000001,
+      "hoverFill" : "rgba(250, 251, 255, 0.100)",
+      "inactiveText" : "rgba(250, 251, 255, 0.782)",
+      "inactiveTextSecondary" : "rgba(250, 251, 255, 0.510)",
+      "inlineCompletionHighlight" : "rgba(96, 110, 181, 0.300)",
+      "inlineCompletionText" : "rgba(250, 251, 255, 0.460)",
+      "isDark" : true,
+      "layerOpacity" : 0.64550000000000007,
+      "materialPassThrough" : 0.5,
+      "materialTint" : "rgba(90, 93, 92, 1.000)",
+      "onAccent" : "rgba(255, 255, 255, 1.000)",
+      "overlay" : null,
+      "pressedFill" : "rgba(250, 251, 255, 0.065)",
+      "selectedFill" : "rgba(250, 251, 255, 0.200)",
+      "selectedHasShadow" : false,
+      "separator" : "rgba(250, 251, 255, 0.150)",
+      "surface" : "rgba(33, 35, 39, 1.000)",
+      "surfaceBorder" : "rgba(250, 251, 255, 0.100)",
+      "surfaceHover" : "rgba(250, 251, 255, 0.060)",
+      "surfaceSelected" : "rgba(96, 110, 181, 0.260)",
+      "surfaceText" : "rgba(250, 251, 255, 0.940)",
+      "surfaceTextSecondary" : "rgba(250, 251, 255, 0.620)",
+      "surfaceTextTertiary" : "rgba(250, 251, 255, 0.400)",
+      "text" : "rgba(250, 251, 255, 0.920)",
+      "textDisabled" : "rgba(250, 251, 255, 0.260)",
+      "textSecondary" : "rgba(250, 251, 255, 0.600)",
+      "textTertiary" : "rgba(250, 251, 255, 0.400)",
+      "tileFill" : "rgba(250, 251, 255, 0.100)",
+      "tileHoverFill" : "rgba(250, 251, 255, 0.180)",
+      "underlay" : "rgba(0, 0, 0, 1.000)",
+      "underlayMore" : 0.59999999999999998,
+      "underlaySubtle" : 0.59999999999999998
+    },
+    "light" : {
+      "accent" : "rgba(96, 110, 181, 1.000)",
+      "background" : "rgba(25, 29, 46, 1.000)",
+      "colors" : [
+        "#3B4470",
+        "#1B1E2E"
+      ],
+      "fieldFill" : "rgba(250, 251, 255, 0.100)",
+      "focusRing" : "rgba(96, 110, 181, 0.750)",
+      "gradient" : [
+        {
+          "color" : "rgba(59, 68, 112, 1.000)",
+          "location" : 0
+        },
+        {
+          "color" : "rgba(56, 65, 106, 1.000)",
+          "location" : 0.0625
+        },
+        {
+          "color" : "rgba(53, 61, 100, 1.000)",
+          "location" : 0.125
+        },
+        {
+          "color" : "rgba(51, 58, 95, 1.000)",
+          "location" : 0.1875
+        },
+        {
+          "color" : "rgba(48, 55, 89, 1.000)",
+          "location" : 0.25
+        },
+        {
+          "color" : "rgba(45, 52, 83, 1.000)",
+          "location" : 0.3125
+        },
+        {
+          "color" : "rgba(43, 48, 78, 1.000)",
+          "location" : 0.375
+        },
+        {
+          "color" : "rgba(40, 45, 72, 1.000)",
+          "location" : 0.4375
+        },
+        {
+          "color" : "rgba(37, 42, 67, 1.000)",
+          "location" : 0.5
+        },
+        {
+          "color" : "rgba(35, 39, 62, 1.000)",
+          "location" : 0.5625
+        },
+        {
+          "color" : "rgba(32, 36, 56, 1.000)",
+          "location" : 0.625
+        },
+        {
+          "color" : "rgba(30, 33, 51, 1.000)",
+          "location" : 0.6875
+        },
+        {
+          "color" : "rgba(27, 30, 46, 1.000)",
+          "location" : 0.75
+        },
+        {
+          "color" : "rgba(27, 30, 46, 1.000)",
+          "location" : 1
+        }
+      ],
+      "grain" : 0.13200000000000001,
+      "hoverFill" : "rgba(250, 251, 255, 0.100)",
+      "inactiveText" : "rgba(250, 251, 255, 0.782)",
+      "inactiveTextSecondary" : "rgba(250, 251, 255, 0.510)",
+      "inlineCompletionHighlight" : "rgba(96, 110, 181, 0.300)",
+      "inlineCompletionText" : "rgba(250, 251, 255, 0.460)",
+      "isDark" : true,
+      "layerOpacity" : 0.64550000000000007,
+      "materialPassThrough" : 0.5,
+      "materialTint" : "rgba(90, 93, 92, 1.000)",
+      "onAccent" : "rgba(255, 255, 255, 1.000)",
+      "overlay" : null,
+      "pressedFill" : "rgba(250, 251, 255, 0.065)",
+      "selectedFill" : "rgba(250, 251, 255, 0.200)",
+      "selectedHasShadow" : false,
+      "separator" : "rgba(250, 251, 255, 0.150)",
+      "surface" : "rgba(33, 35, 39, 1.000)",
+      "surfaceBorder" : "rgba(250, 251, 255, 0.100)",
+      "surfaceHover" : "rgba(250, 251, 255, 0.060)",
+      "surfaceSelected" : "rgba(96, 110, 181, 0.260)",
+      "surfaceText" : "rgba(250, 251, 255, 0.940)",
+      "surfaceTextSecondary" : "rgba(250, 251, 255, 0.620)",
+      "surfaceTextTertiary" : "rgba(250, 251, 255, 0.400)",
+      "text" : "rgba(250, 251, 255, 0.920)",
+      "textDisabled" : "rgba(250, 251, 255, 0.260)",
+      "textSecondary" : "rgba(250, 251, 255, 0.600)",
+      "textTertiary" : "rgba(250, 251, 255, 0.400)",
+      "tileFill" : "rgba(250, 251, 255, 0.100)",
+      "tileHoverFill" : "rgba(250, 251, 255, 0.180)",
+      "underlay" : "rgba(0, 0, 0, 1.000)",
+      "underlayMore" : 0.59999999999999998,
+      "underlaySubtle" : 0.59999999999999998
+    }
+  },
+  "mint" : {
+    "dark" : {
+      "accent" : "rgba(0, 131, 96, 1.000)",
+      "background" : "rgba(144, 221, 193, 1.000)",
+      "colors" : [
+        "#53CA9F"
+      ],
+      "fieldFill" : "rgba(20, 17, 15, 0.050)",
+      "focusRing" : "rgba(0, 131, 96, 0.550)",
+      "gradient" : [
+        {
+          "color" : "rgba(83, 202, 159, 1.000)",
+          "location" : 0
+        },
+        {
+          "color" : "rgba(83, 202, 159, 1.000)",
+          "location" : 1
+        }
+      ],
+      "grain" : 0,
+      "hoverFill" : "rgba(20, 17, 15, 0.050)",
+      "inactiveText" : "rgba(20, 17, 15, 0.731)",
+      "inactiveTextSecondary" : "rgba(20, 17, 15, 0.510)",
+      "inlineCompletionHighlight" : "rgba(0, 131, 96, 0.180)",
+      "inlineCompletionText" : "rgba(20, 17, 15, 0.450)",
+      "isDark" : false,
+      "layerOpacity" : 0.64550000000000007,
+      "materialPassThrough" : 0.5,
+      "materialTint" : "rgba(232, 235, 234, 1.000)",
+      "onAccent" : "rgba(255, 255, 255, 1.000)",
+      "overlay" : null,
+      "pressedFill" : "rgba(20, 17, 15, 0.065)",
+      "selectedFill" : "rgba(255, 255, 255, 0.850)",
+      "selectedHasShadow" : true,
+      "separator" : "rgba(20, 17, 15, 0.150)",
+      "surface" : "rgba(244, 254, 250, 1.000)",
+      "surfaceBorder" : "rgba(20, 17, 15, 0.080)",
+      "surfaceHover" : "rgba(20, 17, 15, 0.040)",
+      "surfaceSelected" : "rgba(0, 131, 96, 0.120)",
+      "surfaceText" : "rgba(20, 17, 15, 0.900)",
+      "surfaceTextSecondary" : "rgba(20, 17, 15, 0.580)",
+      "surfaceTextTertiary" : "rgba(20, 17, 15, 0.380)",
+      "text" : "rgba(20, 17, 15, 0.860)",
+      "textDisabled" : "rgba(20, 17, 15, 0.260)",
+      "textSecondary" : "rgba(20, 17, 15, 0.600)",
+      "textTertiary" : "rgba(20, 17, 15, 0.420)",
+      "tileFill" : "rgba(20, 17, 15, 0.050)",
+      "tileHoverFill" : "rgba(20, 17, 15, 0.090)",
+      "underlay" : "rgba(255, 255, 255, 1.000)",
+      "underlayMore" : 0.45000000000000001,
+      "underlaySubtle" : 0.69999999999999996
+    },
+    "light" : {
+      "accent" : "rgba(0, 131, 96, 1.000)",
+      "background" : "rgba(144, 221, 193, 1.000)",
+      "colors" : [
+        "#53CA9F"
+      ],
+      "fieldFill" : "rgba(20, 17, 15, 0.050)",
+      "focusRing" : "rgba(0, 131, 96, 0.550)",
+      "gradient" : [
+        {
+          "color" : "rgba(83, 202, 159, 1.000)",
+          "location" : 0
+        },
+        {
+          "color" : "rgba(83, 202, 159, 1.000)",
+          "location" : 1
+        }
+      ],
+      "grain" : 0,
+      "hoverFill" : "rgba(20, 17, 15, 0.050)",
+      "inactiveText" : "rgba(20, 17, 15, 0.731)",
+      "inactiveTextSecondary" : "rgba(20, 17, 15, 0.510)",
+      "inlineCompletionHighlight" : "rgba(0, 131, 96, 0.180)",
+      "inlineCompletionText" : "rgba(20, 17, 15, 0.450)",
+      "isDark" : false,
+      "layerOpacity" : 0.64550000000000007,
+      "materialPassThrough" : 0.5,
+      "materialTint" : "rgba(232, 235, 234, 1.000)",
+      "onAccent" : "rgba(255, 255, 255, 1.000)",
+      "overlay" : null,
+      "pressedFill" : "rgba(20, 17, 15, 0.065)",
+      "selectedFill" : "rgba(255, 255, 255, 0.850)",
+      "selectedHasShadow" : true,
+      "separator" : "rgba(20, 17, 15, 0.150)",
+      "surface" : "rgba(244, 254, 250, 1.000)",
+      "surfaceBorder" : "rgba(20, 17, 15, 0.080)",
+      "surfaceHover" : "rgba(20, 17, 15, 0.040)",
+      "surfaceSelected" : "rgba(0, 131, 96, 0.120)",
+      "surfaceText" : "rgba(20, 17, 15, 0.900)",
+      "surfaceTextSecondary" : "rgba(20, 17, 15, 0.580)",
+      "surfaceTextTertiary" : "rgba(20, 17, 15, 0.380)",
+      "text" : "rgba(20, 17, 15, 0.860)",
+      "textDisabled" : "rgba(20, 17, 15, 0.260)",
+      "textSecondary" : "rgba(20, 17, 15, 0.600)",
+      "textTertiary" : "rgba(20, 17, 15, 0.420)",
+      "tileFill" : "rgba(20, 17, 15, 0.050)",
+      "tileHoverFill" : "rgba(20, 17, 15, 0.090)",
+      "underlay" : "rgba(255, 255, 255, 1.000)",
+      "underlayMore" : 0.45000000000000001,
+      "underlaySubtle" : 0.69999999999999996
+    }
+  },
+  "ocean" : {
+    "dark" : {
+      "accent" : "rgba(48, 107, 241, 1.000)",
+      "background" : "rgba(11, 71, 93, 1.000)",
+      "colors" : [
+        "#2F6AF0",
+        "#13B5B0"
+      ],
+      "fieldFill" : "rgba(250, 251, 255, 0.100)",
+      "focusRing" : "rgba(48, 107, 241, 0.750)",
+      "gradient" : [
+        {
+          "color" : "rgba(47, 106, 240, 1.000)",
+          "location" : 0
+        },
+        {
+          "color" : "rgba(43, 114, 235, 1.000)",
+          "location" : 0.0625
+        },
+        {
+          "color" : "rgba(40, 121, 231, 1.000)",
+          "location" : 0.125
+        },
+        {
+          "color" : "rgba(36, 128, 226, 1.000)",
+          "location" : 0.1875
+        },
+        {
+          "color" : "rgba(32, 135, 221, 1.000)",
+          "location" : 0.25
+        },
+        {
+          "color" : "rgba(29, 141, 216, 1.000)",
+          "location" : 0.3125
+        },
+        {
+          "color" : "rgba(26, 147, 211, 1.000)",
+          "location" : 0.375
+        },
+        {
+          "color" : "rgba(23, 153, 205, 1.000)",
+          "location" : 0.4375
+        },
+        {
+          "color" : "rgba(20, 159, 200, 1.000)",
+          "location" : 0.5
+        },
+        {
+          "color" : "rgba(19, 165, 194, 1.000)",
+          "location" : 0.5625
+        },
+        {
+          "color" : "rgba(18, 170, 188, 1.000)",
+          "location" : 0.625
+        },
+        {
+          "color" : "rgba(18, 176, 182, 1.000)",
+          "location" : 0.6875
+        },
+        {
+          "color" : "rgba(19, 181, 176, 1.000)",
+          "location" : 0.75
+        },
+        {
+          "color" : "rgba(19, 181, 176, 1.000)",
+          "location" : 1
+        }
+      ],
+      "grain" : 0.154,
+      "hoverFill" : "rgba(250, 251, 255, 0.100)",
+      "inactiveText" : "rgba(250, 251, 255, 0.902)",
+      "inactiveTextSecondary" : "rgba(250, 251, 255, 0.617)",
+      "inlineCompletionHighlight" : "rgba(48, 107, 241, 0.300)",
+      "inlineCompletionText" : "rgba(250, 251, 255, 0.460)",
+      "isDark" : true,
+      "layerOpacity" : 0.4554999999999999,
+      "materialPassThrough" : 0.5,
+      "materialTint" : "rgba(90, 93, 92, 1.000)",
+      "onAccent" : "rgba(255, 255, 255, 1.000)",
+      "overlay" : null,
+      "pressedFill" : "rgba(250, 251, 255, 0.065)",
+      "selectedFill" : "rgba(250, 251, 255, 0.200)",
+      "selectedHasShadow" : false,
+      "separator" : "rgba(250, 251, 255, 0.150)",
+      "surface" : "rgba(26, 37, 41, 1.000)",
+      "surfaceBorder" : "rgba(250, 251, 255, 0.100)",
+      "surfaceHover" : "rgba(250, 251, 255, 0.060)",
+      "surfaceSelected" : "rgba(48, 107, 241, 0.260)",
+      "surfaceText" : "rgba(250, 251, 255, 0.940)",
+      "surfaceTextSecondary" : "rgba(250, 251, 255, 0.620)",
+      "surfaceTextTertiary" : "rgba(250, 251, 255, 0.400)",
+      "text" : "rgba(250, 251, 255, 0.920)",
+      "textDisabled" : "rgba(250, 251, 255, 0.260)",
+      "textSecondary" : "rgba(250, 251, 255, 0.620)",
+      "textTertiary" : "rgba(250, 251, 255, 0.400)",
+      "tileFill" : "rgba(250, 251, 255, 0.100)",
+      "tileHoverFill" : "rgba(250, 251, 255, 0.180)",
+      "underlay" : "rgba(0, 0, 0, 1.000)",
+      "underlayMore" : 0.98999999999999999,
+      "underlaySubtle" : 0.98999999999999999
+    },
+    "light" : {
+      "accent" : "rgba(48, 107, 241, 1.000)",
+      "background" : "rgba(11, 71, 93, 1.000)",
+      "colors" : [
+        "#2F6AF0",
+        "#13B5B0"
+      ],
+      "fieldFill" : "rgba(250, 251, 255, 0.100)",
+      "focusRing" : "rgba(48, 107, 241, 0.750)",
+      "gradient" : [
+        {
+          "color" : "rgba(47, 106, 240, 1.000)",
+          "location" : 0
+        },
+        {
+          "color" : "rgba(43, 114, 235, 1.000)",
+          "location" : 0.0625
+        },
+        {
+          "color" : "rgba(40, 121, 231, 1.000)",
+          "location" : 0.125
+        },
+        {
+          "color" : "rgba(36, 128, 226, 1.000)",
+          "location" : 0.1875
+        },
+        {
+          "color" : "rgba(32, 135, 221, 1.000)",
+          "location" : 0.25
+        },
+        {
+          "color" : "rgba(29, 141, 216, 1.000)",
+          "location" : 0.3125
+        },
+        {
+          "color" : "rgba(26, 147, 211, 1.000)",
+          "location" : 0.375
+        },
+        {
+          "color" : "rgba(23, 153, 205, 1.000)",
+          "location" : 0.4375
+        },
+        {
+          "color" : "rgba(20, 159, 200, 1.000)",
+          "location" : 0.5
+        },
+        {
+          "color" : "rgba(19, 165, 194, 1.000)",
+          "location" : 0.5625
+        },
+        {
+          "color" : "rgba(18, 170, 188, 1.000)",
+          "location" : 0.625
+        },
+        {
+          "color" : "rgba(18, 176, 182, 1.000)",
+          "location" : 0.6875
+        },
+        {
+          "color" : "rgba(19, 181, 176, 1.000)",
+          "location" : 0.75
+        },
+        {
+          "color" : "rgba(19, 181, 176, 1.000)",
+          "location" : 1
+        }
+      ],
+      "grain" : 0.154,
+      "hoverFill" : "rgba(250, 251, 255, 0.100)",
+      "inactiveText" : "rgba(250, 251, 255, 0.902)",
+      "inactiveTextSecondary" : "rgba(250, 251, 255, 0.617)",
+      "inlineCompletionHighlight" : "rgba(48, 107, 241, 0.300)",
+      "inlineCompletionText" : "rgba(250, 251, 255, 0.460)",
+      "isDark" : true,
+      "layerOpacity" : 0.4554999999999999,
+      "materialPassThrough" : 0.5,
+      "materialTint" : "rgba(90, 93, 92, 1.000)",
+      "onAccent" : "rgba(255, 255, 255, 1.000)",
+      "overlay" : null,
+      "pressedFill" : "rgba(250, 251, 255, 0.065)",
+      "selectedFill" : "rgba(250, 251, 255, 0.200)",
+      "selectedHasShadow" : false,
+      "separator" : "rgba(250, 251, 255, 0.150)",
+      "surface" : "rgba(26, 37, 41, 1.000)",
+      "surfaceBorder" : "rgba(250, 251, 255, 0.100)",
+      "surfaceHover" : "rgba(250, 251, 255, 0.060)",
+      "surfaceSelected" : "rgba(48, 107, 241, 0.260)",
+      "surfaceText" : "rgba(250, 251, 255, 0.940)",
+      "surfaceTextSecondary" : "rgba(250, 251, 255, 0.620)",
+      "surfaceTextTertiary" : "rgba(250, 251, 255, 0.400)",
+      "text" : "rgba(250, 251, 255, 0.920)",
+      "textDisabled" : "rgba(250, 251, 255, 0.260)",
+      "textSecondary" : "rgba(250, 251, 255, 0.620)",
+      "textTertiary" : "rgba(250, 251, 255, 0.400)",
+      "tileFill" : "rgba(250, 251, 255, 0.100)",
+      "tileHoverFill" : "rgba(250, 251, 255, 0.180)",
+      "underlay" : "rgba(0, 0, 0, 1.000)",
+      "underlayMore" : 0.98999999999999999,
+      "underlaySubtle" : 0.98999999999999999
+    }
+  },
+  "paper" : {
+    "dark" : {
+      "accent" : "rgba(94, 99, 232, 1.000)",
+      "background" : "rgba(30, 27, 26, 1.000)",
+      "colors" : [
+
+      ],
+      "fieldFill" : "rgba(250, 251, 255, 0.100)",
+      "focusRing" : "rgba(94, 99, 232, 0.750)",
+      "gradient" : [
+        {
+          "color" : "rgba(47, 42, 40, 1.000)",
+          "location" : 0
+        },
+        {
+          "color" : "rgba(47, 42, 40, 1.000)",
+          "location" : 1
+        }
+      ],
+      "grain" : 0,
+      "hoverFill" : "rgba(250, 251, 255, 0.100)",
+      "inactiveText" : "rgba(250, 251, 255, 0.782)",
+      "inactiveTextSecondary" : "rgba(250, 251, 255, 0.510)",
+      "inlineCompletionHighlight" : "rgba(94, 99, 232, 0.300)",
+      "inlineCompletionText" : "rgba(250, 251, 255, 0.460)",
+      "isDark" : true,
+      "layerOpacity" : 0.64550000000000007,
+      "materialPassThrough" : 0.5,
+      "materialTint" : "rgba(90, 93, 92, 1.000)",
+      "onAccent" : "rgba(255, 255, 255, 1.000)",
+      "overlay" : null,
+      "pressedFill" : "rgba(250, 251, 255, 0.065)",
+      "selectedFill" : "rgba(250, 251, 255, 0.200)",
+      "selectedHasShadow" : false,
+      "separator" : "rgba(250, 251, 255, 0.150)",
+      "surface" : "rgba(35, 35, 34, 1.000)",
+      "surfaceBorder" : "rgba(250, 251, 255, 0.100)",
+      "surfaceHover" : "rgba(250, 251, 255, 0.060)",
+      "surfaceSelected" : "rgba(94, 99, 232, 0.260)",
+      "surfaceText" : "rgba(250, 251, 255, 0.940)",
+      "surfaceTextSecondary" : "rgba(250, 251, 255, 0.620)",
+      "surfaceTextTertiary" : "rgba(250, 251, 255, 0.400)",
+      "text" : "rgba(250, 251, 255, 0.920)",
+      "textDisabled" : "rgba(250, 251, 255, 0.260)",
+      "textSecondary" : "rgba(250, 251, 255, 0.600)",
+      "textTertiary" : "rgba(250, 251, 255, 0.400)",
+      "tileFill" : "rgba(250, 251, 255, 0.100)",
+      "tileHoverFill" : "rgba(250, 251, 255, 0.180)",
+      "underlay" : "rgba(0, 0, 0, 1.000)",
+      "underlayMore" : 0.32000000000000001,
+      "underlaySubtle" : 0.55000000000000004
+    },
+    "light" : {
+      "accent" : "rgba(70, 99, 237, 1.000)",
+      "background" : "rgba(237, 235, 232, 1.000)",
+      "colors" : [
+
+      ],
+      "fieldFill" : "rgba(20, 17, 15, 0.050)",
+      "focusRing" : "rgba(70, 99, 237, 0.550)",
+      "gradient" : [
+        {
+          "color" : "rgba(227, 224, 220, 1.000)",
+          "location" : 0
+        },
+        {
+          "color" : "rgba(227, 224, 220, 1.000)",
+          "location" : 1
+        }
+      ],
+      "grain" : 0,
+      "hoverFill" : "rgba(20, 17, 15, 0.050)",
+      "inactiveText" : "rgba(20, 17, 15, 0.731)",
+      "inactiveTextSecondary" : "rgba(20, 17, 15, 0.510)",
+      "inlineCompletionHighlight" : "rgba(70, 99, 237, 0.180)",
+      "inlineCompletionText" : "rgba(20, 17, 15, 0.450)",
+      "isDark" : false,
+      "layerOpacity" : 0.64550000000000007,
+      "materialPassThrough" : 0.5,
+      "materialTint" : "rgba(232, 235, 234, 1.000)",
+      "onAccent" : "rgba(255, 255, 255, 1.000)",
+      "overlay" : null,
+      "pressedFill" : "rgba(20, 17, 15, 0.065)",
+      "selectedFill" : "rgba(255, 255, 255, 0.850)",
+      "selectedHasShadow" : true,
+      "separator" : "rgba(20, 17, 15, 0.150)",
+      "surface" : "rgba(251, 251, 250, 1.000)",
+      "surfaceBorder" : "rgba(20, 17, 15, 0.080)",
+      "surfaceHover" : "rgba(20, 17, 15, 0.040)",
+      "surfaceSelected" : "rgba(70, 99, 237, 0.120)",
+      "surfaceText" : "rgba(20, 17, 15, 0.900)",
+      "surfaceTextSecondary" : "rgba(20, 17, 15, 0.580)",
+      "surfaceTextTertiary" : "rgba(20, 17, 15, 0.380)",
+      "text" : "rgba(20, 17, 15, 0.860)",
+      "textDisabled" : "rgba(20, 17, 15, 0.260)",
+      "textSecondary" : "rgba(20, 17, 15, 0.600)",
+      "textTertiary" : "rgba(20, 17, 15, 0.420)",
+      "tileFill" : "rgba(20, 17, 15, 0.050)",
+      "tileHoverFill" : "rgba(20, 17, 15, 0.090)",
+      "underlay" : "rgba(255, 255, 255, 1.000)",
+      "underlayMore" : 0.40000000000000002,
+      "underlaySubtle" : 0.69999999999999996
+    }
+  },
+  "peach" : {
+    "dark" : {
+      "accent" : "rgba(177, 81, 99, 1.000)",
+      "background" : "rgba(247, 189, 185, 1.000)",
+      "colors" : [
+        "#F7B184",
+        "#F08A9A"
+      ],
+      "fieldFill" : "rgba(20, 17, 15, 0.050)",
+      "focusRing" : "rgba(177, 81, 99, 0.550)",
+      "gradient" : [
+        {
+          "color" : "rgba(247, 177, 132, 1.000)",
+          "location" : 0
+        },
+        {
+          "color" : "rgba(246, 174, 134, 1.000)",
+          "location" : 0.0625
+        },
+        {
+          "color" : "rgba(246, 171, 136, 1.000)",
+          "location" : 0.125
+        },
+        {
+          "color" : "rgba(245, 168, 138, 1.000)",
+          "location" : 0.1875
+        },
+        {
+          "color" : "rgba(245, 164, 140, 1.000)",
+          "location" : 0.25
+        },
+        {
+          "color" : "rgba(244, 161, 142, 1.000)",
+          "location" : 0.3125
+        },
+        {
+          "color" : "rgba(244, 158, 144, 1.000)",
+          "location" : 0.375
+        },
+        {
+          "color" : "rgba(243, 155, 146, 1.000)",
+          "location" : 0.4375
+        },
+        {
+          "color" : "rgba(243, 151, 148, 1.000)",
+          "location" : 0.5
+        },
+        {
+          "color" : "rgba(242, 148, 149, 1.000)",
+          "location" : 0.5625
+        },
+        {
+          "color" : "rgba(241, 145, 151, 1.000)",
+          "location" : 0.625
+        },
+        {
+          "color" : "rgba(241, 141, 152, 1.000)",
+          "location" : 0.6875
+        },
+        {
+          "color" : "rgba(240, 138, 154, 1.000)",
+          "location" : 0.75
+        },
+        {
+          "color" : "rgba(240, 138, 154, 1.000)",
+          "location" : 1
+        }
+      ],
+      "grain" : 0.11000000000000001,
+      "hoverFill" : "rgba(20, 17, 15, 0.050)",
+      "inactiveText" : "rgba(20, 17, 15, 0.731)",
+      "inactiveTextSecondary" : "rgba(20, 17, 15, 0.510)",
+      "inlineCompletionHighlight" : "rgba(177, 81, 99, 0.180)",
+      "inlineCompletionText" : "rgba(20, 17, 15, 0.450)",
+      "isDark" : false,
+      "layerOpacity" : 0.64550000000000007,
+      "materialPassThrough" : 0.5,
+      "materialTint" : "rgba(232, 235, 234, 1.000)",
+      "onAccent" : "rgba(255, 255, 255, 1.000)",
+      "overlay" : null,
+      "pressedFill" : "rgba(20, 17, 15, 0.065)",
+      "selectedFill" : "rgba(255, 255, 255, 0.850)",
+      "selectedHasShadow" : true,
+      "separator" : "rgba(20, 17, 15, 0.150)",
+      "surface" : "rgba(255, 250, 249, 1.000)",
+      "surfaceBorder" : "rgba(20, 17, 15, 0.080)",
+      "surfaceHover" : "rgba(20, 17, 15, 0.040)",
+      "surfaceSelected" : "rgba(177, 81, 99, 0.120)",
+      "surfaceText" : "rgba(20, 17, 15, 0.900)",
+      "surfaceTextSecondary" : "rgba(20, 17, 15, 0.580)",
+      "surfaceTextTertiary" : "rgba(20, 17, 15, 0.380)",
+      "text" : "rgba(20, 17, 15, 0.860)",
+      "textDisabled" : "rgba(20, 17, 15, 0.260)",
+      "textSecondary" : "rgba(20, 17, 15, 0.600)",
+      "textTertiary" : "rgba(20, 17, 15, 0.420)",
+      "tileFill" : "rgba(20, 17, 15, 0.050)",
+      "tileHoverFill" : "rgba(20, 17, 15, 0.090)",
+      "underlay" : "rgba(255, 255, 255, 1.000)",
+      "underlayMore" : 0.66000000000000003,
+      "underlaySubtle" : 0.69999999999999996
+    },
+    "light" : {
+      "accent" : "rgba(177, 81, 99, 1.000)",
+      "background" : "rgba(247, 189, 185, 1.000)",
+      "colors" : [
+        "#F7B184",
+        "#F08A9A"
+      ],
+      "fieldFill" : "rgba(20, 17, 15, 0.050)",
+      "focusRing" : "rgba(177, 81, 99, 0.550)",
+      "gradient" : [
+        {
+          "color" : "rgba(247, 177, 132, 1.000)",
+          "location" : 0
+        },
+        {
+          "color" : "rgba(246, 174, 134, 1.000)",
+          "location" : 0.0625
+        },
+        {
+          "color" : "rgba(246, 171, 136, 1.000)",
+          "location" : 0.125
+        },
+        {
+          "color" : "rgba(245, 168, 138, 1.000)",
+          "location" : 0.1875
+        },
+        {
+          "color" : "rgba(245, 164, 140, 1.000)",
+          "location" : 0.25
+        },
+        {
+          "color" : "rgba(244, 161, 142, 1.000)",
+          "location" : 0.3125
+        },
+        {
+          "color" : "rgba(244, 158, 144, 1.000)",
+          "location" : 0.375
+        },
+        {
+          "color" : "rgba(243, 155, 146, 1.000)",
+          "location" : 0.4375
+        },
+        {
+          "color" : "rgba(243, 151, 148, 1.000)",
+          "location" : 0.5
+        },
+        {
+          "color" : "rgba(242, 148, 149, 1.000)",
+          "location" : 0.5625
+        },
+        {
+          "color" : "rgba(241, 145, 151, 1.000)",
+          "location" : 0.625
+        },
+        {
+          "color" : "rgba(241, 141, 152, 1.000)",
+          "location" : 0.6875
+        },
+        {
+          "color" : "rgba(240, 138, 154, 1.000)",
+          "location" : 0.75
+        },
+        {
+          "color" : "rgba(240, 138, 154, 1.000)",
+          "location" : 1
+        }
+      ],
+      "grain" : 0.11000000000000001,
+      "hoverFill" : "rgba(20, 17, 15, 0.050)",
+      "inactiveText" : "rgba(20, 17, 15, 0.731)",
+      "inactiveTextSecondary" : "rgba(20, 17, 15, 0.510)",
+      "inlineCompletionHighlight" : "rgba(177, 81, 99, 0.180)",
+      "inlineCompletionText" : "rgba(20, 17, 15, 0.450)",
+      "isDark" : false,
+      "layerOpacity" : 0.64550000000000007,
+      "materialPassThrough" : 0.5,
+      "materialTint" : "rgba(232, 235, 234, 1.000)",
+      "onAccent" : "rgba(255, 255, 255, 1.000)",
+      "overlay" : null,
+      "pressedFill" : "rgba(20, 17, 15, 0.065)",
+      "selectedFill" : "rgba(255, 255, 255, 0.850)",
+      "selectedHasShadow" : true,
+      "separator" : "rgba(20, 17, 15, 0.150)",
+      "surface" : "rgba(255, 250, 249, 1.000)",
+      "surfaceBorder" : "rgba(20, 17, 15, 0.080)",
+      "surfaceHover" : "rgba(20, 17, 15, 0.040)",
+      "surfaceSelected" : "rgba(177, 81, 99, 0.120)",
+      "surfaceText" : "rgba(20, 17, 15, 0.900)",
+      "surfaceTextSecondary" : "rgba(20, 17, 15, 0.580)",
+      "surfaceTextTertiary" : "rgba(20, 17, 15, 0.380)",
+      "text" : "rgba(20, 17, 15, 0.860)",
+      "textDisabled" : "rgba(20, 17, 15, 0.260)",
+      "textSecondary" : "rgba(20, 17, 15, 0.600)",
+      "textTertiary" : "rgba(20, 17, 15, 0.420)",
+      "tileFill" : "rgba(20, 17, 15, 0.050)",
+      "tileHoverFill" : "rgba(20, 17, 15, 0.090)",
+      "underlay" : "rgba(255, 255, 255, 1.000)",
+      "underlayMore" : 0.66000000000000003,
+      "underlaySubtle" : 0.69999999999999996
+    }
+  },
+  "sky" : {
+    "dark" : {
+      "accent" : "rgba(80, 108, 205, 1.000)",
+      "background" : "rgba(167, 197, 247, 1.000)",
+      "colors" : [
+        "#86CDF5",
+        "#6D8CF0"
+      ],
+      "fieldFill" : "rgba(20, 17, 15, 0.050)",
+      "focusRing" : "rgba(80, 108, 205, 0.550)",
+      "gradient" : [
+        {
+          "color" : "rgba(134, 205, 245, 1.000)",
+          "location" : 0
+        },
+        {
+          "color" : "rgba(132, 200, 245, 1.000)",
+          "location" : 0.0625
+        },
+        {
+          "color" : "rgba(129, 194, 245, 1.000)",
+          "location" : 0.125
+        },
+        {
+          "color" : "rgba(127, 189, 244, 1.000)",
+          "location" : 0.1875
+        },
+        {
+          "color" : "rgba(125, 184, 244, 1.000)",
+          "location" : 0.25
+        },
+        {
+          "color" : "rgba(123, 178, 244, 1.000)",
+          "location" : 0.3125
+        },
+        {
+          "color" : "rgba(121, 173, 243, 1.000)",
+          "location" : 0.375
+        },
+        {
+          "color" : "rgba(119, 168, 243, 1.000)",
+          "location" : 0.4375
+        },
+        {
+          "color" : "rgba(117, 162, 242, 1.000)",
+          "location" : 0.5
+        },
+        {
+          "color" : "rgba(115, 157, 242, 1.000)",
+          "location" : 0.5625
+        },
+        {
+          "color" : "rgba(113, 151, 241, 1.000)",
+          "location" : 0.625
+        },
+        {
+          "color" : "rgba(111, 146, 241, 1.000)",
+          "location" : 0.6875
+        },
+        {
+          "color" : "rgba(109, 140, 240, 1.000)",
+          "location" : 0.75
+        },
+        {
+          "color" : "rgba(109, 140, 240, 1.000)",
+          "location" : 1
+        }
+      ],
+      "grain" : 0.11000000000000001,
+      "hoverFill" : "rgba(20, 17, 15, 0.050)",
+      "inactiveText" : "rgba(20, 17, 15, 0.731)",
+      "inactiveTextSecondary" : "rgba(20, 17, 15, 0.530)",
+      "inlineCompletionHighlight" : "rgba(80, 108, 205, 0.180)",
+      "inlineCompletionText" : "rgba(20, 17, 15, 0.450)",
+      "isDark" : false,
+      "layerOpacity" : 0.64550000000000007,
+      "materialPassThrough" : 0.5,
+      "materialTint" : "rgba(232, 235, 234, 1.000)",
+      "onAccent" : "rgba(255, 255, 255, 1.000)",
+      "overlay" : null,
+      "pressedFill" : "rgba(20, 17, 15, 0.065)",
+      "selectedFill" : "rgba(255, 255, 255, 0.850)",
+      "selectedHasShadow" : true,
+      "separator" : "rgba(20, 17, 15, 0.150)",
+      "surface" : "rgba(249, 251, 255, 1.000)",
+      "surfaceBorder" : "rgba(20, 17, 15, 0.080)",
+      "surfaceHover" : "rgba(20, 17, 15, 0.040)",
+      "surfaceSelected" : "rgba(80, 108, 205, 0.120)",
+      "surfaceText" : "rgba(20, 17, 15, 0.900)",
+      "surfaceTextSecondary" : "rgba(20, 17, 15, 0.580)",
+      "surfaceTextTertiary" : "rgba(20, 17, 15, 0.380)",
+      "text" : "rgba(20, 17, 15, 0.860)",
+      "textDisabled" : "rgba(20, 17, 15, 0.260)",
+      "textSecondary" : "rgba(20, 17, 15, 0.600)",
+      "textTertiary" : "rgba(20, 17, 15, 0.430)",
+      "tileFill" : "rgba(20, 17, 15, 0.050)",
+      "tileHoverFill" : "rgba(20, 17, 15, 0.090)",
+      "underlay" : "rgba(255, 255, 255, 1.000)",
+      "underlayMore" : 0.78000000000000003,
+      "underlaySubtle" : 0.78000000000000003
+    },
+    "light" : {
+      "accent" : "rgba(80, 108, 205, 1.000)",
+      "background" : "rgba(167, 197, 247, 1.000)",
+      "colors" : [
+        "#86CDF5",
+        "#6D8CF0"
+      ],
+      "fieldFill" : "rgba(20, 17, 15, 0.050)",
+      "focusRing" : "rgba(80, 108, 205, 0.550)",
+      "gradient" : [
+        {
+          "color" : "rgba(134, 205, 245, 1.000)",
+          "location" : 0
+        },
+        {
+          "color" : "rgba(132, 200, 245, 1.000)",
+          "location" : 0.0625
+        },
+        {
+          "color" : "rgba(129, 194, 245, 1.000)",
+          "location" : 0.125
+        },
+        {
+          "color" : "rgba(127, 189, 244, 1.000)",
+          "location" : 0.1875
+        },
+        {
+          "color" : "rgba(125, 184, 244, 1.000)",
+          "location" : 0.25
+        },
+        {
+          "color" : "rgba(123, 178, 244, 1.000)",
+          "location" : 0.3125
+        },
+        {
+          "color" : "rgba(121, 173, 243, 1.000)",
+          "location" : 0.375
+        },
+        {
+          "color" : "rgba(119, 168, 243, 1.000)",
+          "location" : 0.4375
+        },
+        {
+          "color" : "rgba(117, 162, 242, 1.000)",
+          "location" : 0.5
+        },
+        {
+          "color" : "rgba(115, 157, 242, 1.000)",
+          "location" : 0.5625
+        },
+        {
+          "color" : "rgba(113, 151, 241, 1.000)",
+          "location" : 0.625
+        },
+        {
+          "color" : "rgba(111, 146, 241, 1.000)",
+          "location" : 0.6875
+        },
+        {
+          "color" : "rgba(109, 140, 240, 1.000)",
+          "location" : 0.75
+        },
+        {
+          "color" : "rgba(109, 140, 240, 1.000)",
+          "location" : 1
+        }
+      ],
+      "grain" : 0.11000000000000001,
+      "hoverFill" : "rgba(20, 17, 15, 0.050)",
+      "inactiveText" : "rgba(20, 17, 15, 0.731)",
+      "inactiveTextSecondary" : "rgba(20, 17, 15, 0.530)",
+      "inlineCompletionHighlight" : "rgba(80, 108, 205, 0.180)",
+      "inlineCompletionText" : "rgba(20, 17, 15, 0.450)",
+      "isDark" : false,
+      "layerOpacity" : 0.64550000000000007,
+      "materialPassThrough" : 0.5,
+      "materialTint" : "rgba(232, 235, 234, 1.000)",
+      "onAccent" : "rgba(255, 255, 255, 1.000)",
+      "overlay" : null,
+      "pressedFill" : "rgba(20, 17, 15, 0.065)",
+      "selectedFill" : "rgba(255, 255, 255, 0.850)",
+      "selectedHasShadow" : true,
+      "separator" : "rgba(20, 17, 15, 0.150)",
+      "surface" : "rgba(249, 251, 255, 1.000)",
+      "surfaceBorder" : "rgba(20, 17, 15, 0.080)",
+      "surfaceHover" : "rgba(20, 17, 15, 0.040)",
+      "surfaceSelected" : "rgba(80, 108, 205, 0.120)",
+      "surfaceText" : "rgba(20, 17, 15, 0.900)",
+      "surfaceTextSecondary" : "rgba(20, 17, 15, 0.580)",
+      "surfaceTextTertiary" : "rgba(20, 17, 15, 0.380)",
+      "text" : "rgba(20, 17, 15, 0.860)",
+      "textDisabled" : "rgba(20, 17, 15, 0.260)",
+      "textSecondary" : "rgba(20, 17, 15, 0.600)",
+      "textTertiary" : "rgba(20, 17, 15, 0.430)",
+      "tileFill" : "rgba(20, 17, 15, 0.050)",
+      "tileHoverFill" : "rgba(20, 17, 15, 0.090)",
+      "underlay" : "rgba(255, 255, 255, 1.000)",
+      "underlayMore" : 0.78000000000000003,
+      "underlaySubtle" : 0.78000000000000003
+    }
+  },
+  "slate" : {
+    "dark" : {
+      "accent" : "rgba(106, 107, 179, 1.000)",
+      "background" : "rgba(65, 66, 86, 1.000)",
+      "colors" : [
+        "#656786"
+      ],
+      "fieldFill" : "rgba(250, 251, 255, 0.100)",
+      "focusRing" : "rgba(106, 107, 179, 0.750)",
+      "gradient" : [
+        {
+          "color" : "rgba(101, 103, 134, 1.000)",
+          "location" : 0
+        },
+        {
+          "color" : "rgba(101, 103, 134, 1.000)",
+          "location" : 1
+        }
+      ],
+      "grain" : 0.088000000000000023,
+      "hoverFill" : "rgba(250, 251, 255, 0.100)",
+      "inactiveText" : "rgba(250, 251, 255, 0.872)",
+      "inactiveTextSecondary" : "rgba(250, 251, 255, 0.590)",
+      "inlineCompletionHighlight" : "rgba(106, 107, 179, 0.300)",
+      "inlineCompletionText" : "rgba(250, 251, 255, 0.460)",
+      "isDark" : true,
+      "layerOpacity" : 0.64550000000000007,
+      "materialPassThrough" : 0.5,
+      "materialTint" : "rgba(90, 93, 92, 1.000)",
+      "onAccent" : "rgba(255, 255, 255, 1.000)",
+      "overlay" : null,
+      "pressedFill" : "rgba(250, 251, 255, 0.065)",
+      "selectedFill" : "rgba(250, 251, 255, 0.200)",
+      "selectedHasShadow" : false,
+      "separator" : "rgba(250, 251, 255, 0.150)",
+      "surface" : "rgba(34, 34, 39, 1.000)",
+      "surfaceBorder" : "rgba(250, 251, 255, 0.100)",
+      "surfaceHover" : "rgba(250, 251, 255, 0.060)",
+      "surfaceSelected" : "rgba(106, 107, 179, 0.260)",
+      "surfaceText" : "rgba(250, 251, 255, 0.940)",
+      "surfaceTextSecondary" : "rgba(250, 251, 255, 0.620)",
+      "surfaceTextTertiary" : "rgba(250, 251, 255, 0.400)",
+      "text" : "rgba(250, 251, 255, 0.920)",
+      "textDisabled" : "rgba(250, 251, 255, 0.260)",
+      "textSecondary" : "rgba(250, 251, 255, 0.600)",
+      "textTertiary" : "rgba(250, 251, 255, 0.400)",
+      "tileFill" : "rgba(250, 251, 255, 0.100)",
+      "tileHoverFill" : "rgba(250, 251, 255, 0.180)",
+      "underlay" : "rgba(0, 0, 0, 1.000)",
+      "underlayMore" : 0.96999999999999997,
+      "underlaySubtle" : 0.96999999999999997
+    },
+    "light" : {
+      "accent" : "rgba(106, 107, 179, 1.000)",
+      "background" : "rgba(65, 66, 86, 1.000)",
+      "colors" : [
+        "#656786"
+      ],
+      "fieldFill" : "rgba(250, 251, 255, 0.100)",
+      "focusRing" : "rgba(106, 107, 179, 0.750)",
+      "gradient" : [
+        {
+          "color" : "rgba(101, 103, 134, 1.000)",
+          "location" : 0
+        },
+        {
+          "color" : "rgba(101, 103, 134, 1.000)",
+          "location" : 1
+        }
+      ],
+      "grain" : 0.088000000000000023,
+      "hoverFill" : "rgba(250, 251, 255, 0.100)",
+      "inactiveText" : "rgba(250, 251, 255, 0.872)",
+      "inactiveTextSecondary" : "rgba(250, 251, 255, 0.590)",
+      "inlineCompletionHighlight" : "rgba(106, 107, 179, 0.300)",
+      "inlineCompletionText" : "rgba(250, 251, 255, 0.460)",
+      "isDark" : true,
+      "layerOpacity" : 0.64550000000000007,
+      "materialPassThrough" : 0.5,
+      "materialTint" : "rgba(90, 93, 92, 1.000)",
+      "onAccent" : "rgba(255, 255, 255, 1.000)",
+      "overlay" : null,
+      "pressedFill" : "rgba(250, 251, 255, 0.065)",
+      "selectedFill" : "rgba(250, 251, 255, 0.200)",
+      "selectedHasShadow" : false,
+      "separator" : "rgba(250, 251, 255, 0.150)",
+      "surface" : "rgba(34, 34, 39, 1.000)",
+      "surfaceBorder" : "rgba(250, 251, 255, 0.100)",
+      "surfaceHover" : "rgba(250, 251, 255, 0.060)",
+      "surfaceSelected" : "rgba(106, 107, 179, 0.260)",
+      "surfaceText" : "rgba(250, 251, 255, 0.940)",
+      "surfaceTextSecondary" : "rgba(250, 251, 255, 0.620)",
+      "surfaceTextTertiary" : "rgba(250, 251, 255, 0.400)",
+      "text" : "rgba(250, 251, 255, 0.920)",
+      "textDisabled" : "rgba(250, 251, 255, 0.260)",
+      "textSecondary" : "rgba(250, 251, 255, 0.600)",
+      "textTertiary" : "rgba(250, 251, 255, 0.400)",
+      "tileFill" : "rgba(250, 251, 255, 0.100)",
+      "tileHoverFill" : "rgba(250, 251, 255, 0.180)",
+      "underlay" : "rgba(0, 0, 0, 1.000)",
+      "underlayMore" : 0.96999999999999997,
+      "underlaySubtle" : 0.96999999999999997
+    }
+  }
+}

@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Airc</string>
+	<key>CFBundleExecutable</key>
+	<string>Airc</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>org.airc.Airc.dev</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Airc</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.productivity</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSSupportsAutomaticTermination</key>
+	<false/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoadsInWebContent</key>
+		<true/>
+	</dict>
+	<!-- AT-1: a default-browser candidate. Web addresses (CFBundleURLTypes below) and HTML files open in Airc; links
+	     from other apps go through Air Traffic Control. -->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Web page</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Default</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.html</string>
+				<string>public.xhtml</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>Web site URL</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>http</string>
+				<string>https</string>
+			</array>
+		</dict>
+	</array>
+	<!-- Privacy usage descriptions (Chrome sets the same keys). Without them macOS kills the app the first time a
+	     page or Google sign-in touches Bluetooth, camera, microphone or location (TCC privacy violation). -->
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Websites you allow can capture audio from your Mac when you share a tab or screen in a call.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Airc uses Bluetooth to connect to a nearby phone for passkey sign-in and to devices you choose for websites.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>Airc uses Bluetooth to connect to a nearby phone for passkey sign-in and to devices you choose for websites.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>When you turn on upcoming meetings, Airc reads the calendars on this Mac to count down to your next meeting and join its call. Nothing leaves your Mac.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Websites you allow can use your camera for video calls and taking photos.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Websites you allow can use your microphone for voice calls, video calls and audio recording.</string>
+	<key>NSLocationUsageDescription</key>
+	<string>Websites you allow can use your location to show nearby places, directions and local information.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Websites you allow can use your location to show nearby places, directions and local information.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Airc uses your local network to discover Cast devices and connect to local devices through websites you allow.</string>
+	<key>NSWebBrowserPublicKeyCredentialUsageDescription</key>
+	<string>With your permission, Airc can use a saved passkey to sign you in to the website requesting it.</string>
+</dict>
+</plist>

@@ -1,0 +1,21 @@
+--- a/chrome/browser/chrome_browser_main.cc
++++ b/chrome/browser/chrome_browser_main.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/chrome_browser_main.h"
++#include "airc/core/airc_hooks.h"  // nogncheck
+ 
+ #include <memory>
+ #include <string>
+@@ -2121,7 +2122,9 @@
+ #endif
+ 
+   // This step is costly.
+-  if (browser_creator_->Start(*base::CommandLine::ForCurrentProcess(),
++  // Airc: Airc opens its own windows and runs the main loop itself.
++  if (!g_airc_embedder &&
++      browser_creator_->Start(*base::CommandLine::ForCurrentProcess(),
+                               base::FilePath(), profile_info,
+                               last_opened_profiles)) {
+ #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
