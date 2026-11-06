@@ -11,19 +11,30 @@ import AircCore
 extension ChromiumEngine: EnginePageScripts {
     var existingPageScript: String? { ChromiumPageScripts.ownScript == nil ? core.pageScript : nil }
 
+    // The WebKit pages of DRM services (HybridEngine.swift) get the same script, as a WKUserScript.
     func setPageScript(_ source: String?) {
         ChromiumPageScripts.ownScript = source
         core.pageScript = source
+        WebKitPageScripts.shared.setSource(source)
     }
 
     var pageMessageHandler: ((EngineTab, EnginePageMessage) -> Void)? {
         get { ChromiumPageScripts.handler }
-        set { ChromiumPageScripts.handler = newValue }
+        set {
+            ChromiumPageScripts.handler = newValue
+            WebKitPageScripts.shared.handler = newValue
+        }
     }
 
-    func callPage(_ tab: EngineTab, kind: String, json: String) { core(of: tab)?.callPage(kind, json: json) }
+    func callPage(_ tab: EngineTab, kind: String, json: String) {
+        if tab is WebKitTab { return webKit.callPage(tab, kind: kind, json: json) }
+        core(of: tab)?.callPage(kind, json: json)
+    }
 
-    func executeScript(_ code: String, in tab: EngineTab, frame: String?) { core(of: tab)?.executeJavaScript(code, frame: frame) }
+    func executeScript(_ code: String, in tab: EngineTab, frame: String?) {
+        if tab is WebKitTab { return webKit.executeScript(code, in: tab, frame: frame) }
+        core(of: tab)?.executeJavaScript(code, frame: frame)
+    }
 }
 
 enum ChromiumPageScripts {

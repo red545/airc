@@ -27,6 +27,7 @@ export const groups: { title: string; items: Section[] }[] = [
       { id: "command", label: "Command bar", icon: "command", space: "sky" },
       { id: "import", label: "Import from Arc", icon: "import", space: "lilac" },
       { id: "links", label: "Links", icon: "links", space: "sky" },
+      { id: "streaming", label: "Streaming", icon: "streaming", space: "pink" },
       { id: "boosts", label: "Boosts", icon: "boosts", space: "pink" },
       { id: "supported", label: "What works", icon: "works", space: "mint" },
     ],

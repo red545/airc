@@ -300,7 +300,7 @@ A full-window, chromeless onboarding (native window around a React page rendered
   - a split is one row in the sidebar, and "Separate All Tabs" undoes it;
   - each pane keeps its own profile from its Space;
   - ⌘[ / ⌘] focus the panes, and ⌘W closes the focused pane.
-- **SV-2 Pinned and Favorite splits** (owner, 2026-11-06): a split can be pinned in a Space or kept as a Favorite, as in Arc. It restores as the same split with each pane's saved URL. Closing one asks "Leave site?" for every pane with unsaved changes, one at a time (Stay keeps the split open). A tab dropped on its row joins it as one more pane, up to four (left half first, right half last; Arc's own rule here isn't recorded).
+- **SV-2 Pinned and Favorite splits** (owner, 2026-11-06): a split can be pinned in a Space or kept as a Favorite, as in Arc. It restores as the same split with each pane's saved URL. Closing one asks "Leave site?" for every pane with unsaved changes, one at a time (Stay keeps the split open). A tab dropped on its row, or on the middle of a Favorite split's tile, joins it as one more pane, up to four (left half first, right half last; Arc's own rule here isn't recorded).
 - **PK-1 Peek**:
   - cross-site links from pinned tabs and Favorites (and ⇧-click on any link) open in an overlay card above the page;
   - ⌘O promotes it to a tab, and the Split button turns it into a split;

@@ -17,13 +17,22 @@ Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.807
 - **No Chrome Sync.** Signing in to Google websites works and is separate from browser sync, which Airc doesn't have.
 - **Protected content:** Widevine installs automatically; turn it off in Settings → Privacy → Play protected content.
   Turning it off applies to newly loaded pages; reload existing tabs. Public encrypted playback passed in a
-  disposable Developer ID–signed qualification app. Spotify, Netflix and other subscription services remain
-  unverified; service certification and licensing clearance are still pending.
+  disposable Developer ID–signed qualification app. The big subscription services play with Safari's engine instead
+  (below); Widevine certification and licensing clearance are still pending.
+- **Protected media:** Spotify, Netflix, Disney+, Max, Prime Video, Hulu, Apple TV, Apple Music, Tidal, Deezer and a
+  few others open in a WebKit page with Apple's FairPlay; every other site stays in Chromium. Turn it off in Settings →
+  Privacy → Play DRM sites with Safari's engine, or per site in Site Controls. **Checked logged out only:** Spotify,
+  Netflix, Disney+, Max, Apple TV, Apple Music, Prime Video and Tidal open there without a "browser not supported"
+  message, and EZDRM's public FairPlay test stream plays (licence, 720p). Playback with a real subscription is untested.
+  On those pages extensions don't run, you sign in once more (Chromium's logins don't carry over), ⌥⌘I opens Web
+  Inspector, and picture in picture is the system's. See docs/user/protected-media.md.
 - **Anonymous usage data:** Airc sends anonymous usage data by default (which features get used and how fast Airc is,
   never what you browse). Turn it off, or see what is sent, in Settings → Privacy.
 
 ## New today
 
+- Spotify, Netflix, Disney+ and the other big streaming services play with Safari's engine (FairPlay), inside Airc:
+  a link to one opens there in the same tab or split pane, with a one-time note that says so.
 - The first ⌘T after launch opens the Command Bar faster.
 - Saved logins: choose between them in an Arc-styled list under the field.
 - Little Arc: closing a window while its video or sound plays hands it to picture in picture (the mini player).

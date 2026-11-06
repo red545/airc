@@ -22,10 +22,12 @@ final class CrashReportTests: XCTestCase {
     static let rules: (required: [String: Rule], optional: [String: Rule]) = (
         ["$exception_list": .format(".*"), "$debug_images": .format(".*"),   // checked structurally below
          "$exception_level": .oneOf(["fatal", "error", "warning"]),
-         "$exception_source": .oneOf(["macos.diagnostic_report", "macos.metrickit"]),
+         "$exception_source": .oneOf(["macos.diagnostic_report", "macos.metrickit", "airc.signal_handler"]),
          "crash_kind": TelemetryEventTests.values(CrashReport.Kind.self),
-         "crash_process": TelemetryEventTests.values(CrashReport.Process.self)],
+         "crash_process": TelemetryEventTests.values(CrashReport.Process.self),
+         "crash_source": .oneOf(["ips", "metrickit", "signal"])],
         ["exception_type": .format(CrashReport.exceptionTypeFormat), "signal": .format(CrashReport.signalFormat),
+         "signal_code": .format(#"^[0-9]{1,10}$"#),
          "mach_code": .format(hex), "termination_namespace": .format(CrashReport.namespaceFormat),
          "termination_code": .format(hex), "crash_app_version": .format(CrashReport.versionFormat),
          "crash_build": .format(CrashReport.buildFormat), "crash_os_version": .format(#"^[0-9]{1,3}\.[0-9]{1,3}$"#),
@@ -151,6 +153,35 @@ final class CrashReportTests: XCTestCase {
     }
     """#.utf8)
 
+    /// When the .ips fixture's crash was captured ("2026-11-06 12:00:00.0000 +0100").
+    static let ipsCrashTime = Date(timeIntervalSince1970: 1_793_962_800)
+
+    /// What AircCrashLog writes at the crash: the browser's frames, Airc's and the system's binaries, and planted
+    /// things that must stay behind (a binary named by its path, one of nobody's, junk lines, a URL where a value goes).
+    static func record(pid: Int = 4242, build: String = "202611061200", time: Date = ipsCrashTime.addingTimeInterval(-2),
+                       fault: String = "0xdeadbeef", end: Bool = true) -> Data {
+        var lines = [
+            "airc-crash-record 1", "pid \(pid)", "version 0.1.0", "build \(build)", "os 26.6",
+            "time \(Int(time.timeIntervalSince1970))", "signal 11", "code 1", "fault \(fault)",
+            "frame 0x18f009a3c",   // libsystem_kernel
+            "frame 0x105001234",   // the injected library: nobody's
+            "frame 0x1105c0000",   // Airc Framework
+            "frame 0x106000044",   // a binary named by a path
+            "frame 0x100023456",   // Airc
+            "frame 0x100010000",
+            "frame nonsense https://bank.example/account?id=1",
+            "image 0x100000000 0x400000 a C0FFEE00123456789ABCDEF012345678 Airc",
+            "image 0x110000000 0xf000000 a 4C4C448055553144A1FEEFD110699E75 Airc Framework",
+            "image 0x18f000000 0x3c000 s AAAAAAAABBBBCCCCDDDDEEEEEEEEEEEE libsystem_kernel.dylib",
+            "image 0x105000000 0x10000 o 12345678123412341234123456789ABC libspy.dylib",
+            "image 0x106000000 0x10000 a 1234567812341234123412345678ABCD /Users/jane.doe/Evil/libspy.dylib",
+            "image 0x107000000 0x10000 s 00000000000000000000000000000000 Secret page",
+            "url https://bank.example/account?id=1 hunter2",
+        ]
+        if end { lines.append("end") }
+        return Data((lines.joined(separator: "\n") + "\n").utf8)
+    }
+
     // MARK: Parsing
 
     func testIPSCrashKeepsFramesImagesAndCodesOnly() throws {
@@ -192,6 +223,25 @@ final class CrashReportTests: XCTestCase {
         XCTAssertNil(CrashReport.parseIPS(Data(), bundlePath: Self.bundle))
     }
 
+    /// macOS writes paths under a home folder redacted: "/Users/USER/*/Airc.app/…". That is still this app's crash
+    /// (with its bundle identifier), and its binaries are still Airc's own.
+    func testIPSWithRedactedPathsIsStillOurs() throws {
+        let redacted = "/Users/USER/*/Airc.app"
+        let text = String(decoding: Self.ips(procPath: redacted + "/Contents/MacOS/Airc"), as: UTF8.self)
+            .replacingOccurrences(of: "\\/", with: "/")   // JSONSerialization escapes slashes
+            .replacingOccurrences(of: Self.bundle + "/Contents", with: redacted + "/Contents")
+        XCTAssertFalse(text.contains("jane.doe/Applications"))
+        let r = try XCTUnwrap(CrashReport.parseIPS(Data(text.utf8), bundlePath: Self.bundle, bundleID: "org.airc.Airc"))
+        XCTAssertEqual(r.images.map(\.name), ["libsystem_kernel.dylib", "Airc Framework", "Airc"])
+        XCTAssertEqual(r.images.map(\.origin), [.system, .app, .app], "Airc's binaries by their redacted paths")
+        XCTAssertNil(CrashReport.parseIPS(Data(text.utf8), bundlePath: Self.bundle, bundleID: "org.airc.crashvis"),
+                     "a redacted path of another app's Airc.app")
+        let other = text.replacingOccurrences(of: redacted, with: "/Users/USER/*/Arc.app")
+        XCTAssertNil(CrashReport.parseIPS(Data(other.utf8), bundlePath: Self.bundle, bundleID: "org.airc.Airc"))
+        XCTAssertNil(CrashReport.parseIPS(Data(text.utf8), bundlePath: "/Applications/Airc.app", bundleID: "org.airc.Airc"),
+                     "macOS doesn't redact /Applications: a redacted path there is another copy")
+    }
+
     func testHelperCrashAndThrownExceptionBacktrace() throws {
         let path = Self.bundle + "/Contents/Frameworks/Airc Framework.framework/Helpers/Airc Helper (Renderer).app/Contents/MacOS/Airc Helper (Renderer)"
         let r = try XCTUnwrap(CrashReport.parseIPS(Self.ips(procName: "Airc Helper (Renderer)", procPath: path, exceptionBacktrace: true),
@@ -203,6 +253,79 @@ final class CrashReportTests: XCTestCase {
         XCTAssertEqual(CrashReport.process(named: "Airc Helper"), .helper)
         XCTAssertEqual(CrashReport.process(named: "Airc Helper (Alerts)"), .alerts)
         XCTAssertEqual(CrashReport.process(named: "jane's tool"), .other)
+    }
+
+    func testSignalRecordKeepsFramesImagesAndSignalOnly() throws {
+        let r = try XCTUnwrap(CrashReport.parseSignalRecord(Self.record()))
+        XCTAssertEqual(r.kind, .crash)
+        XCTAssertEqual(r.source, .signal)
+        XCTAssertEqual(r.process, .browser)
+        XCTAssertNil(r.exceptionType, "a signal handler never sees the Mach exception")
+        XCTAssertEqual(r.signal, "SIGSEGV")
+        XCTAssertEqual(r.signalCode, 1)
+        XCTAssertEqual(r.terminationNamespace, "SIGNAL")
+        XCTAssertEqual(r.terminationCode, 11)
+        XCTAssertEqual(r.appVersion, "0.1.0")
+        XCTAssertEqual(r.appBuild, "202611061200")
+        XCTAssertEqual(r.osVersion, "26.6")
+        XCTAssertEqual(r.pid, 4242)
+        XCTAssertEqual(r.crashTime, Self.ipsCrashTime.addingTimeInterval(-2))
+        XCTAssertEqual(r.faultAddress, 0xdead_beef)
+        // In the order the frames use them; nobody's binary, a path-named one and a zero UUID are left out.
+        XCTAssertEqual(r.images.map(\.name), ["libsystem_kernel.dylib", "Airc Framework", "Airc"])
+        XCTAssertEqual(r.images.map(\.origin), [.system, .app, .app])
+        XCTAssertEqual(r.images[2].uuid, "C0FFEE00-1234-5678-9ABC-DEF012345678")
+        XCTAssertEqual(r.images[2].size, 0x40_0000)
+        XCTAssertEqual(r.frames.map(\.image), [0, nil, 1, nil, 2, 2], "an unreadable frame line is skipped")
+        XCTAssertEqual(r.frames.map(\.address), [0x1_8f00_9a3c, 0x1_0500_1234, 0x1_105c_0000, 0x1_0600_0044, 0x1_0002_3456, 0x1_0001_0000])
+        XCTAssertTrue(r.frames.allSatisfy { $0.function == nil }, "symbols come from the dSYMs, in PostHog")
+
+        // The same event shape as an .ips: PostHog's Apple frames and debug images, marked as the signal handler's.
+        let json = try Self.json(r.properties())
+        let list = try XCTUnwrap(json["$exception_list"] as? [[String: Any]])
+        XCTAssertEqual(list[0]["type"] as? String, "SIGSEGV")
+        XCTAssertEqual(list[0]["value"] as? String, "SIGSEGV in the browser process")
+        XCTAssertEqual((list[0]["mechanism"] as? [String: Any])?["type"] as? String, "signal")
+        let frames = try XCTUnwrap((list[0]["stacktrace"] as? [String: Any])?["frames"] as? [[String: Any]])
+        XCTAssertEqual(frames.last?["instruction_addr"] as? String, "0x000000018f009a3c", "the crash site last")
+        XCTAssertEqual(frames.last?["image_addr"] as? String, "0x000000018f000000")
+        XCTAssertEqual(frames.last?["module"] as? String, "libsystem_kernel.dylib")
+        XCTAssertEqual(frames.first?["module"] as? String, "Airc")
+        XCTAssertEqual(frames.first?["in_app"] as? Bool, true)
+        XCTAssertEqual(frames[frames.count - 2]["module"] as? String, "other")
+        XCTAssertNil(frames[frames.count - 2]["image_addr"])
+        let images = try XCTUnwrap(json["$debug_images"] as? [[String: Any]])
+        XCTAssertEqual(images.map { $0["debug_id"] as? String }, ["AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE",
+                                                                  "4C4C4480-5555-3144-A1FE-EFD110699E75",
+                                                                  "C0FFEE00-1234-5678-9ABC-DEF012345678"])
+        XCTAssertEqual(json["$exception_source"] as? String, "airc.signal_handler")
+        XCTAssertEqual(json["crash_source"] as? String, "signal")
+        XCTAssertEqual(json["signal_code"] as? String, "1")
+        XCTAssertEqual(json["termination_code"] as? String, "0xb")
+        XCTAssertNil(json["mach_code"])
+        XCTAssertNil(json["exception_type"])
+
+        // Cut short while writing (no `end`) still counts; anything else isn't a record.
+        XCTAssertEqual(CrashReport.parseSignalRecord(Self.record(end: false))?.frames.count, 6)
+        XCTAssertNil(CrashReport.parseSignalRecord(Data("airc-crash-record 2\nsignal 11\ntime 5\n".utf8)))
+        XCTAssertNil(CrashReport.parseSignalRecord(Data("airc-crash-record 1\npid 1\ntime 5\n".utf8)), "no signal")
+        XCTAssertNil(CrashReport.parseSignalRecord(Data("airc-crash-record 1\nsignal 11\n".utf8)), "no time")
+        XCTAssertNil(CrashReport.parseSignalRecord(Data()))
+        XCTAssertNil(CrashReport.parseSignalRecord(Self.ips()))
+        let junk = CrashReport.parseSignalRecord(Data("airc-crash-record 1\ntime 5\nsignal 11\nbuild dev /Users/jane\nversion x\nos 26\n".utf8))
+        XCTAssertNil(junk?.appBuild)
+        XCTAssertNil(junk?.appVersion)
+        XCTAssertNil(junk?.osVersion)
+    }
+
+    func testIPSKnowsWhenAndWhereItCrashed() throws {
+        let r = try XCTUnwrap(CrashReport.parseIPS(Self.ips(), bundlePath: Self.bundle))
+        XCTAssertEqual(r.crashTime, Self.ipsCrashTime)
+        XCTAssertEqual(r.faultAddress, 0xdead_beef)
+        XCTAssertNil(try Self.json(r.properties())["fault_address"], "local only")
+        XCTAssertEqual(try Self.json(r.properties())["crash_source"] as? String, "ips")
+        XCTAssertEqual(CrashReport.ipsTime("2026-11-06 12:00:00.00 +0100"), Self.ipsCrashTime)
+        XCTAssertNil(CrashReport.ipsTime("yesterday"))
     }
 
     func testMetricKitPayload() throws {
@@ -272,7 +395,8 @@ final class CrashReportTests: XCTestCase {
         let reports = [CrashReport.parseIPS(Self.ips(), bundlePath: Self.bundle),
                        CrashReport.parseIPS(Self.ips(procName: "Airc Helper (GPU)", procPath: path, exceptionBacktrace: true),
                                             bundlePath: Self.bundle)].compactMap { $0 } + CrashReport.parseMetricKit(Self.metricKit)
-        XCTAssertEqual(reports.count, 5)
+            + [CrashReport.parseSignalRecord(Self.record()), CrashReport.parseSignalRecord(Self.record(end: false))].compactMap { $0 }
+        XCTAssertEqual(reports.count, 7)
         let h = TelemetryHarness()
         h.startSending()
         reports.forEach { h.client.record($0) }
@@ -280,7 +404,7 @@ final class CrashReportTests: XCTestCase {
         h.settle()
         h.scheduler.fireAll(h.client)
         let events = h.transport.events
-        XCTAssertEqual(events.count, 6)
+        XCTAssertEqual(events.count, 8)
         for event in events {
             XCTAssertEqual(event["event"] as? String, "$exception")
             let props = try XCTUnwrap(event["properties"] as? [String: Any])
@@ -385,14 +509,17 @@ final class CrashReportTests: XCTestCase {
         XCTAssertEqual(log.since, start.addingTimeInterval(61), "past every file read")
         XCTAssertEqual(log.scan(dir, bundlePath: Self.bundle, now: start.addingTimeInterval(130)).count, 0, "once only")
 
-        // The log survives a relaunch; MetricKit's report of the same crash (same process) is a duplicate.
+        // The log survives a relaunch; MetricKit's report of the same crash (same build and process) is a duplicate.
         let url = dir.appendingPathComponent("log/crash-reports.json")
         log.save(url)
         var again = CrashReportLog.load(url, now: start)
         XCTAssertEqual(again, log)
         var mk = CrashReport.parseMetricKit(Self.metricKit)[0]
         mk.pid = 2
+        mk.appBuild = "202611061200"
         XCTAssertFalse(again.admit(mk, now: start.addingTimeInterval(140)))
+        mk.appBuild = "202611051800"
+        XCTAssertTrue(again.admit(mk, now: start.addingTimeInterval(140)), "another build's process 2: another crash")
         mk.pid = 9
         XCTAssertTrue(again.admit(mk, now: start.addingTimeInterval(140)))
         XCTAssertTrue(again.admit(CrashReport.parseMetricKit(Self.metricKit)[1], now: start), "hangs have no duplicate")
@@ -407,6 +534,101 @@ final class CrashReportTests: XCTestCase {
 
         let missing = CrashReportLog.load(dir.appendingPathComponent("nope.json"), now: start)
         XCTAssertEqual(missing.since, start, "no log yet: start from now, never from old reports")
+    }
+
+    /// Signal records: only record.1 … record.3 (the running app's own `record` is never read), oldest first, each
+    /// crash once, none from before the mark, and a fresh crash waits for macOS's report.
+    func testScanRecordsReadsEachCrashOnceAfterTheMark() throws {
+        let dir = TelemetryHarness.temporaryDirectory()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let t = Self.ipsCrashTime
+        func write(_ name: String, _ data: Data) throws { try data.write(to: dir.appendingPathComponent(name)) }
+        try write("record", Self.record(pid: 1, time: t.addingTimeInterval(30)))          // the running app's
+        try write("record.1", Self.record(pid: 2, time: t.addingTimeInterval(20)))
+        try write("record.2", Self.record(pid: 3, time: t.addingTimeInterval(10)))
+        try write("record.3", Self.record(pid: 4, time: t.addingTimeInterval(-3600)))     // before the mark
+        try write("record.4", Self.record(pid: 5, time: t.addingTimeInterval(15)))        // not one AircCrashLog keeps
+        var log = CrashReportLog(since: t)
+        let first = log.scanRecords(dir, now: t.addingTimeInterval(600))
+        XCTAssertEqual(first.reports.map(\.pid), [3, 2], "oldest first")
+        XCTAssertNil(first.retry)
+        XCTAssertEqual(log.recordsSince, t.addingTimeInterval(20))
+        XCTAssertTrue(log.scanRecords(dir, now: t.addingTimeInterval(700)).reports.isEmpty, "once only")
+
+        // A new crash (rotated in as record.1) waits for its .ips until a minute after it happened.
+        try write("record.1", Self.record(pid: 6, time: t.addingTimeInterval(650)))
+        let young = log.scanRecords(dir, now: t.addingTimeInterval(680))
+        XCTAssertTrue(young.reports.isEmpty)
+        XCTAssertEqual(young.retry, t.addingTimeInterval(650 + CrashReportLog.recordSettle))
+        XCTAssertEqual(log.scanRecords(dir, now: t.addingTimeInterval(720)).reports.map(\.pid), [6])
+
+        // A log written before signal records has no record mark: it starts at its `since`, as loaded (the .ips scan
+        // moves `since` on before the records are read).
+        let url = dir.appendingPathComponent("crash-reports.json")
+        try Data(#"{"reported":{},"since":"2026-11-06T11:00:05Z","version":1}"#.utf8).write(to: url)
+        var old = CrashReportLog.load(url, now: t.addingTimeInterval(800))
+        XCTAssertEqual(old.recordsSince, t.addingTimeInterval(5))
+        old.since = t.addingTimeInterval(700)
+        XCTAssertEqual(old.scanRecords(dir, now: t.addingTimeInterval(800)).reports.map(\.pid), [3, 6])
+    }
+
+    /// The same crash from the signal record and macOS's .ips is one event, whichever comes first, and the .ips wins
+    /// when both are there; another crash at the same place is not the same crash.
+    func testSignalRecordAndIPSOfOneCrashAreOneEvent() throws {
+        let ips = try XCTUnwrap(CrashReport.parseIPS(Self.ips(), bundlePath: Self.bundle))
+        let signal = try XCTUnwrap(CrashReport.parseSignalRecord(Self.record()))
+        let now = Self.ipsCrashTime.addingTimeInterval(600)
+        var log = CrashReportLog(since: .distantPast)
+        XCTAssertTrue(log.admit(ips, now: now))
+        XCTAssertFalse(log.admit(signal, now: now), "the .ips came first")
+        log = CrashReportLog(since: .distantPast)
+        XCTAssertTrue(log.admit(signal, now: now))
+        XCTAssertFalse(log.admit(ips, now: now), "the .ips came after the signal record was sent")
+
+        func variant(pid: Int = 4242, build: String = "202611061200", time: Date = Self.ipsCrashTime.addingTimeInterval(-2),
+                     fault: String = "0xdeadbeef") -> CrashReport {
+            CrashReport.parseSignalRecord(Self.record(pid: pid, build: build, time: time, fault: fault))!
+        }
+        log = CrashReportLog(since: .distantPast)
+        XCTAssertTrue(log.admit(ips, now: now))
+        XCTAssertTrue(log.admit(variant(pid: 4243), now: now), "another process crashing at the same address")
+        XCTAssertTrue(log.admit(variant(build: "202611061300"), now: now), "another build")
+        XCTAssertTrue(log.admit(variant(time: Self.ipsCrashTime.addingTimeInterval(-3600)), now: now),
+                      "the same process ID an hour earlier")
+        XCTAssertFalse(log.admit(variant(fault: "0x0"), now: now), "the process decides, not the address")
+
+        // Without a process ID, the build, the time and the fault address do.
+        var noPID = signal
+        noPID.pid = nil
+        log = CrashReportLog(since: .distantPast)
+        XCTAssertTrue(log.admit(ips, now: now))
+        XCTAssertFalse(log.admit(noPID, now: now))
+        noPID.faultAddress = 0x10
+        XCTAssertTrue(log.admit(noPID, now: now))
+
+        // In one launch's look: the .ips first, then the records, so the record of the same crash is skipped.
+        let dir = TelemetryHarness.temporaryDirectory()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let ipsURL = dir.appendingPathComponent("Airc-2026-11-06-120000.ips")
+        try Self.ips().write(to: ipsURL)
+        try FileManager.default.setAttributes([.modificationDate: Self.ipsCrashTime.addingTimeInterval(5)], ofItemAtPath: ipsURL.path)
+        try Self.record().write(to: dir.appendingPathComponent("record.1"))
+        try Self.record(pid: 5000, time: Self.ipsCrashTime.addingTimeInterval(120)).write(to: dir.appendingPathComponent("record.2"))
+        log = CrashReportLog(since: Self.ipsCrashTime.addingTimeInterval(-60))
+        let fromIPS = log.scan(dir, bundlePath: Self.bundle, now: now)
+        XCTAssertEqual(log.since, Self.ipsCrashTime.addingTimeInterval(5), "the .ips moved its mark")
+        XCTAssertEqual(log.recordsSince, Self.ipsCrashTime.addingTimeInterval(-60), "but not the records'")
+        let fromRecords = log.scanRecords(dir, now: now).reports
+        XCTAssertEqual(fromIPS.map(\.source), [.diagnosticReport])
+        XCTAssertEqual(fromRecords.map(\.pid), [5000], "the same crash's record is skipped; the crash without an .ips is sent")
+        XCTAssertEqual(log.recordsSince, Self.ipsCrashTime.addingTimeInterval(120))
+        let url = dir.appendingPathComponent("crash-reports.json")
+        log.save(url)
+        var relaunched = CrashReportLog.load(url, now: now)
+        XCTAssertEqual(relaunched, log, "identities survive a relaunch")
+        XCTAssertTrue(relaunched.scanRecords(dir, now: now.addingTimeInterval(60)).reports.isEmpty)
     }
 
     /// A crash report goes through the same queue as every event: buffered, shown in "See what Airc sends", dropped

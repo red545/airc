@@ -54,9 +54,16 @@ final class SnapshotRunner {
         case "split-write": splitPersistWrite()
         case "split-read": splitPersistRead()
         case "events": eventsScenario()
+        case "shortcuts": shortcutsScenario()
         case "littlearc": littleArcLinkScenario()
         case "littlearc-cold": littleArcColdStartScenario()
         case "drmsettings": protectedContentSettingsScenario()
+        #if canImport(AircCore)
+        case "drmwebkit": drmWebKitScenario(read: false)
+        case "drmwebkit-read": drmWebKitScenario(read: true)
+        case "fairplay": fairPlayScenario()
+        case "drmservices": drmServicesScenario()
+        #endif
         case "perf": perfScenario()
         case "callspace": callSpaceScenario()
         case "sitecontrols": siteControlsScenario()
@@ -90,6 +97,7 @@ final class SnapshotRunner {
             #endif
         case "telemetry": telemetryScenario()
         case "crashreports": crashReportsScenario()
+        case "crashvis": crashVisibilityScenario()
         case "followups": followupsScenario()
         case "marketing": marketingScenario()   // product shots, not a check: scripts/marketing-shots.sh only
         default:
@@ -563,7 +571,7 @@ final class SnapshotRunner {
             root.displayIfNeeded()
             let overlays: [NSView] = [c.commandBar, c.newSpacePanel, c.createProfilePanel, c.folderPreview.panel, c.siteControls, c.boostEditor,
                                       CalendarCard.shared.panel, c.peek?.view, c.prompts.bubble, c.prompts.passwords.view,
-                                      c.toast.isHidden ? nil : c.toast].compactMap { $0 }
+                                      c.toast.isHidden ? nil : c.toast, c.protectedMediaToast].compactMap { $0 }
             overlays.forEach { $0.isHidden = true }
             let frameView = root.superview ?? root
             let base = render(frameView)

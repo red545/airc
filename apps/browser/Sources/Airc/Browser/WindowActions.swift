@@ -55,8 +55,9 @@ extension WindowController {
         if decision == .loadInPlace, let id = shownTabID, let page = engineTab(for: id) {
             if typed { markTyped(id) }
             store.updateTab(id, url: url.absoluteString)
-            page.load(url)
-            page.focus()
+            // The engine window may open it in another engine (a DRM service: `replace` brings the new page).
+            engineWindow.load(url, in: page)
+            engineTab(for: id)?.focus()
             return
         }
         guard let t = try? store.openTab(url: url.absoluteString, inSpace: currentSpaceID) else { return }
@@ -82,7 +83,7 @@ extension WindowController {
                                    title: tab.title)
         }
         guard let saved = try? store.resetToSavedURL(tabID), let url = URL(string: saved) else { return }
-        engineTab(for: tabID)?.load(url)
+        if let page = engineTab(for: tabID) { engineWindow.load(url, in: page) }
         if tabID != shownTabID { show(tabID) }
     }
 

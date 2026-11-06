@@ -637,11 +637,55 @@ extension SnapshotRunner {
                   "media: four players condense into three rows and a +1 (\(plan.players.count) rows, \(plan.morePlayers.count) more)")
         }
         capture("medialib-tray-condensed")
+        mediaLibUpdateOverTray({ music })
         run { [self] in
             for id in extra { c.closeTab(id) }
             c.engineTab(for: music)?.evaluate("document.getElementById('a').pause()", completion: nil)
         }
         wait(0.6)
+    }
+
+    /// The update question while the tray shows players (a fake ready update whose restart would cancel a download):
+    /// it sits above the tray, never over its rows, and the rows still take clicks where they are.
+    private func mediaLibUpdateOverTray(_ music: @escaping () -> String) {
+        let center = UpdateCenter.shared, fake = FakeReadyUpdate(version: "1.0 (209901010000)")
+        run {
+            center.riskProbe = { _, done in
+                var r = UpdateRestartRisks()
+                r.downloads = 1
+                done(r)
+            }
+            center.setReady(fake)
+        }
+        wait(0.6)
+        run { [self] in center.restart(from: c) }
+        step { [self] done in waitUntil({ center.confirm != nil }, timeout: 3) { done() } }
+        wait(0.4)
+        run { [self] in
+            let tray = c.sidebar.tray, update = c.sidebar.update
+            guard let q = center.confirm, tray.height > 0, let host = tray.hostingView else {
+                return check(false, "media: the update question and the tray show at once (question \(center.confirm != nil), tray \(tray.height) pt)")
+            }
+            c.root.layoutSubtreeIfNeeded()
+            let t = c.root.convert(tray.bounds, from: tray), pill = c.root.convert(update.pillRect, from: update)
+            // The first player's row, where a click on it lands (its anchor, in the tray's SwiftUI root).
+            let name = "tray.player.\(music())"
+            let row = TestAnchors.frames[name].map { host.convert(NSPoint(x: $0.midX, y: $0.midY), to: nil) }
+            let frame = c.window.contentView?.superview
+            let hit = row.flatMap { p in frame?.hitTest(frame!.convert(p, from: nil)) }
+            let rowTakesClick = hit.map { $0 === host || $0.isDescendant(of: host) } ?? false
+            check(q.frame.maxY <= t.minY && !q.frame.intersects(pill) && q.frame.minX >= c.sidebar.frame.minX - 0.5
+                  && q.frame.maxX <= c.sidebar.frame.maxX + 0.5 && rowTakesClick,
+                  "media: the update question sits above the tray, not over its players, inside the sidebar (question "
+                  + "\(NSStringFromRect(q.frame)), tray \(NSStringFromRect(t)), a player row reaches \(hit.map { Self.describe($0) } ?? "nothing"))")
+        }
+        capture("medialib-update-over-tray")
+        run {
+            center.confirm?.model.onAnswer?(false)
+            center.setReady(nil)
+            center.riskProbe = nil
+        }
+        wait(0.5)
     }
 
     /// Starts the page's (silent) audio as a click would: Chromium through DevTools' user gesture, WebKit's own
@@ -687,10 +731,12 @@ extension SnapshotRunner {
                     let peers = s["peers"] as? [String] ?? []
                     let connected = peers == ["connected", "connected"]
                     self.note("call \(label): page heartbeat \(s["beats"] ?? "-"), server \(x.server?.beatSummary().count ?? -1)")
-                    if !connected, !self.isChromium, live, id == loadID {
-                        self.note("call \(label): WebKit's loopback peers are \(peers) (tracks live, same page)")
+                    if !connected || label == "start" {
+                        // What ICE got to, and the candidates each peer handed the other (on loopback).
+                        self.note("call \(label): ice \(s["ice"] ?? "-"), gathering \(s["gathering"] ?? "-"), candidates \(s["candidates"] ?? "-"), "
+                                  + "events \(s["events"] ?? "-")")
                     }
-                    self.check(id != nil && id == loadID && live && (connected || !self.isChromium),
+                    self.check(id != nil && id == loadID && live && connected,
                                "call \(label): the same live call (load \(id == loadID ? "same" : "\(id ?? "none") ≠ \(loadID ?? "-")"), tracks live \(live), peers \(peers))")
                     done()
                 }
@@ -1196,7 +1242,31 @@ final class MediaLibServer {
       g.gain.value = 0; o.connect(g); g.connect(d); o.start();
       var s = c.captureStream(15); d.stream.getAudioTracks().forEach(function(t){ s.addTrack(t); }); return s;
     }
+    // Both peers are in this page, so each one's host candidates are handed to the other on loopback, where its socket
+    // listens too (bound to every address). Without a camera or microphone grant both engines name host candidates with
+    // mDNS (<uuid>.local), and resolving those needs multicast on the local network: in the 0.1.0 suite Chromium's peers
+    // stayed "new" (WebKit's weren't required to connect). Loopback needs no lookup, no local network and no devices.
+    // Other candidates (TCP, relays) are left out.
+    var handed = [[], []];
+    function loopback(c){
+      var m = c && /^(candidate:\\S+ \\d+ udp \\d+ )(\\S+)( \\d+ typ host\\b.*)$/i.exec(c.candidate);
+      if (!m) return null;
+      return new RTCIceCandidate({candidate: m[1] + (m[2].indexOf(':') >= 0 ? '::1' : '127.0.0.1') + m[3], sdpMid: c.sdpMid, sdpMLineIndex: c.sdpMLineIndex});
+    }
+    // What was handed over, without the address itself (the Mac's own addresses stay out of the log).
+    function kind(s){
+      var p = s.split(' '), a = p[4] || '';
+      return p[2] + ' ' + p[7] + ' ' + (/\\.local$/i.test(a) ? 'mDNS name' : a.indexOf(':') >= 0 ? 'IPv6' : 'IPv4');
+    }
+    function hand(to, k){ return function(e){
+      if (!e.candidate) return;
+      var c = loopback(e.candidate);
+      handed[k].push(kind(e.candidate.candidate) + (c ? ' as loopback' : ' left out'));
+      if (c) to.addIceCandidate(c).catch(function(x){ events.push('candidate:' + x.name); });
+    }; }
     function state(){ return {id: id, visibility: document.visibilityState, peers: [a && a.connectionState, b && b.connectionState],
+      ice: [a && a.iceConnectionState, b && b.iceConnectionState], gathering: [a && a.iceGatheringState, b && b.iceGatheringState],
+      candidates: handed.map(function(l){ return l.slice(-4); }),
       tracks: stream ? stream.getTracks().map(function(t){ return {kind: t.kind, state: t.readyState, enabled: t.enabled}; }) : [],
       mic: mic, cam: cam, ended: ended, events: events.slice(-6), beats: {ticks: ticks, sent: sent, failed: failed}}; }
     setInterval(function(){ ticks++; fetch('/beat', {method: 'POST', body: JSON.stringify(state())}).then(function(){ sent++; }, function(){ failed++; }); }, 250);
@@ -1207,8 +1277,8 @@ final class MediaLibServer {
     async function start(){
       stream = devices ? await navigator.mediaDevices.getUserMedia({audio: true, video: true}) : synthetic();
       a = new RTCPeerConnection(); b = new RTCPeerConnection();
-      a.onicecandidate = function(e){ e.candidate && b.addIceCandidate(e.candidate); };
-      b.onicecandidate = function(e){ e.candidate && a.addIceCandidate(e.candidate); };
+      a.onicecandidate = hand(b, 0);
+      b.onicecandidate = hand(a, 1);
       b.ontrack = function(e){ document.getElementById('v').srcObject = e.streams[0]; };
       stream.getTracks().forEach(function(t){ a.addTrack(t, stream); });
       await a.setLocalDescription(await a.createOffer()); await b.setRemoteDescription(a.localDescription);

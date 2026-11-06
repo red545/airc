@@ -1,4 +1,5 @@
 // Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
+import AircKit
 import AppKit
 import QuartzCore
 
@@ -8,12 +9,28 @@ struct BrowserCommand {
     let title: String
     let key: String
     let modifiers: NSEvent.ModifierFlags
+    let order: KeyOrder
     let run: (WindowController) -> Void
 
-    init(_ title: String, _ key: String = "", _ modifiers: NSEvent.ModifierFlags = [], _ run: @escaping (WindowController) -> Void) {
+    /// Who gets the key first when a page has the keyboard (CB-3).
+    enum KeyOrder {
+        /// ⌘ and ⇧⌘ keys go to the page first (but Chrome's reserved ⌘T ⌘W ⌘N ⌘Q); ⌥ and ⌃ keys to the browser.
+        case automatic
+        case browserFirst
+        /// A ⌥ key editors use too (⌥⌘V is Docs' Paste Formatting).
+        case pageFirst
+        /// Chrome's delayed keys (⌘← ⌘→): the page and fields first, always; the browser's command runs only when the
+        /// engine hands the key back unused (KeyMonitor.pageDidNotUse), with no second-press rule. They have no menu
+        /// item: a matching item, even a disabled one, takes the key from our own text fields.
+        case afterPage
+    }
+
+    init(_ title: String, _ key: String = "", _ modifiers: NSEvent.ModifierFlags = [], order: KeyOrder = .automatic,
+         _ run: @escaping (WindowController) -> Void) {
         self.title = title
         self.key = key
         self.modifiers = modifiers
+        self.order = order
         self.run = run
     }
 
@@ -22,6 +39,8 @@ struct BrowserCommand {
     static let right = arrow(NSRightArrowFunctionKey)
     static let up = arrow(NSUpArrowFunctionKey)
     static let down = arrow(NSDownArrowFunctionKey)
+    static let pageUp = arrow(NSPageUpFunctionKey)
+    static let pageDown = arrow(NSPageDownFunctionKey)
 }
 
 enum CommandMenus {
@@ -38,6 +57,9 @@ enum CommandMenus {
             BrowserCommand("Open in Space…", "o", [.command, .option]) { _ in NSSound.beep() },
             nil,
             BrowserCommand("Close Tab", "w", .command) { $0.closeCurrentTab() },
+            BrowserCommand("Close Window", "w", [.command, .shift]) { $0.window.performClose(nil) },
+            // Arc's ⌥⌘W: every other Today tab to the Archive, as Clear does (pinned tabs and Favorites stay).
+            BrowserCommand("Close Other Tabs", "w", [.command, .option]) { $0.clearToday() },
             BrowserCommand("Reopen Closed Tab", "t", [.command, .shift]) { $0.undo() },
             nil,
             BrowserCommand("Save Page As…", "s", [.command, .shift]) { $0.showStub("Save Page") },
@@ -49,6 +71,8 @@ enum CommandMenus {
         [
             BrowserCommand("Copy URL", "c", [.command, .shift]) { $0.copyURL() },
             BrowserCommand("Copy URL as Markdown", "c", [.command, .shift, .option]) { $0.copyURLMarkdown() },
+            // Arc's ⌥⌘V. Docs uses the same key for Paste Formatting, so the page has it first.
+            BrowserCommand("Paste URL in New Tab", "v", [.command, .option], order: .pageFirst) { $0.pasteInNewTab() },
             nil,
             BrowserCommand("Find…", "f", .command) { $0.showFind() },
             BrowserCommand("Find Next", "g", .command) { $0.findAgain(forward: true) },
@@ -124,12 +148,34 @@ enum CommandMenus {
             c.append(BrowserCommand(n == 9 ? "Last Sidebar Tab" : "Sidebar Tab \(n)", "\(n)", .command) { $0.selectTab(number: n) })
         }
         c.append(nil)
+        c.append(BrowserCommand("Search Tabs…", "a", [.command, .shift]) { $0.openCommandBar(mode: .newTab) })
         c.append(BrowserCommand("Library", "l", [.command, .shift]) { $0.showLibrary() })
+        c.append(BrowserCommand("Join Next Meeting", "j", [.command, .control]) { $0.joinNextMeeting() })
         return c
     }
 
+    /// Keys with no menu row of their own (Chrome's hidden ones): their items are hidden but keep their keys.
+    static func hidden() -> [BrowserCommand] {
+        [
+            // Arc's ⌘{ ⌘} (⇧⌘[ ⇧⌘]) and Chrome's ⌃⇟ ⌃⇞, beside ⌥⌘↓ ⌥⌘↑. Chrome reserves tab switching.
+            BrowserCommand("Next Tab", "}", [.command, .shift], order: .browserFirst) { $0.selectAdjacentTab(1) },
+            BrowserCommand("Previous Tab", "{", [.command, .shift], order: .browserFirst) { $0.selectAdjacentTab(-1) },
+            BrowserCommand("Next Tab", BrowserCommand.pageDown, .control) { $0.selectAdjacentTab(1) },
+            BrowserCommand("Previous Tab", BrowserCommand.pageUp, .control) { $0.selectAdjacentTab(-1) },
+        ]
+    }
+
+    /// Keys with no menu item at all.
+    static func keysOnly() -> [BrowserCommand] {
+        [
+            // Chrome's ⌘← ⌘→: Back and Forward, unless a field or the page uses the key (text navigation).
+            BrowserCommand("Back", BrowserCommand.left, .command, order: .afterPage) { $0.goBack() },
+            BrowserCommand("Forward", BrowserCommand.right, .command, order: .afterPage) { $0.goForward() },
+        ]
+    }
+
     static var all: [BrowserCommand] {
-        (file() + editExtras() + view() + spaces() + tabs()).compactMap { $0 }
+        (file() + editExtras() + view() + spaces() + tabs()).compactMap { $0 } + hidden() + keysOnly()
     }
 }
 
@@ -180,6 +226,13 @@ enum MainMenu {
         edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        // Chrome's Edit menu: ⇧⌘V, and ⌥⇧⌘V as its alternate. Pages see the key first (Docs, Slack and Notion paste
+        // plain text on it themselves); otherwise the focused view pastes without the clipboard's formatting.
+        PasteAndMatchStyle.install()
+        edit.addItem(withTitle: "Paste and Match Style", action: PasteAndMatchStyle.selector, keyEquivalent: "V")
+        let matchStyle = edit.addItem(withTitle: "Paste and Match Style", action: PasteAndMatchStyle.selector, keyEquivalent: "V")
+        matchStyle.keyEquivalentModifierMask = [.command, .option]
+        matchStyle.isAlternate = true
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         edit.addItem(.separator())
         for c in CommandMenus.editExtras() { edit.addItem(item(c, app)) }
@@ -192,7 +245,14 @@ enum MainMenu {
         add(view, to: main)
 
         add(menu("Spaces", CommandMenus.spaces(), app), to: main)
-        add(menu("Tabs", CommandMenus.tabs(), app), to: main)
+        let tabs = menu("Tabs", CommandMenus.tabs(), app)
+        for c in CommandMenus.hidden() {
+            let i = item(c, app)
+            i.isHidden = true
+            i.allowsKeyEquivalentWhenHidden = true
+            tabs.addItem(i)
+        }
+        add(tabs, to: main)
 
         let window = NSMenu(title: "Window")
         window.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
@@ -230,6 +290,38 @@ enum MainMenu {
     }
 }
 
+extension WindowController {
+    /// ⌥⌘V (Arc): the clipboard's URL, or a search for its text, in a new Today tab.
+    func pasteInNewTab() {
+        guard let text = NSPasteboard.general.string(forType: .string),
+              let url = URLRules.resolve(text, engine: store.profile(ofSpace: currentSpaceID).searchEngine) else { return NSSound.beep() }
+        navigate(to: url, newTab: true, typed: true)
+    }
+
+    /// ⌃⌘J (Arc's Live Calendar): the meeting the sidebar offers to join.
+    func joinNextMeeting() {
+        guard let e = CalendarCenter.shared.promptEvent, e.link != nil else { return NSSound.beep() }
+        CalendarCenter.shared.join(e, spaceID: nil, controller: self)
+    }
+}
+
+/// Edit › Paste and Match Style sends Chrome's `pasteAndMatchStyle:`, which Chromium's page view implements. AppKit's
+/// text views (our fields) and WebKit's web view call the same action `pasteAsPlainText:`; they get Chrome's name too.
+enum PasteAndMatchStyle {
+    static let selector = NSSelectorFromString("pasteAndMatchStyle:")
+
+    /// Our own fields (field editors and the Boost code view are NSTextViews).
+    static func install() { add(to: NSTextView.self) }
+
+    /// Gives `cls` a `pasteAndMatchStyle:` that runs its `pasteAsPlainText:`, unless it has one of its own.
+    static func add(to cls: AnyClass) {
+        let plain = NSSelectorFromString("pasteAsPlainText:")
+        guard class_getInstanceMethod(cls, plain) != nil else { return }
+        let run: @convention(block) (NSObject, Any?) -> Void = { view, sender in _ = view.perform(plain, with: sender) }
+        class_addMethod(cls, selector, imp_implementationWithBlock(run), "v@:@")
+    }
+}
+
 /// Runs browser shortcuts before the focused view (often the web page) sees them, except where CB-3 lets a page
 /// have its own shortcut first.
 enum KeyMonitor {
@@ -256,13 +348,19 @@ enum KeyMonitor {
 
     /// Chrome's reserved shortcuts (pages never get them) and ⌥/⌃ combinations stay browser-first.
     private static func pageMayUse(_ cmd: BrowserCommand) -> Bool {
-        guard cmd.modifiers.contains(.command), !cmd.modifiers.contains(.option), !cmd.modifiers.contains(.control) else { return false }
-        return !["t", "w", "n", "q"].contains(cmd.key.lowercased())
+        switch cmd.order {
+        case .browserFirst: return false
+        case .pageFirst, .afterPage: return true
+        case .automatic:
+            guard cmd.modifiers.contains(.command), !cmd.modifiers.contains(.option), !cmd.modifiers.contains(.control) else { return false }
+            return !["t", "w", "n", "q"].contains(cmd.key.lowercased())
+        }
     }
 
-    /// The same spelling the page script reports (WebKitEngine.keysScript).
+    /// The same spelling the page script reports (WebKitEngine.keysScript, the engine's TabBridge).
     static func combo(_ cmd: BrowserCommand) -> String {
-        "cmd+" + (cmd.modifiers.contains(.shift) ? "shift+" : "") + cmd.key.lowercased()
+        "cmd+" + (cmd.modifiers.contains(.control) ? "ctrl+" : "") + (cmd.modifiers.contains(.option) ? "alt+" : "")
+            + (cmd.modifiers.contains(.shift) ? "shift+" : "") + cmd.key.lowercased()
     }
 
     /// The page answered: run the browser's command if it didn't use the shortcut, otherwise wait for a second press.
@@ -304,13 +402,24 @@ enum KeyMonitor {
             if event.keyCode == 53 { app?.controller?.fullScreen.escapeUp() }
             return event
         }
-        return NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak app] event in
+        let handle: (NSEvent) -> NSEvent? = { [weak app] event in
             guard let app else { return event }
             var mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
             if mods == .command, event.charactersIgnoringModifiers?.lowercased() == "q" {
-                guard !event.isARepeat, quitHold == nil, !app.options.isAutomated else { return nil }
+                #if AIRC_TESTING
+                let automated = app.options.isAutomated && !testQuitHold
+                #else
+                let automated = app.options.isAutomated
+                #endif
+                guard !event.isARepeat, quitHold == nil, !automated else { return nil }
                 app.controller?.showToast("Hold ⌘Q to Quit")
-                let work = DispatchWorkItem { NSApp.terminate(nil) }
+                let code = event.keyCode
+                let work = DispatchWorkItem {
+                    quitHold = nil
+                    // Chromium's application class sends ⌘ key-ups straight to the window, past the key-up monitor
+                    // above, so the key itself decides: still down after 0.7 s is a hold.
+                    if quitIsHeld(code) { quit() }
+                }
                 quitHold = work
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: work)
                 return nil
@@ -330,9 +439,19 @@ enum KeyMonitor {
             if chars == "+", mods.contains(.command) { chars = "="; mods.remove(.shift) }
             // ⌃⇧ with = − 1…4 (the split keys) arrive as + _ ! @ …: matched by the key itself.
             if mods == [.control, .shift], let k = [24: "=", 27: "-", 18: "1", 19: "2", 20: "3", 21: "4"][Int(event.keyCode)] { chars = k }
+            // WebKit hands a key back through NSApp.sendEvent when the page didn't use it. The menus take it now (a
+            // command runs once, from its menu item); it isn't offered to the page a second time.
+            if event === offered {
+                offered = nil
+                return pageDidNotUse(event) ? nil : event
+            }
             let editingText = c.window.firstResponder is NSTextView
-            // ⌘Z: text fields undo their own typing; elsewhere it restores closed tabs (SB-23, SB-40).
-            if chars == "z", mods == .command, !editingText {
+            // ⌘Z: a field being edited, ours or the page's, undoes its own typing (Docs, every web form). A page with
+            // the keyboard elsewhere gets the key first (Figma's canvas undoes itself); otherwise ⌘Z restores closed
+            // tabs (SB-23, SB-40).
+            if chars == "z", mods == .command {
+                if editingText || pageIsEditingText(c) { return event }
+                if offerToPage(reopenOnUndo, in: c) { deliverToPage(event, in: c); return nil }
                 c.undo()
                 return nil
             }
@@ -340,9 +459,15 @@ enum KeyMonitor {
                 guard cmd.key.lowercased() == chars, cmd.modifiers == mods else { continue }
                 // Plain editing shortcuts belong to the field being edited.
                 if editingText, mods == .command, ["a", "c", "v", "x"].contains(chars) { return event }
+                if cmd.order == .afterPage {
+                    // Our field's (text navigation), or the page's: an unused key comes back (pageDidNotUse).
+                    if editingText { return event }
+                    if c.focusedPage != nil { deliverToPage(event, in: c); return nil }
+                    cmd.run(c)
+                    return nil
+                }
                 if offerToPage(cmd, in: c) {
-                    // Straight to the page, whatever AppKit's own order (the main menu could otherwise take it first).
-                    if let r = c.window.firstResponder as? NSView, !r.performKeyEquivalent(with: event) { r.keyDown(with: event) }
+                    deliverToPage(event, in: c)
                     return nil
                 }
                 cmd.run(c)
@@ -350,5 +475,55 @@ enum KeyMonitor {
             }
             return event
         }
+        return NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard let passed = handle(event) else { return nil }
+            #if AIRC_TESTING
+            if testKeyWindowDispatch?(passed) == true { return nil }
+            #endif
+            return passed
+        }
+    }
+
+    /// ⌘Q is still held (the Q key and ⌘ are down), and the quit itself: the shortcuts check stands in for both.
+    static var quitIsHeld: (UInt16) -> Bool = { code in
+        CGEventSource.keyState(.combinedSessionState, key: CGKeyCode(code)) && NSEvent.modifierFlags.contains(.command)
+    }
+    static var quit: () -> Void = { NSApp.terminate(nil) }
+
+    #if AIRC_TESTING
+    /// The shortcuts check (ShortcutsCheck.swift): AppKit's dispatch for a key window, after this monitor, for a test
+    /// window that can't be key. True: it took the event.
+    static var testKeyWindowDispatch: ((NSEvent) -> Bool)?
+    /// The shortcuts check: hold to quit in an automated run (which otherwise ignores ⌘Q).
+    static var testQuitHold = false
+    #endif
+
+    /// The engine hands back a key the page didn't use (Chromium's unhandled-key callback, WebKit's resend): Chrome's
+    /// delayed keys (⌘← ⌘→) run their command now. True: one ran.
+    static func pageDidNotUse(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown, let c = (NSApp.delegate as? AppDelegate)?.controller, event.window === c.window,
+              let chars = event.charactersIgnoringModifiers?.lowercased() else { return false }
+        let mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        guard let cmd = CommandMenus.keysOnly().first(where: { $0.key == chars && $0.modifiers == mods }) else { return false }
+        cmd.run(c)
+        return true
+    }
+
+    /// ⌘Z outside a text field (Arc): Reopen Closed Tab, after the page had its chance (CB-3).
+    private static let reopenOnUndo = BrowserCommand("Reopen Closed Tab", "z", .command) { $0.undo() }
+
+    /// The key went to the page (offerToPage); WebKit may send it back (`offered`).
+    private static weak var offered: NSEvent?
+
+    /// Straight to the page, whatever AppKit's own order (the main menu could otherwise take it first).
+    private static func deliverToPage(_ event: NSEvent, in c: WindowController) {
+        offered = event
+        if let r = c.window.firstResponder as? NSView, !r.performKeyEquivalent(with: event) { r.keyDown(with: event) }
+    }
+
+    /// A field in the page has the keyboard: Chromium's page view and WebKit's web view have a text input context
+    /// only then.
+    static func pageIsEditingText(_ c: WindowController) -> Bool {
+        c.focusedPage != nil && (c.window.firstResponder as? NSView)?.inputContext != nil
     }
 }

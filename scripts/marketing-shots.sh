@@ -5,7 +5,7 @@
 #   scripts/marketing-shots.sh                        build on the build Mac, shoot every part, write both sets
 #   scripts/marketing-shots.sh --no-build             shoot with this copy's last build
 #   scripts/marketing-shots.sh --parts views,media    only these parts (browser, views, media, calls, settings, onboarding,
-#                                                     boosts)
+#                                                     boosts, drm)
 #
 # From the Linux box, through scripts/mac.sh (copy name: AIRC_MAC_WORK, default marketingshots). On the build Mac:
 #   1. scripts/build-app.sh --no-test, linking the Chromium framework at CHROMIUM_OUT (default: the release build,
@@ -23,7 +23,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PARTS="browser views media calls settings onboarding boosts"
+PARTS="browser views media calls settings onboarding boosts drm"
 BUILD=1
 ON_MAC=0
 while [ $# -gt 0 ]; do
@@ -57,6 +57,8 @@ site-controls|Site Controls|Site Controls from the URL field on swift.org: permi
 boosts|Boosts|Wikipedia boosted into a warm, bookish page (an amber tint, Charter), the Boost editor open on Colors
 boosts-font|Boosts: fonts|The same Boost on Font: the page in Charter, a size step up, the macOS fonts to choose from
 boosts-zap|Boosts: Zap|The same Boost on Zap: Wikipedia'"'"'s Appearance column zapped away, with its undo
+drm-spotify|Protected media|Spotify'"'"'s web player, logged out, in Safari'"'"'s engine with Apple'"'"'s FairPlay: the note that says so, with Why?
+drm-site-controls|Protected media: Site Controls|Site Controls on Spotify: the Safari'"'"'s engine switch, and what a WebKit page does differently
 picture-in-picture|Picture in picture|A film floating over the Lisbon article, with Airc'"'"'s controls: Back to Tab, skip 15 s, play, the scrubber
 picture-in-picture-call|Picture in picture, call|A call'"'"'s video floating over another page, with microphone, camera and Leave
 picture-in-picture-meet|Picture in picture, Meet|A call page'"'"'s own Document PiP (as Meet opens one) under Airc'"'"'s slim top bar

@@ -897,6 +897,13 @@ private struct PrivacyPage: View {
                         AircSwitch(isOn: Binding(get: { model.protectedContentEnabled }, set: { model.protectedContentEnabled = $0 }))
                             .accessibilityLabel("Play protected content")
                     }
+                    // docs/user/protected-media.md: the services whose licence servers refuse Chromium's Widevine.
+                    SettingsRow(title: "Play DRM sites with Safari's engine",
+                                subtitle: "Spotify, Netflix, Disney+ and other services open in a WebKit page, with Apple's FairPlay. Applies to pages opened from now on.") {
+                        AircSwitch(isOn: Binding(get: { model.settings.values.webKitProtectedMedia },
+                                                 set: { model.settings.values.webKitProtectedMedia = $0 }))
+                            .accessibilityLabel("Play DRM sites with Safari's engine")
+                    }
                 }
             }
             SettingsSection(title: "What else leaves this Mac", help: "No account, no sign-up. Your Spaces, tabs and history stay in Airc's data folder.") {

@@ -63,6 +63,9 @@ extension SnapshotRunner {
         var events: [CalendarEvent] = []
         var calendarItem = ""
         var spaceID = ""
+        // A run with telemetry off (AIRC_TELEMETRY_ENABLED=0, the release suite) records nothing: this run turns
+        // record-only for the check, so the events below are checked either way. Nothing is sent.
+        AppTelemetry.shared.recordOnlyForCheck()
         var records: [TelemetryRecord] = []
         let telemetryToken = Telemetry.shared.observeRecent { records = $0 }
         let tile = { () -> FavoriteTileView? in
@@ -220,7 +223,7 @@ extension SnapshotRunner {
         run { [self] in
             check(tile()?.calendarFace?.text == nil && prompt() == nil && center.timer == nil,
                   "calendar: turned off, no countdown, no prompt, no timer")
-            if AppTelemetry.shared.resolution.state == .recordOnly {
+            if AppTelemetry.shared.resolution.records {
                 let features = records.filter { $0.event == "feature.used" }.compactMap { $0.properties["feature"]?.description }
                 check(features.contains("calendar.enable") && features.contains("calendar.join"),
                       "calendar: calendar.enable and calendar.join recorded (\(features.filter { $0.hasPrefix("calendar") }))")

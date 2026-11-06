@@ -72,6 +72,7 @@ final class SidebarTrayView: NSView {
         superview?.needsLayout = true
         superview?.layoutSubtreeIfNeeded()
         library?.layoutPrompts()
+        UpdateCenter.shared.confirm?.layoutInWindow()
     }
 
     override func layout() {

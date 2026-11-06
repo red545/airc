@@ -25,7 +25,7 @@ import sys
 # Test-only types (Debug/, AppDelegate) and literals of more than 15 bytes from test-only code paths.
 TEST_MARKERS = (
     b'SnapshotRunner', b'OnboardingFixture', b'LocalPageServer', b'LaunchDiagnostics', b'TestAnchors', b'PerfLaunch',
-    b'FrameClock', b'SplitTimings', b'LayoutCounter', b'ViewCensus',
+    b'FrameClock', b'SplitTimings', b'LayoutCounter', b'ViewCensus', b'TestCrashSwitch',
     b'AircLaunchArguments', b'AIRC_UPDATE_RESTART_WHEN_READY', b'AIRC_LIVE_SUGGESTIONS',
 )
 ENGINE_TEST_SWITCHES = (b'airc-test\0', b'airc-trace\0')

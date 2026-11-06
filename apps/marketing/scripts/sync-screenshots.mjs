@@ -2,7 +2,17 @@
 // made by scripts/marketing-shots.sh; see its README) into src/assets/screens/. It runs before every build. Vercel only
 // receives apps/marketing, so there the source folder is absent and the committed copies are used; commit them
 // whenever the shots are refreshed.
-import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
+
+const sharp = createRequire(import.meta.url)("sharp");
+
+// Crops: a part of a shot on its own, with its own rounded corners (measured in the 2400 px shot). Re-made whenever
+// the source shot is newer than the crop.
+const crops = [
+  // Site Controls on Spotify: just the panel with the "Safari's engine" switch, none of the page behind it.
+  { from: "drm-site-controls", to: "drm-site-controls-panel", box: { left: 138, top: 228, width: 446, height: 678 }, radius: 24 },
+];
 
 const used = [
   "media-controls", // Spaces demo: Personal (Mint), on Wikivoyage
@@ -42,4 +52,22 @@ for (const name of used) {
     process.exit(1);
   }
 }
+for (const c of crops) {
+  const from = new URL(`${c.from}.webp`, src);
+  const to = new URL(`${c.to}.webp`, dst);
+  if (!existsSync(from)) {
+    if (existsSync(to)) continue;
+    console.error(`screenshots: ${c.from}.webp is missing, so ${c.to}.webp can't be made`);
+    process.exit(1);
+  }
+  if (existsSync(to) && statSync(to).mtimeMs >= statSync(from).mtimeMs) continue;
+  const { width, height } = c.box;
+  const mask = Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="${width}" height="${height}" rx="${c.radius}" fill="#fff"/></svg>`,
+  );
+  const part = await sharp(new URL(`${c.from}.webp`, src).pathname).extract(c.box).ensureAlpha().png().toBuffer();
+  await sharp(part).composite([{ input: mask, blend: "dest-in" }]).webp({ quality: 94, alphaQuality: 100 }).toFile(to.pathname);
+  copied++;
+}
+
 console.log(copied ? `screenshots: copied ${copied}` : "screenshots: up to date");

@@ -39,7 +39,13 @@ final class SidebarRevealController {
         floating.layer?.borderWidth = 0.5
         floating.addSubview(floatingBackground)
         floating.isHidden = true
-        controller.root.addSubview(floating)
+        // Below the toast, like the docked sidebar: the cards and panels that go just below the toast (the downloads card,
+        // the update question, a page's prompt at the URL field, Site Controls) show over the revealed sidebar, not under it.
+        if controller.toast.superview === controller.root {
+            controller.root.addSubview(floating, positioned: .below, relativeTo: controller.toast)
+        } else {
+            controller.root.addSubview(floating)
+        }
         edge.onMove = { [weak self] in self?.armReveal() }
         edge.onExit = { [weak self] in self?.pending?.cancel() }
     }
@@ -54,6 +60,10 @@ final class SidebarRevealController {
         floating.frame = NSRect(x: x, y: AircMetrics.Sidebar.floatingInset, width: w, height: b.height - 2 * AircMetrics.Sidebar.floatingInset)
         floatingBackground.frame = floating.bounds
         if isRevealed { c.sidebar.frame = floating.bounds }
+        // The downloads card and the update question sit above the sidebar's footer while it shows, this one too: they
+        // follow it in and out.
+        MediaLibrary.shared.layoutPrompts()
+        UpdateCenter.shared.confirm?.layoutInWindow()
     }
 
     private func armReveal() {
@@ -89,7 +99,10 @@ final class SidebarRevealController {
     private func pointerMoved(_ e: NSEvent) {
         guard let c = controller, isRevealed, e.window === c.window else { return }
         let p = c.root.convert(e.locationInWindow, from: nil)
-        if p.x > floating.frame.maxX + AircMetrics.Sidebar.floatingKeepAlive { hide() }
+        // The downloads card is wider than a narrow sidebar: the pointer on it (or on the update question) keeps it out.
+        let cards = [MediaLibrary.shared.promptView as NSView?, UpdateCenter.shared.confirm as NSView?].compactMap { $0 }
+        if p.x > floating.frame.maxX + AircMetrics.Sidebar.floatingKeepAlive,
+           !cards.contains(where: { $0.superview === c.root && $0.frame.contains(p) }) { hide() }
     }
 
     func hide() {

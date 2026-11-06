@@ -119,3 +119,6 @@
 # FILE chrome/browser/component_updater/widevine_cdm_component_installer.cc | Per-Widevine update opt-out, HTTPS and persisted protected-content preference. | Seam: no upstream per-ID opt-out before update request assembly.
 # FILE chrome/browser/prefs/browser_prefs.cc | Per-Widevine update opt-out, HTTPS and persisted protected-content preference. | Seam: no upstream per-ID opt-out before update request assembly.
 # FILE components/update_client/op_download.cc | Enforce HTTPS for Widevine payloads in protocol 4 download pipelines. | Seam: requires_network_encryption gates checks and pings but not download operations.
+
+# FILE content/browser/download/save_file_manager.cc | Propagate final SavePackage rename failures instead of reporting success. | Seam: private rename loop ignores errors and unconditionally schedules Finish; public download observers cannot recover the result.
+028-save-rename-error.patch

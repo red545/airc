@@ -69,6 +69,8 @@ final class TelemetryEventTests: XCTestCase {
         "perf.daily": (["command_bar_opens": labels(TelemetryBucket.counts)],
                        ["command_bar_p50_ms": labels(TelemetryBucket.frame), "command_bar_p95_ms": labels(TelemetryBucket.frame),
                         "memory_mb": labels(TelemetryBucket.memory), "idle_cpu_pct": labels(TelemetryBucket.cpu)]),
+        "process.gone": (["process": values(TelemetryEvent.ChildProcess.self),
+                          "exit_signal": values(TelemetryEvent.ExitSignal.self)], [:]),
     ]
 
     /// One of every feature, every variant included.
@@ -110,6 +112,9 @@ final class TelemetryEventTests: XCTestCase {
                                   memoryMegabytes: 527, idleCPUPercent: 0.3)))
         e.append(.perfDaily(.init(commandBarOpens: 5000, commandBarP50Milliseconds: 1e9, commandBarP95Milliseconds: -3,
                                   memoryMegabytes: 1e7, idleCPUPercent: 400)))
+        for process in TelemetryEvent.ChildProcess.allCases {
+            e += TelemetryEvent.ExitSignal.allCases.map { .processGone(process: process, exit: $0) }
+        }
         return e
     }()
 
@@ -150,7 +155,8 @@ final class TelemetryEventTests: XCTestCase {
         XCTAssertEqual(Set(Self.allFeatures.map(\.name)), Self.featureNames)
         func covered(_ e: TelemetryEvent) -> String {
             switch e {
-            case .appLaunched, .activeDay, .onboardingStep, .onboardingFinished, .importArc, .featureUsed, .perfDaily: e.name
+            case .appLaunched, .activeDay, .onboardingStep, .onboardingFinished, .importArc, .featureUsed, .perfDaily,
+                 .processGone: e.name
             }
         }
         XCTAssertEqual(Set(Self.allEvents.map(covered)), Set(Self.eventRules.keys))
@@ -202,6 +208,18 @@ final class TelemetryEventTests: XCTestCase {
         XCTAssertEqual(TelemetryEvent.featureUsed(.splitCreate(panes: 7)).properties["variant"], .string("4"))
         XCTAssertEqual(TelemetryEvent.featureUsed(.find).properties, ["feature": .string("find.open")])
         XCTAssertEqual(TelemetryEvent.featureUsed(.telemetrySmoke).properties["feature"], .string("telemetry.smoke"))
+    }
+
+    /// A renderer's wait status (WIFSIGNALED: the low 7 bits) becomes its signal, never the raw number.
+    func testChildProcessExitSignal() {
+        XCTAssertEqual(TelemetryEvent.ExitSignal(waitStatus: 11), .segv)
+        XCTAssertEqual(TelemetryEvent.ExitSignal(waitStatus: 11 | 0x80), .segv, "with a core dump")
+        XCTAssertEqual(TelemetryEvent.ExitSignal(waitStatus: 5), .trap, "Chromium's CHECK (brk)")
+        XCTAssertEqual(TelemetryEvent.ExitSignal(waitStatus: 9), .kill)
+        XCTAssertEqual(TelemetryEvent.ExitSignal(waitStatus: 0x0100), .exit, "exit(1)")
+        XCTAssertEqual(TelemetryEvent.ExitSignal(waitStatus: 30), .other)
+        XCTAssertEqual(TelemetryEvent.processGone(process: .renderer, exit: .segv).properties,
+                       ["process": .string("renderer"), "exit_signal": .string("SIGSEGV")])
     }
 
     func testBuckets() {

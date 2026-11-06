@@ -44,7 +44,8 @@ final class SiteControlsModel: ObservableObject {
     /// The menu button the permission menu hangs from.
     var menuAnchor: ((SitePermission) -> NSRect?)?
 
-    var permissionsAvailable: Bool { center?.engine.sitePermissionsAvailable == true }
+    /// A WebKit page of the Chromium build has none of Chromium's: Safari's engine asks per request.
+    var permissionsAvailable: Bool { center?.engine.sitePermissionsAvailable == true && !usesSafariEngine }
     var dataAvailable: Bool { center?.engine.siteDataAvailable == true }
     var hasCustomPermissions: Bool { permissions.values.contains { $0.isCustom } }
     var listed: [SitePermission] { SitePermission.allCases.filter { permissions[$0] != nil && ($0.isPrimary || showsMore) } }
@@ -86,7 +87,7 @@ final class SiteControlsModel: ObservableObject {
     }
 
     func reloadPermissions() {
-        guard let page, let origin, let center else { permissions = [:]; return }
+        guard let page, let origin, let center, !usesSafariEngine else { permissions = [:]; return }
         let p = center.permissions(origin: origin, in: page.profile)
         if p != permissions { permissions = p }
     }
@@ -155,6 +156,24 @@ final class SiteControlsModel: ObservableObject {
             guard let self, let d = self.boostDomain else { return }
             BoostCenter.shared?.setEnabled(on, domain: d, page: self.page)
             self.reloadBoost()
+        })
+    }
+
+    // MARK: Safari's engine (docs/user/protected-media.md)
+
+    /// On a WebKit page (to send a listed site back to Chromium), and on a Chromium page that asked for Widevine.
+    var showsSafariEngine: Bool { ProtectedMedia.isWebKitPage(page) || ProtectedMedia.shared.askedForWidevine(page) }
+    var usesSafariEngine: Bool { ProtectedMedia.isWebKitPage(page) }
+    /// "Spotify", or nil for a site that isn't listed.
+    var safariEngineService: String? { ProtectedMedia.shared.service(of: page?.url) }
+
+    /// The site plays in the other engine from now on; the page opens again there (and the card, which belonged to the
+    /// old page, closes).
+    var safariEngine: Binding<Bool> {
+        Binding(get: { self.usesSafariEngine }, set: { [weak self] on in
+            guard let self, let page = self.page, let c = self.controller, on != self.usesSafariEngine else { return }
+            _ = c.closeSiteControls()
+            c.setProtectedMediaEngine(on ? .webKit : .chromium, for: page)
         })
     }
 
@@ -297,6 +316,10 @@ struct SiteControlsCard: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             if model.showsConnection { connection.padding(.top, AircSpacing.s) }
+            if model.showsSafariEngine {
+                divider
+                safariEngineRow
+            }
             if model.boostDomain != nil {
                 divider
                 boostRow
@@ -437,6 +460,37 @@ struct SiteControlsCard: View {
         .testAnchor("site.popup")
     }
 
+    // MARK: Safari's engine
+
+    /// Protected media: Safari's engine plays the site with Apple's FairPlay; what that means here.
+    private var safariEngineRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "safari").font(.system(size: 13, weight: .medium))
+                    .foregroundStyle((model.usesSafariEngine ? ui.accent : ui.surfaceTextSecondary).color).frame(width: 20)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Safari's engine").aircFont(AircFont.body).foregroundStyle(ui.surfaceText.color)
+                    Text(model.usesSafariEngine ? "With Apple's FairPlay" : "Asked for protected media")
+                        .aircFont(AircFont.callout).foregroundStyle(ui.surfaceTextTertiary.color).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                AircSwitch(isOn: model.safariEngine)
+                    .help(model.usesSafariEngine ? "Open this site with Chromium again" : "Open this site with Safari's engine")
+                    .accessibilityLabel("Safari's engine")
+                    .testAnchor("site.safariEngine")
+            }
+            .frame(height: 36)
+            Text(model.usesSafariEngine
+                 ? "\(model.safariEngineService ?? "This site")'s player needs DRM that Chromium can't offer without Google's certification. Here you sign in once, extensions don't run, and ⌥⌘I opens Web Inspector."
+                 : "If it won't play (\"protected content\", \"browser not supported\"), Safari's engine may: it uses Apple's FairPlay.")
+                .aircFont(AircFont.callout).foregroundStyle(ui.surfaceTextSecondary.color)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.leading, 28)
+                .testAnchor("site.safariEngineWhy")
+        }
+        .padding(.horizontal, inset)
+    }
+
     // MARK: Boost
 
     /// Arc's Boost entry: "Boost this site" opens the editor; a boosted site shows "Boosted", an on/off switch and Edit.
@@ -495,7 +549,8 @@ struct SiteControlsCard: View {
             .padding(.horizontal, inset)
             .frame(height: 26)
             if !model.permissionsAvailable {
-                Text("The WebKit dev engine asks each time a site wants a permission and keeps no settings per site.")
+                Text(model.usesSafariEngine ? "Safari's engine asks each time this site wants a permission, and keeps no settings for it."
+                     : "The WebKit dev engine asks each time a site wants a permission and keeps no settings per site.")
                     .aircFont(AircFont.callout).foregroundStyle(ui.surfaceTextTertiary.color)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, inset).padding(.top, 2)
@@ -894,6 +949,10 @@ extension WindowController {
             },
             nc.addObserver(forName: BoostCenter.didChange, object: nil, queue: .main) { [weak panel] _ in
                 panel?.model.reloadBoost()
+            },
+            nc.addObserver(forName: ProtectedMedia.widevineAsked, object: nil, queue: .main) { [weak panel] note in
+                guard let model = panel?.model, (note.object as? EngineTab) === model.page else { return }
+                model.objectWillChange.send()
             },
         ]
         // A click anywhere else closes the card; the click still goes where it was aimed (as Arc's popovers).

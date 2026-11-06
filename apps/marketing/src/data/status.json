@@ -68,6 +68,12 @@
       "skip": 0,
       "fail": 0
     },
+    "streaming": {
+      "status": "built",
+      "pass": 0,
+      "skip": 0,
+      "fail": 0
+    },
     "archive": {
       "status": "passing",
       "pass": 5,

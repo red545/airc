@@ -419,6 +419,29 @@ AIRC_EXPORT
 @property(readonly) NSArray<NSDictionary<NSString*, id>*>* navigationEntries;
 @end
 
+// Raw values match Chromium SavePageType. Swift: .html, .complete, .mhtml.
+typedef NS_ENUM(NSInteger, AircSavePageFormat) {
+  AircSavePageFormatHTML NS_SWIFT_NAME(html) = 0,
+  AircSavePageFormatComplete = 1,
+  AircSavePageFormatMHTML NS_SWIFT_NAME(mhtml) = 2,
+};
+
+@interface AircTab (Exports)
+// Main-thread calls; completions are delivered once, asynchronously on main.
+// Savable MIME/URL, live renderer, download policy and content restrictions.
+@property(readonly) BOOL canSavePage;
+// Absolute path chosen by the host; no Chromium file dialog. Complete writes
+// a sibling <basename>_files directory when resources are present.
+// nil on completion; otherwise busy, notSavable, cancelled, or failed:<reason>.
+- (void)savePageTo:(NSString*)path format:(AircSavePageFormat)format
+        completion:(void (^)(NSString* _Nullable error))completion;
+// Pixel bounds, aspect-fit without upscaling (capped at 4096 per dimension).
+// Copies the existing surface only; hidden surfaces may be stale or unavailable.
+// nil for no live frame/surface or failed copy. Does not wake discarded tabs.
+- (void)snapshotWithMaxSize:(CGSize)size
+               completion:(void (^)(NSImage* _Nullable image))completion;
+@end
+
 @interface AircTab (Page)
 - (void)executeJavaScript:(NSString*)code frame:(nullable NSString*)frameId;
 - (void)evaluate:(NSString*)code completion:(void (^)(NSString* _Nullable json))completion;

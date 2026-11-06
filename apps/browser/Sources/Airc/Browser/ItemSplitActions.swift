@@ -127,7 +127,7 @@ extension WindowController {
     func resetPanes(of itemID: String) {
         for t in store.paneTabs(ofSplitItem: itemID) where store.isDrifted(t.id) {
             guard let saved = try? store.resetToSavedURL(t.id), let url = URL(string: saved) else { continue }
-            engineTab(for: t.id)?.load(url)
+            if let page = engineTab(for: t.id) { engineWindow.load(url, in: page) }
         }
     }
 

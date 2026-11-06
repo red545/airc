@@ -238,5 +238,9 @@
   "components/update_client/op_download.cc": {
     "before": "0021802a4663f98b888aaf7e971ef6733b7b2d1c1057c416d946e66f3d783367",
     "after": "253b369eb361fd3e7cde189843ed3967d7a1245fa30c141f26a400609e593179"
+  },
+  "content/browser/download/save_file_manager.cc": {
+    "before": "92dcc279caad42371eafa74ad90235e7d27fd4c2b3c6d903cb326a61c3b602c7",
+    "after": "491708fb37d96b84cf10f200dcc088ee53318b3e297c023a7785b81f856c67e9"
   }
 }

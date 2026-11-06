@@ -438,13 +438,19 @@ final class UpdateConfirmView: NSView {
     override var mouseDownCanMoveWindow: Bool { false }
     var hostingView: NSView { host }
 
-    /// Above the button while the sidebar shows it (docked or revealed), else at the page's bottom-left.
+    /// Above the button while the sidebar shows it (docked or revealed), and above the media tray too when the tray
+    /// shows (it sits over the pill: the question never covers its players or downloads); else at the page's bottom-left.
     func layoutInWindow() {
         guard let c = controller else { return }
-        let button = c.sidebar.update
+        let button = c.sidebar.update, tray = c.sidebar.tray
         let onScreen = button.isShowing && (c.sidebarFraction >= 1 || c.revealController?.isRevealed == true)
-        let anchor = onScreen ? c.root.convert(button.pillRect, from: button)
+        var anchor = onScreen ? c.root.convert(button.pillRect, from: button)
             : NSRect(x: c.card.frame.minX + AircMetrics.Sidebar.inset, y: c.card.frame.maxY - 10, width: 260, height: 0)
+        if onScreen, tray.height > 0 {
+            // The tray's height includes its 6 pt top inset: the question keeps 12 pt from its rows, as the downloads card.
+            let top = c.root.convert(tray.bounds, from: tray).minY
+            anchor = NSRect(x: anchor.minX, y: top, width: anchor.width, height: max(0, anchor.maxY - top))
+        }
         if host.rootView.width != anchor.width { host.rootView = UpdateConfirmCard(model: model, width: anchor.width) }
         let size = host.fittingSize
         let x = min(max(8, anchor.minX), max(8, c.root.bounds.width - size.width - 8))

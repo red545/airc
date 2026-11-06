@@ -1139,6 +1139,16 @@ final class SpacePageView: NSView {
         CATransaction.commit()
     }
 
+    /// The Favorite split whose tile is under `p` (page coordinates), with the tile's frame there.
+    private func favoriteSplitTile(at p: NSPoint) -> (item: Item, frame: NSRect)? {
+        for t in tiles.values where !t.isHidden {
+            guard let i = t.item, i.kind == .split else { continue }
+            let f = favorites.convert(t.frame, to: self)
+            if f.contains(p) { return (i, f) }
+        }
+        return nil
+    }
+
     /// Where a drop at `p` (page coordinates) lands, and draws the indicator for it.
     /// `carriesFolder`: a dragged multi-selection holds a folder (it can't go into Favorites or Today either).
     private func dropDestination(at p: NSPoint, source: DragSource, entry: SidebarEntry, carriesFolder: Bool = false) -> DropDestination? {
@@ -1152,6 +1162,18 @@ final class SpacePageView: NSView {
         // Above the Space name: Favorites.
         if p.y < header.frame.midY {
             if isFolder { hideDropIndicator(); return nil }
+            // SV-2: a tab onto the middle of a Favorite split's tile joins it as one more pane, as on a pinned split's
+            // row: the tile's left or right half puts it first or last. The tile's outer quarters still place the tab
+            // between Favorites; a full split takes no more.
+            if case .tab(let dragged) = source, let hit = favoriteSplitTile(at: p), abs(p.x - hit.frame.midX) < hit.frame.width / 4,
+               store.splitItem(ofPane: store.tab(dragged)?.itemID)?.id != hit.item.id,
+               store.panes(ofSplitItem: hit.item.id).count < Split.maxPanes,
+               store.tab(dragged)?.profileID == profileID {
+                let f = hit.frame, leading = p.x < f.midX
+                if let tile = tiles[hit.item.id] { tile.isHovered = true; highlightedFolder = tile }
+                showDropColumn(x: leading ? f.minX + 6 : f.maxX - 6, y: f.minY + 6, height: f.height - 12)
+                return .split(spaceID: spaceID, target: hit.item.id, leading: leading)
+            }
             let favs = store.favorites(ofProfile: profileID)
             let alreadyFavorite = entry.item?.isFavorite == true
             if !alreadyFavorite && favs.count >= SpacesStore.maxFavorites { hideDropIndicator(); return nil }

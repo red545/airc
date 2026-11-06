@@ -3,6 +3,7 @@
 import AircDesign
 import AircKit
 import AppKit
+import SwiftUI
 #if canImport(AircCore)
 import AircCore
 #endif
@@ -20,8 +21,14 @@ import AircCore
 ///     it was given since (cbsites: Spiegel's icon on Spotify's row);
 ///   - a Today tab dragged onto a pinned split's row joins it as one more pane (the row's right half: last);
 ///   - closing a pinned split whose two panes both have unsaved changes asks "Leave site?" for each of them, in turn;
-///     Stay on the second keeps the split open (the first pane loads again); then Leave closes it and its row stays.
-/// Writes followups-overlap-<width>.png and followups-library-<width>.png.
+///     Stay on the second keeps the split open (the first pane loads again); then Leave closes it and its row stays;
+///   - with the sidebar hidden and revealed, the downloads card sits above the floating sidebar's update pill, inside
+///     its column, both taking clicks, and goes back to the page's bottom-left when the sidebar leaves;
+///   - the "still running" card shows both its buttons' whole labels, for one download and for several;
+///   - a Today tab dragged onto the middle of a Favorite split's tile joins it as its last pane (the tile's edge still
+///     places a tab between Favorites).
+/// Writes followups-overlap-<width>.png, followups-library-<width>.png, followups-revealed-card.png,
+/// followups-still-running-<n>.png and followups-favorite-split-drop.png.
 extension SnapshotRunner {
     func followupsScenario() {
         var server: LocalPageServer?
@@ -65,6 +72,9 @@ extension SnapshotRunner {
         followupsLibraryAndOverlap()
         followupsSplitDrop(base: { base }, space: { sid })
         followupsLeaveSite(base: { base }, space: { sid })
+        followupsRevealedCard()
+        followupsStillRunningButtons()
+        followupsFavoriteSplitDrop(base: { base }, space: { sid })
         run { server?.stop() }
     }
 
@@ -305,6 +315,202 @@ extension SnapshotRunner {
             let start = today.convert(NSPoint(x: 40, y: today.bounds.midY), to: nil)
             let end = row.convert(NSPoint(x: row.bounds.maxX - 18, y: row.bounds.midY), to: nil)
             drag(from: start, to: end) { finish() }
+        }
+    }
+
+    // MARK: The downloads card over the revealed sidebar, the "still running" card's buttons
+
+    private func windowHit(_ p: NSPoint) -> NSView? {
+        guard let frame = c.window.contentView?.superview else { return nil }
+        return frame.hitTest(frame.convert(p, from: nil))
+    }
+
+    private func takesClick(_ v: NSView) -> Bool {
+        windowHit(v.convert(NSPoint(x: v.bounds.midX, y: v.bounds.midY), to: nil)).map { $0 === v || $0.isDescendant(of: v) } ?? false
+    }
+
+    /// `capture`, then `views` drawn again over it at their place, in order: the page's snapshot is drawn over everything
+    /// above the page (the floating sidebar, a card that reaches over the page).
+    private func captureOnTop(_ name: String, _ views: @escaping () -> [NSView]) {
+        step { [self] done in
+            captureNow(name) { [self] in
+                defer { done() }
+                let url = dir.appendingPathComponent(name + ".png"), size = c.root.bounds.size
+                guard let window = NSImage(contentsOf: url),
+                      let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2), pixelsHigh: Int(size.height * 2),
+                                                 bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                                 colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return }
+                rep.size = size
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+                window.draw(in: NSRect(origin: .zero, size: size))
+                for v in views() where v.window === c.window {
+                    guard let image = render(v) else { continue }
+                    let f = c.root.convert(v.bounds, from: v)
+                    image.draw(in: NSRect(x: f.minX, y: size.height - f.maxY, width: f.width, height: f.height))
+                }
+                NSGraphicsContext.restoreGraphicsState()
+                try? rep.representation(using: .png, properties: [:])?.write(to: url)
+            }
+        }
+    }
+
+    /// SB-61 with the downloads card ("still running", as the risky-file card is laid out the same way) and a fake ready
+    /// update: hidden, the card is at the page's bottom-left; revealed, it sits 12 pt above the floating sidebar's pill,
+    /// at the sidebar's row inset, over the sidebar, and both take clicks; hidden again, it's back at the page.
+    private func followupsRevealedCard() {
+        let fake = FakeReadyUpdate(version: "1.0 (209901010001)")
+        var shown: [NSView] = []
+        func atPage(_ label: String) {
+            run { [self] in
+                guard let card = MediaLibrary.shared.promptView else { return check(false, "download card (\(label)): the card shows") }
+                let page = c.card.frame
+                check(card.frame.minX <= page.minX + AircMetrics.Sidebar.inset + 0.5 && card.frame.maxY <= page.maxY
+                      && card.frame.maxY >= page.maxY - 30 && takesClick(card),
+                      "download card (\(label)): at the page's bottom-left, taking clicks (card \(NSStringFromRect(card.frame)), "
+                      + "page \(NSStringFromRect(page)))")
+            }
+        }
+        run { [self] in
+            if !c.sidebarHidden { c.toggleSidebar() }
+            UpdateCenter.shared.setReady(fake)
+            MediaLibrary.shared.showDownloadCardForTesting(count: 1)
+        }
+        wait(0.6)
+        atPage("sidebar hidden")
+        run { [self] in c.revealController?.reveal() }
+        // The reveal is a spring on the display link: wait for the sidebar to arrive.
+        step { [self] done in
+            waitUntil({ (self.c.sidebar.superview.map { self.c.root.convert($0.bounds, from: $0).minX } ?? -1) >= AircMetrics.Sidebar.floatingInset - 0.5 },
+                      timeout: 2) { DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: done) }
+        }
+        run { [self] in
+            guard let card = MediaLibrary.shared.promptView, c.revealController?.isRevealed == true,
+                  let floating = c.sidebar.superview, floating !== c.root else {
+                return check(false, "download card (sidebar revealed): the card and the revealed sidebar show")
+            }
+            c.root.layoutSubtreeIfNeeded()
+            let u = c.sidebar.update
+            let side = c.root.convert(floating.bounds, from: floating), pill = c.root.convert(u.pillRect, from: u)
+            let gap = pill.minY - card.frame.maxY
+            let pillHit = windowHit(u.convert(NSPoint(x: u.pillRect.midX, y: u.pillRect.midY), to: nil)) === u
+            check(!card.frame.intersects(pill) && gap >= 12 - 0.5 && gap <= 12 + 0.5
+                  && abs(card.frame.minX - (side.minX + AircMetrics.Sidebar.inset)) < 0.5 && takesClick(card) && pillHit,
+                  "download card (sidebar revealed): 12 pt above the floating sidebar's pill, at its row inset, over it, and both take "
+                  + "clicks (card \(NSStringFromRect(card.frame)), sidebar \(NSStringFromRect(side)), pill \(NSStringFromRect(pill)), "
+                  + "gap \(gap) pt, card \(takesClick(card)), pill \(pillHit))")
+        }
+        run { [self] in shown = [c.sidebar.superview, MediaLibrary.shared.promptView as NSView?].compactMap { $0 } }
+        captureOnTop("followups-revealed-card", { shown })
+        run { [self] in c.revealController?.hide() }
+        step { [self] done in waitUntil({ self.c.revealController?.isRevealed == false }, timeout: 2) { done() } }
+        wait(0.2)
+        atPage("sidebar hidden again")
+        run { [self] in
+            MediaLibrary.shared.promptView?.model.onAnswer?(.keepDownloading)
+            UpdateCenter.shared.setReady(nil)
+            if c.sidebarHidden { c.toggleSidebar() }
+        }
+        wait(0.6)
+    }
+
+    /// The "still running" card (one download, then several): both buttons at least as wide as their whole labels need
+    /// (each measured on its own in the same style), apart, inside the card.
+    private func followupsStillRunningButtons() {
+        for n in [1, 3] {
+            run {
+                TestAnchors.frames["download.closeAnyway"] = nil
+                TestAnchors.frames["download.keepDownloading"] = nil
+                MediaLibrary.shared.showDownloadCardForTesting(count: n)
+            }
+            wait(0.5)
+            run { [self] in
+                guard let card = MediaLibrary.shared.promptView else { return check(false, "still running (\(n)): the card shows") }
+                card.hostingView.layoutSubtreeIfNeeded()
+                let theme = card.model.theme
+                func whole(_ title: String, _ kind: AircButtonStyle.Kind) -> CGFloat {
+                    NSHostingView(rootView: Button(title) {}.buttonStyle(.airc(kind)).aircTheme(theme)).fittingSize.width
+                }
+                let cancelTitle = n == 1 ? "Cancel Download" : "Cancel Downloads"
+                let need = (whole(cancelTitle, .secondary), whole("Keep Downloading", .primary))
+                guard let cancel = TestAnchors.frames["download.closeAnyway"], let keep = TestAnchors.frames["download.keepDownloading"] else {
+                    return check(false, "still running (\(n)): both buttons are laid out")
+                }
+                let inside = card.hostingView.bounds.insetBy(dx: -0.5, dy: -0.5)
+                check(cancel.width >= need.0 - 0.5 && keep.width >= need.1 - 0.5 && !cancel.intersects(keep)
+                      && inside.contains(cancel) && inside.contains(keep),
+                      "still running (\(n)): “\(cancelTitle)” and “Keep Downloading” show whole (\(Int(cancel.width)) of \(Int(need.0)) pt, "
+                      + "\(Int(keep.width)) of \(Int(need.1)) pt), apart, inside the card (\(NSStringFromRect(card.frame)))")
+            }
+            captureOnTop("followups-still-running-\(n)", { [MediaLibrary.shared.promptView].compactMap { $0 } })
+            run { MediaLibrary.shared.promptView?.model.onAnswer?(.keepDownloading) }
+            wait(0.4)
+        }
+    }
+
+    // MARK: Favorite splits
+
+    /// SV-2: a Today tab onto a Favorite split's tile. Where the drop would land (the tile's middle, its edge), then a
+    /// real drag onto the tile's right half: the tab is the split's last pane, no longer in Today, and the split shows.
+    private func followupsFavoriteSplitDrop(base: @escaping () -> String, space: @escaping () -> String) {
+        var split = "", third = ""
+        run { [self] in
+            let sid = space(), b = base(), pid = c.store.profile(ofSpace: sid).id
+            let tabs = zip([b + "/s1", b + "/s2"], ["One", "Two"]).compactMap { try? c.store.openTab(url: $0, inSpace: sid, activate: false, title: $1).id }
+            guard tabs.count == 2, let x = try? c.store.createSplit(tabs, inSpace: sid, focused: tabs[0]),
+                  (try? c.store.move(.split(x.id), to: .favorites(profileID: pid, index: 0))) != nil, c.store.item(x.id)?.kind == .split,
+                  let t = try? c.store.openTab(url: b + "/s3", inSpace: sid, activate: false, title: "Three") else {
+                return check(false, "favorite split drop: a Favorite split and a Today tab")
+            }
+            split = x.id
+            third = t.id
+            c.reloadAll(animated: false)
+            c.show(tabs[0], focus: false)
+        }
+        waitForPage()
+        step { [self] done in
+            let sid = space()
+            guard let p = c.pageView(for: sid), let t = tile(split, in: p), let today = todayRow(third, in: p) else {
+                check(false, "favorite split drop: the Favorite split's tile and the Today row are shown"); return done()
+            }
+            func at(_ fx: CGFloat) -> NSPoint { t.convert(NSPoint(x: t.bounds.width * fx, y: t.bounds.midY), to: nil) }
+            func joins(_ d: DropDestination?, leading: Bool) -> Bool {
+                if case .split(_, let target, let l)? = d { return target == split && l == leading }
+                return false
+            }
+            let right = p.paneDropDestination(third, at: at(0.65)), left = p.paneDropDestination(third, at: at(0.35))
+            let edge = p.paneDropDestination(third, at: at(0.05))
+            p.endPaneDrag()
+            let between: Bool = { if case .favorites? = edge { return true }; return false }()
+            func says(_ d: DropDestination?) -> String {
+                switch d {
+                case .split(_, let target, let leading)?: target == split ? (leading ? "first pane" : "last pane") : "another split"
+                case .favorites(_, let i)?: "Favorite \(i)"
+                case nil: "nothing"
+                default: "elsewhere"
+                }
+            }
+            check(joins(right, leading: false) && joins(left, leading: true) && between,
+                  "favorite split drop: a Favorite split's tile takes a tab on its middle (left half first, right half last); its edge "
+                  + "places it between Favorites (right half: \(says(right)), left half: \(says(left)), edge: \(says(edge)))")
+            let finish = {
+                self.waitUntil({ self.c.store.panes(ofSplitItem: split).count == 3 }, timeout: 3) {
+                    let urls = self.c.store.panes(ofSplitItem: split).map { $0.savedURL.flatMap { URL(string: $0)?.path } ?? "-" }
+                    let pane = self.c.store.splitItem(ofPane: self.c.store.tab(third)?.itemID)?.id == split
+                    let shown = self.c.shownSplitID != nil && self.c.store.tab(self.c.shownTabID ?? "")?.itemID == self.c.store.tab(third)?.itemID
+                    self.check(urls == ["/s1", "/s2", "/s3"] && pane && self.c.store.tab(third)?.isToday == false && shown,
+                               "favorite split drop: a Today tab dropped on a Favorite split's tile (right half) is its last pane, shown in the "
+                               + "split (panes \(urls), a pane of it \(pane), shown \(shown))")
+                    self.captureNow("followups-favorite-split-drop") { done() }
+                }
+            }
+            if let why = realEventsBlocked {
+                note("favorite split drop: \(why): dropped through performDrop where the tile said")
+                if let right { c.performDrop(.tab(third), to: right) }
+                return finish()
+            }
+            let start = today.convert(NSPoint(x: 40, y: today.bounds.midY), to: nil)
+            drag(from: start, to: at(0.65)) { finish() }
         }
     }
 

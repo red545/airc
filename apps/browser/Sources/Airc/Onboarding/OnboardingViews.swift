@@ -401,7 +401,7 @@ struct AccountsStep: View {
                     Text(p.name).aircFont(AircFont.body.weight(.medium)).foregroundStyle(theme.surfaceText.color)
                         .lineLimit(1).layoutPriority(1)
                     ForEach(row.spaces.prefix(2)) { s in
-                        AircSpaceChip(emoji: s.emoji, name: s.name, compact: true).frame(maxWidth: 116, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+                        AircSpaceChip(emoji: s.emoji, name: ThemeStep.chipName(s.name, max: 14), compact: true).fixedSize().help(s.name)
                     }
                     if row.spaces.count > 2 {
                         Text("+\(row.spaces.count - 2)").aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextTertiary.color).fixedSize()
@@ -662,8 +662,8 @@ struct ThemeStep: View {
     }
 
     /// A chip in a scrolling row has all the width it asks for, so a long name is shortened here.
-    static func chipName(_ name: String) -> String {
-        name.count > 24 ? String(name.prefix(22)).trimmingCharacters(in: .whitespaces) + "…" : name
+    static func chipName(_ name: String, max: Int = 24) -> String {
+        name.count > max ? String(name.prefix(max - 2)).trimmingCharacters(in: .whitespaces) + "…" : name
     }
 
     private var current: SpaceTheme { model.theme(of: model.focused) }

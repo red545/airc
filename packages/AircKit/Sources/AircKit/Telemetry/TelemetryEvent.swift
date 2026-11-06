@@ -20,6 +20,9 @@ public enum TelemetryEvent: Sendable, Equatable {
     case featureUsed(TelemetryFeature)
     /// Once per calendar day: how fast and how light Airc ran since the last one.
     case perfDaily(PerfDaily)
+    /// A child process ended abnormally: a tab's renderer ("Aw, Snap"). Which kind of process and how it ended, nothing
+    /// else (never the tab, its page or its site).
+    case processGone(process: ChildProcess, exit: ExitSignal)
 
     /// How the previous run ended: the app's "running" sentinel was still there at launch (unclean), or not.
     public enum PreviousExit: String, Sendable, CaseIterable {
@@ -38,6 +41,34 @@ public enum TelemetryEvent: Sendable, Equatable {
 
     public enum SidebarPosition: String, Sendable, CaseIterable {
         case left, right
+    }
+
+    public enum ChildProcess: String, Sendable, CaseIterable {
+        case renderer
+    }
+
+    /// How a child process ended: the signal that ended it, or `exit` for an exit code of its own.
+    public enum ExitSignal: String, Sendable, CaseIterable {
+        case segv = "SIGSEGV", bus = "SIGBUS", ill = "SIGILL", abrt = "SIGABRT", trap = "SIGTRAP", fpe = "SIGFPE",
+             sys = "SIGSYS", kill = "SIGKILL", term = "SIGTERM", exit, other
+
+        /// From a wait status, as Chromium gives it for a child on macOS (`GetCrashedErrorCode`).
+        public init(waitStatus: Int32) {
+            let signal = waitStatus & 0x7f
+            switch signal {
+            case 0: self = .exit
+            case 11: self = .segv
+            case 10: self = .bus
+            case 4: self = .ill
+            case 6: self = .abrt
+            case 5: self = .trap
+            case 8: self = .fpe
+            case 12: self = .sys
+            case 9: self = .kill
+            case 15: self = .term
+            default: self = .other
+            }
+        }
     }
 
     public struct ActiveDay: Sendable, Equatable {
@@ -112,6 +143,7 @@ public enum TelemetryEvent: Sendable, Equatable {
         case .importArc: "import.arc"
         case .featureUsed: "feature.used"
         case .perfDaily: "perf.daily"
+        case .processGone: "process.gone"
         }
     }
 
@@ -146,6 +178,8 @@ public enum TelemetryEvent: Sendable, Equatable {
             if let v = d.memoryMegabytes { p["memory_mb"] = .string(TelemetryBucket.megabytes(v)) }
             if let v = d.idleCPUPercent { p["idle_cpu_pct"] = .string(TelemetryBucket.percent(v)) }
             return p
+        case let .processGone(process, exit):
+            return ["process": .string(process.rawValue), "exit_signal": .string(exit.rawValue)]
         }
     }
 }

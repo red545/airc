@@ -9,10 +9,14 @@ import WebKit
 final class WebKitEngine: BrowserEngine {
     /// Snapshot runs use throwaway data stores (still one per profile, so still separate).
     let ephemeral: Bool
+    /// The Chromium build's WebKit pages (HybridEngine.swift): stores named from the data folder plus the profile, so a
+    /// test instance (`--data-dir`) never shares the daily one's. Nil for the dev engine (its names predate this).
+    let storeScope: String?
     private var profiles: [String: WebKitProfile] = [:]
 
-    init(ephemeral: Bool) {
+    init(ephemeral: Bool, storeScope: String? = nil) {
         self.ephemeral = ephemeral
+        self.storeScope = storeScope
     }
 
     var name: String { "WebKit (dev engine)" }
@@ -22,7 +26,7 @@ final class WebKitEngine: BrowserEngine {
         if let p = profiles[directory] { return completion(p) }
         let store: WKWebsiteDataStore = ephemeral
             ? .nonPersistent()
-            : WKWebsiteDataStore(forIdentifier: Self.storeIdentifier(for: directory))
+            : WKWebsiteDataStore(forIdentifier: Self.storeIdentifier(for: directory, scope: storeScope))
         let p = WebKitProfile(directory: directory, dataStore: store)
         profiles[directory] = p
         completion(p)
@@ -32,18 +36,45 @@ final class WebKitEngine: BrowserEngine {
         guard let p = profile as? WebKitProfile else { return completion(false) }
         profiles[p.directory] = nil
         if ephemeral { return completion(true) }
-        WKWebsiteDataStore.remove(forIdentifier: Self.storeIdentifier(for: p.directory)) { error in
+        WKWebsiteDataStore.remove(forIdentifier: Self.storeIdentifier(for: p.directory, scope: storeScope)) { error in
             completion(error == nil)
         }
+    }
+
+    /// Whether a profile's persistent store is on disk (the drmwebkit check's cleanup).
+    func storeExists(directory: String, completion: @escaping (Bool) -> Void) {
+        let id = Self.storeIdentifier(for: directory, scope: storeScope)
+        WKWebsiteDataStore.fetchAllDataStoreIdentifiers { ids in completion(ids.contains(id)) }
+    }
+
+    /// Deletes a profile's store (its profile deleted; a test's cleanup). WebKit refuses while the store is in use (a
+    /// closing page still holds it), so it tries again for a few seconds.
+    func deleteStore(directory: String, completion: @escaping (Bool) -> Void) {
+        profiles[directory] = nil
+        if ephemeral { return completion(true) }
+        let id = Self.storeIdentifier(for: directory, scope: storeScope)
+        func attempt(_ left: Int) {
+            WKWebsiteDataStore.remove(forIdentifier: id) { error in
+                guard let error else { return completion(true) }
+                guard left > 0 else {
+                    NSLog("Airc: removing the WebKit data of %@ failed: %@", directory, error.localizedDescription)
+                    return completion(false)
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { attempt(left - 1) }
+            }
+        }
+        DispatchQueue.main.async { attempt(10) }
     }
 
     func makeWindow(contentRect: NSRect) -> EngineWindow {
         WebKitWindow(contentRect: contentRect)
     }
 
-    /// A stable UUID per profile folder name (WebKit names data stores by UUID).
-    static func storeIdentifier(for directory: String) -> UUID {
-        var bytes = Array(SHA256.hash(data: Data(("airc-profile:" + directory).utf8)).prefix(16))
+    /// A stable UUID per profile folder name (WebKit names data stores by UUID), and per data folder when `scope` is
+    /// one.
+    static func storeIdentifier(for directory: String, scope: String? = nil) -> UUID {
+        let name = scope.map { "airc-webkit|\($0)|\(directory)" } ?? "airc-profile:" + directory
+        var bytes = Array(SHA256.hash(data: Data(name.utf8)).prefix(16))
         bytes[6] = (bytes[6] & 0x0F) | 0x50  // version 5 style
         bytes[8] = (bytes[8] & 0x3F) | 0x80
         return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
@@ -69,6 +100,7 @@ final class WebKitProfile: EngineProfile {
         userContent.addUserScript(WKUserScript(source: Self.keysScript, injectionTime: .atDocumentStart,
                                                forMainFrameOnly: false))
         userContent.add(router, name: "aircKeys")
+        PasteAndMatchStyle.add(to: WKWebView.self)   // Edit › Paste and Match Style (Commands.swift)
         library.installMediaBridge()
         WebKitPageScripts.shared.attach(self)
     }
@@ -85,10 +117,26 @@ final class WebKitProfile: EngineProfile {
         c.websiteDataStore = dataStore
         c.userContentController = userContent
         c.preferences.isElementFullscreenEnabled = true
-        c.applicationNameForUserAgent = "Version/26.0 Safari/605.1.15"
+        // WebKit keeps picture in picture for Safari unless the app turns it on: requestPictureInPicture() answers
+        // NotSupportedError without it (docs/user/protected-media.md).
+        if c.preferences.responds(to: NSSelectorFromString("_setAllowsPictureInPictureMediaPlayback:")) {
+            c.preferences.setValue(true, forKey: "allowsPictureInPictureMediaPlayback")
+        }
+        c.applicationNameForUserAgent = Self.safariProduct
         c.allowsAirPlayForMediaPlayback = true
         return c
     }
+
+    /// Safari's own product token with this Mac's Safari version, so sites see Safari (the DRM services pick FairPlay
+    /// by browser and refuse ones they don't know). This and the picture in picture preference above are adapted from
+    /// Cra's WebKitBrowser.swift (MIT License; see NOTICE).
+    static let safariProduct: String = {
+        let paths = ["/Applications/Safari.app", "/System/Volumes/Preboot/Cryptexes/App/System/Applications/Safari.app"]
+        let version = paths.lazy.compactMap { Bundle(path: $0)?.infoDictionary?["CFBundleShortVersionString"] as? String }.first
+        let os = ProcessInfo.processInfo.operatingSystemVersion
+        let parts = (version ?? "\(max(os.majorVersion, 18)).0").split(separator: ".")
+        return "Version/\(parts.prefix(2).joined(separator: ".")) Safari/605.1.15"
+    }()
 
     /// CB-3: after a ⌘/⌃ shortcut reaches the page, reports whether the page used it (`preventDefault`), once every
     /// handler has run. The app then runs the browser's command, or waits for a second press.
@@ -97,8 +145,13 @@ final class WebKitProfile: EngineProfile {
       if (window.__aircKeys) return; window.__aircKeys = true;
       window.addEventListener('keydown', function(e){
         if (!(e.metaKey || e.ctrlKey)) return;
-        var combo = (e.metaKey ? 'cmd+' : '') + (e.ctrlKey ? 'ctrl+' : '') + (e.altKey ? 'alt+' : '') + (e.shiftKey ? 'shift+' : '') + (e.key || '').toLowerCase();
+        // ⌥ changes the character (⌥⌘V is "√"): then the letter's key, as the app and Chromium name it.
+        var key = e.altKey && /^Key[A-Z]$/.test(e.code) ? e.code.slice(3) : (e.key || '');
+        var combo = (e.metaKey ? 'cmd+' : '') + (e.ctrlKey ? 'ctrl+' : '') + (e.altKey ? 'alt+' : '') + (e.shiftKey ? 'shift+' : '') + key.toLowerCase();
         setTimeout(function(){
+          // Chrome's own ⌘B ⌘I ⌘U in a rich text field the page left alone (WebKit has no such keys).
+          var format = e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && {b: 'bold', i: 'italic', u: 'underline'}[key.toLowerCase()];
+          if (format && !e.defaultPrevented && e.target && e.target.isContentEditable) document.execCommand(format);
           try { window.webkit.messageHandlers.aircKeys.postMessage({combo: combo, prevented: e.defaultPrevented}); } catch (x) {}
         }, 0);
       }, true);
@@ -145,6 +198,9 @@ final class WebKitWindow: EngineWindow {
     var activeProfile: EngineProfile?
     private(set) var tabs: [WebKitTab] = []
     private weak var shown: WebKitTab?
+    /// The Chromium build (HybridEngine.swift): a link a page follows, before WebKit does (`newTab` for target=_blank and
+    /// ⌘-click, with `background` for ⌘-click). True: the window took it and the page doesn't navigate.
+    var linkPolicy: ((_ tab: WebKitTab, _ url: URL, _ newTab: Bool, _ background: Bool) -> Bool)?
 
     convenience init(contentRect: NSRect) {
         self.init(window: NSWindow(contentRect: contentRect,
@@ -153,28 +209,54 @@ final class WebKitWindow: EngineWindow {
     }
 
     /// Around a window the app made (the call window's panel).
-    init(window: NSWindow) {
+    convenience init(window: NSWindow) {
+        let host = PageHostView(frame: NSRect(origin: .zero, size: window.contentRect(forFrameRect: window.frame).size))
+        host.wantsLayer = true
+        host.autoresizesSubviews = true
+        self.init(window: window, hostView: host)
+    }
+
+    /// Around another engine's window and its page host (the Chromium build's WebKit pages).
+    init(window: NSWindow, hostView: NSView) {
         self.window = window
         window.isReleasedWhenClosed = false
-        hostView = PageHostView(frame: NSRect(origin: .zero, size: window.contentRect(forFrameRect: window.frame).size))
-        hostView.wantsLayer = true
-        hostView.autoresizesSubviews = true
+        self.hostView = hostView
     }
 
     func prepareProfile(_ profile: EngineProfile) {}
 
     func openTab(url: URL?, profile: EngineProfile, foreground: Bool) -> EngineTab {
-        let p = profile as! WebKitProfile
-        let tab = WebKitTab(configuration: p.makeConfiguration(), profile: p, window: self)
+        openTab(url: url, profile: profile as! WebKitProfile, hostProfile: nil, foreground: foreground)
+    }
+
+    /// `hostProfile`: the Chromium build's profile the page counts as (its `profile`).
+    func openTab(url: URL?, profile p: WebKitProfile, hostProfile: EngineProfile?, foreground: Bool) -> WebKitTab {
+        let tab = WebKitTab(configuration: p.makeConfiguration(), profile: p, window: self, hostProfile: hostProfile)
         tabs.append(tab)
         if let url { tab.load(url) }
         if foreground { activateTab(tab) }
         return tab
     }
 
+    /// PK-1: a link in Peek over the page, in `host`, in the opener's profile.
+    func openPeek(url: URL, opener: EngineTab, in host: NSView) throws -> EngineTab {
+        guard let o = opener as? WebKitTab, !o.isClosed, host.window === window else { throw EngineHostingError.rejected("invalidPeek") }
+        return openPeek(url: url, profile: o.webKitProfile, hostProfile: o.hostProfile, in: host)
+    }
+
+    func openPeek(url: URL, profile: WebKitProfile, hostProfile: EngineProfile?, in host: NSView) -> WebKitTab {
+        let tab = WebKitTab(configuration: profile.makeConfiguration(), profile: profile, window: self, hostProfile: hostProfile)
+        tabs.append(tab)
+        tab.webView.frame = host.bounds
+        tab.webView.autoresizingMask = [.width, .height]
+        host.addSubview(tab.webView)
+        tab.load(url)
+        return tab
+    }
+
     /// A tab WebKit created for a popup or target=_blank link.
     func adopt(configuration: WKWebViewConfiguration, opener: WebKitTab, disposition: TabDisposition) -> WKWebView {
-        let tab = WebKitTab(configuration: configuration, profile: opener.webKitProfile, window: self)
+        let tab = WebKitTab(configuration: configuration, profile: opener.webKitProfile, window: self, hostProfile: opener.hostProfile)
         tabs.append(tab)
         delegate?.engineWindow(self, didInsertTab: tab, opener: opener, disposition: disposition)
         return tab.webView
@@ -203,20 +285,38 @@ final class WebKitWindow: EngineWindow {
               panes.allSatisfy({ $0.host.window === window }), tabs.contains(where: { $0 === focused }) else {
             throw EngineHostingError.rejected("invalidPanes")
         }
+        attachPanes(zip(tabs, panes).map { (tab: $0, host: $1.host) })
+        focusPane(focused)
+    }
+
+    /// Shows these panes (the Chromium build: a split's WebKit panes) and hides the page shown alone.
+    func attachPanes(_ panes: [(tab: WebKitTab, host: NSView)]) {
         shown?.webView.isHidden = true
         shown = nil
-        for old in paneTabs where !tabs.contains(where: { $0 === old }) { old.webView.removeFromSuperview() }
-        for (t, pane) in zip(tabs, panes) {
+        for old in paneTabs where !panes.contains(where: { $0.tab === old }) { old.webView.removeFromSuperview() }
+        for (t, host) in panes {
             attached.removeAll { $0 === t }
-            if t.webView.superview !== pane.host {
-                t.webView.frame = pane.host.bounds
+            if t.webView.superview !== host {
+                t.webView.frame = host.bounds
                 t.webView.autoresizingMask = [.width, .height]
-                pane.host.addSubview(t.webView)
+                host.addSubview(t.webView)
             }
             t.webView.isHidden = false
         }
-        paneTabs = tabs
-        focusPane(focused)
+        paneTabs = panes.map(\.tab)
+    }
+
+    /// The pages on screen: the one shown alone, or a split's panes.
+    var visibleTabs: [WebKitTab] { (shown.map { [$0] } ?? []) + paneTabs }
+
+    /// Puts a page in a host the app keeps itself (Peek's card), as `openPeek` does.
+    func place(_ t: WebKitTab, in host: NSView) {
+        guard t.webView.superview !== host else { return }
+        t.webView.removeFromSuperview()
+        t.webView.frame = host.bounds
+        t.webView.autoresizingMask = [.width, .height]
+        host.addSubview(t.webView)
+        t.webView.isHidden = false
     }
 
     func focusPane(_ tab: EngineTab) {
@@ -294,6 +394,8 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
     let webKitProfile: WebKitProfile
     weak var window: WebKitWindow?
     weak var delegate: EngineTabDelegate?
+    /// The Chromium build: the app's profile this page counts as (its WebKit store is `webKitProfile`'s).
+    let hostProfile: EngineProfile?
     private var observations: [NSKeyValueObservation] = []
 
     private(set) var favicon: NSImage?
@@ -301,10 +403,11 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
     private(set) var isAudible = false
     private(set) var isClosed = false
 
-    init(configuration: WKWebViewConfiguration, profile: WebKitProfile, window: WebKitWindow) {
+    init(configuration: WKWebViewConfiguration, profile: WebKitProfile, window: WebKitWindow, hostProfile: EngineProfile? = nil) {
         tabID = Self.nextID
         Self.nextID += 1
         webKitProfile = profile
+        self.hostProfile = hostProfile
         self.window = window
         webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 800, height: 600), configuration: configuration)
         super.init()
@@ -326,7 +429,7 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
     }
 
     var view: NSView { webView }
-    var profile: EngineProfile { webKitProfile }
+    var profile: EngineProfile { hostProfile ?? webKitProfile }
     var url: URL? { webView.url }
     var title: String { webView.title ?? "" }
     var isLoading: Bool { webView.isLoading }
@@ -403,8 +506,16 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
 
     var zoomFactor: Double { Double(webView.pageZoom) }
 
-    /// WebKit opens its inspector only from the page's context menu (Inspect Element); there's no public call.
-    func showDevTools(console: Bool) -> Bool { false }
+    /// ⌥⌘I / ⌥⌘J: Web Inspector, in its own window (WebKit has no public call for it; without the private one, only
+    /// the page's Inspect Element opens it).
+    func showDevTools(console: Bool) -> Bool {
+        guard webView.responds(to: NSSelectorFromString("_inspector")),
+              let inspector = webView.value(forKey: "_inspector") as? NSObject else { return false }
+        let selector = NSSelectorFromString(console ? "showConsole" : "show")
+        guard inspector.responds(to: selector) else { return false }
+        inspector.perform(selector)
+        return true
+    }
 
     func printPage(from window: NSWindow) -> Bool {
         let op = webView.printOperation(with: NSPrintInfo.shared)
@@ -480,11 +591,21 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  preferences: WKWebpagePreferences,
                  decisionHandler: @escaping (WKNavigationActionPolicy, WKWebpagePreferences) -> Void) {
+        // The Chromium build picks the engine for links that open tabs, and Peek for its pinned tabs.
+        if action.navigationType == .linkActivated, let url = action.request.url, let policy = window?.linkPolicy {
+            let newTab = action.targetFrame == nil || action.modifierFlags.contains(.command)
+            if action.targetFrame?.isMainFrame ?? true,
+               policy(self, url, newTab, action.modifierFlags.contains(.command) && !action.modifierFlags.contains(.shift)) {
+                decisionHandler(.cancel, preferences)
+                return
+            }
+        }
         // ⌘-click opens a background tab in the same Space and profile.
         if action.navigationType == .linkActivated, action.modifierFlags.contains(.command),
            let url = action.request.url, let window {
             decisionHandler(.cancel, preferences)
-            let tab = WebKitTab(configuration: webKitProfile.makeConfiguration(), profile: webKitProfile, window: window)
+            let tab = WebKitTab(configuration: webKitProfile.makeConfiguration(), profile: webKitProfile, window: window,
+                                hostProfile: hostProfile)
             window.adoptExisting(tab, opener: self, disposition: action.modifierFlags.contains(.shift) ? .foreground : .background)
             tab.load(url)
             return
@@ -531,6 +652,11 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
                  for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
         guard let window else { return nil }
         let isPopup = windowFeatures.width != nil || windowFeatures.height != nil
+        // A target=_blank link the Chromium build opens itself (window.open keeps this engine: popups keep their opener's).
+        if !isPopup, action.navigationType == .linkActivated, let url = action.request.url, let policy = window.linkPolicy,
+           policy(self, url, true, action.modifierFlags.contains(.command) && !action.modifierFlags.contains(.shift)) {
+            return nil
+        }
         let disposition: TabDisposition = isPopup ? .popup
             : action.modifierFlags.contains(.command) && !action.modifierFlags.contains(.shift) ? .background : .foreground
         return window.adopt(configuration: configuration, opener: self, disposition: disposition)

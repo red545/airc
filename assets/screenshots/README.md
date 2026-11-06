@@ -40,6 +40,8 @@ menu, which can't be drawn off screen; `profiles.webp` shows profiles through Cr
 | `boosts.webp` | Boosts | Wikipedia boosted into a warm, bookish page (an amber tint, Charter), the Boost editor open on Colors | 2026-11-06 | 202611061646 (2984978) |
 | `boosts-font.webp` | Boosts: fonts | The same Boost on Font: the page in Charter, a size step up, the macOS fonts to choose from | 2026-11-06 | 202611061646 (2984978) |
 | `boosts-zap.webp` | Boosts: Zap | The same Boost on Zap: Wikipedia's Appearance column zapped away, with its undo | 2026-11-06 | 202611061646 (2984978) |
+| `drm-spotify.webp` | Protected media | Spotify's web player, logged out, in Safari's engine with Apple's FairPlay: the note that says so, with Why? | 2026-11-06 | 202611062002 (fd02319) |
+| `drm-site-controls.webp` | Protected media: Site Controls | Site Controls on Spotify: the Safari's engine switch, and what a WebKit page does differently | 2026-11-06 | 202611062002 (fd02319) |
 | `picture-in-picture.webp` | Picture in picture | A film floating over the Lisbon article, with Airc's controls: Back to Tab, skip 15 s, play, the scrubber | 2026-11-06 | 202611061551 (089fe21) |
 | `picture-in-picture-call.webp` | Picture in picture, call | A call's video floating over another page, with microphone, camera and Leave | 2026-11-06 | 202611061551 (089fe21) |
 | — | Picture in picture, Meet | Not taken yet: A call page's own Document PiP (as Meet opens one) under Airc's slim top bar | | |
@@ -50,10 +52,10 @@ menu, which can't be drawn off screen; `profiles.webp` shows profiles through Cr
 | `settings-appearance-dark.webp` | Settings: Appearance, dark | The same page in dark mode | 2026-11-06 | 202611061538 (6312e1a) |
 | `settings-privacy.webp` | Settings: Privacy | Anonymous usage data and crash reports, off with one switch | 2026-11-06 | 202611061538 (6312e1a) |
 | `settings-privacy-events.webp` | See what Airc sends | The sheet listing every event Airc recorded, word for word | 2026-11-06 | 202611061538 (6312e1a) |
-| `onboarding-welcome.webp` | Onboarding | The first window | 2026-11-06 | 202611061538 (6312e1a) |
-| `onboarding-import.webp` | Onboarding: Arc import | Arc found on the Mac: Spaces, pinned tabs, folders and Favorites come over as they are | 2026-11-06 | 202611061538 (6312e1a) |
-| `onboarding-profiles.webp` | Onboarding: profiles | Each Arc profile becomes an Airc profile, with its Spaces | 2026-11-06 | 202611061538 (6312e1a) |
-| `onboarding-colours.webp` | Onboarding: Space colours | A colour for each Space before the first window opens | 2026-11-06 | 202611061538 (6312e1a) |
-| `onboarding-default-browser.webp` | Onboarding: default browser | The default-browser step | 2026-11-06 | 202611061538 (6312e1a) |
-| `onboarding-done.webp` | Onboarding: done | The last card before the window opens | 2026-11-06 | 202611061538 (6312e1a) |
+| `onboarding-welcome.webp` | Onboarding | The first window | 2026-11-06 | 202611061915 (9e1fd56) |
+| `onboarding-import.webp` | Onboarding: Arc import | Arc found on the Mac: Spaces, pinned tabs, folders and Favorites come over as they are | 2026-11-06 | 202611061915 (9e1fd56) |
+| `onboarding-profiles.webp` | Onboarding: profiles | Each Arc profile becomes an Airc profile, with its Spaces | 2026-11-06 | 202611061915 (9e1fd56) |
+| `onboarding-colours.webp` | Onboarding: Space colours | A colour for each Space before the first window opens | 2026-11-06 | 202611061915 (9e1fd56) |
+| `onboarding-default-browser.webp` | Onboarding: default browser | The default-browser step | 2026-11-06 | 202611061915 (9e1fd56) |
+| `onboarding-done.webp` | Onboarding: done | The last card before the window opens | 2026-11-06 | 202611061915 (9e1fd56) |
 | `update-button.webp` | Update button | A downloaded update waiting in the sidebar (a fake ready update) | 2026-11-06 | 202611061538 (6312e1a) |

@@ -50,6 +50,10 @@ extension ChromiumEngine: EngineSiteControls {
     // MARK: Data
 
     func siteData(origin: String, in profile: EngineProfile, completion: @escaping (SiteDataUsage?) -> Void) {
+        // A site that plays in WebKit keeps its data in the profile's WebKit store (HybridEngine.swift).
+        if ProtectedMedia.shared.engine(for: URL(string: origin)) == .webKit, let w = loadedWebKitProfile(for: profile) {
+            return webKit.siteData(origin: origin, in: w, completion: completion)
+        }
         guard SiteCore.available, let p = core(of: profile) else { return completion(nil) }
         p.siteData(origin) { d in
             guard (d["valid"] as? NSNumber)?.boolValue == true else { return completion(nil) }
@@ -60,6 +64,10 @@ extension ChromiumEngine: EngineSiteControls {
     }
 
     func clearSiteData(origin: String, in profile: EngineProfile, page: EngineTab?, completion: @escaping (Bool) -> Void) {
+        // A WebKit page's site keeps its data in the profile's WebKit store (HybridEngine.swift).
+        if page is WebKitTab, let w = loadedWebKitProfile(for: profile) {
+            return webKit.clearSiteData(origin: origin, in: w, page: page, completion: completion)
+        }
         guard SiteCore.available, let p = core(of: profile) else { return completion(false) }
         p.clearSiteData(origin) { completion($0) }
     }
@@ -67,7 +75,8 @@ extension ChromiumEngine: EngineSiteControls {
     // MARK: Zoom
 
     func zoomScope(of tab: EngineTab) -> SiteZoomScope {
-        core(of: tab)?.independentZoom == true ? .tab : .site
+        if tab is WebKitTab { return .tab }   // WebKit zooms a page, not a site
+        return core(of: tab)?.independentZoom == true ? .tab : .site
     }
 
     func siteZoomFactor(origin: String, in profile: EngineProfile) -> Double? {
@@ -78,6 +87,7 @@ extension ChromiumEngine: EngineSiteControls {
     // MARK: Connection
 
     func siteSecurity(of tab: EngineTab) -> SiteSecurity {
+        if tab is WebKitTab { return webKit.siteSecurity(of: tab) }
         guard let t = core(of: tab) else { return SiteSecurity() }
         let d = t.securityInfo
         func date(_ key: String) -> Date? {
@@ -110,12 +120,19 @@ extension ChromiumEngine: EngineSiteControls {
 
     var siteActivityDidChange: ((EngineTab) -> Void)? {
         get { ChromiumSiteActivity.didChange }
-        set { ChromiumSiteActivity.didChange = newValue }
+        set {
+            ChromiumSiteActivity.didChange = newValue
+            webKit.siteActivityDidChange = newValue
+        }
     }
 
-    func watchSiteActivity(of tab: EngineTab) {} // Delegate forwarding is installed with every tab.
+    // Chromium's delegate forwarding is installed with every tab; a WebKit page is watched by its side.
+    func watchSiteActivity(of tab: EngineTab) {
+        if tab is WebKitTab { webKit.watchSiteActivity(of: tab) }
+    }
 
     func siteActivity(of tab: EngineTab) -> SiteActivity {
+        if tab is WebKitTab { return webKit.siteActivity(of: tab) }
         guard let t = core(of: tab), !t.closed else { return SiteActivity() }
         var a = SiteActivity()
         let access = ChromiumSiteActivity.access(of: t) ?? ChromiumSiteActivity.seedAccess(of: t)

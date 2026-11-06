@@ -315,6 +315,8 @@ if [[ -n "$SNAPSHOTS" ]]; then
     launch --script split-read --data-dir "$home/Split"
     # Real clicks and keys through the window (EventTests.swift): a control that draws but doesn't respond fails.
     launch --script events --ephemeral --data-dir "$home/Events"
+    # Page, editor and field shortcuts on a loopback editor page, and Airc's own against Arc's (ShortcutsCheck.swift).
+    launch --script shortcuts --ephemeral --data-dir "$home/Shortcuts"
     # Chromium's web-modal dialogs in our window (passkeys, HTTP auth, beforeunload), read through the engine's test
     # hook, which only answers on its scratch-data, mock-keychain test gate.
     if [[ $engine == chromium ]]; then
@@ -341,11 +343,23 @@ if [[ -n "$SNAPSHOTS" ]]; then
       done
       # Password field geometry under CSP, in frames, after scrolling/zooming (no HID or capture).
       launch --script password-bounds --data-dir "$home/PasswordBounds"
+      # Protected media (DRMWebKitCheck.swift, docs/user/protected-media.md): DRM services' pages in WebKit inside the
+      # Chromium build, on loopback pages where "localhost" plays a listed service. The second run, on the same data,
+      # checks the relaunch (the tab comes back in WebKit with its cookie). No account, no device.
+      for drm in drmwebkit drmwebkit-read; do
+        open -g -n -W --env "CFFIXED_USER_HOME=$home" --env "AIRC_SHIP_GATE=${AIRC_SHIP_GATE:-0}" --env "AIRC_WEBKIT_HOSTS=localhost" \
+          "$app" --args --engine=chromium --snapshot "$out" --script "$drm" --data-dir "$home/DRMWebKit"
+        grep -qx "\[$drm\]" "$out/log.txt" 2>/dev/null || echo "FAIL $drm: the app wrote no log (crashed or never started)" >> "$out/log.txt"
+      done
     fi
     # SB-54 / SB-55: Downloads, the media tray and the call window (MediaLibCheck.swift). No media devices: the "call"
-    # page is a canvas stream and silent audio, so macOS never asks for the camera or microphone.
+    # page is a canvas stream and silent audio, so macOS never asks for the camera or microphone. Its two peers connect
+    # on loopback; without mDNS names for their host candidates the engine sends no multicast on the local network.
     for script in medialib-downloads medialib-media medialib-call; do
-      if [[ $engine == chromium ]]; then
+      if [[ $engine == chromium && $script == medialib-call ]]; then
+        launch --script "$script" --data-dir "$home/${script}" --autoplay-policy=no-user-gesture-required \
+          --disable-features=WebRtcHideLocalIpsWithMdns
+      elif [[ $engine == chromium ]]; then
         launch --script "$script" --data-dir "$home/${script}" --autoplay-policy=no-user-gesture-required
       else
         launch --script "$script" --data-dir "$home/${script}"

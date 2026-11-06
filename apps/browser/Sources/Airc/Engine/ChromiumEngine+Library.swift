@@ -16,9 +16,12 @@ extension ChromiumEngine: EngineDownloads, EngineMedia, EngineCallHosting {
 
     // MARK: Downloads
 
+    // A profile's downloads are its Chromium pages' and its WebKit pages' (HybridEngine.swift), in one list.
+
     func downloadItems(in profile: EngineProfile) -> [EngineDownload] {
         guard let p = core(of: profile) else { return [] }
-        return (Pass13.value(p, "downloads") as? [Any] ?? []).compactMap { ($0 as? [String: Any]).flatMap(EngineDownload.init) }
+        let rows = (Pass13.value(p, "downloads") as? [Any] ?? []).compactMap { ($0 as? [String: Any]).flatMap(EngineDownload.init) }
+        return rows + (loadedWebKitProfile(for: profile).map { webKit.downloadItems(in: $0) } ?? [])
     }
 
     func observeDownloadItems(in profile: EngineProfile, _ handler: ((EngineDownload) -> Void)?) {
@@ -26,15 +29,21 @@ extension ChromiumEngine: EngineDownloads, EngineMedia, EngineCallHosting {
         p.observeDownloads(handler.map { handler in
             { row in if let d = (row as? [String: Any]).flatMap(EngineDownload.init) { handler(d) } }
         })
+        (profile as? ChromiumProfile)?.hybrid.downloadsHandler = handler
+        if let w = loadedWebKitProfile(for: profile) { webKit.observeDownloadItems(in: w, handler) }
     }
 
     @discardableResult
     func performDownloadAction(_ action: EngineDownloadAction, id: String, in profile: EngineProfile) -> Bool {
         guard let p = core(of: profile) else { return false }
+        if let w = loadedWebKitProfile(for: profile), webKit.downloadItems(in: w).contains(where: { $0.id == id }) {
+            return webKit.performDownloadAction(action, id: id, in: w)
+        }
         return Pass13.call(p, "performDownloadAction:identifier:", action.rawValue, id)
     }
 
     func downloadedFile(_ id: String, in profile: EngineProfile) -> URL? {
+        if let w = loadedWebKitProfile(for: profile), let file = webKit.downloadedFile(id, in: w) { return file }
         guard let p = core(of: profile), let path = Pass13.string(p, "downloadPath:", id), !path.isEmpty else { return nil }
         return URL(fileURLWithPath: path)
     }
@@ -46,20 +55,39 @@ extension ChromiumEngine: EngineDownloads, EngineMedia, EngineCallHosting {
 
     // MARK: Media Session
 
+    // The media tray lists a profile's Chromium and WebKit pages together; a WebKit page's session comes from its
+    // WebKit side (WebKitEngine+Library.swift).
+
     func observeMediaTabs(in profile: EngineProfile, _ handler: (([EngineTab]) -> Void)?) {
-        guard let p = core(of: profile) else { return }
+        guard let p = core(of: profile), let state = (profile as? ChromiumProfile)?.hybrid else { return }
+        state.mediaHandler = handler
+        state.chromiumMediaTabs = []
+        state.webKitMediaTabs = []
         // The engine's tabs have their Swift wrapper as delegate; one the app never wrapped isn't one of its pages.
-        Pass13.observeList(p, "observeMediaTabs:", handler.map { handler in
-            { list in handler(list.compactMap { ($0 as? AircTab)?.delegate as? EngineTab }) }
+        Pass13.observeList(p, "observeMediaTabs:", handler.map { _ in
+            { [weak state] list in
+                state?.chromiumMediaTabs = list.compactMap { ($0 as? AircTab)?.delegate as? EngineTab }
+                state?.emitMediaTabs()
+            }
         })
+        if let w = loadedWebKitProfile(for: profile) {
+            webKit.observeMediaTabs(in: w, handler.map { _ in
+                { [weak state] tabs in
+                    state?.webKitMediaTabs = tabs
+                    state?.emitMediaTabs()
+                }
+            })
+        }
     }
 
     func mediaSession(of tab: EngineTab) -> EngineMediaSession {
+        if tab is WebKitTab { return webKit.mediaSession(of: tab) }
         guard let t = core(of: tab), let d = Pass13.value(t, "mediaSession") as? [String: Any] else { return EngineMediaSession() }
         return EngineMediaSession(d)
     }
 
     func observeMediaSession(of tab: EngineTab, _ handler: ((EngineMediaSession) -> Void)?) {
+        if tab is WebKitTab { return webKit.observeMediaSession(of: tab, handler) }
         guard let t = core(of: tab) else { return }
         Pass13.observeDictionary(t, "observeMediaSession:", handler.map { handler in
             { d in handler(EngineMediaSession(d as? [String: Any] ?? [:])) }
@@ -68,6 +96,7 @@ extension ChromiumEngine: EngineDownloads, EngineMedia, EngineCallHosting {
 
     @discardableResult
     func performMediaAction(_ action: String, value: Double, in tab: EngineTab) -> Bool {
+        if tab is WebKitTab { return webKit.performMediaAction(action, value: value, in: tab) }
         guard let t = core(of: tab) else { return false }
         return Pass13.call(t, "performMediaAction:value:", action, value)
     }

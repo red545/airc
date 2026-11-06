@@ -45,6 +45,19 @@ extension SnapshotRunner {
         func settled(_ done: @escaping () -> Void) {
             waitUntil({ !self.c.animator.isRunning("split") }, timeout: 3) { DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: done) }
         }
+        /// A window point just inside the bottom of `row`, after scrolling the sidebar's list so the row shows, as a person
+        /// would before dropping there: the end of Today is often below the list's visible part (the scenario's earlier
+        /// checks leave rows, and how many depends on the run). Nil when the point still isn't the list on screen (off the
+        /// window, or under the footer), with what it hits instead.
+        func dropPoint(below row: NSView, in p: SpacePageView) -> (point: NSPoint?, hit: String) {
+            p.list.scrollToVisible(row.frame.insetBy(dx: 0, dy: -16))
+            p.layoutSubtreeIfNeeded()
+            let end = row.convert(NSPoint(x: 60, y: row.bounds.maxY - 3), to: nil)
+            let frameView = c.window.contentView?.superview
+            let hit = frameView?.hitTest(frameView!.convert(end, from: nil))
+            let onList = hit.map { $0 === p.list || $0.isDescendant(of: p.list) } ?? false
+            return (onList ? end : nil, "\(hit.map { String(describing: Swift.type(of: $0)) } ?? "nothing") at \(end)")
+        }
 
         run { [self] in
             sid = c.currentSpaceID
@@ -412,8 +425,11 @@ extension SnapshotRunner {
                         .filter({ ($0 as? TabRowView)?.entry?.liveTab?.isToday == true || $0 is SplitRowView }).max(by: { $0.frame.maxY < $1.frame.maxY }),
                       last !== row else { self.check(false, "split (row drag): its row and one below it"); return done() }
                 let before = self.c.store.todayRows(ofSpace: sid).map(\.id)
+                let (drop, dropHit) = dropPoint(below: last, in: p)
+                guard let end = drop else {
+                    self.check(false, "split (row drag): the last Today row shows in the sidebar (\(dropHit))"); return done()
+                }
                 let start = row.convert(NSPoint(x: 60, y: row.bounds.midY), to: nil)
-                let end = last.convert(NSPoint(x: 60, y: last.bounds.maxY - 3), to: nil)
                 self.drag(from: start, to: end) {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                         let after = self.c.store.todayRows(ofSpace: sid).map(\.id)
@@ -447,10 +463,13 @@ extension SnapshotRunner {
             pane.handle.setShown(true)
             let h = pane.handle
             let start = h.convert(NSPoint(x: h.grabRect.midX, y: h.grabRect.midY), to: nil)
+            let (drop, dropHit) = dropPoint(below: last, in: p)
+            guard let end = drop else {
+                check(false, "split (pane out): the last Today row shows in the sidebar (\(dropHit))"); return done()
+            }
             let frameView = c.window.contentView?.superview
             let hit = frameView?.hitTest(frameView!.convert(start, from: nil))
-            let end = last.convert(NSPoint(x: 60, y: last.bounds.maxY - 3), to: nil)
-            note("split (pane out): press on \(hit.map { String(describing: Swift.type(of: $0)) } ?? "nothing") at \(start), drop at \(end)")
+            note("split (pane out): press on \(hit.map { String(describing: Swift.type(of: $0)) } ?? "nothing") at \(start), drop on \(dropHit)")
             drag(from: start, to: end) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                     let x = self.c.store.split(paneSplit)

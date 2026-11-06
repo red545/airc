@@ -105,10 +105,18 @@ protocol EngineWindowDelegate: AnyObject {
     func engineWindow(_ window: EngineWindow, tabRequestedClose tab: EngineTab)
     func engineWindow(_ window: EngineWindow, tabCancelledClose tab: EngineTab)
     func engineWindow(_ window: EngineWindow, tab: EngineTab, didChangeFullscreen fullscreen: Bool)
+    /// Whether this delegate takes `replace` (below). An engine asks before it moves a page to another engine.
+    func engineWindowCanReplaceTabs(_ window: EngineWindow) -> Bool
+    /// The page `old` opened again as `new` in another engine (docs/user/protected-media.md: a Spotify link in a
+    /// Chromium page plays in WebKit). The delegate puts `new` where `old` was (same tab, pane and focus) and returns
+    /// true; the engine then closes `old` without asking it or reporting the close. False: nothing changed.
+    func engineWindow(_ window: EngineWindow, replace old: EngineTab, with new: EngineTab) -> Bool
 }
 
 extension EngineWindowDelegate {
     func engineWindow(_ window: EngineWindow, tabCancelledClose tab: EngineTab) {}
+    func engineWindowCanReplaceTabs(_ window: EngineWindow) -> Bool { false }
+    func engineWindow(_ window: EngineWindow, replace old: EngineTab, with new: EngineTab) -> Bool { false }
 }
 
 protocol EngineWindow: AnyObject {
@@ -135,6 +143,9 @@ protocol EngineWindow: AnyObject {
     /// Detaches whatever page is shown (a Space with no tab shows an empty card).
     func deactivateAll()
     func tabs(for profile: EngineProfile) -> [EngineTab]
+    /// Airc's own navigation of a page (the URL bar, a pinned tab's reset). An engine that plays some sites in another
+    /// engine may open the page again there (`EngineWindowDelegate.replace`); otherwise this is `tab.load(url)`.
+    func load(_ url: URL, in tab: EngineTab)
 }
 
 protocol EngineTab: EnginePageCommands {
@@ -242,6 +253,7 @@ extension EngineTabDelegate {
 
 // WebKit remains buildable; it must explicitly implement live hosting before using these UI paths.
 extension EngineWindow {
+    func load(_ url: URL, in tab: EngineTab) { tab.load(url) }
     func presentPanes(_ panes: [(tab: EngineTab, host: NSView)], focused: EngineTab) throws {
         throw EngineHostingError.rejected("multiPaneUnsupported")
     }

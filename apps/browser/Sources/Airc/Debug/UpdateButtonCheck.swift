@@ -28,6 +28,9 @@ extension SnapshotRunner {
     func updateButtonScenario() {
         let center = UpdateCenter.shared
         let fake = FakeReadyUpdate(version: "1.0 (209901010000)")
+        // A run with telemetry off (AIRC_TELEMETRY_ENABLED=0, the release suite) records nothing: this run turns
+        // record-only for the check, so the events below are checked either way. Nothing is sent.
+        AppTelemetry.shared.recordOnlyForCheck()
         var records: [TelemetryRecord] = []
         let telemetryToken = Telemetry.shared.observeRecent { records = $0 }
         let button = { self.c.sidebar.update }
@@ -194,7 +197,7 @@ extension SnapshotRunner {
         wait(0.5)
         run { [self] in
             check(!button().isShowing && button().frame.height == 0 && !hitsPill(), "update: no update any more, no button")
-            if AppTelemetry.shared.resolution.state == .recordOnly {
+            if AppTelemetry.shared.resolution.records {
                 let features = records.filter { $0.event == "feature.used" }.compactMap { $0.properties["feature"]?.description }
                 let shown = features.filter { $0 == "update.ready_shown" }.count, clicked = features.filter { $0 == "update.restart_clicked" }.count
                 check(shown == 1 && clicked == 4, "update: update.ready_shown once, update.restart_clicked per click (\(shown), \(clicked))")

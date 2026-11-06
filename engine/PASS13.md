@@ -201,3 +201,8 @@ an observed interruption and explicit retry; start capture after permission rese
 The inert risky-extension fixture was not classified dangerous, so dangerous
 keep/discard/open-rejection remains unqualified, as do real devices and OS actions.
 Full hybrid phone/QR authentication is omitted to avoid a Bluetooth prompt.
+
+## Additional host APIs
+
+See [PASS-APIS.md](PASS-APIS.md) for host-selected Save Page formats and
+completion, `canSavePage`, and asynchronous bounded tab snapshots for previews.

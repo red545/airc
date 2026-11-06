@@ -36,6 +36,9 @@ final class AppSettings: ObservableObject {
         var externalLinks: ExternalLinkTarget = .littleArc
         /// PK-1: ⇧-clicked links, and other sites a pinned tab or Favorite opens in a new tab, open in Peek.
         var peekEnabled = true
+        /// Settings → Privacy → "Play DRM sites with Safari's engine" (docs/user/protected-media.md): Spotify, Netflix
+        /// and the other services whose DRM needs more than Chromium's Widevine open in a WebKit page. On by default.
+        var webKitProtectedMedia = true
         /// Onboarding's "Default browser" answer and the later reminder card (DefaultBrowserPrompt.swift).
         var defaultBrowser = DefaultBrowserState()
         /// Live Calendar (Calendar/CalendarCenter.swift): off until the person turns it on.
@@ -60,6 +63,7 @@ final class AppSettings: ObservableObject {
             unloadAfterMinutes = (try? c.decodeIfPresent(Int.self, forKey: .unloadAfterMinutes)) ?? d.unloadAfterMinutes
             pinnedExtensions = (try? c.decodeIfPresent([String: [String]].self, forKey: .pinnedExtensions)) ?? [:]
             pipAutomatic = (try? c.decodeIfPresent(Bool.self, forKey: .pipAutomatic)) ?? d.pipAutomatic
+            webKitProtectedMedia = (try? c.decodeIfPresent(Bool.self, forKey: .webKitProtectedMedia)) ?? d.webKitProtectedMedia
             pipSites = (try? c.decodeIfPresent([String: Bool].self, forKey: .pipSites)) ?? [:]
             linkRules = (try? c.decodeIfPresent([LinkRule].self, forKey: .linkRules)) ?? []
             externalLinks = (try? c.decodeIfPresent(ExternalLinkTarget.self, forKey: .externalLinks)) ?? d.externalLinks

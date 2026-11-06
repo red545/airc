@@ -51,6 +51,7 @@ extension SnapshotRunner {
             case "media": mkMediaShots(d)
             case "calls": mkCallShots(d)
             case "settings": mkSettingsShots(d)
+            case "drm": mkDRMShots(d)
             default: note("marketing: unknown part \(part)")
             }
         }

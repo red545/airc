@@ -137,6 +137,23 @@ final class AppTelemetry {
 
     static let didChange = Notification.Name("AircTelemetryDidChange")
 
+    #if AIRC_TESTING
+    /// The checks that read what Airc records (crash reports, Live Calendar, the update button) set up their own state:
+    /// in a run with telemetry off (`AIRC_TELEMETRY_ENABLED=0`, as the release suite runs) or a build without a key, this
+    /// run becomes record-only. Events then show in "See what Airc sends" and are never sent or kept on disk, as in any
+    /// scripted run. A run that already records (record-only, or a loopback mock) stays as it is. Returns the state it
+    /// replaced, if any.
+    @discardableResult
+    func recordOnlyForCheck() -> TelemetryResolution.State? {
+        guard !resolution.records, let context else { return nil }
+        let replaced = resolution.state
+        resolution = TelemetryResolution(state: .recordOnly, endpoint: resolution.endpoint, apiKey: resolution.apiKey)
+        Telemetry.shared.start(.init(resolution: resolution, context: context, directory: directory))
+        NotificationCenter.default.post(name: Self.didChange, object: self)
+        return replaced
+    }
+    #endif
+
     private func apply() {
         guard let app, let context else { return }
         let info = Bundle.main.infoDictionary ?? [:]

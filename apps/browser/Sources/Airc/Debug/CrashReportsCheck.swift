@@ -20,7 +20,7 @@ func aircCrashCheckMarker() -> Int { 42 }
 extension SnapshotRunner {
     func crashReportsScenario() {
         let folder = AppPaths.dataDirectory.appendingPathComponent("CrashFixture", isDirectory: true)
-        let resolution = AppTelemetry.shared.resolution
+        var resolution: TelemetryResolution { AppTelemetry.shared.resolution }
         let mock: MockPostHog? = {
             guard resolution.sends, let port = resolution.endpoint?.port.flatMap({ UInt16(exactly: $0) }) else { return nil }
             return MockPostHog(port: port)
@@ -30,6 +30,24 @@ extension SnapshotRunner {
         CrashCheckRecent.shared.start()
         if let mock {
             step { done in mock.start { _ in done() } }
+        }
+        // With telemetry off (the release suite's AIRC_TELEMETRY_ENABLED=0, or a build without a key) a crash report
+        // records nothing; then the check makes this run record-only (AppTelemetry.recordOnlyForCheck), as any scripted
+        // run is, for the rest. Nothing is sent either way.
+        if !resolution.records {
+            var off = ""
+            run { [self] in
+                off = "\(resolution.state)"
+                AppCrashReports.shared.receive([Self.syntheticMetricKitHang()])
+            }
+            wait(0.5)
+            run { [self] in
+                AppCrashReports.shared.drain()
+                check(recentExceptions().isEmpty && Telemetry.shared.status.pending == 0,
+                      "crash reports: with telemetry off (\(off)) a hang records nothing (\(recentExceptions().count))")
+                let was = AppTelemetry.shared.recordOnlyForCheck()
+                note("crash reports: record-only for the rest of the check (was \(was.map { "\($0)" } ?? "-"))")
+            }
         }
         run { [self] in
             check(resolution.records, "crash reports: telemetry records in this run (\(resolution.state))")

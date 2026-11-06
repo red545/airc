@@ -51,6 +51,8 @@ final class WindowController: NSObject, NSWindowDelegate {
     var themePopover: ThemePickerPanel?
     /// ⌘F's field over the page while open.
     var findBar: FindBarView?
+    /// "Spotify plays with Safari's engine" while it shows (ProtectedMediaUI.swift).
+    var protectedMediaToast: ProtectedMediaToastView?
     var extensionsPopover: NSPopover?
     /// The install review card while it's open (scripted runs answer it).
     var pendingExtensionReview: ExtensionInstallPanelHost?
@@ -198,6 +200,9 @@ final class WindowController: NSObject, NSWindowDelegate {
         setUpSplitFocus()
         DefaultBrowserReminder.attach(self)
         app?.promptCenter?.register(prompts)
+        #if canImport(AircCore)
+        if app?.engine is ChromiumEngine { ProtectedMedia.installWidevineProbe() }
+        #endif
         setUpMediaLibrary()
     }
 
@@ -265,6 +270,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         createProfilePanel?.layoutIn(page: card.frame)
         pendingExtensionReview?.layoutIn(page: card.frame)
         layoutFindBar()
+        layoutProtectedMediaToast()
         revealController?.layout()
         layoutPeek()
         prompts.layout()
@@ -698,10 +704,13 @@ final class WindowController: NSObject, NSWindowDelegate {
         }
         Perf.time("show.refreshChrome") { refreshChrome() }
         queueArchiveReschedule()
+        if previous != tabID { protectedMediaPageShown(tabID) }
     }
 
     func showEmpty(updatesRows: Bool = true) {
         if shownSplitID != nil { leaveSplitPresentation() }
+        protectedMediaToast?.dismiss()
+        protectedMediaToast = nil
         pageVisibilityChanged(hidden: shownTabID, shown: nil)
         shownTabID = nil
         scheduleSpareBarRefresh()
@@ -783,6 +792,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         }
         refreshChrome()
         queueArchiveReschedule()
+        if previous != tabID || !wasShowing { protectedMediaPageShown(tabID) }
         return true
     }
 
@@ -1383,6 +1393,40 @@ extension WindowController: EngineWindowDelegate {
     }
 
     func engineWindow(_ window: EngineWindow, tab: EngineTab, didChangeFullscreen fullscreen: Bool) {}
+
+    func engineWindowCanReplaceTabs(_ window: EngineWindow) -> Bool { true }
+
+    /// A page opened again in another engine (a DRM service's link in a Chromium page, the URL bar on a WebKit page;
+    /// docs/user/protected-media.md): the same tab shows the new page, in the same pane, with the same focus.
+    func engineWindow(_ window: EngineWindow, replace old: EngineTab, with new: EngineTab) -> Bool {
+        if let p = peek, p.page === old {
+            new.delegate = self
+            peek = Peek(page: new, view: p.view, openerTabID: p.openerTabID, closing: p.closing)
+            return true
+        }
+        guard let id = tabID(for: old) else { return false }
+        prompts.dropAll(for: old)
+        old.delegate = nil
+        tabIDByPage[ObjectIdentifier(old)] = nil
+        adopt(new, as: id)
+        if store.tab(id)?.isMuted == true { new.isMuted = true }
+        if findBar != nil, id == shownTabID { closeFind(refocusPage: false) }
+        if visibleTabIDs.contains(id) {
+            if let x = store.split(shownSplitID), let focused = shownTabID {
+                showSplit(x, focus: focused, focusPage: false, updatesRows: false)
+            } else {
+                engineWindow.activateTab(new)
+                app?.engine.setPictureInPictureWindowActive(new, active: self.window.isKeyWindow)
+            }
+        }
+        refreshRow(id)
+        if id == shownTabID {
+            prompts.refresh()
+            refreshChrome()
+            protectedMediaPageShown(id)
+        }
+        return true
+    }
 }
 
 extension WindowController: EngineTabDelegate {
@@ -1423,6 +1467,7 @@ extension WindowController: EngineTabDelegate {
     func tabDidChangeURL(_ tab: EngineTab) {
         pageChanged(tab, persist: true)
         prompts.pageNavigated(tab)
+        if let id = tabID(for: tab), id == shownTabID { protectedMediaPageShown(id) }
     }
     func tabDidChangeLoading(_ tab: EngineTab) { pageChanged(tab, persist: false) }
     func tabDidChangeFavicon(_ tab: EngineTab) { pageChanged(tab, persist: true) }

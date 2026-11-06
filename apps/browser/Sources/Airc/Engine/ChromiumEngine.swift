@@ -12,7 +12,11 @@ final class ChromiumEngine: BrowserEngine {
     }
     func routeExternalURL(_ url: URL) -> Bool { core.routeExternalURL(url.absoluteString) }
     let core: AircEngine
-    private var profiles: [ObjectIdentifier: ChromiumProfile] = [:]
+    private(set) var profiles: [ObjectIdentifier: ChromiumProfile] = [:]
+    /// The WebKit pages of DRM services (HybridEngine.swift, docs/user/protected-media.md): one persistent store per
+    /// profile, named from the data folder plus the profile.
+    lazy var webKit = WebKitEngine(ephemeral: CommandLine.arguments.contains("--ephemeral"),
+                                   storeScope: AppPaths.dataDirectory.standardizedFileURL.path)
     init() {
         precondition(Thread.isMainThread)
         guard let core = AircEngine.shared else {
@@ -238,14 +242,21 @@ final class ChromiumEngine: BrowserEngine {
     }
     /// Cleanup only: rejects default and any profile loaded during this engine session.
     func deleteUnloadedProfile(directory: String, completion: @escaping ([String: Any]) -> Void) {
-        core.deleteUnloadedProfile(directory: directory) { result in
-            completion(result as? [String: Any] ?? ["deleted": false, "reason": "invalid engine response"])
+        core.deleteUnloadedProfile(directory: directory) { [self] result in
+            let result = result as? [String: Any] ?? ["deleted": false, "reason": "invalid engine response"]
+            if result["deleted"] as? Bool == true { deleteWebKitData(directory: directory) { _ in } }
+            completion(result)
         }
     }
     func deleteProfile(_ profile: EngineProfile, completion: @escaping (Bool) -> Void) {
         guard let profile = profile as? ChromiumProfile else { completion(false); return }
+        let directory = profile.directory
         core.delete(profile.core) { [self] accepted in
-            if accepted { profiles.removeValue(forKey: ObjectIdentifier(profile.core)) }
+            if accepted {
+                // Its WebKit pages' cookies and storage go with it.
+                deleteWebKitData(directory: directory) { _ in }
+                profiles.removeValue(forKey: ObjectIdentifier(profile.core))
+            }
             completion(accepted)
         }
     }
@@ -259,8 +270,10 @@ final class ChromiumEngine: BrowserEngine {
     }
 }
 
-private final class ChromiumProfile: EngineProfile {
+final class ChromiumProfile: EngineProfile {
     let core: AircProfile
+    /// Its WebKit pages' profile and observers (HybridEngine.swift).
+    let hybrid = HybridProfileState()
     init(_ core: AircProfile) { self.core = core }
     var directory: String { URL(fileURLWithPath: core.path).lastPathComponent }
     func warmSpareRenderer() { core.warmSpareRenderer() }
@@ -270,9 +283,12 @@ private final class ChromiumProfile: EngineProfile {
     }
 }
 
-private final class ChromiumWindow: NSObject, EngineWindow, AircWindowDelegate {
+final class ChromiumWindow: NSObject, EngineWindow, AircWindowDelegate {
     let engine: ChromiumEngine
     let core: AircWindow
+    /// Its WebKit pages (HybridEngine.swift): the EngineWindow calls below choose an engine per page and go to the
+    /// Chromium-only ones (`openChromiumTab`…) or to this.
+    lazy var webKit = HybridWebKitSide(window: self)
     // Identity must survive callbacks; UI owns tab models independently of the active page.
     private var wrappedTabs: [ObjectIdentifier: ChromiumTab] = [:]
     private var selected: ChromiumTab?
@@ -305,7 +321,7 @@ private final class ChromiumWindow: NSObject, EngineWindow, AircWindowDelegate {
         wrappedTabs[key] = result
         return result
     }
-    func openTab(url: URL?, profile: EngineProfile, foreground: Bool) -> EngineTab {
+    func openChromiumTab(url: URL?, profile: EngineProfile, foreground: Bool) -> EngineTab {
         guard let chromiumProfile = profile as? ChromiumProfile else {
             return FailedChromiumTab(profile: profile, url: url)
         }
@@ -323,14 +339,15 @@ private final class ChromiumWindow: NSObject, EngineWindow, AircWindowDelegate {
         if foreground { activateTab(result) }
         return result
     }
-    func presentPanes(_ panes: [(tab: EngineTab, host: NSView)], focused: EngineTab) throws {
+    /// The Chromium panes of a split (HybridEngine.swift checks the whole split first); `focused` may be another
+    /// engine's page.
+    func presentChromiumPanes(_ panes: [(tab: EngineTab, host: NSView)], focused: EngineTab) throws {
         let tabs = panes.compactMap { $0.tab as? ChromiumTab }
-        guard (1...4).contains(panes.count), tabs.count == panes.count,
+        guard panes.count <= 4, tabs.count == panes.count,
               Set(tabs.map { ObjectIdentifier($0) }).count == panes.count,
               Set(panes.map { ObjectIdentifier($0.host) }).count == panes.count,
               tabs.allSatisfy({ $0.owner === self && !$0.isClosed }),
-              panes.allSatisfy({ $0.host.window === window }),
-              tabs.contains(where: { $0 === focused }) else {
+              panes.allSatisfy({ $0.host.window === window }) else {
             throw EngineHostingError.rejected("invalidPanes")
         }
         for tab in wrappedTabs.values where !tabs.contains(where: { $0 === tab }) {
@@ -340,15 +357,15 @@ private final class ChromiumWindow: NSObject, EngineWindow, AircWindowDelegate {
             tabs[index].core.independentZoom = true
             tabs[index].core.attach(to: pane.host)
         }
-        focusPane(focused)
+        if tabs.contains(where: { $0 === focused }) { focusChromiumPane(focused) } else { selected = nil }
     }
-    func focusPane(_ tab: EngineTab) {
+    func focusChromiumPane(_ tab: EngineTab) {
         guard let tab = tab as? ChromiumTab, tab.owner === self, tab.core.pageVisible else { return }
         selected = tab
         core.activate(tab.core)
         tab.core.focus()
     }
-    func moveTab(_ tab: EngineTab, profile: EngineProfile, to host: NSView) throws {
+    func moveChromiumTab(_ tab: EngineTab, profile: EngineProfile, to host: NSView) throws {
         guard let tab = tab as? ChromiumTab, let profile = profile as? ChromiumProfile else {
             throw EngineHostingError.rejected("wrongEngine")
         }
@@ -363,7 +380,7 @@ private final class ChromiumWindow: NSObject, EngineWindow, AircWindowDelegate {
         tab.owner = self
         wrappedTabs[key] = tab
     }
-    func openPeek(url: URL, opener: EngineTab, in host: NSView) throws -> EngineTab {
+    func openChromiumPeek(url: URL, opener: EngineTab, in host: NSView) throws -> EngineTab {
         guard let opener = opener as? ChromiumTab,
               let tab = core.openPeek(url: url.absoluteString, opener: opener.core, in: host) else {
             throw EngineHostingError.rejected("invalidPeek")
@@ -371,9 +388,9 @@ private final class ChromiumWindow: NSObject, EngineWindow, AircWindowDelegate {
         guard let result = wrap(tab) else { throw EngineHostingError.rejected("closedTab") }
         return result
     }
-    func activateTab(_ tab: EngineTab) {
+    func activateChromiumTab(_ tab: EngineTab) {
         if let failed = tab as? FailedChromiumTab {
-            deactivateAll()
+            deactivateChromium()
             failed.view.frame = hostView.bounds
             failed.view.autoresizingMask = [.width, .height]
             hostView.addSubview(failed.view)
@@ -388,13 +405,19 @@ private final class ChromiumWindow: NSObject, EngineWindow, AircWindowDelegate {
         tab.core.attach(to: hostView)
         // Do not steal first responder from the command bar. UI calls focus() explicitly.
     }
-    func deactivateAll() {
+    func deactivateChromium() {
         core.closeActionPopup()
         wrappedTabs.values.forEach { $0.core.setPageVisible(false) }
         core.activeProfile = nil
         selected = nil
     }
-    func tabs(for profile: EngineProfile) -> [EngineTab] {
+    /// Hides every Chromium page but keeps the active profile (a WebKit page is shown).
+    func hideChromiumPages() {
+        core.closeActionPopup()
+        wrappedTabs.values.forEach { $0.core.setPageVisible(false) }
+        selected = nil
+    }
+    func chromiumTabs(for profile: EngineProfile) -> [EngineTab] {
         guard let profile = profile as? ChromiumProfile else { return [] }
         return core.tabs(for: profile.core).compactMap(wrap)
     }
@@ -408,6 +431,8 @@ private final class ChromiumWindow: NSObject, EngineWindow, AircWindowDelegate {
     }
     func window(_ window: AircWindow, didInsert tab: AircTab, opener: AircTab?, disposition: String) {
         guard let result = wrap(tab) else { return }
+        result.isPopup = disposition == "popup"
+        if disposition == "foreground_tab" || disposition == "background_tab" { result.getNavigationStarted = Date() }
         let source = opener.flatMap(wrap)
         // TabStripModel observers cannot synchronously mutate the tab strip.
         DispatchQueue.main.async { [weak self] in
@@ -428,7 +453,7 @@ private final class ChromiumWindow: NSObject, EngineWindow, AircWindowDelegate {
     }
     fileprivate func pageClosed(_ tab: ChromiumTab) {
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
+            guard let self, !tab.retired else { return }
             self.delegate?.engineWindow(self, tabRequestedClose: tab)
         }
     }
@@ -436,6 +461,8 @@ private final class ChromiumWindow: NSObject, EngineWindow, AircWindowDelegate {
         guard let tab = wrap(tab) else { return }
         delegate?.engineWindow(self, tab: tab, didChangeFullscreen: fullscreen)
     }
+    /// A key the page didn't use, before the engine tries the main menu (Chrome's delayed ⌘← ⌘→, Commands.swift).
+    func window(_ window: AircWindow, handleKeyEvent event: NSEvent) -> Bool { KeyMonitor.pageDidNotUse(event) }
 }
 
 // Preserve the nonoptional EngineWindow contract without creating a page in the
@@ -478,10 +505,17 @@ private final class FailedChromiumTab: EngineTab {
     func close() {}
 }
 
-private final class ChromiumTab: NSObject, EngineTab, AircTabDelegate {
+final class ChromiumTab: NSObject, EngineTab, AircTabDelegate {
     let core: AircTab
     let profile: EngineProfile
     weak var owner: ChromiumWindow?
+    /// Replaced by a WebKit page (HybridEngine.swift): its close isn't reported.
+    var retired = false
+    /// Opened by a page as a popup: it keeps Chromium (its opener talks to it).
+    var isPopup = false
+    /// When this page last started a navigation known to be a GET (a link, the URL bar, a new tab's address): a
+    /// redirect from it to a DRM service moves the page to WebKit (HybridEngine.swift); a form's POST result never does.
+    var getNavigationStarted: Date?
     weak var delegate: EngineTabDelegate?
     init(core: AircTab, profile: EngineProfile, owner: ChromiumWindow) {
         self.core = core
@@ -526,7 +560,7 @@ private final class ChromiumTab: NSObject, EngineTab, AircTabDelegate {
     func go(offset: Int) { core.go(toOffset: Int32(offset)) }
     func zoom(step: Int) { core.zoomStep(Int32(step.signum())) }
     var zoomFactor: Double { core.zoomFactor }
-    private(set) var toolsPanel: ChromiumToolsPanel?
+    fileprivate private(set) var toolsPanel: ChromiumToolsPanel?
     func showDevTools(console: Bool) -> Bool {
         guard !isClosed else { return false }
         if !console, toolsPanel != nil { dismissDevTools(); return true }
@@ -643,8 +677,14 @@ private final class ChromiumTab: NSObject, EngineTab, AircTabDelegate {
         owner?.engine.usesHostPasswordSuggestions == true
     }
     func tabDidChangeTitle(_ tab: AircTab) { delegate?.tabDidChangeTitle(self) }
-    func tabDidChangeURL(_ tab: AircTab) { delegate?.tabDidChangeURL(self) }
-    func tabDidChangeLoading(_ tab: AircTab) { delegate?.tabDidChangeLoading(self) }
+    func tabDidChangeURL(_ tab: AircTab) {
+        delegate?.tabDidChangeURL(self)
+        owner?.chromiumPageCommitted(self)
+    }
+    func tabDidChangeLoading(_ tab: AircTab) {
+        if !tab.loading { getNavigationStarted = nil }   // that navigation is over; a later POST's result stays
+        delegate?.tabDidChangeLoading(self)
+    }
     func tabDidChangeProgress(_ tab: AircTab) { delegate?.tabDidChangeLoading(self) }
     func tab(_ tab: AircTab, didShowAutofillSuggestions items: [[String: String]]) {
         owner?.engine.autofillSuggestionsDidChange?(self, items)
@@ -714,12 +754,16 @@ final class ChromiumRuntime: NSObject, AircEngineDelegate {
     static var linkRouter: ((EngineLinkRequest) -> Bool)?
     func engine(_ engine: AircEngine, routeLink request: [String: Any], opener: AircTab?) -> Bool {
         guard let raw = request["url"] as? String, let url = URL(string: raw) else { return false }
-        return Self.linkRouter?(EngineLinkRequest(url: url,
+        let link = EngineLinkRequest(url: url,
             source: request["source"] as? String ?? "page",
             disposition: request["disposition"] as? String ?? "foreground_tab",
             sourceBundleID: request["sourceBundleID"] as? String,
             userGesture: request["userGesture"] as? Bool ?? false,
-            opener: opener?.delegate as? ChromiumTab)) ?? false
+            opener: opener?.delegate as? ChromiumTab)
+        if Self.linkRouter?(link) == true { return true }
+        // A page's link to a DRM service plays in WebKit (HybridEngine.swift).
+        guard link.source == "page", let page = link.opener as? ChromiumTab, let window = page.owner else { return false }
+        return window.routeToWebKit(link, from: page)
     }
     private let started: () -> Void
     init(started: @escaping () -> Void) { self.started = started }

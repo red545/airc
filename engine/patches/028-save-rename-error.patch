@@ -1,0 +1,11 @@
+--- a/content/browser/download/save_file_manager.cc
++++ b/content/browser/download/save_file_manager.cc
+@@ -5,2 +5,3 @@
+ #include "content/browser/download/save_file_manager.h"
++#include "airc/core/airc_save_file.h"  // nogncheck
+ 
+@@ -616,3 +617,3 @@
+       CHECK(!save_file->InProgress(), base::NotFatalUntil::M159);
+-      save_file->Rename(final_name);
++      airc::RenameSaveFile(save_file, final_name, render_process_id, render_frame_routing_id, save_package_id);
+       save_file_map_.erase(it);

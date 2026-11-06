@@ -272,6 +272,30 @@ final class ItemSplitTests: XCTestCase {
         XCTAssertEqual(paneURLs(s, id).count, 3)
     }
 
+    func testATabDroppedOntoAFavoriteSplitsTileIsOneMorePane() throws {
+        let s = try makeStore()
+        let (sp, id, _, b) = try pinnedSplit(s)
+        let pid = s.profile(ofSpace: sp).id
+        try s.move(.item(id), to: .favorites(profileID: pid, index: 0))
+        XCTAssertEqual(s.item(id)?.isFavorite, true)
+        // Closed, then open: the tile's left half puts it first, the right half last.
+        _ = try s.closeTab(b)
+        let lead = try s.openTab(url: "https://lead.test/", inSpace: sp)
+        try s.move(.tab(lead.id), to: .split(spaceID: sp, target: id, leading: true))
+        XCTAssertEqual(paneURLs(s, id), ["https://lead.test/", "https://left.test/", "https://right.test/"])
+        XCTAssertFalse(s.tab(lead.id)!.isToday, "the tab is a pane of the Favorite now")
+        XCTAssertEqual(s.item(id)?.splitLayout?.focusedItemID, s.tab(lead.id)?.itemID)
+        _ = try s.openItem(id, inSpace: sp)
+        let tail = try s.openTab(url: "https://tail.test/", inSpace: sp)
+        try s.move(.tab(tail.id), to: .split(spaceID: sp, target: id, leading: false))
+        XCTAssertEqual(paneURLs(s, id).last, "https://tail.test/")
+        XCTAssertEqual(s.favorites(ofProfile: pid).map(\.id), [id], "still one Favorite")
+        // Four is the limit.
+        let fifth = try s.openTab(url: "https://fifth.test/", inSpace: sp)
+        XCTAssertThrowsError(try s.move(.tab(fifth.id), to: .split(spaceID: sp, target: id, leading: false)))
+        XCTAssertTrue(s.tab(fifth.id)!.isToday)
+    }
+
     func testLayoutEditsAreSavedOnTheItem() throws {
         let s = try makeStore()
         let (_, id, a, b) = try pinnedSplit(s)

@@ -119,6 +119,17 @@
     "next": true
   },
   {
+    "id": "streaming",
+    "title": "Streaming in Safari's engine",
+    "body": "Spotify, Netflix, Disney+ and five more open in a Safari-engine page with Apple's FairPlay. Signed-in playback is still being tested.",
+    "specs": [],
+    "checks": [
+      "^drm",
+      "^fairplay"
+    ],
+    "next": true
+  },
+  {
     "id": "archive",
     "title": "Auto-archive and Library",
     "body": "Today's tabs archive on a timer you choose, and stay searchable in the Library.",

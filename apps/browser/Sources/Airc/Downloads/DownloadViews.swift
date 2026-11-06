@@ -246,18 +246,20 @@ final class DownloadPrompts {
     }
 
     /// Above whatever sits on top of the sidebar's footer (the tray, else the update pill), inset like its rows, so the
-    /// card never covers the pill and both take clicks; with the sidebar hidden, at the page's bottom-left.
+    /// card never covers the pill and both take clicks; the same over the hidden sidebar while it's revealed (it follows
+    /// the sidebar in and out, SidebarRevealController); with the sidebar hidden, at the page's bottom-left.
     func layout() {
         guard let c = controller, let b = bubble else { return }
         let size = b.fittingCardSize
         let tray = c.sidebar.tray, update = c.sidebar.update
+        let shown = c.sidebarFraction >= 1 || c.revealController?.isRevealed == true
         let anchor: NSRect
-        if c.sidebarFraction >= 1, c.library == nil, tray.height > 0 || update.height > 0 {
+        if shown, c.library == nil, tray.height > 0 || update.height > 0 {
             // The tray sits above the pill, so its top is the higher of the two. Both views' heights include their
             // 6 pt top inset: the card keeps the rows' 12 pt from the content under it, as above the tray.
             let top: NSView = tray.height > 0 ? tray : update
             anchor = c.root.convert(top.bounds, from: top)
-        } else if c.sidebarFraction >= 1 {
+        } else if shown {
             anchor = c.root.convert(c.sidebar.footer.bounds, from: c.sidebar.footer)
         } else {
             anchor = NSRect(x: c.card.frame.minX, y: c.card.frame.maxY - 10, width: 0, height: 0)
@@ -359,15 +361,24 @@ struct DownloadCard: View {
         Text(n == 1 ? "Closing now cancels it." : "Closing now cancels them.")
             .aircFont(AircFont.callout).foregroundStyle(ui.surfaceTextSecondary.color)
             .padding(.top, 10)
-        HStack(spacing: 8) {
-            Spacer(minLength: 0)
-            Button(n == 1 ? "Cancel Download" : "Cancel Downloads") { model.onAnswer?(.closeAnyway) }
-                .buttonStyle(.airc(.secondary)).testAnchor("download.closeAnyway")
-            Button("Keep Downloading") { model.onAnswer?(.keepDownloading) }
-                .buttonStyle(.airc(.primary)).keyboardShortcut(.defaultAction).testAnchor("download.keepDownloading")
+        // Side by side only when both labels fit whole (the card is 300 pt; "Cancel Downloads" and "Keep Downloading"
+        // don't), else stacked at the trailing edge, as the update question's buttons.
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) { Spacer(minLength: 0); cancelDownloads(n); keepDownloading }
+            VStack(alignment: .trailing, spacing: 6) { cancelDownloads(n); keepDownloading }.frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.top, 14)
         .onExitCommand { model.onAnswer?(.keepDownloading) }
+    }
+
+    private func cancelDownloads(_ n: Int) -> some View {
+        Button(n == 1 ? "Cancel Download" : "Cancel Downloads") { model.onAnswer?(.closeAnyway) }
+            .buttonStyle(.airc(.secondary)).testAnchor("download.closeAnyway")
+    }
+
+    private var keepDownloading: some View {
+        Button("Keep Downloading") { model.onAnswer?(.keepDownloading) }
+            .buttonStyle(.airc(.primary)).keyboardShortcut(.defaultAction).testAnchor("download.keepDownloading")
     }
 }
 

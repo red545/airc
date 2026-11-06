@@ -28,7 +28,10 @@ Apache License 2.0; modified by The Airc Authors.
 
 packages/AircKit/Sources/AircKit/ProtectedMedia.swift: the DRM-site rules are adapted from Cra's
 ProtectedMedia.swift (https://github.com/VictorKildahl/cra), Copyright (c) 2026 Victor Kildahl,
-MIT License; the full notice is kept in that file.
+MIT License; the full notice is kept in that file. apps/browser/Sources/Airc/Engine/WebKitEngine.swift:
+Safari's user-agent token and the picture in picture preference are adapted from Cra's WebKitBrowser.swift,
+same copyright and licence. The protected-media design (docs/user/protected-media.md) follows Cra's
+docs/protected-media.md.
 
 packages/AircKit/Resources/public_suffix_list.dat: the Public Suffix List (https://publicsuffix.org/list/),
 Mozilla Public License 2.0 (https://mozilla.org/MPL/2.0/), as shipped with Chromium

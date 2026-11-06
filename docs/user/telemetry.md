@@ -21,6 +21,7 @@ ranges (0, 1, 2-7, 8-30 …).
 | `import.arc` | an Arc import | success or failure; Spaces, tabs and profiles in ranges; whether logins came over |
 | `feature.used` | a feature is used | the feature's name, and for some a variant from a fixed list (below) |
 | `perf.daily` | once per day | Command Bar opening time (median and 95th percentile, in ranges), memory use and background CPU, in ranges |
+| `process.gone` | a tab's page process (its renderer) ends abnormally ("Aw, Snap") | the kind of process and the signal that ended it (for example `SIGSEGV`), never the tab, its page or its site |
 
 The features: the Command Bar (new tab or edit URL), split view (made with 2, 3 or 4 panes, pinned, made a
 Favorite), Peek (opened, opened as a tab), Little Arc (from the shortcut or a link from another app), picture in
@@ -46,21 +47,30 @@ event anonymous (`$process_person_profile: false`), so PostHog keeps no profile 
 
 ## Crash reports
 
-When Airc or one of its helper processes (a page's renderer, the GPU process) crashes, macOS writes a crash report on
-your Mac. At the next launch, Airc sends its own new crash reports to PostHog's error tracking as `$exception` events,
-with the same random ID and build details as the usage events. If **Share with app developers** is on in macOS
-(**System Settings → Privacy & Security → Analytics & Improvements**), macOS also hands Airc reports of hangs and of
-too much CPU or disk use (MetricKit), and Airc sends those the same way.
+When Airc or one of its helper processes (a page's renderer, the GPU process) crashes, macOS usually writes a crash
+report on your Mac. Airc's main process is often too big for macOS to report, so Airc also writes a small crash record
+of its own the moment it crashes, in `CrashRecords` in its data folder (the last three are kept, and every build writes
+them). At the next launch, Airc sends its own new crash reports to PostHog's error tracking as `$exception` events,
+with the same random ID and build details as the usage events. A crash that both macOS and Airc recorded is sent once:
+the two are matched by build, time and process, and macOS's report goes when it's there. If **Share with app
+developers** is on in macOS (**System Settings → Privacy & Security → Analytics & Improvements**), macOS also hands
+Airc reports of hangs and of too much CPU or disk use (MetricKit), and Airc sends those the same way.
 
 A crash report carries:
 
 - the crashed thread's stack: for each frame, the binary it's in, the offset into it, and the function name macOS
-  worked out;
+  worked out (Airc's own record has no names: PostHog finds them, below);
 - the names of those binaries (only Airc's own, Sparkle's and macOS's; any other binary shows as `other`), their
   UUIDs and where they were loaded;
-- the exception type, signal and termination code (for example `EXC_BAD_ACCESS`, `SIGSEGV`), and which process it
-  was (the browser, a renderer, the GPU process, another helper);
-- the Airc version and build that crashed, and the macOS version (for example 26.6).
+- the exception type, signal, the signal's code and termination code (for example `EXC_BAD_ACCESS`, `SIGSEGV`), and
+  which process it was (the browser, a renderer, the GPU process, another helper);
+- the Airc version and build that crashed, and the macOS version (for example 26.6);
+- where the report came from (`crash_source`: `signal` for Airc's own record, `ips` for macOS's, `metrickit`).
+
+Airc's own record holds no more than that: the build, the signal, its code and the address that faulted, the crashed
+thread's return addresses, and the name, UUID and load address of each of Airc's and macOS's binaries those fall in.
+The faulting address and the process ID stay on your Mac, as they do from macOS's reports: Airc uses them only to tell
+one crash from another.
 
 It never carries file paths (they can hold your user name: binaries go by their file name only), the environment,
 thread or queue names, the crash or exception message (it can quote a web address or what a page held), registers or
@@ -70,6 +80,8 @@ never sent. The strings in a report (binary and function names) are checked agai
 (`packages/AircKit/Tests/AircKitTests/CrashReportTests.swift`) fails on any key or value outside a strict list.
 
 PostHog turns the offsets into function names and source lines with Airc's debug symbols, which the build uploads.
+When a tab's page process ends abnormally, Airc also counts it (`process.gone`, in the table above) with only the kind
+of process and the signal.
 Crash reports show in **See what Airc sends** like every other event. To stop sending them, switch off **Share
 anonymous usage data** (below): the same switch covers both.
 
@@ -117,7 +129,8 @@ Recording only hands the event to Airc's telemetry queue; it is safe on the main
 allowlist in `packages/AircKit/Tests/AircKitTests/TelemetryEventTests.swift` and to this page. Numbers go through
 `TelemetryBucket`; never add a case that takes a `String`.
 
-A crash report is a `CrashReport` (`Telemetry/CrashReport.swift`), parsed from an `.ips` file or a MetricKit payload
-and recorded with `Telemetry.shared.record(report)`. A new field goes through a format check there and into the
+A crash report is a `CrashReport` (`Telemetry/CrashReport.swift`), parsed from an `.ips` file, a MetricKit payload or
+one of Airc's signal records (written by `apps/browser/Sources/AircCrashLog/CrashLog.c`, async-signal-safe, in every
+build) and recorded with `Telemetry.shared.record(report)`. A new field goes through a format check there and into the
 allowlist in `CrashReportTests.swift`. A published build keeps its dSYMs in `build/dSYMs` on the build Mac
 (`scripts/build-app.sh`), and `infra/updates/upload-symbols.sh` sends new ones to PostHog after each publish.
