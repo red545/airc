@@ -53,6 +53,11 @@ NS_ASSUME_NONNULL_BEGIN
     castRoutes:(NSArray<NSDictionary<NSString*, NSString*>*>*)routes
        profile:(AircProfile*)profile;
 @optional
+// Main thread; abnormal GPU/utility exits only, never normal shutdown. Closed labels:
+// gpu, network, storage, audio, utility:data_decoder, utility:video_capture, other.
+// status is base::TerminationStatus; exitCode is the POSIX wait status on macOS.
+- (void)engine:(AircEngine*)engine childProcessGone:(NSString*)type
+       status:(int)status exitCode:(int)code;
 // Synchronous routing policy. YES consumes the request; schedule any tab mutations
 // on the next main-loop turn. NO preserves Chromium navigation/popup semantics.
 // request: url, disposition, userGesture, source (page/external), and optional

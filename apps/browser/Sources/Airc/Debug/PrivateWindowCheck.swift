@@ -272,6 +272,8 @@ extension SnapshotRunner {
             server?.stop()
         }
         wait(1)
+        // Find, the page's shortcuts first and downloads (PrivateWindowExtrasCheck.swift).
+        privateWindowExtrasScenario()
     }
 
     /// Waits until `tab()` shows `title`, loaded.
@@ -322,11 +324,13 @@ extension SnapshotRunner {
     func privateWindowImage(_ w: PrivateWindowController, _ done: @escaping (NSImage?) -> Void) {
         w.root.layoutSubtreeIfNeeded()
         w.root.displayIfNeeded()
-        let overlays: [NSView] = [w.commandBar].compactMap { $0 }
-        overlays.forEach { $0.isHidden = true }
+        // Over the page's own snapshot: the Command Bar (left out of the base) and the find field (kept in it: hiding
+        // it would take the keyboard from its field).
+        let hidden: [NSView] = [w.commandBar].compactMap { $0 }
+        hidden.forEach { $0.isHidden = true }
         let base = render(w.root.superview ?? w.root)
-        overlays.forEach { $0.isHidden = false }
-        let bars = overlays.map { ($0.frame, render($0)) }
+        hidden.forEach { $0.isHidden = false }
+        let bars = (hidden + [w.findBar].compactMap { $0 }).map { ($0.frame, render($0)) }
         let cardFrame = w.card.frame, size = w.root.bounds.size
         let draw = { (page: NSImage?) in
             let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2), pixelsHigh: Int(size.height * 2), bitsPerSample: 8,

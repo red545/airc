@@ -77,6 +77,20 @@ final class FindBarView: NSView, NSSearchFieldDelegate {
 
     @objc private func changed() { find(forward: true) }
 
+    #if canImport(AircCore)
+    /// Chromium reports which match is active as the page moves between them: the bar of the window showing that
+    /// page (the main window or a private one) shows "2 of 5".
+    static func routeFindState(_ tab: EngineTab, _ state: [String: Any]) {
+        let c = (NSApp.delegate as? AppDelegate)?.controller
+        let bar = c.flatMap { c in c.shownTabID.flatMap { c.engineTab(for: $0) } === tab ? c.findBar : nil }
+            ?? PrivateBrowsing.shared.windows.first { $0.shownPage === tab }?.findBar
+        guard let bar, (state["text"] as? String) == bar.field.stringValue else { return }
+        let matches = (state["matches"] as? NSNumber)?.intValue ?? 0
+        let active = (state["active"] as? NSNumber)?.intValue ?? 0
+        bar.setStatus(found: matches > 0, matches: matches, active: active)
+    }
+    #endif
+
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch selector {
         case #selector(NSResponder.cancelOperation(_:)):
@@ -104,14 +118,7 @@ extension WindowController {
         let bar = FindBarView(palette: currentPalette)
         bar.onFind = { [weak self] text, forward in self?.find(text, forward: forward) }
         #if canImport(AircCore)
-        // Chromium reports which match is active as the page moves between them.
-        (app?.engine as? ChromiumEngine)?.findStateDidChange = { [weak self] tab, state in
-            guard let self, let bar = self.findBar, let id = self.shownTabID, self.engineTab(for: id) === tab,
-                  (state["text"] as? String) == bar.field.stringValue else { return }
-            let matches = (state["matches"] as? NSNumber)?.intValue ?? 0
-            let active = (state["active"] as? NSNumber)?.intValue ?? 0
-            bar.setStatus(found: matches > 0, matches: matches, active: active)
-        }
+        (app?.engine as? ChromiumEngine)?.findStateDidChange = FindBarView.routeFindState
         #endif
         bar.onClose = { [weak self] in self?.closeFind(refocusPage: true) }
         findBar = bar

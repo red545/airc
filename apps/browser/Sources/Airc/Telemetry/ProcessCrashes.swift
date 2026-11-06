@@ -12,23 +12,33 @@ final class ProcessCrashes {
     static let shared = ProcessCrashes()
     static let maxPerLaunch = 20
 
-    private var last: (exit: TelemetryEvent.ExitSignal, at: Date)?   // main thread
+    private var last: (process: TelemetryEvent.ChildProcess, exit: TelemetryEvent.ExitSignal, at: Date)?   // main thread
     private var sent = 0
 
     /// Main thread.
     func rendererGone(status: String, waitStatus: Int32) {
+        gone(process: .renderer, waitStatus: waitStatus)
+    }
+
+    func gone(process: TelemetryEvent.ChildProcess, waitStatus: Int32) {
         let exit = TelemetryEvent.ExitSignal(waitStatus: waitStatus)
         let now = Date()
-        if let last, last.exit == exit, now.timeIntervalSince(last.at) < 1 { return }
-        last = (exit, now)
+        if let last, last.process == process, last.exit == exit, now.timeIntervalSince(last.at) < 1 { return }
+        last = (process, exit, now)
         guard sent < Self.maxPerLaunch else { return }
         sent += 1
-        Telemetry.shared.record(.processGone(process: .renderer, exit: exit))
+        Telemetry.shared.record(.processGone(process: process, exit: exit))
     }
 }
 
 #if canImport(AircCore)
 import AircCore
+
+extension ChromiumRuntime {
+    @objc func engine(_ engine: AircEngine, childProcessGone type: String, status: Int32, exitCode: Int32) {
+        ProcessCrashes.shared.gone(process: .init(engineType: type), waitStatus: exitCode)
+    }
+}
 
 extension ChromiumTab {
     /// The engine's report that this tab's renderer process died (status: crashed, killed, oom, abnormal …; code: the

@@ -53,6 +53,7 @@ extension SnapshotRunner {
             case "settings": mkSettingsShots(d)
             case "drm": mkDRMShots(d)
             case "basics": mkBasicsShots(d)
+            case "previews": mkPreviewShots(d)
             default: note("marketing: unknown part \(part)")
             }
         }

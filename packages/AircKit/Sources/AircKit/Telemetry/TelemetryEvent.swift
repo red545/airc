@@ -44,7 +44,13 @@ public enum TelemetryEvent: Sendable, Equatable {
     }
 
     public enum ChildProcess: String, Sendable, CaseIterable {
-        case renderer
+        case renderer, gpu, network, storage, audio, other
+        case dataDecoder = "utility:data_decoder"
+        case videoCapture = "utility:video_capture"
+
+        public init(engineType: String) {
+            self = Self(rawValue: engineType) ?? .other
+        }
     }
 
     /// How a child process ended: the signal that ended it, or `exit` for an exit code of its own.
@@ -179,7 +185,7 @@ public enum TelemetryEvent: Sendable, Equatable {
             if let v = d.idleCPUPercent { p["idle_cpu_pct"] = .string(TelemetryBucket.percent(v)) }
             return p
         case let .processGone(process, exit):
-            return ["process": .string(process.rawValue), "exit_signal": .string(exit.rawValue)]
+            return ["process_type": .string(process.rawValue), "exit_signal": .string(exit.rawValue)]
         }
     }
 }
@@ -224,6 +230,8 @@ public enum TelemetryFeature: Sendable, Equatable {
     case boostSaved
     /// A private window opened (⇧⌘N). Nothing about its pages, ever.
     case privateWindowOpen
+    /// A tab preview card's quick action (SB-45). Never the tab, its site or its title.
+    case tabPreviewAction(TabPreviewAction)
     /// The one manual smoke event that checks a new key end to end.
     case telemetrySmoke
 
@@ -245,6 +253,10 @@ public enum TelemetryFeature: Sendable, Equatable {
 
     public enum DefaultBrowserAction: String, Sendable, CaseIterable {
         case shown, accepted, declined
+    }
+
+    public enum TabPreviewAction: String, Sendable, CaseIterable {
+        case pin, unpin, favorite, unfavorite, split, peek
     }
 
     /// The `feature` property.
@@ -277,6 +289,7 @@ public enum TelemetryFeature: Sendable, Equatable {
         case .updateRestartClicked: "update.restart_clicked"
         case .boostSaved: "boost.save"
         case .privateWindowOpen: "private_window.open"
+        case .tabPreviewAction: "tab_preview.action"
         case .telemetrySmoke: "telemetry.smoke"
         }
     }
@@ -290,6 +303,7 @@ public enum TelemetryFeature: Sendable, Equatable {
         case let .pictureInPicture(k): k.rawValue
         case let .historyMenu(d): d.rawValue
         case let .defaultBrowser(a): a.rawValue
+        case let .tabPreviewAction(a): a.rawValue
         default: nil
         }
     }

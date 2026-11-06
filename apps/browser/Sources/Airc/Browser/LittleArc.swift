@@ -424,6 +424,35 @@ final class LittleArcController: NSObject, NSWindowDelegate {
 
     private func bringForward(_ w: NSWindow) {
         if app?.options.isAutomated == true { w.orderFront(nil) } else { w.makeKeyAndOrderFront(nil); NSApp.activate() }
+        if w === window { staysInFrontOfTheEngine() }
+    }
+
+    /// The engine hangs an invisible dialog anchor on every window that hosts its pages (WindowHost::UpdateModalParent:
+    /// a child window, shown inactive). Attaching it to a Little Arc window that was just brought forward sends the
+    /// window behind the browser window (Chromium only, ship runs 2026-11-06): the link opened out of sight, and a click
+    /// on it landed on the browser window. So for a moment after it's brought forward, a Little Arc window found behind
+    /// the browser window comes to the front again, until another of our windows takes the key. Called when a link
+    /// opens it and when it comes back.
+    func staysInFrontOfTheEngine(until deadline: Date = Date().addingTimeInterval(1.5)) {
+        guard app?.engine.name.hasPrefix("Chromium") == true, window.isVisible, !isMiniPlayer else { return }
+        if let key = NSApp.keyWindow, key !== window { return }
+        if let browser = main?.window, Self.isBehind(window, browser) {
+            window.orderFront(nil)
+            LinkLog.write("Little Arc: behind the browser window as the engine attached its anchor; in front again")
+        }
+        guard Date() < deadline else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in self?.staysInFrontOfTheEngine(until: deadline) }
+    }
+
+    /// `w` is below `other` as the window server orders this app's windows on screen (AppKit's own list can lag behind
+    /// while a window animates in).
+    static func isBehind(_ w: NSWindow, _ other: NSWindow) -> Bool {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return false }
+        let order = list.compactMap { d -> Int? in
+            (d[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == getpid() ? (d[kCGWindowNumber as String] as? NSNumber)?.intValue : nil
+        }
+        guard let mine = order.firstIndex(of: w.windowNumber), let theirs = order.firstIndex(of: other.windowNumber) else { return false }
+        return mine > theirs
     }
 
     // MARK: Presses on the page

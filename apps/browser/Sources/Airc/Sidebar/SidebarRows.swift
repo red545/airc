@@ -602,12 +602,14 @@ final class TabRowView: SidebarRowView {
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
         needsLayout = true
+        controller?.tabPreview.hoverBegan(self, event: event)
     }
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         if faviconHovered { faviconHovered = false; refresh() }
         needsLayout = true
+        controller?.tabPreview.hoverEnded(self, event: event)
     }
 
     override func mouseMoved(with event: NSEvent) {

@@ -51,7 +51,22 @@ static NSString* Flag(NSString* key) {
 @property NSMutableDictionary* profileLoadMilliseconds;
 @end
 @implementation Host
+- (void)engine:(AircEngine*)engine childProcessGone:(NSString*)type status:(int)status exitCode:(int)code {
+  if (!Flag(@"--airc-childprocs")) return;
+  NSLog(@"CHILDPROCS gone %@ status=%d code=%d", type, status, code);
+}
+
 - (void)engineDidStart {
+  if (Flag(@"--airc-childprocs")) {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 12 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+      if ([Flag(@"--airc-childprocs") isEqual:@"gpu"])
+        [self.tabs[0] loadURL:@"chrome://gpucrash" userInitiated:YES];
+    });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 20 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+      NSLog(@"CHILDPROCS normal quit");
+      [AircEngine.sharedEngine quit];
+    });
+  }
   NSApp.delegate = self;
   self.dataDirectory = Flag(@"--user-data-dir");
   if (Flag(@"--airc-pid")) {

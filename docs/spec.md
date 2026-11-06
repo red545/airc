@@ -49,7 +49,8 @@ Observed from using Arc 1.171: its About and settings pages, its data folder and
 - **Profiles are fully separate:** Arc describes each profile as keeping its own history, saved passwords, extensions and other browsing data.
 - **A tab can't change profile.** Changing a Space's profile keeps the sidebar items and reloads the tabs in the new profile, after a confirm dialog with "Don't ask again".
 - **Extensions, ad blocking and archive timing are per profile.** Favorites are stored per profile.
-- **Pinned tabs unload on a timer:** frozen, then discarded, with Gmail, Slack and similar sites exempt.
+- **Pinned tabs unload on a timer:** frozen, then discarded, with Gmail, Slack and similar sites exempt. Airc: MEM-3's
+  exemption list (AircKit `KeepLoadedSites`).
 - **The flows** for New Profile, Create a Space, profile deletion and onboarding are described in section 2.9, in Airc's own words.
 
 **ArdiaCore** (in the Ardia repo, `engine/ardiacore/src/ardia/core/`) does the same thing as an open-source layer:
@@ -131,6 +132,7 @@ Requirement IDs (`SB-…`, `SP-…`) are for tracking and tests. "Arc ref" point
 - **SB-42** Today tabs are per Space, newest first. Background links line up after their opener.
 - **SB-43** Auto-archive after 12 h idle by default (per profile: 12 h, 24 h, 7 days, 30 days). Viewing a tab resets its timer. Tabs playing audio are never archived.
 - **SB-44** Tab rows: 41 pt pitch, 14 pt title, audio icon (click to mute), loading ring, close button on hover. The active row in light themes is white 0.85 with a soft shadow, matching the owner's screenshot. A tab activates on press, not release.
+- **SB-45 Tab previews** (owner, 2026-11-06, from Dia): the pointer resting about 0.4 s on a pinned tab, a Today tab or a Favorite shows a card beside the sidebar, level with the row: the page's picture, its favicon and title, the host, and quick actions (pin or unpin, add to or remove from Favorites, open in a split with the page on screen, Peek). With a card up, the next row's card comes at once. It grows from the row's edge on the popover spring (Reduce Motion: a fade) on the Space's `surface`. The page on screen is pictured live; other tabs show their last picture, kept in memory only (at most 40, about 640 × 400), never asked of a hidden page; none yet: the favicon on a soft placeholder. It hides on a click, scroll, key, Esc, menu or sidebar collapse, never shows while rows are dragged or Spaces move, and keyboard users get none. Settings → Appearance → "Show tab previews" (on by default).
 
 ### 2.7 Footer and Space bar (Arc ref §2.9)
 
@@ -232,7 +234,7 @@ Motion follows Arc's measurements: hover changes in one frame, rows move in abou
 |---|---|
 | **MEM-1** | Airc's own app process (window, sidebar, store) ≤ 150 MB |
 | **MEM-2** | An idle loaded profile with no open pages costs ≤ 40 MB. Profiles stay loaded (D1) but their services start lazily |
-| **MEM-3** | Background tabs unload after a per-profile timeout (default 30 minutes, adjustable, like Chrome's Memory Saver); under macOS memory pressure the least recently used tabs unload first, never the visible tab, a tab playing audio, or one with unsaved form input. Unloaded tabs keep their title, icon and scroll position and reload on click |
+| **MEM-3** | Background tabs unload after a per-profile timeout (default 30 minutes, adjustable, like Chrome's Memory Saver); under macOS memory pressure the least recently used tabs unload first, never the visible tab, a tab playing audio, or one with unsaved form input. Unloaded tabs keep their title, icon and scroll position and reload on click. Pinned tabs and Favorites of the sites people keep open for notifications and calls (Gmail, Google Calendar, Slack, Discord, WhatsApp Web, Teams, Outlook, Messenger, Linear…: AircKit `KeepLoadedSites`, matched by registrable domain through the public suffix list) never unload on the timer, on either engine, while Settings → General → "Keep chat and mail sites loaded" is on (the default). Today tabs of those sites unload as usual |
 | **MEM-4** | Total memory for the reference workload ≤ Chrome's for the same tabs; target 20% less |
 | **MEM-5** | No leaks: memory after opening and closing 100 tabs returns to within 5% of the start |
 | **MEM-6** | Energy: an idle window with no media uses < 1% CPU; no timers while idle |
@@ -296,7 +298,7 @@ A full-window, chromeless onboarding (native window around a React page rendered
   - "Open in" via ⌘O moves the page into the most recent Space, ⌥⌘O lets you choose a Space; the page moves without reloading;
   - Little Arc windows auto-archive after 6 h;
   - a mini player keeps media playing when it's closed.
-- **PW-1 Private windows** (⇧⌘N): a dark window of its own with a simple sidebar (the address field, its tabs, New Tab, and "Private" with an eye-slash where the Space name is; no Spaces, Favorites or pinned items, as in Arc's incognito window). Its pages use the off-the-record profile of the current Space's profile (one session per profile, shared by its private windows, as in Chrome); on WebKit, and for DRM pages in the Chromium build, a non-persistent data store. Airc keeps nothing of it: no history, no session restore, no Archive, nothing in ⌘T's history, no telemetry about its pages (only `private_window.open`). Its cookies and site data go when the last private window of the profile closes. ⌘T opens its own Command Bar (its tabs, built-in sites and search, no history), ⌘W closes a tab, ⇧⌘N opens another private window. ⌘N (more ordinary windows) is later.
+- **PW-1 Private windows** (⇧⌘N): a dark window of its own with a simple sidebar (the address field, its tabs, New Tab, and "Private" with an eye-slash where the Space name is; no Spaces, Favorites or pinned items, as in Arc's incognito window). Its pages use the off-the-record profile of the current Space's profile (one session per profile, shared by its private windows, as in Chrome); on WebKit, and for DRM pages in the Chromium build, a non-persistent data store. Airc keeps nothing of it: no history, no session restore, no Archive, nothing in ⌘T's history, no telemetry about its pages (only `private_window.open`). Its cookies and site data go when the last private window of the profile closes. ⌘T opens its own Command Bar (its tabs, built-in sites and search, no history), ⌘W closes a tab, ⇧⌘N opens another private window. ⌘F ⌘G ⇧⌘G use the main window's find field, and its pages get their shortcuts first as in the main window (CB-3; ⌘Z and Paste and Match Style reach the page's fields). Its downloads land in the Downloads folder and show as rows above the sidebar's note, newest first (a click opens a finished file); the list is in memory only, goes with the session, and never appears in the Library's Downloads. ⌘N (more ordinary windows) is later.
 - **SV-1 Split View**:
   - drag a tab onto a tab, or use ⌃⇧+ / the "+" menu, for 2–4 panes, horizontal or vertical, with resizable dividers;
   - a split is one row in the sidebar, and "Separate All Tabs" undoes it;

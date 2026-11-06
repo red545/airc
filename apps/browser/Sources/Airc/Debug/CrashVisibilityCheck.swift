@@ -51,6 +51,10 @@ enum TestCrashSwitch {
 /// counts as one `process.gone` with the process type and signal only.
 extension SnapshotRunner {
     func crashVisibilityScenario() {
+        if ProcessInfo.processInfo.environment["AIRC_CHILDPROCS"] == "1" {
+            childProcessVisibilityScenario()
+            return
+        }
         let env = ProcessInfo.processInfo.environment
         let expectNone = env["AIRC_CRASHVIS_EXPECT"] == "none"
         let signal = env["AIRC_CRASHVIS_SIGNAL"] ?? "SIGSEGV"
@@ -149,6 +153,43 @@ extension SnapshotRunner {
         }
     }
 
+    private func childProcessVisibilityScenario() {
+        guard let endpoint = AppTelemetry.shared.resolution.endpoint,
+              TelemetryResolution.isLoopback(endpoint), let port = endpoint.port else {
+            run { [self] in check(false, "childprocs requires loopback telemetry") }
+            return
+        }
+        let mock = MockPostHog(port: UInt16(port))
+        CrashCheckRecent.shared.start()
+        step { done in mock.start { _ in done() } }
+        run { [self] in
+            guard let t = try? c.store.openTab(url: "http://127.0.0.1:18575/", inSpace: c.currentSpaceID,
+                                              title: "Helper check") else { return }
+            c.reloadAll(animated: false)
+            c.show(t.id, focus: false)
+            c.engineTab(for: t.id)?.load(URL(string: "chrome://gpucrash")!)
+        }
+        step { [self] done in
+            waitUntil({ CrashCheckRecent.shared.records.contains { $0.event == "process.gone" } }, timeout: 15) {
+                Telemetry.shared.flushForQuit(timeout: 3)
+                self.waitUntil({ !mock.batches.isEmpty }, timeout: 5) {
+                    let events = mock.batches.flatMap { b -> [[String: Any]] in
+                        ((try? JSONSerialization.jsonObject(with: b.body)) as? [String: Any])?["batch"] as? [[String: Any]] ?? []
+                    }.filter { $0["event"] as? String == "process.gone" }
+                    self.check(events.count == 1, "childprocs: mock received one helper event")
+                    let props = events.first?["properties"] as? [String: Any] ?? [:]
+                    self.check(props["process_type"] as? String == "gpu", "childprocs: GPU classified")
+                    self.check(props["exit_signal"] as? String == "SIGSEGV", "childprocs: GPU crash signal")
+                    if let data = try? JSONSerialization.data(withJSONObject: events, options: [.prettyPrinted]) {
+                        try? data.write(to: self.dir.appendingPathComponent("childprocs-event.json"))
+                    }
+                    mock.stop()
+                    done()
+                }
+            }
+        }
+    }
+
     private func rendererGoneSteps() {
         guard app?.engine.name.hasPrefix("Chromium") == true else {
             return run { [self] in note("crashvis: renderer step skipped (Chromium only)") }
@@ -169,8 +210,8 @@ extension SnapshotRunner {
                 let events = gone()
                 self.check(events.count == 1, "crashvis: the renderer's end is one process.gone (\(events.count))")
                 let p = events.first?.properties ?? [:]
-                self.check(p["process"] == .string("renderer") && p["exit_signal"] == .string("SIGTERM"),
-                           "crashvis: process.gone says renderer and SIGTERM (\(String(describing: p["process"])), \(String(describing: p["exit_signal"])))")
+                self.check(p["process_type"] == .string("renderer") && p["exit_signal"] == .string("SIGTERM"),
+                           "crashvis: process.gone says renderer and SIGTERM (\(String(describing: p["process_type"])), \(String(describing: p["exit_signal"])))")
                 if let json = events.first?.json {
                     try? json.write(to: self.dir.appendingPathComponent("process-gone-event.json"), atomically: true, encoding: .utf8)
                 }

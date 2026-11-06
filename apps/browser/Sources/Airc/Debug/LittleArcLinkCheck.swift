@@ -78,9 +78,10 @@ extension SnapshotRunner {
                 done()
             }
         }
-        // Earlier checks' windows go first, so each check counts its own.
+        // Earlier checks' windows go first, so each check counts its own (and a Settings window an earlier check showed).
         closeLittleArcs()
         run { [self] in
+            app?.settingsWindow?.window.orderOut(nil)
             app?.settings.values.externalLinks = .littleArc
             logStart = Self.linksLogSize
             guard !base.isEmpty else { return }
@@ -95,13 +96,24 @@ extension SnapshotRunner {
                            "little arc (Apple event): a link from another app (a real Apple event, through application(_:open:) and the engine's "
                            + "routing policy) opens a Little Arc window with its page (windows \(self.app?.littleArcs.count ?? 0), "
                            + "page \"\(little?.page?.title ?? "-")\", visible \(w?.isVisible == true))")
-                let front = "little arc (Apple event): it's the app's front window (front: \(self.app?.windowName(NSApp.orderedWindows.first) ?? "-"))"
-                if let w, !w.isOnActiveSpace {
-                    // The owner is in a full-screen app or on another desktop: the window opened off their Space.
-                    self.skip(front + ": the window isn't on the active Space")
-                } else {
-                    self.check(w != nil && NSApp.orderedWindows.first === w, front)
-                }
+                done()
+            }
+        }
+        // In front of the browser window, as the window server orders them (the engine's invisible child windows and
+        // other apps' windows don't count), once it has settled: it opened behind it on Chromium (ship runs 2026-11-06).
+        // While it animates in, the window server's list can show it below for a moment, so this waits up to 2.5 s.
+        step { [self] done in
+            guard let w = little?.window else { return done() }
+            if !w.isOnActiveSpace {
+                // The owner is in a full-screen app or on another desktop: the window opened off their Space.
+                skip("little arc (Apple event): it's in front of the browser window once it has opened: the window isn't on the active Space")
+                return done()
+            }
+            let started = Date()
+            waitUntil({ !LittleArcController.isBehind(w, self.c.window) && Date().timeIntervalSince(started) > 0.6 }, timeout: 2.5) {
+                let front = !LittleArcController.isBehind(w, self.c.window)
+                self.check(front, "little arc (Apple event): it's in front of the browser window once it has opened "
+                           + "(our windows front to back: \(self.ourWindowOrder()))")
                 done()
             }
         }
@@ -448,6 +460,18 @@ extension SnapshotRunner {
                   + "lines with a path \(leaks.count))")
             for line in lines { note("\(label): Links.log: \(line)") }
         }
+    }
+
+    /// This app's windows on screen, front to back, as the window server orders them: number, kind, size.
+    func ourWindowOrder() -> String {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return "?" }
+        return list.filter { ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == getpid() }.map { d -> String in
+            let n = (d[kCGWindowNumber as String] as? NSNumber)?.intValue ?? 0
+            let w = NSApp.windows.first { $0.windowNumber == n }
+            let b = (d[kCGWindowBounds as String] as? NSDictionary).flatMap { CGRect(dictionaryRepresentation: $0) } ?? .zero
+            let layer = (d[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0
+            return "#\(n) \(app?.windowName(w) ?? "-")\(layer != 0 ? " layer \(layer)" : "") \(Int(b.width))×\(Int(b.height))"
+        }.joined(separator: ", ")
     }
 
     /// What a press at window point `p` in `w` reaches: PageInputCheck's describeHit, for any window.

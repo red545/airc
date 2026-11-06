@@ -25,6 +25,8 @@ final class AppSettings: ObservableObject {
         var dismissedSignIn: [String] = []
         /// MEM-3: a tab not seen for this long frees its page (0 = never). Default 30 minutes.
         var unloadAfterMinutes = 30
+        /// MEM-3: pinned tabs and Favorites of chat, mail and calendar sites (AircKit's KeepLoadedSites) never unload.
+        var keepChatSitesLoaded = true
         /// Extensions shown in the URL field, per profile ID (engine/PASS7.md: pins are per profile).
         var pinnedExtensions: [String: [String]] = [:]
         /// SB-55: a playing video or a call pops out into picture in picture when you leave its tab. Every profile.
@@ -36,6 +38,8 @@ final class AppSettings: ObservableObject {
         var externalLinks: ExternalLinkTarget = .littleArc
         /// PK-1: ⇧-clicked links, and other sites a pinned tab or Favorite opens in a new tab, open in Peek.
         var peekEnabled = true
+        /// SB-45: a card with the page's picture beside a sidebar tab under the pointer (Settings → Appearance).
+        var tabPreviews = true
         /// Settings → Privacy → "Play DRM sites with Safari's engine" (docs/user/protected-media.md): Spotify, Netflix
         /// and the other services whose DRM needs more than Chromium's Widevine open in a WebKit page. On by default.
         var webKitProtectedMedia = true
@@ -61,6 +65,7 @@ final class AppSettings: ObservableObject {
             shareUsageData = (try? c.decodeIfPresent(Bool.self, forKey: .shareUsageData)) ?? d.shareUsageData
             dismissedSignIn = (try? c.decodeIfPresent([String].self, forKey: .dismissedSignIn)) ?? []
             unloadAfterMinutes = (try? c.decodeIfPresent(Int.self, forKey: .unloadAfterMinutes)) ?? d.unloadAfterMinutes
+            keepChatSitesLoaded = (try? c.decodeIfPresent(Bool.self, forKey: .keepChatSitesLoaded)) ?? d.keepChatSitesLoaded
             pinnedExtensions = (try? c.decodeIfPresent([String: [String]].self, forKey: .pinnedExtensions)) ?? [:]
             pipAutomatic = (try? c.decodeIfPresent(Bool.self, forKey: .pipAutomatic)) ?? d.pipAutomatic
             webKitProtectedMedia = (try? c.decodeIfPresent(Bool.self, forKey: .webKitProtectedMedia)) ?? d.webKitProtectedMedia
@@ -68,6 +73,7 @@ final class AppSettings: ObservableObject {
             linkRules = (try? c.decodeIfPresent([LinkRule].self, forKey: .linkRules)) ?? []
             externalLinks = (try? c.decodeIfPresent(ExternalLinkTarget.self, forKey: .externalLinks)) ?? d.externalLinks
             peekEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .peekEnabled)) ?? d.peekEnabled
+            tabPreviews = (try? c.decodeIfPresent(Bool.self, forKey: .tabPreviews)) ?? d.tabPreviews
             defaultBrowser = (try? c.decodeIfPresent(DefaultBrowserState.self, forKey: .defaultBrowser)) ?? d.defaultBrowser
             calendar = (try? c.decodeIfPresent(CalendarPreferences.self, forKey: .calendar)) ?? d.calendar
         }

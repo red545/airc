@@ -43,6 +43,10 @@
 #include "components/prefs/pref_service.h"
 #include "components/version_info/version_info.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/browser_child_process_observer.h"
+#include "content/public/browser/child_process_data.h"
+#include "content/public/browser/child_process_termination_info.h"
+#include "content/public/common/process_type.h"
 #include "airc/core/airc_browser.h"
 #include "airc/core/airc_browser_window.h"
 #include "airc/core/airc_cast_dialog.h"
@@ -136,6 +140,43 @@ class ProfilePrefsApplier : public ProfileManagerObserver {
   base::ScopedObservation<ProfileManager, ProfileManagerObserver> observation_{this};
 };
 
+// GPU uses BrowserChildProcessHostImpl too. Do not forward display names or
+// arbitrary metrics names: some child process names can contain browsing data.
+class ChildProcessObserver : public content::BrowserChildProcessObserver {
+ public:
+  ChildProcessObserver() { Add(this); }
+  ~ChildProcessObserver() override { Remove(this); }
+  void BrowserChildProcessCrashed(const content::ChildProcessData& data,
+      const content::ChildProcessTerminationInfo& info) override { Report(data, info); }
+  void BrowserChildProcessKilled(const content::ChildProcessData& data,
+      const content::ChildProcessTerminationInfo& info) override { Report(data, info); }
+  void BrowserChildProcessHostDisconnected(const content::ChildProcessData&) override {
+    // Also emitted for normal teardown, after the classified notification.
+    // No termination info here: reporting would invent crashes or double count.
+  }
+ private:
+  void Report(const content::ChildProcessData& data,
+              const content::ChildProcessTerminationInfo& info) {
+    if (browser_shutdown::IsTryingToQuit() ||
+        info.status == base::TERMINATION_STATUS_NORMAL_TERMINATION ||
+        ![g_delegate respondsToSelector:@selector(engine:childProcessGone:status:exitCode:)])
+      return;
+    NSString* type = @"other";
+    if (data.process_type == content::PROCESS_TYPE_GPU) type = @"gpu";
+    if (data.process_type == content::PROCESS_TYPE_UTILITY) {
+      const auto& name = data.metrics_name;
+      if (name == "network.mojom.NetworkService") type = @"network";
+      else if (name == "storage.mojom.StorageService") type = @"storage";
+      else if (name == "audio.mojom.AudioService") type = @"audio";
+      else if (name == "data_decoder.mojom.DataDecoderService") type = @"utility:data_decoder";
+      else if (name == "video_capture.mojom.VideoCaptureService") type = @"utility:video_capture";
+    }
+    [g_delegate engine:g_engine childProcessGone:type
+                 status:static_cast<int>(info.status) exitCode:info.exit_code];
+  }
+};
+std::unique_ptr<ChildProcessObserver> child_process_observer;
+
 void StartApplyingProfilePrefs() {
   ProfileManager* manager = g_browser_process->profile_manager();
   for (Profile* profile : manager->GetLoadedProfiles()) {
@@ -150,6 +191,7 @@ void StartApplyingProfilePrefs() {
 namespace airc {
 
 void OnEngineStarted() {
+  child_process_observer = std::make_unique<ChildProcessObserver>();
   StartApplyingProfilePrefs();
   InstallPermissionPrompts();
   StartMediaCaptureObserver();
@@ -163,6 +205,7 @@ void OnEngineStarted() {
 }
 
 void OnEngineShuttingDown() {
+  child_process_observer.reset();
   StopMemoryPolicy();
   StopExtensionInstalledBubbles();
   CloseAllExtensionViews();

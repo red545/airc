@@ -21,7 +21,7 @@ ranges (0, 1, 2-7, 8-30 …).
 | `import.arc` | an Arc import | success or failure; Spaces, tabs and profiles in ranges; whether logins came over |
 | `feature.used` | a feature is used | the feature's name, and for some a variant from a fixed list (below) |
 | `perf.daily` | once per day | Command Bar opening time (median and 95th percentile, in ranges), memory use and background CPU, in ranges |
-| `process.gone` | a tab's page process (its renderer) ends abnormally ("Aw, Snap") | the kind of process and the signal that ended it (for example `SIGSEGV`), never the tab, its page or its site |
+| `process.gone` | a renderer, GPU or utility helper ends abnormally | `process_type`: renderer, gpu, network, storage, audio, utility:data_decoder, utility:video_capture or other; `exit_signal`: SIGSEGV, SIGBUS, SIGILL, SIGABRT, SIGTRAP, SIGFPE, SIGSYS, SIGKILL, SIGTERM, exit or other; no URLs or paths |
 
 The features: the Command Bar (new tab or edit URL), split view (made with 2, 3 or 4 panes, pinned, made a
 Favorite), Peek (opened, opened as a tab), Little Arc (from the shortcut or a link from another app), picture in
@@ -29,8 +29,9 @@ picture (video, call or document), a new Space, a new profile, a new Favorite, a
 the Back/Forward history menu, a download started or finished, Site Controls, the default-browser prompt (shown,
 accepted, declined), an extension installed (never which), an update installed, the sidebar's update button shown
 or clicked, a theme change, Live Calendar turned on or a meeting joined from it (never the meeting, its link or
-its time), a Boost changed in its editor (never the site, its style or its code), and a private window opened
-(nothing about its pages, ever).
+its time), a Boost changed in its editor (never the site, its style or its code), a private window opened
+(nothing about its pages, ever), and a tab preview's quick action (pin, unpin, add to or remove from Favorites,
+split, Peek; never the tab, its site or its title).
 
 Numbers are only ever sent as ranges: "6-10 Spaces", "250-500 ms", never the exact value.
 
@@ -81,7 +82,7 @@ never sent. The strings in a report (binary and function names) are checked agai
 (`packages/AircKit/Tests/AircKitTests/CrashReportTests.swift`) fails on any key or value outside a strict list.
 
 PostHog turns the offsets into function names and source lines with Airc's debug symbols, which the build uploads.
-When a tab's page process ends abnormally, Airc also counts it (`process.gone`, in the table above) with only the kind
+When a renderer, GPU or utility helper ends abnormally, Airc also counts it (`process.gone`, in the table above) with only the kind
 of process and the signal.
 Crash reports show in **See what Airc sends** like every other event. To stop sending them, switch off **Share
 anonymous usage data** (below): the same switch covers both.

@@ -12,6 +12,9 @@ const sharp = createRequire(import.meta.url)("sharp");
 const crops = [
   // Site Controls on Spotify: just the panel with the "Safari's engine" switch, none of the page behind it.
   { from: "drm-site-controls", to: "drm-site-controls-panel", box: { left: 138, top: 228, width: 446, height: 678 }, radius: 24 },
+  // Tab previews: the hovered tab and its card, with the sidebar beside it (the page edges fade out on the site).
+  { from: "tab-preview", to: "tab-preview-card", box: { left: 125, top: 770, width: 805, height: 470 }, radius: 0 },
+  { from: "tab-preview-dark", to: "tab-preview-card-dark", box: { left: 125, top: 772, width: 805, height: 398 }, radius: 0 },
 ];
 
 const used = [
@@ -27,6 +30,7 @@ const used = [
   "peek",
   "split-view-2",
   "picture-in-picture",
+  "private-window", // Private windows
   "boosts", // Boosts: Colors
   "boosts-font",
   "boosts-zap",
@@ -66,7 +70,8 @@ for (const c of crops) {
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="${width}" height="${height}" rx="${c.radius}" fill="#fff"/></svg>`,
   );
   const part = await sharp(new URL(`${c.from}.webp`, src).pathname).extract(c.box).ensureAlpha().png().toBuffer();
-  await sharp(part).composite([{ input: mask, blend: "dest-in" }]).webp({ quality: 94, alphaQuality: 100 }).toFile(to.pathname);
+  const out = c.radius ? sharp(part).composite([{ input: mask, blend: "dest-in" }]) : sharp(part);
+  await out.webp({ quality: 94, alphaQuality: 100 }).toFile(to.pathname);
   copied++;
 }
 

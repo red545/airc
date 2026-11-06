@@ -35,6 +35,7 @@ menu, which can't be drawn off screen; `profiles.webp` shows profiles through Cr
 | `little-arc.webp` | Little Arc | A link from another app in its own small window, over the Personal Space | 2026-11-06 | 202611062051 (abc32c5) |
 | `private-window.webp` | Private windows | A private window (⇧⌘N): dark, its own tabs and New Tab, nothing kept, on Wikipedia's Private browsing | 2026-11-06 | 202611062051 (abc32c5) |
 | `private-window-start.webp` | Private windows: a new one | A new private window before its first tab: what it keeps and what it doesn't | 2026-11-06 | 202611062051 (abc32c5) |
+| `private-window-find.webp` | Private windows: find | ⌘F in a private window: "cookie" found on Wikipedia's Private browsing, the same find field as the main window's | 2026-11-06 | polish1 copy (4b0791f) |
 | `manage-spaces.webp` | Manage Spaces | Every Space in one card: drag to reorder, rename, icon, theme, profile and delete | 2026-11-06 | 202611062051 (abc32c5) |
 | `media-controls.webp` | Media controls | A radio tab playing in the background, its artwork and controls in the sidebar, over Kyoto on Wikivoyage | 2026-11-06 | 202611061538 (6312e1a) |
 | `calendar.webp` | Live Calendar | The Calendar Favorite counting down to the next meeting, and its card with Join | 2026-11-06 | 202611061538 (6312e1a) |
@@ -43,6 +44,8 @@ menu, which can't be drawn off screen; `profiles.webp` shows profiles through Cr
 | `boosts.webp` | Boosts | Wikipedia boosted into a warm, bookish page (an amber tint, Charter), the Boost editor open on Colors | 2026-11-06 | 202611061646 (2984978) |
 | `boosts-font.webp` | Boosts: fonts | The same Boost on Font: the page in Charter, a size step up, the macOS fonts to choose from | 2026-11-06 | 202611061646 (2984978) |
 | `boosts-zap.webp` | Boosts: Zap | The same Boost on Zap: Wikipedia's Appearance column zapped away, with its undo | 2026-11-06 | 202611061646 (2984978) |
+| `tab-preview.webp` | Tab previews | The pointer resting on the Kyoto tab over apple.com: its card with the page as it was left, and pin, Favorites, split and Peek | 2026-11-06 | 202611062158 (eabcfe2) |
+| `tab-preview-dark.webp` | Tab previews, dark | The Work Space in dark mode on linear.app: the card of the swiftlang/swift tab | 2026-11-06 | 202611062158 (eabcfe2) |
 | `drm-spotify.webp` | Protected media | Spotify's web player, logged out, in Safari's engine with Apple's FairPlay: the note that says so, with Why? | 2026-11-06 | 202611062002 (fd02319) |
 | `drm-site-controls.webp` | Protected media: Site Controls | Site Controls on Spotify: the Safari's engine switch, and what a WebKit page does differently | 2026-11-06 | 202611062002 (fd02319) |
 | `picture-in-picture.webp` | Picture in picture | A film floating over the Lisbon article, with Airc's controls: Back to Tab, skip 15 s, play, the scrubber | 2026-11-06 | 202611061551 (089fe21) |
@@ -51,8 +54,8 @@ menu, which can't be drawn off screen; `profiles.webp` shows profiles through Cr
 | `downloads.webp` | Downloads | A film downloading, with its progress in the sidebar | 2026-11-06 | 202611061538 (6312e1a) |
 | `downloads-library.webp` | Downloads Library | The Library's Downloads list: finished files and the one still running | 2026-11-06 | 202611061631 (005428d) |
 | `call-window.webp` | Call window | A call (illustrated tiles, no camera) in its floating window, its controls in the sidebar | 2026-11-06 | 202611061551 (089fe21) |
-| `settings-appearance-light.webp` | Settings: Appearance | Translucency and the default look of new Spaces | 2026-11-06 | 202611061538 (6312e1a) |
-| `settings-appearance-dark.webp` | Settings: Appearance, dark | The same page in dark mode | 2026-11-06 | 202611061538 (6312e1a) |
+| `settings-appearance-light.webp` | Settings: Appearance | Translucency, the default look of new Spaces and Show tab previews | 2026-11-06 | 202611062158 (eabcfe2) |
+| `settings-appearance-dark.webp` | Settings: Appearance, dark | The same page in dark mode | 2026-11-06 | 202611062158 (eabcfe2) |
 | `settings-privacy.webp` | Settings: Privacy | Anonymous usage data and crash reports, off with one switch | 2026-11-06 | 202611061538 (6312e1a) |
 | `settings-privacy-events.webp` | See what Airc sends | The sheet listing every event Airc recorded, word for word | 2026-11-06 | 202611061538 (6312e1a) |
 | `onboarding-welcome.webp` | Onboarding | The first window | 2026-11-06 | 202611061915 (9e1fd56) |

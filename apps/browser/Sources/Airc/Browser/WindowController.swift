@@ -687,6 +687,8 @@ final class WindowController: NSObject, NSWindowDelegate {
         if findBar != nil, tabID != shownTabID { closeFind(refocusPage: false) }
         if peek != nil, tabID != shownTabID { closePeek() }
         guard let page = Perf.time("show.ensurePage", { ensurePage(tabID) }) else { return }
+        // SB-45: the page leaving is pictured while it's still drawn (Sidebar/TabPreview.swift).
+        tabPreview.pageWillChange(hiding: shownTabID, showing: tabID)
         Perf.time("show.activateTab") { engineWindow.activateTab(page) }
         app?.engine.setPictureInPictureWindowActive(page, active: window.isKeyWindow)
         card.showsEmptyState = false

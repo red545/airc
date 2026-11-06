@@ -35,6 +35,9 @@ import shotBoostColors from "../assets/screens/boosts.webp";
 import shotBoostFont from "../assets/screens/boosts-font.webp";
 import shotBoostZap from "../assets/screens/boosts-zap.webp";
 import shotDrmPanel from "../assets/screens/drm-site-controls-panel.webp";
+import shotPrivate from "../assets/screens/private-window.webp";
+import shotPreview from "../assets/screens/tab-preview-card.webp";
+import shotPreviewDark from "../assets/screens/tab-preview-card-dark.webp";
 import { getImage } from "astro:assets";
 
 // The Spaces demo: four Spaces of the same window, each in its own colour and profile.
@@ -55,12 +58,17 @@ const checkedLabel =
   ", " +
   checkedAt.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" }) +
   " UTC";
-const passingCount = supported.filter((f) => f.status === "passing").length;
+// Counts are for what's in the released version; features marked `next` (in nightly builds, not in a stable release
+// yet) are listed but not counted.
+const released = supported.filter((f) => !("next" in f && f.next));
+const passingCount = released.filter((f) => f.status === "passing").length;
+const releasedCount = released.length;
+const nextCount = supported.length - releasedCount;
 
 const facts = [
   { value: `Chromium ${status.chromium.split(".")[0]}`, label: "Real Chrome underneath" },
   { value: "Apache-2.0", label: "Open source, all of it" },
-  { value: `${passingCount} of ${supported.length}`, label: "Features pass the nightly checks", href: "#supported" },
+  { value: `${passingCount} of ${releasedCount}`, label: "Features pass the nightly checks", href: "#supported" },
   { value: "Apple silicon", label: "macOS 14 or later" },
   { value: "Free", label: "No account, no ads", href: "/privacy" },
 ];
@@ -149,6 +157,7 @@ const boostModes = [
   { key: "zap", label: "Zap", body: "Click anything away. It stays gone on every visit, and one click brings it back.", img: shotBoostZap, alt: "The same Boost on Zap: Wikipedia's Appearance column zapped away, listed with its undo." },
 ];
 
+const previewDark = await getImage({ src: shotPreviewDark, widths: [600, 805], format: "webp", quality: 92 });
 const commandDark = await getImage({ src: shotCommandDark, widths: [800, 1200, 1800, 2400], format: "webp", quality: 90 });
 
 const panes = [
@@ -160,6 +169,8 @@ const panes = [
   { id: "split", tab: "Split View", sub: "Two or three panes" },
   { id: "pip", tab: "Picture in picture", sub: "Films and calls float" },
   { id: "streaming", tab: "Streaming", sub: "Safari's engine, FairPlay" },
+  { id: "private", tab: "Private windows", sub: "Nothing kept, ⇧⌘N" },
+  { id: "previews", tab: "Tab previews", sub: "Hover a tab to see it" },
 ];
 
 // The streaming services that open in Safari's engine (docs/user/protected-media.md lists every one).
@@ -454,6 +465,33 @@ const streamingServices = ["Spotify", "Netflix", "Disney+", "Max", "Apple TV", "
             </span>
           </p>
         </article>
+
+        <article id="private" class="pane" data-space={spaceOf("private")}>
+          <h3 class="pt">Private windows. <span>⇧⌘N opens a dark window on its own off-the-record profile. Its pages stay out of your history, and its cookies and site data go when you close it.</span></h3>
+          <button type="button" class="pane-demo shot" data-zoom={shotPrivate.src} data-alt="A private window in Airc." aria-label="Enlarge screenshot">
+            <Image src={shotPrivate} widths={[800, 1200, 1800, 2400]} sizes="(max-width: 900px) 100vw, 760px" quality={90} alt="A private window in Airc: a dark window with its own tabs and New Tab, marked Private, on Wikipedia's article on private browsing. Its note says Airc doesn't keep this window's history, and its cookies and site data go when you close it." />
+          </button>
+          <p class="note note-next">
+            <i aria-hidden="true"></i>
+            <span>Coming in the next release, in <a href="/versions#nightly">nightly builds</a> first. Files you download stay in your Downloads folder.</span>
+          </p>
+        </article>
+
+        <article id="previews" class="pane" data-space={spaceOf("previews")}>
+          <h3 class="pt">Tab previews. <span>Rest the pointer on a tab and a card shows the page as you left it, its title and site, with pin, Favorite, split and Peek one click away.</span></h3>
+          <div class="pane-demo preview-demo">
+            <button type="button" class="preview-shot" data-zoom={shotPreview.src} data-alt="A tab preview in Airc." aria-label="Enlarge screenshot">
+              <picture>
+                <source media="(prefers-color-scheme: dark)" srcset={previewDark.srcSet.attribute} sizes="(max-width: 900px) 100vw, 640px" />
+                <Image src={shotPreview} widths={[600, 805]} sizes="(max-width: 900px) 100vw, 640px" quality={92} alt="Airc's sidebar with the pointer on the Kyoto tab: a card shows the Wikivoyage page as it was left, its title and en.wikivoyage.org, and buttons to pin, add to Favorites, split and Peek." />
+              </picture>
+            </button>
+          </div>
+          <p class="note note-next">
+            <i aria-hidden="true"></i>
+            <span>Coming in the next release, in <a href="/versions#nightly">nightly builds</a> first. Turn it off in Settings → Appearance.</span>
+          </p>
+        </article>
       </div>
     </section>
 
@@ -500,8 +538,8 @@ const streamingServices = ["Spotify", "Netflix", "Disney+", "Max", "Apple TV", "
       <div class="run">
         <span class="run-dot" aria-hidden="true"></span>
         <span>
-          <b>{passingCount} of {supported.length} features</b> pass the nightly checks ({status.checks.pass} checks passed,{" "}
-          {status.checks.skip} skipped, {status.checks.fail} failed). <i class="pend-dot" aria-hidden="true"></i> Check pending: built, not covered by a check yet.
+          <b>{passingCount} of {releasedCount} released features</b> pass the nightly checks ({status.checks.pass} checks passed,{" "}
+          {status.checks.skip} skipped, {status.checks.fail} failed), and {nextCount} more are on the way in the next release. <i class="pend-dot" aria-hidden="true"></i> Check pending: built, not covered by a check yet.
         </span>
         <span class="run-meta">Last run {checkedLabel} · build <code>{status.rev}</code> · Chromium {status.chromium}</span>
       </div>
@@ -509,7 +547,10 @@ const streamingServices = ["Spotify", "Netflix", "Disney+", "Max", "Apple TV", "
         {supported.map((f) => (
           <li class="work">
             {f.status === "built" ? (
-              <span class="state pending" title="Built and in the app. No nightly check covers it yet."><i aria-hidden="true"></i></span>
+              <span
+                class={`state pending ${"next" in f && f.next ? "pending-next" : ""}`}
+                title={"next" in f && f.next ? "Coming in the next release; in nightly builds first." : "Built and in the app. No nightly check covers it yet."}
+              ><i aria-hidden="true"></i></span>
             ) : (
               <span
                 class={`state mark mark-${f.status}`}
@@ -1949,6 +1990,8 @@ const streamingServices = ["Spotify", "Netflix", "Disney+", "Max", "Apple TV", "
 
   .work .pending { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border-radius: 50%; }
   .work .pending i { width: 8px; height: 8px; }
+  .work .pending-next { color: #6a3fd0; background: rgb(122 76 240 / 0.1); box-shadow: inset 0 0 0 1px rgb(122 76 240 / 0.22); }
+  .work .pending-next i { background: #7a4cf0; }
 
   .pend-label {
     margin-left: 8px;
@@ -2237,4 +2280,25 @@ const streamingServices = ["Spotify", "Netflix", "Disney+", "Max", "Apple TV", "
     .stream-demo { grid-template-columns: 1fr; }
     .stream-shot { justify-self: center; }
   }
+
+  /* ------------------------------------------------------------------ tab previews */
+
+  .preview-demo { display: grid; place-items: center; padding: clamp(20px, 3vw, 36px); }
+
+  .preview-shot { display: block; width: 100%; max-width: 640px; padding: 0; border: 0; background: none; cursor: zoom-in; }
+
+  /* The crop is inside the window: the page around the card fades out, the sidebar stays. */
+  .preview-shot :global(img) {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 14px 0 0 14px;
+    -webkit-mask-image: linear-gradient(90deg, #000 72%, transparent), linear-gradient(transparent, #000 9%, #000 91%, transparent);
+    mask-image: linear-gradient(90deg, #000 72%, transparent), linear-gradient(transparent, #000 9%, #000 91%, transparent);
+    -webkit-mask-composite: source-in;
+    mask-composite: intersect;
+    transition: transform 0.35s var(--spring-settle);
+  }
+
+  .preview-shot:hover :global(img) { transform: translateY(-2px); }
 </style>

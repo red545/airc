@@ -750,10 +750,15 @@ extension SnapshotRunner {
     /// (diagnosis): window (NSWindow.isKeyWindow), app (NSApp.keyWindow), notify (didBecomeKey), rwhv (Chromium's page
     /// view only), menu (the main menu with the window's responder chain as nil-targeted items' targets).
     static func emulateKeyWindow(_ c: WindowController, note: @escaping (String) -> Void) {
+        emulateKeyWindow(c.window, note: note)
+    }
+
+    /// The same for any of the app's windows (a private window: PrivateWindowExtrasCheck.swift).
+    static func emulateKeyWindow(_ window: NSWindow, note: @escaping (String) -> Void) {
         let parts = Set((ProcessInfo.processInfo.environment["AIRC_KEYWINDOW"] ?? "rwhv,app,menu").split(separator: ",").map(String.init))
         let trace = ProcessInfo.processInfo.environment["AIRC_SHORTCUTS_TRACE"] == "1"
         note("shortcuts: key window stand-in: " + parts.sorted().joined(separator: ", "))
-        keyWindowForTest = c.window
+        keyWindowForTest = window
         if parts.contains("window"), let m = class_getInstanceMethod(NSWindow.self, #selector(getter: NSWindow.isKeyWindow)) {
             typealias Getter = @convention(c) (NSWindow, Selector) -> ObjCBool
             let original = unsafeBitCast(method_getImplementation(m), to: Getter.self)
@@ -772,21 +777,21 @@ extension SnapshotRunner {
             method_setImplementation(m, imp_implementationWithBlock(key))
         }
         // The engines' pages take the keyboard (Chromium's page focus, its text input state) only in a key window.
-        if parts.contains("notify") { NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: c.window) }
+        if parts.contains("notify") { NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window) }
         let ownMenu = parts.contains("menu")
         // After the app's monitor: the window's views, then the main menu (AppKit's keyDown comes after, as ever).
-        KeyMonitor.testKeyWindowDispatch = { [weak c] event in
-            guard let c, event.window === c.window else { return false }
+        KeyMonitor.testKeyWindowDispatch = { [weak window] event in
+            guard let window, event.window === window else { return false }
             guard event.modifierFlags.contains(.command) else {
-                if trace { note("trace: \(Self.name(event)) → keyDown (\(Self.describe(c.window.firstResponder)))") }
+                if trace { note("trace: \(Self.name(event)) → keyDown (\(Self.describe(window.firstResponder)))") }
                 return false
             }
-            if c.window.performKeyEquivalent(with: event) {
-                if trace { note("trace: \(Self.name(event)) → a view took it (\(Self.describe(c.window.firstResponder)))") }
+            if window.performKeyEquivalent(with: event) {
+                if trace { note("trace: \(Self.name(event)) → a view took it (\(Self.describe(window.firstResponder)))") }
                 return true
             }
-            let menu = ownMenu ? performMenuKey(event, in: c.window) : NSApp.mainMenu?.performKeyEquivalent(with: event) == true
-            if trace { note("trace: \(Self.name(event)) → " + (menu ? "the main menu took it" : "keyDown (\(Self.describe(c.window.firstResponder)))")) }
+            let menu = ownMenu ? performMenuKey(event, in: window) : NSApp.mainMenu?.performKeyEquivalent(with: event) == true
+            if trace { note("trace: \(Self.name(event)) → " + (menu ? "the main menu took it" : "keyDown (\(Self.describe(window.firstResponder)))")) }
             return menu
         }
     }

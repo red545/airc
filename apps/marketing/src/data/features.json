@@ -14,6 +14,16 @@
     ]
   },
   {
+    "id": "manage-spaces",
+    "title": "Manage Spaces",
+    "body": "Every Space in one card: drag to reorder, rename, and change its icon, theme or profile.",
+    "specs": [],
+    "checks": [
+      "^manage spaces"
+    ],
+    "next": true
+  },
+  {
     "id": "profiles",
     "title": "A real profile per Space",
     "body": "Own logins, history and passwords for each Space. A new profile takes one step.",
@@ -130,6 +140,26 @@
     "next": true
   },
   {
+    "id": "private",
+    "title": "Private windows",
+    "body": "⇧⌘N opens a window on an off-the-record profile. Nothing it opens is kept.",
+    "specs": [],
+    "checks": [
+      "^private window"
+    ],
+    "next": true
+  },
+  {
+    "id": "previews",
+    "title": "Tab previews",
+    "body": "Hover a tab to see the page as you left it, with pin, Favorite, split and Peek.",
+    "specs": [],
+    "checks": [
+      "^tab preview"
+    ],
+    "next": true
+  },
+  {
     "id": "archive",
     "title": "Auto-archive and Library",
     "body": "Today's tabs archive on a timer you choose, and stay searchable in the Library.",
@@ -149,6 +179,17 @@
     "checks": [
       "^find\\b"
     ]
+  },
+  {
+    "id": "save-paste",
+    "title": "Save Page As and Paste and Match Style",
+    "body": "⇧⌘S saves a page in Chrome's three formats; paste text without its formatting.",
+    "specs": [],
+    "checks": [
+      "^save page",
+      "^paste and match"
+    ],
+    "next": true
   },
   {
     "id": "fullscreen",

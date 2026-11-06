@@ -7,6 +7,7 @@ import AppKit
 /// (`scripts/marketing-shots.sh --parts basics`):
 ///   - private-window: a private window on Wikipedia's Private browsing article, with two more tabs;
 ///   - private-window-start: a new private window, before its first tab;
+///   - private-window-find: ⌘F in it, "cookie" found on the same article;
 ///   - manage-spaces: the demo's four Spaces in Manage Spaces over the Personal Space.
 /// The private windows sit off screen like the main window; nothing they load is kept.
 extension SnapshotRunner {
@@ -34,6 +35,17 @@ extension SnapshotRunner {
         }
         mkSettle({ w?.pages.map(\.tab) ?? [] }, timeout: 20, extra: 1.5)
         mkPrivateShot({ w }, "private-window")
+        run { [self] in
+            guard let p = w else { return }
+            p.showFind()
+            p.findBar?.field.stringValue = "cookie"
+            p.findBar?.find(forward: true)
+            p.window.makeFirstResponder(nil)
+            _ = self
+        }
+        wait(1.2)
+        mkPrivateShot({ w }, "private-window-find")
+        run { w?.closeFind(refocusPage: false) }
         run { w?.closeWindow() }
         wait(0.6)
 

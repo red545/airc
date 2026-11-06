@@ -5,7 +5,7 @@
 #   scripts/marketing-shots.sh                        build on the build Mac, shoot every part, write both sets
 #   scripts/marketing-shots.sh --no-build             shoot with this copy's last build
 #   scripts/marketing-shots.sh --parts views,media    only these parts (browser, views, media, calls, settings, onboarding,
-#                                                     boosts, drm, basics)
+#                                                     boosts, drm, basics, previews)
 #
 # From the Linux box, through scripts/mac.sh (copy name: AIRC_MAC_WORK, default marketingshots). On the build Mac:
 #   1. scripts/build-app.sh --no-test, linking the Chromium framework at CHROMIUM_OUT (default: the release build,
@@ -23,7 +23,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PARTS="browser views media calls settings onboarding boosts drm basics"
+PARTS="browser views media calls settings onboarding boosts drm basics previews"
 BUILD=1
 ON_MAC=0
 while [ $# -gt 0 ]; do
@@ -52,6 +52,7 @@ peek|Peek|A link from the Lisbon article opens over the page: the map of Belém
 little-arc|Little Arc|A link from another app in its own small window, over the Personal Space
 private-window|Private windows|A private window (⇧⌘N): dark, its own tabs and New Tab, nothing kept, on Wikipedia'"'"'s Private browsing
 private-window-start|Private windows: a new one|A new private window before its first tab: what it keeps and what it doesn'"'"'t
+private-window-find|Private windows: find|⌘F in a private window: "cookie" found on Wikipedia'"'"'s Private browsing, the same find field as the main window'"'"'s
 manage-spaces|Manage Spaces|Every Space in one card: drag to reorder, rename, icon, theme, profile and delete
 media-controls|Media controls|A radio tab playing in the background, its artwork and controls in the sidebar, over Kyoto on Wikivoyage
 calendar|Live Calendar|The Calendar Favorite counting down to the next meeting, and its card with Join
@@ -60,6 +61,8 @@ site-controls|Site Controls|Site Controls from the URL field on swift.org: permi
 boosts|Boosts|Wikipedia boosted into a warm, bookish page (an amber tint, Charter), the Boost editor open on Colors
 boosts-font|Boosts: fonts|The same Boost on Font: the page in Charter, a size step up, the macOS fonts to choose from
 boosts-zap|Boosts: Zap|The same Boost on Zap: Wikipedia'"'"'s Appearance column zapped away, with its undo
+tab-preview|Tab previews|The pointer resting on the Kyoto tab over apple.com: its card with the page as it was left, and pin, Favorites, split and Peek
+tab-preview-dark|Tab previews, dark|The Work Space in dark mode on linear.app: the card of the swiftlang/swift tab
 drm-spotify|Protected media|Spotify'"'"'s web player, logged out, in Safari'"'"'s engine with Apple'"'"'s FairPlay: the note that says so, with Why?
 drm-site-controls|Protected media: Site Controls|Site Controls on Spotify: the Safari'"'"'s engine switch, and what a WebKit page does differently
 picture-in-picture|Picture in picture|A film floating over the Lisbon article, with Airc'"'"'s controls: Back to Tab, skip 15 s, play, the scrubber
@@ -68,7 +71,7 @@ picture-in-picture-meet|Picture in picture, Meet|A call page'"'"'s own Document 
 downloads|Downloads|A film downloading, with its progress in the sidebar
 downloads-library|Downloads Library|The Library'"'"'s Downloads list: finished files and the one still running
 call-window|Call window|A call (illustrated tiles, no camera) in its floating window, its controls in the sidebar
-settings-appearance-light|Settings: Appearance|Translucency and the default look of new Spaces
+settings-appearance-light|Settings: Appearance|Translucency, the default look of new Spaces and Show tab previews
 settings-appearance-dark|Settings: Appearance, dark|The same page in dark mode
 settings-privacy|Settings: Privacy|Anonymous usage data and crash reports, off with one switch
 settings-privacy-events|See what Airc sends|The sheet listing every event Airc recorded, word for word

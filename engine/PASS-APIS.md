@@ -149,3 +149,28 @@ temporary files after a failed rename. No out/Airc build ran.
 The implementation compile preflight, final Swift/Objective-C import checks and
 strict apply/repeat/drift tests pass. Evidence and final disk/cleanup details
 are in the private engineapis report; test bundles are not committed.
+
+
+## Child-process termination delegate
+
+`engine:childProcessGone:status:exitCode:` is an optional main-thread engine delegate
+callback for abnormal GPU and utility exits. `status` is Chromium's
+`base::TerminationStatus`; `exitCode` is the raw POSIX wait status on macOS.
+Types are a closed list: `gpu`, `network`, `storage`, `audio`,
+`utility:data_decoder`, `utility:video_capture`, `other`. Unknown metrics names
+become `other`; process display names are never exposed.
+
+The observer lives in `//airc/core`, from engine startup to shutdown. Chromium's
+GPU host already uses BrowserChildProcessHostImpl; no separate GPU observer or
+upstream patch is needed. Crashed/killed notifications report once. Disconnect
+notifications carry no termination status and never report independently. Normal
+termination and browser shutdown report nothing. Renderer reporting remains on
+AircTabDelegate. Launch failures, disconnected-but-still-running processes, and
+Chromium termination categories without a crashed/killed callback cannot be
+observed by this API. In-process services have no separate process exit to report.
+
+Telemetry records `process.gone` with only `process_type` and `exit_signal` (a
+closed signal enum, not raw status/code). The existing launch cap applies.
+`engine/host --airc-childprocs=gpu` exercises chrome://gpucrash after twelve
+seconds and quits at twenty; `--airc-childprocs=normal` only quits. Supply a
+loopback `--airc-test-url` and an isolated profile for both.

@@ -2,7 +2,7 @@
 # Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
 
 """Summarise an xctrace time-profile export: main-thread samples inside a focus frame (default CA commit),
-optionally only inside signpost intervals (an exported os-signpost-interval table, --intervals FILE).
+optionally only inside signpost intervals (os-signpost-interval or raw os-signpost export, --intervals FILE).
 Usage: tpsum.py export.xml [--name SIGNPOST] [--intervals intervals.xml] [--threads] [focus-substring ...]
 --threads: every thread, not only the main one, with a per-thread count (an idle trace: what still runs)."""
 import sys, collections
@@ -27,17 +27,26 @@ if args and args[0] == "--intervals":
         if i is not None: iids[i] = e
         for c in e: ires(c)
         return e
+    pending = {}
     for row in ET.parse(ipath).getroot().iter("row"):
         start = dur = None; name = ""
+        event = identifier = process = None
         for c in row:
             c = ires(c)
-            if c.tag == "start-time": start = int(c.text)
+            if c.tag in ("start-time", "event-time"): start = int(c.text)
             elif c.tag == "duration": dur = int(c.text)
             elif c.tag == "signpost-name": name = c.get("fmt") or (c.text or "")
+            elif c.tag == "event-type": event = c.text
+            elif c.tag == "os-signpost-identifier": identifier = c.text
+            elif c.tag == "process": process = c.get("fmt")
         if want_name and name != want_name: continue
         if start is not None and dur is not None:
             intervals.append((start, start + dur))
-    intervals.sort()
+        elif start is not None and identifier is not None:
+            key = (process, identifier, name)
+            if event == "Begin": pending[key] = start
+            elif event == "End" and key in pending: intervals.append((pending.pop(key), start))
+    intervals = sorted(set(intervals))
     print(f"intervals {len(intervals)}, total {sum(b-a for a,b in intervals)/1e6:.1f} ms, median {sorted(b-a for a,b in intervals)[len(intervals)//2]/1e6 if intervals else 0:.2f} ms")
 focus = args or None
 ids = {}

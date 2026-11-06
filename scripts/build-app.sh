@@ -395,8 +395,16 @@ if [[ -n "$SNAPSHOTS" ]]; then
     fi
     # PW-1 private windows on loopback pages (PrivateWindowCheck.swift): nothing kept, no cookies across sessions or
     # profiles, ⌘T ⌘W ⇧⌘N in the window; and SB-21 Manage Spaces (ManageSpacesCheck.swift): reorder, rename, delete.
+    # PW-1 in private windows too: ⌘F, the page's shortcuts first (CB-3), downloads (PrivateWindowExtrasCheck.swift).
     launch --script private --ephemeral --data-dir "$home/Private"
     launch --script managespaces --ephemeral --data-dir "$home/ManageSpaces"
+    # MEM-3's exemption (KeepLoadedCheck.swift): with a 2 s timeout, pinned tabs and Favorites on a listed loopback host
+    # stay loaded and an unlisted one unloads; on Chromium also as WebKit pages.
+    launch --script keeploaded --ephemeral --data-dir "$home/KeepLoaded"
+    # SB-45 tab previews on loopback pages (TabPreviewCheck.swift): the dwell, the card beside the row, live and kept
+    # pictures, the hide rules, the actions and the setting. Hover drives the rows' own enter and exit handlers: posted
+    # mouse moves never reach tracking areas (the window server makes those events), and HID posting isn't allowed.
+    launch --script previews --ephemeral --data-dir "$home/Previews"
     # Site Controls and Safari's-engine pages (Followups3Check.swift), on loopback pages: the location in use (the page
     # script's made-up position, never CoreLocation), macOS's privacy answers as a test override (never a prompt, never
     # System Settings), and on Chromium the blocked pop-ups and the WebKit pages ("localhost" plays a listed service):

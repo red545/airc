@@ -286,6 +286,12 @@ private struct GeneralPage: View {
                         model.app?.controller?.applyUnloadSetting()
                     }
                 }
+                AircToggleRow("Keep chat and mail sites loaded",
+                              subtitle: "Pinned tabs and Favorites of Gmail, Google Calendar, Slack, Discord, WhatsApp, Teams, Outlook and similar sites never unload, so their notifications and calls keep coming.",
+                              isOn: Binding(get: { model.settings.values.keepChatSitesLoaded }, set: { v in
+                                  model.settings.values.keepChatSitesLoaded = v
+                                  model.app?.controller?.applyUnloadSetting()
+                              }))
             }
             SettingsSection(title: "Backups", help: "Airc keeps a JSON copy of your Spaces, tabs and Favorites every day, the last 14 days. An iCloud Drive folder works.") {
                 SettingsRow(title: "Back up to", subtitle: backupFolder.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")) {
@@ -759,6 +765,10 @@ private struct AppearancePage: View {
                     ])
                     .frame(width: 260)
                 }
+            }
+            SettingsSection(title: "Sidebar") {
+                AircToggleRow("Show tab previews", subtitle: "Rest the pointer on a tab to see the page, with pin, Favorites, split and Peek.",
+                              isOn: Binding(get: { model.settings.values.tabPreviews }, set: { model.settings.values.tabPreviews = $0 }))
             }
         }
     }

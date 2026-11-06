@@ -188,6 +188,8 @@ final class CommandMenuItem: NSMenuItem {
         guard let c = app?.controller, let command else { return }
         // A private window takes its own shortcuts and the menu commands that make sense there (PrivateWindow.swift).
         if let p = PrivateBrowsing.shared.window(for: NSApp.keyWindow) {
+            // The menu runs it now (a click, or a key the page handed back): not once more when the page's answer comes.
+            KeyMonitor.cancelPending(command)
             if let e = NSApp.currentEvent, e.type == .keyDown, p.handleKey(e) { return }
             if p.perform(menuTitle: command.title) { return }
             if ["New Window", "New Little Arc Window"].contains(command.title) { command.run(c) }
@@ -341,8 +343,10 @@ enum KeyMonitor {
 
     /// A shortcut handed to the page, waiting for the page to say whether it used it.
     private struct Pending {
-        let command: BrowserCommand
+        let run: () -> Void
         let fallback: DispatchWorkItem
+        /// The window whose page has it (the main window, a private window).
+        weak var window: NSWindow?
     }
     private static var pending: [String: Pending] = [:]
     /// A shortcut was handed to the page and its answer hasn't come yet (the real-event checks wait for it).
@@ -374,32 +378,48 @@ enum KeyMonitor {
 
     /// The page answered: run the browser's command if it didn't use the shortcut, otherwise wait for a second press.
     static func pageReported(_ combo: String, pageUsedIt: Bool, in c: WindowController) {
+        pageReported(combo, pageUsedIt: pageUsedIt, window: c.window)
+    }
+
+    /// The same for the page of `window` (a private window's).
+    static func pageReported(_ combo: String, pageUsedIt: Bool, window: NSWindow) {
         // ⇧ shortcuts arrive from the page with an upper-case or shifted key; match on what we're waiting for.
         guard let key = pending.keys.first(where: { $0 == combo || $0.lowercased() == combo.lowercased() }),
-              let p = pending.removeValue(forKey: key) else { return }
+              pending[key]?.window === window, let p = pending.removeValue(forKey: key) else { return }
         p.fallback.cancel()
-        if pageUsedIt { pageUsed[key] = CACurrentMediaTime() } else { p.command.run(c) }
+        if pageUsedIt { pageUsed[key] = CACurrentMediaTime() } else { p.run() }
     }
 
     /// The menu ran a command (a click, or the engine handing back a key the page didn't use): run it once.
     static func menuFired(_ cmd: BrowserCommand, in c: WindowController) {
-        if let p = pending.removeValue(forKey: combo(cmd)) { p.fallback.cancel() }
+        cancelPending(cmd)
         cmd.run(c)
+    }
+
+    /// `cmd` runs from elsewhere (its menu): the page's answer no longer runs it.
+    static func cancelPending(_ cmd: BrowserCommand) {
+        if let p = pending.removeValue(forKey: combo(cmd)) { p.fallback.cancel() }
     }
 
     /// Hands `cmd`'s key to the focused page first (true), or returns false when the browser's command runs now.
     private static func offerToPage(_ cmd: BrowserCommand, in c: WindowController) -> Bool {
-        guard pageMayUse(cmd), c.app?.engine.reportsPageShortcuts == true, let page = c.focusedPage,
+        offerToPage(cmd, page: c.focusedPage, engine: c.app?.engine, window: c.window) { [weak c] in if let c { cmd.run(c) } }
+    }
+
+    /// The same for any window's focused page; `run` is that window's command for the key.
+    static func offerToPage(_ cmd: BrowserCommand, page: EngineTab?, engine: BrowserEngine?, window: NSWindow,
+                            run: @escaping () -> Void) -> Bool {
+        guard pageMayUse(cmd), engine?.reportsPageShortcuts == true, let page,
               let scheme = page.url?.scheme, ["http", "https", "file", "data"].contains(scheme) else { return false }
         let key = combo(cmd)
         if let t = pageUsed.removeValue(forKey: key), CACurrentMediaTime() - t < secondPressWindow { return false }
         pending[key]?.fallback.cancel()
         // No answer (a page the script couldn't reach, a hung renderer): the browser's command runs anyway.
-        let fallback = DispatchWorkItem { [weak c] in
-            guard let c, let p = pending.removeValue(forKey: key) else { return }
-            p.command.run(c)
+        let fallback = DispatchWorkItem {
+            guard let p = pending.removeValue(forKey: key) else { return }
+            p.run()
         }
-        pending[key] = Pending(command: cmd, fallback: fallback)
+        pending[key] = Pending(run: run, fallback: fallback, window: window)
         DispatchQueue.main.asyncAfter(deadline: .now() + pageAnswerTimeout, execute: fallback)
         return true
     }
@@ -434,7 +454,11 @@ enum KeyMonitor {
                 return nil
             }
             if let little = app.littleArc(for: event.window) { return little.handleKey(event) ? nil : event }
-            if let p = PrivateBrowsing.shared.window(for: event.window) { return p.handleKey(event) ? nil : event }
+            if let p = PrivateBrowsing.shared.window(for: event.window) {
+                // WebKit handed back a key its page didn't use: the menus take it now (CommandMenuItem.fire).
+                if event === offered { offered = nil; return event }
+                return p.handleKeyPageFirst(event) ? nil : event
+            }
             guard let c = app.controller, event.window === c.window else { return event }
             // Full screen (Arc): Esc goes to the page; a second press, or holding it, leaves full screen.
             // Peek: Esc closes it. So does Site Controls (first: it's above the page).
@@ -460,8 +484,8 @@ enum KeyMonitor {
             // the keyboard elsewhere gets the key first (Figma's canvas undoes itself); otherwise ⌘Z restores closed
             // tabs (SB-23, SB-40).
             if chars == "z", mods == .command {
-                if editingText || pageIsEditingText(c) { return event }
-                if offerToPage(reopenOnUndo, in: c) { deliverToPage(event, in: c); return nil }
+                if editingText || pageIsEditingText(page: c.focusedPage, in: c.window) { return event }
+                if offerToPage(reopenOnUndo, in: c) { deliverToPage(event, in: c.window); return nil }
                 c.undo()
                 return nil
             }
@@ -472,12 +496,12 @@ enum KeyMonitor {
                 if cmd.order == .afterPage {
                     // Our field's (text navigation), or the page's: an unused key comes back (pageDidNotUse).
                     if editingText { return event }
-                    if c.focusedPage != nil { deliverToPage(event, in: c); return nil }
+                    if c.focusedPage != nil { deliverToPage(event, in: c.window); return nil }
                     cmd.run(c)
                     return nil
                 }
                 if offerToPage(cmd, in: c) {
-                    deliverToPage(event, in: c)
+                    deliverToPage(event, in: c.window)
                     return nil
                 }
                 cmd.run(c)
@@ -526,14 +550,16 @@ enum KeyMonitor {
     private static weak var offered: NSEvent?
 
     /// Straight to the page, whatever AppKit's own order (the main menu could otherwise take it first).
-    private static func deliverToPage(_ event: NSEvent, in c: WindowController) {
+    static func deliverToPage(_ event: NSEvent, in window: NSWindow) {
         offered = event
-        if let r = c.window.firstResponder as? NSView, !r.performKeyEquivalent(with: event) { r.keyDown(with: event) }
+        if let r = window.firstResponder as? NSView, !r.performKeyEquivalent(with: event) { r.keyDown(with: event) }
     }
 
     /// A field in the page has the keyboard: Chromium's page view and WebKit's web view have a text input context
     /// only then.
-    static func pageIsEditingText(_ c: WindowController) -> Bool {
-        c.focusedPage != nil && (c.window.firstResponder as? NSView)?.inputContext != nil
+    static func pageIsEditingText(_ c: WindowController) -> Bool { pageIsEditingText(page: c.focusedPage, in: c.window) }
+
+    static func pageIsEditingText(page: EngineTab?, in window: NSWindow) -> Bool {
+        page != nil && (window.firstResponder as? NSView)?.inputContext != nil
     }
 }

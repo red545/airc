@@ -2,6 +2,7 @@
 import AppKit
 import AircDesign
 import AircKit
+import Combine
 import SwiftUI
 
 /// PW-1 Private windows (⇧⌘N, spec §2.16c). A dark window of its own, built like Little Arc's (LittleArc.swift): a simple
@@ -22,6 +23,11 @@ final class PrivateBrowsing {
     /// Sessions whose last window closed and that the engine hasn't destroyed yet: a new window waits for them, so no
     /// cookie carries over.
     private var ending: [String: EngineProfile] = [:]
+    /// Each session's downloads (PrivateWindowExtras.swift), in memory, until the session ends.
+    private var sessionDownloads: [String: PrivateDownloads] = [:]
+    private var asksBeforeClosing = false
+
+    func downloads(of profileID: String) -> PrivateDownloads? { sessionDownloads[profileID] }
 
     func window(for w: NSWindow?) -> PrivateWindowController? {
         guard let w else { return nil }
@@ -41,6 +47,10 @@ final class PrivateBrowsing {
                 completion?(nil)
                 return
             }
+            if self.sessionDownloads[profileID] == nil, let d = app.engine as? EngineDownloads, d.downloadsAvailable {
+                self.sessionDownloads[profileID] = PrivateDownloads(engine: d, profile: profile)
+            }
+            self.askBeforeClosingWithDownloads(app: app)
             let w = PrivateWindowController(app: app, profileID: profileID, profile: profile,
                                             frame: self.nextFrame(app: app, after: source))
             self.windows.append(w)
@@ -77,11 +87,30 @@ final class PrivateBrowsing {
         completion(nil)
     }
 
+    /// Chromium asks before a close would cancel downloads (downloadsCloseConfirmation, one answerer for the app): while
+    /// a private window is closing, the question is its own, on it; otherwise it goes on to the main window's card.
+    private func askBeforeClosingWithDownloads(app: AppDelegate) {
+        guard !asksBeforeClosing, let engine = app.engine as? EngineDownloads, engine.asksBeforeClosingWithDownloads else { return }
+        asksBeforeClosing = true
+        let previous = engine.downloadsCloseConfirmation
+        engine.downloadsCloseConfirmation = { [weak self] count, answer in
+            guard let w = self?.windows.first(where: \.isClosing) else { return previous.map { $0(count, answer) } ?? answer(true) }
+            w.askBeforeClosing(count: count) { close in
+                if !close { w.closeCancelled() }
+                answer(close)
+            }
+        }
+    }
+
+    /// Whether `w` is its session's last window.
+    func isLastWindow(_ w: PrivateWindowController) -> Bool { !windows.contains { $0 !== w && $0.profileID == w.profileID } }
+
     /// The window closed (its pages are gone or going). The last one of its profile ends the session.
     func closed(_ w: PrivateWindowController) {
         windows.removeAll { $0 === w }
         let pid = w.profileID
         guard !windows.contains(where: { $0.profileID == pid }), let p = sessions.removeValue(forKey: pid) else { return }
+        sessionDownloads.removeValue(forKey: pid)?.stop()
         #if canImport(AircCore)
         if let chromium = w.app?.engine as? ChromiumEngine {
             ending[pid] = p
@@ -166,7 +195,10 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
     private var nextID = 0
     /// Asked to close, waiting for the page's unload handlers (it may ask "Leave site?").
     private var closingIDs: Set<String> = []
+    /// The person said to close anyway (their downloads stop).
+    private var confirmedClose = false
     private var closing = false
+    var isClosing: Bool { closing }
 
     let root = PrivateRootView()
     let background: ThemeBackgroundView
@@ -175,6 +207,9 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
     private let empty: NSHostingView<PrivateEmptyView>
     let toast = ToastView()
     private(set) var commandBar: CommandBarView?
+    /// ⌘F's field over the page (PrivateWindowExtras.swift).
+    var findBar: FindBarView?
+    var downloadsWatch: AnyCancellable?
     lazy var prompts = PromptPresenter(host: self)
     private var lights: TrafficLights?
     /// Its own key for live search suggestions: nothing typed here shares a session or cache with the profile's.
@@ -198,6 +233,7 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
         engineWindow.delegate = self
         empty.rootView = PrivateEmptyView(theme: pal.resolved) { [weak self] in self?.openCommandBar(mode: .newTab) }
         setUpWindow(frame: frame)
+        connectDownloads()
         app.promptCenter?.register(prompts)
         engineWindow.activeProfile = profile
         engineWindow.prepareProfile(profile)
@@ -266,6 +302,7 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
         card.frame = NSRect(x: s, y: i, width: max(0, b.width - s - i), height: max(0, b.height - 2 * i))
         empty.frame = card.frame
         commandBar?.layoutIn(b, sidebarFrame: sidebar.frame, contentFrame: card.frame)
+        layoutFindBar()
         prompts.layout()
         lights?.place()
     }
@@ -301,6 +338,7 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
 
     func select(_ id: String, focus: Bool = true) {
         guard let p = page(id), !closing else { return }
+        if findBar != nil, id != shownID { closeFind(refocusPage: false) }
         shownID = id
         engineWindow.activateTab(p.tab)
         app?.engine.setPictureInPictureWindowActive(p.tab, active: window.isKeyWindow)
@@ -350,6 +388,7 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
         prompts.dropAll(for: p.tab)
         guard !closing else { return }
         if shownID == id {
+            if findBar != nil { closeFind(refocusPage: false) }
             shownID = nil
             // The tab below takes its place (Arc's Today), else the one above.
             if !pages.isEmpty { return select(pages[min(i, pages.count - 1)].id) }
@@ -415,7 +454,23 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
         if windowShouldClose(window) { window.close() }
     }
 
+    /// The engine kept the window (Keep Window Open, when its downloads would stop).
+    func closeCancelled() {
+        closing = false
+        refresh()
+    }
+
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        // An engine that doesn't ask itself before cancelling downloads (WebKit): the app asks, then closes.
+        if (app?.engine as? EngineDownloads)?.asksBeforeClosingWithDownloads == false, !confirmedClose, PrivateBrowsing.shared.isLastWindow(self),
+           let n = downloads?.runningCount, n > 0 {
+            askBeforeClosing(count: n) { [weak self] close in
+                guard let self, close else { return }
+                self.confirmedClose = true
+                self.closeWindow()
+            }
+            return false
+        }
         closing = true
         closeCommandBar()
         #if canImport(AircCore)
@@ -431,6 +486,8 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
         closing = true
         commandBar?.removeFromSuperview()
         commandBar = nil
+        findBar?.removeFromSuperview()
+        findBar = nil
         prompts.dropAll()
         for p in pages { p.tab.delegate = nil }
         pages = []
@@ -478,39 +535,56 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
     }
 
     /// The private window's own shortcuts while it's the key window (the main window's commands don't reach into it).
+    /// Runs the key's command now (the menu's path); `handleKeyPageFirst` lets the page have it first.
     func handleKey(_ event: NSEvent) -> Bool {
-        var mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
-        guard !mods.isEmpty, var key = event.charactersIgnoringModifiers?.lowercased() else { return false }
-        // ⌘+ is ⇧⌘= on most layouts.
-        if key == "+", mods.contains(.command) { key = "="; mods.remove(.shift) }
-        switch (key, mods) {
-        case ("t", .command): openCommandBar(mode: .newTab)
-        case ("l", .command): openCommandBar(mode: .editURL)
-        case ("w", .command): closeCurrent()
-        case ("w", [.command, .shift]): closeWindow()
-        case ("w", [.command, .option]): closeOtherTabs()
-        case ("n", [.command, .shift]): if let app { PrivateBrowsing.shared.open(app: app, from: self) }
-        case ("n", .command): bringMainWindowForward()
-        case ("r", .command): reloadOrStop()
-        case ("r", [.command, .shift]): shownPage?.reloadIgnoringCache()
-        case ("[", .command): shownPage?.goBack()
-        case ("]", .command): shownPage?.goForward()
-        case (BrowserCommand.down, [.command, .option]): selectAdjacent(1)
-        case (BrowserCommand.up, [.command, .option]): selectAdjacent(-1)
-        case ("=", .command): zoom(step: 1)
-        case ("-", .command): zoom(step: -1)
-        case ("0", .command): zoom(step: 0)
-        case ("p", .command): printPage()
-        case ("s", [.command, .shift]): SavePage.offer(for: shownPage, in: window, toast: { [weak self] in self?.showToast($0) })
-        case ("c", [.command, .shift]): copyURL()
-        case ("i", [.command, .option]): _ = shownPage?.showDevTools(console: false)
-        case ("j", [.command, .option]): _ = shownPage?.showDevTools(console: true)
-        default:
-            if mods == .command, let n = Int(key), (1...9).contains(n) { selectTab(number: n); return true }
-            return false
-        }
+        guard let (key, mods) = Self.normalizedKey(event), let run = action(forKey: key, modifiers: mods) else { return false }
+        KeyMonitor.cancelPending(BrowserCommand("", key, mods) { _ in })
+        run()
         return true
     }
+
+    /// The key as the commands spell it: lower case, ⌘+ as ⌘= (⇧⌘= on most layouts).
+    static func normalizedKey(_ event: NSEvent) -> (String, NSEvent.ModifierFlags)? {
+        var mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        guard !mods.isEmpty, var key = event.charactersIgnoringModifiers?.lowercased() else { return nil }
+        if key == "+", mods.contains(.command) { key = "="; mods.remove(.shift) }
+        return (key, mods)
+    }
+
+    /// The command this window runs for a key; nil for keys it leaves to the page and AppKit.
+    func action(forKey key: String, modifiers mods: NSEvent.ModifierFlags) -> (() -> Void)? {
+        switch (key, mods) {
+        case ("t", .command): return { [weak self] in self?.openCommandBar(mode: .newTab) }
+        case ("l", .command): return { [weak self] in self?.openCommandBar(mode: .editURL) }
+        case ("w", .command): return { [weak self] in self?.closeCurrent() }
+        case ("w", [.command, .shift]): return { [weak self] in self?.closeWindow() }
+        case ("w", [.command, .option]): return { [weak self] in self?.closeOtherTabs() }
+        case ("n", [.command, .shift]): return { [weak self] in if let self, let app = self.app { PrivateBrowsing.shared.open(app: app, from: self) } }
+        case ("n", .command): return { [weak self] in self?.bringMainWindowForward() }
+        case ("r", .command): return { [weak self] in self?.reloadOrStop() }
+        case ("r", [.command, .shift]): return { [weak self] in self?.shownPage?.reloadIgnoringCache() }
+        case ("[", .command): return { [weak self] in self?.shownPage?.goBack() }
+        case ("]", .command): return { [weak self] in self?.shownPage?.goForward() }
+        case (BrowserCommand.down, [.command, .option]): return { [weak self] in self?.selectAdjacent(1) }
+        case (BrowserCommand.up, [.command, .option]): return { [weak self] in self?.selectAdjacent(-1) }
+        case ("=", .command): return { [weak self] in self?.zoom(step: 1) }
+        case ("-", .command): return { [weak self] in self?.zoom(step: -1) }
+        case ("0", .command): return { [weak self] in self?.zoom(step: 0) }
+        case ("p", .command): return { [weak self] in self?.printPage() }
+        case ("s", [.command, .shift]): return { [weak self] in self?.savePage() }
+        case ("c", [.command, .shift]): return { [weak self] in self?.copyURL() }
+        case ("i", [.command, .option]): return { [weak self] in _ = self?.shownPage?.showDevTools(console: false) }
+        case ("j", [.command, .option]): return { [weak self] in _ = self?.shownPage?.showDevTools(console: true) }
+        case ("f", .command): return { [weak self] in self?.showFind() }
+        case ("g", .command): return { [weak self] in self?.findAgain(forward: true) }
+        case ("g", [.command, .shift]): return { [weak self] in self?.findAgain(forward: false) }
+        default:
+            if mods == .command, let n = Int(key), (1...9).contains(n) { return { [weak self] in self?.selectTab(number: n) } }
+            return nil
+        }
+    }
+
+    func savePage() { SavePage.offer(for: shownPage, in: window, toast: { [weak self] in self?.showToast($0) }) }
 
     /// A main-menu click while this window is in front: the commands that make sense here, by title. False: not one.
     func perform(menuTitle title: String) -> Bool {
@@ -521,7 +595,7 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
         case "Close Tab": closeCurrent()
         case "Close Window": closeWindow()
         case "Close Other Tabs": closeOtherTabs()
-        case "Save Page As…": SavePage.offer(for: shownPage, in: window, toast: { [weak self] in self?.showToast($0) })
+        case "Save Page As…": savePage()
         case "Print…": printPage()
         case "Copy URL": copyURL()
         case "Reload Page": reloadOrStop()
@@ -535,6 +609,9 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
         case "Previous Tab": selectAdjacent(-1)
         case "Developer Tools": _ = shownPage?.showDevTools(console: false)
         case "JavaScript Console": _ = shownPage?.showDevTools(console: true)
+        case "Find…": showFind()
+        case "Find Next": findAgain(forward: true)
+        case "Find Previous": findAgain(forward: false)
         default: return false
         }
         return true
@@ -597,6 +674,11 @@ extension PrivateWindowController: EngineTabDelegate {
     func tabDidChangeNavigationState(_ tab: EngineTab) { refresh() }
     func tabDidChangeAudio(_ tab: EngineTab) { refresh() }
     func tabDidChangeThemeColor(_ tab: EngineTab) {}
+    /// CB-3: the page's answer to a shortcut it was offered first (handleKeyPageFirst).
+    func tab(_ tab: EngineTab, didReceiveShortcut combo: String, pageUsedIt: Bool) {
+        guard tab === shownPage else { return }
+        KeyMonitor.pageReported(combo, pageUsedIt: pageUsedIt, window: window)
+    }
 }
 
 extension PrivateWindowController: PromptHost {
@@ -787,6 +869,9 @@ final class PrivateSidebarView: NSView {
     private let scroll = NSScrollView()
     private let list = FlippedView()
     private(set) var rows: [PrivateTabRow] = []
+    /// The session's downloads (PrivateWindowExtras.swift), above the note.
+    let downloads = PrivateDownloadsView()
+    var downloadRows = 0 { didSet { if downloadRows != oldValue { needsLayout = true } } }
     private let note = NSTextField(wrappingLabelWithString: "Airc doesn’t keep this window’s history. Its cookies and site data go when you close it.")
 
     var newTabActive = false { didSet { newTab.isSelected = newTabActive } }
@@ -814,6 +899,7 @@ final class PrivateSidebarView: NSView {
         scroll.borderType = .noBorder
         scroll.documentView = list
         addSubview(scroll)
+        addSubview(downloads)
         note.font = AircFont.caption.appFont
         note.isSelectable = false
         addSubview(note)
@@ -892,7 +978,10 @@ final class PrivateSidebarView: NSView {
         let noteSize = note.sizeThatFits(NSSize(width: w - 36, height: 200))
         let noteY = bounds.height - 14 - noteSize.height
         note.frame = NSRect(x: 18, y: noteY, width: w - 36, height: noteSize.height)
-        scroll.frame = NSRect(x: 0, y: top, width: w, height: max(0, noteY - 10 - top))
+        let dh = PrivateDownloadsView.height(rows: downloadRows)
+        downloads.frame = NSRect(x: inset, y: noteY - (dh > 0 ? 10 + dh : 0), width: w - 2 * inset, height: dh)
+        downloads.isHidden = dh == 0
+        scroll.frame = NSRect(x: 0, y: top, width: w, height: max(0, downloads.frame.minY - 10 - top))
         list.frame = NSRect(x: 0, y: 0, width: w, height: max(scroll.frame.height, CGFloat(rows.count) * AircMetrics.Row.pitch))
         for (i, r) in rows.enumerated() {
             r.frame = NSRect(x: 0, y: CGFloat(i) * AircMetrics.Row.pitch, width: w, height: AircMetrics.Row.height)

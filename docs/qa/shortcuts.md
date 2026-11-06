@@ -21,6 +21,9 @@ Owner report: "cmd+shift+v doesn't work … any shortcut like cmd+b". Sources: s
    matching item, even a disabled one, take the key from our own text fields.
 5. ⌘Z undoes in any field being edited, ours or the page's. With the page focused outside a field, the page gets ⌘Z
    first, so a canvas app's own undo works. If the page doesn't use it, ⌘Z reopens the closed tab (SB-23, SB-40).
+6. Private windows (PW-1) follow the same order with their own commands (`PrivateWindowController.handleKeyPageFirst`):
+   the keys they bind go to the page first by the same rule, ⌘Z and Paste and Match Style go the AppKit way to the
+   page. `--script private` checks ⌘F and ⌘L (page uses / doesn't), ⌘Z in a page field and ⇧⌘V on both engines.
 
 ## Page and editor keys (both engines)
 

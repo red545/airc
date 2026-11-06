@@ -361,8 +361,9 @@ extension SnapshotRunner {
     private func followupsRevealedCard() {
         let fake = FakeReadyUpdate(version: "1.0 (209901010001)")
         var shown: [NSView] = []
-        func atPage(_ label: String) {
+        func atPage(_ label: String, unlessStillRevealed: Bool = false) {
             run { [self] in
+                if unlessStillRevealed, c.revealController?.isRevealed == true, Self.screenLocked { return }
                 guard let card = MediaLibrary.shared.promptView else { return check(false, "download card (\(label)): the card shows") }
                 let page = c.card.frame
                 check(card.frame.minX <= page.minX + AircMetrics.Sidebar.inset + 0.5 && card.frame.maxY <= page.maxY
@@ -392,6 +393,11 @@ extension SnapshotRunner {
             c.root.layoutSubtreeIfNeeded()
             let u = c.sidebar.update
             let side = c.root.convert(floating.bounds, from: floating), pill = c.root.convert(u.pillRect, from: u)
+            // With the screen locked an undrawn window's display link may not run, and then the sidebar never slides in.
+            if side.minX < AircMetrics.Sidebar.floatingInset - 0.5, Self.screenLocked {
+                return note("FAIL-ENV download card (sidebar revealed): the revealed sidebar didn't slide in (at x \(side.minX)): "
+                            + "the screen is locked, and the reveal's spring runs on the display link")
+            }
             let gap = pill.minY - card.frame.maxY
             let pillHit = windowHit(u.convert(NSPoint(x: u.pillRect.midX, y: u.pillRect.midY), to: nil)) === u
             check(!card.frame.intersects(pill) && gap >= 12 - 0.5 && gap <= 12 + 0.5
@@ -405,10 +411,18 @@ extension SnapshotRunner {
         run { [self] in c.revealController?.hide() }
         step { [self] done in waitUntil({ self.c.revealController?.isRevealed == false }, timeout: 2) { done() } }
         wait(0.2)
-        atPage("sidebar hidden again")
+        run { [self] in
+            if c.revealController?.isRevealed == true, Self.screenLocked {
+                note("FAIL-ENV download card (sidebar hidden again): the revealed sidebar didn't slide out: the screen is locked, "
+                     + "and the spring runs on the display link")
+            }
+        }
+        atPage("sidebar hidden again", unlessStillRevealed: true)
         run { [self] in
             MediaLibrary.shared.promptView?.model.onAnswer?(.keepDownloading)
             UpdateCenter.shared.setReady(nil)
+            // A spring that never ran (locked screen) leaves the sidebar revealed: docked, the next checks start as usual.
+            if c.revealController?.isRevealed == true { c.revealController?.dock() }
             if c.sidebarHidden { c.toggleSidebar() }
         }
         wait(0.6)

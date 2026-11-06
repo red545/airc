@@ -1118,6 +1118,16 @@ extension WindowController: CommandBarHost {
             urls.insert(t.url)
         }
         for t in store.state.tabs.values where t.profileID == profile.id && t.itemID == nil { addTab(t) }
+        // An empty query only shows recent Today tabs. Avoid constructing pinned, Space and action
+        // candidates (including their icons and shortcuts) that the empty-query branch discards.
+        var recentOnly = q.isEmpty
+        #if AIRC_TESTING
+        if ProcessInfo.processInfo.environment["AIRC_COMMAND_BASELINE"] == "1" { recentOnly = false }
+        #endif
+        if recentOnly {
+            let recent = CommandSearch.rank("", candidates, limit: 6)
+            return recent.compactMap { actions[$0.candidate.id] }
+        }
         for item in store.state.items.values where item.kind == .tab {
             let inProfile = item.profileID == profile.id || (item.spaceID.map { store.space($0)?.profileID == profile.id } ?? false)
             guard inProfile, let saved = item.savedURL else { continue }

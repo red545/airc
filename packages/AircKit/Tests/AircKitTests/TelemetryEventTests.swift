@@ -46,11 +46,12 @@ final class TelemetryEventTests: XCTestCase {
         "pip.open", "space.create", "profile.create", "favorite.add", "air_traffic.rule_add", "find.open",
         "history_menu.open", "download.start", "download.complete", "site_controls.open", "default_browser.prompt",
         "extension.install", "update.install", "theme.change", "calendar.enable", "calendar.join", "telemetry.smoke",
-        "update.ready_shown", "update.restart_clicked", "boost.save", "private_window.open",
+        "update.ready_shown", "update.restart_clicked", "boost.save", "private_window.open", "tab_preview.action",
     ]
 
     static let variants: Set<String> = ["new_tab", "edit_url", "2", "3", "4", "shortcut", "link", "video", "call", "document",
-                                        "back", "forward", "shown", "accepted", "declined"]
+                                        "back", "forward", "shown", "accepted", "declined", "pin", "unpin", "favorite",
+                                        "unfavorite", "split", "peek"]
 
     /// Per event: its own properties (required ones first) beyond the super properties.
     static let eventRules: [String: (required: [String: Rule], optional: [String: Rule])] = [
@@ -69,7 +70,7 @@ final class TelemetryEventTests: XCTestCase {
         "perf.daily": (["command_bar_opens": labels(TelemetryBucket.counts)],
                        ["command_bar_p50_ms": labels(TelemetryBucket.frame), "command_bar_p95_ms": labels(TelemetryBucket.frame),
                         "memory_mb": labels(TelemetryBucket.memory), "idle_cpu_pct": labels(TelemetryBucket.cpu)]),
-        "process.gone": (["process": values(TelemetryEvent.ChildProcess.self),
+        "process.gone": (["process_type": values(TelemetryEvent.ChildProcess.self),
                           "exit_signal": values(TelemetryEvent.ExitSignal.self)], [:]),
     ]
 
@@ -85,6 +86,7 @@ final class TelemetryEventTests: XCTestCase {
         + TelemetryFeature.DefaultBrowserAction.allCases.map { .defaultBrowser($0) }
         + [.extensionInstalled, .updateInstalled, .themeChanged, .calendarEnable, .calendarJoin, .telemetrySmoke,
            .updateReadyShown, .updateRestartClicked, .boostSaved, .privateWindowOpen]
+        + TelemetryFeature.TabPreviewAction.allCases.map { .tabPreviewAction($0) }
 
     /// One of every event, with extreme numbers too.
     static let allEvents: [TelemetryEvent] = {
@@ -150,9 +152,10 @@ final class TelemetryEventTests: XCTestCase {
             case .updateRestartClicked: 25
             case .boostSaved: 26
             case .privateWindowOpen: 27
+            case .tabPreviewAction: 28
             }
         }
-        XCTAssertEqual(Set(Self.allFeatures.map(index)), Set(0...27))
+        XCTAssertEqual(Set(Self.allFeatures.map(index)), Set(0...28))
         XCTAssertEqual(Set(Self.allFeatures.map(\.name)), Self.featureNames)
         func covered(_ e: TelemetryEvent) -> String {
             switch e {
@@ -212,6 +215,15 @@ final class TelemetryEventTests: XCTestCase {
     }
 
     /// A renderer's wait status (WIFSIGNALED: the low 7 bits) becomes its signal, never the raw number.
+    func testChildProcessLabelsAreClosed() {
+        XCTAssertEqual(Set(TelemetryEvent.ChildProcess.allCases.map(\.rawValue)),
+                       ["renderer", "gpu", "network", "storage", "audio", "other",
+                        "utility:data_decoder", "utility:video_capture"])
+        for name in ["https://private.example", "/Users/private/file", "utility:unknown"] {
+            XCTAssertEqual(TelemetryEvent.ChildProcess(engineType: name), .other)
+        }
+    }
+
     func testChildProcessExitSignal() {
         XCTAssertEqual(TelemetryEvent.ExitSignal(waitStatus: 11), .segv)
         XCTAssertEqual(TelemetryEvent.ExitSignal(waitStatus: 11 | 0x80), .segv, "with a core dump")
@@ -220,7 +232,7 @@ final class TelemetryEventTests: XCTestCase {
         XCTAssertEqual(TelemetryEvent.ExitSignal(waitStatus: 0x0100), .exit, "exit(1)")
         XCTAssertEqual(TelemetryEvent.ExitSignal(waitStatus: 30), .other)
         XCTAssertEqual(TelemetryEvent.processGone(process: .renderer, exit: .segv).properties,
-                       ["process": .string("renderer"), "exit_signal": .string("SIGSEGV")])
+                       ["process_type": .string("renderer"), "exit_signal": .string("SIGSEGV")])
     }
 
     func testBuckets() {

@@ -28,6 +28,8 @@ export const groups: { title: string; items: Section[] }[] = [
       { id: "import", label: "Import from Arc", icon: "import", space: "lilac" },
       { id: "links", label: "Links", icon: "links", space: "sky" },
       { id: "streaming", label: "Streaming", icon: "streaming", space: "pink" },
+      { id: "private", label: "Private windows", icon: "private", space: "lilac" },
+      { id: "previews", label: "Tab previews", icon: "previews", space: "sky" },
       { id: "boosts", label: "Boosts", icon: "boosts", space: "pink" },
       { id: "supported", label: "What works", icon: "works", space: "mint" },
     ],

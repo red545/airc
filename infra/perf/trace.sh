@@ -22,5 +22,5 @@ while kill -0 $pid 2>/dev/null; do sleep 0.5; done
 sleep 1; kill -INT $XT 2>/dev/null; wait $XT 2>/dev/null
 grep "^\[snapshot\] frames:\|^frames:" "$OUT/snap/log.txt" | cut -c1-400
 xcrun xctrace export --input "$OUT/t.trace" --xpath '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]' > "$OUT/tp.xml" 2>/dev/null
-xcrun xctrace export --input "$OUT/t.trace" --xpath '/trace-toc/run[@number="1"]/data/table[@schema="os-signpost-interval"]' > "$OUT/si.xml" 2>/dev/null
+xcrun xctrace export --input "$OUT/t.trace" --xpath '/trace-toc/run[@number="1"]/data/table[@schema="os-signpost"]' > "$OUT/si.xml" 2>/dev/null
 python3 "$ROOT/infra/perf/tpsum.py" "$OUT/tp.xml" --name frame --intervals "$OUT/si.xml"

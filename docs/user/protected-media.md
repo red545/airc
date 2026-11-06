@@ -77,6 +77,8 @@ profile, so a test instance with its own `--data-dir` never shares yours. It liv
   General), by the same rules: never the tab on screen, one playing audio or video, one in picture in picture, one
   using the camera, microphone or screen, one still loading, or one with typed-in form input. Its web view closes; the
   tab keeps its title and icon, and comes back with its back/forward list and scroll position when you show it.
+  Pinned tabs and Favorites of chat and mail sites stay loaded, as Chromium pages do ("Keep chat and mail sites
+  loaded", Settings → General).
 - **The Chromium session**: Chromium's history and Command Bar suggestions still record WebKit pages (the app keeps
   history), but Chromium's own `chrome://` pages don't see them.
 

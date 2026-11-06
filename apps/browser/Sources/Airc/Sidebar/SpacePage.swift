@@ -229,11 +229,13 @@ final class FavoriteTileView: SidebarRowView {
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
         calendarFace?.hover(true)
+        controller?.tabPreview.hoverBegan(self, event: event)
     }
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         calendarFace?.hover(false)
+        controller?.tabPreview.hoverEnded(self, event: event)
     }
 
     override func mouseDown(with event: NSEvent) {
