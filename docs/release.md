@@ -425,10 +425,14 @@ The releasegate smoke runs in `--plain-only` mode: fresh scratch home, mock Keyc
 quit, with no scripted scenarios or engine test switches. The signature is checked again and its CDHash must be
 unchanged after smoke. The exact staged bundle is then archived and EdDSA-signed for Sparkle.
 
-**Owner, once after the first signed update:** choose **Always Allow** for Airc's Keychain access (the migration
-may ask twice), and re-grant the Bluetooth, microphone and camera permissions you use when macOS next asks.
-Thereafter the stable Apple signing identity lets those approvals survive updates. This has not been tested
-against the owner's real Keychain or TCC database: tests never access media devices or change the owner's grants.
+**Owner, once after the first signed update:** answer Airc's Keychain question once (Allow or Always Allow; macOS
+may show it twice), and re-grant the Bluetooth, microphone and camera permissions you use when macOS next asks.
+- Keychain: an item trusts the build that made it, an ad-hoc maker by its cdhash and a Developer ID maker by its
+  designated requirement. So after that answer, the first team-signed build makes "Airc Safe Storage" its own
+  (`App/SafeStorageKey.swift`: same secret, new item), and every later launch and update reads it without asking.
+  This was proven on scratch keychains (no UI, interaction off), never on the owner's.
+- The stable Apple signing identity lets the TCC approvals survive updates. Tests never access media devices or
+  change the owner's grants.
 
 **What a dev build does** (`AIRC_DEV_CHANNEL=1 AIRC_UPDATE_FEED=… scripts/build-app.sh`): Sparkle is embedded from
 `~/arcfork/tools/sparkle` and the bundles are signed by `scripts/release/sign.py`. `Airc-Chromium.app` gets

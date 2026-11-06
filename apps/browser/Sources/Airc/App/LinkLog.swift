@@ -19,12 +19,13 @@ enum LinkLog {
     private static let queue = DispatchQueue(label: "airc.links-log", qos: .utility)
     private static let limit = 128 * 1024
 
-    static func write(_ event: String) {
+    /// One line in `file` (default Links.log) in the data folder; Keychain.log (SafeStorageKey) uses it too.
+    static func write(_ event: String, file name: String = "Links.log") {
         guard enabled else { return }
         let stamp = ISO8601DateFormatter.string(from: Date(), timeZone: TimeZone(identifier: "UTC")!,
                                                 formatOptions: [.withInternetDateTime, .withFractionalSeconds])
         let line = "\(stamp) \(event)\n"
-        let file = url
+        let file = AppPaths.dataDirectory.appendingPathComponent(name)
         queue.async {
             if let handle = try? FileHandle(forWritingTo: file) {
                 let size = handle.seekToEndOfFile()

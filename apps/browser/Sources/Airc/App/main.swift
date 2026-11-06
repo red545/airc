@@ -8,6 +8,8 @@ CrashLog.install()
 if LaunchOptions.current.engine == "chromium" {
     // Chromium runs the app: AircEngine.run owns the message loop and installs its NSApplication subclass, so
     // NSApplication must not exist before it. The app starts in engineDidStart.
+    // The key to saved passwords and cookies: made this build's own once, so Chromium's read never asks (SafeStorageKey.swift).
+    SafeStorageKey.prepareForEngine(LaunchOptions.current)
     // Links from other apps: AppKit only hands GURL Apple events to a delegate it had when it finished launching, and
     // this one comes later (URLEvents.swift).
     let before = URLEventHandler.shared.install()
