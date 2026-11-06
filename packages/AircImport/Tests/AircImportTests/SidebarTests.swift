@@ -72,6 +72,26 @@ final class SidebarTests: XCTestCase {
         guard case .folder(let folder) = p.spaces[0].pinned.last else { return XCTFail() }
         XCTAssertEqual(folder.title, "Folder")
     }
+    /// The import step names what changed: Notes and Easels left out, live folders made plain, a tab group's tabs in
+    /// its place with its kind named; Arc's welcome tab and stray containers say nothing.
+    func testWarningsNameWhatChanged() throws {
+        let items: [Any] = [
+            ["id": "R", "childrenIds": ["N", "E", "L", "G", "W", "C"]],
+            ["id": "N", "data": ["arcDocument": [:]]],
+            ["id": "E", "data": ["easel": [:]]],
+            ["id": "L", "data": ["list": [:]], "automaticLiveFolderData": [:], "childrenIds": ["T1"]],
+            ["id": "T1", "data": ["tab": ["savedURL": "https://example.com/1"]]],
+            ["id": "G", "data": ["tabGroup": [:]], "childrenIds": ["T2"]],
+            ["id": "T2", "data": ["tab": ["savedURL": "https://example.com/2"]]],
+            ["id": "W", "data": ["welcomeToArc": [:]]],
+            ["id": "C", "data": ["itemContainer": [:]], "childrenIds": ["T3"]],
+            ["id": "T3", "data": ["tab": ["savedURL": "https://example.com/3"]]],
+        ]
+        let p = try parse(simple(items: items, spaces: [["id": "S", "newContainerIDs": [["pinned": [:]], "R"]]]))
+        XCTAssertEqual(p.warnings.map(\.code).filter { $0 != .newerVersion }, [.note, .easel, .liveFolder, .unsupportedItem])
+        XCTAssertEqual(p.warnings.last?.kind, "tabGroup")
+        XCTAssertEqual(p.spaces[0].pinned.flatMap(\.tabs).map(\.url), ["https://example.com/1", "https://example.com/2", "https://example.com/3"])
+    }
     func testGradientLossless() throws {
         let theme: [String: Any] = ["background": ["baseColors": [["red": 1, "green": 0, "blue": 0], ["red": 0, "green": 0, "blue": 1]], "intensityFactor": 0.81, "noise": true]]
         let p = try parse(simple(spaces: [["id": "S", "customInfo": ["windowTheme": theme]]]))

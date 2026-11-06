@@ -4,11 +4,91 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm build",
   "outputDirectory": "dist",
-  "git": { "deploymentEnabled": false },
+  "git": {
+    "deploymentEnabled": false
+  },
   "headers": [
     {
       "source": "/_astro/(.*)",
-      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/appcast.xml",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=60"
+        }
+      ]
+    },
+    {
+      "source": "/latest.json",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=60"
+        }
+      ]
+    },
+    {
+      "source": "/download",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        }
+      ]
+    },
+    {
+      "source": "/nightly-latest.json",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=60"
+        }
+      ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/ingest/static/:path*",
+      "destination": "https://eu-assets.i.posthog.com/static/:path*"
+    },
+    {
+      "source": "/ingest/:path*/",
+      "destination": "https://eu.i.posthog.com/:path*/"
+    },
+    {
+      "source": "/ingest/:path*",
+      "destination": "https://eu.i.posthog.com/:path*"
+    },
+    {
+      "source": "/appcast.xml",
+      "destination": "https://hpqylr02za4pig6a.public.blob.vercel-storage.com/feeds/appcast.xml"
+    },
+    {
+      "source": "/latest.json",
+      "destination": "https://hpqylr02za4pig6a.public.blob.vercel-storage.com/feeds/latest.json"
+    },
+    {
+      "source": "/nightly-latest.json",
+      "destination": "https://hpqylr02za4pig6a.public.blob.vercel-storage.com/feeds/nightly-latest.json"
+    },
+    {
+      "source": "/download",
+      "destination": "/api/download"
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/releases/:path*",
+      "destination": "https://hpqylr02za4pig6a.public.blob.vercel-storage.com/releases/:path*",
+      "permanent": true
     }
   ]
 }

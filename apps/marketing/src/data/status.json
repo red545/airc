@@ -1,0 +1,114 @@
+{
+  "checkedAt": "2026-11-06T17:10:00Z",
+  "rev": "a5f4780",
+  "chromium": "156.0.8078.88",
+  "checks": {
+    "pass": 495,
+    "skip": 26,
+    "fail": 0
+  },
+  "features": {
+    "spaces": {
+      "status": "passing",
+      "pass": 15,
+      "skip": 1,
+      "fail": 0
+    },
+    "profiles": {
+      "status": "passing",
+      "pass": 6,
+      "skip": 1,
+      "fail": 0
+    },
+    "import": {
+      "status": "built",
+      "pass": 0,
+      "skip": 0,
+      "fail": 0
+    },
+    "command": {
+      "status": "passing",
+      "pass": 9,
+      "skip": 4,
+      "fail": 0
+    },
+    "pinned": {
+      "status": "passing",
+      "pass": 6,
+      "skip": 0,
+      "fail": 0
+    },
+    "favorites": {
+      "status": "passing",
+      "pass": 9,
+      "skip": 0,
+      "fail": 0
+    },
+    "split": {
+      "status": "passing",
+      "pass": 31,
+      "skip": 0,
+      "fail": 0
+    },
+    "peek": {
+      "status": "passing",
+      "pass": 7,
+      "skip": 0,
+      "fail": 0
+    },
+    "links": {
+      "status": "passing",
+      "pass": 5,
+      "skip": 0,
+      "fail": 0
+    },
+    "boosts": {
+      "status": "passing",
+      "pass": 40,
+      "skip": 0,
+      "fail": 0
+    },
+    "archive": {
+      "status": "passing",
+      "pass": 5,
+      "skip": 0,
+      "fail": 0
+    },
+    "find": {
+      "status": "passing",
+      "pass": 2,
+      "skip": 0,
+      "fail": 0
+    },
+    "fullscreen": {
+      "status": "passing",
+      "pass": 11,
+      "skip": 0,
+      "fail": 0
+    },
+    "pip": {
+      "status": "passing",
+      "pass": 1,
+      "skip": 0,
+      "fail": 0
+    },
+    "extensions": {
+      "status": "passing",
+      "pass": 3,
+      "skip": 0,
+      "fail": 0
+    },
+    "prompts": {
+      "status": "passing",
+      "pass": 59,
+      "skip": 8,
+      "fail": 0
+    },
+    "memory": {
+      "status": "passing",
+      "pass": 2,
+      "skip": 0,
+      "fail": 0
+    }
+  }
+}

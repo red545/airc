@@ -56,8 +56,12 @@ final class OnboardingModel: ObservableObject {
     /// "Arc 1.171" on the found card.
     @Published var arcLabel = "Arc"
     @Published var blueprint: ImportBlueprint?
-    /// The plan's warnings as a short note (IM-1).
+    /// What the import changes on the way (Easels left out, live folders made plain…), from the plan's warnings (IM-1).
+    @Published var importChanges: [ImportAdapter.Change] = []
+    /// A problem with the import itself ("The import stopped: …").
     @Published var importNote: String?
+    /// A re-run into an Airc that already has Spaces: what the import does to them (merge by Arc ID).
+    @Published var reimport: ReimportSummary?
     @Published var choosing = false
     /// Source IDs of the Spaces to import (Choose…). Everything by default.
     @Published var chosenSpaces: Set<String> = []
@@ -79,9 +83,21 @@ final class OnboardingModel: ObservableObject {
     /// Theme changes per Space, keyed by the Space's source ID (or the Airc Space ID when starting fresh).
     @Published var themes: [String: SpaceTheme] = [:]
     @Published var translucency: AircTranslucency = .default
-    /// Google account per profile source ID, once signed in.
-    @Published var accounts: [String: String] = [:]
+    /// The signed-in Google account per profile source ID: from that profile's own cookies (GoogleAccountProbe) or its
+    /// sign-in window. Stays on this Mac: never logged, never in telemetry.
+    @Published var accounts: [String: GoogleAccount] = [:]
+    /// The accounts' pictures, once loaded.
+    @Published var accountPhotos: [String: CGImage] = [:]
+    /// Profiles whose sign-in state is still being read.
+    @Published var checkingAccounts: Set<String> = []
     @Published var signingIn: String?
+    /// A re-run (ON-3) can be left from every step: the close button, ⌘W, Esc on its first step. The first run only
+    /// closes by finishing (ON-5).
+    @Published var closable = false
+    /// Why leaving isn't possible right now (the logins are being written), or nil.
+    @Published var closeBlockedReason: String?
+    /// "Hold ⌘Q to Quit" is showing (a ⌘Q tap in the window).
+    @Published var showsQuitHint = false
     /// Step 5 is in the flow: Airc wasn't the default when onboarding opened (never in automated runs on the real
     /// system, where macOS is never asked).
     @Published var offersDefaultBrowser = false
@@ -103,6 +119,9 @@ final class OnboardingModel: ObservableObject {
     var onBackUpArc: (() -> Void)?
     var onLocateArc: (() -> Void)?
     var onSignIn: ((String) -> Void)?
+    /// Signed in already: sign this profile in to another Google account.
+    var onSwitchAccount: ((String) -> Void)?
+    var onClose: (() -> Void)?
     var onImportLogins: (() -> Void)?
     var onSkipLogins: (() -> Void)?
     var onThemeChange: (() -> Void)?
@@ -152,18 +171,47 @@ final class OnboardingModel: ObservableObject {
 
     var focusedTheme: ResolvedTheme { resolved(focused) }
 
-    /// The profiles that come over, each with its Spaces (step 3).
-    var profileRows: [(profile: ImportBlueprint.Profile, spaces: [ImportBlueprint.Space])] {
+    struct ProfileRow: Identifiable {
+        var profile: ImportBlueprint.Profile
+        var spaces: [ImportBlueprint.Space]
+        var id: String { profile.sourceID }
+    }
+
+    /// The profiles that come over, each with its Spaces (step 3): one row for every profile a chosen Space uses, in
+    /// the plan's order. A Space whose profile isn't in the plan's list still gets its row (ImportAdapter adds a profile
+    /// for it), so the rows always match the "N profiles" count on the import step.
+    var profileRows: [ProfileRow] {
         guard let b = blueprint, !startedFresh else { return [] }
-        let spaces = previewSpaces
-        return b.profiles.compactMap { p in
+        return Self.rows(b, spaces: previewSpaces)
+    }
+
+    static func rows(_ b: ImportBlueprint, spaces: [ImportBlueprint.Space]) -> [ProfileRow] {
+        var rows = b.profiles.compactMap { p -> ProfileRow? in
             let mine = spaces.filter { $0.profileSourceID == p.sourceID }
-            return mine.isEmpty ? nil : (p, mine)
+            return mine.isEmpty ? nil : ProfileRow(profile: p, spaces: mine)
         }
+        let known = Set(b.profiles.map(\.sourceID))
+        var extra: [String] = []
+        for s in spaces where !known.contains(s.profileSourceID) && !extra.contains(s.profileSourceID) { extra.append(s.profileSourceID) }
+        for key in extra {
+            let mine = spaces.filter { $0.profileSourceID == key }
+            rows.append(ProfileRow(profile: ImportAdapter.placeholderProfile(key, spaces: mine), spaces: mine))
+        }
+        return rows
     }
 
     func profile(of space: ImportBlueprint.Space) -> ImportBlueprint.Profile? {
         blueprint?.profiles.first { $0.sourceID == space.profileSourceID }
+    }
+
+    /// A profile row was hovered (or left): the preview shows that profile's first Space with its profile pill.
+    func hover(profile source: String, inside: Bool) {
+        if inside {
+            hoveredProfile = source
+            if let i = previewSpaces.firstIndex(where: { $0.profileSourceID == source }) { focusedSpace = i }
+        } else if hoveredProfile == source {
+            hoveredProfile = nil
+        }
     }
 
     func favorites(of space: ImportBlueprint.Space) -> [ImportBlueprint.Tab] {
@@ -178,7 +226,7 @@ final class OnboardingModel: ObservableObject {
     var counts: Counts {
         guard let b = blueprint else { return Counts() }
         let spaces = b.spaces.filter { chosenSpaces.contains($0.sourceID) }
-        let profiles = Set(spaces.map(\.profileSourceID))
+        let profiles = Self.rows(b, spaces: spaces).map(\.profile.sourceID)
         let favs = profiles.reduce(0) { $0 + min(b.favorites[$1]?.count ?? 0, SpacesStore.maxFavorites) }
         let tabs = spaces.reduce(0) { $0 + $1.pinnedTabCount }
         return Counts(spaces: spaces.count, profiles: profiles.count, favorites: favs, tabs: tabs)
@@ -197,6 +245,30 @@ final class OnboardingModel: ObservableObject {
     }
 
     var isImporting: Bool { if case .running = importState { true } else { false } }
+}
+
+/// A re-run's import into an Airc that already has Spaces (IM-1: keyed on Arc's IDs). Spaces brought over before are
+/// updated in place from Arc; the others are added after the user's own. Nothing the user made in Airc is removed.
+struct ReimportSummary: Equatable {
+    /// Chosen Spaces already in Airc from an earlier import (same Arc ID): updated in place.
+    var updated = 0
+    /// Chosen Spaces new to Airc: added after the user's.
+    var added = 0
+    /// New ones with the same name as a Space the user has (so it may look like a copy).
+    var sameName = 0
+    /// Spaces in Airc now (the fresh install's untouched one doesn't count).
+    var existing = 0
+
+    /// The checklist row's line ("4 already in Airc · 2 new, after yours"), or nil on a first import into an empty
+    /// Airc. The step's subtitle says what that means: matched Spaces update in place, nothing is removed.
+    var line: String? {
+        guard existing > 0, updated + added > 0 else { return nil }
+        var parts: [String] = []
+        if updated > 0 { parts.append("\(updated) already in Airc") }
+        if added > 0 { parts.append("\(added) new, after yours") }
+        if sameName > 0 { parts.append("\(sameName) named like one of yours") }
+        return parts.joined(separator: " · ")
+    }
 }
 
 extension ImportBlueprint.Space: Identifiable {

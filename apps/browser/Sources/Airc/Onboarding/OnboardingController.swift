@@ -26,6 +26,10 @@ final class OnboardingController {
     private var subscriptions: Set<AnyCancellable> = []
     private var revealTimer: Timer?
     private var signIn: SignInWindowController?
+    /// Reads each profile's Google accounts from its own cookies (the accounts step).
+    private var accountProbe: GoogleAccountProbe?
+    private var quitMonitor: Any?
+    private var quitHintTimer: Timer?
     private var finished = false
     /// Set by the snapshot scenario: the browser window's frame to expand into.
     var onFinished: ((WindowController) -> Void)?
@@ -53,10 +57,24 @@ final class OnboardingController {
         onMain {
             w.setContent(host)
         }
+        model.closable = mode == .rerun
         wire()
-        onMain { w.onEscape = { [weak self] in self?.back() } }
+        let closable = mode == .rerun
+        onMain {
+            w.onEscape = { [weak self] in self?.back() }
+            // ⌘W: a re-run closes (ON-3); the first run only closes by finishing (ON-5), so it does nothing there.
+            w.onClose = closable ? { [weak self] in self?.requestClose() } : nil
+            w.keyEquivalentHandler = Self.swallowsBrowserCommands
+        }
+        installQuitHint()
         observe()
         if settings.values.onboardingStartedAt == nil { settings.values.onboardingStartedAt = Date() }
+    }
+
+    deinit {
+        if let quitMonitor { NSEvent.removeMonitor(quitMonitor) }
+        quitHintTimer?.invalidate()
+        accountProbe?.cancel()
     }
 
     func present(focus: Bool) {
@@ -81,19 +99,78 @@ final class OnboardingController {
 
     private var startedAtImport = false
 
-    /// A re-run (ON-3) can be left: Esc on its first step closes it. The first run only closes by finishing (ON-5).
+    /// A re-run (ON-3) can be left from every step: its ✕, ⌘W, and Esc on its first step. While the logins are being
+    /// written into the profiles it can't (the ✕ is disabled and says why); everything else is safe to leave at any
+    /// point, because the Spaces are written in one step and what follows (profiles, icons) finishes by itself. The
+    /// first run only closes by finishing (ON-5); ⌘Q quits either way.
+    func requestClose() {
+        guard model.closable, !finished else { return }
+        guard model.closeBlockedReason == nil else { return NSSound.beep() }
+        cancel()
+    }
+
     private func cancel() {
         guard mode == .rerun, !finished else { return }
         finished = true
         revealTimer?.invalidate()
+        signIn?.close()
+        signIn = nil
+        accountProbe?.cancel()
+        removeQuitHint()
         let w = window
         onMain {
             NSAnimationContext.runAnimationGroup({ ctx in
                 ctx.duration = AircCurve.toastOut.duration * 2
                 w.animator().alphaValue = 0
             }, completionHandler: { w.orderOut(nil) })
+            // Don't rely on the fade's callback (it never comes while the display sleeps).
+            DispatchQueue.main.asyncAfter(deadline: .now() + AircCurve.toastOut.duration * 2 + 0.05) { w.orderOut(nil) }
         }
         app?.onboardingDidCancel(self)
+    }
+
+    /// While the onboarding window is key, the browser's own shortcuts (⌘T, ⌘L, ⌘D…) would act on the browser window
+    /// behind it through the menu; they do nothing here. ⌘W is the window's own (AircFloatingWindow), ⌘Q, ⌘H and ⌘,
+    /// keep working.
+    static func swallowsBrowserCommands(_ e: NSEvent) -> Bool {
+        let mods = e.modifierFlags.intersection([.command, .option, .control, .shift])
+        guard !mods.isEmpty, let key = e.charactersIgnoringModifiers?.lowercased(), !key.isEmpty else { return false }
+        if mods == .command, ["w", "q", "h", ","].contains(key) { return false }
+        return CommandMenus.all.contains { !$0.key.isEmpty && $0.key.lowercased() == key && $0.modifiers == mods }
+    }
+
+    // MARK: ⌘Q (hold to quit, as everywhere in Airc)
+
+    /// A ⌘Q tap in the onboarding window shows "Hold ⌘Q to Quit" there (the browser window that shows it elsewhere may
+    /// not exist yet). The app's key monitor takes ⌘Q's key-down (and quits once it's held); a tap's key-up still comes
+    /// by, so the hint shows as the key comes up: through an event monitor with AppKit's own application class, and at
+    /// the window with Chromium's, which hands ⌘ key-ups straight to the key window. Only looks: never quits or
+    /// swallows anything.
+    private func installQuitHint() {
+        func isQuitTap(_ e: NSEvent) -> Bool {
+            e.modifierFlags.contains(.command) && e.charactersIgnoringModifiers?.lowercased() == "q"
+        }
+        let w = window
+        quitMonitor = onMain {
+            w.onKeyUp = { [weak self] e in if isQuitTap(e) { self?.showQuitHint() } }
+            return NSEvent.addLocalMonitorForEvents(matching: .keyUp) { [weak self] event in
+                guard let self, event.window === self.window, isQuitTap(event) else { return event }
+                self.showQuitHint()
+                return event
+            }
+        }
+    }
+
+    func showQuitHint() {
+        model.showsQuitHint = true
+        quitHintTimer?.invalidate()
+        quitHintTimer = Timer.scheduledTimer(withTimeInterval: 1.6, repeats: false) { [weak self] _ in self?.model.showsQuitHint = false }
+    }
+
+    private func removeQuitHint() {
+        if let quitMonitor { NSEvent.removeMonitor(quitMonitor) }
+        quitMonitor = nil
+        quitHintTimer?.invalidate()
     }
 
     // MARK: Wiring
@@ -122,6 +199,8 @@ final class OnboardingController {
         model.onBackUpArc = { [weak self] in self?.backUpArc() }
         model.onLocateArc = { [weak self] in self?.locateArc() }
         model.onSignIn = { [weak self] source in self?.signIn(profileSource: source) }
+        model.onSwitchAccount = { [weak self] source in self?.signIn(profileSource: source, switching: true) }
+        model.onClose = { [weak self] in self?.requestClose() }
         model.onImportLogins = { [weak self] in self?.importLogins() }
         model.onSkipLogins = { [weak self] in
             self?.model.logins = .skipped
@@ -140,6 +219,19 @@ final class OnboardingController {
     private func observe() {
         model.$focusedSpace.removeDuplicates().sink { [weak self] _ in
             DispatchQueue.main.async { self?.updateWindowTheme(animated: true) }
+        }.store(in: &subscriptions)
+        // "Choose…": the re-import line counts the chosen Spaces (the publisher sends the new set before it's stored).
+        model.$chosenSpaces.dropFirst().sink { [weak self] chosen in
+            guard let self, let b = self.model.blueprint else { return }
+            self.model.reimport = self.reimportSummary(b, chosen: chosen)
+        }.store(in: &subscriptions)
+        // Leaving while the logins are written into the profiles would cut that off half way.
+        model.$logins.sink { [weak self] state in
+            if case .reading = state {
+                self?.model.closeBlockedReason = "Airc is bringing over your logins. You can close this once they're in."
+            } else {
+                self?.model.closeBlockedReason = nil
+            }
         }.store(in: &subscriptions)
         model.$translucency.removeDuplicates().dropFirst().sink { [weak self] t in
             self?.settings.translucency = t
@@ -175,6 +267,7 @@ final class OnboardingController {
         model.step = step
         updateWindowTheme(animated: true)
         if step == .arc { discover() }
+        if step == .accounts { refreshAccounts() }
     }
 
     func next() {
@@ -193,9 +286,9 @@ final class OnboardingController {
     func back() {
         guard !finished else { return }
         switch model.step {
-        case .welcome: cancel()
+        case .welcome: requestClose()
         case .arc:
-            if model.choosing { model.choosing = false } else if startedAtImport { cancel() } else { go(.welcome) }
+            if model.choosing { model.choosing = false } else if startedAtImport { requestClose() } else { go(.welcome) }
         case .accounts: go(.arc)
         case .logins: go(.accounts)
         case .theme:
@@ -291,8 +384,14 @@ final class OnboardingController {
         }
         model.blueprint = b
         model.chosenSpaces = Set(b.spaces.map(\.sourceID))
-        model.importNote = ImportAdapter.note(for: plan.warnings)
+        model.importChanges = ImportAdapter.changes(for: plan.warnings)
+        model.importNote = nil
+        model.reimport = reimportSummary(b, chosen: model.chosenSpaces)
         model.arc = .found(version: nil)
+        // Counts only: never a name, title or address.
+        NSLog("[onboarding] plan: %ld Spaces, %ld profiles in Arc's list, %ld profile rows, %ld warnings, %ld already in Airc",
+              b.spaces.count, plan.profiles.count, OnboardingModel.rows(b, spaces: b.spaces).count, plan.warnings.count,
+              model.reimport?.updated ?? 0)
         model.revealedSpaces = 0
         model.revealedFavorites = 0
         reveal()
@@ -357,13 +456,52 @@ final class OnboardingController {
 
     // MARK: Import (ON-1: in the background, with the pill)
 
+    /// What importing `b` does to the Spaces Airc has now (merge by Arc ID, IM-1), or nil on an empty Airc.
+    private func reimportSummary(_ b: ImportBlueprint, chosen: Set<String>) -> ReimportSummary? {
+        let pristine = store.orderedSpaces.count == 1 && store.orderedSpaces[0].sourceID == nil
+            && store.pinnedRoots(ofSpace: store.orderedSpaces[0].id).isEmpty && store.todayTabs(ofSpace: store.orderedSpaces[0].id).isEmpty
+        guard !pristine else { return nil }
+        var r = ReimportSummary(existing: store.orderedSpaces.count)
+        let mine = Set(store.orderedSpaces.filter { $0.sourceID == nil }.map { $0.name.lowercased() })
+        for s in b.spaces where chosen.contains(s.sourceID) {
+            if store.space(sourceID: s.sourceID) != nil {
+                r.updated += 1
+            } else {
+                r.added += 1
+                if mine.contains(s.name.lowercased()) { r.sameName += 1 }
+            }
+        }
+        return r
+    }
+
+    /// The blueprint as it goes into the store.
+    ///   - Re-importing into a Space that came over before keeps its Today as the user left it: a Today tab from the
+    ///     earlier import that they closed since (it's in the archive) doesn't come back.
+    ///   - Today tabs start their archive clock now, most recent first, in Arc's order of use. With Arc's own times, a
+    ///     move made a day after Arc was last used would send every Today tab to the archive the moment the browser
+    ///     opens (Airc archives Today tabs after 12 hours by default; importux, 2026-11-06).
+    static func blueprintToApply(_ b: ImportBlueprint, store: SpacesStore, now: Date = Date()) -> ImportBlueprint {
+        let archived = Set(store.archivedEntries.compactMap(\.tab.sourceID))
+        var b = b
+        for i in b.spaces.indices {
+            if store.space(sourceID: b.spaces[i].sourceID) != nil {
+                b.spaces[i].today.removeAll { archived.contains($0.sourceID) }
+            }
+            let byUse = b.spaces[i].today.indices.sorted {
+                (b.spaces[i].today[$0].lastActiveAt ?? .distantPast) > (b.spaces[i].today[$1].lastActiveAt ?? .distantPast)
+            }
+            for (rank, j) in byUse.enumerated() { b.spaces[i].today[j].lastActiveAt = now.addingTimeInterval(-Double(rank)) }
+        }
+        return b
+    }
+
     private func runImport() {
         guard let b = model.blueprint, !model.isImporting else { return }
         let options = ImportOptions(spaces: model.chosenSpaces, includeToday: true, includeFavorites: model.includeFavorites)
         model.importState = .running("Importing Spaces", 0.15)
         let result: ImportResult
         do {
-            result = try store.applyImport(b, options: options)
+            result = try store.applyImport(Self.blueprintToApply(b, store: store), options: options)
         } catch {
             model.importState = .idle
             model.importNote = "The import stopped: \(error.localizedDescription)"
@@ -419,22 +557,65 @@ final class OnboardingController {
 
     // MARK: Accounts
 
-    private func signIn(profileSource: String) {
+    /// The accounts step appeared: each profile shows whether it's signed in to Google. What Airc knew (a sign-in from
+    /// an earlier session) shows at once; then the profile's own cookies say (GoogleAccountProbe). A profile the import
+    /// just made has no cookies yet, so it isn't asked.
+    private func refreshAccounts() {
+        guard let result = model.result else { return }
+        for row in model.profileRows {
+            let source = row.profile.sourceID
+            guard let pid = result.profileIDs[source], let profile = store.profile(pid) else { continue }
+            if model.accounts[source] == nil, let email = profile.googleAccount { model.accounts[source] = GoogleAccount(email: email) }
+            if !result.profilesCreated.contains(pid) { checkAccount(source: source, profileID: pid) }
+        }
+    }
+
+    /// Reads `source`'s Google accounts from its profile's cookies and shows the primary one.
+    func checkAccount(source: String, profileID pid: String) {
+        guard let app, GoogleAccountProbe.listAccountsURL != nil, !model.checkingAccounts.contains(source) else { return }
+        model.checkingAccounts.insert(source)
+        app.profiles.whenLoaded(pid, { [weak self] engineProfile in
+            guard let self, !self.finished else { return }
+            let probe = self.accountProbe ?? GoogleAccountProbe(engine: app.engine)
+            self.accountProbe = probe
+            probe.read(engineProfile) { [weak self] accounts in
+                guard let self else { return }
+                self.model.checkingAccounts.remove(source)
+                // No answer (offline, a timeout): keep what was known.
+                if let accounts { self.show(accounts.first, source: source, profileID: pid) }
+            }
+        }, failed: { [weak self] in self?.model.checkingAccounts.remove(source) })
+    }
+
+    /// Shows `account` on the profile's row and keeps its email in the profile (Settings, the profile menu). Local only.
+    private func show(_ account: GoogleAccount?, source: String, profileID pid: String) {
+        model.accounts[source] = account
+        model.accountPhotos[source] = nil
+        if store.profile(pid)?.googleAccount != account?.email {
+            try? store.updateProfile(pid) { $0.googleAccount = account?.email }
+        }
+        GoogleAccountPhoto.load(account?.photoURL) { [weak self] image in
+            guard let self, let image, self.model.accounts[source]?.email == account?.email else { return }
+            self.model.accountPhotos[source] = image
+        }
+    }
+
+    private func signIn(profileSource: String, switching: Bool = false) {
         guard let app, let pid = model.result?.profileIDs[profileSource] ?? (model.startedFresh ? store.defaultProfile.id : nil),
               let profile = store.profile(pid) else { return }
         model.signingIn = profileSource
         app.profiles.whenLoaded(pid) { [weak self] engineProfile in
-            guard let self else { return }
-            let s = SignInWindowController(engine: app.engine, profile: engineProfile, profileName: profile.name)
+            guard let self, !self.finished else { return }
+            let s = SignInWindowController(engine: app.engine, profile: engineProfile, profileName: profile.name, switching: switching)
             self.signIn = s
-            s.onFinish = { [weak self] email in
+            s.onFinish = { [weak self] account in
                 guard let self else { return }
                 self.model.signingIn = nil
                 self.signIn = nil
-                if let email {
-                    self.model.accounts[profileSource] = email
-                    try? self.store.updateProfile(pid) { $0.googleAccount = email }
-                }
+                if let account { self.show(account, source: profileSource, profileID: pid) }
+                // However the window ended (Google's account page, a passkey offer, closed by hand), the profile's
+                // cookies say who's signed in now.
+                self.checkAccount(source: profileSource, profileID: pid)
             }
             s.show(over: self.window)
         }
@@ -497,6 +678,8 @@ final class OnboardingController {
         guard !finished, let app else { return }
         finished = true
         revealTimer?.invalidate()
+        accountProbe?.cancel()
+        removeQuitHint()
         writeThemes()
         if let first = model.result?.spaceIDs[model.previewSpaces[0].sourceID] { store.selectSpace(first) }
         if settings.values.memberName == nil, !model.memberName.isEmpty, !LaunchOptions.current.isAutomated {

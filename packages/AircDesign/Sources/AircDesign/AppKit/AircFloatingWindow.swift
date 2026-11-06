@@ -6,8 +6,10 @@ import SwiftUI
 
 /// A floating first-run window (spec ON-5): a fixed-size card over the desktop with large continuous corners,
 /// the system window shadow, and no title bar or traffic lights. It is dragged by its background, centred on
-/// the active screen, and Esc calls `onEscape` (go back a step). It can't be closed, minimised or zoomed;
-/// finishing the flow calls `expand(into:)`, which grows it into the first browser window.
+/// the active screen, and Esc calls `onEscape` (go back a step). It can't be minimised or zoomed; finishing the
+/// flow calls `expand(into:)`, which grows it into the first browser window. ⌘W (and `performClose`) call
+/// `onClose`, for flows that can be left (a re-run); without one ⌘W does nothing. Either way ⌘W never reaches the
+/// app's menu, so it can't close a tab in a browser window behind.
 ///
 /// ```swift
 /// let window = AircFloatingWindow(theme: theme, translucency: settings.translucency)
@@ -29,6 +31,13 @@ public final class AircFloatingWindow: NSWindow {
     public let contentContainer: NSView
     /// Called for Esc. Onboarding goes back a step.
     public var onEscape: (() -> Void)?
+    /// Called for ⌘W and `performClose(_:)`. nil: the window can't be closed (the first run, ON-5).
+    public var onClose: (() -> Void)?
+    /// Asked first for every key equivalent while this window is key; true means handled (the menu never sees it).
+    public var keyEquivalentHandler: ((NSEvent) -> Bool)?
+    /// Every key-up the window gets, before it's handled. With Chromium's application class, a key-up with ⌘ comes
+    /// only here (it goes straight to the key window, past the app's event monitors).
+    public var onKeyUp: ((NSEvent) -> Void)?
     /// The window's corner radius (continuous).
     public let cornerRadius: CGFloat
 
@@ -67,10 +76,31 @@ public final class AircFloatingWindow: NSWindow {
     public override var canBecomeKey: Bool { true }
     public override var canBecomeMain: Bool { true }
 
+    public override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyUp { onKeyUp?(event) }
+        super.sendEvent(event)
+    }
+
+    public override func performClose(_ sender: Any?) {
+        if let onClose { onClose() } else { NSSound.beep() }
+    }
+
+    public override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let keyEquivalentHandler, keyEquivalentHandler(event) { return true }
+        let mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        if mods == .command, event.charactersIgnoringModifiers?.lowercased() == "w" {
+            performClose(nil)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     /// Puts a SwiftUI view in the window, over the background, with empty areas dragging the window.
     public func setContent<V: View>(_ view: V) {
         contentContainer.subviews.forEach { $0.removeFromSuperview() }
         let host = NSHostingView(rootView: view.background(AircWindowDragArea()))
+        // The window's size is fixed: the content never resizes it, whatever its ideal size.
+        host.sizingOptions = []
         host.frame = contentContainer.bounds
         host.autoresizingMask = [.width, .height]
         contentContainer.addSubview(host)
@@ -80,6 +110,17 @@ public final class AircFloatingWindow: NSWindow {
     public func setTheme(_ theme: ResolvedTheme, animated: Bool) {
         background.setTheme(theme, animated: animated)
         root.updateBorder(isDark: theme.isDark)
+        refreshShadow()
+    }
+
+    /// The window server draws a borderless window's shadow from what the window showed when it was last asked. Asked
+    /// before the content first drew (or mid-fade), it comes out thin or ragged at the corners; ask again once drawn.
+    public func refreshShadow() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isVisible else { return }
+            self.displayIfNeeded()
+            self.invalidateShadow()
+        }
     }
 
     // MARK: Placement
@@ -122,6 +163,10 @@ public final class AircFloatingWindow: NSWindow {
             animator().alphaValue = 1
             if !reduceMotion { animator().setFrame(final, display: true) }
         }
+        // Once drawn and in place (a wall-clock timer: animation callbacks never come while the display sleeps).
+        let settle = (reduceMotion ? AircMotion.reducedDuration : AircCurve.entrance.duration) + 0.05
+        DispatchQueue.main.asyncAfter(deadline: .now() + settle) { [weak self] in self?.refreshShadow() }
+        refreshShadow()
     }
 
     // MARK: Keys

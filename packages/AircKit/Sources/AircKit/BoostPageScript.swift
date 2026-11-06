@@ -7,48 +7,80 @@ import Foundation
 /// first paint: no flash of the unboosted page. The style goes in constructed style sheets (`adoptedStyleSheets`): no
 /// element for the page to remove, and a page's Content Security Policy doesn't block it.
 ///
-/// Custom JavaScript is not in the map, so no page ever holds another site's code. The page says "ready" with its site,
-/// and the app, which checks the site against the engine's own record of the frame's origin, sends that site's code to
-/// that frame only (`runner`), once per page load.
+/// The page never decides a site with a list of its own. The app keys each entry by its site (BoostDomain, the whole
+/// public suffix list) and adds what the page needs to find it: `e` for a site that is one exact host, and `x`, the
+/// list's rules under a site that make some of its subdomains other sites (usually none). The page takes its host, or
+/// the longest entry its host ends in that neither rules out.
+///
+/// Custom JavaScript is not in the map, so no page ever holds another site's code. Every top-frame document says
+/// "ready" with a token of its own; the app takes the site from the engine's committed origin of the frame (never from
+/// the page), and sends only to that document (`EnginePageScripts.callDocument`: the same frame, still showing that
+/// origin), with the token, which the page checks. The site's code goes to that frame only (`runner`), once per page
+/// load, and runs only if the document still has that exact origin. Builtins are taken before the page's own scripts
+/// run, so a page that changes prototypes can't intercept a message or see another document's.
 ///
 /// Messages (the composer prefixes them with "boost."):
-///   page → app  `ready {d: site, v: map version, restored: back from the back-forward cache}` · `zap {s: selector,
-///               l: label}` · `zapEnd {}` · `zapFailed {}`
-///   app → page  `apply {d: site, g: generated CSS, c: custom CSS, f: has a filter}` · `zap {on: Bool}`
+///   page → app  `ready {t: token (none from a document that isn't a website), v: the version of the style shown,
+///               d: its site or null, restored: back from the back-forward cache}` · `zap {s: selector, l: label}` ·
+///               `zapEnd {}` · `zapFailed {}`
+///   app → page  `apply {t, v, d: site, g: generated CSS, c: custom CSS, f: has a filter}` · `zap {t, on: Bool}`
 /// Top frame only for now: iframes are left as they are (docs/user/boosts.md).
 public enum BoostPageScript {
     /// The page script part: an expression whose value is `function install(post)`, which returns
     /// `function receive(kind, json)`. `trustSynthetic` (test builds only) lets scripted checks zap with synthetic
     /// clicks; real builds only take the person's own clicks (`isTrusted`).
-    public static func source(boosts: [Boost], version: Int, trustSynthetic: Bool = false) -> String {
+    public static func source(boosts: [Boost], version: Int, trustSynthetic: Bool = false,
+                              suffixes list: PublicSuffixList? = nil) -> String {
         var map: [String: [String: Any]] = [:]
-        for b in boosts where b.enabled {
+        let carried = boosts.filter { carries($0) }
+        // The list is read only when there's a Boost to carry (the app loads it off the main thread at launch).
+        let suffixes = carried.isEmpty ? PublicSuffixList(text: "") : list ?? .shared
+        for b in carried {
             let g = BoostStyle.generated(for: b)
             let c = b.css.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : b.css
-            guard !g.isEmpty || !c.isEmpty else { continue }
-            map[b.domain] = ["g": g, "c": c, "f": b.colors.hasFilter]
+            var entry: [String: Any] = ["g": g, "c": c, "f": b.colors.hasFilter]
+            if BoostDomain.isExactHost(b.domain, suffixes: suffixes) {
+                entry["e"] = true
+            } else {
+                let beneath = BoostDomain.otherSitesBeneath(b.domain, suffixes: suffixes)
+                if !beneath.isEmpty { entry["x"] = beneath }
+            }
+            map[b.domain] = entry
         }
         return runtime
-            .replacingOccurrences(of: "%REGISTRABLE%", with: registrableFunction)
             .replacingOccurrences(of: "%VERSION%", with: String(version))
             .replacingOccurrences(of: "%TRUST%", with: trustSynthetic ? "true" : "false")
             .replacingOccurrences(of: "%MAP%", with: json(map))
     }
 
-    /// The `apply` message for a site's open pages after an edit (an off or empty Boost restores the page).
-    public static func applyMessage(for boost: Boost?, domain: String) -> String {
-        guard let boost, boost.enabled else { return json(["d": domain, "g": "", "c": "", "f": false]) }
-        return json(["d": domain, "g": BoostStyle.generated(for: boost), "c": boost.css, "f": boost.colors.hasFilter])
+    /// The page script carries a style for this Boost: one the page applies at document start.
+    public static func carries(_ boost: Boost?) -> Bool {
+        guard let boost, boost.isLive else { return false }
+        return !BoostStyle.generated(for: boost).isEmpty || !boost.css.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// The `apply` message for one document of a site after an edit (an off, held or missing Boost restores the page).
+    public static func applyMessage(for boost: Boost?, domain: String, token: String, version: Int) -> String {
+        var m: [String: Any] = ["t": token, "v": version, "d": domain, "g": "", "c": "", "f": false]
+        if let boost, boost.isLive {
+            m["g"] = BoostStyle.generated(for: boost)
+            m["c"] = boost.css
+            m["f"] = boost.colors.hasFilter
+        }
+        return json(m)
+    }
+
+    /// The `zap` message: Zap mode on or off in one document.
+    public static func zapMessage(_ on: Bool, token: String) -> String { json(["t": token, "on": on]) }
+
     /// The person's own JavaScript for `domain`, wrapped to run once in the page it was sent to: only if that page is
-    /// still on the same site, and after its document has been parsed. Run by the engine in the page's main world, like
-    /// a script of the page (outside its Content Security Policy, as an extension's script would be).
-    public static func runner(domain: String, code: String, token: String) -> String {
+    /// still the top frame with exactly `origin` (the engine's, as the app saw it: "https://www.example.com"), and after
+    /// its document has been parsed. Run by the engine in the page's main world, like a script of the page (outside its
+    /// Content Security Policy, as an extension's script would be).
+    public static func runner(origin: String, domain: String, code: String, token: String) -> String {
         """
         (function () {
-          var site = (\(registrableFunction))(location.hostname);
-          if (window.top !== window || site !== \(json(domain))) return;
+          if (window.top !== window || location.origin !== \(json(origin))) return;
           var key = '__aircBoostRan';
           if (window[key] === \(json(token))) return;
           try { Object.defineProperty(window, key, { value: \(json(token)), configurable: true }); } catch (e) { return; }
@@ -63,26 +95,6 @@ public enum BoostPageScript {
         """
     }
 
-    /// `function (host) → site`, the same rule as BoostDomain.key, with the same suffix list.
-    public static let registrableFunction: String = """
-        function (host) {
-          var S = \(json(BoostDomain.multiLabelSuffixes.sorted()));
-          var h = String(host || '').toLowerCase();
-          if (h.charAt(0) === '[' && h.charAt(h.length - 1) === ']') h = h.slice(1, -1);
-          while (h.charAt(h.length - 1) === '.') h = h.slice(0, -1);
-          if (!h) return null;
-          if (h.indexOf(':') >= 0 || /^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$/.test(h)) return h;
-          var l = h.split('.');
-          if (l.length < 2 || l.indexOf('') >= 0) return h;
-          for (var n = Math.min(l.length, 3); n >= 2; n--) {
-            var suffix = l.slice(l.length - n).join('.');
-            if (S.indexOf(suffix) < 0) continue;
-            return l.length === n ? suffix : l.slice(l.length - n - 1).join('.');
-          }
-          return l.slice(l.length - 2).join('.');
-        }
-        """
-
     /// JSON that is also a safe JavaScript literal (U+2028 and U+2029 escaped).
     static func json(_ value: Any) -> String {
         guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .fragmentsAllowed]),
@@ -90,49 +102,108 @@ public enum BoostPageScript {
         return s.replacingOccurrences(of: "\u{2028}", with: "\\u2028").replacingOccurrences(of: "\u{2029}", with: "\\u2029")
     }
 
-    // The runtime. Builtins it uses later are taken at install, before the page's scripts run, so a page that
-    // replaces them can't confuse it (it could only spoil its own Boost anyway).
+    // The runtime. Builtins it uses after install are taken at install, before the page's scripts run, and called
+    // uncurried: a page that later replaces Object.prototype.hasOwnProperty, Function.prototype.call or Array methods
+    // can't intercept a message from the app (it could only spoil its own Boost anyway).
     static let runtime = #"""
     (function () {
       'use strict';
       var MAP = %MAP%;
       var VERSION = %VERSION%;
       var TRUST_SYNTHETIC = %TRUST%;
-      var registrable = (%REGISTRABLE%);
       return function install(post) {
         if (window.top !== window) return undefined;
+        var uncurry = Function.prototype.bind.bind(Function.prototype.call);
+        var own = uncurry(Object.prototype.hasOwnProperty);
+        var parse = JSON.parse, stringify = JSON.stringify;
+        var sliceA = uncurry(Array.prototype.slice), indexOf = uncurry(Array.prototype.indexOf);
+        var concat = uncurry(Array.prototype.concat), splice = uncurry(Array.prototype.splice);
+        var listen = uncurry(EventTarget.prototype.addEventListener), unlisten = uncurry(EventTarget.prototype.removeEventListener);
+        function field(m, k) { return m !== null && typeof m === 'object' && own(m, k) ? m[k] : undefined; }
+
+        // This document's token: the app sends it back with every message for this document, and nothing else has it.
+        var TOKEN = '';
+        try {
+          var bits = new Uint32Array(4);
+          crypto.getRandomValues(bits);
+          for (var b = 0; b < 4; b++) TOKEN += bits[b].toString(36);
+        } catch (e) {}
+        if (!TOKEN) TOKEN = String(Math.random()).slice(2) + String(Date.now());
+
+        // The site among the entries here (BoostDomain.key's answer, as the app built them): the host itself, or the
+        // longest entry it ends in that isn't one exact host (`e`) and has no rule of the list beneath it (`x`) that the
+        // host falls under.
+        function beneath(labels, rules) {
+          for (var i = 0; i < rules.length; i++) {
+            var r = rules[i].charAt(0) === '!' ? rules[i].slice(1) : rules[i];
+            var p = r.split('.');
+            if (p.length > labels.length) continue;
+            var hit = true;
+            for (var j = 1; j <= p.length && hit; j++) hit = p[p.length - j] === '*' || p[p.length - j] === labels[labels.length - j];
+            if (hit) return true;
+          }
+          return false;
+        }
+        function siteOf(host) {
+          var h = String(host || '').toLowerCase();
+          if (h.charAt(0) === '[' && h.charAt(h.length - 1) === ']') h = h.slice(1, -1);
+          while (h.charAt(h.length - 1) === '.') h = h.slice(0, -1);
+          if (!h) return null;
+          if (own(MAP, h)) return h;
+          if (h.indexOf(':') >= 0 || /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) return null;
+          var l = h.split('.');
+          if (l.indexOf('') >= 0) return null;
+          for (var i = 1; i < l.length; i++) {
+            var k = l.slice(i).join('.');
+            if (!own(MAP, k)) continue;
+            var m = MAP[k];
+            if (field(m, 'e') === true) continue;
+            var x = field(m, 'x');
+            if (x && beneath(l, x)) continue;
+            return k;
+          }
+          return null;
+        }
+
         var protocol = location.protocol;
-        if (protocol !== 'http:' && protocol !== 'https:') return undefined;
-        var domain = registrable(location.hostname);
-        if (!domain) return undefined;
+        var web = protocol === 'http:' || protocol === 'https:';
+        var site = web ? siteOf(location.hostname) : null;
+        var shownVersion = VERSION, shownSite = site;
+        function ready(restored) {
+          return '{"t":' + stringify(TOKEN) + ',"v":' + stringify(shownVersion) + ',"d":' + stringify(shownSite)
+            + (restored ? ',"restored":true' : '') + '}';
+        }
+        // A document that isn't a website (blob:, data:, about:) says ready too, so the app forgets the one it
+        // replaces. It has no token (a blob: document has its creator's origin, but nothing may be sent to it) and
+        // takes nothing.
+        if (!web) { post('ready', '{"v":' + stringify(VERSION) + ',"d":null}'); return undefined; }
+
         var doc = document, win = window;
         var Sheet = win.CSSStyleSheet;
-        var replaceSync = Sheet && Sheet.prototype.replaceSync;
-        var insertRule = Sheet && Sheet.prototype.insertRule;
+        var replaceSync = Sheet && uncurry(Sheet.prototype.replaceSync);
+        var insertRule = Sheet && uncurry(Sheet.prototype.insertRule);
         var adoptedDesc = Object.getOwnPropertyDescriptor(Document.prototype, 'adoptedStyleSheets');
-        var listen = EventTarget.prototype.addEventListener, unlisten = EventTarget.prototype.removeEventListener;
-        var getStyle = win.getComputedStyle, stringify = JSON.stringify, parse = JSON.parse;
-        var slice = Array.prototype.slice;
+        var getAdopted = adoptedDesc && uncurry(adoptedDesc.get), setAdopted = adoptedDesc && uncurry(adoptedDesc.set);
+        var getStyle = uncurry(win.getComputedStyle);
         var generated = null, custom = null, zapped = null, cursor = null, hasFilter = false;
 
-        function sheet(text) { var s = new Sheet(); try { replaceSync.call(s, text || ''); } catch (e) {} return s; }
-        function setText(s, text) { try { replaceSync.call(s, text || ''); } catch (e) {} }
+        function sheet(text) { var s = new Sheet(); try { replaceSync(s, text || ''); } catch (e) {} return s; }
+        function setText(s, text) { try { replaceSync(s, text || ''); } catch (e) {} }
         function adopt() {
-          if (!adoptedDesc || !Sheet) return;
-          var mine = [generated, custom, zapped, cursor].filter(function (s) { return !!s; });
-          var list = slice.call(adoptedDesc.get.call(doc));
-          var missing = mine.filter(function (s) { return list.indexOf(s) < 0; });
-          if (missing.length) adoptedDesc.set.call(doc, list.concat(missing));
+          if (!getAdopted || !Sheet) return;
+          var list = sliceA(getAdopted(doc)), missing = [], mine = [generated, custom, zapped, cursor];
+          for (var i = 0; i < mine.length; i++) if (mine[i] && indexOf(list, mine[i]) < 0) missing[missing.length] = mine[i];
+          if (missing.length) setAdopted(doc, concat(list, missing));
         }
         function unadopt(s) {
-          if (!adoptedDesc || !s) return;
-          var list = slice.call(adoptedDesc.get.call(doc));
-          var i = list.indexOf(s);
-          if (i >= 0) { list.splice(i, 1); adoptedDesc.set.call(doc, list); }
+          if (!getAdopted || !s) return;
+          var list = sliceA(getAdopted(doc));
+          var i = indexOf(list, s);
+          if (i >= 0) { splice(list, i, 1); setAdopted(doc, list); }
         }
         function setStyle(entry) {
-          var g = entry && entry.g || '', c = entry && entry.c || '';
-          hasFilter = !!(entry && entry.f);
+          var g = field(entry, 'g') || '', c = field(entry, 'c') || '';
+          hasFilter = field(entry, 'f') === true;
           if (!generated) {
             if (!g && !c) return;
             generated = sheet(''); custom = sheet('');
@@ -146,17 +217,17 @@ public enum BoostPageScript {
           adopt();
           if (!hasFilter || !generated || !doc.body || !doc.documentElement) return;
           try {
-            var root = getStyle.call(win, doc.documentElement).backgroundColor;
-            var body = getStyle.call(win, doc.body).backgroundColor;
+            var root = getStyle(win, doc.documentElement).backgroundColor;
+            var body = getStyle(win, doc.body).backgroundColor;
             if (root === 'rgb(255, 255, 255)' && body && body !== 'rgba(0, 0, 0, 0)' && body !== 'transparent' && body !== root) {
-              insertRule.call(generated, ':where(html) { background-color: ' + body + '; }', generated.cssRules.length);
+              insertRule(generated, ':where(html) { background-color: ' + body + '; }', generated.cssRules.length);
             }
           } catch (e) {}
         }
 
-        setStyle(Object.prototype.hasOwnProperty.call(MAP, domain) ? MAP[domain] : null);
-        listen.call(doc, 'DOMContentLoaded', settle, true);
-        listen.call(win, 'load', settle, true);
+        setStyle(site ? MAP[site] : null);
+        listen(doc, 'DOMContentLoaded', settle, true);
+        listen(win, 'load', settle, true);
 
         // Zap: hover highlights an element, a click hides it and tells the app its selector.
         var zap = null;
@@ -256,12 +327,12 @@ public enum BoostPageScript {
           function scrolled() { if (current) show(current); }
           var on = [['mousemove', move], ['mouseover', move], ['pointerdown', block], ['mousedown', block], ['pointerup', block],
                     ['mouseup', block], ['click', click], ['auxclick', block], ['dblclick', block], ['keydown', key], ['scroll', scrolled]];
-          for (var i = 0; i < on.length; i++) listen.call(win, on[i][0], on[i][1], true);
+          for (var i = 0; i < on.length; i++) listen(win, on[i][0], on[i][1], true);
           zap = { host: host, on: on, show: show };
         }
         function zapStop() {
           if (!zap) return;
-          for (var i = 0; i < zap.on.length; i++) unlisten.call(win, zap.on[i][0], zap.on[i][1], true);
+          for (var i = 0; i < zap.on.length; i++) unlisten(win, zap.on[i][0], zap.on[i][1], true);
           if (zap.host.parentNode) zap.host.parentNode.removeChild(zap.host);
           unadopt(cursor);
           cursor = null;
@@ -271,28 +342,32 @@ public enum BoostPageScript {
           var s = selectorFor(el);
           if (!s) { post('zapFailed', '{}'); return; }
           if (!zapped) zapped = sheet('');
-          try { insertRule.call(zapped, s + ' { display: none !important; }', zapped.cssRules.length); } catch (e) { post('zapFailed', '{}'); return; }
+          try { insertRule(zapped, s + ' { display: none !important; }', zapped.cssRules.length); } catch (e) { post('zapFailed', '{}'); return; }
           adopt();
           if (zap) zap.show(null);
-          post('zap', stringify({ s: s, l: labelFor(el) }));
+          post('zap', '{"s":' + stringify(s) + ',"l":' + stringify(labelFor(el)) + '}');
         }
 
-        post('ready', stringify({ d: domain, v: VERSION }));
-        // Back from the back-forward cache: the same page load (its code doesn't run again), maybe an older style.
-        listen.call(win, 'pageshow', function (e) {
-          if (e.persisted) post('ready', stringify({ d: domain, v: VERSION, restored: true }));
-        }, true);
+        post('ready', ready(false));
+        // Back from the back-forward cache: the same page load (its code doesn't run again), maybe an older style. A
+        // prerendered page shown at last: the app ignored what it said while it was hidden.
+        listen(win, 'pageshow', function (e) { if (e.persisted) post('ready', ready(true)); }, true);
+        listen(doc, 'prerenderingchange', function () { post('ready', ready(false)); }, true);
         return function receive(kind, json) {
           var m = null;
           try { m = parse(json); } catch (e) {}
-          if (!m) return;
-          if (kind === 'apply' && m.d === domain) {
+          // Only what the app sent this document: another document's token, or none, is dropped unread.
+          if (field(m, 't') !== TOKEN) return;
+          if (kind === 'apply') {
             // The app's CSS includes every zap it has stored: the local ones are folded into it.
             if (zapped) setText(zapped, '');
             setStyle(m);
+            var v = field(m, 'v'), d = field(m, 'd');
+            if (typeof v === 'number') shownVersion = v;
+            shownSite = typeof d === 'string' && (field(m, 'g') || field(m, 'c')) ? d : null;
             if (doc.readyState !== 'loading') settle();
           } else if (kind === 'zap') {
-            if (m.on) zapStart(); else zapStop();
+            if (field(m, 'on') === true) zapStart(); else zapStop();
           }
         };
       };

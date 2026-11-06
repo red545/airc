@@ -558,6 +558,8 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     private func execute() {
         guard results.indices.contains(selected) else { return }
         let r = results[selected]
+        // Chosen: now its icon may come from the network (rows never ask for one while you type).
+        CommandRowView.fetchIcon(of: r)
         controller?.closeCommandBar()
         controller?.performCommand(r.action, newTab: mode == .newTab, typed: true)
     }
@@ -651,6 +653,8 @@ final class CommandRowView: NSView {
     private let tile = CALayer()
     private var tileKey: String?
     private var tileImage: NSImage?
+    /// The icon a `.favicon` row asked the caches for, so a late answer for a reused row's earlier result is dropped.
+    private var iconKey: String?
     private let emoji = NSTextField(labelWithString: "")
     private let title = AircFadingLabel(style: AircFont.row)
     private let subtitle = AircFadingLabel(style: AircFont.urlField)
@@ -736,18 +740,37 @@ final class CommandRowView: NSView {
             showTile(nil)
             if !siteIcon.isHidden { siteIcon.isHidden = true }
         }
+        if case .favicon = r.icon {} else { iconKey = nil }
+        // No row asks the network for an icon while you type, so the sites shown never learn what you might open: an
+        // icon in memory or in the disk cache, or the placeholder (a letter tile for a built-in site) until the row is
+        // chosen (`fetchIcon`).
         switch r.icon {
         case .favicon(let image, let url, let page):
             icon.isHidden = false
             emoji.isHidden = true
-            icon.set(image: image, url: url, fallbackPage: page, palette: p)
+            let key = image == nil ? url ?? page.flatMap(FaviconCache.guess(for:)) : nil
+            if let image {
+                icon.set(image: image, url: nil, fallbackPage: nil, palette: p)
+            } else if let img = FaviconCache.shared.cached(key) {
+                icon.set(image: img, url: nil, fallbackPage: nil, palette: p)
+            } else {
+                icon.set(image: nil, url: nil, fallbackPage: nil, palette: p)
+                if let key, iconKey != key {
+                    iconKey = key
+                    FaviconCache.shared.stored(key) { [weak self] img in
+                        guard let self, self.iconKey == key, let img, let palette = self.palette else { return }
+                        self.icon.set(image: img, url: nil, fallbackPage: nil, palette: palette)
+                    }
+                }
+            }
+            if key == nil || FaviconCache.shared.cached(key) != nil { iconKey = nil }
         case .site(let page, let name):
             icon.isHidden = true
             siteIcon.isHidden = false
             emoji.isHidden = true
-            // The row fetches the icon itself (FaviconCache) and hands the favicon view only finished images: the view's
-            // own request isn't cleared by a cache hit, so a slower icon asked for by the row's previous site could land
-            // on this one ("sp" shows Spiegel, "spot" Spotify). The letter tile shows until the icon is there.
+            // The row asks the caches itself and hands the favicon view only finished images: the view's own request
+            // isn't cleared by a cache hit, so a slower icon asked for by the row's previous site could land on this one
+            // ("sp" shows Spiegel, "spot" Spotify). The letter tile shows until the icon is there.
             let key = FaviconCache.guess(for: page)
             if let img = FaviconCache.shared.cached(key) {
                 siteIcon.set(image: img, url: nil, fallbackPage: nil, palette: p)
@@ -757,7 +780,7 @@ final class CommandRowView: NSView {
                 Perf.time("cb.tile") { showTile(LetterTile.image(for: name)) }
                 if let key, tileKey != key {
                     tileKey = key
-                    FaviconCache.shared.load(key) { [weak self] img in
+                    FaviconCache.shared.stored(key) { [weak self] img in
                         guard let self, self.tileKey == key, let img, let palette = self.palette else { return }
                         self.siteIcon.set(image: img, url: nil, fallbackPage: nil, palette: palette)
                         self.showTile(nil)
@@ -774,6 +797,17 @@ final class CommandRowView: NSView {
             if emoji.stringValue != e { emoji.stringValue = e }
         }
         if changed || themeChanged { needsLayout = true }
+    }
+
+    /// A chosen row's icon, from the network if no cache has it: the site is being opened now.
+    static func fetchIcon(of r: CommandResult) {
+        let key: String?
+        switch r.icon {
+        case .favicon(let image, let url, let page): key = image == nil ? url ?? page.flatMap(FaviconCache.guess(for:)) : nil
+        case .site(let page, _): key = FaviconCache.guess(for: page)
+        case .symbol, .emoji: key = nil
+        }
+        if let key, FaviconCache.shared.cached(key) == nil { FaviconCache.shared.load(key) { _ in } }
     }
 
     private func showTile(_ image: NSImage?) {

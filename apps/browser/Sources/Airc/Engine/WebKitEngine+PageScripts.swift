@@ -5,7 +5,9 @@ import WebKit
 // The page script on the dev engine: a WKUserScript at document start in the page's world, top frame only (as Boosts
 // need), in every profile's user content controller. `post` is a script message handler; `callPage` calls the
 // `receive` the script returned. Unlike Chromium, the page can see the handler and `receive` (WebKit has no hidden
-// main-world channel), so a page could only post as itself: the site still comes from WebKit's frame origin.
+// main-world channel), so a page could only post as itself: the site still comes from WebKit's frame origin. And
+// `callDocument` checks the document's own origin (`location`, which a page can't redefine) before it calls anything
+// the page could have replaced: a document of another origin never sees the message.
 extension WebKitEngine: EnginePageScripts {
     var existingPageScript: String? { nil }
 
@@ -21,6 +23,10 @@ extension WebKitEngine: EnginePageScripts {
         let args = (try? JSONSerialization.data(withJSONObject: [kind, json])).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
         web.evaluateJavaScript("(function (a) { var r = window.__aircPageReceive; if (typeof r === 'function') r(a[0], a[1]); })(\(args))",
                                completionHandler: nil)
+    }
+
+    func callDocument(_ tab: EngineTab, frame: String, origin: String, kind: String, json: String) -> Bool {
+        WebKitPageScripts.shared.callDocument(tab, origin: origin, kind: kind, json: json)
     }
 
     func executeScript(_ code: String, in tab: EngineTab, frame: String?) {
@@ -64,14 +70,28 @@ final class WebKitPageScripts: NSObject, WKScriptMessageHandler {
         e.installed = script
     }
 
+    /// The top-frame document only if its origin (WebKit's `location.origin`, as `securityOrigin` gave it) is still
+    /// `origin`, read before anything of the page's is touched. True: sent (WebKit evaluates in the page shown now).
+    func callDocument(_ tab: EngineTab, origin: String, kind: String, json: String) -> Bool {
+        guard let web = (tab as? WebKitTab)?.webView, !origin.isEmpty else { return false }
+        let args = (try? JSONSerialization.data(withJSONObject: [origin, kind, json])).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+        web.evaluateJavaScript("""
+            (function (a) { if (window.top !== window || location.origin !== a[0]) return; \
+            var r = window.__aircPageReceive; if (typeof r === 'function') r(a[1], a[2]); })(\(args))
+            """, completionHandler: nil)
+        return true
+    }
+
     static func wrap(_ source: String) -> String {
         """
         (function () {
           var install = (\(source));
           if (typeof install !== 'function') return;
           var channel = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(messageName);
+          // Taken now, before the page's scripts: a page that replaces postMessage later doesn't see what's posted.
+          var send = channel && Function.prototype.call.bind(channel.postMessage), str = String;
           var post = function (kind, json) {
-            try { channel.postMessage({ kind: String(kind), json: typeof json === 'string' ? json : 'null' }); } catch (e) {}
+            try { send(channel, { kind: str(kind), json: typeof json === 'string' ? json : 'null' }); } catch (e) {}
           };
           var receive = install(post);
           if (typeof receive === 'function') Object.defineProperty(window, '__aircPageReceive', { value: receive, configurable: true });

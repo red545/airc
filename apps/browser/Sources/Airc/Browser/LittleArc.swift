@@ -36,6 +36,13 @@ final class LittleArcController: NSObject, NSWindowDelegate {
     private(set) var isMiniPlayer = false
     private var miniPlayerPending = false
     static let barHeight: CGFloat = 32
+    /// LA-1: Little Arc comes to the Space you're on, over a full-screen app too (a link from Slack or Mail in full
+    /// screen), instead of opening on another Space, out of sight. Each time it's shown it moves to the active Space.
+    /// Scripted runs leave it off unless a check asks: it would put test windows over the owner's full-screen apps.
+    static var joinsActiveSpace = !LaunchOptions.current.isAutomated
+    /// The menus made for the chip and the ↗ button (the checks see whether a click opened one).
+    private(set) var menusMade = 0
+    private(set) weak var shownMenu: NSMenu?
 
     private var store: SpacesStore? { app?.store }
     private var main: WindowController? { app?.controller }
@@ -69,6 +76,7 @@ final class LittleArcController: NSObject, NSWindowDelegate {
         w.isMovableByWindowBackground = false
         w.tabbingMode = .disallowed
         w.isRestorable = false
+        if Self.joinsActiveSpace { w.collectionBehavior.formUnion([.moveToActiveSpace, .fullScreenAuxiliary]) }
         w.minSize = NSSize(width: 420, height: 300)
         w.title = "Little Arc"
         w.delegate = self
@@ -86,7 +94,10 @@ final class LittleArcController: NSObject, NSWindowDelegate {
         card.embed(engineWindow.hostView)
         addressField.controller = self
         chip.action = { [weak self] in self?.showProfileMenu() }
+        // A click opens the page in the chip's Space; the Spaces come on a long press, a right-click or ⌥⌘O (the owner
+        // needed two clicks while a press opened the menu, 2026-11-06).
         openButton.action = { [weak self] in self?.openInSpace() }
+        openButton.longPressMenu = true
         openButton.menuProvider = { [weak self] in self?.spacesMenu() }
         refreshChrome()
     }
@@ -119,9 +130,7 @@ final class LittleArcController: NSObject, NSWindowDelegate {
         openButton.hoverFill = p.hover
         let space = store?.space(spaceID)
         openButton.toolTip = "Open in \(space?.name ?? "Space") (⌘O). ⌥⌘O or a long press: choose a Space."
-        if let pid = space?.profileID, let profile = store?.profile(pid) {
-            chip.configure(name: profile.name, emoji: profile.emoji, color: profile.color.nsColor, palette: p)
-        }
+        if let pid = space?.profileID, let profile = store?.profile(pid) { chip.configure(profile: profile, palette: p) }
         root.needsLayout = true
     }
 
@@ -177,20 +186,41 @@ final class LittleArcController: NSObject, NSWindowDelegate {
         closeWindow()
     }
 
-    /// ⌥⌘O and a long press on the button: every Space; one with another profile opens the page again there.
+    /// ⌥⌘O, and a long press or right-click on ↗: every Space, by its icon and name, the chip's checked. A Space of
+    /// another profile says so, and that it reloads the page there (a page can't change profile); the others move it.
     func spacesMenu() -> NSMenu {
         let menu = NSMenu()
+        menusMade += 1
+        shownMenu = menu
         guard let store else { return menu }
         let pid = profileID
         for s in store.orderedSpaces {
-            let other = s.profileID != pid
-            let emoji: String = if case .emoji(let e)? = s.icon { e + "  " } else { "" }
-            let item = menu.add(emoji + s.name + (other ? " — \(store.profile(ofSpace: s.id).name), opens again" : "")) { [weak self] in
-                self?.openInSpace(s.id)
-            }
+            let item = menu.add(s.name) { [weak self] in self?.openInSpace(s.id) }
+            item.image = Self.icon(of: s)
             if s.id == spaceID { item.state = .on }
+            if s.profileID != pid { Self.secondary(item, "Reloads in \(store.profile(ofSpace: s.id).name)") }
         }
         return menu
+    }
+
+    /// A Space's icon for a menu row: its emoji or symbol (none: no image).
+    static func icon(of space: Space) -> NSImage? {
+        switch space.icon {
+        case .symbol(let name)?: return Symbols.image(name, size: 14)
+        case .emoji(let e)?:
+            return NSImage(size: NSSize(width: 18, height: 18), flipped: false) { r in
+                let text = NSAttributedString(string: e, attributes: [.font: NSFont.systemFont(ofSize: 14)])
+                let b = text.size()
+                text.draw(at: NSPoint(x: (r.width - b.width) / 2, y: (r.height - b.height) / 2))
+                return true
+            }
+        case nil: return nil
+        }
+    }
+
+    /// A row's second line (macOS 14.4's menu subtitle; before it, after the title).
+    static func secondary(_ item: NSMenuItem, _ text: String) {
+        if #available(macOS 14.4, *) { item.subtitle = text } else { item.title += " — " + text }
     }
 
     func showSpacesMenu() {
@@ -200,16 +230,26 @@ final class LittleArcController: NSObject, NSWindowDelegate {
 
     // MARK: Profile chip
 
-    private func showProfileMenu() {
-        guard let store, let main else { return }
+    /// The chip's menu (Arc's profile button, LA-1): every profile that has a Space, by its avatar and name, the page's
+    /// checked. Another one opens the page again in that profile's most recent Space: it says so.
+    func profileMenu() -> NSMenu {
         let menu = NSMenu()
+        menusMade += 1
+        shownMenu = menu
+        guard let store, let main else { return menu }
         for p in store.orderedProfiles {
             let spaces = store.spaces(usingProfile: p.id)
             guard let target = spaces.first(where: { $0.id == main.lastShownSpace(ofProfile: p.id) }) ?? spaces.first else { continue }
-            let item = menu.add((p.emoji.isEmpty ? "" : p.emoji + "  ") + p.name) { [weak self] in self?.switchSpace(target.id) }
-            if p.id == profileID { item.state = .on }
+            let item = menu.add(p.name) { [weak self] in self?.switchSpace(target.id) }
+            item.image = ProfileAvatarImage.image(p, size: 18)
+            if p.id == profileID { item.state = .on } else { Self.secondary(item, "Reloads the page") }
         }
-        menu.popUp(positioning: nil, at: NSPoint(x: chip.frame.minX, y: chip.frame.minY - 4), in: bar)
+        return menu
+    }
+
+    private func showProfileMenu() {
+        // The row isn't flipped: the menu's top-left just under the chip.
+        profileMenu().popUp(positioning: nil, at: NSPoint(x: chip.frame.minX, y: chip.frame.minY - 4), in: bar)
     }
 
     /// The chip picked another profile: its most recent Space becomes the target. A page can't change profile, so it
@@ -555,6 +595,8 @@ final class LittleArcAddressField: NSTextField, NSTextFieldDelegate {
 
     required init?(coder: NSCoder) { fatalError() }
     override var mouseDownCanMoveWindow: Bool { false }
+    /// The row lies in the titlebar band, where the window server drags the window on a press no view claims.
+    @objc func _opaqueRectForWindowMoveWhenInTitlebar() -> NSRect { bounds }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     func setPage(url: String, palette: Palette) {
@@ -595,57 +637,104 @@ final class LittleArcAddressField: NSTextField, NSTextFieldDelegate {
     }
 }
 
-/// The profile chip: the target Space's profile (emoji or initial on its colour, and its name). A click switches it.
+/// The profile chip (Arc's profile button in Little Arc: avatar, name, chevron): the target Space's profile. A click
+/// opens the profile menu.
 final class LittleArcProfileChip: NSView {
-    private let dot = NSTextField(labelWithString: "")
+    private let avatar = CALayer()
     private let label = NSTextField(labelWithString: "")
+    private let chevron = CALayer()
     private let plate = CALayer()
+    private var avatarImage: NSImage?
+    private var palette: Palette?
+    private var hovered = false { didSet { if hovered != oldValue { updatePlate() } } }
     var action: (() -> Void)?
+    /// For the checks: what it shows.
+    var shownName: String { label.stringValue }
+    var showsChevron: Bool { chevron.contents != nil && chevron.frame.maxX <= bounds.maxX && chevron.frame.minX > label.frame.minX }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
         plate.cornerRadius = 11
         plate.cornerCurve = .continuous
+        plate.actions = LayerImage.noActions
         layer?.addSublayer(plate)
-        dot.alignment = .center
-        dot.font = .systemFont(ofSize: 10, weight: .semibold)
-        dot.wantsLayer = true
-        dot.layer?.cornerRadius = 8
+        for l in [avatar, chevron] {
+            l.contentsGravity = .center
+            l.actions = LayerImage.noActions
+            layer?.addSublayer(l)
+        }
         label.font = AircFont.callout.weight(.medium).nsFont
         label.lineBreakMode = .byTruncatingTail
-        addSubview(dot)
         addSubview(label)
-        setAccessibilityRole(.button)
+        setAccessibilityRole(.popUpButton)
     }
 
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
+    @objc func _opaqueRectForWindowMoveWhenInTitlebar() -> NSRect { bounds }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    /// The whole chip takes the press: its name label would keep a first click for itself.
+    override func hitTest(_ point: NSPoint) -> NSView? { isHidden || !frame.contains(point) ? nil : self }
     override func mouseDown(with event: NSEvent) { action?() }
 
-    func configure(name: String, emoji: String, color: NSColor, palette: Palette) {
-        dot.stringValue = emoji.isEmpty ? String(name.prefix(1)).uppercased() : emoji
-        dot.textColor = .white
-        dot.layer?.backgroundColor = emoji.isEmpty ? color.cgColor : NSColor.clear.cgColor
-        label.stringValue = name
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+    override func mouseEntered(with event: NSEvent) { hovered = true }
+    override func mouseExited(with event: NSEvent) { hovered = false }
+
+    func configure(profile: Profile, palette: Palette) {
+        self.palette = palette
+        let img = ProfileAvatarImage.image(profile, size: 16)
+        if img !== avatarImage {
+            avatarImage = img
+            LayerImage.set(img, on: avatar, in: self)
+        }
+        label.stringValue = profile.name
         label.textColor = palette.textSecondary
-        plate.backgroundColor = palette.hover.cgColor
-        setAccessibilityLabel("Profile: \(name)")
-        toolTip = "\(name) profile. Click to open this page in another profile."
+        LayerImage.set(LayerImage.symbol("chevron.down", size: 8, weight: .bold, color: palette.textSecondary), on: chevron, in: self)
+        updatePlate()
+        setAccessibilityLabel("Profile: \(profile.name)")
+        toolTip = "This page uses the “\(profile.name)” Profile. Click to choose another."
         invalidateIntrinsicContentSize()
         needsLayout = true
     }
 
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        if LayerImage.scaleChanged(avatar, in: self), let avatarImage { LayerImage.set(avatarImage, on: avatar, in: self) }
+        if LayerImage.scaleChanged(chevron, in: self), let palette {
+            LayerImage.set(LayerImage.symbol("chevron.down", size: 8, weight: .bold, color: palette.textSecondary), on: chevron, in: self)
+        }
+    }
+
+    private func updatePlate() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        plate.backgroundColor = palette.map { (hovered ? $0.tileFill : $0.hover).cgColor }
+        CATransaction.commit()
+    }
+
+    /// Avatar 16, gap 5, the name (as drawn, with the label's own margins; at most 140 pt), gap 4, chevron 8, padding 4
+    /// and 7.
     override var fittingSize: NSSize {
-        NSSize(width: min(160, 8 + 16 + 5 + ceil(label.intrinsicContentSize.width) + 10), height: 22)
+        let name: CGFloat = min(140, ceil(label.attributedStringValue.size().width) + 6)
+        let chrome: CGFloat = 4 + 16 + 5 + 4 + 8 + 7
+        return NSSize(width: chrome + name, height: 22)
     }
 
     override func layout() {
         super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         plate.frame = bounds
-        dot.frame = NSRect(x: 4, y: 3, width: 16, height: 16)
-        label.frame = NSRect(x: 25, y: 3, width: max(0, bounds.width - 25 - 8), height: 16)
+        avatar.frame = NSRect(x: 4, y: 3, width: 16, height: 16)
+        chevron.frame = NSRect(x: bounds.width - 7 - 8, y: 7, width: 8, height: 8)
+        CATransaction.commit()
+        label.frame = NSRect(x: 25, y: 3, width: max(0, chevron.frame.minX - 4 - 25), height: 16)
     }
 }

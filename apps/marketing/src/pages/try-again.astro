@@ -1,0 +1,40 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Waitlist from "../components/Waitlist.astro";
+import { CONTACT_EMAIL } from "../lib/site";
+---
+
+<Layout title="Try again · Airc">
+  <section class="container again">
+    <h1>That didn't go through.</h1>
+    <p>Check the address and try again, or email <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.</p>
+    <Waitlist />
+  </section>
+</Layout>
+
+<style>
+  .again {
+    min-height: 60vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    text-align: center;
+  }
+
+  h1 {
+    font-size: clamp(32px, 5vw, 52px);
+    font-weight: 600;
+    letter-spacing: -0.035em;
+  }
+
+  p {
+    color: var(--text-2);
+    font-size: 18px;
+  }
+
+  a {
+    color: var(--accent-text);
+  }
+</style>

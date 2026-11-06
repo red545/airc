@@ -371,7 +371,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// and files from Finder (AppKit). `source` is the sending app's bundle ID, for Links.log.
     func openFromOtherApp(_ urls: [URL], source: String?) {
         for url in urls {
-            linkTraces[url.absoluteString] = LinkTrace(source: source, activeAtReceipt: NSApp.isActive,
+            linkTraces[url.absoluteString] = LinkTrace(source: source, activeAtReceipt: NSApp.isActive, front: LinkLog.frontApp(),
                                                        via: controller == nil ? "the launch queue" : "the app")
         }
         if controller == nil {
@@ -393,6 +393,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private struct LinkTrace {
         var source: String?
         var activeAtReceipt: Bool
+        /// The front app as the link came, and whether it was in full screen.
+        var front: String
         var via: String
     }
     private var linkTraces: [String: LinkTrace] = [:]
@@ -457,7 +459,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// can't click into shows here as key no, or the app inactive).
     private func logLink(_ url: URL, _ trace: LinkTrace?, route: String, window: NSWindow?, created: Bool) {
         guard LinkLog.enabled, let trace else { return }
-        let head = "link \(LinkLog.host(url)) from \(trace.source ?? "no Apple event") (app active \(LinkLog.yesNo(trace.activeAtReceipt))) "
+        let head = "link \(LinkLog.host(url)) from \(trace.source ?? "no Apple event") (app active \(LinkLog.yesNo(trace.activeAtReceipt)), \(trace.front)) "
             + "via \(trace.via): \(route), window \(created ? "created" : window == nil ? "none" : "existing")"
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self, weak window] in
             let state = window.map(LinkLog.windowState) ?? "no window"

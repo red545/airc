@@ -303,18 +303,43 @@ public enum SearchSuggestions {
     }
 }
 
+/// One signed-in Google account from ListAccounts. It stays on this Mac: never logged, never in telemetry.
+public struct GoogleAccount: Equatable, Sendable {
+    public var name: String?
+    public var email: String
+    /// The account picture, on Google's image host.
+    public var photoURL: String?
+
+    public init(name: String? = nil, email: String, photoURL: String? = nil) {
+        self.name = name
+        self.email = email
+        self.photoURL = photoURL
+    }
+}
+
 /// The Google accounts signed in to a profile (SB-22), read from Google's ListAccounts response, which Chromium also
-/// uses: `["gaia.l.a.r",[["gaia.l.a",1,"Name","user@example.com",…],…]]`.
+/// uses: `["gaia.l.a.r",[["gaia.l.a",1,"Name","user@example.com","https://…/photo",…],…]]`.
 public enum GoogleAccounts {
     public static func emails(fromListAccounts text: String) -> [String] {
-        guard let data = text.data(using: .utf8), let root = try? JSONSerialization.jsonObject(with: data) as? [Any],
-              root.count >= 2, let accounts = root[1] as? [Any] else { return [] }
-        var out: [String] = []
-        for case let a as [Any] in accounts {
+        (accounts(fromListAccounts: text) ?? []).map(\.email)
+    }
+
+    /// The signed-in accounts, primary first; `[]` when the answer says nobody is signed in, nil when `text` isn't a
+    /// ListAccounts answer at all (an error page, a sign-in page). The JSON may sit inside a page's text (a browser's
+    /// JSON viewer adds its own words around it).
+    public static func accounts(fromListAccounts text: String) -> [GoogleAccount]? {
+        guard let start = text.range(of: "[\"gaia.l.a.r\"")?.lowerBound, let end = text.range(of: "]", options: .backwards)?.upperBound,
+              start < end, let data = String(text[start..<end]).data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [Any], root.count >= 2 else { return nil }
+        guard let list = root[1] as? [Any] else { return nil }
+        var out: [GoogleAccount] = []
+        for case let a as [Any] in list {
             // Field 3 is the email; skip signed-out entries (field 9 is 0 for those when present).
             guard a.count > 3, let email = a[3] as? String, email.contains("@") else { continue }
             if a.count > 9, let valid = a[9] as? Int, valid == 0 { continue }
-            out.append(email)
+            let name = (a[2] as? String).flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
+            let photo = a.count > 4 ? (a[4] as? String).flatMap { $0.isEmpty ? nil : $0 } : nil
+            out.append(GoogleAccount(name: name, email: email, photoURL: photo))
         }
         return out
     }

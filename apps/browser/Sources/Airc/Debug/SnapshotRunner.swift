@@ -28,14 +28,14 @@ final class SnapshotRunner {
 
     /// The browser window opened (every scenario but onboarding starts here).
     func windowDidOpen(_ controller: WindowController) {
-        guard script != "onboarding" else { return }
+        guard script != "onboarding", script != "onboarding-e2e" else { return }
         if script == "perf" { PerfLaunch.windowOpened() }
         start()
     }
 
     /// The onboarding window is up (`--script onboarding`).
     func onboardingDidStart(_ o: OnboardingController) {
-        guard script == "onboarding", onboarding == nil else { return }
+        guard script == "onboarding" || script == "onboarding-e2e", onboarding == nil else { return }
         onboarding = o
         start()
     }
@@ -47,6 +47,8 @@ final class SnapshotRunner {
         switch script {
         case "showcase": showcase()
         case "onboarding": onboardingScenario()
+        case "onboarding-e2e": onboardingE2EScenario()
+        case "importux": importUXScenario()
         case "persist-write": persistWrite()
         case "persist-read": persistRead()
         case "split-write": splitPersistWrite()

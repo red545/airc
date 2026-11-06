@@ -1,10 +1,16 @@
 ---
 import { getImage, Image } from "astro:assets";
-import "@fontsource-variable/inter/wght.css";
+import "@fontsource-variable/inter/opsz.css";
 import "../styles/global.css";
 import iconSmall from "../assets/icon-small.png";
-import heroLight from "../assets/shots/hero-light.webp";
-import { CONTACT_EMAIL, TAGLINE, WAITLIST_URL } from "../lib/site";
+import icon from "../assets/icon.png";
+import socialCard from "../assets/social-card.png"; // assets/brand/kit/airc-social-card.png (the brand kit)
+import NavIcon from "../components/NavIcon.astro";
+import GitHubMark from "../components/GitHubMark.astro";
+import { compact, getStars } from "../lib/github";
+import { getRelease } from "../lib/release";
+import { groups } from "../lib/nav";
+import { CONTACT_EMAIL, GITHUB_URL } from "../lib/site";
 
 interface Props {
   title?: string;
@@ -12,15 +18,18 @@ interface Props {
 }
 
 const {
-  title = "Airc: the Arc-style browser for macOS",
-  description = "Arc's sidebar, Spaces with their own logins, and the command bar, on Chromium. Import from Arc in a minute. Built and maintained by AI, open source at launch.",
+  title = "Airc: Arc shuts down on December 22. Airc keeps it going.",
+  description = "A free, open-source Mac browser that works the way Arc does. Same sidebar, same Spaces, same ⌘T. Download Airc for Apple silicon Macs.",
 } = Astro.props;
 
-// Link unfurlers want a 1200 × 630 JPG at an absolute URL.
-const social = await getImage({ src: heroLight, width: 1200, height: 630, fit: "cover", format: "jpg", quality: 85 });
+// Link unfurlers want a 1200 × 630 image at an absolute URL: the brand kit's card, kept a PNG so its type stays crisp.
+// Its address carries a content hash, so a new card is a new URL and X, Slack and others fetch it fresh.
+const social = await getImage({ src: socialCard, width: 1200, height: 630, format: "png" });
 const socialUrl = new URL(social.src, Astro.site);
 const canonical = new URL(Astro.url.pathname, Astro.site);
 const year = new Date().getFullYear();
+const stars = await getStars();
+const release = await getRelease();
 ---
 
 <!doctype html>
@@ -42,55 +51,1034 @@ const year = new Date().getFullYear();
     <meta property="og:image" content={socialUrl} />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="The Airc browser window: a mint-green sidebar with Favorites, pinned tabs and today's tabs, next to the page." />
+    <meta property="og:image:alt" content="Airc. Built and maintained by AI. The Arc-style browser for macOS. aircbrowser.com" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={socialUrl} />
+    <meta name="twitter:image:alt" content="Airc. Built and maintained by AI. The Arc-style browser for macOS. aircbrowser.com" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
-    <header class="nav">
-      <div class="nav-inner">
+
+    <div class="window">
+      <div class="tints" aria-hidden="true"></div>
+      <!-- Small screens: the sidebar folds into a bar and a menu. -->
+      <div class="mobilebar">
         <a href="/" class="brand" aria-label="Airc home">
           <Image src={iconSmall} alt="" width={28} height={28} densities={[1, 2]} format="png" loading="eager" />
           <span>Airc</span>
         </a>
-        <nav class="nav-links" aria-label="Sections">
-          <a href="#arc">Import</a>
-          <a href="#spaces">Spaces</a>
-          <a href="#sidebar">Sidebar</a>
-          <a href="#ai">How it's built</a>
-          <a href="#faq">FAQ</a>
-        </nav>
-        <a class="btn btn-quiet btn-sm" href={WAITLIST_URL}>Join the waitlist</a>
+        <button class="menu" type="button" aria-expanded="false" aria-controls="side">Menu</button>
       </div>
-    </header>
 
-    <main id="main">
-      <slot />
-    </main>
+      <aside class="side" id="side">
+        <div class="toolbar">
+          <button type="button" class="tb" data-act="toggle-side" aria-label="Hide sidebar" title="Hide sidebar">
+            <svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="3.5"></rect><path d="M9.5 5v14"></path></svg>
+          </button>
+          <span class="spacer"></span>
+          <button type="button" class="tb" data-act="back" aria-label="Back" title="Back">
+            <svg viewBox="0 0 24 24"><path d="M19 12H5m6-6-6 6 6 6"></path></svg>
+          </button>
+          <button type="button" class="tb" data-act="forward" aria-label="Forward" title="Forward">
+            <svg viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"></path></svg>
+          </button>
+          <button type="button" class="tb" data-act="reload" aria-label="Reload" title="Reload">
+            <svg viewBox="0 0 24 24"><path d="M19.5 12a7.500 7.500 0 1 1-2.400-5.500M19.500 4.500v4h-4"></path></svg>
+          </button>
+        </div>
 
-    <footer class="footer">
-      <div class="container footer-inner">
-        <div class="footer-brand">
-          <Image src={iconSmall} alt="" width={24} height={24} densities={[1, 2]} format="png" />
-          <div>
-            <p><strong>Airc</strong> · {TAGLINE}.</p>
-            <p class="muted">A browser for macOS. Open source at launch, Apache-2.0.</p>
+        <button type="button" class="url" data-act="command" aria-label="Open the command bar">
+          <span class="url-text" data-url>aircbrowser.com</span>
+          <kbd>⌘K</kbd>
+        </button>
+
+        <div class="favs">
+          <!-- Favorites are icon tiles, as in Arc; the name is the tooltip. -->
+          <a class="fav" href="/" aria-label="Airc home" title="Airc">
+            <Image src={icon} alt="" width={30} height={30} densities={[1, 2]} format="webp" />
+          </a>
+          <!-- GitHub, with its star count once GitHub reports one (/api/stars). -->
+          {GITHUB_URL && (
+          <a
+            class="fav fav-gh"
+            href={GITHUB_URL}
+            rel="noopener"
+            aria-label="Airc on GitHub"
+            title="Open source (Apache-2.0) on GitHub"
+            data-gh
+            data-track="github_clicked"
+            data-track-from="favorite"
+          >
+            <GitHubMark size={20} />
+            <span class="fav-count" data-gh-stars-or-label>{stars ? compact(stars) : ""}</span>
+          </a>
+          )}
+          <a class="fav" href="/download" aria-label="Download Airc for Mac" title="Download for Mac" data-track="download_clicked" data-track-from="favorite" data-track-leave>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M12 4v11m0 0-4.500-4.500M12 15l4.500-4.500M5 19.500h14" /></svg>
+          </a>
+        </div>
+
+        <nav class="tabs" aria-label="Sections">
+          {groups.map((g) => (
+            <div class="group" data-group={g.title}>
+              <button type="button" class="grp" aria-expanded="true">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+                {g.title}
+              </button>
+              <div class="rows">
+                <div class="rows-in">
+                  {g.items.map((s) => (
+                    <a class="tab" href={`/#${s.id}`} data-nav={s.id} data-group={g.title}>
+                      <NavIcon name={s.icon} />
+                      <span>{s.label}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))}
+        </nav>
+
+        <div class="foot">
+          <a class="btn btn-primary holo-sm" href="/download" data-track="download_clicked" data-track-from="sidebar" data-track-leave>Download for Mac</a>
+          <div class="bar">
+            <button type="button" class="tb" data-act="top" aria-label="Back to the top" title="Back to the top">
+              <svg viewBox="0 0 24 24"><path d="M4 6h16v4H4zM6 10v8h12v-8M10 14h4"></path></svg>
+            </button>
+            <span class="dots">
+              {groups.map((g, i) => (
+                <button type="button" class="dot" data-space-go={g.items[0].id} data-dot={g.title} style={`--c:${["#53ca9f", "#6d8cf0", "#f7b184"][i]}`} aria-label={`${g.title}`} title={g.title}></button>
+              ))}
+            </span>
+            <button type="button" class="tb" data-act="command" aria-label="New tab: open the command bar" title="Open the command bar">
+              <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg>
+            </button>
           </div>
         </div>
-        <div class="footer-meta">
-          <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
-          <p class="muted">
-            © {year} Airc. Arc is a trademark of The Browser Company. Airc is an independent project, not affiliated
-            with or endorsed by The Browser Company.
+      </aside>
+
+      <button type="button" class="reveal-side" data-act="toggle-side" aria-label="Show sidebar" title="Show sidebar">
+        <svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="3.5"></rect><path d="M9.5 5v14"></path></svg>
+      </button>
+
+      <div class="page" id="page">
+        <main id="main">
+          <slot />
+        </main>
+
+        <footer class="footer">
+          <nav class="footer-links" aria-label="Footer">
+            <a href="/download" data-track="download_clicked" data-track-from="footer" data-track-leave>Download</a>
+            <a href={release.notes}>Release notes</a>
+            <a href="/versions">Versions</a>
+            <a href="/privacy">Privacy</a>
+            {GITHUB_URL && <a href={GITHUB_URL} rel="noopener" data-track="github_clicked" data-track-from="footer">Open source (Apache-2.0) on GitHub</a>}
+            <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
+          </nav>
+          <p>
+            © {year} Airc. Arc is a trademark of The Browser Company. Claude is a trademark of Anthropic and Codex of OpenAI; their logos appear here only to name the tools. Airc is not affiliated with any of them.
           </p>
-        </div>
+        </footer>
       </div>
-    </footer>
+    </div>
+
+    <div class="cmd" id="cmd" role="dialog" aria-modal="true" aria-label="Command bar" hidden>
+      <div class="cmd-panel">
+        <label class="cmd-field">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="M20 20l-4.4-4.4"></path></svg>
+          <input id="cmd-input" type="text" placeholder="Search or jump to a section" autocomplete="off" spellcheck="false" />
+          <kbd>esc</kbd>
+        </label>
+        <ul class="cmd-list" id="cmd-list" role="listbox"></ul>
+      </div>
+    </div>
+
+    <dialog class="zoom" id="zoom" aria-label="Screenshot">
+      <button type="button" class="zoom-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+      </button>
+      <img id="zoom-img" alt="" />
+    </dialog>
+
+    <script define:vars={{ items: groups.flatMap((g) => g.items.map((s) => ({ id: s.id, label: s.label, group: g.title }))), github: GITHUB_URL, notes: release.notes }}>
+      window.__aircNav = { items, github, notes };
+    </script>
+
+    <script>
+      import { startAnalytics, track } from "../lib/analytics";
+      startAnalytics();
+
+      // The version on the Download buttons follows the live feed (60 s cache), so it's right even between deploys.
+      fetch("/latest.json")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          if (j?.version) document.querySelectorAll<HTMLElement>("[data-dl-version]").forEach((e) => (e.textContent = j.version));
+        })
+        .catch(() => {});
+
+      // Anything marked data-track sends its event when clicked (data-track-from says where; data-track-leave sends
+      // it by beacon, because the click leaves the page).
+      document.addEventListener("click", (e) => {
+        const el = (e.target as HTMLElement).closest<HTMLElement>("[data-track]");
+        if (!el) return;
+        const from = el.dataset.trackFrom;
+        track(el.dataset.track!, from ? { from } : {}, "trackLeave" in el.dataset);
+      });
+
+      const win = document.querySelector<HTMLElement>(".window")!;
+      const page = document.querySelector<HTMLElement>("#page")!;
+      const tabs = [...document.querySelectorAll<HTMLAnchorElement>("[data-nav]")];
+      const sections = [...document.querySelectorAll<HTMLElement>("[data-space][id]")];
+      const urlText = document.querySelector<HTMLElement>("[data-url]");
+      const { items, github, notes } = (window as any).__aircNav as {
+        items: { id: string; label: string; group: string }[];
+        github: string;
+        notes: string;
+      };
+      const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+      // Where we are: the selected tab, the address, and the Space dot all follow the section in view.
+      const seen = new Set<string>();
+      const show = (el: HTMLElement) => {
+        if (!seen.has(el.id)) {
+          seen.add(el.id);
+          if (el.id !== "top") track("section_viewed", { section: el.id });
+        }
+        const group = tabs.find((t) => t.dataset.nav === el.id)?.dataset.group;
+        for (const t of tabs) {
+          if (t.dataset.nav === el.id) {
+            t.setAttribute("aria-current", "true");
+            const list = t.closest<HTMLElement>(".tabs");
+            if (list && list.scrollHeight > list.clientHeight) {
+              const r = t.getBoundingClientRect();
+              const lr = list.getBoundingClientRect();
+              if (r.top < lr.top + 8 || r.bottom > lr.bottom - 8) list.scrollTop += r.top - lr.top - lr.height / 2;
+            }
+          } else t.removeAttribute("aria-current");
+        }
+        document.querySelectorAll<HTMLElement>("[data-dot]").forEach((d) => d.classList.toggle("on", d.dataset.dot === group));
+        if (urlText) urlText.textContent = el.id === "top" ? "aircbrowser.com" : `aircbrowser.com/${el.id}`;
+      };
+
+      if (sections.length) {
+        const io = new IntersectionObserver(
+          (entries) => {
+            for (const e of entries) if (e.isIntersecting) show(e.target as HTMLElement);
+          },
+          { rootMargin: "-35% 0px -60% 0px" },
+        );
+        sections.forEach((s) => io.observe(s));
+        show(sections[0]);
+      }
+
+      // Jumping: a real history entry per jump, so Back and Forward in the toolbar are the browser's own.
+      const go = (id: string) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (location.hash !== `#${id}`) history.pushState(null, "", `#${id}`);
+        const smooth = reduce ? "auto" : "smooth";
+        el.scrollIntoView({ behavior: smooth as ScrollBehavior, block: "start" });
+      };
+
+      const onHash = () => {
+        const id = location.hash.slice(1);
+        const el = id && document.getElementById(id);
+        if (el) el.scrollIntoView({ behavior: "auto", block: "start" });
+        else page.scrollTo({ top: 0 });
+      };
+      addEventListener("popstate", onHash);
+
+      tabs.forEach((t) =>
+        t.addEventListener("click", (e) => {
+          e.preventDefault();
+          // On small screens the menu closes first, so the jump measures the page as it will be.
+          setMenu(false);
+          requestAnimationFrame(() => go(t.dataset.nav!));
+        }),
+      );
+
+      // Folders collapse like Arc's.
+      document.querySelectorAll<HTMLButtonElement>(".grp").forEach((g) =>
+        g.addEventListener("click", () => {
+          const group = g.closest(".group")!;
+          const open = g.getAttribute("aria-expanded") === "true";
+          g.setAttribute("aria-expanded", String(!open));
+          group.classList.toggle("collapsed", open);
+        }),
+      );
+
+      // The Space bar's dots jump to the first section of a group.
+      document.querySelectorAll<HTMLElement>("[data-space-go]").forEach((d) =>
+        d.addEventListener("click", () => {
+          const group = d.dataset.dot;
+          const rows = document.querySelector<HTMLElement>(`.group[data-group="${group}"]`);
+          rows?.classList.remove("collapsed");
+          rows?.querySelector(".grp")?.setAttribute("aria-expanded", "true");
+          go(d.dataset.spaceGo!);
+        }),
+      );
+
+      // Hide and show the sidebar.
+      const toggleSide = () => {
+        const hidden = win.classList.toggle("side-hidden");
+        document.querySelectorAll<HTMLElement>('[data-act="toggle-side"]').forEach((b) => b.setAttribute("aria-pressed", String(hidden)));
+      };
+
+      // The command bar.
+      const cmd = document.querySelector<HTMLElement>("#cmd")!;
+      const input = document.querySelector<HTMLInputElement>("#cmd-input")!;
+      const list = document.querySelector<HTMLElement>("#cmd-list")!;
+      type Row = { label: string; hint: string; icon?: Element | null; run: () => void };
+      // Each section's result carries the same little favicon as its sidebar tab.
+      const iconOf = (id: string) => document.querySelector(`[data-nav="${id}"] .ni`);
+      const rows: Row[] = [
+        ...items.map((s) => ({ label: s.label, hint: s.group, icon: iconOf(s.id), run: () => go(s.id) })),
+        { label: "Download Airc for Mac", hint: "Action", run: () => { location.href = "/download"; } },
+        { label: "Release notes", hint: "Link", run: () => { location.href = notes; } },
+        { label: "All versions", hint: "Link", run: () => { location.href = "/versions"; } },
+        { label: "Nightly builds", hint: "Link", run: () => { location.href = "/versions#nightly"; } },
+        { label: "Privacy", hint: "Link", run: () => { location.href = "/privacy"; } },
+
+        { label: "Read Arc's announcement", hint: "Link", run: () => window.open("https://x.com/arcinternet/status/2113301454597640570", "_blank", "noopener") },
+      ];
+      const githubRow: Row = { label: "Open source (Apache-2.0) on GitHub", hint: "Link", run: () => window.open(github, "_blank", "noopener") };
+      if (github) rows.push(githubRow);
+
+      // The GitHub buttons appear once the repo is public, with the live star count (first-party, cached 10 min).
+      const short = (n: number) => (n < 1000 ? String(n) : n < 10_000 ? `${(Math.round(n / 100) / 10).toString()}K` : `${Math.round(n / 1000)}K`);
+      fetch("/api/stars")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j: { public: boolean; stars: number | null } | null) => {
+          if (!j?.public) return;
+          if (typeof j.stars === "number" && j.stars > 0) {
+            const t = short(j.stars);
+            document.querySelectorAll<HTMLElement>("[data-gh-stars]").forEach((e) => (e.textContent = t));
+            document.querySelectorAll<HTMLElement>("[data-gh-stars-or-label]").forEach((e) => (e.textContent = t));
+            document.querySelectorAll<HTMLElement>("a[data-gh]").forEach((e) => e.setAttribute("aria-label", `Airc on GitHub, ${j.stars!.toLocaleString("en-US")} stars`));
+          }
+        })
+        .catch(() => {});
+
+      let shown: Row[] = [];
+      let sel = 0;
+
+      const render = () => {
+        const q = input.value.trim().toLowerCase();
+        shown = rows.filter((r) => !q || r.label.toLowerCase().includes(q) || r.hint.toLowerCase().includes(q)).slice(0, q ? 8 : rows.length);
+        sel = Math.min(sel, Math.max(0, shown.length - 1));
+        list.replaceChildren(
+          ...shown.map((r, i) => {
+            const li = document.createElement("li");
+            li.setAttribute("role", "option");
+            li.setAttribute("aria-selected", String(i === sel));
+            li.innerHTML = `<span class="r-icon"></span><span class="r-label"></span><span class="r-hint"></span>`;
+            if (r.icon) li.querySelector(".r-icon")!.append(r.icon.cloneNode(true));
+            li.querySelector(".r-label")!.textContent = r.label;
+            li.querySelector(".r-hint")!.textContent = i === sel ? `${r.hint}  ↵` : r.hint;
+            li.addEventListener("mousemove", () => {
+              if (sel !== i) { sel = i; render(); }
+            });
+            li.addEventListener("click", () => choose(i));
+            return li;
+          }),
+        );
+      };
+      const choose = (i: number) => {
+        const r = shown[i];
+        if (!r) return;
+        closeCmd();
+        r.run();
+      };
+      const openCmd = (via = "button") => {
+        track("command_bar_opened", { via });
+        cmd.hidden = false;
+        input.value = "";
+        sel = 0;
+        render();
+        requestAnimationFrame(() => input.focus());
+      };
+      const closeCmd = () => { cmd.hidden = true; };
+
+      input.addEventListener("input", () => { sel = 0; render(); });
+      cmd.addEventListener("mousedown", (e) => { if (e.target === cmd) closeCmd(); });
+
+      addEventListener("keydown", (e) => {
+        const typing = e.target instanceof HTMLElement && /^(INPUT|TEXTAREA)$/.test(e.target.tagName);
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+          e.preventDefault();
+          cmd.hidden ? openCmd("shortcut") : closeCmd();
+        } else if (e.key === "/" && !typing && cmd.hidden) {
+          e.preventDefault();
+          openCmd("slash");
+        } else if (!cmd.hidden) {
+          if (e.key === "Escape") closeCmd();
+          else if (e.key === "ArrowDown") { e.preventDefault(); sel = (sel + 1) % shown.length; render(); }
+          else if (e.key === "ArrowUp") { e.preventDefault(); sel = (sel - 1 + shown.length) % shown.length; render(); }
+          else if (e.key === "Enter") { e.preventDefault(); choose(sel); }
+        }
+      });
+
+      // Toolbar and Space bar buttons.
+      document.querySelectorAll<HTMLElement>("[data-act]").forEach((b) =>
+        b.addEventListener("click", () => {
+          switch (b.dataset.act) {
+            case "toggle-side": toggleSide(); break;
+            case "back": history.back(); break;
+            case "forward": history.forward(); break;
+            case "reload": location.reload(); break;
+            case "command": openCmd("button"); break;
+            case "top": go("top"); break;
+          }
+        }),
+      );
+
+      // Screenshots open full size.
+      const zoom = document.querySelector<HTMLDialogElement>("#zoom")!;
+      const zoomImg = document.querySelector<HTMLImageElement>("#zoom-img")!;
+      document.querySelectorAll<HTMLElement>("[data-zoom]").forEach((el) =>
+        el.addEventListener("click", () => {
+          zoomImg.src = el.dataset.zoom!;
+          zoomImg.alt = el.dataset.alt ?? "";
+          zoom.showModal();
+        }),
+      );
+      zoom.addEventListener("click", () => zoom.close()); // a click anywhere, the image included, closes it
+
+      // Small screens: the menu button opens and closes the sidebar.
+      const button = document.querySelector<HTMLButtonElement>(".menu");
+      function setMenu(open: boolean) {
+        win.classList.toggle("menu-open", open);
+        button?.setAttribute("aria-expanded", String(open));
+        if (button) button.textContent = open ? "Close" : "Menu";
+      }
+      button?.addEventListener("click", () => setMenu(!win.classList.contains("menu-open")));
+    </script>
   </body>
 </html>
+
+<style>
+  /* ------------------------------------------------------------------ the window: Airc's default (stone) theme */
+
+  .window {
+    --win: #ebe8e4;
+    position: relative;
+    background: var(--win);
+    transition: background-color 0.6s var(--spring-settle);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .window { --win: #1c1c1f; }
+  }
+
+  /* The page's colour picker (TintPicker) re-tints this window, the way a Space does in Airc: a layer fades in over the
+     last one, since gradients can't transition, and the sidebar's ink follows the colour. */
+  .tints { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; border-radius: inherit; }
+  .tints :global(.tint) { position: absolute; inset: 0; opacity: 0; transition: opacity 0.55s var(--ease-out); }
+  .tints :global(.tint.in) { opacity: 1; }
+  .tints :global(.tint-paper) { background: var(--win); }
+  .side, .page, .mobilebar, .reveal-side { position: relative; z-index: 1; }
+
+  .window[data-tone="light"] .side {
+    --ink: 20 17 15;
+    --text: rgb(20 17 15 / 0.9);
+    --text-2: rgb(20 17 15 / 0.66);
+    --text-3: rgb(20 17 15 / 0.56);
+    --surface: rgb(255 255 255 / 0.78);
+  }
+
+  .window[data-tone="dark"] .side {
+    --ink: 255 255 255;
+    --text: rgb(255 255 255 / 0.94);
+    --text-2: rgb(255 255 255 / 0.72);
+    --text-3: rgb(255 255 255 / 0.6);
+    --surface: rgb(255 255 255 / 0.16);
+  }
+
+  .window[data-tone="dark"] .tab[aria-current="true"] { background: rgb(255 255 255 / 0.18); box-shadow: none; }
+  .window[data-tint="mint"] { --win: #a9e4cd; }
+  .window[data-tint="sky"] { --win: #b6d6f6; }
+  .window[data-tint="lilac"] { --win: #d4c6f4; }
+  .window[data-tint="peach"] { --win: #f6cdb1; }
+  .window[data-tint="pink"] { --win: #f3c4d7; }
+
+  @media (prefers-color-scheme: dark) {
+    .window[data-tint="mint"] { --win: #1d463a; }
+    .window[data-tint="sky"] { --win: #1d3656; }
+    .window[data-tint="lilac"] { --win: #352b56; }
+    .window[data-tint="peach"] { --win: #523524; }
+    .window[data-tint="pink"] { --win: #50253a; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .window { transition: none; }
+  }
+
+  /* ------------------------------------------------------------------ the sidebar */
+
+  .side {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 12px 12px;
+    color: var(--text);
+    font-family: "Inter Variable", var(--font);
+    font-size: 14.5px;
+    letter-spacing: -0.012em;
+  }
+
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px 2px 4px;
+    color: var(--text-2);
+  }
+
+  .tb {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 0;
+    border-radius: 9px;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+    transition: background-color 0.15s ease, transform 0.12s var(--spring-settle);
+  }
+
+  .tb:hover { background: rgb(var(--ink) / 0.07); }
+  .tb:active { transform: scale(0.92); }
+  .tb svg { width: 19px; height: 19px; }
+
+  .tb svg,
+  .bar svg,
+  .url svg,
+  .reveal-side svg,
+  .cmd-field svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .spacer { flex: 1; }
+
+  .url {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 12px;
+    border: 0;
+    border-radius: 12px;
+    background: rgb(var(--ink) / 0.06);
+    font: inherit;
+    font-size: 14px;
+    text-align: left;
+    color: var(--text-2);
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+  }
+
+  .url:hover { background: rgb(var(--ink) / 0.09); }
+  .url-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .url kbd {
+    flex: none;
+    margin: 0;
+    font-size: 11px;
+    opacity: 0.8;
+  }
+
+  .favs {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+
+  .fav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 52px;
+    border-radius: 14px;
+    background: rgb(var(--ink) / 0.06);
+    font-size: 14px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    transition: background-color 0.15s ease, transform 0.12s var(--spring-settle);
+  }
+
+  .fav:hover { background: rgb(var(--ink) / 0.1); }
+  .fav:active { transform: scale(0.96); }
+  .fav :global(img) { width: 28px; height: 28px; }
+  .fav svg { width: 22px; height: 22px; }
+  /* The GitHub tile keeps its star count, small, beside the mark. */
+  .fav-gh { gap: 5px; font-size: 12.5px; }
+  .fav-gh svg { width: 20px; height: 20px; }
+  .fav-count:empty { display: none; }
+  .fav[hidden] { display: none; }
+
+  .tabs {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 0;
+    margin-top: 2px;
+    overflow-y: auto;
+    scrollbar-width: none;
+    /* The list fades at its edges when it scrolls, as Arc's does. */
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 28px, #000 calc(100% - 8px), transparent 100%);
+    mask-image: linear-gradient(to bottom, transparent 0, #000 28px, #000 calc(100% - 8px), transparent 100%);
+    padding-block: 12px 20px;
+  }
+
+  .tabs::-webkit-scrollbar { display: none; }
+
+  .group { display: grid; gap: 1px; }
+
+  .grp {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: fit-content;
+    margin: 0 4px 2px;
+    padding: 3px 6px;
+    border: 0;
+    border-radius: 7px;
+    background: none;
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    color: var(--text-3);
+    cursor: pointer;
+    transition: color 0.15s ease, background-color 0.15s ease;
+  }
+
+  .grp:hover { color: var(--text); background: rgb(var(--ink) / 0.05); }
+
+  .grp svg {
+    width: 12px;
+    height: 12px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 0.2s var(--ease-out);
+  }
+
+  .grp[aria-expanded="true"] svg { transform: rotate(90deg); }
+
+  .rows {
+    display: grid;
+    grid-template-rows: 1fr;
+    transition: grid-template-rows 0.25s var(--ease-out), opacity 0.2s ease, visibility 0s;
+  }
+
+  .rows-in {
+    display: grid;
+    gap: 1px;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .collapsed .rows {
+    grid-template-rows: 0fr;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: grid-template-rows 0.25s var(--ease-out), opacity 0.2s ease, visibility 0s 0.25s;
+  }
+
+  .tab {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4.5px 10px;
+    border-radius: 11px;
+    font-weight: 500;
+    color: var(--text);
+    transition: background-color 0.15s ease;
+  }
+
+  .tab span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tab:hover { background: rgb(var(--ink) / 0.05); }
+
+  .tab[aria-current="true"] {
+    background: var(--surface);
+    box-shadow: 0 0 0 0.5px rgb(var(--ink) / 0.06), 0 1px 2px rgb(0 0 0 / 0.08);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .tab[aria-current="true"] { background: #34343a; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08); }
+  }
+
+  .foot {
+    display: grid;
+    gap: 12px;
+    padding-top: 4px;
+  }
+
+  .foot .btn {
+    height: 40px;
+    border-radius: 12px;
+    font-size: 14px;
+  }
+
+  /* The sidebar's Download wears the same holographic ring as the page's (components/Download.astro). */
+  @property --holo-a {
+    syntax: "<angle>";
+    inherits: false;
+    initial-value: 210deg;
+  }
+
+  .holo-sm {
+    border: 1.5px solid transparent;
+    color: #fff;
+    background:
+      linear-gradient(180deg, rgb(255 255 255 / 0.1), rgb(255 255 255 / 0) 45%) padding-box,
+      linear-gradient(#18181b, #18181b) padding-box,
+      conic-gradient(from var(--holo-a), #5fe3b4, #7fb0ff, #c79bff, #ff93c0, #ffc999, #9aeccd, #5fe3b4) border-box;
+    box-shadow: 0 6px 18px -10px color-mix(in srgb, #c79bff 80%, transparent);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .holo-sm { animation: holo-turn-sm 9s linear infinite; }
+  }
+
+  @keyframes holo-turn-sm { to { --holo-a: 570deg; } }
+
+  @media (prefers-color-scheme: dark) {
+    .holo-sm { color: #fff; }
+  }
+
+  /* The Space bar at the bottom of Arc's sidebar: archive, one dot per group, new tab. */
+  .bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--text-2);
+  }
+
+  .dots { display: flex; gap: 4px; }
+
+  .dot {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: none;
+    cursor: pointer;
+  }
+
+  .dot::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--c);
+    opacity: 0.55;
+    transition: transform 0.2s var(--spring-settle), opacity 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .dot:hover::before { opacity: 1; transform: scale(1.25); }
+  .dot.on::before { opacity: 1; transform: scale(1.3); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 30%, transparent); }
+
+  /* A screenshot, full size. */
+  .zoom {
+    width: 100vw;
+    max-width: none;
+    height: 100vh;
+    max-height: none;
+    padding: clamp(16px, 4vw, 56px);
+    border: 0;
+    background: rgb(20 17 15 / 0.82);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    cursor: zoom-out;
+  }
+
+  .zoom:not([open]) { display: none; }
+  .zoom[open] { display: grid; place-items: center; }
+
+  .zoom img {
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 14px;
+    box-shadow: 0 30px 80px -20px rgb(0 0 0 / 0.6);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .zoom[open] img { animation: cmd-in 0.22s var(--ease-out); }
+  }
+
+  .zoom-close {
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: rgb(255 255 255 / 0.16);
+    color: #fff;
+    cursor: pointer;
+  }
+
+  .zoom-close svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+
+  /* The command bar: the same card as Airc's ⌘T. */
+  .cmd {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 14vh 16px 0;
+    background: rgb(20 17 15 / 0.2);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
+  }
+
+  .cmd[hidden] { display: none; }
+
+  .cmd-panel {
+    width: min(580px, 100%);
+    overflow: hidden;
+    border-radius: 18px;
+    background: var(--surface);
+    box-shadow: 0 0 0 0.5px rgb(var(--ink) / 0.12), 0 30px 80px -20px rgb(0 0 0 / 0.4);
+    font-family: "Inter Variable", var(--font);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .cmd:not([hidden]) .cmd-panel { animation: cmd-in 0.18s var(--ease-out); }
+  }
+
+  @keyframes cmd-in { from { opacity: 0; transform: translateY(-8px) scale(0.98); } }
+
+  .cmd-field {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 18px;
+    height: 58px;
+    color: var(--text-2);
+    box-shadow: 0 0.5px 0 var(--line);
+  }
+
+  .cmd-field svg { flex: none; width: 20px; height: 20px; }
+
+  .cmd-field input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    outline: 0;
+    background: none;
+    font: inherit;
+    font-size: 17px;
+    color: var(--text);
+  }
+
+  .cmd-field kbd { margin: 0; font-size: 11px; }
+
+  .cmd-list { margin: 0; padding: 8px; list-style: none; }
+
+  .cmd-list { max-height: min(460px, 60vh); overflow-y: auto; }
+
+  .cmd-list :global(.r-icon) { display: grid; place-items: center; width: 20px; flex: none; }
+  .cmd-list :global(.r-label) { flex: 1; min-width: 0; }
+
+  .cmd-list :global(li) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 11px 12px;
+    border-radius: 11px;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .cmd-list :global(li[aria-selected="true"]) { background: color-mix(in srgb, var(--accent) 11%, transparent); }
+  .cmd-list :global(.r-hint) { font-size: 12.5px; font-weight: 500; color: var(--text-3); white-space: pre; }
+  .cmd-list :global(li[aria-selected="true"] .r-hint) { color: var(--accent-text); }
+
+  /* Hidden sidebar: the page takes the window, and a small button brings the sidebar back. */
+  .reveal-side {
+    position: fixed;
+    top: 22px;
+    left: 22px;
+    z-index: 40;
+    display: none;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 0;
+    border-radius: 11px;
+    background: var(--surface);
+    color: var(--text-2);
+    cursor: pointer;
+    box-shadow: 0 0 0 0.5px rgb(var(--ink) / 0.1), 0 4px 14px -4px rgb(0 0 0 / 0.25);
+  }
+
+  .reveal-side svg { width: 20px; height: 20px; }
+  .side-hidden .reveal-side { display: grid; }
+
+  /* ------------------------------------------------------------------ the page card */
+
+  .page {
+    background: var(--bg);
+    color: var(--t1);
+  }
+
+  .footer {
+    display: grid;
+    gap: 8px;
+    padding: 40px clamp(24px, 5vw, 72px) 48px;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-3);
+    box-shadow: 0 -0.5px 0 var(--line);
+  }
+
+  .footer-links { display: flex; flex-wrap: wrap; gap: 6px 20px; }
+  .footer a { color: var(--t2); width: fit-content; }
+  .footer a:hover { color: var(--accent-text); }
+  .footer p { max-width: 640px; font-size: 13px; color: var(--text-3); }
+
+  .mobilebar { display: none; }
+  .reveal-side { display: none !important; }
+  @media (min-width: 901px) { .side-hidden .reveal-side { display: grid !important; } }
+
+  /* Desktop: the window is the viewport, and only the page card scrolls. */
+  @media (min-width: 901px) {
+    :global(html),
+    :global(body) {
+      height: 100%;
+    }
+
+    :global(body) { overflow: hidden; }
+
+    .window {
+      display: grid;
+      grid-template-columns: 248px minmax(0, 1fr);
+      height: 100%;
+      padding: 10px 10px 10px 0;
+      transition: grid-template-columns 0.35s var(--spring-settle), padding 0.35s var(--spring-settle);
+    }
+
+    .window.side-hidden {
+      grid-template-columns: 0px minmax(0, 1fr);
+      padding-left: 10px;
+    }
+
+    .side {
+      min-height: 0;
+      min-width: 0;
+      padding-top: 4px;
+      overflow: hidden;
+      transition: opacity 0.2s ease;
+    }
+
+    .side-hidden .side { opacity: 0; pointer-events: none; }
+    .side > * { min-width: 224px; max-width: 224px; }
+
+    .page {
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scroll-behavior: smooth;
+      border-radius: 14px;
+      box-shadow: 0 0 0 0.5px rgb(var(--ink) / 0.1), 0 8px 24px -8px rgb(0 0 0 / 0.14);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .page { scroll-behavior: auto; }
+  }
+
+  /* ------------------------------------------------------------------ small screens */
+
+  @media (max-width: 900px) {
+    .mobilebar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      height: 56px;
+      padding: 0 16px;
+      background: var(--win);
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+      font-size: 17px;
+      letter-spacing: -0.02em;
+    }
+
+    .menu {
+      height: 34px;
+      padding: 0 14px;
+      border: 0;
+      border-radius: 10px;
+      background: var(--surface);
+      font: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      box-shadow: 0 0 0 0.5px rgb(var(--ink) / 0.08);
+    }
+
+    .side {
+      display: none;
+      padding-bottom: 24px;
+    }
+
+    /* The menu opens in the flow under the bar and pushes the page down. */
+    .window.menu-open .side { display: flex; }
+
+    .side > .toolbar,
+    .side > .url,
+    .side > .foot .bar { display: none; }
+
+    .page {
+      border-radius: 18px 18px 0 0;
+      overflow: clip;
+    }
+  }
+</style>

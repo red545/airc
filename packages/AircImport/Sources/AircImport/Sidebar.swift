@@ -89,7 +89,7 @@ public enum ArcSidebarParser {
                     let page = nonempty(tab["savedTitle"]), title = nonempty(item["title"])
                     out.append(.tab(.init(id: id, url: url, title: title == page ? nil : title, pageTitle: page, lastActiveAt: tab["timeLastActiveAt"] as? Double)))
                 } else if d["list"] != nil {
-                    if item["automaticLiveFolderData"] != nil { warn(.unsupportedItem, "Imported a live folder as a regular folder.") }
+                    if item["automaticLiveFolderData"] != nil { warn(.liveFolder, "Imported a live folder as a regular folder.") }
                     out.append(.folder(.init(id: id, title: nonempty(item["title"]) ?? "Folder", children: children(index, id, depth + 1, keepSplits: keepSplits))))
                 } else if d["splitView"] != nil {
                     let tabs = children(index, id, depth + 1, keepSplits: false).flatMap(\.tabs)
@@ -114,7 +114,13 @@ public enum ArcSidebarParser {
                     out += tabs.dropFirst(4).map { .tab($0) }
                 } else {
                     if d["easel"] != nil { warn(.easel, "Skipped an Easel (Arc-only)."); continue }
-                    else { warn(.unsupportedItem, "Flattened or skipped an unsupported sidebar item.") }
+                    if d["arcDocument"] != nil { warn(.note, "Skipped a Note (Arc-only)."); continue }
+                    // Arc's welcome tab has nothing to bring; a stray container is only structure, so its items take its place.
+                    if d["welcomeToArc"] != nil { continue }
+                    if d["itemContainer"] == nil {
+                        warnings.append(.init(code: .unsupportedItem, message: "Flattened or skipped an unsupported sidebar item.",
+                                              kind: d.keys.sorted().first.map { String($0.prefix(40)) }))
+                    }
                     out += children(index, id, depth + 1, keepSplits: keepSplits)
                 }
             }

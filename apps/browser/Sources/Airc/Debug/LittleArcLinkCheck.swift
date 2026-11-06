@@ -134,9 +134,170 @@ extension SnapshotRunner {
             }
         }
         closeLittleArcs()
+        // The row's controls and Spaces (owner report 2026-11-06 17:39).
+        littleArcChromeChecks({ base })
+        littleArcActiveSpaceCheck({ base })
         run { server?.stop() }
 
         if ProcessInfo.processInfo.environment["AIRC_LA_EXTERNAL"] == "1" { littleArcLaunchServicesCheck() }
+    }
+
+    /// The row: one click on ↗ moves the page into the chip's Space (it used to open the Spaces menu, so it took two);
+    /// the chip shows the profile's name and a chevron; its menu lists the profiles, the page's checked, "Reloads the
+    /// page" on the others; ↗'s menu lists the Spaces by name, the chip's checked, "Reloads in <profile>" only where
+    /// the profile differs. A second profile and Space are made if there's only one (synthetic names).
+    func littleArcChromeChecks(_ base: @escaping () -> String) {
+        var little: LittleArcController?
+        var home = ""
+        step { [self] done in
+            home = c.currentSpaceID
+            guard c.store.state.profiles.count < 2 else { return done() }
+            do {
+                let p = try c.profiles.createProfile(name: "Links Check", emoji: "", color: nil)
+                _ = try c.store.createSpace(name: "Routed", profileID: p.id)
+                c.reloadAll(animated: false)
+                c.profiles.whenLoaded(p.id, { _ in done() }, failed: { done() })
+            } catch {
+                check(false, "little arc (row): a second profile and Space (\(error))")
+                done()
+            }
+        }
+        step { [self] done in
+            guard !base().isEmpty else { return done() }
+            little = app?.openLittleArc(url: URL(string: base() + "/la?from=row"), spaceID: home)
+            waitUntil({ little?.page?.title == "little arc 0" && little?.page?.isLoading == false }, timeout: 8) { done() }
+        }
+        // The chip and the button, as a real press finds them.
+        run { [self] in
+            guard let l = little else { return check(false, "little arc (row): the window opens") }
+            l.root.layoutSubtreeIfNeeded()
+            let profile = c.store.profile(ofSpace: home)
+            check(l.chip.shownName == profile.name && l.chip.showsChevron,
+                  "little arc (row): the chip shows the profile's name and a chevron, Arc's profile button (name right \(l.chip.shownName == profile.name), "
+                  + "chevron \(l.chip.showsChevron))")
+            for (name, view) in [("↗", l.openButton as NSView), ("the chip", l.chip as NSView), ("the address", l.addressField as NSView)] {
+                let p = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+                let frame = l.window.contentView?.superview
+                let hit = frame.flatMap { $0.hitTest($0.convert(p, from: nil)) }
+                let drags = Self.windowServerDrags(at: p, hit: hit, in: l.window)
+                check((hit === view || hit?.isDescendant(of: view) == true) && view.acceptsFirstMouse(for: nil) && drags == nil,
+                      "little arc (row): a first press on \(name) reaches it in a window that isn't key (hit \(Self.describe(hit)), first mouse "
+                      + "\(view.acceptsFirstMouse(for: nil))\(drags.map { "; the window server would drag: \($0)" } ?? ""))")
+            }
+        }
+        // The chip's menu and ↗'s menu.
+        run { [self] in
+            guard let l = little else { return }
+            let store = c.store
+            let pid = store.space(home)?.profileID
+            let profiles = l.profileMenu().items
+            let withSpaces = store.orderedProfiles.filter { !store.spaces(usingProfile: $0.id).isEmpty }
+            let checked = profiles.filter { $0.state == .on }.map { Self.titleOnly($0.title) }
+            let notes = profiles.map { Self.secondLine($0) }
+            let profilesOK = profiles.map({ Self.titleOnly($0.title) }) == withSpaces.map(\.name)
+                && checked == [store.profile(pid ?? "")?.name ?? "?"]
+                && zip(profiles, notes).allSatisfy { ($0.state == .on) == ($1 == nil) && ($1 == nil || $1 == "Reloads the page") }
+                && profiles.allSatisfy { $0.image != nil }
+            check(profilesOK, "little arc (row): the chip's menu lists the profiles by avatar and name, the page's checked, “Reloads the page” "
+                  + "on the others only (\(zip(profiles, notes).map { "\($0.state == .on ? "✓ " : "")\(Self.titleOnly($0.title))\($1.map { " · " + $0 } ?? "")" }))")
+            let spaces = l.spacesMenu().items
+            let rows = store.orderedSpaces
+            let spaceNotes = spaces.map { Self.secondLine($0) }
+            let spacesOK = spaces.count == rows.count
+                && zip(spaces, rows).allSatisfy { item, space in
+                    let other = space.profileID != pid
+                    return Self.titleOnly(item.title) == space.name && (item.state == .on) == (space.id == home)
+                        && Self.secondLine(item) == (other ? "Reloads in \(store.profile(ofSpace: space.id).name)" : nil)
+                }
+            check(spacesOK, "little arc (row): ↗'s menu lists the Spaces by icon and name, the chip's checked, “Reloads in <profile>” only where "
+                  + "the profile differs (\(zip(spaces, spaceNotes).map { "\($0.state == .on ? "✓ " : "")\(Self.titleOnly($0.title))\($1.map { " · " + $0 } ?? "")" }))")
+        }
+        // One click on ↗: the page moves into the chip's Space, no menu in between.
+        step { [self] done in
+            guard let l = little, let page = l.page else { return done() }
+            let chromium = app?.engine.name.hasPrefix("Chromium") == true
+            let menusBefore = l.menusMade
+            // A menu would block this run in its tracking loop: close it (and fail) instead.
+            let guardTimer = Timer(timeInterval: 2, repeats: false) { [weak l] _ in l?.shownMenu?.cancelTracking() }
+            RunLoop.main.add(guardTimer, forMode: .common)
+            let b = l.openButton
+            click(at: b.convert(NSPoint(x: b.bounds.midX, y: b.bounds.midY), to: nil), in: l.window) {
+                self.waitUntil({ self.app?.littleArcs.isEmpty == true }, timeout: 4) {
+                    guardTimer.invalidate()
+                    let tab = self.c.store.todayTabs(ofSpace: home).first { $0.url.contains("from=row") }
+                    let moved = tab.flatMap { self.c.engineTab(for: $0.id) }
+                    let same = !chromium || moved === page
+                    self.check(tab != nil && self.app?.littleArcs.isEmpty == true && same && l.menusMade == menusBefore,
+                               "little arc (row): one click on ↗ opens the page in the chip's Space (tab \(tab != nil), window closed "
+                               + "\(self.app?.littleArcs.isEmpty == true), \(chromium ? "same live page \(same), " : "")menus opened "
+                               + "\(l.menusMade - menusBefore))")
+                    done()
+                }
+            }
+        }
+        closeLittleArcs()
+    }
+
+    /// LA-1 in full screen: a Little Arc window joins the active Space when it's shown (`.moveToActiveSpace`,
+    /// `.fullScreenAuxiliary`), so a link from an app in full screen opens over it. The windows are invisible and take
+    /// no clicks (the owner may be in a full-screen app). Without a full-screen app on the active Space, the window
+    /// still has to be on the active Space; the comparison with the old window (no such behaviour) is noted.
+    func littleArcActiveSpaceCheck(_ base: @escaping () -> String) {
+        var front = ""
+        var fullScreen = false
+        var before: Bool?
+        func open(joining: Bool, _ then: @escaping (LittleArcController?) -> Void) {
+            let saved = LittleArcController.joinsActiveSpace
+            LittleArcController.joinsActiveSpace = joining
+            let l = app?.openLittleArc(url: URL(string: base() + "/la?from=space"), spaceID: c.currentSpaceID)
+            LittleArcController.joinsActiveSpace = saved
+            l?.window.alphaValue = 0
+            l?.window.ignoresMouseEvents = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { then(l) }
+        }
+        step { [self] done in
+            guard !base().isEmpty, !Self.screenLocked else { return done() }
+            front = LinkLog.frontApp()
+            fullScreen = NSWorkspace.shared.frontmostApplication.map { $0.processIdentifier != getpid() && LinkLog.isFullScreen($0.processIdentifier) } ?? false
+            open(joining: false) { l in
+                before = l?.window.isOnActiveSpace
+                l?.closeWindow()
+                self.waitUntil({ self.app?.littleArcs.isEmpty == true }, timeout: 3) { done() }
+            }
+        }
+        step { [self] done in
+            guard !base().isEmpty else { return done() }
+            if Self.screenLocked { skip("little arc (Spaces): the screen is locked"); return done() }
+            open(joining: true) { l in
+                let behaviour = l?.window.collectionBehavior ?? []
+                let flags = behaviour.contains(.moveToActiveSpace) && behaviour.contains(.fullScreenAuxiliary)
+                self.note("little arc (Spaces): \(front); a window without the behaviour opened on the active Space: \(before.map(LinkLog.yesNo) ?? "-")")
+                self.check(flags, "little arc (Spaces): a Little Arc window moves to the active Space when it's made active, and may join a "
+                           + "full-screen app's (.moveToActiveSpace \(behaviour.contains(.moveToActiveSpace)), .fullScreenAuxiliary "
+                           + "\(behaviour.contains(.fullScreenAuxiliary)))")
+                // Made key as a link makes it (the window takes no clicks and is invisible; the app isn't activated).
+                l?.window.makeKeyAndOrderFront(nil)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    let onActive = l?.window.isOnActiveSpace == true
+                    let what = "little arc (Spaces): made key, it's on the active Space (\(onActive))"
+                        + (fullScreen ? ", over the full-screen front app" : "")
+                    if onActive || NSApp.isActive { self.check(onActive, what) } else {
+                        self.skip(what + ": the app isn't active (scripted runs never activate it), so the window can't become active and "
+                                  + "stays where it opened")
+                    }
+                    l?.closeWindow()
+                    self.waitUntil({ self.app?.littleArcs.isEmpty == true }, timeout: 3) { done() }
+                }
+            }
+        }
+    }
+
+    /// A menu row's title without the second line folded into it before macOS 14.4.
+    static func titleOnly(_ title: String) -> String { title.components(separatedBy: " — ").first ?? title }
+    static func secondLine(_ item: NSMenuItem) -> String? {
+        if #available(macOS 14.4, *) { return item.subtitle }
+        let parts = item.title.components(separatedBy: " — ")
+        return parts.count > 1 ? parts.last : nil
     }
 
     /// AIRC_LA_EXTERNAL=1: a link sent through Launch Services by `open -b` from a shell (the by-hand proof).

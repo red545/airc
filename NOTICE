@@ -29,3 +29,7 @@ Apache License 2.0; modified by The Airc Authors.
 packages/AircKit/Sources/AircKit/ProtectedMedia.swift: the DRM-site rules are adapted from Cra's
 ProtectedMedia.swift (https://github.com/VictorKildahl/cra), Copyright (c) 2026 Victor Kildahl,
 MIT License; the full notice is kept in that file.
+
+packages/AircKit/Resources/public_suffix_list.dat: the Public Suffix List (https://publicsuffix.org/list/),
+Mozilla Public License 2.0 (https://mozilla.org/MPL/2.0/), as shipped with Chromium
+(net/base/registry_controlled_domains/effective_tld_names.dat), unmodified.

@@ -29,6 +29,58 @@ struct OnboardingRoot: View {
         }
         .aircAnimation(AircCurve.entrance, value: model.step)
         .frame(width: AircMetrics.Onboarding.windowSize.width, height: AircMetrics.Onboarding.windowSize.height)
+        .overlay(alignment: .topTrailing) {
+            // A re-run can be left from every step (ON-3); centred on the step dots' row, 22 pt from the corner.
+            if model.closable {
+                OnboardingCloseButton(model: model, onCard: ![.welcome, .done].contains(model.step))
+                    .padding(.top, 22).padding(.trailing, 22)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if model.showsQuitHint {
+                Text("Hold ⌘Q to Quit")
+                    .aircFont(AircFont.callout.weight(.medium))
+                    .foregroundStyle(AircColor.white(0.95).color)
+                    .padding(.horizontal, 14)
+                    .frame(height: AircMetrics.Toast.height)
+                    .background(Capsule().fill(AircColor.black(0.72).color))
+                    .padding(.bottom, 74)
+                    .transition(.opacity)
+            }
+        }
+        .aircAnimation(AircCurve.previewIn, value: model.showsQuitHint)
+        .testAnchor("onboarding.page")
+        .testAnchorRoot()
+    }
+}
+
+/// The ✕ that leaves a re-run (ON-3). Disabled, with the reason as its tooltip, while the logins are being written.
+struct OnboardingCloseButton: View {
+    @ObservedObject var model: OnboardingModel
+    /// On the step card (surface ink) or straight on the theme (the welcome and done steps).
+    let onCard: Bool
+    @Environment(\.aircTheme) private var theme
+    @State private var hovering = false
+
+    var body: some View {
+        let blocked = model.closeBlockedReason != nil
+        let ink = onCard ? theme.surfaceText : theme.text
+        let lit = hovering && !blocked
+        Button { model.onClose?() } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(ink.alpha(lit ? 0.78 : 0.48).color)
+                .frame(width: 26, height: 26)
+                .background(Circle().fill(ink.alpha(lit ? 0.08 : 0).color))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(blocked)
+        .opacity(blocked ? 0.45 : 1)
+        .onHover { hovering = $0 }
+        .help(model.closeBlockedReason ?? "Close (⌘W)")
+        .accessibilityLabel("Close")
+        .testAnchor("onboarding.close")
     }
 }
 
@@ -85,7 +137,7 @@ struct ArcStep: View {
                            drawsBackground: false) {
             SidebarPreview(model: model)
         } content: {
-            content
+            content.testAnchor("onboarding.content")
         } actions: {
             actions
         }
@@ -101,8 +153,10 @@ struct ArcStep: View {
     private var subtitle: String {
         switch model.arc {
         case .searching: "Looking for Arc on this Mac…"
-        case .found: model.choosing ? "Pick the Spaces to bring. Their profiles and Favorites come with them."
-            : "We found Arc on this Mac. Your Spaces come over exactly as they are, profiles and all."
+        case .found:
+            if model.choosing { "Pick the Spaces to bring. Their profiles and Favorites come with them." }
+            else if model.reimport?.line != nil { "Spaces you brought over before update in place from Arc; new ones go after yours. Nothing in Airc is removed." }
+            else { "We found Arc on this Mac. Your Spaces come over exactly as they are, profiles and all." }
         case .notFound(let why): why
         }
     }
@@ -143,14 +197,18 @@ struct ArcStep: View {
             .background(groupShape.fill(groupFill))
             .overlay(groupShape.inset(by: 0.25).stroke(theme.surfaceBorder.color, lineWidth: 0.5))
             AircGroup {
-                checkRow("Spaces, pinned tabs and folders", nil, count: c.tabs, isOn: .constant(true), enabled: false, dims: false)
+                checkRow("Spaces, pinned tabs and folders", model.reimport?.line, count: c.tabs, isOn: .constant(true), enabled: false, dims: false)
+                    .testAnchor("onboarding.import.spaces")
                 checkRow("Favorites, per profile", nil, count: c.favorites, isOn: $model.includeFavorites)
+                    .testAnchor("onboarding.import.favorites")
                 checkRow("Logins and saved passwords", "macOS asks for your Mac password once.", count: nil, isOn: $model.includeLogins)
             }
             if let note = model.importNote {
-                Label(note, systemImage: "info.circle")
-                    .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextTertiary.color)
-                    .fixedSize(horizontal: false, vertical: true)
+                Label(note, systemImage: "exclamationmark.triangle")
+                    .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color)
+                    .lineLimit(2)
+            } else if !model.importChanges.isEmpty {
+                ImportChangesLine(changes: model.importChanges)
             }
         }
     }
@@ -165,10 +223,11 @@ struct ArcStep: View {
                     HStack(spacing: 12) {
                         AircCheckbox(isOn: on)
                         AircThemeDisc(theme: model.resolved(s), size: 18)
-                        Text(s.emoji ?? "•").font(.system(size: 14))
-                        Text(s.name).aircFont(AircFont.body).foregroundStyle(theme.surfaceText.color)
-                        Spacer()
-                        Text(model.profile(of: s)?.name ?? "").aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextTertiary.color)
+                        Text(s.emoji ?? "•").font(.system(size: 14)).frame(width: 20)
+                        Text(s.name).aircFont(AircFont.body).foregroundStyle(theme.surfaceText.color).lineLimit(1)
+                        Spacer(minLength: 8)
+                        Text(model.profileRows.first { $0.id == s.profileSourceID }?.profile.name ?? model.profile(of: s)?.name ?? "")
+                            .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextTertiary.color).lineLimit(1).fixedSize()
                         Text("\(s.pinnedTabCount)").aircFont(AircFont.mono).foregroundStyle(theme.surfaceTextTertiary.color).frame(minWidth: 22, alignment: .trailing)
                     }
                     .padding(.horizontal, 14)
@@ -207,6 +266,7 @@ struct ArcStep: View {
                 Button("Import everything") { model.onImportEverything?() }
                     .buttonStyle(.airc(.primary, size: .large))
                     .keyboardShortcut(.defaultAction)
+                    .testAnchor("onboarding.primary")
             }
         }
     }
@@ -218,14 +278,17 @@ struct ArcStep: View {
         HStack(spacing: 12) {
             AircCheckbox(isOn: isOn, isEnabled: enabled, dimsWhenDisabled: dims)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).aircFont(AircFont.body).foregroundStyle(theme.surfaceText.color)
-                if let subtitle { Text(subtitle).aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color) }
+                Text(title).aircFont(AircFont.body).foregroundStyle(theme.surfaceText.color).lineLimit(1)
+                if let subtitle {
+                    Text(subtitle).aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color).lineLimit(1)
+                        .truncationMode(.tail).help(subtitle)
+                }
             }
             Spacer()
             if let count { Text(count.formatted()).aircFont(AircFont.mono).foregroundStyle(theme.surfaceTextTertiary.color) }
         }
         .padding(.horizontal, 14)
-        .frame(minHeight: subtitle == nil ? 44 : 54)
+        .frame(height: subtitle == nil ? 44 : 54)
         .contentShape(Rectangle())
         .onTapGesture { if enabled { withAircAnimation(AircSpring.toggle) { isOn.wrappedValue.toggle() } } }
     }
@@ -272,6 +335,9 @@ struct AccountsStep: View {
     @ObservedObject var model: OnboardingModel
     @Environment(\.aircTheme) private var theme
 
+    /// Every row is this tall, signed in or not, so hovering or signing in never moves a row.
+    static let rowHeight: CGFloat = 64
+
     var body: some View {
         AircOnboardingPage(step: OnboardingStep.accounts.dot, of: model.dots, title: "Spaces and accounts.",
                            subtitle: "Each Arc profile becomes a real profile with its own logins. Sign each one in to its own Google account.",
@@ -279,25 +345,36 @@ struct AccountsStep: View {
             SidebarPreview(model: model)
         } content: {
             VStack(alignment: .leading, spacing: 14) {
-                ScrollView(.vertical, showsIndicators: false) {
+                // Every profile, scrolling past the room there is; a fade at the bottom says there's more.
+                ScrollView(.vertical, showsIndicators: true) {
                     AircGroup {
-                        ForEach(model.profileRows, id: \.profile.sourceID) { row in
-                            profileRow(row.profile, row.spaces)
+                        ForEach(model.profileRows) { row in
+                            profileRow(row)
                         }
                     }
+                    .padding(.bottom, 2)
                 }
-                .frame(maxHeight: 236)
+                .scrollBounceBehavior(.basedOnSize)
+                .mask {
+                    VStack(spacing: 0) {
+                        Rectangle()
+                        LinearGradient(colors: [.black, .black.opacity(overflows ? 0 : 1)], startPoint: .top, endPoint: .bottom).frame(height: 18)
+                    }
+                }
+                .frame(maxHeight: .infinity, alignment: .top)
+                .testAnchor("onboarding.accounts.list")
                 if model.includeLogins {
                     HStack(alignment: .top, spacing: 10) {
                         Image(systemName: "lock").font(.system(size: 13, weight: .medium)).foregroundStyle(theme.surfaceTextTertiary.color)
                         Text(model.loginsAvailable ? "Next, macOS asks for your Mac password once, to unlock Arc's saved logins."
                                                    : "Logins come over with the Chromium engine.")
                             .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color)
-                            .fixedSize(horizontal: false, vertical: true)
+                            .lineLimit(2)
                     }
                     .padding(.horizontal, 4)
                 }
             }
+            .testAnchor("onboarding.content")
         } actions: {
             Button("Back") { model.onBack?() }.buttonStyle(.airc(.plain, size: .large))
             Spacer()
@@ -305,48 +382,124 @@ struct AccountsStep: View {
                 Button("Skip logins") { model.onSkipLogins?() }.buttonStyle(.airc(.secondary, size: .large))
             }
             Button("Continue") { model.onNext?() }.buttonStyle(.airc(.primary, size: .large)).keyboardShortcut(.defaultAction)
+                .testAnchor("onboarding.primary")
         }
     }
 
-    private func profileRow(_ p: ImportBlueprint.Profile, _ spaces: [ImportBlueprint.Space]) -> some View {
-        HStack(spacing: 12) {
-            AircProfileAvatar(emoji: p.emoji, name: p.name, color: p.color?.aircColor ?? theme.accent, size: 36)
-            VStack(alignment: .leading, spacing: 5) {
-                Text(p.name).aircFont(AircFont.body.weight(.medium)).foregroundStyle(theme.surfaceText.color)
-                HStack(spacing: 5) {
-                    ForEach(spaces.prefix(3)) { s in
-                        AircSpaceChip(emoji: s.emoji, name: s.name, compact: true)
+    /// More rows than the list shows at once (with the logins note under it).
+    private var overflows: Bool { CGFloat(model.profileRows.count) * Self.rowHeight > 230 }
+
+    private func profileRow(_ row: OnboardingModel.ProfileRow) -> some View {
+        let p = row.profile
+        let account = model.accounts[p.sourceID]
+        let color = p.color?.aircColor ?? theme.accent
+        let photo = account == nil ? nil : model.accountPhotos[p.sourceID]
+        return HStack(spacing: 12) {
+            AircProfileAvatar(AircProfileIdentity(name: p.name, emoji: p.emoji, color: color, photo: photo, account: account?.email), size: 36)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(p.name).aircFont(AircFont.body.weight(.medium)).foregroundStyle(theme.surfaceText.color)
+                        .lineLimit(1).layoutPriority(1)
+                    ForEach(row.spaces.prefix(2)) { s in
+                        AircSpaceChip(emoji: s.emoji, name: s.name, compact: true).frame(maxWidth: 116, alignment: .leading).fixedSize(horizontal: false, vertical: true)
                     }
-                    if spaces.count > 3 {
-                        Text("+\(spaces.count - 3)").aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextTertiary.color)
+                    if row.spaces.count > 2 {
+                        Text("+\(row.spaces.count - 2)").aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextTertiary.color).fixedSize()
                     }
                 }
+                .frame(height: 22)
+                accountLine(p, account)
+                    .frame(height: 16)
             }
             Spacer(minLength: 8)
-            if let account = model.accounts[p.sourceID] {
-                HStack(spacing: 6) {
-                    AircProfileAvatar(emoji: "", name: account, color: p.color?.aircColor ?? theme.accent, size: 18)
-                    Text(account).aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color).lineLimit(1)
-                }
-            } else {
-                Button { model.onSignIn?(p.sourceID) } label: {
-                    HStack(spacing: 6) {
-                        GoogleG().frame(width: 12, height: 12)
-                        Text(model.signingIn == p.sourceID ? "Signing in…" : "Sign in")
-                    }
-                }
-                .buttonStyle(.airc(.secondary, size: .small))
-                .disabled(model.signingIn != nil)
-                .help("Opens Google's sign-in page in the \(p.name) profile")
-            }
+            accountButton(p, signedIn: account != nil)
+                .frame(width: 96, alignment: .trailing)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .frame(height: Self.rowHeight)
         .contentShape(Rectangle())
-        .onHover { inside in
-            model.hoveredProfile = inside ? p.sourceID : (model.hoveredProfile == p.sourceID ? nil : model.hoveredProfile)
-            if inside, let i = model.previewSpaces.firstIndex(where: { $0.profileSourceID == p.sourceID }) { model.focusedSpace = i }
+        .onHover { model.hover(profile: p.sourceID, inside: $0) }
+        .testAnchor("onboarding.account.\(p.sourceID)")
+    }
+
+    /// "Signed in as alex@example.com" (the name in its tooltip), "Checking Google sign-in…" or "Not signed in to Google".
+    @ViewBuilder private func accountLine(_ p: ImportBlueprint.Profile, _ account: GoogleAccount?) -> some View {
+        if let account {
+            HStack(spacing: 5) {
+                Image(systemName: "checkmark.circle.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(theme.accent.color)
+                (Text("Signed in as ").foregroundStyle(theme.surfaceTextSecondary.color)
+                 + Text(account.email).foregroundStyle(theme.surfaceText.color))
+                    .aircFont(AircFont.callout)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .help("Signed in to Google as " + (account.name.map { "\($0) (\(account.email))" } ?? account.email))
+            .testAnchor("onboarding.account.signedIn.\(p.sourceID)")
+        } else if model.checkingAccounts.contains(p.sourceID) {
+            Text("Checking Google sign-in…").aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextTertiary.color).lineLimit(1)
+        } else {
+            Text("Not signed in to Google").aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextTertiary.color).lineLimit(1)
         }
+    }
+
+    @ViewBuilder private func accountButton(_ p: ImportBlueprint.Profile, signedIn: Bool) -> some View {
+        let busy = model.signingIn == p.sourceID
+        if signedIn {
+            Button(busy ? "Switching…" : "Switch…") { model.onSwitchAccount?(p.sourceID) }
+                .buttonStyle(.airc(.secondary, size: .small))
+                .disabled(model.signingIn != nil)
+                .help("Sign the \(p.name) profile in to another Google account")
+        } else {
+            Button { model.onSignIn?(p.sourceID) } label: {
+                HStack(spacing: 6) {
+                    GoogleG().frame(width: 12, height: 12)
+                    Text(busy ? "Signing in…" : "Sign in")
+                }
+            }
+            .buttonStyle(.airc(.secondary, size: .small))
+            .disabled(model.signingIn != nil || model.checkingAccounts.contains(p.sourceID))
+            .help("Opens Google's sign-in page in the \(p.name) profile")
+        }
+    }
+}
+
+/// What the import changes on the way, one line ("1 Easel was left out · 1 live folder is now a plain folder") and a
+/// Details popover that says why for each (IM-1). Never names a title or address: the warnings don't carry them.
+struct ImportChangesLine: View {
+    let changes: [ImportAdapter.Change]
+    @Environment(\.aircTheme) private var theme
+    @State private var showsDetails = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "info.circle").font(.system(size: 12, weight: .medium)).foregroundStyle(theme.surfaceTextTertiary.color)
+            Text(changes.prefix(2).map(\.summary).joined(separator: " · ") + (changes.count > 2 ? " · \(changes.count - 2) more" : ""))
+                .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color)
+                .lineLimit(1).truncationMode(.tail)
+            Button("Details") { showsDetails.toggle() }
+                .buttonStyle(.plain)
+                .aircFont(AircFont.callout.weight(.medium))
+                .foregroundStyle(theme.accent.color)
+                .fixedSize()
+                .popover(isPresented: $showsDetails, arrowEdge: .bottom) { details }
+                .testAnchor("onboarding.import.details")
+        }
+        .frame(height: 18)
+        .testAnchor("onboarding.import.changes")
+    }
+
+    private var details: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("What changes on the way").aircFont(AircFont.body.weight(.semibold))
+            ForEach(changes) { c in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(c.summary).aircFont(AircFont.body.weight(.medium))
+                    Text(c.detail).aircFont(AircFont.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .padding(16)
+        .frame(width: 320, alignment: .leading)
     }
 }
 
@@ -476,13 +629,15 @@ struct ThemeStep: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 6) {
                             ForEach(Array(model.previewSpaces.enumerated()), id: \.element.sourceID) { i, s in
-                                AircSpaceChip(emoji: s.emoji, name: s.name,
-                                          selected: i == model.focusedSpace)
+                                AircSpaceChip(emoji: s.emoji, name: Self.chipName(s.name), selected: i == model.focusedSpace)
+                                    .help(s.name)
                                     .onTapGesture { model.focusedSpace = i; model.onThemeChange?() }
                             }
                         }
                         .padding(2)
                     }
+                    // More chips than fit: they fade out at the card's edge and scroll.
+                    .mask(AircFadeMask(fade: 28))
                 }
                 presets
                 labeled("Appearance") {
@@ -504,6 +659,11 @@ struct ThemeStep: View {
                 .buttonStyle(.airc(.primary, size: .large))
                 .keyboardShortcut(.defaultAction)
         }
+    }
+
+    /// A chip in a scrolling row has all the width it asks for, so a long name is shortened here.
+    static func chipName(_ name: String) -> String {
+        name.count > 24 ? String(name.prefix(22)).trimmingCharacters(in: .whitespaces) + "…" : name
     }
 
     private var current: SpaceTheme { model.theme(of: model.focused) }

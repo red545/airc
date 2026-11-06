@@ -1,5 +1,9 @@
 // Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
 import AppKit
+import AircKit
+#if canImport(AircCore)
+import AircCore
+#endif
 
 /// The engine's page script (AircEngine.pageScript; a WKUserScript on the dev engine): one script the engine runs in
 /// every page at document start, in the page's main world, before the page's own scripts. Its source is an
@@ -18,6 +22,10 @@ protocol EnginePageScripts: AnyObject {
     var pageMessageHandler: ((EngineTab, EnginePageMessage) -> Void)? { get set }
     /// Calls the top frame's `receive(kind, json)`.
     func callPage(_ tab: EngineTab, kind: String, json: String)
+    /// Calls `receive(kind, json)` of one top-frame document: the one that posted from `frame` with `origin`, and only
+    /// while the tab still shows a document of that origin in that frame. False when it doesn't (nothing is sent); true
+    /// means sent, for that document if it's still there when it arrives (the page checks its token too).
+    func callDocument(_ tab: EngineTab, frame: String, origin: String, kind: String, json: String) -> Bool
     /// Runs code in the page's main world: in `frame` (an EnginePageMessage frame) or the top frame.
     func executeScript(_ code: String, in tab: EngineTab, frame: String?)
 }
@@ -88,6 +96,11 @@ final class PageScripts {
         engine?.callPage(tab, kind: part + "." + kind, json: json)
     }
 
+    /// `callDocument` for a part: false when the document is gone.
+    func callDocument(_ tab: EngineTab, frame: String, origin: String, part: String, kind: String, json: String) -> Bool {
+        engine?.callDocument(tab, frame: frame, origin: origin, kind: part + "." + kind, json: json) ?? false
+    }
+
     func executeScript(_ code: String, in tab: EngineTab, frame: String?) {
         engine?.executeScript(code, in: tab, frame: frame)
     }
@@ -99,30 +112,21 @@ final class PageScripts {
         handler(tab, m)
     }
 
-    /// One install function that installs every part with its own prefixed `post` and routes `receive` by prefix. A
-    /// part that throws doesn't stop the others.
+    /// One install function for every part (AircKit's PageScriptComposer).
     static func compose(parts: [(name: String, source: String)], base: String?) -> String? {
-        guard !parts.isEmpty || base != nil else { return nil }
-        let list = parts.map { "[\"\($0.name)\", (\($0.source))]" }.joined(separator: ",\n")
-        return """
-        (function () {
-          var parts = [\(list)];
-          var base = \(base.map { "(\($0))" } ?? "null");
-          return function (post) {
-            var receivers = {}, baseReceive = null;
-            parts.forEach(function (p) {
-              try {
-                var r = typeof p[1] === 'function' ? p[1](function (kind, json) { return post(p[0] + '.' + kind, json); }) : null;
-                if (typeof r === 'function') receivers[p[0]] = r;
-              } catch (e) {}
-            });
-            if (typeof base === 'function') { try { var b = base(post); if (typeof b === 'function') baseReceive = b; } catch (e) {} }
-            return function (kind, json) {
-              var dot = kind.indexOf('.'), r = dot > 0 && Object.prototype.hasOwnProperty.call(receivers, kind.slice(0, dot)) ? receivers[kind.slice(0, dot)] : null;
-              try { if (r) r(kind.slice(dot + 1), json); else if (baseReceive) baseReceive(kind, json); } catch (e) {}
-            };
-          };
-        })()
-        """
+        PageScriptComposer.compose(parts: parts, base: base)
     }
 }
+
+#if canImport(AircCore)
+// Chromium: the frame ID is the engine's render frame host, and the origin its committed one, so a frame that has
+// gone (a cross-site navigation, the back-forward cache) or shows another origin now gets nothing.
+extension ChromiumEngine {
+    func callDocument(_ tab: EngineTab, frame: String, origin: String, kind: String, json: String) -> Bool {
+        if tab is WebKitTab { return WebKitPageScripts.shared.callDocument(tab, origin: origin, kind: kind, json: json) }
+        guard let core = core(of: tab), core.committedOrigin == origin, core.hasLiveFrame(frame) else { return false }
+        core.callFrame(frame, kind: kind, json: json)
+        return true
+    }
+}
+#endif

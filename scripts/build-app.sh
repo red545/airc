@@ -168,6 +168,13 @@ bundle() {   # bundle APP BIN [chromium]
   cp "$ROOT/apps/browser/Resources/Info.plist" "$app/Contents/Info.plist"
   # The app icon (assets/brand/README.md): Info.plist names it with CFBundleIconFile = AppIcon.
   cp "$ROOT/assets/brand/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
+  # The public suffix list for Boosts' sites (AircKit/PublicSuffixList.swift; packages/AircKit/Resources, MPL-2.0),
+  # deflated: the bundle scan flags ".ts.net", and the list has Tailscale's public suffix (Chromium compiles it too).
+  python3 - "$ROOT/packages/AircKit/Resources/public_suffix_list.dat" "$app/Contents/Resources/public_suffix_list.dat.deflate" <<'PY'
+import sys, zlib
+c = zlib.compressobj(9, zlib.DEFLATED, -15)
+open(sys.argv[2], 'wb').write(c.compress(open(sys.argv[1], 'rb').read()) + c.flush())
+PY
   /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile AppIcon" "$app/Contents/Info.plist" 2>/dev/null \
     || /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$app/Contents/Info.plist"
   /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(date +%Y%m%d%H%M)" "$app/Contents/Info.plist"
@@ -296,6 +303,10 @@ if [[ -n "$SNAPSHOTS" ]]; then
     launch --script showcase --ephemeral --data-dir "$home/Airc"
     # First run (ON-1…5) on a synthetic Arc import fixture: never the owner's Arc data or Keychain.
     launch --script onboarding --onboarding --ephemeral --data-dir "$home/Onboarding"
+    # Onboarding end to end on a real-size synthetic Arc (OnboardingE2ECheck.swift): the first run from Welcome into the
+    # browser window, then Import from Arc… re-importing without duplicates and closing from every step. Google sign-in is
+    # a loopback mock of ListAccounts and the default browser a stand-in: no real account, no system dialog.
+    launch --script onboarding-e2e --onboarding --ephemeral --data-dir "$home/OnboardingE2E"
     # Relaunch check: one run writes Spaces and tabs, a second run on the same data shows them.
     launch --script persist-write --data-dir "$home/Persist"
     launch --script persist-read --data-dir "$home/Persist"
@@ -347,7 +358,12 @@ if [[ -n "$SNAPSHOTS" ]]; then
       launch --script sitecontrols --ephemeral --data-dir "$home/SiteControls"
     fi
     # BST-1: Boosts on loopback pages (BoostsCheck.swift): no flash, Zap, other sites untouched, custom JS on its site only.
-    launch --script boosts --ephemeral --data-dir "$home/Boosts"
+    # On Chromium, two tenants of duckdns.org (a private public suffix) are loopback too, by the engine's resolver rule.
+    if [[ $engine == chromium ]]; then
+      launch --script boosts --ephemeral --data-dir "$home/Boosts" "--host-resolver-rules=MAP *.duckdns.org 127.0.0.1"
+    else
+      launch --script boosts --ephemeral --data-dir "$home/Boosts"
+    fi
     # Live Calendar on synthetic meetings (CalendarCheck.swift): never the owner's calendars, never the access prompt.
     launch --script calendar --ephemeral --data-dir "$home/Calendar"
     # The sidebar's update button on a fake ready update (UpdateButtonCheck.swift): never the real updater or feed.

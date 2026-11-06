@@ -1,0 +1,196 @@
+[
+  {
+    "id": "spaces",
+    "title": "Spaces",
+    "body": "A colour, an icon and an order for each Space. Swipe between them, or make a new one in a single step.",
+    "specs": [
+      "SP-10",
+      "SP-11",
+      "SP-21"
+    ],
+    "checks": [
+      "^new space",
+      "^footer reorder"
+    ]
+  },
+  {
+    "id": "profiles",
+    "title": "A real profile per Space",
+    "body": "Own logins, history and passwords for each Space. A new profile takes one step.",
+    "specs": [
+      "SP-12",
+      "SP-14"
+    ],
+    "checks": [
+      "^create profile",
+      "^spare profile"
+    ]
+  },
+  {
+    "id": "import",
+    "title": "Import from Arc",
+    "body": "Spaces, pinned tabs, folders, Favorites and logins, imported on your Mac.",
+    "specs": [
+      "IM-1",
+      "ON-5"
+    ],
+    "checks": []
+  },
+  {
+    "id": "command",
+    "title": "Command bar",
+    "body": "⌘T opens one box for tabs, Spaces, sites and actions. ⌘L edits the address.",
+    "specs": [
+      "CB-1"
+    ],
+    "checks": [
+      "command bar"
+    ]
+  },
+  {
+    "id": "pinned",
+    "title": "Pinned tabs, folders and drag",
+    "body": "Drag to pin and move, ⌥ to copy, ⌘-click to select several rows and act on them together.",
+    "specs": [
+      "SB-35",
+      "SB-36"
+    ],
+    "checks": [
+      "^drag",
+      "^multi"
+    ]
+  },
+  {
+    "id": "favorites",
+    "title": "Favorites",
+    "body": "Saved apps that go back to their address in one click.",
+    "specs": [
+      "SB-12"
+    ],
+    "checks": [
+      "^favorite"
+    ]
+  },
+  {
+    "id": "split",
+    "title": "Split View",
+    "body": "Two or three panes side by side, each with its own profile. Drag a pane out to make it a tab again.",
+    "specs": [
+      "SV-1",
+      "SV-2"
+    ],
+    "checks": [
+      "^split"
+    ]
+  },
+  {
+    "id": "peek",
+    "title": "Peek",
+    "body": "Links from pinned tabs open in a card over your page. Promote it to a tab, or to a split.",
+    "specs": [
+      "PK-1"
+    ],
+    "checks": [
+      "^peek"
+    ]
+  },
+  {
+    "id": "links",
+    "title": "Air Traffic Control and Little Arc",
+    "body": "Links from other apps go to the right Space, already signed in, or open in a small window of their own.",
+    "specs": [
+      "AT-1",
+      "LA-1"
+    ],
+    "checks": [
+      "^links"
+    ]
+  },
+  {
+    "id": "boosts",
+    "title": "Boosts",
+    "body": "Per-site colours, font and size, Zap to click elements away, and your own CSS and JavaScript. Stored only on your Mac.",
+    "specs": [
+      "BST-1"
+    ],
+    "checks": [
+      "^boost"
+    ],
+    "next": true
+  },
+  {
+    "id": "archive",
+    "title": "Auto-archive and Library",
+    "body": "Today's tabs archive on a timer you choose, and stay searchable in the Library.",
+    "specs": [
+      "SB-62",
+      "SB-54"
+    ],
+    "checks": [
+      "^auto-archive"
+    ]
+  },
+  {
+    "id": "find",
+    "title": "Find in page",
+    "body": "⌘F finds, Esc closes.",
+    "specs": [],
+    "checks": [
+      "^find\\b"
+    ]
+  },
+  {
+    "id": "fullscreen",
+    "title": "Full screen",
+    "body": "The sidebar, the traffic lights and the Esc-twice exit all behave the way they do in Arc.",
+    "specs": [
+      "WIN-1"
+    ],
+    "checks": [
+      "^full screen"
+    ]
+  },
+  {
+    "id": "pip",
+    "title": "Picture in picture",
+    "body": "Video and calls keep playing in a small window when you switch away.",
+    "specs": [
+      "SB-55"
+    ],
+    "checks": [
+      "^picture in picture"
+    ]
+  },
+  {
+    "id": "extensions",
+    "title": "Chrome extensions",
+    "body": "Install from the Chrome Web Store. Each one is reviewed, and added per profile.",
+    "specs": [
+      "EXT-1"
+    ],
+    "checks": [
+      "^extension review"
+    ]
+  },
+  {
+    "id": "prompts",
+    "title": "Permissions and dialogs",
+    "body": "Camera, location, password and sign-in prompts appear in Airc's own cards, over the right page.",
+    "specs": [],
+    "checks": [
+      "^prompts",
+      "^dialogs"
+    ]
+  },
+  {
+    "id": "memory",
+    "title": "Light on memory",
+    "body": "Hidden tabs unload. Tabs with typed text, and tabs in a call, stay.",
+    "specs": [
+      "MEM-3"
+    ],
+    "checks": [
+      "^unload"
+    ]
+  }
+]

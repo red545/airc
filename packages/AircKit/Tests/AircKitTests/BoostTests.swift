@@ -5,6 +5,11 @@ import XCTest
 @testable import AircKit
 
 final class BoostTests: XCTestCase {
+    override class func setUp() {
+        super.setUp()
+        TestSuffixes.install()
+    }
+
     // MARK: Sites
 
     static let hosts: [(String, String?)] = [
@@ -31,15 +36,28 @@ final class BoostTests: XCTestCase {
         XCTAssertNil(BoostDomain.key(for: URL(string: "chrome://settings")))
     }
 
-    /// The page computes its own site with the JavaScript copy of the rule: both must agree for every host.
-    func testThePageScriptFindsTheSameSite() throws {
-        let js = try XCTUnwrap(JSContext())
-        let f = try XCTUnwrap(js.evaluateScript("(\(BoostPageScript.registrableFunction))"))
-        for (host, site) in Self.hosts {
-            let got = f.call(withArguments: [host])
-            XCTAssertEqual(got?.isNull == true ? nil : got?.toString(), site, host)
+    /// The page never decides a site with a list of its own: for every host, the entry it takes from the app's map is
+    /// the app's key for that host when the app has a Boost there, and none otherwise.
+    func testThePageTakesTheAppsSite() throws {
+        let keys = ["victim.duckdns.org", "amazonaws.com", "github.io", "www.ck", "a.b.ck", "example.co.uk", "nytimes.com",
+                    "xn--fsqu00a.xn--55qx5d.cn", "127.0.0.1", "localhost", "app.localhost", "::1", "city.kawasaki.jp"]
+        let script = try Self.composed(keys.map { Boost(domain: $0, css: "h1 { color: red }") })
+        let hosts = Self.hosts.map(\.0) + PublicSuffixListTests.sites.map(\.0) + [
+            "www.victim.duckdns.org", "attacker.duckdns.org", "bucket.s3.amazonaws.com", "console.amazonaws.com",
+            "x.compute.amazonaws.com", "alice.github.io", "a.www.ck", "x.a.b.ck", "c.b.ck", "news.example.co.uk",
+            "www.nytimes.com", "nytimes.com.evil.test", "www.xn--fsqu00a.xn--55qx5d.cn", "a.app.localhost", "b.localhost",
+            "www.city.kawasaki.jp", "x.kawasaki.jp", "127.0.0.2",
+        ]
+        for host in hosts where !host.isEmpty && !host.contains("..") {
+            // A browser's location.hostname: lowercase ASCII (punycode), an IPv6 address in brackets.
+            let ascii = PublicSuffixList.ascii(host.lowercased()) ?? host
+            let hostname = ascii.contains(":") && !ascii.hasPrefix("[") ? "[\(ascii)]" : ascii
+            let page = try Self.page(script, protocol: "https:", hostname: hostname, origin: "https://" + hostname)
+            let chose = page.evaluateScript("ready().d")
+            let want = BoostDomain.key(forHost: host).flatMap { keys.contains($0) ? $0 : nil }
+            XCTAssertEqual(chose?.isNull == true ? nil : chose?.toString(), want, host)
+            XCTAssertNil(page.exception, "\(host): \(page.exception!)")
         }
-        XCTAssertNil(js.exception, "\(js.exception!)")
     }
 
     // MARK: Style
@@ -107,7 +125,10 @@ final class BoostTests: XCTestCase {
         XCTAssertFalse(source.contains("p { color: blue }"), "an off Boost isn't carried")
         XCTAssertTrue(source.contains("var VERSION = 7;"))
         XCTAssertTrue(source.contains("var TRUST_SYNTHETIC = false;"), "real builds take only real clicks")
-        XCTAssertFalse(source.contains("%MAP%") || source.contains("%REGISTRABLE%"))
+        XCTAssertFalse(source.contains("%MAP%") || source.contains("%VERSION%"))
+        let held = Boost(domain: "duckdns.org", css: "p { color: green }", needsSite: true)
+        XCTAssertFalse(BoostPageScript.source(boosts: [held], version: 1).contains("color: green"), "a held Boost isn't carried")
+        XCTAssertFalse(BoostPageScript.source(boosts: [held], version: 1).contains("public_suffix"), "no list in the page")
 
         // It parses, and it evaluates to the install function.
         let js = try XCTUnwrap(JSContext())
@@ -127,35 +148,187 @@ final class BoostTests: XCTestCase {
         XCTAssertFalse(source.contains("\u{2028}"))
     }
 
-    func testTheRunnerChecksTheSiteAndRunsOnce() throws {
-        let src = BoostPageScript.runner(domain: "example.com", code: "window.count = (window.count || 0) + 1", token: "t1")
-        func page(_ host: String) throws -> JSContext {
+    func testTheRunnerChecksTheOriginAndRunsOnce() throws {
+        let src = BoostPageScript.runner(origin: "https://www.example.com", domain: "example.com",
+                                         code: "window.count = (window.count || 0) + 1", token: "t1")
+        func page(_ origin: String) throws -> JSContext {
             let js = try XCTUnwrap(JSContext())
-            js.evaluateScript("var window = this; window.top = window; var location = { hostname: '\(host)' };"
+            js.evaluateScript("var window = this; window.top = window; var location = { origin: '\(origin)' };"
                               + "var document = { readyState: 'complete' }; var console = { error: function () {} };")
             return js
         }
-        let home = try page("www.example.com")
+        let home = try page("https://www.example.com")
         home.evaluateScript(src)
         home.evaluateScript(src)
         XCTAssertNil(home.exception, "\(home.exception!)")
         XCTAssertEqual(home.evaluateScript("window.count")?.toInt32(), 1, "once per page load")
-        let other = try page("example.org")
-        other.evaluateScript(src)
-        XCTAssertTrue(other.evaluateScript("window.count")?.isUndefined == true, "never on another site")
-        let lookalike = try page("example.com.evil.test")
-        lookalike.evaluateScript(src)
-        XCTAssertTrue(lookalike.evaluateScript("window.count")?.isUndefined == true)
+        // Only the exact origin the engine reported: not another host of the site, another scheme, or a lookalike.
+        for other in ["https://example.com", "http://www.example.com", "https://www.example.com:8443",
+                      "https://www.example.com.evil.test", "https://attacker.example.org", "null"] {
+            let p = try page(other)
+            p.evaluateScript(src)
+            XCTAssertTrue(p.evaluateScript("window.count")?.isUndefined == true, other)
+        }
     }
 
-    func testApplyMessageForOffAndMissingBoostsRestoresThePage() throws {
+    func testApplyAndZapMessagesCarryTheDocumentsToken() throws {
         let off = Boost(domain: "example.com", enabled: false, css: "a{}")
-        for m in [BoostPageScript.applyMessage(for: off, domain: "example.com"), BoostPageScript.applyMessage(for: nil, domain: "example.com")] {
+        let held = Boost(domain: "example.com", css: "a{}", needsSite: true)
+        for b in [off, held, nil] {
+            let m = BoostPageScript.applyMessage(for: b, domain: "example.com", token: "tok", version: 4)
             let v = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(m.utf8)) as? [String: Any])
             XCTAssertEqual(v["d"] as? String, "example.com")
+            XCTAssertEqual(v["t"] as? String, "tok")
+            XCTAssertEqual(v["v"] as? Int, 4)
             XCTAssertEqual(v["g"] as? String, "")
-            XCTAssertEqual(v["c"] as? String, "")
+            XCTAssertEqual(v["c"] as? String, "", "an off, held or deleted Boost restores the page")
         }
+        let z = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(BoostPageScript.zapMessage(true, token: "tok").utf8)) as? [String: Any])
+        XCTAssertEqual(z["t"] as? String, "tok")
+        XCTAssertEqual(z["on"] as? Bool, true)
+    }
+
+    // MARK: The page script in a page
+
+    /// Just enough of a page for the Boost page script in JavaScriptCore: install, style sheets, ready and receive.
+    static let fakePage = """
+        var window = this; window.top = window; var posted = [];
+        function EventTarget() {}
+        EventTarget.prototype.addEventListener = function (t, f) { (this.__l = this.__l || {})[t] = f; };
+        EventTarget.prototype.removeEventListener = function () {};
+        function CSSStyleSheet() { this.text = ''; this.cssRules = []; }
+        CSSStyleSheet.prototype.replaceSync = function (t) { this.text = t; };
+        CSSStyleSheet.prototype.insertRule = function (t) { this.text += t; };
+        function Document() {}
+        Document.prototype = Object.create(EventTarget.prototype);
+        // A browser's getter and setter are native: these copy with plain loops, so a test can poison Array.prototype.
+        var adopted = [];
+        function copy(a) { var c = []; for (var i = 0; i < a.length; i++) c[i] = a[i]; return c; }
+        Object.defineProperty(Document.prototype, 'adoptedStyleSheets', {
+          get: function () { return copy(adopted); }, set: function (v) { adopted = copy(v); } });
+        var document = new Document(); document.readyState = 'loading';
+        var getComputedStyle = function () { return { backgroundColor: 'rgba(0, 0, 0, 0)' }; };
+        var crypto = { getRandomValues: function (a) { for (var i = 0; i < a.length; i++) a[i] = Math.floor(Math.random() * 4294967296); return a; } };
+        function styles() { return adopted.map(function (s) { return s.text; }).join(''); }
+        function ready() {
+          for (var i = posted.length - 1; i >= 0; i--) if (posted[i][0] === 'boost.ready') return JSON.parse(posted[i][1]);
+          return null;
+        }
+        """
+
+    /// The engine's page script with the Boosts part, as the app composes it.
+    static func composed(_ boosts: [Boost], version: Int = 1) throws -> String {
+        try XCTUnwrap(PageScriptComposer.compose(parts: [("boost", BoostPageScript.source(boosts: boosts, version: version))], base: nil))
+    }
+
+    static func page(_ script: String, protocol scheme: String, hostname: String, origin: String) throws -> JSContext {
+        let js = try XCTUnwrap(JSContext())
+        js.evaluateScript(fakePage)
+        let location = BoostPageScript.json(["protocol": scheme, "hostname": hostname, "origin": origin])
+        js.evaluateScript("var location = \(location);")
+        js.evaluateScript("var receive = (\(script))(function (kind, json) { posted.push([kind, json]); });")
+        XCTAssertNil(js.exception, "\(js.exception!)")
+        return js
+    }
+
+    /// review1's boost-probe, in JavaScriptCore: a blob: document in a tab the app still had down as a boosted site,
+    /// which poisons Object.prototype, gets nothing through the composer; and a page that poisons the builtins after
+    /// install can't intercept the app's message to it, or take one meant for another document.
+    func testReview1ProbeAPoisonedPageCantInterceptStyle() throws {
+        var bank = Boost(domain: "bank.example", css: ".private-note { color: red }")
+        bank.zaps = [BoostZap(selector: "#account-123", label: "Account")]
+        let script = try Self.composed([bank])
+        let payload = { (token: String) in
+            BoostPageScript.applyMessage(for: bank, domain: "bank.example", token: token, version: 2)
+        }
+
+        // The blob: document: it says ready with no site and has no receiver for the Boost part.
+        let blob = try Self.page(script, protocol: "blob:", hostname: "", origin: "https://attacker.example")
+        XCTAssertEqual(blob.evaluateScript("posted.length")?.toInt32(), 1)
+        XCTAssertTrue(blob.evaluateScript("ready().d")?.isNull == true)
+        XCTAssertTrue(blob.evaluateScript("ready().t")?.isUndefined == true, "no token: the app registers nothing to send to")
+        let blobToken = "a-guess"
+        blob.evaluateScript("""
+            Object.prototype.hasOwnProperty = function () { return true; };
+            Object.prototype.boost = function (kind, json) { globalThis.stolen = json; };
+            """)
+        blob.objectForKeyedSubscript("receive").call(withArguments: ["boost.apply", payload(blobToken)])
+        XCTAssertTrue(blob.evaluateScript("globalThis.stolen")?.isUndefined == true, "the composer never routes to an inherited receiver")
+        XCTAssertEqual(blob.evaluateScript("styles()")?.toString(), "")
+
+        // A page of the site: poisoned after install, it gets the app's message only through its own receiver.
+        let page = try Self.page(script, protocol: "https:", hostname: "www.bank.example", origin: "https://www.bank.example")
+        XCTAssertEqual(page.evaluateScript("ready().d")?.toString(), "bank.example")
+        XCTAssertTrue(page.evaluateScript("styles()")?.toString().contains("#account-123") == true, "the style from the first script")
+        let token = try XCTUnwrap(page.evaluateScript("ready().t")?.toString())
+        XCTAssertGreaterThanOrEqual(token.count, 16)
+        let other = try Self.page(script, protocol: "https:", hostname: "bank.example", origin: "https://bank.example")
+        XCTAssertNotEqual(token, other.evaluateScript("ready().t")?.toString(), "every document has its own token")
+        page.evaluateScript("""
+            var steal = function (what) { var s = globalThis.stolen || (globalThis.stolen = []); s[s.length] = what; };
+            Object.prototype.hasOwnProperty = function () { steal('hasOwnProperty'); return true; };
+            Object.prototype.boost = function (k, j) { steal(j); };
+            Object.prototype.t = 'forged';
+            Function.prototype.call = function () { steal('call'); };
+            Function.prototype.apply = function () { steal('apply'); };
+            Function.prototype.bind = function () { steal('bind'); };
+            Array.prototype.indexOf = function () { steal('indexOf'); return -1; };
+            Array.prototype.concat = function () { steal('concat'); return []; };
+            Array.prototype.slice = function () { steal('slice'); return []; };
+            String.prototype.indexOf = function () { steal('String.indexOf'); return 0; };
+            String.prototype.slice = function () { steal('String.slice'); return 'boost'; };
+            JSON.parse = function () { steal('parse'); return {}; };
+            Object.create = function () { steal('create'); return {}; };
+            """)
+        let receive = page.objectForKeyedSubscript("receive")
+        receive?.call(withArguments: ["boost.apply", payload("forged")])
+        receive?.call(withArguments: ["boost.apply", payload(blobToken)])
+        receive?.call(withArguments: ["boost.apply", #"{"d":"bank.example","g":"x{}","c":"","f":false}"#])
+        XCTAssertTrue(page.evaluateScript("styles()")?.toString().contains("#account-123") == true, "another document's token, a forged one or none: nothing changes")
+        var fresh = bank
+        fresh.css = ".fresh { color: blue }"
+        receive?.call(withArguments: ["boost.apply", BoostPageScript.applyMessage(for: fresh, domain: "bank.example", token: token, version: 3)])
+        XCTAssertTrue(page.evaluateScript("styles()")?.toString().contains(".fresh") == true, "its own token: applied")
+        XCTAssertTrue(page.evaluateScript("globalThis.stolen")?.isUndefined == true,
+                      "no poisoned builtin was called: \(page.evaluateScript("JSON.stringify(globalThis.stolen)")?.toString() ?? "")")
+        XCTAssertNil(page.exception, "\(page.exception!)")
+    }
+
+    /// A page of another version (back from the back-forward cache, or made from the old script just before the
+    /// engine had the new one) says so in ready; the app's empty apply clears it, and ready says the new version after.
+    func testAnEmptyApplyClearsAndReadyReportsTheShownVersion() throws {
+        let b = Boost(domain: "example.com", colors: BoostColors(invert: true))
+        let page = try Self.page(try Self.composed([b], version: 5), protocol: "https:", hostname: "example.com",
+                                 origin: "https://example.com")
+        XCTAssertEqual(page.evaluateScript("ready().v")?.toInt32(), 5)
+        XCTAssertTrue(page.evaluateScript("styles()")?.toString().contains("invert") == true)
+        let token = try XCTUnwrap(page.evaluateScript("ready().t")?.toString())
+        page.objectForKeyedSubscript("receive").call(withArguments: [
+            "boost.apply", BoostPageScript.applyMessage(for: nil, domain: "example.com", token: token, version: 6)])
+        XCTAssertEqual(page.evaluateScript("styles()")?.toString(), "", "deleted: no style left")
+        page.evaluateScript("window.__l.pageshow({ persisted: true })")
+        XCTAssertEqual(page.evaluateScript("ready().v")?.toInt32(), 6, "restored, it reports the version it shows")
+        XCTAssertTrue(page.evaluateScript("ready().d")?.isNull == true, "and that it shows no site's style")
+        XCTAssertEqual(page.evaluateScript("ready().restored")?.toBool(), true)
+    }
+
+    func testTheComposerKeepsPartsAndTheBaseApart() throws {
+        let part = "(function () { return function (post) { post('hi', '{}'); return function (k, j) { globalThis.got = k + ' ' + j; }; }; })()"
+        let base = "(function () { return function (post) { return function (k, j) { globalThis.base = k; }; }; })()"
+        let src = try XCTUnwrap(PageScriptComposer.compose(parts: [("one", part), ("two", "(function () { return function () {}; })()")], base: base))
+        let js = try XCTUnwrap(JSContext())
+        js.evaluateScript("var posted = []; var receive = (\(src))(function (k, j) { posted.push(k); });")
+        XCTAssertEqual(js.evaluateScript("posted[0]")?.toString(), "one.hi", "a part's posts carry its name")
+        js.evaluateScript("receive('one.ping', '1')")
+        XCTAssertEqual(js.evaluateScript("globalThis.got")?.toString(), "ping 1")
+        js.evaluateScript("receive('two.ping', '2')")
+        XCTAssertTrue(js.evaluateScript("globalThis.base")?.isUndefined == true, "a part's message never goes to the base")
+        js.evaluateScript("receive('constructor.x', '3')")
+        XCTAssertEqual(js.evaluateScript("globalThis.got")?.toString(), "ping 1", "no inherited name reaches a part")
+        XCTAssertEqual(js.evaluateScript("globalThis.base")?.toString(), "constructor.x", "other names go to the base")
+        js.evaluateScript("receive('plain', '5')")
+        XCTAssertEqual(js.evaluateScript("globalThis.base")?.toString(), "plain")
+        XCTAssertNil(js.exception, "\(js.exception!)")
     }
 
     // MARK: Store
@@ -172,6 +345,7 @@ final class BoostTests: XCTestCase {
             $0.font = BoostFont(family: .charter, size: -1)
             $0.zaps.append(BoostZap(selector: "#ad", label: "Ad"))
             $0.js = "console.log(1)"
+            $0.scriptHost = "www.example.com"
         }
         store.update(domain: "example.com") { _ in }   // no change, no notice
         XCTAssertEqual(changed, ["example.com"])
@@ -185,7 +359,8 @@ final class BoostTests: XCTestCase {
         // Dates are written to the second (ISO 8601), so the rest is compared.
         func content(_ b: Boost?) -> String {
             guard let b else { return "-" }
-            return "\(b.domain) \(b.enabled) \(b.colors) \(b.font) \(b.zaps.map { [$0.id, $0.selector, $0.label] }) \(b.css) \(b.js)"
+            return "\(b.domain) \(b.enabled) \(b.colors) \(b.font) \(b.zaps.map { [$0.id, $0.selector, $0.label] }) \(b.css) \(b.js) "
+                + "\(b.scriptHost ?? "-") \(b.needsSite)"
         }
         XCTAssertEqual(content(again.boost(domain: "example.com")), content(store.boost(domain: "example.com")))
         XCTAssertEqual(again.boost(domain: "example.com")?.colors.tint, 0.4)
@@ -193,6 +368,10 @@ final class BoostTests: XCTestCase {
         XCTAssertLessThan(abs((again.boost(domain: "example.com")?.modified.timeIntervalSinceNow) ?? 99), 5)
         XCTAssertEqual(again.boost(forHost: "www.example.com")?.font.knownFamily, .charter)
         XCTAssertNil(again.boost(forHost: "example.org"))
+        XCTAssertEqual(again.boost(domain: "example.com")?.scriptHost, "www.example.com")
+        XCTAssertTrue(again.boost(domain: "example.com")?.scriptRuns(onHost: "www.example.com") == true)
+        XCTAssertFalse(again.boost(domain: "example.com")?.scriptRuns(onHost: "shop.example.com") == true, "its host only")
+        XCTAssertTrue(try String(contentsOf: url, encoding: .utf8).contains("\"version\" : 2"))
 
         // A newer build's file: unknown keys and font names are ignored, missing ones take their defaults.
         let newer = #"{"version": 3, "boosts": [{"domain": "a.test", "future": 1, "font": {"family": "comic", "size": 2},"#
@@ -225,5 +404,70 @@ final class BoostTests: XCTestCase {
         store.update(domain: "example.com") { $0.css = "a{}" }
         XCTAssertTrue(store.flush())
         XCTAssertEqual(try String(contentsOf: dir.appendingPathComponent(kept[0]), encoding: .utf8), "not json")
+    }
+
+    // MARK: Migration
+
+    /// A version 1 file: a Boost whose key may have been shared by different owners is held (no style, no code) until
+    /// the person picks its site; every other Boost keeps its whole site, code included.
+    func testVersionOneSharedSuffixBoostsAreHeld() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("boosts-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("Boosts.json")
+        func entry(_ d: String, js: String = "", css: String = "") -> String {
+            #"{"domain": "\#(d)", "js": "\#(js)", "css": "\#(css)", "colors": {"invert": true}}"#
+        }
+        let v1 = #"{"version": 1, "boosts": ["# + [
+            entry("duckdns.org", js: "steal()"), entry("uk.com", css: "a{}"), entry("github.io", js: "x()"),
+            entry("amazonaws.com", js: "y()"), entry("nytimes.com", js: "z()"), entry("127.0.0.1", js: "w()"),
+            entry("localhost"), entry("bbc.co.uk"),
+        ].joined(separator: ", ") + "]}"
+        try Data(v1.utf8).write(to: url)
+        let store = BoostStore(url: url)
+        let held = Set(store.all.filter(\.needsSite).map(\.domain))
+        XCTAssertEqual(held, ["duckdns.org", "uk.com", "github.io", "amazonaws.com"])
+        XCTAssertTrue(store.isDirty, "written back as version 2")
+        for d in held {
+            let b = try XCTUnwrap(store.boost(domain: d))
+            XCTAssertFalse(b.isLive)
+            XCTAssertFalse(b.scriptRuns(onHost: d), "\(d): its code doesn't run")
+            XCTAssertFalse(BoostPageScript.carries(b), "\(d): its style isn't carried")
+        }
+        let nyt = try XCTUnwrap(store.boost(domain: "nytimes.com"))
+        XCTAssertNil(nyt.scriptHost, "a Boost from before hosts keeps its whole site")
+        XCTAssertTrue(nyt.scriptRuns(onHost: "cooking.nytimes.com"))
+        XCTAssertTrue(store.boost(domain: "127.0.0.1")?.scriptRuns(onHost: "127.0.0.1") == true)
+        let source = BoostPageScript.source(boosts: store.all, version: 1)
+        XCTAssertFalse(source.contains("\"duckdns.org\"") || source.contains("\"uk.com\"") || source.contains("\"github.io\""))
+        XCTAssertTrue(source.contains("\"nytimes.com\""))
+
+        // The held Boost shows on the pages it may be for, and moves to the one the person picks.
+        XCTAssertEqual(store.heldBoost(coveringHost: "www.victim.duckdns.org")?.domain, "duckdns.org")
+        XCTAssertEqual(store.heldBoost(coveringHost: "duckdns.org")?.domain, "duckdns.org")
+        XCTAssertNil(store.heldBoost(coveringHost: "duckdns.org.evil.test"))
+        XCTAssertNil(store.heldBoost(coveringHost: "nytimes.com"))
+        var changed: [String] = []
+        store.onChange = { changed.append($0) }
+        XCTAssertTrue(store.adopt(held: "duckdns.org", to: "victim.duckdns.org", host: "www.victim.duckdns.org"))
+        XCTAssertEqual(changed, ["duckdns.org", "victim.duckdns.org"])
+        XCTAssertNil(store.boost(domain: "duckdns.org"))
+        let moved = try XCTUnwrap(store.boost(domain: "victim.duckdns.org"))
+        XCTAssertFalse(moved.needsSite)
+        XCTAssertEqual(moved.js, "steal()")
+        XCTAssertEqual(moved.scriptHost, "www.victim.duckdns.org", "its code on the page's host only, until the person picks all of the site")
+        XCTAssertTrue(moved.scriptRuns(onHost: "www.victim.duckdns.org"))
+        XCTAssertFalse(moved.scriptRuns(onHost: "victim.duckdns.org"))
+        // A site with a Boost of its own isn't overwritten.
+        store.update(domain: "alice.github.io") { $0.css = "b{}" }
+        XCTAssertFalse(store.adopt(held: "github.io", to: "alice.github.io", host: "alice.github.io"))
+        // Kept for the suffix's own host: no longer held, and not held again once it's a version 2 file.
+        XCTAssertTrue(store.adopt(held: "github.io", to: "github.io", host: "github.io"))
+        XCTAssertNil(store.boost(domain: "github.io")?.scriptHost, "an exact host's code needs no host")
+        XCTAssertTrue(store.flush())
+        let again = BoostStore(url: url)
+        XCTAssertEqual(Set(again.all.filter(\.needsSite).map(\.domain)), ["uk.com", "amazonaws.com"])
+        XCTAssertFalse(again.isDirty)
+        XCTAssertEqual(again.boost(domain: "github.io")?.needsSite, false)
     }
 }

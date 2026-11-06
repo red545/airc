@@ -7,3 +7,6 @@ scripts/release/test_scan_bundle.py	tailnet-domain	A synthetic "fixture" host un
 infra/release/telemetry.json	gitleaks:generic-api-key	PostHog project key (phc_): public by design, a write-only ingestion key that ships inside every app build
 packages/AircKit/Tests/AircKitTests/CrashReportTests.swift	home-path-other	Synthetic home-folder paths in fixtures that prove crash reports strip them
 packages/AircKit/Tests/AircKitTests/BoostTests.swift	home-path-other	A synthetic local-file URL in a home folder, proving Boosts ignore local files
+packages/AircKit/Resources/public_suffix_list.dat	email	The unmodified Public Suffix List (MPL-2.0); its comments carry suffix submitters' public contact addresses
+packages/AircKit/Resources/public_suffix_list.dat	tailnet-domain	The Public Suffix List names Tailscale's public suffix (ts.net), not any particular tailnet
+packages/AircKit/Tests/AircKitTests/PublicSuffixListTests.swift	private-ip	Reserved private address literals in a host-parsing test

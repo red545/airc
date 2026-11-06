@@ -1,0 +1,61 @@
+---
+// The waitlist: one email field. A plain form post to /api/waitlist, so it works without JavaScript.
+interface Props {
+  id?: string;
+}
+const { id = "email" } = Astro.props;
+---
+
+<form class="waitlist" method="post" action="/api/waitlist">
+  <label class="visually-hidden" for={id}>Email</label>
+  <input id={id} name="email" type="email" required autocomplete="email" placeholder="you@example.com" maxlength="254" />
+  <!-- Bots fill every field; people never see this one. -->
+  <input class="trap" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" />
+  <button class="btn btn-primary" type="submit">Email me when it's ready</button>
+</form>
+
+<style>
+  .waitlist {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+    max-width: 420px;
+  }
+
+  input[type="email"] {
+    flex: 1;
+    min-width: 0;
+    height: 40px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 10px;
+    font: inherit;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--t1);
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--hl-strong), 0 1px 2px rgb(0 0 0 / 0.04);
+    transition: box-shadow 0.15s ease;
+  }
+
+  input[type="email"]::placeholder { color: var(--t3); opacity: 1; }
+  input[type="email"]:focus { outline: none; box-shadow: inset 0 0 0 1px var(--t1), 0 0 0 3px rgb(var(--ink) / 0.08); }
+
+  .btn { height: 40px; padding: 0 16px; border-radius: 10px; font-size: 15px; white-space: nowrap; }
+
+  .trap { position: absolute; left: -9999px; }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  @media (max-width: 480px) {
+    .waitlist { flex-direction: column; }
+    input[type="email"] { flex: none; }
+  }
+</style>

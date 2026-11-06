@@ -1,0 +1,224 @@
+---
+// The download: one button to /download (which sends the latest signed DMG from the release feed), the facts the
+// release notes state plainly, and the way to every other version. The button wears the app icon's holographic
+// ring (mint, sky, lilac, rose, apricot, seafoam: kit/airc-colors.json), turning slowly, with a sheen on hover.
+import { Image } from "astro:assets";
+import icon from "../assets/icon.png";
+import { getRelease, macOS, megabytes } from "../lib/release";
+import GitHubMark from "./GitHubMark.astro";
+import { GITHUB_URL } from "../lib/site";
+
+interface Props {
+  dark?: boolean;
+  bare?: boolean; // just the button (the versions page states the facts itself)
+  from: string; // where on the page, for the download count
+}
+const { dark = false, bare = false, from } = Astro.props;
+const r = await getRelease();
+---
+
+<div class={`download ${dark ? "dark" : ""}`}>
+  <div class="row">
+  <a class="holo" href="/download" data-track="download_clicked" data-track-from={from} data-track-leave>
+    <Image class="holo-icon" src={icon} alt="" width={26} height={26} densities={[1, 2, 3]} format="webp" />
+    <span class="holo-label">Download for Mac</span>
+    <span class="holo-ver" data-dl-version>{r.version}</span>
+    <span class="holo-sheen" aria-hidden="true"></span>
+  </a>
+  {!bare && GITHUB_URL && (
+    <a class="gh" href={GITHUB_URL} rel="noopener" title="Open source (Apache-2.0) on GitHub" data-gh data-track="github_clicked" data-track-from={from}>
+      <GitHubMark size={17} />
+      <span>GitHub</span>
+      <span class="gh-count"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.3l2 4.2 4.6.6-3.400 3.200.9 4.500L8 11.600 3.900 13.800l.9-4.500L1.400 6.100 6 5.500z" /></svg><b data-gh-stars></b></span>
+    </a>
+  )}
+  </div>
+  {!bare && (
+  <p class="meta">
+    Apple silicon · {macOS(r.minimumMacOS)} or later · {megabytes(r.size)} · free
+  </p>
+  )}
+  {!bare && (
+  <p class="links">
+    <a href={r.notes} data-track="release_notes_clicked" data-track-from={from} data-track-leave>Release notes</a>
+    <span aria-hidden="true">·</span>
+    <a href="/versions" data-track="versions_clicked" data-track-from={from}>All versions</a>
+    <span aria-hidden="true">·</span>
+    <a href="/versions#nightly" data-track="nightly_clicked" data-track-from={from}>Nightly builds</a>
+  </p>
+  )}
+</div>
+
+<style>
+  /* The ring's angle turns, so the colours drift around the edge like light on the icon's ring. */
+  @property --holo-a {
+    syntax: "<angle>";
+    inherits: false;
+    initial-value: 210deg;
+  }
+
+  .download { display: flex; flex-direction: column; align-items: center; }
+  .row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; }
+
+  /* Star on GitHub: quiet beside the holographic Download, with the live star count. */
+  .gh {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 46px;
+    padding: 0 6px 0 14px;
+    border-radius: 14px;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.012em;
+    color: var(--t1);
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--hl-strong), 0 1px 2px rgb(0 0 0 / 0.05);
+    transition: box-shadow 0.15s ease, transform 0.25s var(--spring-settle);
+  }
+
+  .gh[hidden] { display: none; }
+  .gh:hover { transform: translateY(-1px); box-shadow: inset 0 0 0 1px var(--t3), 0 4px 12px -6px rgb(0 0 0 / 0.2); }
+
+  .gh-count {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 32px;
+    padding: 0 10px;
+    border-radius: 9px;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    color: var(--t2);
+    background: var(--panel);
+    box-shadow: inset 0 0 0 0.5px var(--hl-strong);
+  }
+
+  .gh-count svg { width: 13px; height: 13px; fill: #e8a32b; }
+  .gh-count b { font-weight: 650; color: var(--t1); }
+  .gh-count:has(b:empty) { display: none; }
+
+  .dark .gh { color: #fff; background: rgb(255 255 255 / 0.06); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.16); }
+  .dark .gh-count { color: rgb(255 255 255 / 0.7); background: rgb(255 255 255 / 0.08); box-shadow: none; }
+  .dark .gh-count b { color: #fff; }
+
+  .holo {
+    --ring: conic-gradient(from var(--holo-a), #5fe3b4, #7fb0ff, #c79bff, #ff93c0, #ffc999, #9aeccd, #5fe3b4);
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    height: 46px;
+    padding: 0 6px 0 9px;
+    border: 1.5px solid transparent;
+    border-radius: 14px;
+    background:
+      linear-gradient(180deg, rgb(255 255 255 / 0.1), rgb(255 255 255 / 0) 45%) padding-box,
+      linear-gradient(#18181b, #18181b) padding-box,
+      var(--ring) border-box;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.012em;
+    white-space: nowrap;
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 0.2),
+      0 10px 28px -10px color-mix(in srgb, #c79bff 70%, transparent),
+      0 6px 20px -12px color-mix(in srgb, #5fe3b4 80%, transparent);
+    transition: transform 0.25s var(--spring-settle), box-shadow 0.3s ease;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .holo { animation: holo-turn 9s linear infinite; }
+  }
+
+  @keyframes holo-turn {
+    to { --holo-a: 570deg; }
+  }
+
+  .holo:hover {
+    transform: translateY(-1px);
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 0.2),
+      0 14px 34px -10px color-mix(in srgb, #c79bff 85%, transparent),
+      0 8px 26px -10px color-mix(in srgb, #5fe3b4 90%, transparent);
+  }
+
+  .holo:active { transform: translateY(0) scale(0.98); }
+  .holo:focus-visible { outline: 2px solid #c79bff; outline-offset: 3px; }
+
+  .holo :global(.holo-icon) {
+    width: 26px;
+    height: 26px;
+    filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.35));
+  }
+
+  .holo-label { padding-right: 2px; }
+
+  /* The version, in a small pill inside the button. */
+  .holo-ver {
+    display: inline-grid;
+    place-items: center;
+    height: 30px;
+    padding: 0 10px;
+    border-radius: 9px;
+    font-size: 12.5px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: rgb(255 255 255 / 0.82);
+    background: rgb(255 255 255 / 0.08);
+    box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.14);
+  }
+
+  /* A sweep of light across the face, once on hover, like the sheen on the logo. */
+  .holo-sheen {
+    position: absolute;
+    inset: -2px;
+    z-index: -1;
+    background: linear-gradient(105deg, transparent 35%, rgb(255 255 255 / 0.16) 47%, rgb(199 155 255 / 0.18) 52%, transparent 64%);
+    transform: translateX(-110%);
+    pointer-events: none;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .holo:hover .holo-sheen { transition: transform 0.9s var(--ease-out); transform: translateX(110%); }
+  }
+
+  .meta {
+    margin-top: 12px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--t2);
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    text-wrap: balance;
+  }
+
+  .links {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 2px 8px;
+    margin-top: 4px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--t3);
+  }
+
+  .links a {
+    color: var(--t2);
+    text-decoration: underline;
+    text-decoration-color: var(--hl-strong);
+    text-underline-offset: 3px;
+    transition: color 0.15s ease;
+  }
+
+  .links a:hover { color: var(--t1); text-decoration-color: currentColor; }
+
+  .dark .meta { color: rgb(255 255 255 / 0.55); }
+  .dark .links { color: rgb(255 255 255 / 0.35); }
+  .dark .links a { color: rgb(255 255 255 / 0.7); text-decoration-color: rgb(255 255 255 / 0.25); }
+  .dark .links a:hover { color: #fff; }
+</style>

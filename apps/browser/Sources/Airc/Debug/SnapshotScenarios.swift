@@ -222,7 +222,7 @@ extension SnapshotRunner {
         wait(3.2)   // discovery, the live rebuild, favicons
         captureOnboarding("ob-02-arc")
         run { [self] in
-            note("arc step: \(m.counts.spaces) Spaces, \(m.counts.profiles) profiles, \(m.counts.tabs) pinned tabs, \(m.counts.favorites) Favorites; note: \(m.importNote ?? "-")")
+            note("arc step: \(m.counts.spaces) Spaces, \(m.counts.profiles) profiles, \(m.counts.tabs) pinned tabs, \(m.counts.favorites) Favorites; changes: \(m.importChanges.map(\.summary).joined(separator: "; "))")
             m.choosing = true
             m.chosenSpaces.remove("arc-space:demo-launch")
         }

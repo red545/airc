@@ -11,8 +11,15 @@
   --stone-900: #1d1a18;
   --stone-950: #110f0e;
 
-  --bg: var(--stone-25);
-  --bg-sunk: var(--stone-50);
+  --bg: #ffffff;
+  --bg-sunk: #f8f8f9;
+  /* Attio-style neutrals for the page: text, secondary, tertiary, hairlines, panels. */
+  --t1: #1c1d1f;
+  --t2: #6b7280;
+  --t3: #9aa0ab;
+  --hl: #ececef;
+  --hl-strong: #dedee3;
+  --panel: #f8f8f9;
   --surface: var(--stone-0);
   --ink: 20 17 15; /* #14110F, warm near-black */
   --text: rgb(var(--ink) / 0.9);
@@ -24,7 +31,9 @@
   --accent: #3139fb;
   --accent-text: #2b33e0;
   --on-accent: #fff;
-  --shadow-shot: 0 1px 2px rgb(0 0 0 / 0.06), 0 12px 32px -8px rgb(40 30 20 / 0.18), 0 40px 80px -24px rgb(40 30 20 / 0.22);
+  --red: #e5484d; /* design.md red */
+  --red-wash: rgb(229 72 77 / 0.1);
+  --shadow-shot: 0 0 0 0.5px rgb(40 30 20 / 0.08), 0 2px 4px rgb(40 30 20 / 0.04), 0 24px 48px -16px rgb(40 30 20 / 0.2), 0 48px 96px -32px rgb(40 30 20 / 0.18);
 
   /* Space colours (docs/design.md §2.4 presets). */
   --mint: #53ca9f;
@@ -37,8 +46,8 @@
   --ocean: #2f6af0;
   --ocean-2: #13b5b0;
 
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter Variable", "Segoe UI", system-ui, sans-serif;
-  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter Variable", "Segoe UI", system-ui, sans-serif;
+  --font: "Inter Variable", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Inter Variable", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
 
   --max: 1180px;
@@ -51,8 +60,14 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: var(--stone-950);
-    --bg-sunk: #171412;
+    --bg: #111113;
+    --bg-sunk: #161618;
+    --t1: #ededf0;
+    --t2: #9a9fab;
+    --t3: #6b707b;
+    --hl: rgb(255 255 255 / 0.07);
+    --hl-strong: rgb(255 255 255 / 0.12);
+    --panel: #161618;
     --surface: var(--stone-900);
     --ink: 250 248 245;
     --text: rgb(var(--ink) / 0.94);
@@ -63,6 +78,8 @@
     --fill: rgb(var(--ink) / 0.06);
     --accent: #5a62ff;
     --accent-text: #8b91ff;
+    --red: #ff6369;
+    --red-wash: rgb(255 99 105 / 0.14);
     --shadow-shot: 0 0 0 0.5px rgb(255 255 255 / 0.08), 0 12px 32px -8px rgb(0 0 0 / 0.5), 0 40px 90px -24px rgb(0 0 0 / 0.6);
   }
 }
@@ -81,7 +98,7 @@ html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
   scroll-behavior: smooth;
-  scroll-padding-top: 72px;
+  scroll-padding-top: 104px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -91,6 +108,7 @@ html {
 }
 
 body {
+  font-optical-sizing: auto;
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
@@ -194,6 +212,11 @@ kbd {
 /* ------------------------------------------------------------------ buttons (docs/design.md §7 Buttons) */
 
 .btn {
+  border: 0;
+  font-family: inherit;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -214,18 +237,21 @@ kbd {
 }
 
 .btn-primary {
-  color: var(--on-accent);
+  /* Attio's primary: near-black, with a hairline top light. */
+  color: #fff;
   background:
-    linear-gradient(to bottom, rgb(255 255 255 / 0.2), rgb(255 255 255 / 0) 50%) top / 100% 1px no-repeat,
-    var(--accent);
-  box-shadow:
-    0 1px 2px color-mix(in srgb, var(--accent) 40%, transparent),
-    0 6px 18px -6px color-mix(in srgb, var(--accent) 70%, transparent),
-    inset 0 0 0 0.5px rgb(0 0 0 / 0.12);
+    linear-gradient(to bottom, rgb(255 255 255 / 0.14), rgb(255 255 255 / 0) 45%) top / 100% 1px no-repeat,
+    #1c1d1f;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.16), inset 0 0 0 1px rgb(0 0 0 / 0.6);
 }
 
 .btn-primary:hover {
-  background-color: color-mix(in srgb, var(--accent) 92%, #fff);
+  background-color: #2c2d30;
+}
+
+@media (prefers-color-scheme: dark) {
+  .btn-primary { color: #111113; background: #f2f2f4; box-shadow: 0 1px 2px rgb(0 0 0 / 0.3); }
+  .btn-primary:hover { background-color: #ffffff; }
 }
 
 .btn-quiet {
@@ -250,122 +276,6 @@ kbd {
   .btn:active {
     transform: none;
   }
-}
-
-/* ------------------------------------------------------------------ nav */
-
-.nav {
-  position: sticky;
-  top: 0;
-  z-index: 50;
-  background: color-mix(in srgb, var(--bg) 78%, transparent);
-  -webkit-backdrop-filter: saturate(1.6) blur(18px);
-  backdrop-filter: saturate(1.6) blur(18px);
-  box-shadow: 0 0.5px 0 var(--line);
-}
-
-.nav-inner {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  max-width: calc(var(--max) + 2 * var(--gutter));
-  height: 56px;
-  margin: 0 auto;
-  padding: 0 var(--gutter);
-}
-
-.brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--font-display);
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
-
-.brand img {
-  width: 28px;
-  height: 28px;
-}
-
-.nav-links {
-  display: flex;
-  gap: 4px;
-  margin-left: auto;
-}
-
-.nav-links a {
-  padding: 6px 10px;
-  border-radius: 8px;
-  font-size: 14px;
-  color: var(--text-2);
-  transition: color 0.15s ease, background-color 0.15s ease;
-}
-
-.nav-links a:hover {
-  color: var(--text);
-  background: var(--fill);
-}
-
-@media (max-width: 860px) {
-  .nav-links {
-    display: none;
-  }
-
-  .nav .btn {
-    margin-left: auto;
-  }
-}
-
-/* ------------------------------------------------------------------ footer */
-
-.footer {
-  margin-top: 40px;
-  padding: 40px 0 max(40px, env(safe-area-inset-bottom));
-  box-shadow: 0 -0.5px 0 var(--line);
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--text-2);
-}
-
-.footer-inner {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 24px 48px;
-  justify-content: space-between;
-}
-
-.footer-brand {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-}
-
-.footer-brand img {
-  width: 24px;
-  height: 24px;
-  margin-top: -2px;
-}
-
-.footer-brand strong {
-  color: var(--text);
-  font-weight: 600;
-}
-
-.footer-meta {
-  max-width: 460px;
-  display: grid;
-  gap: 6px;
-}
-
-.footer-meta a {
-  color: var(--text);
-  width: fit-content;
-}
-
-.footer-meta a:hover {
-  color: var(--accent-text);
 }
 
 /* ------------------------------------------------------------------ reveal on scroll (CSS only) */

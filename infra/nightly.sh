@@ -108,6 +108,12 @@ if in_head scripts/build-app.sh; then
     step try-copy mac "[ -d ~/Applications/Airc.app ] && { echo 'the owner runs ~/Applications/Airc.app, which updates itself; try copies are no longer refreshed'; exit 3; }; pgrep -f 'arcfork/try/Airc' >/dev/null && { echo 'Airc is open; keeping the current copies'; exit 3; }; mkdir -p ~/arcfork/try && rsync -a --delete ~/$REMOTE/build/Airc.app/ ~/arcfork/try/Airc.app/ && if [ -d ~/$REMOTE/build/Airc-Chromium.app ]; then rsync -a --delete ~/$REMOTE/build/Airc-Chromium.app/ ~/arcfork/try/Airc-Chromium.app/; fi; rm -rf ~/arcfork/try/Airc-new.app"
   fi
   rsync -az "$HOST:$REMOTE/build/snapshots/" "$RUN/snapshots/" >/dev/null 2>&1 || true
+  # The homepage's "What works" list and screenshots come from the newest green run. Best effort: it only rewrites
+  # files in the working tree (apps/marketing/src/data/status.json, src/assets/shots/app-*.webp); committing and
+  # deploying them stays a person's call.
+  if command -v node >/dev/null 2>&1 && [[ -d $ROOT/apps/marketing/node_modules ]]; then
+    ( cd "$ROOT/apps/marketing" && AIRC_STATUS_DIR="$STATUS" node scripts/sync-status.mjs ) >> "$RUN/site-sync.log" 2>&1 || true
+  fi
 fi
 
 # Performance is intrusive enough to reserve for 23:00–07:00 UTC, unless requested.

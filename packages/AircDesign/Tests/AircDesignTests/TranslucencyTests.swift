@@ -232,10 +232,26 @@ func assertTranslucentContrast(_ r: ResolvedTheme, underlay a: Double, _ label: 
 
     @Test func onboardingFitsTheWindow() {
         let m = AircMetrics.Onboarding.self
-        #expect(m.previewWidth + m.cardSize.width + m.cardInset == m.windowSize.width)
-        #expect(m.cardSize.height + 2 * m.cardInset == m.windowSize.height)
-        #expect(m.cardRadius == m.windowRadius - m.cardInset)
+        // The card is a pane flush with the window: no inset, no strip of theme around it.
+        #expect(m.previewWidth + m.cardSize.width == m.windowSize.width)
+        #expect(m.cardSize.height == m.windowSize.height)
         #expect(AircOnboardingCard<EmptyView, EmptyView>.size == m.cardSize)
     }
+
+    /// A step whose preview and content want far more room than the window has still lays out at exactly the window's
+    /// size (the owner's 6-Space Arc pushed the card off the window's top and bottom, 2026-11-06).
+    @MainActor @Test func onboardingPageNeverGrows() {
+        let tall = VStack(spacing: 0) { ForEach(0..<40) { i in Text("Row \(i)").frame(height: 41) } }
+        let page = AircOnboardingPage(step: 2, of: 5, title: "Bring your Arc with you.", subtitle: "A subtitle.") {
+            tall
+        } content: {
+            tall
+        } actions: {
+            Button("Continue") {}
+        }
+        let host = NSHostingView(rootView: page)
+        #expect(host.fittingSize == m.windowSize)
+    }
+    private var m: AircMetrics.Onboarding.Type { AircMetrics.Onboarding.self }
 }
 

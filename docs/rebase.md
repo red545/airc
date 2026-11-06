@@ -83,6 +83,10 @@ For include/signature/ownership changes, search both source tags and DEPS using
 The header report is triage, not proof of compilation. Small compile-fix commits
 should identify the changed Chromium contract.
 
+After moving `CHROMIUM_VERSION`, refresh the Public Suffix List that Boosts use from the
+new tag: `scripts/refresh-public-suffix-list.sh "$AIRC_CHROMIUM_NEXT/src"`, and commit
+`packages/AircKit/Resources/public_suffix_list.dat` with the update.
+
 ## Build on the Mac
 
 No command in update.sh touches the Mac. Coordinate access first: the initial

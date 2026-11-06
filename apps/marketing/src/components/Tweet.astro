@@ -1,0 +1,283 @@
+---
+// Arc's shutdown post, set like a post on X (the detail view). It is the real text (Oct 22, 2026), not a paraphrase,
+// with the two sentences this page is about marked in red, the way you'd mark a screenshot. Counts are from the day
+// we copied it.
+import { Image } from "astro:assets";
+import avatar from "../assets/arc-avatar.png";
+
+const URL = "https://x.com/arcinternet/status/2113301454597640570";
+---
+
+<figure class="tweet">
+  <header class="head">
+    <a class="who" href="https://x.com/arcinternet" rel="noopener">
+      <Image class="avatar" src={avatar} alt="" width={40} height={40} densities={[1, 2]} format="webp" />
+      <span class="names">
+        <span class="name">
+          Arc
+          <svg class="check" viewBox="0 0 22 22" aria-label="Verified account" role="img">
+            <path
+              fill="currentColor"
+              d="M20.4 11c0-1.3-.8-2.4-1.9-2.9.4-1.1.1-2.5-.8-3.4-.9-.9-2.3-1.2-3.4-.8C13.8 2.8 12.7 2 11.4 2S9 2.8 8.5 3.9c-1.1-.4-2.5-.1-3.4.8-.9.9-1.2 2.3-.8 3.4C3.200 8.600 2.400 9.700 2.400 11s.8 2.400 1.900 2.900c-.4 1.100-.1 2.500.8 3.400.9.9 2.300 1.200 3.400.8.500 1.100 1.600 1.900 2.900 1.900s2.400-.8 2.900-1.900c1.100.4 2.500.1 3.400-.8.9-.9 1.200-2.300.8-3.400 1.100-.5 1.900-1.600 1.900-2.900Zm-12 .2 1.200-1.200 1.700 1.700 3.800-3.800 1.200 1.200-5 5-2.900-2.900Z"
+            ></path>
+          </svg>
+        </span>
+        <span class="handle">@arcinternet</span>
+      </span>
+    </a>
+    <a class="follow" href="https://x.com/arcinternet" rel="noopener">Follow</a>
+    <svg class="more" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M3 12c0-1.100.900-2 2-2s2 .900 2 2-.900 2-2 2-2-.900-2-2Zm9 2c1.100 0 2-.900 2-2s-.900-2-2-2-2 .900-2 2 .900 2 2 2Zm7 0c1.100 0 2-.900 2-2s-.900-2-2-2-2 .900-2 2 .900 2 2 2Z"
+      ></path>
+    </svg>
+  </header>
+
+  <blockquote cite={URL}>
+    <p><mark>We've decided to sunset Arc on December 22, 2026.</mark></p>
+    <p>
+      That's not an easy sentence to write. We spent years building Arc and celebrating each and every release along
+      the way: we have so much pride and love for what we made alongside the Arc community.
+    </p>
+    <p>
+      Our priority is to deliver best-in-class security for our members.{" "}
+      <mark>Keeping a browser secure takes constant, dedicated work that is only increasing in the age of AI.</mark>{" "}
+      Dia was built from the ground up to meet today’s security standards, so that's where our engineering and security
+      teams will focus moving forward.
+    </p>
+    <p>
+      We've worked to make switching to <span class="link">@diabrowser</span> as easy as possible for Arc members. Here's
+      how:
+    </p>
+    <ul>
+      <li>Your passwords, bookmarks, extensions and history come over to Dia seamlessly.</li>
+      <li>Spaces, Folders, and Tab Groups are in Dia and import over with your data intact.</li>
+      <li>Dia now surpasses Arc benchmarks in stability, speed, and security.</li>
+      <li>The browser features you use in Arc are free in Dia, and the AI is optional.</li>
+    </ul>
+    <p>
+      Thank you for using Arc, for pushing us to make it better, and for building alongside us. The team that made Arc
+      is the same team behind Dia, and some of our most ambitious work is just ahead. We'd love for you to be there with
+      us when it lands.
+    </p>
+  </blockquote>
+
+  <a class="when" href={URL} rel="noopener">
+    <time datetime="2026-10-22T16:08:24Z">4:08 PM · Oct 22, 2026</time>
+    <span aria-hidden="true">·</span>
+    <span><b>3.3M</b> Views</span>
+  </a>
+
+  <div class="counts">
+    <span><b>962</b> Reposts</span>
+    <span><b>8.1K</b> Likes</span>
+  </div>
+
+  <div class="actions" aria-hidden="true">
+    <svg viewBox="0 0 24 24"><path d="M12 3.500c-4.700 0-8.500 3.400-8.500 7.600 0 2.400 1.200 4.500 3.100 5.900V21l3.600-2.200c.6.100 1.200.2 1.800.2 4.700 0 8.500-3.400 8.500-7.700S16.700 3.500 12 3.500Z"></path></svg>
+    <svg viewBox="0 0 24 24"><path d="M4 11V9a4 4 0 0 1 4-4h10m0 0-3-3m3 3-3 3M20 13v2a4 4 0 0 1-4 4H6m0 0 3 3m-3-3 3-3"></path></svg>
+    <svg viewBox="0 0 24 24"><path d="M12 20.500s-8-4.900-8-10.600C4 6.800 6.300 5 8.500 5c1.500 0 2.700.8 3.500 2 .8-1.200 2-2 3.500-2C17.700 5 20 6.800 20 9.900c0 5.700-8 10.600-8 10.600Z"></path></svg>
+    <svg viewBox="0 0 24 24"><path d="M6 3.500h12v17l-6-4.500-6 4.500v-17Z"></path></svg>
+    <svg viewBox="0 0 24 24"><path d="M12 15V3m0 0L7.500 7.500M12 3l4.500 4.500M5 12v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"></path></svg>
+  </div>
+</figure>
+
+<style>
+  .tweet {
+    --tw-bg: #fff;
+    --tw-text: #0f1419;
+    --tw-sub: #536471;
+    --tw-line: #eff3f4;
+    --tw-link: #1d9bf0;
+    --tw-mark: rgb(224 36 27 / 0.2);
+    --tw-btn-bg: #0f1419;
+    --tw-btn-text: #fff;
+    margin: 0;
+    padding: 16px 16px 4px;
+    border-radius: 16px;
+    background: var(--tw-bg);
+    color: var(--tw-text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter Variable", Roboto, Helvetica, Arial, sans-serif;
+    letter-spacing: 0;
+    box-shadow:
+      0 0 0 1px var(--tw-line),
+      var(--shadow-shot);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .tweet {
+      --tw-bg: #000;
+      --tw-text: #e7e9ea;
+      --tw-sub: #71767b;
+      --tw-line: #2f3336;
+      --tw-mark: rgb(255 90 80 / 0.34);
+      --tw-btn-bg: #eff3f4;
+      --tw-btn-text: #0f1419;
+    }
+  }
+
+  .head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .who {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    margin-right: auto;
+  }
+
+  .avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+  }
+
+  .names {
+    display: grid;
+    line-height: 1.25;
+    min-width: 0;
+  }
+
+  .name {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  .who:hover .name {
+    text-decoration: underline;
+  }
+
+  .check {
+    width: 18px;
+    height: 18px;
+    color: var(--tw-link);
+  }
+
+  .handle {
+    font-size: 15px;
+    color: var(--tw-sub);
+  }
+
+  .follow {
+    display: inline-grid;
+    place-items: center;
+    height: 32px;
+    padding: 0 16px;
+    border-radius: 999px;
+    background: var(--tw-btn-bg);
+    color: var(--tw-btn-text);
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .more {
+    width: 20px;
+    height: 20px;
+    margin-right: 2px;
+    color: var(--tw-sub);
+  }
+
+  blockquote {
+    margin: 12px 0 0;
+    font-size: 17px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+
+  blockquote p + p,
+  blockquote p + ul,
+  blockquote ul + p {
+    margin-top: 1.05em;
+  }
+
+  blockquote ul {
+    padding: 0;
+    list-style: none;
+  }
+
+  blockquote li {
+    display: flex;
+    gap: 6px;
+  }
+
+  blockquote li::before {
+    content: "·";
+    font-weight: 700;
+  }
+
+  /* The post is long, so it is set at 17 px like X's detail view; on a phone it steps down a notch. */
+  @media (max-width: 520px) {
+    blockquote {
+      font-size: 16px;
+    }
+  }
+
+  /* The sentences the page is about: a marker stroke, like marking a screenshot. */
+  mark {
+    color: inherit;
+    background: linear-gradient(to bottom, transparent 52%, var(--tw-mark) 52%);
+    padding: 0 2px;
+    margin: 0 -2px;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+
+  .link {
+    color: var(--tw-link);
+  }
+
+  .when {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--tw-line);
+    font-size: 15px;
+    color: var(--tw-sub);
+  }
+
+  .when:hover time {
+    text-decoration: underline;
+  }
+
+  .counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 20px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--tw-line);
+    font-size: 15px;
+    color: var(--tw-sub);
+  }
+
+  .when b,
+  .counts b {
+    font-weight: 700;
+    color: var(--tw-text);
+  }
+
+  .actions {
+    display: flex;
+    justify-content: space-around;
+    padding: 12px 0;
+  }
+
+  .actions svg {
+    width: 22px;
+    height: 22px;
+    fill: none;
+    stroke: var(--tw-sub);
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+</style>

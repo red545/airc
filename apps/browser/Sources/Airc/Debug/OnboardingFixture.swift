@@ -7,9 +7,21 @@ import Foundation
 /// trees, Favorites and one warning. Never the owner's data. Decoded through AircImport's own Codable types, so it is
 /// exactly what `ArcImporter.plan` returns.
 enum OnboardingFixture {
-    static func plan() -> ImportPlan? {
+    static func plan() -> ImportPlan? { useBigPlan || LaunchOptions.current.script == "onboarding-e2e" ? bigPlan() : decode(json) }
+
+    /// `--script importux`: onboarding (Airc menu → Import from Arc… included) reads the big plan. `onboarding-e2e`
+    /// reads it from launch on, first run included.
+    static var useBigPlan = false
+
+    /// A real-size Arc (the owner's has 6 Spaces, 6 profiles and about 176 tabs; importux, 2026-11-06), all synthetic:
+    /// 6 Spaces on 6 profiles, 175 pinned tabs on example.com hosts, folders nested three deep, long titles, emoji
+    /// icons and a Space without one, 12 Favorites in one profile, Today tabs, a Space whose profile folder is missing
+    /// from Arc's profile list, an unused profile, and one of each warning the import step explains.
+    static func bigPlan() -> ImportPlan? { decode(bigJSON) }
+
+    private static func decode(_ text: String) -> ImportPlan? {
         do {
-            return try JSONDecoder().decode(ImportPlan.self, from: Data(json.utf8))
+            return try JSONDecoder().decode(ImportPlan.self, from: Data(text.utf8))
         } catch {
             print("[onboarding] fixture failed to decode: \(error)")
             return nil
@@ -36,6 +48,91 @@ enum OnboardingFixture {
     private static func space(_ id: String, _ name: String, _ emoji: String, theme: String, profile: String, pinned: [String], today: [String]) -> String {
         #"{"id":"\#(id)","name":"\#(name)","emoji":"\#(emoji)","icon":{"emoji_v2":"\#(emoji)"},"theme":{"color":"8edcc0","colors":[],"raw":\#(theme)},"profileID":"\#(profile)","pinned":[\#(pinned.joined(separator: ","))],"today":[\#(today.joined(separator: ","))]}"#
     }
+
+    /// Source IDs of the big plan's profiles, for the checks.
+    enum Big {
+        static let personal = "arc-profile:Default"
+        static let work = "arc-profile:Profile 1"
+        static let side = "arc-profile:Profile 2"
+        static let family = "arc-profile:Profile 3"
+        static let studio = "arc-profile:Profile 4"
+        /// Used by a Space but missing from Arc's profile list.
+        static let missing = "arc-profile:Profile 7"
+        static let spaces = ["arc-space:big-personal", "arc-space:big-work", "arc-space:big-side", "arc-space:big-family",
+                             "arc-space:big-studio", "arc-space:big-reading"]
+    }
+
+    static let bigJSON: String = {
+        var n = 0
+        func next() -> String { n += 1; return "big\(n)" }
+        let topics = ["Quarterly planning", "Budget", "Roadmap", "Meeting notes", "Reading list", "Design review", "Invoices",
+                      "Recipes", "Training plan", "Release checklist", "Interview loop", "Garden plan", "Trip ideas", "Weekly report",
+                      "Style guide", "Customer research", "Onboarding doc", "Server dashboard", "Photo album", "Book club"]
+        let long = " – the very long document title that keeps going well past the edge of the sidebar"
+        func title(_ i: Int, _ space: String) -> String {
+            let t = "\(topics[(i * 7 + space.count) % topics.count]) \(i + 1)"
+            return i % 6 == 2 ? t + long : t
+        }
+        let hosts = ["example.com", "docs.example.com", "example.org", "notes.example.net", "example.net", "app.example.com"]
+        func tabs(_ count: Int, _ space: String, from start: Int = 0) -> [String] {
+            (start..<start + count).map { i in
+                tab(next(), "https://\(hosts[i % hosts.count])/\(space.lowercased().filter(\.isLetter))/\(i)", title(i, space))
+            }
+        }
+        func todays(_ count: Int, _ space: String) -> [String] {
+            (0..<count).map { i in plain(next(), "https://\(hosts[(i + 2) % hosts.count])/today/\(i)", "Today: " + title(i + 3, space)) }
+        }
+        let spaces = [
+            // 40 pinned: three folders deep, long titles, 12 Favorites in its profile.
+            space("big-personal", "Personal", "🏡", theme: gradient([(0.62, 0.86, 0.93), (0.48, 0.60, 0.94)]), profile: "default",
+                  pinned: tabs(4, "Personal") + [
+                      folder(next(), "Trips", [
+                          folder(next(), "Lisbon, March", tabs(3, "Lisbon", from: 4) + [folder(next(), "Day trips", tabs(4, "Day trips", from: 7))]),
+                          folder(next(), "Kyoto someday", tabs(3, "Kyoto", from: 11)),
+                      ]),
+                  ] + tabs(26, "Personal", from: 14),
+                  today: todays(5, "Personal")),
+            space("big-work", "Work", "💼", theme: gradient([(0.97, 0.69, 0.52), (0.94, 0.54, 0.60)]), profile: "Profile 1",
+                  pinned: [folder(next(), "Launch", tabs(6, "Launch")), folder(next(), "Hiring", tabs(5, "Hiring", from: 6))]
+                      + tabs(34, "Work", from: 11),
+                  today: todays(3, "Work")),
+            space("big-side", "Side project with a name long enough to truncate", "🚀",
+                  theme: gradient([(0.96, 0.85, 0.43), (0.61, 0.86, 0.54)]), profile: "Profile 2",
+                  pinned: tabs(30, "Side"), today: []),
+            space("big-family", "Family", "👨‍👩‍👧", theme: gradient([(0.95, 0.72, 0.80), (0.85, 0.66, 0.95)]), profile: "Profile 3",
+                  pinned: [folder(next(), "School", tabs(8, "School"))] + tabs(12, "Family", from: 8), today: todays(2, "Family")),
+            space("big-studio", "Studio", "🎨", theme: gradient([(0.73, 0.64, 0.95), (0.94, 0.64, 0.77)]), profile: "Profile 4",
+                  pinned: tabs(25, "Studio"), today: []),
+            // No icon, and its profile folder is missing from Arc's profile list.
+            space("big-reading", "Reading", "•", theme: gradient([(0.70, 0.80, 0.74), (0.52, 0.66, 0.60)]), profile: "Profile 7",
+                  pinned: tabs(15, "Reading"), today: []),
+        ]
+        let favoritesPersonal = (0..<12).map { i in plain(next(), "https://\(hosts[i % hosts.count])/favorite/\(i)", topics[i]) }
+        let favoritesWork = (0..<8).map { i in plain(next(), "https://\(hosts[(i + 1) % hosts.count])/work-favorite/\(i)", topics[i + 5]) }
+        let favoritesSide = (0..<3).map { i in plain(next(), "https://\(hosts[(i + 3) % hosts.count])/side-favorite/\(i)", topics[i + 9]) }
+        let favorites = """
+        "default":[\(favoritesPersonal.joined(separator: ","))],
+        "Profile 1":[\(favoritesWork.joined(separator: ","))],
+        "Profile 2":[\(favoritesSide.joined(separator: ","))]
+        """
+        let warnings = [("easel", "Skipped an Easel (Arc-only)."), ("note", "Skipped a Note (Arc-only)."), ("note", "Skipped a Note (Arc-only)."),
+                        ("liveFolder", "Imported a live folder as a regular folder."), ("splitView", "Flattened a split view into individual tabs."),
+                        ("missingProfile", "A referenced Chromium profile folder is missing.")]
+            .map { #"{"code":"\#($0.0)","message":"\#($0.1)"}"# }
+            + [#"{"code":"unsupportedItem","message":"Flattened or skipped an unsupported sidebar item.","kind":"tabGroup"}"#]
+        return """
+        {"profiles":[
+          {"id":"default","directory":"Default","name":"Personal","isAvailable":true},
+          {"id":"Profile 1","directory":"Profile 1","name":"Work","color":-12088065,"isAvailable":true},
+          {"id":"Profile 2","directory":"Profile 2","name":"Side project","color":-756480,"isAvailable":true},
+          {"id":"Profile 3","directory":"Profile 3","name":"Family","isAvailable":true},
+          {"id":"Profile 4","directory":"Profile 4","name":"Studio","isAvailable":true},
+          {"id":"Profile 5","directory":"Profile 5","name":"Old job","isAvailable":true}],
+         "spaces":[\(spaces.joined(separator: ","))],
+         "favorites":{\(favorites)},
+         "warnings":[\(warnings.joined(separator: ","))]}
+        """
+    }()
 
     static let json: String = {
         let spaces = [

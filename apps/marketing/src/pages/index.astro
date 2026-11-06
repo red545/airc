@@ -1,1091 +1,2169 @@
 ---
+// The homepage. Its system follows attio.com: Inter Display, two-tone headings (a dark lead, a grey continuation),
+// a hairline grid of cells, a sticky tab list beside the product, compact 10 px controls and one dark closing
+// section. Inside that, everything is Airc: real captures of the app, and demos you can touch.
 import { Image } from "astro:assets";
-import Shot from "../components/Shot.astro";
+import Countdown from "../components/Countdown.astro";
+import Tweet from "../components/Tweet.astro";
+import Download from "../components/Download.astro";
+import TintPicker from "../components/TintPicker.astro";
+import GitHubMark from "../components/GitHubMark.astro";
+import { GITHUB_URL } from "../lib/site";
 import Layout from "../layouts/Layout.astro";
+import featureList from "../data/features.json";
+import status from "../data/status.json";
+import { spaceOf } from "../lib/nav";
+import nikPhoto from "../assets/nik.webp";
 import icon from "../assets/icon.png";
-import heroLight from "../assets/shots/hero-light.webp";
-import heroDark from "../assets/shots/hero-dark.webp";
-import importShot from "../assets/shots/import.webp";
-import spacePersonal from "../assets/shots/space-personal.webp";
-import spaceWork from "../assets/shots/space-work.webp";
-import sidebarPersonal from "../assets/shots/sidebar-personal.webp";
-import commandBar from "../assets/shots/command-bar.webp";
-import { ARC_END, CONTACT_EMAIL, WAITLIST_URL, daysUntil } from "../lib/site";
+import claudeLogo from "../assets/logos/claude.svg";
+import codexLogo from "../assets/logos/codex.svg";
+// The marketing screenshots: the real app on a synthetic demo setup (assets/screenshots/, copied in by
+// scripts/sync-screenshots.mjs). Each is the window with its own shadow on a soft desktop, so the page adds no frame.
+import shotPersonal from "../assets/screens/media-controls.webp";
+import shotTravel from "../assets/screens/split-view-3.webp";
+import shotStudio from "../assets/screens/pinned-split.webp";
+import shotWork from "../assets/screens/hero-dark.webp";
+import shotSpaces from "../assets/screens/spaces.webp";
+import shotProfiles from "../assets/screens/profiles.webp";
+import shotCommand from "../assets/screens/command-bar-light.webp";
+import shotCommandDark from "../assets/screens/command-bar-dark.webp";
+import shotImport from "../assets/screens/onboarding-import.webp";
+import shotPeek from "../assets/screens/peek.webp";
+import shotSplit from "../assets/screens/split-view-2.webp";
+import shotPip from "../assets/screens/picture-in-picture.webp";
+import shotBoostColors from "../assets/screens/boosts.webp";
+import shotBoostFont from "../assets/screens/boosts-font.webp";
+import shotBoostZap from "../assets/screens/boosts-zap.webp";
+import { getImage } from "astro:assets";
 
-const daysLeft = daysUntil(ARC_END);
+// The Spaces demo: four Spaces of the same window, each in its own colour and profile.
+const demoSpaces = [
+  { key: "personal", name: "Personal", emoji: "🏡", colour: "#53ca9f", img: shotPersonal, page: "Kyoto on Wikivoyage, with a radio playing" },
+  { key: "travel", name: "Travel", emoji: "✈️", colour: "#86cdf5", img: shotTravel, page: "a map, Lisbon and its trams in a split" },
+  { key: "studio", name: "Studio", emoji: "🎨", colour: "#f7b184", img: shotStudio, page: "Bauhaus and Helvetica, pinned as one split" },
+  { key: "work", name: "Work", emoji: "💼", colour: "#7a4cf0", img: shotWork, page: "linear.app, in the dark Work profile" },
+];
 
-const sidebarParts = [
-  {
-    at: 9.4,
-    title: "Command bar",
-    body: "Click the address or press ⌘T for open tabs, history, search and commands. Results come from this Space's profile only.",
-  },
-  { at: 17.3, title: "Favorites", body: "Your everyday sites as tiles above the Space name. Gmail shows an unread dot." },
-  {
-    at: 46,
-    title: "Pinned tabs and folders",
-    body: "Pinned tabs stay where you put them and never archive. Folders nest as deep as you like.",
-  },
-  {
-    at: 66.4,
-    title: "Auto-archive",
-    body: "Today's tabs you haven't looked at for 12 hours move to the archive. Make it a day, a week or a month.",
-  },
-  {
-    at: 85.6,
-    title: "Today",
-    body: "New tabs land here, newest first. Clear sweeps them away, and ⌘Z brings them back.",
-  },
+
+// What works: the manifest (src/data/features.json) joined with the nightly runs (src/data/status.json, written by
+// scripts/sync-status.mjs). A feature with a passing check gets a checkmark; one with no check yet says so.
+const supported = featureList.map((f) => ({ ...f, ...status.features[f.id as keyof typeof status.features] }));
+const checkedAt = new Date(status.checkedAt);
+const checkedLabel =
+  checkedAt.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }) +
+  ", " +
+  checkedAt.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" }) +
+  " UTC";
+const passingCount = supported.filter((f) => f.status === "passing").length;
+
+const facts = [
+  { value: `Chromium ${status.chromium.split(".")[0]}`, label: "Real Chrome underneath" },
+  { value: "Apache-2.0", label: "Open source, all of it" },
+  { value: `${passingCount} of ${supported.length}`, label: "Features pass the nightly checks", href: "#supported" },
+  { value: "Apple silicon", label: "macOS 14 or later" },
+  { value: "Free", label: "No account, no ads", href: "/privacy" },
 ];
 
 const steps = [
+  { title: "Chrome ships", body: "Every new Chromium release, security respins included, is spotted within six hours." },
+  { title: "An agent ports it", body: "Airc's patches move onto the new version, strictly. No guessing, no skipped checks." },
+  { title: "A human signs off", body: "Build, tests and speed are checked before it ships. Then it reaches you as a normal update." },
+];
+
+const maintainers = [
   {
-    title: "Watch",
-    body: "An agent follows Google's release feed and picks up every new Chrome release for the Mac, including the weekly security fixes.",
+    key: "claude",
+    logo: claudeLogo,
+    name: "Claude",
+    role: "AI agent · Anthropic",
+    body: "Writes the browser: the sidebar, Spaces, the command bar and the engine layer. Most commits carry its name.",
   },
   {
-    title: "Rebase",
-    body: "It moves Airc onto the new Chromium. Airc's code lives in its own layer with a short list of one-line hooks, so there is little to move and breakage shows up as compile errors.",
+    key: "codex",
+    logo: codexLogo,
+    name: "Codex",
+    role: "AI agent · OpenAI",
+    body: "Works the same repo from the same playbook, in parallel with Claude. Two agents, one codebase, no meetings.",
   },
   {
-    title: "Build and test",
-    body: "A full build on a real Mac, signed and notarized, then the smoke tests. A person reviews the result before it goes out.",
+    key: "me",
+    name: "Nik",
+    role: "Human",
+    body: "Reads every Chromium update before it ships, sets the bar and says no. Nothing reaches your Mac without a yes.",
   },
+];
+
+const expect = [
+  { title: "Open source", body: "Apache-2.0, all of it. Read it, fork it, run it. If I ever stop, anyone can carry on." },
   {
-    title: "Ship",
-    body: "Through the beta channel first; actively exploited fixes go out straight away. If a minor feature breaks, it ships switched off rather than holding back a security fix.",
+    title: "Agents do the Chromium security updates",
+    body: "Claude and Codex port every Chromium security update into Airc. A human checks each one before it ships.",
   },
+  { title: "Free", body: "No account, no ads, no subscription. Anonymous usage data is on by default, and one switch turns it off." },
 ];
 
 const faqs = [
   {
-    q: "Do Chrome extensions work?",
-    a: "Yes. Airc is built on Chromium, so you install extensions from the Chrome Web Store. As in Arc, extensions belong to a profile, so each one has its own set.",
+    q: "Why not just switch to Dia?",
+    a: "Dia is a different browser. I want Arc's: the sidebar, the Spaces, the command bar. Airc is that, and open source, so no company can take it away again.",
   },
   {
-    q: "Can I sign in with Google?",
-    a: "Yes. Signing in to Gmail, Calendar, Docs and every other site works as in Chrome, and each profile can hold a different Google account. Chrome Sync, Google's own bookmark and password sync, is only available in Chrome itself, so Airc doesn't offer it.",
+    q: "What happens to my Chrome profiles?",
+    a: "Airc reads them from Arc and keeps them apart. Each one keeps its own logins, like in Arc. Two Gmail accounts, one window.",
   },
   {
-    q: "Is it free?",
-    a: "Yes. Airc is free, needs no account, and will be open source under the Apache-2.0 licence from the day it launches.",
+    q: "How do you keep up with Chromium security updates?",
+    a: "Every six hours we check for a new Chromium release. An agent moves Airc's patches onto it, strictly, and a person checks the build, the tests and the speed before it ships.",
+  },
+  { q: "Is it free?", a: "Yes. No account, no ads, no subscription." },
+  { q: "Do Chrome extensions work?", a: "Yes. Airc is built on Chromium, so you install them from the Chrome Web Store." },
+  { q: "What do I need?", a: "A Mac with Apple silicon and macOS 14 or later. Intel Macs aren't supported." },
+  {
+    q: "Do Spotify, Netflix and other streaming sites work?",
+    a: "Not yet. They need DRM (Widevine), which Airc doesn't have yet. Support is in progress.",
   },
   {
-    q: "Is there a Windows version?",
-    a: "No. Airc is a native Mac app, for macOS 14 or later on Apple silicon. There are no plans for Windows, Linux or Intel Macs.",
+    q: "Is Safe Browsing on?",
+    a: "Not yet. Airc doesn't have Chrome's Safe Browsing protection against phishing and harmful downloads, so don't rely on it for that.",
   },
   {
-    q: "What about privacy?",
-    a: "No telemetry by default. Crash reports are opt-in and never include URLs or page titles. When you import from Arc, your logins are decrypted and re-encrypted on your Mac and never leave it.",
+    q: "Does Airc collect data?",
+    a: "Anonymous usage data, on by default: which features get used and how fast Airc is, never what you browse. Turn it off, or see exactly what is sent, in Settings → Privacy. The privacy page lists every event.",
   },
   {
-    q: "Arc may stop before Airc ships. Can I still import?",
-    a: "Yes, as long as Arc's data is still on your Mac. Keep Arc installed: Airc reads its files directly, even after Arc itself has stopped working.",
+    q: "Does Chrome Sync work?",
+    a: "No. Signing in to Google websites works, but browser sync is Google's own and isn't available to other Chromium browsers.",
   },
+  {
+    q: "I already deleted Arc. Can I still import?",
+    a: "If Arc's data is still on your Mac, yes. Airc reads Arc's files directly, so Arc doesn't need to run. A few logins Arc encrypted in a way Airc can't read are skipped, so some sites may ask you to sign in again.",
+  },
+];
+
+// Boosts: one site, three ways to make it yours. Not in 0.1.0 (it landed after that release's source), so the
+// section says when it arrives; drop the note once a stable release carries it.
+const boostModes = [
+  { key: "colors", label: "Colors", body: "A tint, brightness and contrast, or Invert for a quick dark mode.", img: shotBoostColors, alt: "Wikipedia's Typography article boosted to a warm amber, with the Boost editor open on Colors: tint, brightness, contrast and Invert." },
+  { key: "font", label: "Font", body: "A macOS font and a size. The layout keeps its proportions.", img: shotBoostFont, alt: "The same Boost on Font: the article set in Charter, a size step up, with the fonts that come with macOS." },
+  { key: "zap", label: "Zap", body: "Click anything away. It stays gone on every visit, and one click brings it back.", img: shotBoostZap, alt: "The same Boost on Zap: Wikipedia's Appearance column zapped away, listed with its undo." },
+];
+
+const commandDark = await getImage({ src: shotCommandDark, widths: [800, 1200, 1800, 2400], format: "webp", quality: 90 });
+
+const panes = [
+  { id: "spaces", tab: "Colours", sub: "Re-tint any Space" },
+  { id: "profiles", tab: "Profiles", sub: "Two Gmails, one window" },
+  { id: "command", tab: "Command bar", sub: "One box for everything" },
+  { id: "import", tab: "Import from Arc", sub: "Spaces, tabs, logins" },
+  { id: "links", tab: "Links", sub: "Peek, Air Traffic Control" },
+  { id: "split", tab: "Split View", sub: "Two or three panes" },
+  { id: "pip", tab: "Picture in picture", sub: "Films and calls float" },
 ];
 ---
 
 <Layout>
-  <!-- 1. Hero -->
-  <section class="hero" aria-labelledby="hero-title">
-    <div class="bloom" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
-    <div class="container hero-inner">
-      <div class="hero-icon rise">
-        <Image src={icon} alt="Airc app icon" width={88} height={88} densities={[1, 2]} format="webp" quality={90} loading="eager" />
-      </div>
-      <p class="pill rise" style="--d: 60ms"><span class="dot" aria-hidden="true"></span>For macOS · Coming soon</p>
-      <h1 id="hero-title" class="rise" style="--d: 120ms">The sidebar you love.<br class="br-wide" /> A&nbsp;browser that keeps going.</h1>
-      <p class="hero-sub rise" style="--d: 200ms">
-        Airc is an Arc-style browser for the Mac, built on Chromium. Spaces with their own logins, Favorites, pinned
-        tabs and the command bar, the way Arc did them. Built and maintained by AI.
-      </p>
-      <div class="hero-actions rise" style="--d: 280ms">
-        <a class="btn btn-primary" href={WAITLIST_URL}>Join the waitlist</a>
-        <a class="btn btn-quiet" href="#arc">See what comes over from Arc</a>
-      </div>
-      <p class="hero-meta rise" style="--d: 320ms">Free · macOS 14+ on Apple silicon · Open source at launch</p>
-    </div>
-    <div class="container hero-shot rise" style="--d: 380ms">
-      <Shot
-        class="shot"
-        src={heroLight}
-        dark={heroDark}
-        eager
-        sizes="(max-width: 1260px) calc(100vw - 2 * clamp(20px, 5vw, 40px)), 1180px"
-        alt="An Airc window on the Mac desktop: a coloured sidebar with Favorites, pinned tabs, folders and today's tabs, and the web page beside it as a card."
-      />
-    </div>
-  </section>
-
-  <!-- 2. Arc is going away -->
-  <section id="arc" class="section arc" aria-labelledby="arc-title">
-    <div class="container arc-grid">
-      <div class="arc-copy reveal">
-        <p class="eyebrow">
-          <span class="dot" style="--c: var(--peach-2)" aria-hidden="true"></span>
-          <span id="arc-days" data-end={ARC_END.toISOString()}>{daysLeft} days</span> until Arc stops
+  <div class="grid">
+    <!-- ================================================================ hero -->
+    <section id="top" class="hero" data-space={spaceOf("top")}>
+      <div class="hero-glow" aria-hidden="true"></div>
+      <div class="hero-copy">
+        <Countdown />
+        <h1><span class="red">Arc shuts down on December&nbsp;22.</span><br />Airc keeps it going.</h1>
+        <p class="sub">
+          Airc is <strong>the <span class="nowrap">open-source</span> Arc</strong>: a free Mac browser on Chromium with the same
+          sidebar, Spaces and&nbsp;⌘T. No company can switch it&nbsp;off.
         </p>
-        <h2 id="arc-title">Arc is going away on 22&nbsp;December&nbsp;2026. Your sidebar doesn't have&nbsp;to.</h2>
-        <p class="lead">
-          Airc finds Arc on your Mac and rebuilds your sidebar while you watch. It takes about a minute.
-        </p>
-        <ul class="checks">
-          <li>Spaces, with their names, icons and colours</li>
-          <li>Pinned tabs and folders, nested as they were</li>
-          <li>Favorites, kept per profile</li>
-          <li>Logins and saved passwords. macOS asks for your Mac password once.</li>
-        </ul>
-        <p class="note">Everything is read and converted on your Mac. Nothing is uploaded.</p>
+        <div id="join" class="join"><Download from="hero" /></div>
       </div>
-      <figure class="arc-shot reveal">
-        <Shot
-          class="shot"
-          src={importShot}
-          sizes="(max-width: 900px) calc(100vw - 2 * clamp(20px, 5vw, 40px)), 680px"
-          alt="Airc's onboarding window: 'Bring your Arc with you.' It found Arc with 6 Spaces, 3 profiles and 84 tabs, and offers to import Spaces, Favorites and logins, while the sidebar on the left fills in."
-        />
-      </figure>
-    </div>
-  </section>
 
-  <!-- 3. Spaces with real profiles -->
-  <section id="spaces" class="section" aria-labelledby="spaces-title">
-    <div class="container">
-      <header class="section-head reveal">
-        <p class="eyebrow"><span class="dot" style="--c: var(--mint)" aria-hidden="true"></span>Spaces</p>
-        <h2 id="spaces-title">Spaces with real profiles.</h2>
-        <p class="lead">
-          Every Space can have its own profile, with its own logins, history, saved passwords and extensions. Your work
-          Gmail lives in one Space and your personal Gmail in the next.
-        </p>
-      </header>
+      <a class="pointer" href="#tweet" aria-label="Jump to the announcement">
+        <span>The official announcement, from Arc's own company</span>
+        <svg viewBox="0 0 60 90" aria-hidden="true">
+          <path class="arrow-line" pathLength="1" d="M30 4 C 8 30, 52 52, 30 80" />
+          <path class="arrow-head" d="M16 66 L30 82 L44 66" />
+        </svg>
+      </a>
 
-      <div class="pager reveal">
-        <fieldset class="seg">
-          <legend class="visually-hidden">Show a Space</legend>
-          <input type="radio" name="space" id="sp-personal" checked />
-          <label for="sp-personal"><span aria-hidden="true">🏡</span> Personal</label>
-          <input type="radio" name="space" id="sp-work" />
-          <label for="sp-work"><span aria-hidden="true">💼</span> Work</label>
-          <span class="seg-knob" aria-hidden="true"></span>
-        </fieldset>
-        <div class="stage">
-          <div class="track">
-            <Shot
-              class="shot page"
-              src={spacePersonal}
-              sizes="(max-width: 1260px) calc(100vw - 2 * clamp(20px, 5vw, 40px) - 2 * clamp(12px, 4vw, 48px)), 1084px"
-              alt="The Personal Space in mint green, signed in with a personal account: Gmail, Calendar, Maps and YouTube as Favorites."
-            />
-            <Shot
-              class="shot page"
-              src={spaceWork}
-              sizes="(max-width: 1260px) calc(100vw - 2 * clamp(20px, 5vw, 40px) - 2 * clamp(12px, 4vw, 48px)), 1084px"
-              alt="The Work Space in deep blue, using the Acme profile: different Favorites, different tabs and a different Google account, in the same window."
-            />
+      <div id="tweet" class="frame hero-frame">
+        <div class="frame-bar">
+          <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="frame-url">x.com/arcinternet/status/2113301454597640570</span>
+        </div>
+        <div class="frame-body post" data-post>
+          <Tweet />
+          <div class="post-more">
+            <button type="button" class="try" data-expand aria-expanded="false">Read the whole post</button>
+          </div>
+          <div class="post-less">
+            <button type="button" class="try" data-collapse>Collapse</button>
+            <a class="try" href="https://x.com/arcinternet/status/2113301454597640570" rel="noopener">View on X ↗</a>
           </div>
         </div>
       </div>
+    </section>
 
-      <div class="trio">
-        <div class="reveal">
-          <h3>Separate logins</h3>
-          <p>A profile is a real Chromium profile. Cookies, history and passwords never mix between them.</p>
-        </div>
-        <div class="reveal">
-          <h3>Swipe to switch</h3>
-          <p>Two fingers across the sidebar, <kbd>⌃</kbd><kbd>1</kbd>–<kbd>9</kbd>, or a click in the Space bar. The account changes with the colour.</p>
-        </div>
-        <div class="reveal">
-          <h3>One window</h3>
-          <p>No second window per account, so fullscreen just works. A new profile is one step from the sidebar.</p>
-        </div>
+    <!-- ================================================================ facts -->
+    <section class="facts" aria-label="Airc in five facts">
+      {facts.map((f) =>
+        f.href ? (
+          <a class="fact" href={f.href}>
+            <b>{f.value}</b>
+            <span>{f.label} →</span>
+          </a>
+        ) : (
+          <div class="fact">
+            <b>{f.value}</b>
+            <span>{f.label}</span>
+          </div>
+        ),
+      )}
+    </section>
+
+    <!-- ================================================================ Arc, reborn: the Spaces demo -->
+    <section id="reborn" class="sec" data-space={spaceOf("reborn")}>
+      <div class="sec-head">
+        <p class="tag" style="--c:#9b7cf0">Arc, reborn</p>
+        <h2 class="tt">Same sidebar. Same Spaces. <span>Swipe between them, as you did in Arc.</span></h2>
       </div>
-    </div>
-  </section>
-
-  <!-- 4. The sidebar -->
-  <section id="sidebar" class="section" aria-labelledby="sidebar-title">
-    <div class="container">
-      <header class="section-head reveal">
-        <p class="eyebrow"><span class="dot" style="--c: var(--lilac)" aria-hidden="true"></span>Sidebar</p>
-        <h2 id="sidebar-title">The sidebar, exactly like Arc.</h2>
-        <p class="lead">
-          Built to Arc's own measurements, down to the row height and the springs. If you used Arc, your hands already
-          know it.
-        </p>
-      </header>
-
-      <div class="anatomy">
-        <div class="anatomy-stage reveal">
-          <div class="anatomy-sidebar">
-            <Image
-              src={sidebarPersonal}
-              alt="Airc's sidebar: the address, four Favorites, the Personal Space with pinned tabs and a folder, the divider with Clear, then today's tabs."
-              widths={[228, 342, 456]}
-              sizes="(max-width: 560px) 200px, 260px"
-              format="webp"
-              quality={86}
-            />
-            {sidebarParts.map((p, i) => (
-              <span class="marker" style={`--at: ${p.at}%`} aria-hidden="true">{i + 1}</span>
+      <div class="demo" data-spaces data-active="0" style={`--accent-space:${demoSpaces[0].colour}`}>
+        <div class="demo-bar">
+          <div class="seg" role="tablist" aria-label="Spaces">
+            {demoSpaces.map((sp, i) => (
+              <button
+                type="button"
+                role="tab"
+                class="seg-btn"
+                data-go={i}
+                aria-selected={i === 0 ? "true" : "false"}
+                style={`--c:${sp.colour}`}
+              >
+                <span class="seg-emoji" aria-hidden="true">{sp.emoji}</span>{sp.name}
+              </button>
+            ))}
+          </div>
+          <p class="demo-hint">Swipe with two fingers, drag, or use ← →</p>
+        </div>
+        <div class="demo-view" tabindex="0" aria-label="Airc's Spaces: drag or use the arrow keys to switch">
+          <div class="demo-track">
+            {demoSpaces.map((sp, i) => (
+              <div class="demo-slide" aria-hidden={i === 0 ? "false" : "true"}>
+                <Image
+                  src={sp.img}
+                  widths={[800, 1200, 1800, 2400]}
+                  sizes="(max-width: 900px) 100vw, 1040px"
+                  quality={92}
+                  draggable="false"
+                  alt={`The ${sp.name} Space in Airc, showing ${sp.page}.`}
+                />
+              </div>
             ))}
           </div>
         </div>
-        <ol class="anatomy-list">
-          {sidebarParts.map((p) => (
-            <li class="reveal">
-              <h3>{p.title}</h3>
-              <p>{p.body}</p>
-            </li>
-          ))}
-        </ol>
-      </div>
-
-      <dl class="specs reveal" aria-label="Measurements">
-        <div><dt>Sidebar</dt><dd>228 pt</dd></div>
-        <div><dt>Row pitch</dt><dd>41 pt</dd></div>
-        <div><dt>Favorite tiles</dt><dd>47 pt</dd></div>
-        <div><dt>Space switch</dt><dd>0.19 s spring</dd></div>
-        <div><dt>Hover</dt><dd>1 frame</dd></div>
-      </dl>
-
-      <figure class="cb reveal">
-        <Shot
-          class="shot"
-          src={commandBar}
-          sizes="(max-width: 1260px) calc(100vw - 2 * clamp(20px, 5vw, 40px)), 1180px"
-          alt="The command bar over the page: typing 'gma' completes to mail.google.com and offers to switch to the open Gmail tab."
-        />
-        <figcaption><kbd>⌘</kbd><kbd>T</kbd> opens the command bar. It suggests open tabs first, so you switch instead of opening a duplicate.</figcaption>
-      </figure>
-    </div>
-  </section>
-
-  <!-- 5. Built and maintained by AI -->
-  <section id="ai" class="section ai" aria-labelledby="ai-title">
-    <div class="container">
-      <div class="ai-panel">
-        <header class="section-head reveal">
-          <p class="eyebrow"><span class="dot" style="--c: var(--sky)" aria-hidden="true"></span>How it's built</p>
-          <h2 id="ai-title">Built and maintained by&nbsp;AI.</h2>
-          <p class="lead">
-            A browser is only as safe as its last update. Airc is designed so that keeping up with Chromium is routine
-            work for AI agents, every week, with a person signing off.
-          </p>
-        </header>
-        <ol class="steps">
-          {steps.map((s, i) => (
-            <li class="reveal">
-              <span class="step-n">{String(i + 1).padStart(2, "0")}</span>
-              <h3>{s.title}</h3>
-              <p>{s.body}</p>
-            </li>
-          ))}
-        </ol>
-        <div class="oss reveal">
-          <span class="badge">Apache-2.0</span>
-          <p>
-            Open source at launch: the app, the Chromium patches and the playbook the agents work from. Anyone can read
-            how it's made, and build it themselves.
-          </p>
+        <div class="demo-dots" aria-hidden="true">
+          {demoSpaces.map((sp, i) => <span class={i === 0 ? "on" : ""} style={`--c:${sp.colour}`}></span>)}
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- 6. FAQ -->
-  <section id="faq" class="section" aria-labelledby="faq-title">
-    <div class="container faq">
-      <header class="faq-head reveal">
-        <h2 id="faq-title">Questions</h2>
-        <p class="muted">Something else? <a href={`mailto:${CONTACT_EMAIL}`}>Email us</a>.</p>
-      </header>
-      <div class="faq-list">
+    <!-- ================================================================ the math -->
+    <section id="math" class="sec" data-space={spaceOf("math")}>
+      <div class="sec-head">
+        <p class="tag" style="--c:#e8892b">The math</p>
+        <h2 class="tt">
+          Atlassian paid $610&nbsp;million for Arc's company. <span>Arc still got an end&nbsp;date.</span>
+        </h2>
+      </div>
+      <div class="cells cells-2">
+        <div class="cell">
+          <h3 class="ct">Security is the job that never ends. <span>A new Chromium release every few weeks, and each one has to be ported, patched, built and checked. Their own post says it: that work is only growing.</span></h3>
+          <p class="kicker">AI doesn't get bored of maintenance. That was the whole problem.</p>
+          <p class="source">
+            Sources: <a href="https://x.com/arcinternet/status/2113301454597640570" rel="noopener">Arc's announcement</a> ·{" "}
+            <a href="https://www.engadget.com/big-tech/atlassian-is-buying-arc-maker-the-browser-company-for-610-million-145236236.html" rel="noopener">Engadget on the $610M deal</a>.
+          </p>
+        </div>
+        <div class="cell orbit-cell" aria-hidden="true">
+          <div class="orbit">
+            <span class="ring r1"></span>
+            <span class="ring r2"></span>
+            <span class="core"><Image src={icon} alt="" width={56} height={56} densities={[1, 2]} format="webp" /></span>
+            <span class="chip chip-claude"><img src={claudeLogo.src} width="14" height="14" alt="" /><img src={codexLogo.src} width="14" height="14" alt="" />Claude and Codex port the patches</span>
+            <span class="chip chip-codex">{status.checks.pass} checks passed last night</span>
+            <span class="chip chip-chromium">Chromium {status.chromium}</span>
+            <span class="chip chip-nik"><Image src={nikPhoto} alt="" width={14} height={14} densities={[2, 3]} format="webp" />Nik signs off</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================ the loop -->
+    <section id="loop" class="sec" data-space={spaceOf("loop")}>
+      <div class="sec-head">
+        <p class="tag" style="--c:#5b7ee8">The loop</p>
+        <h2 class="tt">How a Chromium browser stays alive. <span>Every update, ported and checked.</span></h2>
+      </div>
+      <ol class="cells cells-3 steps">
+        <li class="cell step">
+          <span class="step-n">01</span>
+          <h3 class="ct">{steps[0].title}. <span>{steps[0].body}</span></h3>
+          <div class="viz" data-in>
+            <div class="card">
+              <div class="card-head"><span>Watching Chromium</span><span class="muted">every 6 h</span></div>
+              <div class="line"><i class="led led-on"></i><span>Mac Extended Stable</span><em>followed</em></div>
+              <div class="line"><i class="led"></i><span>Mac Stable</span><em>noted</em></div>
+              <div class="line line-foot"><span>Airc is on</span><code>{status.chromium}</code></div>
+            </div>
+          </div>
+        </li>
+        <li class="cell step">
+          <span class="step-n">02</span>
+          <h3 class="ct">{steps[1].title}. <span>{steps[1].body}</span></h3>
+          <div class="viz" data-in>
+            <div class="card term">
+              <div class="card-head">
+                <span class="term-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span class="term-who">
+                  <img src={claudeLogo.src} width="16" height="16" alt="Claude" />
+                  <img src={codexLogo.src} width="16" height="16" alt="Codex" />
+                </span>
+              </div>
+              <code class="cmd">engine/apply.sh --check</code>
+              <code class="ok">every hook applies strictly</code>
+              <code class="cmd">autoninja -C out/Release</code>
+              <code class="ok">Airc Framework.framework</code>
+              <code class="cmd">scripts/build-app.sh</code>
+              <code class="ok">Airc.app</code>
+            </div>
+          </div>
+        </li>
+        <li class="cell step">
+          <span class="step-n">03</span>
+          <h3 class="ct">{steps[2].title}. <span>{steps[2].body}</span></h3>
+          <div class="viz" data-in>
+            <div class="card">
+              <div class="card-head"><span>Release gates</span><span class="muted mono">{status.rev}</span></div>
+              <div class="line"><i class="tick"></i><span>Mac build</span></div>
+              <div class="line"><i class="tick"></i><span>{status.checks.pass} checks</span><em>{status.checks.fail} failed</em></div>
+              <div class="line"><i class="tick"></i><span>Speed</span></div>
+              <div class="line line-foot">
+                <Image class="face" src={nikPhoto} alt="" width={20} height={20} densities={[1, 2, 3]} format="webp" />
+                <span>Nik</span><em class="yes">Approved</em>
+              </div>
+            </div>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <!-- ================================================================ feature explorer (sticky tabs) -->
+    <section class="explorer" aria-label="Features">
+      <nav class="ex-tabs" aria-label="Features">
+        {panes.map((p, i) => (
+          <a href={`#${p.id}`} data-pane={p.id} class={i === 0 ? "on" : ""}>
+            <b>{p.tab}</b>
+            <span>{p.sub}</span>
+            <i class="prog" aria-hidden="true"></i>
+          </a>
+        ))}
+      </nav>
+      <div class="ex-panes">
+        <article id="spaces" class="pane" data-space={spaceOf("spaces")}>
+          <h3 class="pt">Every Space has its own colour. <span>Twelve presets, light or dark. Pick one: this page is an Airc window too.</span></h3>
+          <div class="pane-demo tint-demo">
+            <TintPicker />
+          </div>
+          <button type="button" class="pane-demo shot shot-tall" data-zoom={shotSpaces.src} data-alt="Four Airc Spaces side by side, each in its own colour and profile: Personal in mint, Travel in sky, Studio in peach and Work in grape." aria-label="Enlarge screenshot">
+            <Image src={shotSpaces} widths={[800, 1200, 1800, 2400]} sizes="(max-width: 900px) 100vw, 760px" quality={90} alt="Four Airc Spaces side by side, each in its own colour and profile: Personal in mint, Travel in sky, Studio in peach and Work in grape." />
+          </button>
+        </article>
+
+        <article id="profiles" class="pane" data-space={spaceOf("profiles")}>
+          <h3 class="pt">Work and personal, one swipe apart. <span>Separate profiles, each with its own logins, history and passwords. Two Gmail accounts, one window.</span></h3>
+          <button type="button" class="pane-demo shot" data-zoom={shotProfiles.src} data-alt="Create Profile in Airc: choosing which Spaces move to the new profile, each shown in its own colour." aria-label="Enlarge screenshot">
+            <Image src={shotProfiles} widths={[800, 1200, 1800, 2400]} sizes="(max-width: 900px) 100vw, 760px" quality={90} alt="Create Profile in Airc: choosing which Spaces move to the new profile, each shown in its own colour." />
+          </button>
+        </article>
+
+        <article id="command" class="pane" data-space={spaceOf("command")}>
+          <h3 class="pt">Same ⌘T. <span>Search, open a site, jump to a tab or run an action from one box.</span></h3>
+          <div class="pane-demo pane-cmd">
+            <button type="button" class="shot shot-flat" data-zoom={shotCommand.src} data-alt="Airc's command bar." aria-label="Enlarge screenshot">
+              <picture>
+                <source media="(prefers-color-scheme: dark)" srcset={commandDark.srcSet.attribute} sizes="(max-width: 900px) 100vw, 760px" />
+                <Image src={shotCommand} widths={[800, 1200, 1800, 2400]} sizes="(max-width: 900px) 100vw, 760px" quality={90} alt="Airc's command bar in the Travel Space: typing lisbon shows history, open and pinned tabs and search suggestions, with the top hit completed inline." />
+              </picture>
+            </button>
+            <button type="button" class="try" data-act="command">
+              Try it on this page <kbd>⌘K</kbd>
+            </button>
+          </div>
+        </article>
+
+        <article id="import" class="pane" data-space={spaceOf("import")}>
+          <h3 class="pt">Your whole Arc, moved over. <span>Spaces, pinned tabs, folders, Favorites and passwords, read from Arc's files on your Mac. Nothing is uploaded.</span></h3>
+          <button type="button" class="pane-demo shot" data-zoom={shotImport.src} data-alt="Airc's onboarding has found Arc on the Mac: its Spaces, pinned tabs, folders, Favorites and logins, ready to import." aria-label="Enlarge screenshot">
+            <Image src={shotImport} widths={[800, 1200, 1800, 2400]} sizes="(max-width: 900px) 100vw, 760px" quality={90} alt="Airc's onboarding has found Arc on the Mac: its Spaces, pinned tabs, folders, Favorites and logins, ready to import." />
+          </button>
+          {status.features.import.status !== "passing" && (
+            <a class="note" href="#supported"><i aria-hidden="true"></i>Built and in the app; its nightly check is pending. A few sites may ask you to sign in again.</a>
+          )}
+        </article>
+
+        <article id="links" class="pane" data-space={spaceOf("links")}>
+          <h3 class="pt">Links go where they belong. <span>Air Traffic Control sends each link to the right Space, already signed in. Peek opens it in a card over your page.</span></h3>
+          <button type="button" class="pane-demo shot" data-zoom={shotPeek.src} data-alt="Peek in Airc: a link from the Lisbon article opens in a card over the page, showing the map of Belém." aria-label="Enlarge screenshot">
+            <Image src={shotPeek} widths={[800, 1200, 1800, 2400]} sizes="(max-width: 900px) 100vw, 760px" quality={90} alt="Peek in Airc: a link from the Lisbon article opens in a card over the page, showing the map of Belém." />
+          </button>
+        </article>
+
+        <article id="split" class="pane" data-space={spaceOf("links")}>
+          <h3 class="pt">Split View. <span>Two or three pages side by side, as one row in the sidebar. Pin a split, or keep it as a Favorite.</span></h3>
+          <button type="button" class="pane-demo shot" data-zoom={shotSplit.src} data-alt="Split View in Airc's Studio Space: Apple's design pages beside Wikipedia's article on colour theory." aria-label="Enlarge screenshot">
+            <Image src={shotSplit} widths={[800, 1200, 1800, 2400]} sizes="(max-width: 900px) 100vw, 760px" quality={90} alt="Split View in Airc's Studio Space: Apple's design pages beside Wikipedia's article on colour theory." />
+          </button>
+        </article>
+
+        <article id="pip" class="pane" data-space={spaceOf("links")}>
+          <h3 class="pt">Picture in picture. <span>A film keeps playing in a small window over whatever you open next, with Airc's own controls. Calls too.</span></h3>
+          <button type="button" class="pane-demo shot" data-zoom={shotPip.src} data-alt="Picture in picture in Airc: a film floats over the Lisbon article, with Back to Tab, skip, play and a scrubber." aria-label="Enlarge screenshot">
+            <Image src={shotPip} widths={[800, 1200, 1800, 2400]} sizes="(max-width: 900px) 100vw, 760px" quality={90} alt="Picture in picture in Airc: a film floats over the Lisbon article, with Back to Tab, skip, play and a scrubber." />
+          </button>
+        </article>
+      </div>
+    </section>
+
+    <!-- ================================================================ boosts -->
+    <section id="boosts" class="sec boosts" data-space={spaceOf("boosts")}>
+      <div class="sec-head">
+        <p class="tag" style="--c:#e0559f">Boosts</p>
+        <h2 class="tt">Boosts. Make any site yours. <span>Your colours, your font, and Zap for the parts you never want to see.</span></h2>
+        <a class="soon" href="/versions#nightly"><i aria-hidden="true"></i>Coming in the next release, in nightly builds first</a>
+      </div>
+      <div class="boost" data-boost>
+        <div class="boost-tabs" role="tablist" aria-label="Boosts">
+          {boostModes.map((m, i) => (
+            <button type="button" role="tab" class="boost-tab" data-mode={i} aria-selected={i === 0 ? "true" : "false"}>
+              <b>{m.label}</b>
+              <span>{m.body}</span>
+              <i class="boost-prog" aria-hidden="true"></i>
+            </button>
+          ))}
+          <p class="boost-more">
+            <b>Code</b> Your own CSS and JavaScript for a site.
+          </p>
+          <p class="boost-trust">
+            Unlike Arc's, Boosts never leave your Mac: no account, no sync, and only code you write ever runs. The style is
+            in place before the page appears, so it never flashes its old look.
+          </p>
+        </div>
+        <div class="boost-view">
+          {boostModes.map((m, i) => (
+            <button type="button" class={`boost-shot ${i === 0 ? "on" : ""}`} data-shot={i} data-zoom={m.img.src} data-alt={m.alt} aria-label={`Enlarge: ${m.alt}`} aria-hidden={i === 0 ? "false" : "true"} tabindex={i === 0 ? 0 : -1}>
+              <Image src={m.img} widths={[800, 1200, 1800, 2400]} sizes="(max-width: 980px) 100vw, 700px" quality={90} alt={m.alt} loading="lazy" />
+            </button>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================ what works -->
+    <section id="supported" class="sec" data-space={spaceOf("supported")}>
+      <div class="sec-head">
+        <p class="tag" style="--c:#2f9e62">What works</p>
+        <h2 class="tt">What works today. <span>Checked every night on real Chromium.</span></h2>
+      </div>
+      <div class="run">
+        <span class="run-dot" aria-hidden="true"></span>
+        <span>
+          <b>{passingCount} of {supported.length} features</b> pass the nightly checks ({status.checks.pass} checks passed,{" "}
+          {status.checks.skip} skipped, {status.checks.fail} failed). <i class="pend-dot" aria-hidden="true"></i> Check pending: built, not covered by a check yet.
+        </span>
+        <span class="run-meta">Last run {checkedLabel} · build <code>{status.rev}</code> · Chromium {status.chromium}</span>
+      </div>
+      <ul class="works">
+        {supported.map((f) => (
+          <li class="work">
+            {f.status === "built" ? (
+              <span class="state pending" title="Built and in the app. No nightly check covers it yet."><i aria-hidden="true"></i></span>
+            ) : (
+              <span
+                class={`state mark mark-${f.status}`}
+                role="img"
+                aria-label={f.status === "passing" ? "Passing" : "Failing"}
+                title={`${f.pass} checks passed${f.skip ? `, ${f.skip} skipped` : ""}${f.fail ? `, ${f.fail} failed` : ""}.`}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  {f.status === "passing" ? <path d="M6 12.5l4 4 8-9" /> : <path d="M7 7l10 10M17 7L7 17" />}
+                </svg>
+              </span>
+            )}
+            <div>
+              <h3>
+                {f.title}
+                {"next" in f && f.next ? <span class="next-label">Next release</span> : f.status === "built" && <span class="pend-label">Check pending</span>}
+              </h3>
+              <p>{f.body}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+
+    <!-- ================================================================ why -->
+    <section id="why" class="sec why" data-space={spaceOf("why")}>
+      <figure class="quote">
+        <p class="tag" style="--c:#e5484d">Why I'm building this</p>
+        <blockquote>
+          “I love Arc. I don't want to switch, and I don't want to relearn my browser because a company changed its&nbsp;mind.”
+        </blockquote>
+        <p class="quote-sub">What I'd miss most is the profiles: work and personal, each with its own logins, in one window. Airc keeps that.</p>
+        <figcaption>
+          <Image class="why-photo" src={nikPhoto} alt="" width={48} height={48} densities={[1, 2, 3]} format="webp" />
+          <span><b>Nik</b>, who builds Airc</span>
+        </figcaption>
+      </figure>
+    </section>
+
+    <!-- ================================================================ what to expect -->
+    <section id="expect" class="sec" data-space={spaceOf("expect")}>
+      <div class="sec-head">
+        <p class="tag" style="--c:#2f9e62">What to expect</p>
+        <h2 class="tt">What to expect. <span>Free, open, and kept up to date.</span></h2>
+      </div>
+      <div class="cells cells-3">
+        {expect.map((e) => (
+          <div class="cell">
+            <h3 class="ct">{e.title}. <span>{e.body}</span></h3>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <!-- ================================================================ team -->
+    <section id="team" class="sec" data-space={spaceOf("team")}>
+      <div class="sec-head sec-head-center">
+        <p class="tag" style="--c:#d9673a">Who maintains it</p>
+        <h2 class="statement">Claude. Codex. And&nbsp;Nik.</h2>
+        <p class="statement-sub">Two AI agents write and maintain Airc. One human decides what ships.</p>
+      </div>
+      <div class="cells cells-3">
+        {maintainers.map((m) => (
+          <div class={`cell who who-${m.key}`}>
+            {m.logo ? (
+              <img class="who-icon" src={m.logo.src} width="40" height="40" alt="" />
+            ) : (
+              <Image class="who-icon who-photo" src={nikPhoto} alt="Nik" width={40} height={40} densities={[1, 2, 3]} format="webp" />
+            )}
+            <p class="who-name"><b>{m.name}</b> {m.role}</p>
+            <p class="who-body">{m.body}</p>
+          </div>
+        ))}
+      </div>
+      {GITHUB_URL && (
+      <a class="repo" href={GITHUB_URL} rel="noopener" data-gh data-track="github_clicked" data-track-from="team">
+        <span class="repo-mark"><GitHubMark size={22} /></span>
+        <span class="repo-copy">
+          <b>{GITHUB_URL.replace("https://github.com/", "")}</b>
+          <span>Every commit is public, Claude's and Codex's included. Apache-2.0.</span>
+        </span>
+        <span class="repo-stars"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.3l2 4.2 4.6.6-3.400 3.200.9 4.500L8 11.600 3.900 13.800l.9-4.500L1.400 6.100 6 5.500z" /></svg><b data-gh-stars></b> <span>Star</span></span>
+      </a>
+      )}
+    </section>
+
+    <!-- ================================================================ questions -->
+    <section id="qa" class="sec qa-sec" data-space={spaceOf("qa")}>
+      <div class="qa-head">
+        <h2 class="tt">Questions. <span>And answers.</span></h2>
+        <p class="qa-note">Anything else? <a href="mailto:hello@aircbrowser.com">hello@aircbrowser.com</a></p>
+      </div>
+      <div class="qa">
         {faqs.map((f) => (
-          <details class="reveal">
-            <summary>{f.q}<span class="chev" aria-hidden="true"></span></summary>
+          <details>
+            <summary>{f.q}</summary>
             <p>{f.a}</p>
           </details>
         ))}
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- Closing call to action -->
-  <section class="section closing" aria-labelledby="closing-title">
-    <div class="bloom bloom-soft" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
-    <div class="container closing-inner reveal">
-      <Image src={icon} alt="" width={72} height={72} densities={[1, 2]} format="webp" quality={90} />
-      <h2 id="closing-title">Be there on day one.</h2>
-      <p class="lead">Join the waitlist and we'll email you when Airc is ready to download. Nothing else.</p>
-      <a class="btn btn-primary" href={WAITLIST_URL}>Join the waitlist</a>
-    </div>
-  </section>
-
-  <script is:inline>
-    // Keeps the countdown right on a cached page. Without JavaScript, the build-time number stays.
-    (function () {
-      var el = document.getElementById("arc-days");
-      if (!el) return;
-      var d = Math.max(0, Math.ceil((Date.parse(el.dataset.end) - Date.now()) / 864e5));
-      el.textContent = d === 1 ? "1 day" : d + " days";
-    })();
-  </script>
+    <!-- ================================================================ closing (dark) -->
+    <section id="closing" class="closing" data-space="pink">
+      <div class="arc-glow" aria-hidden="true"><i></i><i></i></div>
+      <div class="closing-count"><Countdown /></div>
+      <h2><span class="red">Arc stops on December&nbsp;22.</span><br />Your Arc doesn't have&nbsp;to.</h2>
+      <div class="join"><Download dark from="closing" /></div>
+    </section>
+  </div>
 </Layout>
 
+<script>
+  import { track as send } from "../lib/analytics";
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // The loop's cards fill in row by row, once, when they come into view.
+  const reveal = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries)
+        if (e.isIntersecting) {
+          e.target.classList.add("in");
+          reveal.unobserve(e.target);
+        }
+    },
+    { threshold: 0.4 },
+  );
+  document.querySelectorAll("[data-in]").forEach((el) => reveal.observe(el));
+
+  // ------------------------------------------------------------------ Spaces demo: swipe, drag, keys, tabs, autoplay
+  const demo = document.querySelector<HTMLElement>("[data-spaces]");
+  if (demo) {
+    const view = demo.querySelector<HTMLElement>(".demo-view")!;
+    const track = demo.querySelector<HTMLElement>(".demo-track")!;
+    const tabs = [...demo.querySelectorAll<HTMLButtonElement>("[data-go]")];
+    const slides = [...demo.querySelectorAll<HTMLElement>(".demo-slide")];
+    const dots = [...demo.querySelectorAll<HTMLElement>(".demo-dots span")];
+    const colours = tabs.map((t) => t.style.getPropertyValue("--c"));
+    const n = slides.length;
+    let i = 0;
+    let auto: number | undefined;
+    let touched = false;
+
+    const show = (next: number, animate = true) => {
+      i = (next + n) % n;
+      track.style.transition = animate && !reduce ? "" : "none";
+      track.style.transform = `translateX(${-100 * i}%)`;
+      demo.dataset.active = String(i);
+      demo.style.setProperty("--accent-space", colours[i]);
+      tabs.forEach((t, k) => t.setAttribute("aria-selected", String(k === i)));
+      slides.forEach((s, k) => s.setAttribute("aria-hidden", String(k !== i)));
+      dots.forEach((d, k) => d.classList.toggle("on", k === i));
+    };
+    const used = new Set<string>();
+    const usedBy = (method: string) => {
+      if (used.has(method)) return;
+      used.add(method);
+      send("spaces_demo_used", { method });
+    };
+    const stopAuto = () => {
+      touched = true;
+      if (auto) clearInterval(auto);
+      auto = undefined;
+    };
+
+    tabs.forEach((t) => t.addEventListener("click", () => { stopAuto(); usedBy("tab"); show(Number(t.dataset.go)); }));
+
+    view.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowRight") { stopAuto(); usedBy("keys"); show(i + 1); e.preventDefault(); }
+      if (e.key === "ArrowLeft") { stopAuto(); usedBy("keys"); show(i - 1); e.preventDefault(); }
+    });
+
+    // Dragging: the track follows the pointer, and lets go with a spring.
+    let startX = 0;
+    let dx = 0;
+    let dragging = false;
+    view.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      dragging = true;
+      startX = e.clientX;
+      dx = 0;
+      stopAuto();
+      track.style.transition = "none";
+      view.setPointerCapture(e.pointerId);
+      view.classList.add("dragging");
+    });
+    view.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      dx = e.clientX - startX;
+      const edge = (i === 0 && dx > 0) || (i === n - 1 && dx < 0) ? 0.35 : 1; // rubber band at the ends
+      track.style.transform = `translateX(calc(${-100 * i}% + ${dx * edge}px))`;
+    });
+    const end = () => {
+      if (!dragging) return;
+      dragging = false;
+      view.classList.remove("dragging");
+      const w = view.clientWidth;
+      if (Math.abs(dx) > 8) usedBy("drag");
+      if (dx < -w * 0.15 && i < n - 1) show(i + 1);
+      else if (dx > w * 0.15 && i > 0) show(i - 1);
+      else show(i);
+    };
+    view.addEventListener("pointerup", end);
+    view.addEventListener("pointercancel", end);
+
+    // Two fingers on a trackpad: horizontal wheel events, the way Arc switches Spaces.
+    let acc = 0;
+    let locked = false;
+    view.addEventListener(
+      "wheel",
+      (e) => {
+        if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+        e.preventDefault();
+        if (locked) return;
+        acc += e.deltaX;
+        if (Math.abs(acc) > 40) {
+          stopAuto();
+          usedBy("swipe");
+          show(i + (acc > 0 ? 1 : -1));
+          acc = 0;
+          locked = true;
+          setTimeout(() => (locked = false), 650);
+        }
+      },
+      { passive: false },
+    );
+
+    // A gentle demonstration while it's on screen, until someone touches it.
+    if (!reduce) {
+      new IntersectionObserver(
+        ([entry]) => {
+          if (touched) return;
+          if (entry.isIntersecting && !auto) auto = window.setInterval(() => show(i + 1), 3600);
+          if (!entry.isIntersecting && auto) { clearInterval(auto); auto = undefined; }
+        },
+        { threshold: 0.5 },
+      ).observe(view);
+    }
+    show(0, false);
+  }
+
+  // ------------------------------------------------------------------ Boosts: Colors, Font, Zap
+  const boost = document.querySelector<HTMLElement>("[data-boost]");
+  if (boost) {
+    const tabsB = [...boost.querySelectorAll<HTMLButtonElement>("[data-mode]")];
+    const shotsB = [...boost.querySelectorAll<HTMLElement>("[data-shot]")];
+    let k = 0;
+    let timer: number | undefined;
+    let taken = false;
+    const pick = (n: number) => {
+      k = n;
+      tabsB.forEach((t, j) => t.setAttribute("aria-selected", String(j === n)));
+      shotsB.forEach((sh, j) => {
+        sh.classList.toggle("on", j === n);
+        sh.setAttribute("aria-hidden", String(j !== n));
+        sh.tabIndex = j === n ? 0 : -1;
+      });
+      // restart the progress bar on the chosen tab
+      boost.classList.remove("ticking");
+      void boost.offsetWidth;
+      if (timer) boost.classList.add("ticking");
+    };
+    tabsB.forEach((t, j) =>
+      t.addEventListener("click", () => {
+        taken = true;
+        if (timer) clearInterval(timer);
+        timer = undefined;
+        boost.classList.remove("ticking");
+        pick(j);
+        send("boosts_mode", { mode: t.querySelector("b")?.textContent ?? "" });
+      }),
+    );
+    if (!reduce) {
+      new IntersectionObserver(
+        ([e]) => {
+          if (taken) return;
+          if (e.isIntersecting && !timer) {
+            timer = window.setInterval(() => pick((k + 1) % tabsB.length), 4200);
+            boost.classList.add("ticking");
+          } else if (!e.isIntersecting && timer) {
+            clearInterval(timer);
+            timer = undefined;
+            boost.classList.remove("ticking");
+          }
+        },
+        { threshold: 0.5 },
+      ).observe(boost);
+    }
+  }
+
+  // ------------------------------------------------------------------ the hero post expands
+  const post = document.querySelector<HTMLElement>("[data-post]");
+  const expand = document.querySelector<HTMLElement>("[data-expand]");
+  expand?.addEventListener("click", () => {
+    send("post_expanded");
+    post?.classList.add("open");
+    expand.setAttribute("aria-expanded", "true");
+  });
+  document.querySelector("[data-collapse]")?.addEventListener("click", () => {
+    post?.classList.remove("open");
+    expand?.setAttribute("aria-expanded", "false");
+    document.getElementById("tweet")?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+  });
+
+  // ------------------------------------------------------------------ feature explorer: the tab list follows the panes
+  const exTabs = [...document.querySelectorAll<HTMLAnchorElement>("[data-pane]")];
+  const panes = [...document.querySelectorAll<HTMLElement>(".pane")];
+  if (exTabs.length) {
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) continue;
+          exTabs.forEach((t) => t.classList.toggle("on", t.dataset.pane === e.target.id));
+        }
+      },
+      { rootMargin: "-40% 0px -55% 0px" },
+    );
+    panes.forEach((p) => io.observe(p));
+
+    // How far through the active pane you've read fills its tab's bar.
+    const scroller = matchMedia("(min-width: 901px)").matches ? document.querySelector<HTMLElement>("#page") : null;
+    const progress = () => {
+      const mid = innerHeight * 0.45;
+      for (const p of panes) {
+        const r = p.getBoundingClientRect();
+        const f = Math.min(1, Math.max(0, (mid - r.top) / r.height));
+        exTabs.find((t) => t.dataset.pane === p.id)?.style.setProperty("--p", String(f));
+      }
+    };
+    (scroller ?? window).addEventListener("scroll", () => requestAnimationFrame(progress), { passive: true });
+    progress();
+    exTabs.forEach((t) =>
+      t.addEventListener("click", (e) => {
+        e.preventDefault();
+        document.getElementById(t.dataset.pane!)?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+        history.pushState(null, "", `#${t.dataset.pane}`);
+      }),
+    );
+  }
+</script>
+
 <style>
-  /* ---------------------------------------------------------------- shared */
-  .visually-hidden {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
+  /* ------------------------------------------------------------------ the grid: hairline columns, sections as rows */
+
+  .grid {
+    --pad: clamp(20px, 4vw, 56px);
+    max-width: 1120px;
+    margin: 0 auto;
+    box-shadow: 1px 0 0 var(--hl), -1px 0 0 var(--hl);
   }
 
-  .section {
-    position: relative;
-    padding: clamp(80px, 12vw, 152px) 0 0;
+  .grid > section + section { box-shadow: 0 -1px 0 var(--hl); }
+
+  .red { color: var(--red); }
+  .nowrap { white-space: nowrap; }
+
+  /* Two-tone type: the lead in ink, the rest in grey. */
+  .tt {
+    max-width: 820px;
+    font-size: clamp(30px, 3.4vw, 44px);
+    line-height: 1.1;
+    font-weight: 550;
+    letter-spacing: -0.022em;
+    color: var(--t1);
+    text-wrap: balance;
   }
 
-  .section-head {
-    max-width: 720px;
-  }
-
-  .eyebrow {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 16px;
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--text-2);
-  }
-
-  .dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--c, var(--accent));
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--c, var(--accent)) 22%, transparent);
-    flex: none;
-  }
-
-  h2 {
-    font-size: clamp(30px, 4.4vw, 48px);
-    line-height: 1.08;
-    font-weight: 600;
-    letter-spacing: -0.032em;
-  }
-
-  h3 {
-    font-size: 17px;
-    line-height: 1.35;
-    font-weight: 600;
-    letter-spacing: -0.016em;
-  }
-
-  .lead {
-    margin-top: 18px;
-    font-size: clamp(17px, 1.6vw, 19px);
-    line-height: 1.55;
-    letter-spacing: -0.014em;
-    color: var(--text-2);
-    max-width: 620px;
-  }
-
-  /* ---------------------------------------------------------------- bloom (the icon's pastels) */
-  .bloom {
-    position: absolute;
-    inset: 0;
-    overflow: hidden;
-    pointer-events: none;
-    z-index: -1;
-  }
-
-  .bloom i {
-    position: absolute;
-    width: 46vmax;
-    height: 46vmax;
-    border-radius: 50%;
-    filter: blur(70px);
-    opacity: 0.38;
-  }
-
-  .bloom i:nth-child(1) { background: #5fe3b4; left: -12vmax; top: -18vmax; }
-  .bloom i:nth-child(2) { background: #7fb0ff; left: 22%; top: -26vmax; }
-  .bloom i:nth-child(3) { background: #c79bff; right: -10vmax; top: -16vmax; }
-  .bloom i:nth-child(4) { background: #ff93c0; right: 18%; top: 2vmax; width: 30vmax; height: 30vmax; opacity: 0.26; }
+  /* The continuation half of a two-tone heading: grey, but readable (Attio's #747d8b). */
+  .grid { --cont: #7a8190; }
 
   @media (prefers-color-scheme: dark) {
-    .bloom i { opacity: 0.2; }
-    .bloom i:nth-child(4) { opacity: 0.14; }
+    .grid { --cont: #a0a6b2; }
   }
 
-  @media (prefers-reduced-motion: no-preference) {
-    .bloom i { animation: drift 24s ease-in-out infinite alternate; }
-    .bloom i:nth-child(2) { animation-duration: 30s; animation-delay: -8s; }
-    .bloom i:nth-child(3) { animation-duration: 27s; animation-delay: -4s; }
-    .bloom i:nth-child(4) { animation-duration: 33s; animation-delay: -12s; }
+  .tt span,
+  .ct span,
+  .pt span { color: var(--cont); }
+
+  .ct {
+    font-size: 18px;
+    line-height: 1.4;
+    font-weight: 550;
+    letter-spacing: -0.012em;
+    color: var(--t1);
+    text-wrap: pretty;
   }
 
-  @keyframes drift {
-    to { transform: translate3d(4vmax, 3vmax, 0) scale(1.08); }
+  /* Tags take the colour of their section's sidebar icon (Attio's tinted pills). */
+  .tag {
+    --c: var(--t3);
+    display: inline-flex;
+    align-items: center;
+    height: 24px;
+    margin-bottom: 18px;
+    padding: 0 9px;
+    border-radius: 7px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--c) 78%, #000);
+    background: color-mix(in srgb, var(--c) 11%, var(--bg));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 22%, transparent);
   }
 
-  /* ---------------------------------------------------------------- 1. hero */
+  @media (prefers-color-scheme: dark) {
+    .tag { color: color-mix(in srgb, var(--c) 70%, #fff); background: color-mix(in srgb, var(--c) 16%, var(--bg)); }
+  }
+
+  .sec { padding: clamp(56px, 7vw, 96px) 0 0; }
+  .sec-head { padding: 0 var(--pad) clamp(32px, 4vw, 48px); }
+
+  .sec-head-row {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 32px;
+  }
+
+  .sec-head-center { display: flex; flex-direction: column; align-items: center; text-align: center; }
+
+  .statement {
+    font-size: clamp(38px, 4.6vw, 60px);
+    line-height: 1.02;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    color: var(--t1);
+  }
+
+  .statement-sub { margin-top: 14px; max-width: 460px; font-size: 18px; line-height: 1.45; font-weight: 500; color: var(--cont); text-wrap: balance; }
+
+  .cells {
+    display: grid;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    box-shadow: 0 -1px 0 var(--hl);
+  }
+
+  .cells-2 { grid-template-columns: 1fr 1fr; }
+  .cells-3 { grid-template-columns: repeat(3, 1fr); }
+
+  .cell {
+    padding: clamp(28px, 3.2vw, 40px) var(--pad);
+    min-height: 100%;
+  }
+
+  .cell + .cell { box-shadow: -1px 0 0 var(--hl); }
+
+  .source { margin-top: 20px; font-size: 12.5px; font-weight: 500; color: var(--t3); }
+  .source a { color: var(--t2); text-decoration: underline; text-decoration-color: var(--hl-strong); text-underline-offset: 3px; }
+  .source a:hover { color: var(--t1); }
+  #math .cell:first-child { display: grid; align-content: center; }
+
+  .kicker {
+    margin-top: 28px;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.012em;
+    color: var(--t1);
+  }
+
+  /* ------------------------------------------------------------------ hero */
+
   .hero {
     position: relative;
     isolation: isolate;
-    padding-top: clamp(48px, 7vw, 80px);
-  }
-
-  .hero-inner {
     display: flex;
     flex-direction: column;
     align-items: center;
+    padding: clamp(56px, 7vw, 96px) var(--pad) 0;
     text-align: center;
+    overflow: hidden;
   }
 
-  .hero-icon :global(img) {
-    width: 88px;
-    height: 88px;
-    filter: drop-shadow(0 8px 18px rgb(80 40 140 / 0.22)) drop-shadow(0 1px 2px rgb(0 0 0 / 0.12));
+  /* Attio's faint wash behind the product frame, in Arc's colours. */
+  /* Arc's aurora behind the story, at about a third of Arc's own strength, so Attio's restraint holds. */
+  .hero-glow {
+    position: absolute;
+    inset: 0 -10% 0;
+    z-index: -1;
+    --a: 34%;
+    background:
+      radial-gradient(42% 46% at 14% 10%, color-mix(in srgb, var(--mint) var(--a), transparent), transparent 72%),
+      radial-gradient(40% 44% at 50% -6%, color-mix(in srgb, var(--sky) var(--a), transparent), transparent 72%),
+      radial-gradient(42% 48% at 88% 12%, color-mix(in srgb, var(--lilac) var(--a), transparent), transparent 72%),
+      radial-gradient(50% 50% at 30% 72%, color-mix(in srgb, var(--mint) 18%, transparent), transparent 70%),
+      radial-gradient(50% 50% at 72% 70%, color-mix(in srgb, var(--pink) 20%, transparent), transparent 70%);
+    -webkit-mask-image: linear-gradient(#000 70%, transparent);
+    mask-image: linear-gradient(#000 70%, transparent);
   }
 
-  .pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 28px;
-    padding: 5px 12px 5px 10px;
-    border-radius: 999px;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-2);
-    background: color-mix(in srgb, var(--surface) 70%, transparent);
-    box-shadow: inset 0 0 0 0.5px var(--line-strong);
-    -webkit-backdrop-filter: blur(8px);
-    backdrop-filter: blur(8px);
+  @media (prefers-color-scheme: dark) {
+    .hero-glow { --a: 22%; opacity: 0.85; }
   }
 
-  .pill .dot {
-    --c: var(--mint);
-    width: 6px;
-    height: 6px;
-  }
+  .hero-copy { display: flex; flex-direction: column; align-items: center; }
 
-  .hero h1 {
-    margin-top: 20px;
-    max-width: 15ch;
-    font-size: clamp(40px, 6vw, 72px);
-    line-height: 1.03;
-    font-weight: 600;
-    letter-spacing: -0.04em;
-  }
-
-  .hero-sub {
+  h1 {
     margin-top: 24px;
-    max-width: 600px;
-    font-size: clamp(17px, 1.7vw, 20px);
-    line-height: 1.55;
-    letter-spacing: -0.016em;
-    color: var(--text-2);
-  }
-
-  .hero-actions {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 12px;
-    margin-top: 32px;
-  }
-
-  .hero-meta {
-    margin-top: 18px;
+    max-width: 920px;
+    font-size: clamp(40px, 5.4vw, 72px);
+    line-height: 1.02;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    color: var(--t1);
     text-wrap: balance;
-    font-size: 13px;
-    color: var(--text-3);
   }
 
-  .hero-shot {
-    margin-top: clamp(40px, 5vw, 64px);
+  .sub {
+    max-width: 560px;
+    margin-top: 22px;
+    font-size: clamp(17px, 1.4vw, 19px);
+    line-height: 1.45;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--t2);
+    text-wrap: balance;
+  }
+
+  .sub strong { font-weight: 600; color: var(--t1); }
+
+  .join { display: flex; justify-content: center; width: 100%; margin-top: 28px; scroll-margin-top: 120px; }
+
+  .meta { margin-top: 12px; font-size: 13px; font-weight: 500; color: var(--t2); }
+
+  .pointer {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    margin-top: clamp(28px, 3vw, 40px);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--red);
+  }
+
+  .pointer svg {
+    width: 26px;
+    height: 38px;
+    overflow: visible;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 3;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
 
   @media (prefers-reduced-motion: no-preference) {
-    .rise {
-      animation: rise 0.7s var(--ease-out) both;
-      animation-delay: var(--d, 0ms);
-    }
+    .arrow-line { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 0.9s var(--ease-out) 0.5s forwards; }
+    .arrow-head { opacity: 0; animation: fade 0.25s ease-out 1.25s forwards; }
   }
 
-  @keyframes rise {
-    from { opacity: 0; transform: translateY(14px); }
-    to { opacity: 1; transform: none; }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  @keyframes fade { to { opacity: 1; } }
+
+  /* A window frame for the product (Attio's light chrome with traffic lights). */
+  .frame {
+    width: 100%;
+    border-radius: 14px;
+    background: #f1f1f3;
+    box-shadow: inset 0 0 0 1px var(--hl-strong), 0 24px 48px -24px rgb(20 20 40 / 0.18);
+    text-align: left;
   }
 
-  @media (min-width: 1000px) {
-    .hero h1 { max-width: none; }
+  @media (prefers-color-scheme: dark) {
+    .frame { background: #1b1b1e; box-shadow: inset 0 0 0 1px var(--hl-strong), 0 24px 48px -24px rgb(0 0 0 / 0.6); }
   }
 
-  @media (max-width: 999px) {
-    .br-wide { display: none; }
-  }
-
-  @media (max-width: 480px) {
-    .hero-actions { flex-direction: column; align-items: stretch; width: 100%; }
-    .hero-meta { max-width: 260px; }
-  }
-
-  /* ---------------------------------------------------------------- 2. Arc */
-  .arc-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-    gap: clamp(32px, 5vw, 64px);
+  .frame-bar {
+    display: flex;
     align-items: center;
+    gap: 14px;
+    height: 40px;
+    padding: 0 14px;
   }
 
-  .arc h2 {
-    font-size: clamp(30px, 3.9vw, 44px);
+  .lights { display: flex; gap: 7px; }
+  .lights i { width: 11px; height: 11px; border-radius: 50%; background: #ff5f57; }
+  .lights i:nth-child(2) { background: #febc2e; }
+  .lights i:nth-child(3) { background: #28c840; }
+
+  .frame-url {
+    flex: 1;
+    max-width: 380px;
+    overflow: hidden;
+    padding: 4px 10px;
+    border-radius: 7px;
+    font-size: 12px;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--t2);
+    background: rgb(var(--ink) / 0.05);
   }
 
-  .arc .eyebrow span[id] {
-    font-variant-numeric: tabular-nums;
-    color: var(--text);
+  .frame-body {
+    margin: 0 6px 6px;
+    padding: clamp(16px, 3vw, 36px);
+    border-radius: 10px;
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--hl);
   }
 
-  .checks {
-    display: grid;
-    gap: 10px;
-    margin-top: 28px;
-    padding: 0;
-    list-style: none;
-    font-size: 15px;
-    line-height: 1.5;
+  .hero-frame {
+    max-width: 760px;
+    margin-top: 10px;
+    margin-bottom: -2px;
+    border-radius: 14px 14px 0 0;
+    scroll-margin-top: 24px;
   }
 
-  .checks li {
-    position: relative;
-    padding-left: 30px;
-  }
+  .hero-frame .frame-body { border-radius: 10px 10px 0 0; margin-bottom: 0; }
+  .hero-frame .frame-body > :global(figure) { max-width: 600px; margin: 0 auto; }
 
-  .checks li::before {
-    content: "";
+  /* The post is long: it shows its top, and expands on request. */
+  .post { position: relative; max-height: 440px; overflow: hidden; transition: max-height 0.6s var(--spring-settle); }
+  .post.open { max-height: 1600px; }
+
+  .post-more {
     position: absolute;
-    left: 0;
-    top: 1px;
-    width: 20px;
-    height: 20px;
-    border-radius: 6px;
-    background:
-      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M5.5 10.2l3 3 6-6.4' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
-        center / 20px no-repeat,
-      linear-gradient(135deg, var(--peach), var(--peach-2));
-    box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.08);
+    inset: auto 0 0;
+    display: flex;
+    justify-content: center;
+    align-items: flex-end;
+    height: 160px;
+    padding-bottom: 24px;
+    background: linear-gradient(to bottom, transparent, var(--surface) 70%);
+    transition: opacity 0.3s ease;
   }
 
-  .note {
-    margin-top: 24px;
-    font-size: 14px;
-    color: var(--text-3);
+  .post.open .post-more { opacity: 0; pointer-events: none; }
+
+  .post-less { display: none; justify-content: center; gap: 8px; margin-top: 8px; }
+  .post.open .post-less { display: flex; }
+
+  /* ------------------------------------------------------------------ facts (Attio's logo grid) */
+
+  .facts {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
   }
 
-  .arc-shot {
-    margin: 0;
+  .fact {
+    display: grid;
+    gap: 4px;
+    padding: 26px 22px;
+    text-align: center;
   }
 
-  @media (max-width: 900px) {
-    .arc-grid { grid-template-columns: 1fr; }
+  .fact + .fact { box-shadow: -1px 0 0 var(--hl); }
+  .fact b { font-size: 17px; font-weight: 600; letter-spacing: -0.015em; color: var(--t1); font-variant-numeric: tabular-nums; }
+  .fact span { font-size: 13px; font-weight: 500; color: var(--t3); }
+  a.fact:hover span { color: var(--t1); }
+
+  /* ------------------------------------------------------------------ the math: orbit */
+
+  .orbit-cell { display: grid; place-items: center; background: var(--panel); }
+
+  .orbit {
+    position: relative;
+    width: min(100%, 420px);
+    aspect-ratio: 1.25;
   }
 
-  /* ---------------------------------------------------------------- 3. Spaces */
-  .pager {
-    margin-top: 48px;
+  .ring {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: inset 0 0 0 1px var(--hl-strong);
+  }
+
+  .r1 { width: 46%; aspect-ratio: 1; }
+  .r2 { width: 78%; aspect-ratio: 1; }
+
+  .core {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    display: grid;
+    place-items: center;
+    width: 84px;
+    height: 84px;
+    border-radius: 50%;
+    background: var(--surface);
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 0 1px var(--hl), 0 8px 24px -8px rgb(20 20 40 / 0.2);
+  }
+
+  .core :global(img) { width: 52px; height: 52px; }
+
+  .chip {
+    position: absolute;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 9px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--hl-strong), 0 2px 6px -2px rgb(20 20 40 / 0.12);
+  }
+
+  .chip img,
+  .chip :global(img) { width: 14px; height: 14px; border-radius: 50%; }
+
+  .chip-claude { left: 0; top: 12%; color: #b4532a; background: #fdf1ea; box-shadow: inset 0 0 0 1px #f3d6c6; }
+  .chip-codex { right: 0; top: 30%; color: #4447c9; background: #eef0ff; box-shadow: inset 0 0 0 1px #d6dbff; }
+  .chip-chromium { left: 6%; bottom: 18%; color: #1f7a4f; background: #eaf8f0; box-shadow: inset 0 0 0 1px #c9ecd8; font-variant-numeric: tabular-nums; }
+  .chip-nik { right: 8%; bottom: 8%; color: var(--t1); }
+
+  @media (prefers-color-scheme: dark) {
+    .chip-claude { color: #f0a27a; background: #2a1c15; box-shadow: inset 0 0 0 1px #4a2c1e; }
+    .chip-codex { color: #a9adff; background: #1b1c33; box-shadow: inset 0 0 0 1px #2e3160; }
+    .chip-chromium { color: #7fd7a6; background: #142a1f; box-shadow: inset 0 0 0 1px #224634; }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .chip { animation: float 6s ease-in-out infinite; }
+    .chip-codex { animation-delay: -1.5s; }
+    .chip-chromium { animation-delay: -3s; }
+    .chip-nik { animation-delay: -4.5s; }
+  }
+
+  @keyframes float { 50% { transform: translateY(-5px); } }
+
+  /* ------------------------------------------------------------------ the loop */
+
+  .step { display: grid; align-content: start; gap: 18px; }
+
+  .step-n {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+    font-size: 13px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--t2);
+    background: var(--panel);
+    box-shadow: inset 0 0 0 1px var(--hl-strong);
+  }
+
+  /* ------------------------------------------------------------------ the Spaces demo */
+
+  .demo {
+    --accent-space: #53ca9f;
+    padding: 0 var(--pad) clamp(40px, 5vw, 64px);
+  }
+
+  .demo-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
   }
 
   .seg {
-    position: relative;
-    display: inline-grid;
-    grid-template-columns: 1fr 1fr;
-    margin: 0 0 20px;
+    display: inline-flex;
+    gap: 2px;
     padding: 3px;
-    border: 0;
-    border-radius: 12px;
-    background: var(--fill);
-    box-shadow: inset 0 0 0 0.5px var(--line);
+    border-radius: 11px;
+    background: var(--panel);
+    box-shadow: inset 0 0 0 1px var(--hl);
   }
 
-  .seg input {
-    position: absolute;
-    opacity: 0;
+  .seg-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 30px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 8px;
+    font: inherit;
+    font-size: 13.5px;
+    font-weight: 550;
+    color: var(--t2);
+    background: transparent;
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .seg-btn i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+  .seg-btn:hover { color: var(--t1); }
+
+  .seg-btn[aria-selected="true"] {
+    color: var(--t1);
+    background: var(--surface);
+    box-shadow: 0 0 0 1px var(--hl-strong), 0 1px 2px rgb(0 0 0 / 0.06);
+  }
+
+  .demo-hint { font-size: 13px; font-weight: 500; color: var(--t2); }
+
+  .demo-view {
+    position: relative;
+    overflow: hidden;
+    border-radius: 16px;
+    background: var(--panel);
+    box-shadow: 0 0 0 0.5px rgb(var(--ink) / 0.1), 0 24px 50px -30px rgb(30 25 50 / 0.4);
+    padding: 0;
+    cursor: grab;
+    touch-action: pan-y;
+    user-select: none;
+    transition: background-color 0.5s var(--spring-settle);
+  }
+
+  .demo-view.dragging { cursor: grabbing; }
+  .demo-view:focus-visible { outline: 2px solid var(--t1); outline-offset: 3px; }
+
+  .demo-track {
+    display: flex;
+    transition: transform 0.48s var(--spring-settle);
+    will-change: transform;
+  }
+
+  .demo-slide { flex: 0 0 100%; }
+
+  .demo-slide :global(img) {
+    display: block;
+    width: 100%;
+    height: auto;
     pointer-events: none;
   }
 
-  .seg label {
+  .demo-dots { display: flex; justify-content: center; gap: 8px; margin-top: 16px; }
+
+  .demo-dots span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--hl-strong);
+    transition: background-color 0.3s ease, transform 0.3s var(--spring-settle);
+  }
+
+  .demo-dots span.on { background: var(--c); transform: scale(1.35); }
+
+  /* ------------------------------------------------------------------ feature explorer: sticky tabs beside the panes */
+
+  .explorer {
+    display: grid;
+    grid-template-columns: 228px minmax(0, 1fr);
+  }
+
+  .ex-tabs {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    display: grid;
+    gap: 2px;
+    padding: 48px 0 48px var(--pad);
+  }
+
+  .ex-tabs a {
     position: relative;
-    z-index: 1;
-    padding: 7px 18px;
-    border-radius: 9px;
-    font-size: 14px;
-    font-weight: 500;
-    text-align: center;
-    color: var(--text-2);
-    cursor: pointer;
-    transition: color 0.15s ease;
-    -webkit-tap-highlight-color: transparent;
+    display: grid;
+    gap: 1px;
+    padding: 9px 0 9px 16px;
+    transition: color 0.2s ease;
   }
 
-  .seg input:checked + label {
-    color: var(--text);
-  }
+  .ex-tabs b { font-size: 14.5px; font-weight: 550; letter-spacing: -0.01em; color: var(--t3); transition: color 0.2s ease; }
+  .ex-tabs span { padding-right: 12px; font-size: 12.5px; line-height: 16px; font-weight: 500; color: var(--t3); opacity: 0; max-height: 0; overflow: hidden; transition: opacity 0.25s ease, max-height 0.3s var(--spring-settle); }
 
-  .seg input:focus-visible + label {
-    outline: 2px solid var(--accent);
-    outline-offset: 1px;
-  }
-
-  .seg-knob {
-    position: absolute;
-    top: 3px;
-    bottom: 3px;
-    left: 3px;
-    width: calc(50% - 3px);
-    border-radius: 9px;
-    background: var(--surface);
-    box-shadow: 0 0.5px 1px rgb(0 0 0 / 0.12), 0 1px 3px rgb(0 0 0 / 0.06), inset 0 0 0 0.5px var(--line);
-    transition: transform 0.32s var(--spring-settle);
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .seg-knob { background: rgb(255 255 255 / 0.12); }
-  }
-
-  .stage {
-    position: relative;
-    isolation: isolate;
-    overflow: hidden;
-    padding: clamp(12px, 4vw, 48px);
-    border-radius: clamp(14px, 2vw, 24px);
-    box-shadow: inset 0 0 0 0.5px var(--line);
-  }
-
-  /* The room takes the Space's colour; the window is the object on it. The colour leads the slide (Arc). */
-  .stage::before,
-  .stage::after {
+  /* The rail: a hairline, and on the active tab a bar that fills as you read its pane (Attio's progress rail). */
+  .ex-tabs a::before {
     content: "";
     position: absolute;
-    inset: 0;
-    z-index: -1;
-    transition: opacity 0.12s ease-out;
+    left: 0;
+    top: 6px;
+    bottom: 6px;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--hl);
   }
 
-  .stage::before {
-    background: linear-gradient(135deg, color-mix(in srgb, var(--mint) 55%, #fff), color-mix(in srgb, var(--sky) 45%, #fff));
+  .prog {
+    position: absolute;
+    left: 0;
+    top: 6px;
+    width: 2px;
+    height: 0;
+    border-radius: 2px;
+    background: #3b82f6;
   }
 
-  .stage::after {
-    background: linear-gradient(135deg, var(--ocean), color-mix(in srgb, var(--ocean-2) 70%, #0b2a4a));
-    opacity: 0;
+  .ex-tabs a:hover b { color: var(--t2); }
+  .ex-tabs a.on b { color: var(--t1); }
+  .ex-tabs a.on span { opacity: 1; max-height: 34px; color: var(--t2); }
+  .ex-tabs a.on .prog { height: calc((100% - 12px) * var(--p, 0)); }
+
+  .ex-panes { box-shadow: -1px 0 0 var(--hl); }
+
+  .pane {
+    padding: 48px clamp(20px, 3vw, 40px);
+    scroll-margin-top: 0;
+  }
+
+  .pane + .pane { box-shadow: 0 -1px 0 var(--hl); }
+
+  .pt {
+    max-width: 620px;
+    font-size: clamp(22px, 2vw, 26px);
+    line-height: 1.25;
+    font-weight: 550;
+    letter-spacing: -0.018em;
+    color: var(--t1);
+    text-wrap: pretty;
+  }
+
+  /* Screenshots sit on a soft desktop: no frame of their own, so the window's corners are the only corners. */
+  .pane-demo {
+    display: block;
+    width: 100%;
+    margin-top: 28px;
+    padding: clamp(20px, 3.4vw, 44px);
+    border: 0;
+    border-radius: 16px;
+    background:
+      radial-gradient(80% 90% at 0% 0%, color-mix(in srgb, var(--mint) 26%, transparent), transparent 70%),
+      radial-gradient(80% 90% at 100% 100%, color-mix(in srgb, var(--lilac) 28%, transparent), transparent 70%),
+      var(--panel);
+    font: inherit;
+    color: inherit;
+    text-align: left;
   }
 
   @media (prefers-color-scheme: dark) {
-    .stage::before {
-      background: linear-gradient(135deg, color-mix(in srgb, var(--mint) 45%, #0d1a16), color-mix(in srgb, var(--sky) 30%, #10161f));
+    .pane-demo {
+      background:
+        radial-gradient(80% 90% at 0% 0%, color-mix(in srgb, var(--mint) 12%, transparent), transparent 70%),
+        radial-gradient(80% 90% at 100% 100%, color-mix(in srgb, var(--lilac) 14%, transparent), transparent 70%),
+        var(--panel);
     }
   }
 
-  .track {
-    display: flex;
-    gap: clamp(24px, 6vw, 96px);
-    transition: transform 0.5s var(--spring-settle);
+  /* The marketing shots are the window, its shadow and a soft desktop: shown as they are, just rounded. */
+  .pane-demo.shot,
+  .pane-demo .shot-flat { padding: 0; overflow: hidden; background: none; }
+
+  .shot :global(img) { border-radius: 14px; }
+
+  .pane-demo.shot :global(img),
+  .shot-flat :global(img) {
+    filter: none !important;
+    box-shadow: 0 0 0 0.5px rgb(var(--ink) / 0.1), 0 18px 40px -24px rgb(30 25 50 / 0.35);
   }
 
-  .track :global(.page) {
-    flex: 0 0 100%;
+  .tint-demo { padding: 20px 20px 18px; margin-bottom: 14px; }
+  .pane-cmd { padding: 0; background: none; }
+  .pane-cmd .try { margin-top: 14px; }
+
+  /* (Older captures, for reference: they carried transparent window corners and a following shadow.) */
+  .grid { --window-shadow: drop-shadow(0 0 0.5px rgb(0 0 0 / 0.35)) drop-shadow(0 18px 28px rgb(30 25 50 / 0.2)); }
+
+  @media (prefers-color-scheme: dark) {
+    .grid { --window-shadow: drop-shadow(0 0 0.5px rgb(255 255 255 / 0.25)) drop-shadow(0 18px 30px rgb(0 0 0 / 0.55)); }
   }
 
-  .pager:has(#sp-work:checked) .track {
-    transform: translateX(calc(-100% - clamp(24px, 6vw, 96px)));
-  }
+  .shot { cursor: zoom-in; }
 
-  .pager:has(#sp-work:checked) .stage::after {
-    opacity: 1;
-  }
-
-  .pager:has(#sp-work:checked) .seg-knob {
-    transform: translateX(100%);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .track { transition: none; }
-    .seg-knob { transition: none; }
-  }
-
-  .trio {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 32px;
-    margin-top: 48px;
-  }
-
-  .trio p,
-  .anatomy-list p,
-  .steps p {
-    margin-top: 6px;
-    font-size: 15px;
-    line-height: 1.55;
-    color: var(--text-2);
-  }
-
-  @media (max-width: 760px) {
-    .trio { grid-template-columns: 1fr; gap: 24px; }
-  }
-
-  /* ---------------------------------------------------------------- 4. Sidebar */
-  .anatomy {
-    display: grid;
-    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
-    gap: clamp(32px, 6vw, 80px);
-    align-items: center;
-    margin-top: 48px;
-  }
-
-  .anatomy-stage {
-    display: grid;
-    place-items: center;
-    padding: clamp(24px, 5vw, 56px) 0;
-    border-radius: clamp(14px, 2vw, 24px);
-    background: linear-gradient(160deg, color-mix(in srgb, var(--lilac) 38%, var(--bg)), color-mix(in srgb, var(--pink) 30%, var(--bg)));
-    box-shadow: inset 0 0 0 0.5px var(--line);
-  }
-
-  .anatomy-sidebar {
-    position: relative;
-    width: 260px;
-    aspect-ratio: 228 / 660;
-    border-radius: 14px;
-    box-shadow: var(--shadow-shot);
-  }
-
-  .anatomy-sidebar :global(img) {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    object-position: top;
-    border-radius: 14px;
-  }
-
-  .marker {
-    position: absolute;
-    top: var(--at);
-    right: -13px;
-    translate: 0 -50%;
-    display: grid;
-    place-items: center;
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    font-size: 12px;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-    color: #fff;
-    background: var(--accent);
-    box-shadow: 0 0 0 3px var(--surface), 0 4px 10px rgb(0 0 0 / 0.18);
-  }
-
-  .anatomy-list {
-    counter-reset: part;
-    display: grid;
-    gap: 24px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .anatomy-list li {
-    counter-increment: part;
-    position: relative;
-    padding-left: 40px;
-  }
-
-  .anatomy-list li::before {
-    content: counter(part);
-    position: absolute;
-    left: 0;
-    top: 0;
-    display: grid;
-    place-items: center;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--accent-text);
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-  }
-
-  @media (max-width: 900px) {
-    .anatomy { grid-template-columns: 1fr; }
-  }
-
-  @media (max-width: 560px) {
-    .anatomy-sidebar { width: 200px; }
-  }
-
-  .specs {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    margin: 56px 0 0;
-    border-radius: 14px;
-    box-shadow: inset 0 0 0 0.5px var(--line-strong);
-    overflow: hidden;
-  }
-
-  .specs div {
-    padding: 16px 18px;
-    box-shadow: -0.5px 0 0 var(--line-strong);
-  }
-
-  .specs dt {
-    font-size: 13px;
-    color: var(--text-3);
-  }
-
-  .specs dd {
-    margin: 2px 0 0;
-    font-family: var(--mono);
-    font-size: 15px;
-    font-weight: 500;
-    color: var(--text);
-    letter-spacing: -0.01em;
-  }
-
-  @media (max-width: 760px) {
-    .specs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .specs div { box-shadow: -0.5px 0 0 var(--line-strong), 0 -0.5px 0 var(--line-strong); }
-    .specs div:last-child { grid-column: span 2; }
-  }
-
-  .cb {
-    margin: clamp(56px, 8vw, 96px) 0 0;
-  }
-
-  .cb figcaption {
-    margin-top: 20px;
-    font-size: 15px;
-    color: var(--text-2);
-    text-align: center;
-  }
-
-  /* ---------------------------------------------------------------- 5. AI */
-  .ai-panel {
-    position: relative;
-    isolation: isolate;
-    overflow: hidden;
-    padding: clamp(32px, 6vw, 72px);
-    border-radius: clamp(18px, 2.4vw, 28px);
-    color: #f4f2ef;
-    background: #141210;
-    box-shadow: 0 0 0 0.5px rgb(255 255 255 / 0.06), 0 30px 80px -30px rgb(20 10 40 / 0.45);
-  }
-
-  .ai-panel::before {
-    content: "";
-    position: absolute;
-    inset: -30% -10% auto 30%;
-    height: 90%;
-    z-index: -1;
-    background:
-      radial-gradient(closest-side, rgb(127 176 255 / 0.32), transparent),
-      radial-gradient(closest-side at 70% 40%, rgb(199 155 255 / 0.28), transparent);
-    filter: blur(30px);
-  }
-
-  .ai-panel h2,
-  .ai-panel h3 {
-    color: #fff;
-  }
-
-  .ai-panel .eyebrow,
-  .ai-panel .lead,
-  .ai-panel .steps p,
-  .ai-panel .oss p {
-    color: rgb(244 242 239 / 0.66);
-  }
-
-  .steps {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 0;
-    margin: 56px 0 0;
-    padding: 0;
-    list-style: none;
-    border-top: 0.5px solid rgb(255 255 255 / 0.14);
-  }
-
-  .steps li {
-    padding: 24px 24px 0 0;
-  }
-
-  .steps li + li {
-    padding-left: 24px;
-    border-left: 0.5px solid rgb(255 255 255 / 0.1);
-  }
-
-  .step-n {
+  .shot :global(img) {
     display: block;
-    margin-bottom: 14px;
-    font-family: var(--mono);
-    font-size: 12px;
-    color: #9ec2ff;
+    width: 100%;
+    height: auto;
+    filter: var(--window-shadow);
+    transition: transform 0.35s var(--spring-settle);
   }
 
-  @media (max-width: 960px) {
-    .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .steps li:nth-child(3) { padding-left: 0; border-left: 0; }
+  .shot:hover :global(img) { transform: translateY(-2px); }
+
+  .shot-flat {
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: none;
   }
 
-  @media (max-width: 560px) {
-    .steps { grid-template-columns: 1fr; }
-    .steps li, .steps li + li { padding: 20px 0 0; border-left: 0; }
-  }
-
-  .oss {
-    display: flex;
+  .try {
+    display: inline-flex;
     align-items: center;
-    gap: 16px;
-    margin-top: 56px;
-    padding-top: 24px;
-    border-top: 0.5px solid rgb(255 255 255 / 0.14);
+    gap: 10px;
+    height: 34px;
+    margin-top: 16px;
+    padding: 0 8px 0 12px;
+    border: 0;
+    border-radius: 9px;
+    font: inherit;
+    font-size: 13.5px;
+    font-weight: 550;
+    color: var(--t1);
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--hl-strong), 0 1px 2px rgb(0 0 0 / 0.04);
+    cursor: pointer;
   }
 
-  .oss p {
-    font-size: 15px;
-    max-width: 640px;
-  }
-
-  .badge {
-    flex: none;
-    padding: 4px 10px;
-    border-radius: 7px;
-    font-family: var(--mono);
-    font-size: 12px;
+  .note {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 14px;
+    font-size: 13px;
     font-weight: 500;
+    color: var(--t2);
+  }
+
+  .note i { width: 6px; height: 6px; border-radius: 50%; background: #e0a030; }
+  .note:hover { color: var(--t1); }
+
+  .try:hover { box-shadow: inset 0 0 0 1px var(--t3), 0 1px 2px rgb(0 0 0 / 0.06); }
+  .try kbd { margin: 0; }
+
+
+
+
+
+  /* ------------------------------------------------------------------ what works: a table */
+
+  .run {
+    display: flex;
+    gap: 10px;
+    flex: none;
+    font-size: 13px;
+    line-height: 1.5;
+    font-weight: 500;
+    color: var(--t2);
+  }
+
+  .run b { color: var(--t1); }
+  .run code { font-family: var(--mono); font-size: 12px; }
+
+  .run-dot {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    margin-top: 6px;
+    border-radius: 50%;
+    background: #2f9e62;
+    box-shadow: 0 0 0 3px rgb(47 158 98 / 0.2);
+  }
+
+  .table { box-shadow: 0 -1px 0 var(--hl); }
+
+  .tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 160px;
+    align-items: center;
+    gap: 24px;
+    padding: 14px var(--pad);
+  }
+
+  .tr + .tr { box-shadow: 0 -1px 0 var(--hl); }
+  .tr:not(.th):hover { background: var(--panel); }
+
+  .th {
+    padding-block: 10px;
+    font-size: 12.5px;
+    font-weight: 550;
+    color: var(--t3);
+    background: var(--panel);
+  }
+
+  .th span:last-child,
+  .td-s { justify-self: end; }
+
+  .td-f { display: grid; gap: 2px; }
+  .td-f b { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--t1); }
+  .td-f span { font-size: 14px; font-weight: 500; color: var(--t2); }
+
+  .mark {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
     color: #fff;
-    background: rgb(255 255 255 / 0.08);
-    box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.18);
   }
 
-  @media (max-width: 560px) {
-    .oss { flex-direction: column; align-items: flex-start; }
+  .mark svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+  .mark-passing { background: #2f9e62; }
+  .mark-failing { background: #e5484d; }
+
+  .pending {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 24px;
+    padding: 0 9px;
+    border-radius: 7px;
+    font-size: 12.5px;
+    font-weight: 550;
+    color: #93610f;
+    background: #fdf6e6;
+    box-shadow: inset 0 0 0 1px #f3e2b8;
   }
 
-  /* ---------------------------------------------------------------- 6. FAQ */
-  .faq {
+  .pending i { width: 6px; height: 6px; border-radius: 50%; background: #e0a030; }
+
+  @media (prefers-color-scheme: dark) {
+    .pending { color: #f0c26b; background: #2b2213; box-shadow: inset 0 0 0 1px #4a3a1c; }
+  }
+
+  /* ------------------------------------------------------------------ why */
+
+  .why { padding: clamp(56px, 7vw, 96px) var(--pad); }
+
+
+
+
+  /* ------------------------------------------------------------------ team */
+
+  .who { display: grid; align-content: start; gap: 12px; }
+  .who-icon { width: 40px; height: 40px; }
+  .who :global(.who-photo) { border-radius: 50%; box-shadow: 0 0 0 1px var(--hl-strong); }
+  .who-name { margin-top: 6px; font-size: 14px; font-weight: 500; color: var(--t3); }
+  .who-name b { margin-right: 6px; font-size: 17px; font-weight: 600; letter-spacing: -0.015em; color: var(--t1); }
+  .who-body { font-size: 15px; line-height: 1.5; font-weight: 500; color: var(--t2); }
+
+  /* ------------------------------------------------------------------ questions */
+
+  .qa-sec {
     display: grid;
     grid-template-columns: minmax(0, 4fr) minmax(0, 7fr);
-    gap: 32px clamp(32px, 6vw, 80px);
+    gap: 40px;
+    padding: clamp(56px, 7vw, 96px) var(--pad);
   }
 
-  .faq-head p {
-    margin-top: 12px;
-    font-size: 15px;
-  }
+  .qa-head { position: sticky; top: 24px; align-self: start; }
+  .qa-note { margin-top: 14px; font-size: 15px; font-weight: 500; color: var(--t2); }
+  .qa-note a { color: var(--t1); text-decoration: underline; text-decoration-color: var(--hl-strong); text-underline-offset: 3px; }
 
-  .faq-head a {
-    color: var(--accent-text);
-    text-decoration: underline;
-    text-decoration-thickness: 1px;
-    text-underline-offset: 3px;
-  }
+  .qa { box-shadow: 0 1px 0 var(--hl); }
+  .qa details { box-shadow: 0 -1px 0 var(--hl); }
 
-  details {
-    border-bottom: 0.5px solid var(--line-strong);
-  }
-
-  details:first-child {
-    border-top: 0.5px solid var(--line-strong);
-  }
-
-  summary {
+  .qa summary {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
-    padding: 20px 0;
-    font-size: 17px;
-    font-weight: 600;
-    letter-spacing: -0.016em;
+    gap: 20px;
+    padding: 18px 0;
+    font-size: 16px;
+    font-weight: 550;
+    letter-spacing: -0.01em;
+    color: var(--t1);
     cursor: pointer;
     list-style: none;
   }
 
-  summary::-webkit-details-marker {
-    display: none;
-  }
+  .qa summary::-webkit-details-marker { display: none; }
 
-  .chev {
+  .qa summary::after {
+    content: "";
     flex: none;
-    width: 10px;
-    height: 10px;
-    margin-right: 4px;
-    border-right: 1.75px solid var(--text-3);
-    border-bottom: 1.75px solid var(--text-3);
-    transform: translateY(-3px) rotate(45deg);
-    transition: transform 0.2s var(--ease-out);
+    width: 12px;
+    height: 12px;
+    background:
+      linear-gradient(var(--t3), var(--t3)) center / 100% 1.5px no-repeat,
+      linear-gradient(var(--t3), var(--t3)) center / 1.5px 100% no-repeat;
+    transition: transform 0.25s var(--ease-out);
   }
 
-  details[open] .chev {
-    transform: translateY(2px) rotate(-135deg);
-  }
+  .qa details[open] summary::after { transform: rotate(45deg); }
+  .qa details p { margin: -4px 0 20px; max-width: 560px; font-size: 15px; line-height: 1.55; font-weight: 500; color: var(--t2); }
 
-  details p {
-    padding: 0 40px 22px 0;
-    font-size: 15px;
-    line-height: 1.6;
-    color: var(--text-2);
-  }
+  /* ------------------------------------------------------------------ closing: Attio's dark section, with an Arc of light */
 
-  @media (max-width: 760px) {
-    .faq { grid-template-columns: 1fr; }
-    details p { padding-right: 0; }
-  }
-
-  /* ---------------------------------------------------------------- closing */
   .closing {
+    position: relative;
     isolation: isolate;
-    padding-bottom: clamp(80px, 12vw, 140px);
-  }
-
-  .bloom-soft {
-    top: 30%;
-    -webkit-mask-image: radial-gradient(closest-side, #000 40%, transparent);
-    mask-image: radial-gradient(closest-side, #000 40%, transparent);
-  }
-
-  .bloom-soft i {
-    top: 10% !important;
-    opacity: 0.22;
-  }
-
-  .closing-inner {
+    overflow: hidden;
     display: flex;
     flex-direction: column;
     align-items: center;
+    padding: clamp(80px, 10vw, 140px) var(--pad) clamp(180px, 20vw, 260px);
     text-align: center;
+    color: #fff;
+    background: #0c0c0e;
   }
 
-  .closing-inner :global(img) {
-    width: 72px;
-    height: 72px;
-    margin-bottom: 28px;
-    filter: drop-shadow(0 6px 14px rgb(80 40 140 / 0.2));
-  }
-
-  .closing .lead {
-    margin: 14px auto 32px;
+  .closing h2 {
+    max-width: 760px;
+    font-size: clamp(36px, 4.6vw, 64px);
+    line-height: 1.04;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    color: #fff;
     text-wrap: balance;
+  }
+
+  .closing .red { color: #ff6b6f; }
+  .closing-count { margin-bottom: 24px; }
+  .closing-count :global(.countdown) {
+    --surface: rgb(255 255 255 / 0.06);
+    --hl: rgb(255 255 255 / 0.12);
+    --hl-strong: rgb(255 255 255 / 0.2);
+    --t1: #fff;
+    --t2: rgb(255 255 255 / 0.7);
+    --t3: rgb(255 255 255 / 0.45);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .closing {
+      background: #060607;
+      box-shadow: 0 -1px 0 rgb(255 255 255 / 0.08), inset 0 80px 120px -80px rgb(109 140 240 / 0.14);
+    }
+  }
+  .closing .join { position: relative; }
+  .tag-dark { color: rgb(255 255 255 / 0.7); background: rgb(255 255 255 / 0.06); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.1); }
+  .meta-dark { color: rgb(255 255 255 / 0.45); }
+
+  .closing .join :global(input[type="email"]) {
+    color: #fff;
+    background: rgb(255 255 255 / 0.06);
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.14);
+  }
+
+  .closing .join :global(input[type="email"]::placeholder) { color: rgb(255 255 255 / 0.4); }
+
+  .closing .join :global(.btn-primary) { color: #0c0c0e; background: #fff; box-shadow: none; }
+
+  /* An arc of light rising over the horizon, in Arc's colours (Attio's dark "Universal Context" horizon). */
+  .arc-glow {
+    position: absolute;
+    left: 50%;
+    top: 64%;
+    z-index: -1;
+    width: max(140%, 1100px);
+    aspect-ratio: 1;
+    transform: translateX(-50%);
+    pointer-events: none;
+    -webkit-mask-image: linear-gradient(90deg, transparent 8%, #000 30%, #000 70%, transparent 92%);
+    mask-image: linear-gradient(90deg, transparent 8%, #000 30%, #000 70%, transparent 92%);
+  }
+
+  .arc-glow i {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: conic-gradient(from 270deg, transparent 0deg, #53ca9f 30deg, #6d8cf0 75deg, #b9a2f2 105deg, #efa3c4 140deg, #f7b184 165deg, transparent 180deg, transparent 360deg);
+    -webkit-mask: radial-gradient(closest-side, transparent calc(100% - 3px), #000 calc(100% - 2px), #000 100%, transparent 100%);
+    mask: radial-gradient(closest-side, transparent calc(100% - 3px), #000 calc(100% - 2px), #000 100%, transparent 100%);
+  }
+
+  .arc-glow i + i {
+    filter: blur(28px);
+    opacity: 0.75;
+    -webkit-mask: radial-gradient(closest-side, transparent calc(100% - 60px), #000 calc(100% - 10px), #000 100%, transparent 100%);
+    mask: radial-gradient(closest-side, transparent calc(100% - 60px), #000 calc(100% - 10px), #000 100%, transparent 100%);
+  }
+
+  /* ------------------------------------------------------------------ small screens */
+
+  @media (max-width: 980px) {
+    .facts { grid-template-columns: repeat(2, 1fr); }
+    .fact:nth-child(odd) { box-shadow: none; }
+    .fact:nth-child(n + 3) { box-shadow: 0 -1px 0 var(--hl); }
+    .fact:nth-child(even):nth-child(n + 3) { box-shadow: 0 -1px 0 var(--hl), -1px 0 0 var(--hl); }
+    .fact:last-child { grid-column: 1 / -1; }
+
+    .cells-2,
+    .cells-3 { grid-template-columns: 1fr; }
+    .cell + .cell { box-shadow: 0 -1px 0 var(--hl); }
+
+    .explorer { grid-template-columns: 1fr; }
+    .ex-tabs { display: none; }
+    .ex-panes { box-shadow: none; }
+
+    .qa-sec { grid-template-columns: 1fr; }
+    .qa-head { position: static; }
+    .sec-head-row { flex-direction: column; align-items: flex-start; }
+  }
+
+  @media (max-width: 600px) {
+    .tr { grid-template-columns: 24px minmax(0, 1fr); gap: 12px; align-items: start; }
+    .tr .td-s { grid-column: 1; grid-row: 1; justify-self: start; padding-top: 1px; }
+    .tr .td-f { grid-column: 2; }
+    .th { display: none; }
+    .tr .pending { padding: 0; width: 22px; height: 22px; justify-content: center; border-radius: 50%; font-size: 0; }
+    .tr .pending i { width: 8px; height: 8px; }
+    .tr:has(.pending) .td-f b::after {
+      content: "Check pending";
+      margin-left: 8px;
+      padding: 1px 6px;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      vertical-align: 2px;
+      color: #93610f;
+      background: #fdf6e6;
+    }
+
+    /* The command bar reads on a phone: only the field and its first rows. */
+    .tr:first-of-type + .tr { box-shadow: none; }
+  }
+
+  @media (max-width: 900px) {
+    .grid { box-shadow: none; }
+    .demo-hint { display: none; }
+  }
+
+  /* ------------------------------------------------------------------ the loop's cards */
+
+  .steps .step { grid-template-rows: auto auto 1fr; padding-bottom: 0; }
+
+  .viz {
+    display: grid;
+    place-items: center;
+    min-height: 230px;
+    margin: 24px calc(-1 * var(--pad)) 0;
+    padding: 28px;
+    background: radial-gradient(rgb(var(--ink) / 0.09) 1px, transparent 1.2px) 0 0 / 12px 12px, var(--panel);
+    box-shadow: 0 -1px 0 var(--hl);
+  }
+
+  .card {
+    width: 100%;
+    max-width: 300px;
+    padding: 6px;
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: 0 0 0 0.5px rgb(var(--ink) / 0.1), 0 1px 2px rgb(0 0 0 / 0.04), 0 14px 30px -14px rgb(30 25 20 / 0.24);
+    font-size: 13px;
+    color: rgb(var(--ink) / 0.86);
+  }
+
+  .card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 8px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: rgb(var(--ink) / 0.72);
+  }
+
+  .muted { font-weight: 500; color: rgb(var(--ink) / 0.42); }
+  .mono { font-family: var(--mono); font-size: 11px; }
+
+  .line { display: flex; align-items: center; gap: 9px; height: 34px; padding: 0 8px; border-radius: 8px; }
+  .line em { margin-left: auto; font-style: normal; font-size: 12px; color: rgb(var(--ink) / 0.45); }
+  .line-foot { margin-top: 4px; background: rgb(var(--ink) / 0.035); }
+  .line-foot code { margin-left: auto; font-family: var(--mono); font-size: 11.5px; color: rgb(var(--ink) / 0.8); }
+
+  .led { flex: none; width: 7px; height: 7px; border-radius: 50%; background: rgb(var(--ink) / 0.2); }
+  .led-on { background: #2f9e62; box-shadow: 0 0 0 3px rgb(47 158 98 / 0.18); }
+
+  .tick {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #2f9e62 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6.5 12.5l3.5 3.5 7.5-8'/%3E%3C/svg%3E") center / 12px no-repeat;
+  }
+
+  .line :global(.face) { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
+  .yes { color: #23824f !important; font-weight: 600; }
+
+  .term { padding: 6px 6px 12px; background: #1d1b1a; box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.4), 0 14px 30px -14px rgb(0 0 0 / 0.45); color: #e9e5e0; }
+  .term .card-head { padding-bottom: 10px; }
+  .term-dots { display: flex; gap: 5px; }
+  .term-dots i { width: 8px; height: 8px; border-radius: 50%; background: rgb(255 255 255 / 0.18); }
+  .term-who { display: flex; gap: 6px; }
+  .term-who img { width: 16px; height: 16px; border-radius: 4px; background: #fff; padding: 1.5px; }
+
+  .term code {
+    display: block;
+    padding: 2px 10px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    line-height: 1.6;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .term .cmd::before { content: "$ "; color: rgb(255 255 255 / 0.4); }
+  .term .ok { color: #7fd8a6; }
+  .term .ok::before { content: "✓ "; }
+  .term .ok + .cmd { margin-top: 6px; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .viz[data-in] :is(.line, code) { opacity: 0; transform: translateY(6px); transition: opacity 0.5s var(--ease-out), transform 0.6s var(--spring-settle); }
+    .viz[data-in].in :is(.line, code) { opacity: 1; transform: none; }
+    .viz[data-in].in :is(.line, code):nth-child(2) { transition-delay: 0.08s; }
+    .viz[data-in].in :is(.line, code):nth-child(3) { transition-delay: 0.18s; }
+    .viz[data-in].in :is(.line, code):nth-child(4) { transition-delay: 0.3s; }
+    .viz[data-in].in :is(.line, code):nth-child(5) { transition-delay: 0.42s; }
+    .viz[data-in].in :is(.line, code):nth-child(6) { transition-delay: 0.54s; }
+    .viz[data-in].in :is(.line, code):nth-child(7) { transition-delay: 0.66s; }
+  }
+
+  /* ------------------------------------------------------------------ what works: two columns */
+
+  .run {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 6px 10px;
+    padding: 14px var(--pad);
+    font-size: 13.5px;
+    line-height: 1.5;
+    font-weight: 500;
+    color: var(--t2);
+    background: var(--panel);
+    box-shadow: 0 -1px 0 var(--hl), 0 1px 0 var(--hl);
+  }
+
+  .run b { color: var(--t1); font-weight: 600; }
+  .run-meta { align-self: center; font-size: 12.5px; color: var(--t3); white-space: nowrap; }
+  .run-meta code { font-family: var(--mono); font-size: 11.5px; }
+  .pend-dot { display: inline-block; width: 7px; height: 7px; margin: 0 2px 1px 4px; border-radius: 50%; background: #e0a030; }
+
+  .works { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; padding: 0; list-style: none; }
+
+  .work {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr);
+    gap: 14px;
+    align-items: start;
+    padding: 18px var(--pad) 20px;
+    box-shadow: 0 1px 0 var(--hl);
+  }
+
+  .work:nth-child(even) { box-shadow: 0 1px 0 var(--hl), -1px 0 0 var(--hl); }
+  .work h3 { font-size: 15px; line-height: 1.35; font-weight: 600; letter-spacing: -0.012em; color: var(--t1); }
+  .work p { margin-top: 3px; font-size: 13.5px; line-height: 1.5; font-weight: 500; color: var(--t2); }
+  .state { margin-top: 1px; }
+  .work .mark { width: 20px; height: 20px; }
+  .work .mark svg { width: 12px; height: 12px; }
+
+  .work .pending { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border-radius: 50%; }
+  .work .pending i { width: 8px; height: 8px; }
+
+  .pend-label {
+    margin-left: 8px;
+    padding: 1px 7px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    vertical-align: 1px;
+    color: #93610f;
+    background: #fdf6e6;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .pend-label { color: #f0c26b; background: #2b2213; }
+  }
+
+  /* ------------------------------------------------------------------ why: a short, centred quote */
+
+  .why { padding: clamp(56px, 7vw, 88px) var(--pad); }
+
+  .quote { margin: 0 auto; max-width: 760px; display: flex; flex-direction: column; align-items: center; text-align: center; }
+
+  .quote blockquote {
+    margin: 0;
+    font-size: clamp(26px, 3vw, 38px);
+    line-height: 1.22;
+    font-weight: 550;
+    letter-spacing: -0.024em;
+    color: var(--t1);
+    text-wrap: balance;
+  }
+
+  .quote-sub { max-width: 560px; margin-top: 18px; font-size: 17px; line-height: 1.5; font-weight: 500; color: var(--cont); text-wrap: balance; }
+
+  .quote figcaption { display: flex; align-items: center; gap: 12px; margin-top: 28px; font-size: 14px; color: var(--t2); }
+  .quote figcaption b { font-weight: 600; color: var(--t1); }
+  .quote :global(.why-photo) { width: 48px; height: 48px; border-radius: 50%; box-shadow: 0 0 0 1px var(--hl-strong); }
+
+  .seg-emoji { font-size: 14px; line-height: 1; }
+
+  @media (max-width: 600px) {
+    .seg { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+    .seg-btn { justify-content: center; }
+  }
+
+  @media (max-width: 760px) {
+    .works { grid-template-columns: 1fr; }
+    .work:nth-child(even) { box-shadow: 0 1px 0 var(--hl); }
+    .run { grid-template-columns: auto minmax(0, 1fr); }
+    .run-meta { grid-column: 2; white-space: normal; }
+  }
+
+  /* ------------------------------------------------------------------ boosts */
+
+  .soon {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 16px;
+    font-size: 13.5px;
+    font-weight: 550;
+    color: var(--t2);
+  }
+
+  .soon i { width: 7px; height: 7px; border-radius: 50%; background: #7a4cf0; box-shadow: 0 0 0 3px rgb(122 76 240 / 0.2); }
+  .soon:hover { color: var(--t1); }
+
+  .boost {
+    display: grid;
+    grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
+    box-shadow: 0 -1px 0 var(--hl);
+  }
+
+  .boost-tabs { display: grid; align-content: start; padding: 28px var(--pad); gap: 4px; }
+
+  .boost-tab {
+    position: relative;
+    display: grid;
+    gap: 3px;
+    padding: 12px 0 12px 16px;
+    border: 0;
+    background: none;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .boost-tab::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 10px;
+    bottom: 10px;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--hl);
+  }
+
+  .boost-tab b { font-size: 16px; font-weight: 600; letter-spacing: -0.012em; color: var(--t3); transition: color 0.2s ease; }
+  .boost-tab span { font-size: 14px; line-height: 1.45; font-weight: 500; color: var(--t3); transition: color 0.2s ease; }
+  .boost-tab:hover b { color: var(--t2); }
+  .boost-tab[aria-selected="true"] b { color: var(--t1); }
+  .boost-tab[aria-selected="true"] span { color: var(--t2); }
+
+  .boost-prog {
+    position: absolute;
+    left: 0;
+    top: 10px;
+    width: 2px;
+    height: 0;
+    border-radius: 2px;
+    background: #e0559f;
+  }
+
+  .boost-tab[aria-selected="true"] .boost-prog { height: calc(100% - 20px); }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .ticking .boost-tab[aria-selected="true"] .boost-prog { height: 0; animation: boost-fill 4.2s linear forwards; }
+  }
+
+  @keyframes boost-fill { to { height: calc(100% - 20px); } }
+
+  .boost-more { margin-top: 10px; padding-left: 16px; font-size: 14px; line-height: 1.45; font-weight: 500; color: var(--t2); }
+  .boost-more b { display: block; font-size: 16px; font-weight: 600; color: var(--t1); }
+
+  .boost-trust {
+    margin-top: 22px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    font-size: 13.5px;
+    line-height: 1.5;
+    font-weight: 500;
+    color: var(--t2);
+    background: var(--panel);
+    box-shadow: inset 0 0 0 1px var(--hl);
+  }
+
+  .boost-view {
+    position: relative;
+    display: grid;
+    padding: 28px var(--pad) 28px 0;
+  }
+
+  .boost-shot {
+    grid-area: 1 / 1;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: zoom-in;
+    opacity: 0;
+    transform: scale(0.985);
+    transition: opacity 0.5s var(--ease-out), transform 0.6s var(--spring-settle);
+    pointer-events: none;
+  }
+
+  .boost-shot.on { opacity: 1; transform: none; pointer-events: auto; }
+
+  .boost-shot :global(img) {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 14px;
+    box-shadow: 0 0 0 0.5px rgb(var(--ink) / 0.1), 0 18px 40px -24px rgb(30 25 50 / 0.35);
+  }
+
+  .next-label {
+    margin-left: 8px;
+    padding: 1px 7px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    vertical-align: 1px;
+    color: #6a3fd0;
+    background: rgb(122 76 240 / 0.12);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .next-label { color: #b9a2f2; background: rgb(122 76 240 / 0.22); }
+  }
+
+  @media (max-width: 980px) {
+    .boost { grid-template-columns: 1fr; }
+    .boost-view { padding: 0 var(--pad) 28px; }
+    .boost-tabs { padding-bottom: 8px; }
+  }
+
+  /* ------------------------------------------------------------------ the repo, under the maintainers */
+
+  .repo {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 16px;
+    padding: 20px var(--pad);
+    box-shadow: 0 -1px 0 var(--hl);
+    transition: background-color 0.15s ease;
+  }
+
+  .repo[hidden] { display: none; }
+  .repo:hover { background: var(--panel); }
+
+  .repo-mark {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    color: #fff;
+    background: #1c1d1f;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .repo-mark { color: #111113; background: #f2f2f4; }
+  }
+
+  .repo-copy { display: grid; gap: 2px; }
+  .repo-copy b { font-family: var(--mono); font-size: 14.5px; font-weight: 600; color: var(--t1); }
+  .repo-copy span { font-size: 14px; font-weight: 500; color: var(--t2); }
+
+  .repo-stars {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 36px;
+    padding: 0 14px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--t1);
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--hl-strong);
+  }
+
+  .repo-stars svg { width: 14px; height: 14px; fill: #e8a32b; }
+  .repo-stars b:empty + span::before { content: ""; }
+  .repo-stars b:not(:empty)::after { content: " ·"; font-weight: 500; color: var(--t3); }
+
+  @media (max-width: 600px) {
+    .repo { grid-template-columns: auto minmax(0, 1fr); }
+    .repo-stars { grid-column: 1 / -1; justify-self: start; }
   }
 </style>

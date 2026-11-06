@@ -34,7 +34,7 @@ enum ImportAdapter {
         var firstTheme: [String: SpaceTheme] = [:]
         for s in plan.spaces where firstTheme[s.profileID] == nil { firstTheme[s.profileID] = theme(s.theme) }
 
-        let profiles = plan.profiles.map { p in
+        var profiles = plan.profiles.map { p in
             ImportBlueprint.Profile(sourceID: profileKey(p), name: p.name == "Default" && p.id == "default" ? "Personal" : p.name,
                                     emoji: firstEmoji[p.id] ?? "",
                                     color: ArcTheme.chromiumColor(p.color?.foundation) ?? firstTheme[p.id]?.colors.first,
@@ -44,6 +44,13 @@ enum ImportAdapter {
             ImportBlueprint.Space(sourceID: "arc-space:" + s.id, name: s.name, icon: s.emoji == "•" ? nil : .emoji(s.emoji),
                                   theme: theme(s.theme), profileSourceID: profileKey(id: s.profileID, in: plan),
                                   pinned: s.pinned.map(node), today: s.today.map(tab))
+        }
+        // Every profile a Space uses gets a profile, even one Arc's profile list doesn't have (a missing folder): without
+        // it, applyImport would put that Space in the default profile, with the default profile's logins.
+        let known = Set(profiles.map(\.sourceID))
+        var added = Set<String>()
+        for s in spaces where !known.contains(s.profileSourceID) && added.insert(s.profileSourceID).inserted {
+            profiles.append(placeholderProfile(s.profileSourceID, spaces: spaces.filter { $0.profileSourceID == s.profileSourceID }))
         }
         var favorites: [String: [ImportBlueprint.Tab]] = [:]
         for (pid, tabs) in plan.favorites { favorites[profileKey(id: pid, in: plan), default: []] += tabs.map(tab) }
@@ -73,22 +80,68 @@ enum ImportAdapter {
               lastActiveAt: t.lastActiveAt.map { Date(timeIntervalSinceReferenceDate: $0) })
     }
 
-    /// The plan's warnings as one short, plain note for the user (IM-1), or nil when there's nothing to say.
-    static func note(for warnings: [ImportWarning]) -> String? {
-        guard !warnings.isEmpty else { return nil }
-        var counts: [ImportWarning.Code: Int] = [:]
-        for w in warnings { counts[w.code, default: 0] += 1 }
-        var parts: [String] = []
-        func plural(_ n: Int, _ one: String, _ many: String) -> String { n == 1 ? one : "\(n) \(many)" }
-        if let n = counts[.splitView] { parts.append(plural(n, "A split view became separate tabs", "split views became separate tabs")) }
-        if let n = counts[.easel] { parts.append(plural(n, "An Easel was skipped", "Easels were skipped")) }
-        if let n = counts[.unsupportedItem] { parts.append(plural(n, "An item Airc doesn't have yet was flattened", "items Airc doesn't have yet were flattened")) }
-        if let n = counts[.invalidTab] { parts.append(plural(n, "A tab without an address was left out", "tabs without an address were left out")) }
-        if (counts[.missingItem] ?? 0) + (counts[.cycle] ?? 0) + (counts[.depthLimit] ?? 0) > 0 {
-            parts.append("Some damaged sidebar entries were left out")
+    /// A profile for a Space whose profile isn't in Arc's profile list: named after its folder, with the first Space's
+    /// emoji and colour.
+    static func placeholderProfile(_ key: String, spaces: [ImportBlueprint.Space]) -> ImportBlueprint.Profile {
+        let directory = key.hasPrefix("arc-profile:") ? String(key.dropFirst("arc-profile:".count)) : key
+        let isDefault = directory == "Default"
+        return ImportBlueprint.Profile(sourceID: key, name: isDefault ? "Personal" : directory,
+                                       emoji: spaces.lazy.compactMap(\.emoji).first ?? "", color: spaces.first?.theme.colors.first,
+                                       isSourceDefault: isDefault)
+    }
+
+    /// One thing the import changes on the way, said plainly: "1 Easel was left out".
+    struct Change: Equatable, Identifiable {
+        var count: Int
+        /// The short line ("1 Easel was left out").
+        var summary: String
+        /// Why, for the Details popover ("Airc has no Easels.").
+        var detail: String
+        var id: String { summary }
+    }
+
+    /// The plan's warnings as plain changes, most important first (IM-1). Warnings never carry titles or URLs, so
+    /// neither do these.
+    static func changes(for warnings: [ImportWarning]) -> [Change] {
+        var counts: [String: Int] = [:]
+        for w in warnings {
+            let key = w.code == .unsupportedItem ? "unsupported:" + (w.kind ?? "") : w.code.rawValue
+            counts[key, default: 0] += 1
         }
-        if counts[.missingProfile] != nil { parts.append("A profile folder is missing, so its logins can't come along") }
-        if counts[.newerVersion] != nil { parts.append("This Arc is newer than Airc knows; everything readable came over") }
-        return parts.isEmpty ? nil : parts.joined(separator: ". ") + "."
+        func n(_ k: String) -> Int { counts[k] ?? 0 }
+        var out: [Change] = []
+        func add(_ count: Int, _ one: String, _ many: String, _ detail: String) {
+            guard count > 0 else { return }
+            out.append(Change(count: count, summary: "\(count) " + (count == 1 ? one : many), detail: detail))
+        }
+        add(n("easel"), "Easel was left out", "Easels were left out", "Airc has no Easels. Arc keeps them until Dec 22; export the ones you need from Arc first.")
+        add(n("note"), "Note was left out", "Notes were left out", "Airc has no Notes yet. Copy what you need out of Arc's Notes first.")
+        add(n("liveFolder"), "live folder is now a plain folder", "live folders are now plain folders",
+            "Their tabs came over, but they no longer fill themselves from GitHub or Linear.")
+        add(n("unsupported:tabGroup"), "tab group became single tabs", "tab groups became single tabs",
+            "Airc has no tab groups; each tab in one is its own pinned tab now, in the same place.")
+        add(n("splitView"), "split view became separate tabs", "split views became separate tabs",
+            "Split views in Today, or inside another split, come over as their tabs one by one.")
+        add(n("invalidTab"), "tab without an address was left out", "tabs without an address were left out",
+            "Arc had saved these with no page address, so there was nothing to open.")
+        let damaged = n("missingItem") + n("cycle") + n("depthLimit")
+        add(damaged, "damaged sidebar entry was left out", "damaged sidebar entries were left out",
+            "Arc's sidebar file points at entries that aren't there, or loops back on itself.")
+        let other = counts.filter { $0.key.hasPrefix("unsupported:") && $0.key != "unsupported:tabGroup" }
+        if !other.isEmpty {
+            let kinds = other.keys.map { String($0.dropFirst("unsupported:".count)) }.filter { !$0.isEmpty }.sorted()
+            let total = other.values.reduce(0, +)
+            let names = kinds.joined(separator: ", ")
+            add(total, "item of a kind Airc doesn't have yet became the tabs in it",
+                "items of kinds Airc doesn't have yet became the tabs in them",
+                "Anything inside them came over in their place" + (kinds.isEmpty ? "." : " (Arc calls them: " + names + ")."))
+        }
+        add(n("missingProfile"), "Arc profile folder is missing", "Arc profile folders are missing",
+            "Its Spaces come over, but its logins and cookies can't.")
+        if n("newerVersion") > 0 {
+            out.append(Change(count: 1, summary: "This Arc is newer than Airc knows",
+                              detail: "Everything Airc could read came over; check your Spaces once they're in."))
+        }
+        return out
     }
 }

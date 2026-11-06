@@ -84,10 +84,18 @@ public struct ImportedProfile: Codable, Sendable, Equatable {
     public var isAvailable: Bool
 }
 public struct ImportWarning: Codable, Sendable, Equatable {
-    public enum Code: String, Codable, Sendable { case splitView, unsupportedItem, easel, missingItem, invalidTab, cycle, depthLimit, emptySpaces, emptyItems, newerVersion, missingProfile }
+    public enum Code: String, Codable, Sendable { case splitView, unsupportedItem, easel, note, liveFolder, missingItem, invalidTab, cycle, depthLimit, emptySpaces, emptyItems, newerVersion, missingProfile }
     public var code: Code
     /// Deliberately excludes source titles, URLs and identifiers.
     public var message: String
+    /// For `unsupportedItem`: Arc's name for the item's kind (`tabGroup`, `sharedObject`…), never anything the user wrote.
+    public var kind: String? = nil
+
+    public init(code: Code, message: String, kind: String? = nil) {
+        self.code = code
+        self.message = message
+        self.kind = kind
+    }
 }
 public struct ImportPlan: Codable, Sendable, Equatable {
     public var profiles: [ImportedProfile]

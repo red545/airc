@@ -1,0 +1,172 @@
+---
+// The twelve Space presets (packages/AircDesign SpaceTheme.presets). A click re-tints this page's own window, the way a
+// Space's colour fills the app's. Rendering follows SpaceTheme: colours 1 and 2 mix along a 45° diagonal, reaching
+// colour 2 at 75 %; colour 3 fades in down the window; the colour layer sits at 0.2 + 0.55 × intensity (0.81) over white
+// for light themes and black for dark ones (Ocean at 0.455, design.md decision 2).
+type Preset = { id: string; name: string; colors: string[]; dark?: boolean; strength?: number };
+const presets: Preset[] = [
+  { id: "paper", name: "Paper", colors: [] },
+  { id: "mint", name: "Mint", colors: ["#53CA9F"] },
+  { id: "sky", name: "Sky", colors: ["#86CDF5", "#6D8CF0"] },
+  { id: "lilac", name: "Lilac", colors: ["#B9A2F2", "#EFA3C4"] },
+  { id: "peach", name: "Peach", colors: ["#F7B184", "#F08A9A"] },
+  { id: "lemon", name: "Lemon", colors: ["#F4DA6E", "#9BDB8A"] },
+  { id: "ocean", name: "Ocean", colors: ["#2F6AF0", "#13B5B0"], dark: true, strength: 0.455 },
+  { id: "grape", name: "Grape", colors: ["#7A4CF0", "#E0559F", "#3A4FD8"], dark: true },
+  { id: "forest", name: "Forest", colors: ["#2A8A5C", "#7A9A2E"], dark: true },
+  { id: "ember", name: "Ember", colors: ["#F0642A", "#B0254A"], dark: true },
+  { id: "slate", name: "Slate", colors: ["#656786"], dark: true },
+  { id: "midnight", name: "Midnight", colors: ["#3B4470", "#1B1E2E"], dark: true },
+];
+
+const css = (p: Preset) => {
+  if (!p.colors.length) return "";
+  const a = p.strength ?? 0.2 + 0.55 * 0.81;
+  const under = p.dark ? "0 0 0" : "255 255 255";
+  const [c1, c2 = c1, c3] = p.colors;
+  return [
+    `linear-gradient(rgb(${under} / ${(1 - a).toFixed(3)}), rgb(${under} / ${(1 - a).toFixed(3)}))`,
+    c3 ? `linear-gradient(to bottom, transparent, ${c3})` : "",
+    `linear-gradient(135deg, ${c1}, ${c2} 75%)`,
+  ]
+    .filter(Boolean)
+    .join(", ");
+};
+---
+
+<div class="tp" data-tp>
+  <div class="tp-grid" role="radiogroup" aria-label="Window colour">
+    {presets.map((p) => (
+      <button
+        type="button"
+        role="radio"
+        class="tp-sw"
+        aria-checked={p.id === "paper" ? "true" : "false"}
+        aria-label={p.name}
+        title={p.name}
+        data-tint={p.id}
+        data-tone={p.colors.length ? (p.dark ? "dark" : "light") : ""}
+        data-bg={css(p)}
+        style={p.colors.length ? `--sw:${css(p)}` : undefined}
+      ></button>
+    ))}
+  </div>
+  <p class="tp-now" aria-live="polite">
+    <span class="tp-name" data-tp-name>Paper</span>
+    <span class="tp-sep" aria-hidden="true">·</span>
+    <span class="tp-tip" data-tp-tip>Pick one. This window changes too.</span>
+  </p>
+</div>
+
+<script>
+  import { track } from "../lib/analytics";
+  const win = document.querySelector<HTMLElement>(".window");
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // The window's colour changes on a layer that fades in over the last one, since gradients can't transition.
+  const tints = document.querySelector<HTMLElement>(".window > .tints");
+  const tint = (bg: string, tone: string) => {
+    if (!win || !tints) return;
+    const layer = document.createElement("div");
+    layer.className = bg ? "tint" : "tint tint-paper";
+    if (bg) layer.style.background = bg;
+    const old = [...tints.children];
+    tints.append(layer);
+    if (tone) win.dataset.tone = tone;
+    else delete win.dataset.tone;
+    if (reduce) {
+      layer.classList.add("in");
+      old.forEach((o) => o.remove());
+      return;
+    }
+    requestAnimationFrame(() => requestAnimationFrame(() => layer.classList.add("in")));
+    setTimeout(() => old.forEach((o) => o.remove()), 600);
+  };
+
+  for (const root of document.querySelectorAll<HTMLElement>("[data-tp]")) {
+    const name = root.querySelector<HTMLElement>("[data-tp-name]")!;
+    const tip = root.querySelector<HTMLElement>("[data-tp-tip]")!;
+    const swatches = [...root.querySelectorAll<HTMLButtonElement>("[data-tint]")];
+    swatches.forEach((b) =>
+      b.addEventListener("click", () => {
+        if (b.getAttribute("aria-checked") === "true") return;
+        swatches.forEach((s) => s.setAttribute("aria-checked", String(s === b)));
+        name.textContent = b.title;
+        tip.textContent = b.dataset.tint === "paper" ? "Airc's default: warm stone." : "Look left.";
+        tint(b.dataset.bg ?? "", b.dataset.tone ?? "");
+        track("tint_picked", { preset: b.dataset.tint ?? "" });
+      }),
+    );
+    // Arrow keys move through the swatches, as in a radio group.
+    root.addEventListener("keydown", (e) => {
+      const i = swatches.indexOf(document.activeElement as HTMLButtonElement);
+      if (i < 0) return;
+      const d = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+      if (!d) return;
+      e.preventDefault();
+      const next = swatches[(i + d + swatches.length) % swatches.length];
+      next.focus();
+      next.click();
+    });
+  }
+</script>
+
+<style>
+  .tp { display: grid; gap: 18px; justify-items: center; }
+
+  .tp-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 40px);
+    gap: 12px 14px;
+  }
+
+  .tp-sw {
+    position: relative;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: var(--sw, var(--win, #ebe8e4));
+    box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.14), 0 1px 2px rgb(0 0 0 / 0.08);
+    cursor: pointer;
+    transition: transform 0.25s var(--spring-settle);
+  }
+
+  .tp-sw:not([style]) { background: #ebe8e4; }
+
+  @media (prefers-color-scheme: dark) {
+    .tp-sw:not([style]) { background: #26221f; box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.2); }
+  }
+
+  .tp-sw:hover { transform: scale(1.08); }
+  .tp-sw:active { transform: scale(0.94); }
+
+  .tp-sw::after {
+    content: "";
+    position: absolute;
+    inset: -5px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1.5px rgb(var(--ink) / 0.85);
+    opacity: 0;
+    transform: scale(0.9);
+    transition: opacity 0.2s ease, transform 0.25s var(--spring-settle);
+  }
+
+  .tp-sw[aria-checked="true"]::after { opacity: 1; transform: none; }
+
+  .tp-now {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    font-size: 13.5px;
+    color: rgb(var(--ink) / 0.5);
+  }
+
+  .tp-name { font-weight: 600; color: rgb(var(--ink) / 0.85); }
+
+  @media (max-width: 480px) {
+    .tp-grid { grid-template-columns: repeat(6, 34px); gap: 10px; }
+    .tp-sw { width: 34px; height: 34px; }
+  }
+</style>

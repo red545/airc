@@ -54,6 +54,27 @@ enum LinkLog {
 
     static func yesNo(_ b: Bool) -> String { b ? "yes" : "no" }
 
+    /// The front app (at a link: the one it came from, before Airc activates) and whether it's in full screen on the
+    /// active Space, as the window server lists windows on screen (no screen-recording access needed).
+    static func frontApp() -> String {
+        guard let front = NSWorkspace.shared.frontmostApplication else { return "front app none" }
+        return "front app \(front.bundleIdentifier ?? "pid \(front.processIdentifier)"), full screen \(yesNo(isFullScreen(front.processIdentifier)))"
+    }
+
+    /// One of the app's windows fills a whole screen on the active Space (a full-screen app: a zoomed window stops
+    /// at the menu bar).
+    static func isFullScreen(_ pid: pid_t) -> Bool {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
+        else { return false }
+        let top = NSScreen.screens.first?.frame.maxY ?? 0
+        let screens = NSScreen.screens.map { CGRect(x: $0.frame.minX, y: top - $0.frame.maxY, width: $0.frame.width, height: $0.frame.height) }
+        return list.contains { w in
+            guard (w[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid, (w[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
+                  let d = w[kCGWindowBounds as String] as? NSDictionary, let b = CGRect(dictionaryRepresentation: d) else { return false }
+            return screens.contains(b)
+        }
+    }
+
     /// The window's state as the person sees it: key, main, on the active Space, visible, the app's front window.
     static func windowState(_ w: NSWindow) -> String {
         "key \(yesNo(w.isKeyWindow)), main \(yesNo(w.isMainWindow)), visible \(yesNo(w.isVisible)), "

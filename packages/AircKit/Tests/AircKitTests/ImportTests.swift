@@ -262,6 +262,12 @@ final class GoogleAccountsTests: XCTestCase {
         let text = #"["gaia.l.a.r",[["gaia.l.a",1,"Alex","alex@example.com","https://x/photo",1,1,0,null,1,"1",null,null,null,null,1],["gaia.l.a",1,"Old","old@example.com","",1,1,0,null,0,"2"]]]"#
         XCTAssertEqual(GoogleAccounts.emails(fromListAccounts: text), ["alex@example.com"])
         XCTAssertEqual(GoogleAccounts.emails(fromListAccounts: "<html>"), [])
+        // Name and picture; nil (no answer) is not the same as [] (signed out); a JSON viewer's words around it.
+        XCTAssertEqual(GoogleAccounts.accounts(fromListAccounts: text),
+                       [GoogleAccount(name: "Alex", email: "alex@example.com", photoURL: "https://x/photo")])
+        XCTAssertEqual(GoogleAccounts.accounts(fromListAccounts: #"["gaia.l.a.r",[]]"#), [])
+        XCTAssertNil(GoogleAccounts.accounts(fromListAccounts: "<html><body>Sign in</body></html>"))
+        XCTAssertEqual(GoogleAccounts.accounts(fromListAccounts: "Pretty-print\n" + text)?.map(\.email), ["alex@example.com"])
     }
 }
 

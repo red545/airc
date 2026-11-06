@@ -1,4 +1,5 @@
 // Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
+import AircKit
 import AppKit
 import ImageIO
 
@@ -8,13 +9,32 @@ final class FaviconCache {
     static let shared = FaviconCache()
 
     private let memory = NSCache<NSURL, NSImage>()
-    /// Icons being fetched, waiting for a retry, or given up on for now (by URL).
+    /// Icons being fetched or waiting for a retry (by URL). Every one has callers or a retry still to come, so these are
+    /// never evicted: a record goes when its icon arrives or its last retry fails.
     private var fetches: [URL: Fetch] = [:]
-    /// A host whose icon fetch just failed: none of its icons is asked for again before then, so a failing host gets
-    /// one request per retry, however many rows show it.
-    private var hostRetryAt: [String: Date] = [:]
+    /// Icons given up on for now (by URL; true: missing, not just failing): asked for again before their cooldown
+    /// ends, they answer nil at once. Expired ones are dropped, and at most `failureLimit` are kept, the least recently
+    /// asked for going first.
+    private var givenUp = ExpiringLRU<URL, Bool>(limit: FaviconCache.failureLimit)
+    /// A host whose icon fetch just failed, until when: none of its icons is asked for again before then, so a failing
+    /// host gets one request per retry, however many rows show it. Bounded and pruned like `givenUp`.
+    private var hostRetryAt = ExpiringLRU<String, Date>(limit: FaviconCache.failureLimit)
+    private var prunedAt = Date()
     private let session: URLSession
     private let directory: URL
+
+    /// How many failed icons and failing hosts are remembered at most.
+    static let failureLimit = 4000
+
+    #if AIRC_TESTING
+    /// Every icon asked of the network, in order, in scripted runs (BoostsCheck: the Command Bar asks for none while you
+    /// type). Dev builds are test builds too: they don't keep it.
+    private(set) var networkRequests: [URL] = []
+    private let recording = LaunchOptions.current.snapshotDir != nil
+    var failureCounts: (givenUp: Int, hosts: Int, fetching: Int) { (givenUp.count, hostRetryAt.count, fetches.count) }
+    /// Forgets the icons in memory (the disk cache stays).
+    func forgetMemoryForTesting() { memory.removeAllObjects() }
+    #endif
 
     /// A failed fetch (no answer, a timeout, 408, 429 or 5xx) is tried again after each of these delays: three more
     /// tries over about a minute. A missing icon (404, an image ImageIO can't read) isn't retried.
@@ -33,8 +53,6 @@ final class FaviconCache {
         var attempts = 0
         var inFlight = false
         var retry: DispatchWorkItem?
-        var gaveUpAt: Date?
-        var missing = false
     }
 
     private init() {
@@ -57,6 +75,23 @@ final class FaviconCache {
 
     func cached(_ string: String?) -> NSImage? { string.flatMap(URL.init(string:)).flatMap(cached) }
 
+    /// The icon if it's in memory or in the disk cache, never from the network: rows for sites you haven't opened
+    /// (the Command Bar while you type) mustn't tell a site you might.
+    func stored(_ string: String?, completion: @escaping (NSImage?) -> Void) {
+        guard let s = string, let url = URL(string: s) else { return completion(nil) }
+        if let img = memory.object(forKey: url as NSURL) { return completion(img) }
+        let file = fileURL(for: url)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let img = (try? Data(contentsOf: file)).flatMap(Self.decode)
+            DispatchQueue.main.async {
+                if let img { self.memory.setObject(img, forKey: url as NSURL) }
+                completion(img)
+            }
+        }
+    }
+
+    private func fileURL(for url: URL) -> URL { directory.appendingPathComponent(Self.stableName(url.absoluteString) + ".icon") }
+
     /// `retrying`: the completion waits through the retries (it runs once, with the icon or with nil when they're used
     /// up). Otherwise it runs after this attempt; the retries go on in the background and fill the cache.
     func load(_ string: String?, retrying: Bool = false, completion: @escaping (NSImage?) -> Void) {
@@ -66,14 +101,10 @@ final class FaviconCache {
 
     func load(_ url: URL, retrying: Bool = false, completion: @escaping (NSImage?) -> Void) {
         if let img = memory.object(forKey: url as NSURL) { return completion(img) }
+        // Given up on a moment ago: no new round yet (an expired record is dropped, and this starts one).
+        if fetches[url] == nil, givenUp.value(for: url) != nil { return completion(nil) }
         let f = fetches[url] ?? Fetch()
         fetches[url] = f
-        if let gaveUp = f.gaveUpAt {
-            // Given up on a moment ago: no new round yet.
-            guard Date().timeIntervalSince(gaveUp) >= (f.missing ? Self.missingCooldown : Self.cooldown) else { return completion(nil) }
-            f.gaveUpAt = nil
-            f.attempts = 0
-        }
         if retrying { f.patient.append(completion) } else { f.waiting.append(completion) }
         if f.inFlight { return }
         if f.retry != nil {
@@ -82,7 +113,7 @@ final class FaviconCache {
             return
         }
         // Another icon on this host failed a moment ago: this one waits for the host's retry time too.
-        if let host = url.host?.lowercased(), let at = hostRetryAt[host], at > Date() {
+        if let host = url.host?.lowercased(), let at = hostRetryAt.value(for: host) {
             schedule(url, f, at: at)
             if !retrying { f.waiting.removeAll(); completion(nil) }
             return
@@ -104,12 +135,15 @@ final class FaviconCache {
     private func attempt(_ url: URL, _ f: Fetch) {
         f.inFlight = true
         f.attempts += 1
-        let file = directory.appendingPathComponent(Self.stableName(url.absoluteString) + ".icon")
+        let file = fileURL(for: url)
         DispatchQueue.global(qos: .userInitiated).async { [session] in
             if let data = try? Data(contentsOf: file), let img = Self.decode(data) {
                 DispatchQueue.main.async { self.finish(url, img, transient: false) }
                 return
             }
+            #if AIRC_TESTING
+            if self.recording { DispatchQueue.main.async { self.networkRequests.append(url) } }
+            #endif
             session.dataTask(with: url) { data, response, error in
                 var img: NSImage?
                 let status = (response as? HTTPURLResponse)?.statusCode ?? (error == nil ? 200 : 0)
@@ -130,25 +164,40 @@ final class FaviconCache {
         let host = url.host?.lowercased()
         let waiting = f.waiting
         f.waiting = []
+        pruneNow()
         if let image {
             memory.setObject(image, forKey: url as NSURL)
-            if let host { hostRetryAt[host] = nil }
+            if let host { hostRetryAt.remove(host) }
             fetches[url] = nil
+            givenUp.remove(url)
             (waiting + f.patient).forEach { $0(image) }
             return
         }
         waiting.forEach { $0(nil) }
         if transient, f.attempts <= Self.retryDelays.count {
             let at = Date().addingTimeInterval(Self.retryDelays[f.attempts - 1])
-            if let host { hostRetryAt[host] = max(hostRetryAt[host] ?? at, at) }
+            if let host {
+                let until = max(hostRetryAt.peek(host) ?? at, at)
+                hostRetryAt.set(until, for: host, expires: until)
+            }
             schedule(url, f, at: at)
             return
         }
-        f.gaveUpAt = Date()
-        f.missing = !transient
+        // Given up for now: the record leaves the fetches for the bounded failures, which only answer "not yet".
+        fetches[url] = nil
+        givenUp.set(!transient, for: url, expires: Date().addingTimeInterval(transient ? Self.cooldown : Self.missingCooldown))
         let patient = f.patient
         f.patient = []
         patient.forEach { $0(nil) }
+    }
+
+    /// Expired failures and host deadlines go, at most once a minute.
+    private func pruneNow() {
+        let now = Date()
+        guard now.timeIntervalSince(prunedAt) > 60 else { return }
+        prunedAt = now
+        givenUp.prune(now: now)
+        hostRetryAt.prune(now: now)
     }
 
     /// Untrusted bytes from the network: at most 256 KB, decoded by ImageIO into a bitmap of at most 128 px a side, so

@@ -4,7 +4,9 @@ import AppKit
 import AircKit
 
 /// `--script boosts` (both engines; BST-1): Boosts on pages from a loopback server. Site A is 127.0.0.1, site B is
-/// localhost (the same server: another site to the browser).
+/// localhost (the same server: another site to the browser). Two tenants of one private public suffix,
+/// victim.duckdns.org and attacker.duckdns.org, are the same server too: on Chromium through the engine's host resolver
+/// rule (`--host-resolver-rules=MAP *.duckdns.org 127.0.0.1`, build-app.sh), on WebKit as simulated loads.
 ///   - the Boost's CSS is there at first paint: the page's own head script, the first parsed elements and its first
 ///     animation frame already see it (no flash), also under a strict Content-Security-Policy;
 ///   - the font, the custom CSS and the custom JS apply, the JS once per page load and only on its own site;
@@ -15,7 +17,13 @@ import AircKit
 ///   - Site Controls shows "Boosted" with its switch (a real click), the URL field shows the Boost icon; switching
 ///     off restores the page; on again, it's back;
 ///   - View → Boost This Site… opens the editor; the Boost is in Boosts.json;
-///   - the editor's sections in a light and a dark theme (boosts-*.png), and Site Controls with a Boost.
+///   - the editor's sections in a light and a dark theme (boosts-*.png), and Site Controls with a Boost;
+///   - review1: one tenant's Boost (style and code) never reaches the other tenant, and its code runs on its own host
+///     only until "all of the site" is picked; a blob: document the page navigates to gets no edit (nothing sent, even
+///     to a page that poisoned its prototypes); Back to a page after its Boost was deleted shows no style, and nor does
+///     a page made from the old script in the moment before the engine has the new one; a held Boost (from a build
+///     before the whole public suffix list) shows its banner and moves to the site it's used for; the Command Bar asks
+///     the network for no icon while "spot" is typed with an empty cache.
 extension SnapshotRunner {
     func boostsScenario() {
         let chromium = app?.engine.name.hasPrefix("Chromium") == true
@@ -51,16 +59,23 @@ extension SnapshotRunner {
             <p>Body text for the Boost test, with <code>code</code> in it.</p>
             """
         let style = "<style>body { font-family: Times; margin: 0; padding: 24px; background: #fff } #hero { color: rgb(10, 20, 30) }</style>"
+        /// No icon to fetch: on WebKit these pages are simulated, and their hosts are real names.
+        func tenantPage(_ title: String) -> String {
+            "<!doctype html><html><head><title>\(title)</title><link rel=\"icon\" href=\"data:,\">\(probe)\(style)</head>"
+                + "<body>\(body)</body></html>"
+        }
+        var routes: [String: LocalPageServer.Page] = [:]
+        for t in ["victim", "attacker", "victim-www", "victim-held"] { routes["/tenant-" + t] = .init(body: tenantPage(t)) }
 
         step { [self] done in
-            server = LocalPageServer(responses: [
+            server = LocalPageServer(responses: routes.merging([
                 "/boost": .init(body: "<!doctype html><html><head><title>boost</title>\(probe)\(style)</head><body>\(body)"
                                 + "<iframe src=\"/frame\" style=\"width: 300px; height: 80px\"></iframe></body></html>"),
                 "/other": .init(body: "<!doctype html><html><head><title>other</title>\(probe)\(style)</head><body>\(body)</body></html>"),
                 "/frame": .init(body: "<!doctype html><html><head><title>frame</title>\(style)</head><body><h1 id=\"hero\">Frame</h1></body></html>"),
                 "/csp": .init(headers: ["Content-Security-Policy": "style-src 'none'; script-src 'unsafe-inline'"],
                               body: "<!doctype html><html><head><title>csp</title>\(probe)</head><body>\(body)</body></html>"),
-            ])
+            ]) { a, _ in a })
             guard let server else { check(false, "boosts: the loopback server starts"); return done() }
             server.start { p in
                 guard let p else { self.check(false, "boosts: the loopback server starts"); return done() }
@@ -339,6 +354,202 @@ extension SnapshotRunner {
             capture("boosts-\(appearance.rawValue)")
             run { [self] in c.closeBoostEditor(animated: false) }
         }
+        // 10. Two tenants of one private suffix (duckdns.org is in the public suffix list's private section).
+        let victim = "victim.duckdns.org", attacker = "attacker.duckdns.org", victimWWW = "www.victim.duckdns.org"
+        let tenantJS = "document.documentElement.dataset.boostJs = location.hostname;\nwindow.__boostRuns = (window.__boostRuns || 0) + 1;"
+        /// A page of `host`: loaded through the resolver rule on Chromium, simulated on WebKit (no network either way).
+        func visit(_ host: String, title: String) {
+            run { [self] in
+                if chromium {
+                    if let u = URL(string: "http://\(host):\(port)/tenant-\(title)") { page()?.load(u) }
+                } else if let web = (page() as? WebKitTab)?.webView, let u = URL(string: "https://\(host)/tenant") {
+                    web.loadSimulatedRequest(URLRequest(url: u), responseHTML: tenantPage(title))
+                } else {
+                    check(false, "boosts (\(tag)): a simulated load of \(host)")
+                }
+            }
+            waitTitle(title)
+        }
+        run { [self] in
+            check(BoostDomain.key(forHost: victim) == victim && BoostDomain.key(forHost: attacker) == attacker
+                  && BoostDomain.key(forHost: victimWWW) == victim,
+                  "boosts (\(tag)): the whole public suffix list: two tenants of duckdns.org are two sites "
+                  + "(\(BoostDomain.key(forHost: victim) ?? "-"), \(BoostDomain.key(forHost: attacker) ?? "-"); "
+                  + "\(PublicSuffixList.shared.ruleCount) rules)")
+            center()?.update(domain: victim) {
+                $0.colors = BoostColors(invert: true)
+                $0.css = "#hero { color: rgb(4, 5, 6) !important; }"
+                $0.js = tenantJS
+                $0.scriptHost = victim
+            }
+        }
+        settle()
+        open({ base(siteA) + "/other" }, title: "other")
+        visit(victim, title: "victim")
+        expectJS("JSON.stringify([window.__atStart.filter, window.__heroAtParse])", "a tenant's Boost applies on its own site, from the first parse") {
+            $0.contains("invert(1)") && $0.contains("rgb(4, 5, 6)")
+        }
+        waitJS("document.documentElement.dataset.boostJs + '/' + window.__boostRuns", "a tenant's code runs on its own host, once") {
+            $0 == "\(victim)/1"
+        }
+        visit(attacker, title: "attacker")
+        expectJS("JSON.stringify([window.__atStart.filter, window.__heroAtParse, document.adoptedStyleSheets.length])",
+                 "another tenant of duckdns.org gets none of its style") { $0 == #"["none","rgb(10, 20, 30)",0]"# }
+        wait(1)
+        expectJS("String(document.documentElement.dataset.boostJs) + '/' + String(window.__boostRuns)",
+                 "another tenant of duckdns.org never runs its code") { $0 == "undefined/undefined" }
+        visit(victimWWW, title: "victim-www")
+        expectJS("window.__heroAtParse", "the tenant's style covers its whole site (www.)") { $0 == "rgb(4, 5, 6)" }
+        wait(1)
+        expectJS("String(document.documentElement.dataset.boostJs)", "its code doesn't run on another host of its site (saved for \(victim))") {
+            $0 == "undefined"
+        }
+        run { [self] in center()?.setScriptHost(nil, domain: victim, page: page()) }
+        waitJS("document.documentElement.dataset.boostJs + '/' + window.__boostRuns", "all of the site picked: its code runs on www. too, at once") {
+            $0 == "\(victimWWW)/1"
+        }
+        run { [self] in
+            let runs = center()?.scriptRuns.filter { $0.domain == victim }.map(\.origin) ?? []
+            let wrong = center()?.scriptRuns.filter { $0.origin == attacker || ($0.domain == victim && ![victim, victimWWW].contains($0.origin)) } ?? []
+            check(wrong.isEmpty && runs == [victim, victimWWW], "boosts (\(tag)): the app sent the tenant's code only to its own pages (\(runs))")
+            center()?.remove(domain: victim, page: nil)
+        }
+
+        // 11. A blob: document the page navigates to: it says ready with no site, and an edit sends it nothing, even
+        // though it shares the page's origin and poisons the prototypes the old composer used.
+        open({ base(siteA) + "/boost" }, title: "boost")
+        run { [self] in check(page().flatMap { center()?.document(of: $0) } != nil, "boosts (\(tag)): the boosted page is registered") }
+        js("""
+            (function () {
+              var html = '<!doctype html><title>blob</title><script>Object.prototype.hasOwnProperty = function () { return true; };'
+                + 'Object.prototype.boost = function (k, j) { window.__stolen = (window.__stolen || []).concat([k + " " + j]); };'
+                + 'Object.prototype.t = "forged";<' + '/script><h1 id="hero">blob</h1>';
+              location.href = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+              return 'ok';
+            })()
+            """) { _ in }
+        waitTitle("blob")
+        var sentBefore = 0
+        run { [self] in
+            sentBefore = center()?.sent.count ?? 0
+            center()?.update(domain: siteA) { $0.css = "#hero { color: rgb(7, 8, 9) !important; }" }
+        }
+        wait(1)
+        run { [self] in
+            let tab = page()?.tabID ?? -2
+            let delivered = (center()?.sent.dropFirst(sentBefore) ?? []).filter { $0.tab == tab && $0.delivered }
+            check(delivered.isEmpty, "boosts (\(tag)): an edit sends nothing to the blob: document the tab shows now "
+                  + "(\(delivered.map { $0.kind }); the tab's record: \(page().flatMap { center()?.document(of: $0)?.origin } ?? "gone"))")
+            check(page().flatMap { center()?.document(of: $0) } == nil, "boosts (\(tag)): the tab's record of the boosted page is gone")
+        }
+        expectJS("JSON.stringify([String(window.__stolen), document.adoptedStyleSheets.length, getComputedStyle(document.getElementById('hero')).color])",
+                 "the blob: document got nothing (no message, no style)") { $0.hasPrefix(#"["undefined",0,"#) && !$0.contains("rgb(7, 8, 9)") }
+        // Not Back: Chromium's history intervention skips the entry of a page that navigated away without a gesture.
+        go({ base(siteA) + "/boost" }, title: "boost")
+        waitJS("getComputedStyle(document.getElementById('hero')).color", "the boosted page again, it has the edit") { $0 == "rgb(7, 8, 9)" }
+
+        // 12. Back after the Boost was deleted, the page from the back-forward cache shows none of it.
+        js("window.__kept = 'cached'; 'ok'") { _ in }
+        go({ base(siteB) + "/other" }, title: "other")
+        run { [self] in center()?.remove(domain: siteA, page: nil) }
+        settle()
+        run { page()?.goBack() }
+        waitTitle("boost")
+        js("String(window.__kept)") { [self] got in
+            note("boosts (\(tag)): Back came \(got == "cached" ? "from the back-forward cache" : "as a fresh load (the engine didn't cache the page)")")
+        }
+        waitJS("JSON.stringify([getComputedStyle(document.documentElement).filter, getComputedStyle(document.getElementById('hero')).color, getComputedStyle(document.body).fontFamily])",
+               "Back after deleting the Boost: no style is left") { !$0.contains("invert") && $0.contains("rgb(10, 20, 30)") && !$0.contains("Menlo") }
+
+        // 13. Deleted in the moment before the engine has the new script: a page made from the old one is cleared.
+        run { [self] in center()?.update(domain: siteA) { $0.colors = BoostColors(invert: true); $0.css = "#hero { color: rgb(1, 2, 3) !important; }" } }
+        settle()
+        go({ base(siteA) + "/boost" }, title: "boost")
+        js("window.__beforeReload = 1; 'ok'") { _ in }
+        run { [self] in
+            center()?.remove(domain: siteA, page: nil)
+            page()?.reload()
+        }
+        waitJS("String(window.__beforeReload) + '|' + document.readyState", "the page reloads") { $0 == "undefined|complete" }
+        js("window.__atStart.filter") { [self] got in
+            note("boosts (\(tag)): the reloaded page was made from the \(got.contains("invert") ? "old script (the Boost still in it)" : "new script already")")
+        }
+        waitJS("getComputedStyle(document.documentElement).filter + '|' + getComputedStyle(document.getElementById('hero')).color",
+               "a page made from the old script loses the deleted Boost's style at once") { $0 == "none|rgb(10, 20, 30)" }
+
+        // 14. A held Boost (version 1 file, shared suffix): applies nowhere, its banner offers it to the page's site.
+        run { [self] in
+            center()?.update(domain: "duckdns.org") {
+                $0.colors = BoostColors(invert: true)
+                $0.js = tenantJS
+                $0.needsSite = true
+            }
+        }
+        settle()
+        visit(victim, title: "victim-held")
+        expectJS("JSON.stringify([window.__atStart.filter, document.adoptedStyleSheets.length])", "a held Boost applies nowhere") { $0 == #"["none",0]"# }
+        wait(1)
+        expectJS("String(document.documentElement.dataset.boostJs)", "a held Boost's code doesn't run") { $0 == "undefined" }
+        run { [self] in
+            c.showBoostEditor(section: .code)
+            editor()?.codeKind = .js
+            check(editor()?.domain == victim && editor()?.held?.domain == "duckdns.org" && editor()?.canUseHeld == true,
+                  "boosts (\(tag)): the editor on a tenant shows the held Boost for duckdns.org (\(editor()?.held?.domain ?? "none"))")
+        }
+        wait(0.5)
+        capture("boosts-editor-held")
+        run { [self] in editor()?.useHeld() }
+        waitJS("getComputedStyle(document.documentElement).filter + '|' + document.documentElement.dataset.boostJs",
+               "Use for the site: it applies there, code included") { $0.contains("invert(1)") && $0.hasSuffix("|\(victim)") }
+        run { [self] in
+            let b = center()?.store.boost(domain: victim)
+            check(center()?.store.boost(domain: "duckdns.org") == nil && b?.needsSite == false && b?.scriptHost == victim,
+                  "boosts (\(tag)): the held Boost moved to \(victim), its code on that host only (\(b?.scriptHost ?? "-"))")
+        }
+        wait(0.3)
+        capture("boosts-editor-scope")
+        run { [self] in
+            c.closeBoostEditor(animated: false)
+            center()?.remove(domain: victim, page: nil)
+        }
+
+        // 15. The Command Bar while typing: built-in sites (and every other row) take icons from the caches only.
+        run { [self] in
+            FaviconCache.shared.forgetMemoryForTesting()
+            let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("Airc/Favicons")
+            let onDisk = (try? FileManager.default.contentsOfDirectory(atPath: dir.path).count) ?? 0
+            note("boosts (\(tag)): the icon cache is empty in memory, \(onDisk) icons on disk")
+        }
+        var requestsBefore = 0
+        step { [self] done in
+            requestsBefore = FaviconCache.shared.networkRequests.count
+            c.openCommandBar(mode: .newTab)
+            c.commandBar?.type("sp")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self.c.commandBar?.type("spot")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { done() }
+            }
+        }
+        run { [self] in
+            let rows = c.commandBar?.results ?? []
+            let sites = rows.filter { if case .site = $0.icon { return true } else { return false } }.map(\.title)
+            // Retries for the check's own pages (loopback, the simulated tenants) may come due meanwhile: not the bar's.
+            let ours: Set<String> = [siteA, siteB, victim, attacker, victimWWW]
+            let asked = FaviconCache.shared.networkRequests.dropFirst(requestsBefore).filter { !ours.contains($0.host ?? "") }
+                .map(\.absoluteString)
+            check(!sites.isEmpty && asked.isEmpty,
+                  "boosts (\(tag)): \"spot\" in the Command Bar shows built-in sites (\(sites.prefix(4))) and asks the network for no icon (\(asked))")
+            c.closeCommandBar()
+        }
+        wait(0.5)
+        run { [self] in
+            let ours: Set<String> = [siteA, siteB, victim, attacker, victimWWW]
+            let asked = FaviconCache.shared.networkRequests.dropFirst(requestsBefore).filter { !ours.contains($0.host ?? "") }.count
+            check(asked == 0, "boosts (\(tag)): closing the Command Bar without choosing leaves no icon request (\(asked))")
+            let f = FaviconCache.shared.failureCounts
+            note("boosts (\(tag)): favicon records: \(f.givenUp) given up, \(f.hosts) hosts waiting, \(f.fetching) fetching")
+        }
+
         run { [self] in
             center()?.remove(domain: siteA, page: nil)
             server?.stop()

@@ -8,7 +8,9 @@ import SwiftUI
 // The Boost editor (BST-1, Arc's Boost panel): a floating card over the top-right corner of the page, opened from Site
 // Controls ("Boost this site") or View → Boost This Site…. Four sections, all live on the page while you edit:
 // Colors (tint, brightness, contrast, invert), Font (a system font and a size), Zap (click elements to hide them) and
-// Code (the site's own CSS and JavaScript, saved with Save or ⌘S). It stays open while you work on the page; ✕ or Esc
+// Code (the site's own CSS and JavaScript, saved with Save or ⌘S; the JavaScript runs on the host it was saved on unless
+// "All of <site>" is on). A Boost held since the move to the whole public suffix list (`Boost.needsSite`) shows as a
+// banner on the pages it may have been made for, to use there or delete. It stays open while you work on the page; ✕ or Esc
 // close it (Esc first ends Zap), and so does leaving the site or the tab. The card follows the Site Controls card's
 // surface (radius 14, popover shadow), 320 pt wide.
 
@@ -19,6 +21,10 @@ final class BoostEditorModel: ObservableObject {
     enum CodeKind: String { case css, js }
 
     let domain: String
+    /// The page's own host ("www.nytimes.com"): where new JavaScript runs.
+    let pageHost: String?
+    /// The site is one exact host (an address, "github.io"): its code can't be for a part of it.
+    let isExactSite: Bool
     private(set) weak var page: EngineTab?
     weak var controller: WindowController?
     let ui: ResolvedTheme
@@ -32,6 +38,11 @@ final class BoostEditorModel: ObservableObject {
     @Published var js: String { didSet { keepDraft() } }
     @Published private(set) var zapping = false
     @Published var notice: String?
+    /// The JavaScript runs on every page of the site (the Boost's `scriptHost` is nil). For code not saved yet, the
+    /// choice its first Save takes: off, the page's host.
+    @Published private(set) var scriptAllOfSite = false
+    /// A held Boost this page may be what it was made for.
+    @Published private(set) var held: Boost?
     /// Something was changed in this session (`boost_saved`, once, when it closes).
     private(set) var edited = false
 
@@ -45,6 +56,8 @@ final class BoostEditorModel: ObservableObject {
         self.domain = domain
         self.page = page
         self.ui = ui
+        pageHost = BoostDomain.webHost(of: page.url)
+        isExactSite = BoostDomain.isExactHost(domain)
         let stored = BoostCenter.shared?.store.boost(domain: domain)
         boost = stored ?? Boost(domain: domain)
         exists = stored != nil
@@ -52,6 +65,8 @@ final class BoostEditorModel: ObservableObject {
         css = draft?.css ?? stored?.css ?? ""
         js = draft?.js ?? stored?.js ?? ""
         zapping = BoostCenter.shared?.isZapping(page) == true
+        scriptAllOfSite = stored.map { $0.hasScript && $0.scriptHost == nil } ?? false
+        held = pageHost.flatMap { BoostCenter.shared?.store.heldBoost(coveringHost: $0) }
     }
 
     func reload() {
@@ -61,6 +76,9 @@ final class BoostEditorModel: ObservableObject {
         if exists != (stored != nil) { exists = stored != nil }
         let z = center?.isZapping(page) == true
         if z != zapping { zapping = z }
+        if next.hasScript, scriptAllOfSite != (next.scriptHost == nil) { scriptAllOfSite = next.scriptHost == nil }
+        let h = pageHost.flatMap { center?.store.heldBoost(coveringHost: $0) }
+        if h != held { held = h }
     }
 
     private func change(_ f: (inout Boost) -> Void) {
@@ -119,9 +137,64 @@ final class BoostEditorModel: ObservableObject {
     func saveCode() {
         guard codeDirty else { return }
         edited = true
-        center?.saveCode(domain: domain, css: css, js: js, page: page)
+        center?.saveCode(domain: domain, css: css, js: js, scriptHost: scriptAllOfSite ? nil : boost.scriptHost ?? pageHost, page: page)
         reload()
         Self.drafts[domain] = nil
+    }
+
+    /// The host the JavaScript runs on now (nil: every page of the site, or nothing saved yet).
+    var scriptHost: String? { boost.hasScript ? boost.scriptHost : nil }
+
+    /// "All of <site>": at once for saved code; for code not saved yet, at its first Save.
+    var allOfSite: Binding<Bool> {
+        Binding(get: { self.scriptAllOfSite }, set: { on in
+            self.scriptAllOfSite = on
+            guard self.boost.hasScript else { return }
+            self.edited = true
+            self.center?.setScriptHost(on ? nil : self.boost.scriptHost ?? self.pageHost, domain: self.domain, page: self.page)
+            self.reload()
+        })
+    }
+
+    /// Saved for another host of the site: it runs on this page's host from now on.
+    func runScriptHere() {
+        guard let pageHost else { return }
+        edited = true
+        center?.setScriptHost(pageHost, domain: domain, page: page)
+        reload()
+    }
+
+    /// Where the code runs, for the line under it.
+    var scriptPlace: String {
+        if isExactSite { return "Runs on \(domain) only" }
+        if scriptAllOfSite { return "Runs on every page of \(domain)" }
+        return "Runs on \(scriptHost ?? pageHost ?? domain) only"
+    }
+
+    // MARK: A held Boost
+
+    /// The held Boost can come to this site: it has no Boost of its own yet (or this is the held one).
+    var canUseHeld: Bool {
+        guard let held else { return false }
+        return held.domain == domain || (center?.store.boost(domain: domain)?.isEmpty ?? true)
+    }
+
+    func useHeld() {
+        guard let held, canUseHeld else { return }
+        edited = true
+        if center?.adoptHeld(held.domain, to: domain, page: page) == true {
+            let stored = center?.store.boost(domain: domain)
+            css = stored?.css ?? ""
+            js = stored?.js ?? ""
+            Self.drafts[domain] = nil
+        }
+        reload()
+    }
+
+    func deleteHeld() {
+        guard let held else { return }
+        center?.remove(domain: held.domain, page: nil)
+        reload()
     }
 
     func revertCode() {
@@ -160,6 +233,7 @@ struct BoostEditorCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
+            if let held = model.held { heldBanner(held) }
             AircSegmented(selection: $model.section, segments: [
                 .init(value: .colors, title: "Colors", symbol: "paintpalette"),
                 .init(value: .font, title: "Font", symbol: "textformat"),
@@ -231,6 +305,37 @@ struct BoostEditorCard: View {
             .testAnchor("boost.close")
         }
         .padding(.horizontal, inset)
+    }
+
+    // MARK: A held Boost
+
+    /// "A Boost for all of duckdns.org is paused": made before Airc knew the site is shared hosting.
+    private func heldBanner(_ held: Boost) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "pause.circle.fill").font(.system(size: 13, weight: .semibold)).foregroundStyle(ui.accent.color)
+                Text("A Boost for all of \(held.domain) is paused").aircFont(AircFont.body.weight(.semibold))
+                    .foregroundStyle(ui.surfaceText.color).fixedSize(horizontal: false, vertical: true)
+            }
+            Text(model.canUseHeld
+                 ? "Sites on \(held.domain) belong to different people, so it applies nowhere and its code doesn't run until you choose a site for it."
+                 : "Sites on \(held.domain) belong to different people, so it applies nowhere. This site has a Boost of its own.")
+                .aircFont(AircFont.callout).foregroundStyle(ui.surfaceTextSecondary.color)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Spacer()
+                Button("Delete It") { model.deleteHeld() }.buttonStyle(.airc(.plain, size: .small)).testAnchor("boost.held.delete")
+                if model.canUseHeld {
+                    Button("Use for \(model.domain)") { model.useHeld() }.buttonStyle(.airc(.primary, size: .small))
+                        .lineLimit(1).testAnchor("boost.held.use")
+                }
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(ui.fieldFill.color))
+        .padding(.horizontal, inset)
+        .padding(.top, AircSpacing.m)
+        .testAnchor("boost.held")
     }
 
     // MARK: Colors
@@ -453,10 +558,12 @@ struct BoostEditorCard: View {
             .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(ui.fieldFill.color))
             .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).inset(by: 0.25).stroke(ui.surfaceBorder.color, lineWidth: 0.5))
             .testAnchor("boost.code")
+            if model.codeKind == .js, !model.isExactSite { scriptScope }
             Text(model.codeKind == .css ? "Added after the site's own styles, on every page of \(model.domain)."
-                                        : "Runs on \(model.domain) only, once each time a page loads. Only code you write here ever runs.")
+                                        : "\(model.scriptPlace), once each time a page loads. Only code you write here ever runs.")
                 .aircFont(AircFont.callout).foregroundStyle(ui.surfaceTextTertiary.color)
                 .fixedSize(horizontal: false, vertical: true)
+                .testAnchor("boost.scriptPlace")
             HStack(spacing: 8) {
                 if model.codeDirty {
                     Text("Unsaved").aircFont(AircFont.callout).foregroundStyle(ui.surfaceTextSecondary.color)
@@ -469,6 +576,23 @@ struct BoostEditorCard: View {
             }
         }
         .padding(.horizontal, inset)
+    }
+
+    /// "All of nytimes.com": the JavaScript on every page of the site, not just the host it was saved on; and, for
+    /// code saved on another host, "Run Here Instead".
+    private var scriptScope: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "globe").font(.system(size: 12, weight: .medium))
+                .foregroundStyle(ui.surfaceTextSecondary.color).frame(width: 18)
+            Text("All of \(model.domain)").aircFont(AircFont.body).foregroundStyle(ui.surfaceText.color)
+                .lineLimit(1).truncationMode(.middle)
+            Spacer(minLength: 4)
+            if !model.scriptAllOfSite, let saved = model.scriptHost, saved != model.pageHost, model.pageHost != nil {
+                Button("Run Here Instead") { model.runScriptHere() }.buttonStyle(.airc(.plain, size: .small))
+                    .help("Run it on \(model.pageHost ?? "") instead of \(saved)").testAnchor("boost.runHere")
+            }
+            AircSwitch(isOn: model.allOfSite).help("Run this code on every page of \(model.domain)").testAnchor("boost.allOfSite")
+        }
     }
 
     // MARK: Footer

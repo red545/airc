@@ -2,9 +2,10 @@
 
 import Foundation
 
-// Boosts (BST-1, Arc's "Boosts: customise any website"): one per site, the site being a registrable domain
-// ("nytimes.com", and every subdomain of it). A Boost tints and dims the page, swaps its font, hides elements the person
-// zapped, and adds their own CSS and JavaScript. Boosts are global, like Arc's: every Space and profile shows the same
+// Boosts (BST-1, Arc's "Boosts: customise any website"): one per site, the site being a registrable domain by the
+// public suffix list ("nytimes.com", and every subdomain of it; "alice.github.io", but not "bob.github.io"). A Boost
+// tints and dims the page, swaps its font, hides elements the person zapped, and adds their own CSS and JavaScript (the
+// JavaScript on one host of the site unless they pick all of it). Boosts are global, like Arc's: every Space and profile shows the same
 // one. They live in one local JSON file and are never synced or sent anywhere (Arc kept them in Firebase, which is how
 // CVE-2024-45489 let strangers run code in other people's browsers; docs/research/t3code_and_accounts.md).
 
@@ -20,11 +21,19 @@ public struct Boost: Codable, Equatable, Sendable {
     /// The person's own CSS and JavaScript (the Code section). JavaScript runs only from here: Airc never downloads it.
     public var css: String
     public var js: String
+    /// The one host the JavaScript runs on ("www.nytimes.com"), or nil for every page of the site. New code gets the
+    /// host it was saved on; Boosts from before hosts existed keep the whole site.
+    public var scriptHost: String?
+    /// Made by a build that didn't have the whole public suffix list, for a "site" that is really shared by different
+    /// owners ("duckdns.org", "github.io"): it applies nowhere and its code never runs until the person picks, in the
+    /// editor, the site it belongs to (BoostStore's migration, BoostDomain.isSharedLegacyKey).
+    public var needsSite: Bool
     public var created: Date
     public var modified: Date
 
     public init(domain: String, enabled: Bool = true, colors: BoostColors = BoostColors(), font: BoostFont = BoostFont(),
-                zaps: [BoostZap] = [], css: String = "", js: String = "", created: Date = Date(), modified: Date? = nil) {
+                zaps: [BoostZap] = [], css: String = "", js: String = "", scriptHost: String? = nil, needsSite: Bool = false,
+                created: Date = Date(), modified: Date? = nil) {
         self.domain = domain
         self.enabled = enabled
         self.colors = colors
@@ -32,6 +41,8 @@ public struct Boost: Codable, Equatable, Sendable {
         self.zaps = zaps
         self.css = css
         self.js = js
+        self.scriptHost = scriptHost
+        self.needsSite = needsSite
         self.created = created
         self.modified = modified ?? created
     }
@@ -44,7 +55,16 @@ public struct Boost: Codable, Equatable, Sendable {
 
     public var hasScript: Bool { !js.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
-    enum CodingKeys: String, CodingKey { case domain, enabled, colors, font, zaps, css, js, created, modified }
+    /// It changes pages now: on, and not waiting for its site.
+    public var isLive: Bool { enabled && !needsSite }
+
+    /// The code runs on a page of `host` (a host of this Boost's site).
+    public func scriptRuns(onHost host: String) -> Bool {
+        guard isLive, hasScript else { return false }
+        return scriptHost.map { $0 == host.lowercased() } ?? true
+    }
+
+    enum CodingKeys: String, CodingKey { case domain, enabled, colors, font, zaps, css, js, scriptHost, needsSite, created, modified }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -55,6 +75,8 @@ public struct Boost: Codable, Equatable, Sendable {
         zaps = (try? c.decodeIfPresent([BoostZap].self, forKey: .zaps)) ?? []
         css = try c.decodeIfPresent(String.self, forKey: .css) ?? ""
         js = try c.decodeIfPresent(String.self, forKey: .js) ?? ""
+        scriptHost = try c.decodeIfPresent(String.self, forKey: .scriptHost)
+        needsSite = try c.decodeIfPresent(Bool.self, forKey: .needsSite) ?? false
         created = try c.decodeIfPresent(Date.self, forKey: .created) ?? Date(timeIntervalSince1970: 0)
         modified = try c.decodeIfPresent(Date.self, forKey: .modified) ?? created
     }
@@ -177,70 +199,70 @@ public struct BoostZap: Codable, Equatable, Sendable, Identifiable {
 
 // MARK: - Sites
 
-/// What a Boost is keyed by: the registrable domain of a page's host ("nytimes.com" for "www.nytimes.com" and
-/// "cooking.nytimes.com"). Without the whole public suffix list, the multi-label suffixes people actually meet are
-/// listed here; anything else is its last two labels. IP addresses and single-label hosts (localhost) are their own
-/// site. The page script (BoostPageScript) uses the same list, so the page and the app always agree.
+/// What a Boost is keyed by: the registrable domain of a page's host by the complete public suffix list
+/// (PublicSuffixList: ICANN and private suffixes, wildcards and exceptions), the rule Chromium's site isolation uses.
+/// "nytimes.com" for "www.nytimes.com" and "cooking.nytimes.com"; "alice.duckdns.org", never "duckdns.org", for
+/// "alice.duckdns.org". A host that is itself a public suffix ("github.io", "localhost"), an IP address, or any host when
+/// the app has no list, is its own site: that exact host only. The page script gets what it needs to agree from
+/// BoostPageScript (the exact flag and the rules under each site), never its own copy of the list.
 public enum BoostDomain {
-    /// Public suffixes of more than one label: country second levels and shared hosting where every customer is
-    /// their own site (one user's github.io pages never get another's Boost).
-    public static let multiLabelSuffixes: Set<String> = [
-        "co.uk", "org.uk", "ac.uk", "gov.uk", "me.uk", "ltd.uk", "plc.uk", "net.uk", "sch.uk", "nhs.uk", "police.uk",
-        "co.at", "or.at", "gv.at", "ac.at",
-        "com.au", "net.au", "org.au", "edu.au", "gov.au", "asn.au", "id.au",
-        "co.nz", "org.nz", "net.nz", "govt.nz", "ac.nz",
-        "co.jp", "ne.jp", "or.jp", "ac.jp", "go.jp", "ad.jp", "ed.jp", "gr.jp", "lg.jp",
-        "co.kr", "or.kr", "ac.kr", "go.kr", "ne.kr",
-        "com.cn", "net.cn", "org.cn", "gov.cn", "edu.cn",
-        "com.tw", "org.tw", "net.tw", "edu.tw", "gov.tw",
-        "com.hk", "org.hk", "net.hk", "edu.hk", "gov.hk",
-        "com.sg", "org.sg", "net.sg", "edu.sg", "gov.sg",
-        "co.in", "net.in", "org.in", "gov.in", "ac.in", "firm.in", "gen.in", "ind.in",
-        "co.za", "org.za", "net.za", "gov.za", "ac.za",
-        "co.il", "org.il", "net.il", "ac.il", "gov.il",
-        "co.id", "or.id", "ac.id", "go.id", "web.id",
-        "com.br", "net.br", "org.br", "gov.br", "edu.br",
-        "com.mx", "org.mx", "net.mx", "gob.mx", "edu.mx",
-        "com.ar", "org.ar", "net.ar", "gob.ar",
-        "com.co", "org.co", "net.co", "gov.co",
-        "com.pe", "org.pe", "gob.pe", "com.ve", "com.uy", "com.ec", "com.bo", "com.py",
-        "com.tr", "org.tr", "net.tr", "gov.tr", "edu.tr",
-        "com.my", "org.my", "net.my", "gov.my", "com.ph", "org.ph", "gov.ph", "com.vn", "net.vn", "gov.vn",
-        "com.pk", "org.pk", "com.bd", "com.np", "com.lk", "com.sa", "org.sa", "gov.sa", "com.eg", "gov.eg",
-        "com.ng", "org.ng", "co.ke", "or.ke", "co.tz", "co.ug",
-        "com.ua", "org.ua", "net.ua", "gov.ua", "com.ru", "org.ru", "net.ru", "com.pl", "net.pl", "org.pl",
-        "com.es", "org.es", "nom.es", "com.pt", "org.pt", "com.gr", "com.cy", "com.mt", "co.hu", "com.ro",
-        "co.th", "or.th", "ac.th", "go.th", "in.th",
-        "github.io", "gitlab.io", "vercel.app", "netlify.app", "pages.dev", "workers.dev", "web.app",
-        "firebaseapp.com", "herokuapp.com", "appspot.com", "blogspot.com", "azurewebsites.net", "cloudfront.net",
-        "s3.amazonaws.com", "fly.dev", "onrender.com", "glitch.me", "ngrok.io", "ngrok-free.app", "myshopify.com",
-        "repl.co", "deno.dev", "surge.sh", "readthedocs.io", "neocities.org",
-    ]
-
     /// The site of `host`, or nil for an empty host.
-    public static func key(forHost host: String) -> String? {
+    public static func key(forHost host: String, suffixes: PublicSuffixList = .shared) -> String? {
+        guard let h = normalize(host) else { return nil }
+        if isAddress(h) { return h }
+        let labels = h.split(separator: ".", omittingEmptySubsequences: false)
+        guard labels.count > 1, !labels.contains(where: \.isEmpty), !suffixes.isEmpty else { return h }
+        return suffixes.registrableDomain(labels) ?? h
+    }
+
+    /// The site of a web page; nil for pages that aren't http(s) (Boosts are for websites).
+    public static func key(for url: URL?, suffixes: PublicSuffixList = .shared) -> String? {
+        guard let host = webHost(of: url) else { return nil }
+        return key(forHost: host, suffixes: suffixes)
+    }
+
+    /// The lowercased ASCII host of an http(s) page.
+    public static func webHost(of url: URL?) -> String? {
+        guard let url, let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              let host = url.host, !host.isEmpty else { return nil }
+        return normalize(host)
+    }
+
+    /// A site that is one exact host, not that host and its subdomains: an address, a lone label, a public suffix
+    /// itself ("github.io": "alice.github.io" is someone else's), or every site while there's no list.
+    public static func isExactHost(_ site: String, suffixes: PublicSuffixList = .shared) -> Bool {
+        if isAddress(site) || suffixes.isEmpty { return true }
+        let labels = site.split(separator: ".", omittingEmptySubsequences: false)
+        return labels.count < 2 || labels.contains(where: \.isEmpty) || suffixes.isPublicSuffix(site)
+    }
+
+    /// The list's rules under a site that make some of its subdomains other sites ("s3.amazonaws.com" under
+    /// "amazonaws.com"); empty for nearly every site.
+    public static func otherSitesBeneath(_ site: String, suffixes: PublicSuffixList = .shared) -> [String] {
+        isExactHost(site, suffixes: suffixes) ? [] : suffixes.rules(beneath: site)
+    }
+
+    /// A key a build before the whole list may have given to hosts of different owners: it is a public suffix of two or
+    /// more labels ("duckdns.org", "uk.com", "github.io", "b.ck" under "*.ck"), or the list has sites under it
+    /// ("amazonaws.com"). Such a Boost is held (`Boost.needsSite`) until the person picks its site.
+    public static func isSharedLegacyKey(_ key: String, suffixes: PublicSuffixList = .shared) -> Bool {
+        guard !isAddress(key), !suffixes.isEmpty else { return false }
+        let labels = key.split(separator: ".", omittingEmptySubsequences: false)
+        guard labels.count >= 2, !labels.contains(where: \.isEmpty) else { return false }
+        return suffixes.isPublicSuffix(key) || !suffixes.rules(beneath: key).isEmpty
+    }
+
+    /// Lowercased, without brackets or trailing dots, international labels as punycode; nil when nothing is left.
+    static func normalize(_ host: String) -> String? {
         var h = host.lowercased()
         if h.hasPrefix("["), h.hasSuffix("]") { h = String(h.dropFirst().dropLast()) }
         while h.hasSuffix(".") { h.removeLast() }
         guard !h.isEmpty else { return nil }
-        if h.contains(":") || isIPv4(h) { return h }
-        let labels = h.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
-        guard labels.count > 1, !labels.contains(where: \.isEmpty) else { return h }
-        // The longest listed suffix the host ends with (the host itself, when it is one).
-        for n in stride(from: min(labels.count, 3), through: 2, by: -1) {
-            let suffix = labels.suffix(n).joined(separator: ".")
-            guard multiLabelSuffixes.contains(suffix) else { continue }
-            return labels.count == n ? suffix : labels.suffix(n + 1).joined(separator: ".")
-        }
-        return labels.suffix(2).joined(separator: ".")
+        if h.contains(":") { return h }
+        return PublicSuffixList.ascii(h) ?? h
     }
 
-    /// The site of a web page; nil for pages that aren't http(s) (Boosts are for websites).
-    public static func key(for url: URL?) -> String? {
-        guard let url, let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
-              let host = url.host, !host.isEmpty else { return nil }
-        return key(forHost: host)
-    }
+    static func isAddress(_ h: String) -> Bool { h.contains(":") || isIPv4(h) }
 
     static func isIPv4(_ h: String) -> Bool {
         let parts = h.split(separator: ".", omittingEmptySubsequences: false)
@@ -311,11 +333,15 @@ public enum BoostStyle {
 
 // MARK: - The store
 
-/// The Boosts file (`Boosts.json` in the data folder): `{"version": 1, "boosts": [...]}`. Changes are kept in memory
+/// The Boosts file (`Boosts.json` in the data folder): `{"version": 2, "boosts": [...]}`. Changes are kept in memory
 /// and written with `flush()` (the app batches slider drags); a file this build can't read is kept beside it as
 /// `Boosts.unreadable-<time>.json` instead of being overwritten.
+///
+/// Version 1 files came from builds with a short list of public suffixes, which gave every "alice.duckdns.org" and
+/// "bob.duckdns.org" the one key "duckdns.org". Reading one, a Boost whose key may be shared that way is held
+/// (`needsSite`) until the person picks its site in the editor; every other Boost keeps its whole site, code included.
 public final class BoostStore {
-    public static let version = 1
+    public static let version = 2
     public let url: URL?
     public private(set) var boosts: [String: Boost] = [:]
     public private(set) var isDirty = false
@@ -328,12 +354,20 @@ public final class BoostStore {
     }
 
     /// `url` nil keeps everything in memory.
-    public init(url: URL?) {
+    /// `suffixes`: the list a version 1 file's keys are checked against (the app's when nil, loaded only then).
+    public init(url: URL?, suffixes: PublicSuffixList? = nil) {
         self.url = url
         guard let url, let data = try? Data(contentsOf: url) else { return }
         do {
             let file = try JSONDecoder.boosts.decode(File.self, from: data)
-            for b in file.boosts { boosts[b.domain] = b }
+            for var b in file.boosts {
+                if file.version < 2, !b.needsSite, BoostDomain.isSharedLegacyKey(b.domain, suffixes: suffixes ?? .shared) {
+                    b.needsSite = true
+                    isDirty = true
+                }
+                boosts[b.domain] = b
+            }
+            if file.version < Self.version { isDirty = true }
         } catch {
             let stamp = Int(Date().timeIntervalSince1970)
             let aside = url.deletingLastPathComponent().appendingPathComponent("Boosts.unreadable-\(stamp).json")
@@ -348,6 +382,32 @@ public final class BoostStore {
 
     /// The Boost for a page's host, if any (on or off).
     public func boost(forHost host: String) -> Boost? { BoostDomain.key(forHost: host).flatMap { boosts[$0] } }
+
+    /// A held Boost (`needsSite`) that a page of `host` may be what it was made for: its key is the host or ends it.
+    /// The longest such key.
+    public func heldBoost(coveringHost host: String) -> Boost? {
+        guard let h = BoostDomain.normalize(host) else { return nil }
+        return boosts.values.filter { $0.needsSite && (h == $0.domain || h.hasSuffix("." + $0.domain)) }
+            .max { $0.domain.count < $1.domain.count }
+    }
+
+    /// The person picked the site a held Boost is for: it moves there (replacing an empty Boost there) and applies
+    /// again, its code on `host` only, until they choose all of the site. False if the site has a Boost of its own.
+    @discardableResult
+    public func adopt(held domain: String, to site: String, host: String) -> Bool {
+        guard var b = boosts[domain], b.needsSite else { return false }
+        if site != domain, let there = boosts[site], !there.isEmpty { return false }
+        b.needsSite = false
+        b.domain = site
+        if b.hasScript { b.scriptHost = BoostDomain.isExactHost(site) ? nil : BoostDomain.normalize(host) }
+        b.modified = Date()
+        if site != domain { boosts.removeValue(forKey: domain) }
+        boosts[site] = b
+        isDirty = true
+        if site != domain { onChange?(domain) }
+        onChange?(site)
+        return true
+    }
 
     /// Changes (or creates) the Boost of `domain`.
     @discardableResult
