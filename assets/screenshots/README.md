@@ -33,6 +33,7 @@ menu, which can't be drawn off screen; `profiles.webp` shows profiles through Cr
 | `favorite-split.webp` | Favorite splits | A split as one Favorite tile in the Work profile (Linear and SwiftUI), dark | 2026-11-06 | 202611061538 (6312e1a) |
 | `peek.webp` | Peek | A link from the Lisbon article opens over the page: the map of Belém | 2026-11-06 | 202611061538 (6312e1a) |
 | `little-arc.webp` | Little Arc | A link from another app in its own small window, over the Personal Space | 2026-11-06 | 202611062051 (abc32c5) |
+| `sidebar-right.webp` | Sidebar on the right | Settings → Appearance → Sidebar position: Right. Travel on the Lisbon article, the traffic lights over the page | 2026-11-07 | 202611070422 (f0ca8c3, with uncommitted changes) |
 | `multiple-windows.webp` | Several windows | Two windows on different Spaces, each with its own tab: Travel on the Lisbon article in front, Work on linear.app behind | 2026-11-07 | 202611070055 (9970131) |
 | `private-window.webp` | Private windows | A private window (⇧⌘N): dark, its own tabs and New Tab, nothing kept, on Wikipedia's Private browsing | 2026-11-06 | 202611062051 (abc32c5) |
 | `private-window-start.webp` | Private windows: a new one | A new private window before its first tab: what it keeps and what it doesn't | 2026-11-06 | 202611062051 (abc32c5) |
@@ -59,7 +60,7 @@ menu, which can't be drawn off screen; `profiles.webp` shows profiles through Cr
 | `settings-appearance-dark.webp` | Settings: Appearance, dark | The same page in dark mode | 2026-11-06 | 202611062158 (eabcfe2) |
 | `settings-privacy.webp` | Settings: Privacy | Anonymous usage data and crash reports, off with one switch | 2026-11-06 | 202611061538 (6312e1a) |
 | `settings-privacy-events.webp` | See what Airc sends | The sheet listing every event Airc recorded, word for word | 2026-11-06 | 202611061538 (6312e1a) |
-| `settings-shortcuts.webp` | Settings: Shortcuts | Every command by menu with its key: Open Location moved to ⌥⌘L, and ⌘N typed for New Private Window asking to swap with New Window | 2026-11-07 | 202611070158 (aa43811, with uncommitted changes) |
+| `settings-shortcuts.webp` | Settings: Shortcuts | Every command by menu with its key and who gets it first: Open Location at Airc first (pages never get ⌘L), and ⌘N typed for New Private Window asking to swap with New Window | 2026-11-07 | 202611070422 (f0ca8c3, with uncommitted changes) |
 | `onboarding-welcome.webp` | Onboarding | The first window | 2026-11-06 | 202611061915 (9e1fd56) |
 | `onboarding-import.webp` | Onboarding: Arc import | Arc found on the Mac, first among the browsers found: Spaces, pinned tabs, folders and Favorites come over as they are | 2026-11-06 | 202611062324 (importbrowsers copy, 550fc0a) |
 | `onboarding-import-browsers.webp` | Onboarding: other browsers | Chrome picked on the same step: each profile with its colour, its bookmarks and folders, and the history for ⌘T | 2026-11-06 | 202611062324 (importbrowsers copy, 550fc0a) |

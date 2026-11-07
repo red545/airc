@@ -7,7 +7,7 @@ import SwiftUI
 
 /// Settings categories (SET-1, design §7 "Settings page").
 enum SettingsPage: String, CaseIterable, Identifiable {
-    case general, links, profiles, spaces, appearance, shortcuts, importing = "import", privacy, about
+    case general, links, profiles, spaces, appearance, ai, shortcuts, importing = "import", privacy, about
     var id: String { rawValue }
 
     var title: String {
@@ -17,6 +17,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .profiles: "Profiles"
         case .spaces: "Spaces"
         case .appearance: "Appearance"
+        case .ai: "AI"
         case .shortcuts: "Shortcuts"
         case .importing: "Import"
         case .privacy: "Privacy"
@@ -31,6 +32,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .profiles: "person.2"
         case .spaces: "square.stack"
         case .appearance: "paintpalette"
+        case .ai: "sparkles"
         case .shortcuts: "command"
         case .importing: "square.and.arrow.down"
         case .privacy: "hand.raised"
@@ -46,6 +48,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .profiles: AircColor(0x3139FB)
         case .spaces: AircColor(0x2F9E62)
         case .appearance: AircColor(0xE0559F)
+        case .ai: AircColor(0x8A5CF6)
         case .shortcuts: AircColor.Stone.s700
         case .importing: AircColor(0xF08A4B)
         case .privacy: AircColor(0x5B63EE)
@@ -180,6 +183,7 @@ private struct SettingsRoot: View {
         case .profiles: ProfilesPage(model: model)
         case .spaces: SpacesPage(model: model)
         case .appearance: AppearancePage(model: model)
+        case .ai: AIPage(model: model)
         case .shortcuts: ShortcutsPage(model: model)
         case .importing: ImportPage(model: model)
         case .privacy: PrivacyPage(model: model)

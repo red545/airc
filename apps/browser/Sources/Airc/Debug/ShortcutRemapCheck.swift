@@ -9,7 +9,8 @@ import AppKit
 /// stand-in (ShortcutsCheck.swift). It remaps ⌘L to ⌥⌘L (⌘L then reaches the page and the browser does nothing, ⌥⌘L
 /// opens the address editor), swaps Pin with Library's key, refuses ⌘H, warns about ⌘B, clears with Delete, resets
 /// one row into a conflict and everything at once, and checks the menus, settings.json, a private window and Little
-/// Arc after each change.
+/// Arc after each change. Last, Airc first (Arc's "Prefer Arc") on ⌘L: a page that uses ⌘L no longer gets it, in the
+/// main window and a private window, and Websites first gives it back.
 extension SnapshotRunner {
     private static let remapPage = """
         <!doctype html><meta charset=utf-8><title>Remap</title>
@@ -28,6 +29,7 @@ extension SnapshotRunner {
         let center = ShortcutCenter.shared, editor = ShortcutsEditor.shared
         var server: LocalPageServer?
         var tabID = ""
+        var port: UInt16 = 0
         let page = { self.c.engineTab(for: tabID) }
         let cmdL = Key.cmd("⌘L", 37, "l"), optCmdL = Key("⌥⌘L", 37, "¬", "l", [.command, .option])
         let shiftCmdL = Key.cmdShift("⇧⌘L", 37, "L"), cmdD = Key.cmd("⌘D", 2, "d")
@@ -66,10 +68,11 @@ extension SnapshotRunner {
         step { [self] done in
             guard let s = LocalPageServer(pages: ["/remap": Self.remapPage]) else { check(false, "shortcutremap: the loopback server starts"); return done() }
             server = s
-            s.start { port in
-                guard let port, let t = try? self.c.store.openTab(url: "http://127.0.0.1:\(port)/remap", inSpace: self.c.currentSpaceID, title: "Remap") else {
+            s.start { p in
+                guard let p, let t = try? self.c.store.openTab(url: "http://127.0.0.1:\(p)/remap", inSpace: self.c.currentSpaceID, title: "Remap") else {
                     self.check(false, "shortcutremap: the loopback server starts"); return done()
                 }
+                port = p
                 tabID = t.id
                 self.c.reloadAll(animated: false)
                 self.c.show(t.id, focus: true)
@@ -237,6 +240,98 @@ extension SnapshotRunner {
         keyCase(cmdL, page: page, setup: "reset();inp.focus()", settle: 0.4) { [self] _, log in
             let mode = c.commandBar.map { "\($0.mode)" } ?? "none"
             check(mode == "\(CommandBarMode.editURL)", "shortcutremap: after Reset All ⌘L opens the address editor again (\(mode), log \(log.joined(separator: ", ")))")
+            c.closeCommandBar()
+        }
+        wait(0.3)
+
+        // MARK: Airc first (Arc's "Prefer Arc")
+        let usesCmdL = "reset();prevent['\(cmdL.page)']=1;inp.focus()"
+        run { [self] in
+            let offered = ["file.openLocation", "tabs.pin", "edit.copyURL", "edit.pasteURL", "tabs.back", "file.reopenOnUndo"].filter(center.offersPriority)
+            let notOffered = ["spaces.next", "tabs.next.brace", "tabs.back.arrow", "file.newTab", "app.settings", "spaces.1"].filter(center.offersPriority)
+            check(offered.count == 6 && notOffered.isEmpty,
+                  "shortcutremap: ⌘ keys a page can have offer Websites first / Airc first, ⌥ ⌃ and reserved keys don't "
+                  + "(offered \(offered), wrongly offered \(notOffered))")
+            check(center.map.priority("file.openLocation") == .websites, "shortcutremap: Open Location starts at Websites first")
+        }
+        keyCase(cmdL, page: page, setup: usesCmdL, settle: 0.5) { [self] _, log in
+            check(log.contains("kd \(cmdL.page)") && c.commandBar == nil,
+                  "shortcutremap: Websites first: a page that uses ⌘L keeps it (command bar \(c.commandBar.map { "\($0.mode)" } ?? "none"), "
+                  + "log \(log.joined(separator: ", ")))")
+            c.closeCommandBar()
+        }
+        wait(1.2)   // past the second-press window: the next ⌘L is a first press again
+        run { [self] in
+            editor.setPriority(.airc, for: "file.openLocation")
+            let disk = storedOnDisk()
+            check(center.map.priority("file.openLocation") == .airc && disk == ["file.openLocation:first": "airc"],
+                  "shortcutremap: Airc first on Open Location is stored (\(center.map.priority("file.openLocation")), "
+                  + "settings.json \(disk.map { "\($0)" } ?? "unreadable"))")
+            let again = ShortcutMap(commands: center.map.commands, stored: disk ?? [:])
+            check(again == center.map && again.priority("file.openLocation") == .airc, "shortcutremap: the priority reads back from settings.json")
+            captureSettings("settings-shortcuts-priority.png")
+        }
+        keyCase(cmdL, page: page, setup: usesCmdL, settle: 0.5) { [self] _, log in
+            let mode = c.commandBar.map { "\($0.mode)" } ?? "none"
+            check(mode == "\(CommandBarMode.editURL)" && !log.contains("kd \(cmdL.page)"),
+                  "shortcutremap: Airc first: a page that uses ⌘L doesn't get it, the address editor opens (command bar \(mode), "
+                  + "log \(log.joined(separator: ", ")))")
+            c.closeCommandBar()
+        }
+        wait(0.3)
+
+        // The same in a private window, on the same page.
+        var privatePage: EngineTab?
+        step { [self] done in
+            guard let app else { return done() }
+            PrivateBrowsing.shared.open(app: app) { p in
+                privateWindow = p
+                p?.closeCommandBar()
+                privatePage = p?.openPage(URL(string: "http://127.0.0.1:\(port)/remap"))
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: done)
+            }
+        }
+        /// ⌘L into the private window's page (which uses it); `verdict` gets whether the page saw it.
+        func privateCmdL(_ what: String, _ verdict: @escaping (PrivateWindowController, Bool) -> Void) {
+            step { [self] done in
+                guard let p = privateWindow, let tab = privatePage else { check(false, "shortcutremap: \(what): a private window with the page"); return done() }
+                Self.emulateKeyWindow(p.window) { [weak self] in self?.note($0) }
+                p.closeCommandBar()
+                tab.focus()
+                tab.evaluate("(function(){\(usesCmdL);return 1})()") { _ in
+                    self.post(cmdL, to: p.window)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                        tab.evaluate("state()") { v in
+                            let log = (v as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }?["log"] as? [String] ?? []
+                            verdict(p, log.contains("kd \(cmdL.page)"))
+                            done()
+                        }
+                    }
+                }
+            }
+        }
+        privateCmdL("Airc first") { [self] p, pageSawIt in
+            check(!pageSawIt && p.commandBar != nil,
+                  "shortcutremap: Airc first in a private window: the page doesn't get ⌘L (\(pageSawIt)), its address editor opens (\(p.commandBar != nil))")
+        }
+        run { [self] in
+            editor.setPriority(.websites, for: "file.openLocation")
+            check(center.map.stored.isEmpty && storedOnDisk() == [:], "shortcutremap: Websites first again stores nothing (\(center.map.stored))")
+        }
+        privateCmdL("Websites first") { [self] p, pageSawIt in
+            check(pageSawIt && p.commandBar == nil,
+                  "shortcutremap: Websites first in a private window: the page keeps ⌘L (\(pageSawIt)), no address editor (\(p.commandBar != nil))")
+        }
+        step { [self] done in
+            privateWindow?.closeWindow()
+            privateWindow = nil
+            Self.emulateKeyWindow(c) { [weak self] in self?.note($0) }
+            // Past the second-press window of the private page's ⌘L.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: done)
+        }
+        keyCase(cmdL, page: page, setup: usesCmdL, settle: 0.5) { [self] _, log in
+            check(log.contains("kd \(cmdL.page)") && c.commandBar == nil,
+                  "shortcutremap: Websites first again: the page keeps ⌘L in the main window (log \(log.joined(separator: ", ")))")
             c.closeCommandBar()
         }
 

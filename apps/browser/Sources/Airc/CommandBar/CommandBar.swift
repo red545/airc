@@ -78,7 +78,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     /// never renders it offscreen. Without it the bar disappears into white pages.
     private let shadowView = NSView()
     private let ambientShadow = CALayer()
-    private let input = NSTextField()
+    private let input = CommandBarInputField()
     /// The edit in progress deletes text: don't complete it again (backspace over a completion removes it).
     private var deletingEdit = false
     private let glass = NSImageView()
@@ -164,21 +164,38 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         if self.palette != palette { self.palette = palette } else { updateChip() }
     }
 
-    /// Between openings the bar stays in the window, drawn, but parked outside it, instead of hidden: unhiding its ~80
-    /// views and redrawing the rows whose text had changed since it last showed were most of a ⌘T after the recent
-    /// tabs changed (~17 ms against ~9, §2.12). Parked, it takes no clicks, hover, cursor or keyboard and has no
-    /// accessibility children; `prepareForNextOpening` keeps its rows what ⌘T will show.
+    /// Between openings the bar stays in the view tree. Its backing layer is parked outside the window while
+    /// AppKit keeps drawing the view's current contents at idle, including before the first opening. Parked, it
+    /// takes no clicks, hover, cursor or keyboard and has no accessibility children; `prepareForNextOpening`
+    /// keeps its rows what ⌘T will show.
     private(set) var isParked = false
+
+    // One binary for interleaved, fresh-process comparisons. Public builds always park the layer.
+    private static let parksLayer: Bool = {
+        #if AIRC_TESTING
+        return ProcessInfo.processInfo.environment["AIRC_COMMAND_BASELINE"] != "1"
+        #else
+        return true
+        #endif
+    }()
 
     func park() {
         isParked = true
         input.refusesFirstResponder = true
+        if Self.parksLayer {
+            input.isParked = true
+            window?.invalidateCursorRects(for: input)
+        }
         if let sv = superview { layoutIn(sv.bounds, sidebarFrame: sidebarFrame, contentFrame: contentFrame) }
     }
 
     func unpark() {
         isParked = false
         input.refusesFirstResponder = false
+        if Self.parksLayer {
+            input.isParked = false
+            window?.invalidateCursorRects(for: input)
+        }
     }
 
     /// At idle, while parked: what ⌘T will show (this Space's chip and palette, the profile's recent tabs, the window's
@@ -358,6 +375,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
 
     // The sidebar stays clickable while the bar is open; a click anywhere else closes it.
     override func hitTest(_ point: NSPoint) -> NSView? {
+        if isParked { return nil }
         let p = convert(point, from: superview)
         if sidebarFrame.contains(p) && !panelRect.contains(p) { return nil }
         return super.hitTest(point)
@@ -388,8 +406,20 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     /// ⌘T: centred in the whole window, as in Arc (the owner tried centring it over the page card and went back,
     /// 2026-11-06). ⌘L: over the URL field.
     func layoutIn(_ bounds: NSRect, sidebarFrame: NSRect, contentFrame: NSRect) {
-        let placed = isParked ? bounds.offsetBy(dx: -(bounds.width + 4000), dy: 0) : bounds
+        // AppKit clips backing-store drawing when the view's frame is outside its window. Keep the view at its
+        // real size and position so the idle preparation draws its labels and keycaps before the first opening;
+        // move only its backing layer out of sight. No extra surface, bitmap cache or recurring timer is needed.
+        let placed = isParked && !Self.parksLayer ? bounds.offsetBy(dx: -(bounds.width + 4000), dy: 0) : bounds
         if frame != placed { frame = placed }
+        if Self.parksLayer, let layer {
+            let transform = isParked ? CATransform3DMakeTranslation(-(bounds.width + 4000), 0, 0) : CATransform3DIdentity
+            if !CATransform3DEqualToTransform(layer.transform, transform) {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                layer.transform = transform
+                CATransaction.commit()
+            }
+        }
         self.sidebarFrame = sidebarFrame
         let content = contentFrame.isEmpty ? bounds : contentFrame
         self.contentFrame = content
@@ -583,6 +613,16 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         CommandRowView.fetchIcon(of: r)
         host?.closeCommandBar()
         host?.performCommand(r.action, newTab: mode == .newTab, typed: true)
+    }
+}
+
+/// The parked bar retains its in-window view geometry, so AppKit must not register an I-beam over the page.
+private final class CommandBarInputField: NSTextField {
+    var isParked = false
+
+    override func resetCursorRects() {
+        guard !isParked else { return }
+        super.resetCursorRects()
     }
 }
 

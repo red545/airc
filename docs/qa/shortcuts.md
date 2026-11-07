@@ -41,29 +41,42 @@ and Reset All brings the whole table back.
 - **Refused:** a key without ⌘, ⌥ or ⌃, and macOS's or every app's own: ⌘Q (hold to quit stays), ⌘H ⌥⌘H ⌘M,
   ⌘Tab ⇧⌘Tab, ⌘ with the key above Tab (switching windows), ⌘Space ⌥⌘Space ⌃Space ⌃⌥Space ⌃⌘Space, ⌃⌘Q, ⌥⌘Esc, ⌥⌘D, ⌃⌘F (Enter Full Screen), ⌘C ⌘V ⌘X ⌘A
   ⇧⌘Z, ⇧⌘3/4/5 and ⌃⇧⌘3/4, ⌃← ⌃→ ⌃↑ ⌃↓. The recorder says why and keeps listening.
-- **Allowed with a note:** keys pages use themselves: ⌘B ⌘I ⌘U ⌘K ⌘Z ⇧⌘V ⌥⇧⌘V ⌥⌘V ⌘↩ ⌘/ ⌘⌫. Those are always
-  page-first, whatever command has them: a page that uses one keeps it, and a second press within a second runs
-  Airc's command. ⌘Z given to a command still undoes in any field being edited, and no longer reopens closed tabs
-  (⇧⌘T still does).
+- **Allowed with a note:** keys pages use themselves: ⌘B ⌘I ⌘U ⌘K ⌘Z ⇧⌘V ⌥⇧⌘V ⌥⌘V ⌘↩ ⌘/ ⌘⌫. Those are
+  page-first, whatever command has them (unless that command is Airc first, below): a page that uses one keeps it,
+  and a second press within a second runs Airc's command. ⌘Z given to a command still undoes in any field being
+  edited, and no longer reopens closed tabs (⇧⌘T still does).
 - **Key order** otherwise follows the key, as with the defaults: ⌘ and ⇧⌘ keys go to the page first except Chrome's
   reserved ⌘T ⌘W ⌘N ⌘Q, ⌥ and ⌃ keys to the browser. The commands with a fixed order keep it (⌘{ ⌘} browser-first,
-  ⌘← ⌘→ after the page). Arc's per-command "Prefer Websites / Prefer Arc" switch isn't built.
+  ⌘← ⌘→ after the page).
+- **Websites first / Airc first** (Arc's "Prefer Websites / Prefer Arc"): every row whose key a page could have first
+  (the ⌘ and ⇧⌘ keys above, the page keys, ⌥⌘V's Paste URL, and a row of its own for ⌘Z's Reopen Closed Tab outside
+  text fields, shown while no command has ⌘Z) has a two-way switch. **Websites first** is the default and CB-3's rule.
+  **Airc first** runs the command at once and the page never sees the key (`KeyMonitor.pageMayUse`, so the main window,
+  several windows, blank windows and private windows alike; Little Arc's few keys are always Airc's). Fields still
+  keep their own ⌘Z and ⌘A ⌘C ⌘V ⌘X. The switch belongs to the command: it moves with it when its key changes, and
+  rows whose key a page can't have (⌥ ⌃ keys, ⌘T ⌘W ⌘N ⌘Q, ⌘← ⌘→, the app menu's own) don't show it. A row's reset
+  arrow puts both the key and Websites first back.
 - **Live everywhere.** `App/ShortcutCenter.swift` holds the map: the key monitor reads it on every key, the main menu's
   items get their new keys at once, and private windows and Little Arc, whose key tables spell the defaults, look a
   typed key up there (`defaultKey(forTyped:)`), so a moved key works and the old one goes to the page. The Command
   Bar's action hints show the user's keys too.
 - **Menus spell ⇧ letters in upper case** ("L" with ⌘, not "l" with ⇧⌘). AppKit's own matcher gave a freed ⌘L to an
   item spelled "l" + ⇧ (Library), so a key that left its command still ran another one.
-- **Storage:** `settings.json`'s `shortcuts`, command id → `"alt+cmd+l"`, `""` for none. Only changes are kept: an
-  untouched command follows a new default in a later version, an entry equal to its default, an unknown command or an
-  unreadable or refused key is dropped. Ids are stable (`file.openLocation`, `tabs.library`, `spaces.3` …; Commands.swift).
-- **Telemetry:** `feature.used` `shortcut.remap` per change made in the page, never which command or key.
+- **Storage:** `settings.json`'s `shortcuts`, command id → `"alt+cmd+l"`, `""` for none, and `"<id>:first": "airc"`
+  for Airc first (builds before it read that as an unknown command and skip it). Only changes are kept: an untouched
+  command follows a new default in a later version, an entry equal to its default, an unknown command or an
+  unreadable or refused key is dropped. Ids are stable (`file.openLocation`, `tabs.library`, `spaces.3`,
+  `file.reopenOnUndo` for ⌘Z's fixed row …; Commands.swift).
+- **Telemetry:** `feature.used` `shortcut.remap` per change made in the page (a key or a switch), never which command
+  or key.
 
 `--script shortcutremap` (`Debug/ShortcutRemapCheck.swift`, in build-app.sh's suite on both engines) records ⌥⌘L for
 Open Location in the Settings window (⌘L then reaches the page and opens nothing; ⌥⌘L opens the address editor;
 AppKit's menu takes no freed ⌘L), swaps Pin with Library's ⇧⌘L (⇧⌘L pins, ⌘D opens the Library), refuses ⌘H, warns
 about ⌘B, clears with Delete, checks a private window and Little Arc, resets Pin into a conflict and then everything,
-and checks the menus and settings.json after each step.
+and checks the menus and settings.json after each step. Then Airc first on ⌘L, on a page that claims ⌘L: with Websites
+first the page keeps it; with Airc first the page never sees it and the address editor opens, in the main window and in
+a private window; back to Websites first, the page has it again and nothing is stored.
 
 ## Page and editor keys (both engines)
 

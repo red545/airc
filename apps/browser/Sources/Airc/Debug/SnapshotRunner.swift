@@ -109,6 +109,8 @@ final class SnapshotRunner {
         case "keeploaded": keepLoadedScenario()
         case "managespaces": manageSpacesScenario()
         case "previews": previewsScenario()
+        case "aimax": MainActor.assumeIsolated { aimaxScenario() }
+        case "aimax-write", "aimax-read": MainActor.assumeIsolated { aimaxRelaunchScenario(write: script == "aimax-write") }
         case "sidebarright": sidebarRightScenario()
         case "marketing": marketingScenario()   // product shots, not a check: scripts/marketing-shots.sh only
         default:

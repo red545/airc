@@ -487,11 +487,13 @@ final class TabRowView: SidebarRowView {
         // SB-15 / MEM-3: no page yet, or one the engine has freed (Chromium keeps a discarded page's object).
         isUnloaded = tab == nil || controller?.isPageUnloaded(tab?.id) != false
 
-        // Title: the custom name, or the page's; a pinned tab away from its URL shows "/" (SB-31).
+        // Title: the custom name, or the page's; a pinned tab away from its URL shows "/" (SB-31). Tidy Titles
+        // (AI/AIFeatures.swift) may give a long page title a short name; the page's own then shows on hover.
         var text: String
         let titleColor = palette.textPrimary
+        let tidied = tidyName(for: entry, engineTab: engineTab)
         if let item {
-            text = item.displayTitle
+            text = tidied ?? item.displayTitle
             drifted = tab.map { t in item.savedURL.map { URLRules.isDrifted(saved: $0, current: t.url) } ?? false } ?? false
             if drifted, let t = tab {
                 let current = engineTab?.title.isEmpty == false ? engineTab!.title : t.displayTitle
@@ -504,9 +506,10 @@ final class TabRowView: SidebarRowView {
             }
         } else if let tab {
             drifted = false
-            text = engineTab?.title.isEmpty == false ? engineTab!.title : tab.displayTitle
+            text = tidied ?? (engineTab?.title.isEmpty == false ? engineTab!.title : tab.displayTitle)
             setTitle(NSAttributedString(string: text, attributes: [.foregroundColor: titleColor, .font: AircFont.row.appFont]))
         }
+        showTidyOriginal(tidied != nil, entry: entry, engineTab: engineTab)
 
         // A grey host line under localhost pins (Arc's dev host line).
         let url = tab?.url ?? item?.savedURL ?? ""

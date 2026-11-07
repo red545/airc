@@ -200,9 +200,10 @@ five actions per launch. `newspace` measures Create, `cbfirst` switches a loaded
 tab 250 ms before each Command Bar opening, and `cbnew` reopens it without a tab
 switch. Section timings are logged without the layout-counter swizzles or dirty
 view census. The test-only `AIRC_NEW_SPACE_BASELINE=1` restores the earlier Create path.
-`AIRC_COMMAND_BASELINE=1` selected the earlier Command Bar path in the archived
-pruning experiment. That experiment was reverted after the multi-window recheck;
-current Command Bar A/B launches are repeatability controls of the same path.
+`AIRC_COMMAND_BASELINE=1` restores Command Bar view-frame parking; the default
+parks only the backing layer so AppKit can draw the contents at idle (see the
+cold-opening pass below). The archived, reverted pruning experiment also used
+this flag; its pruning is not present in either current path.
 `--actions previewcache` fills the cache with 30 independent bitmaps
 and checks retained decoded bytes, LRU eviction and the eight/zero pressure
 trims (`AIRC_PREVIEW_BASELINE=1` selects the original 40-entry limit).
@@ -341,3 +342,70 @@ footprints dominate: current Airc median 2433.95 MB (40–41 renderers), Chrome
 services vary substantially. This comparison does not isolate profile overhead
 or justify an engine change. The fresh-profile Boost CSS map is empty, so
 installed-Boost costs remain unmeasured. No engine changes were made.
+
+
+## Cold Command Bar layer parking — 2026-11-07
+
+This supersedes the earlier unresolved cold-opening result. The existing idle
+preparation already builds and refreshes a spare bar. Moving its NSView frame
+outside the window clips AppKit's backing-store drawing. Keep its view geometry
+in the window and translate only the backing layer, with implicit animations
+disabled. Unparking restores the identity transform. The parked bar rejects hit
+tests, has no accessibility children, refuses editing and registers no I-beam
+cursor. No extra timer, bitmap cache, material or shadow was added.
+
+The final implementation was measured in ten interleaved fresh-process pairs
+for `cbfirst`, five for `cbnew`, and five for New Space, with five actions per
+launch and alternating AB/BA pair order. Every launch was HID-idle for at least
+300 s; the minimum observed for these frame runs was 12,626 s. Timings below
+end at **Core Animation commit in hidden windows**, not display presentation.
+Cold uses each process's first opening after a verified loaded-tab switch.
+Other rows use medians of process medians; later openings exclude the first
+sample. Parentheses are min–max process spreads.
+
+| Metric, ms | View-frame parking A | Backing-layer parking B |
+|---|---:|---:|
+| First opening, ten processes per side | 12.34 (11.30–14.50) | 6.84 (4.90–9.01) |
+| Later after-switch openings | 6.67 (5.11–7.65) | 5.40 (3.22–6.00) |
+| Steady openings without switching | 6.33 (5.29–7.48) | 5.05 (4.32–5.88) |
+| New Space, same existing optimization on both sides | 9.26 (8.92–11.11) | 9.56 (8.06–10.13) |
+
+Every cold pair improved (paired reduction median 4.56 ms, range 3.73–7.84).
+The first five-pair block was 12.66 → 8.63 ms; a fixed second block was
+12.05 → 6.65 ms. Both blocks are included, not replaced by the faster one.
+Three of ten candidate cold openings remain above 8.3 ms. This establishes a
+median commit-time improvement, not a strict one-frame presentation guarantee.
+All 150 timed Command Bar actions entered make/add/focus. New Space's paired
+median difference was −0.09 ms, with overlapping spreads; all 25 creates on
+each side selected their Space and preserved footer order/icons. Its strict
+one-frame target remains open on both paths.
+
+Five fresh-process idle pairs used the reference 3 profiles, 6 Spaces, 8 loaded
+and 22 unloaded tabs. Each waited for the page report, settled 30 s and measured
+CPU over 30 s, then sampled physical footprints. All eight page outcomes
+matched within every pair, were hidden, and reported zero animation frames;
+all CPU and memory process sets were stable. CPU is percent of one core, summed
+across owned browser processes; memory is decimal MB.
+
+| Idle metric | A median (min–max) | B median (min–max) |
+|---|---:|---:|
+| CPU % | 0.266 (0.200–1.264) | 0.266 (0.166–0.465) |
+| Main footprint MB | 80.11 (79.27–83.78) | 80.32 (80.01–80.95) |
+| Total footprint MB | 532.99 (530.56–537.16) | 533.69 (528.10–535.17) |
+
+No idle CPU regression was observed; footprint distributions overlap. The
+control's 1.264% outlier is retained. These are Airc regression checks, not a
+new Chrome/MEM-4 comparison. An interrupted idle pair was discarded in full
+and replaced with one fresh pair; the other four complete pairs were retained.
+
+Both app engines built in release mode, linking the existing release framework
+for Chromium. Native view-rendered images of the open, URL-editing and parked
+bar were pixel-identical between A and B. A parked bar also rendered identically
+to a hidden control. Ten functional checks per side passed, covering hit tests,
+accessibility, first-responder preservation, typing, closing and URL editing.
+A matched diagnostic trace sampled CA commit in 4/7 cold control stacks and
+2/6 candidate stacks; action/keycap drawing appeared only in the control's
+cold samples. These coarse profiler samples are diagnostic, not the timing
+comparison. No engine build, focus activation, HID posting or screen capture
+was used. The fallback before idle preparation and actual foreground 120 Hz
+presentation remain outside this measurement.

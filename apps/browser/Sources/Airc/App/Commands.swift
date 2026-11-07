@@ -381,9 +381,15 @@ enum KeyMonitor {
     private static var pageUsed: [String: CFTimeInterval] = [:]
     static let secondPressWindow: CFTimeInterval = 1.0
 
+    /// The page gets the key first: it can (`pageCanUse`) and the user left the command at "Websites first" (Settings →
+    /// Shortcuts; "Airc first" runs the command at once, in every window, and the page never sees the key).
+    static func pageMayUse(_ cmd: BrowserCommand) -> Bool {
+        pageCanUse(cmd) && ShortcutCenter.shared.map.priority(cmd.id) == .websites
+    }
+
     /// Chrome's reserved shortcuts (pages never get them) and ⌥/⌃ combinations stay browser-first. Keys editors use
-    /// (⌘B, ⇧⌘V, ⌥⌘V …) are always the page's first, whichever command the user gave them.
-    private static func pageMayUse(_ cmd: BrowserCommand) -> Bool {
+    /// (⌘B, ⇧⌘V, ⌥⌘V …) are the page's first, whichever command the user gave them, unless it's "Airc first".
+    static func pageCanUse(_ cmd: BrowserCommand) -> Bool {
         switch cmd.order {
         case .browserFirst: return false
         case .pageFirst, .afterPage: return true
@@ -569,8 +575,9 @@ enum KeyMonitor {
         return true
     }
 
-    /// ⌘Z outside a text field (Arc): Reopen Closed Tab, after the page had its chance (CB-3).
-    private static let reopenOnUndo = BrowserCommand("Reopen Closed Tab", "z", .command) { $0.undo() }
+    /// ⌘Z outside a text field (Arc): Reopen Closed Tab, after the page had its chance (CB-3). Its key can't change, only
+    /// its priority (Settings → Shortcuts; a fixed entry in the map, ShortcutCenter).
+    static let reopenOnUndo = BrowserCommand("Reopen Closed Tab", "z", .command, id: "file.reopenOnUndo") { $0.undo() }
 
     /// The key went to the page (offerToPage); WebKit may send it back (`offered`).
     private static weak var offered: NSEvent?

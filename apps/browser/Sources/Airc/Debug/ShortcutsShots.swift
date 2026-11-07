@@ -5,8 +5,8 @@ import AppKit
 
 /// The marketing shot of Settings → Shortcuts (CB-4), the marketing scenario's part "shortcuts"
 /// (`scripts/marketing-shots.sh --parts shortcuts`):
-///   - settings-shortcuts: Open Location moved to ⌥⌘L (its row with the reset arrow), and ⌘N just typed for New Private
-///     Window, which asks whether to swap with New Window or take the key from it.
+///   - settings-shortcuts: Open Location on ⌘L at Airc first (pages never get ⌘L; its row with the reset arrow), and ⌘N
+///     just typed for New Private Window, which asks whether to swap with New Window or take the key from it.
 /// The map goes back to today's table afterwards.
 extension SnapshotRunner {
     func mkShortcutsShots(_ d: MarketingDemo) {
@@ -14,7 +14,7 @@ extension SnapshotRunner {
         mkShow(d, "personal", "apple")
         run { [self] in
             NSApp.appearance = NSAppearance(named: .aqua)
-            center.update { $0.assign(KeyCombo("l", [.option, .command]), to: "file.openLocation") }
+            center.update { $0.setPriority(.airc, for: "file.openLocation") }
             c.app?.showSettings(page: .shortcuts)
             if let w = c.app?.settingsWindow?.window { w.setFrameOrigin(NSPoint(x: -6000, y: 200)) }
             // ⌘N typed into New Private Window's recorder: it's New Window's, so the row asks.

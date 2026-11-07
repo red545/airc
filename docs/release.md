@@ -581,7 +581,11 @@ runs the quarantine, install and signed full/delta Sparkle tests. It never uploa
 Without matching green-suite evidence it marks the result unqualified; `--go`
 refuses it. A green run covers the exact app/package/engine/build-script inputs;
 release-only documentation/tool changes may follow it. No dirty working-tree files
-are copied: the command exports committed HEAD. The global build sequence spans
+are copied: the command exports committed HEAD by default. To freeze an earlier
+green application revision, pass `--revision COMMIT --green-run STATUS_RUN`.
+Only `scripts/release` and `docs/release-notes-beta.md` come from committed HEAD;
+all other inputs come from COMMIT. The stage records both full revisions and
+copies the green run's revision and step results into `evidence/`. The global build sequence spans
 Stable and Nightly and reserves UTC minute build numbers even after failures.
 Version defaults to 0.1.0 (`AIRC_RELEASE_VERSION` changes it intentionally).
 

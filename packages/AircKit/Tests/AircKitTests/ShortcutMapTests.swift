@@ -12,6 +12,7 @@ final class ShortcutMapTests: XCTestCase {
             .init(id: "tabs.pin", defaultKey: KeyCombo("d", cmd)),
             .init(id: "tabs.favorite", defaultKey: nil),
             .init(id: "spaces.next", defaultKey: KeyCombo("right", [.option, .command])),
+            .init(id: "file.reopenOnUndo", defaultKey: KeyCombo("z", cmd), remappable: false),
         ]
     }
 
@@ -209,5 +210,106 @@ final class ShortcutMapTests: XCTestCase {
         XCTAssertEqual(m.command(for: KeyCombo("k", [.control, .command])), "file.openLocation")
         XCTAssertNil(m.key("tabs.pin"))
         XCTAssertEqual(m.stored["tabs.pin"], "")
+    }
+
+    // MARK: Websites first / Airc first
+
+    func testPriorityDefaultsToWebsitesAndIsStoredOnlyForAirc() {
+        var m = ShortcutMap(commands: table)
+        XCTAssertEqual(m.priority("file.openLocation"), .websites)
+        XCTAssertEqual(m.setPriority(.websites, for: "file.openLocation"), .unchanged)
+        XCTAssertEqual(m.setPriority(.airc, for: "file.openLocation"), .done)
+        XCTAssertEqual(m.priority("file.openLocation"), .airc)
+        XCTAssertEqual(m.stored, ["file.openLocation:first": "airc"])
+        // The key itself is untouched, and counts as unchanged.
+        XCTAssertEqual(m.key("file.openLocation"), KeyCombo("l", cmd))
+        XCTAssertFalse(m.isCustomized("file.openLocation"))
+        XCTAssertEqual(m.setPriority(.airc, for: "nope"), .unknownCommand)
+        XCTAssertEqual(m.setPriority(.websites, for: "file.openLocation"), .done)
+        XCTAssertTrue(m.stored.isEmpty)
+        XCTAssertEqual(m, ShortcutMap(commands: table))
+    }
+
+    func testPriorityRoundTripsWithAKey() {
+        var m = ShortcutMap(commands: table)
+        m.assign(KeyCombo("l", [.option, .command]), to: "file.openLocation")
+        m.setPriority(.airc, for: "file.openLocation")
+        m.setPriority(.airc, for: "tabs.pin")
+        XCTAssertEqual(m.stored, ["file.openLocation": "alt+cmd+l", "file.openLocation:first": "airc", "tabs.pin:first": "airc"])
+        let again = ShortcutMap(commands: table, stored: m.stored)
+        XCTAssertEqual(again, m)
+        XCTAssertEqual(again.priority("tabs.pin"), .airc)
+        XCTAssertEqual(again.key("file.openLocation"), KeyCombo("l", [.option, .command]))
+    }
+
+    func testPriorityFollowsTheCommandNotTheKey() {
+        var m = ShortcutMap(commands: table)
+        m.setPriority(.airc, for: "tabs.pin")
+        m.assign(KeyCombo("l", cmd), to: "tabs.pin", resolving: .swap)
+        XCTAssertEqual(m.priority("tabs.pin"), .airc)
+        XCTAssertEqual(m.priority("file.openLocation"), .websites)
+    }
+
+    func testBrokenAndUnknownPrioritiesAreIgnored() {
+        let m = ShortcutMap(commands: table, stored: ["gone.command:first": "airc", "tabs.pin:first": "maybe", "tabs.library:first": "websites",
+                                                      ":first": "airc"])
+        XCTAssertTrue(m.stored.isEmpty)
+        XCTAssertEqual(m, ShortcutMap(commands: table))
+    }
+
+    func testResetPutsWebsitesFirstBack() {
+        var m = ShortcutMap(commands: table)
+        m.assign(KeyCombo("l", [.option, .command]), to: "file.openLocation")
+        m.setPriority(.airc, for: "file.openLocation")
+        XCTAssertEqual(m.reset("file.openLocation"), .done)
+        XCTAssertEqual(m.priority("file.openLocation"), .websites)
+        XCTAssertTrue(m.stored.isEmpty)
+        // A priority alone resets too.
+        m.setPriority(.airc, for: "tabs.pin")
+        XCTAssertEqual(m.reset("tabs.pin"), .done)
+        XCTAssertTrue(m.stored.isEmpty)
+        // A reset that asks first changes nothing yet.
+        m.assign(KeyCombo("l", [.option, .command]), to: "file.openLocation")
+        m.setPriority(.airc, for: "file.openLocation")
+        m.assign(KeyCombo("l", cmd), to: "tabs.library")
+        XCTAssertEqual(m.reset("file.openLocation"), .conflict("tabs.library"))
+        XCTAssertEqual(m.priority("file.openLocation"), .airc)
+        m.resetAll()
+        XCTAssertEqual(m.priority("file.openLocation"), .websites)
+        XCTAssertTrue(m.stored.isEmpty)
+    }
+
+    func testOldBuildsSkipPriorityEntries() {
+        // A build before the priority reads "<id>:first" as an unknown command; its keys still load.
+        var m = ShortcutMap(commands: table)
+        m.assign(KeyCombo("l", [.option, .command]), to: "file.openLocation")
+        m.setPriority(.airc, for: "tabs.pin")
+        XCTAssertNil(KeyCombo(string: "airc"))
+        let keysOnly = ShortcutMap(commands: table, overrides: ["file.openLocation": KeyCombo("l", [.option, .command])])
+        XCTAssertEqual(keysOnly.stored, m.stored.filter { !$0.key.hasSuffix(ShortcutMap.prioritySuffix) })
+    }
+
+    // MARK: A fixed key (⌘Z outside text fields)
+
+    func testAFixedKeyHasOnlyAPriority() {
+        var m = ShortcutMap(commands: table)
+        let z = KeyCombo("z", cmd)
+        XCTAssertFalse(m.isRemappable("file.reopenOnUndo"))
+        XCTAssertTrue(m.isRemappable("tabs.pin"))
+        XCTAssertEqual(m.defaultKey("file.reopenOnUndo"), z)
+        // It holds no key: ⌘Z is free for another command, and isn't a "freed" default.
+        XCTAssertNil(m.key("file.reopenOnUndo"))
+        XCTAssertNil(m.command(for: z))
+        XCTAssertFalse(m.isFreedDefault(z))
+        guard case .refused = m.assign(KeyCombo("j", [.control, .command]), to: "file.reopenOnUndo") else { return XCTFail("remapped") }
+        guard case .refused = m.assign(nil, to: "file.reopenOnUndo") else { return XCTFail("cleared") }
+        XCTAssertEqual(m.assign(z, to: "tabs.favorite"), .done)
+        XCTAssertEqual(m.command(for: z), "tabs.favorite")
+        XCTAssertEqual(m.setPriority(.airc, for: "file.reopenOnUndo"), .done)
+        XCTAssertEqual(m.stored, ["tabs.favorite": "cmd+z", "file.reopenOnUndo:first": "airc"])
+        XCTAssertEqual(m.reset("file.reopenOnUndo"), .done)
+        XCTAssertEqual(m.priority("file.reopenOnUndo"), .websites)
+        // A hand-edited key for it is ignored.
+        XCTAssertNil(ShortcutMap(commands: table, stored: ["file.reopenOnUndo": "cmd+j"]).key("file.reopenOnUndo"))
     }
 }

@@ -3,8 +3,8 @@
 """Interleaved frame A/B in one test binary, isolated profiles, no HID or screenshots.
 
 A selects the baseline path where a comparison hook exists. Each launch repeats
-its action. Command Bar pruning was reverted: current Command Bar A/B launches
-exercise the same path; its baseline environment flag supports archived binaries.
+its action. Command Bar A parks the view frame; B parks only its backing layer
+so AppKit can draw its contents at idle, before the first opening.
 The first-command case switches loaded tabs 250 ms before every opening.
 """
 import argparse

@@ -7,7 +7,8 @@ import SwiftUI
 /// Settings → Shortcuts (CB-4, Arc's Settings › Shortcuts): every command by menu with its key. A click on a key
 /// records a new one (Esc cancels, Delete removes it); a key another command has offers a swap or taking it away; macOS's
 /// own keys are refused, and keys pages use themselves come with a note that the page still gets them first (CB-3).
-/// Changes apply at once in every window (App/ShortcutCenter.swift).
+/// Each command a page could have first also says who goes first (Arc's "Prefer Websites" / "Prefer Arc"): Websites
+/// first, the default, or Airc first. Changes apply at once in every window (App/ShortcutCenter.swift).
 final class ShortcutsEditor: ObservableObject {
     static let shared = ShortcutsEditor()
 
@@ -122,6 +123,16 @@ final class ShortcutsEditor: ObservableObject {
         }
     }
 
+    /// Websites first or Airc first for one command.
+    func setPriority(_ p: KeyPriority, for id: String) {
+        stop()
+        conflict = nil
+        notices = [:]
+        guard center.update({ $0.setPriority(p, for: id) }) == .done else { return }
+        Telemetry.shared.record(.featureUsed(.shortcutRemap))
+        noteAfterChange(id)
+    }
+
     func resetAll() {
         stop()
         conflict = nil
@@ -145,11 +156,15 @@ final class ShortcutsEditor: ObservableObject {
         }
     }
 
-    /// Keys pages use too: the command has it, and the page still gets it first (CB-3).
+    /// Keys pages use too: the command has it, and the page still gets it first (CB-3), unless Airc goes first.
     private func noteAfterChange(_ id: String) {
         guard let key = center.map.key(id), let r = KeyReservation.of(key), r.kind == .pageCommon else { return }
-        notices[id] = Notice(kind: .warning, text: "Pages use \(key.display) too (\(r.what)). A page that uses it keeps it; "
-                             + "press \(key.display) again within a second to run this.")
+        if center.map.priority(id) == .airc {
+            notices[id] = Notice(kind: .warning, text: "Pages use \(key.display) too (\(r.what)). With Airc first, no page gets it.")
+        } else {
+            notices[id] = Notice(kind: .warning, text: "Pages use \(key.display) too (\(r.what)). A page that uses it keeps it; "
+                                 + "press \(key.display) again within a second to run this.")
+        }
     }
 }
 
@@ -162,8 +177,8 @@ struct ShortcutsPage: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: 16) {
-                Text("Click a shortcut to type a new one. Esc cancels, Delete removes it. Pages still get their own keys first: "
-                     + "if a page uses one, press it again within a second.")
+                Text("Click a shortcut to type a new one. Esc cancels, Delete removes it. With Websites first, a page that uses "
+                     + "a key keeps it: press it again within a second to run Airc’s command. Airc first always runs it.")
                     .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
@@ -173,7 +188,9 @@ struct ShortcutsPage: View {
             }
             ForEach(ShortcutCenter.groups, id: \.title) { group in
                 SettingsSection(title: group.title) {
-                    ForEach(group.commands.filter { !$0.id.isEmpty }, id: \.id) { c in
+                    // ⌘Z's Reopen Closed Tab goes when the user gives ⌘Z to a command (that row has its priority then).
+                    ForEach(group.commands.filter { !$0.id.isEmpty && ($0.id != KeyMonitor.reopenOnUndo.id || center.offersPriority($0.id)) },
+                            id: \.id) { c in
                         ShortcutRow(id: c.id, center: center, editor: editor)
                     }
                 }
@@ -205,14 +222,15 @@ private struct ShortcutRow: View {
                     }
                 }
                 Spacer(minLength: 12)
-                if center.map.isCustomized(id) {
+                if center.map.isCustomized(id) || center.map.priority(id) == .airc {
                     Button { editor.reset(id) } label: {
                         Image(systemName: "arrow.uturn.backward").font(.system(size: 11, weight: .semibold))
                     }
                     .buttonStyle(.airc(.plain, size: .small))
                     .accessibilityLabel("Reset \(ShortcutCenter.title(id))")
                 }
-                recorder
+                if center.offersPriority(id) { priority }
+                if center.map.isRemappable(id) { recorder } else { fixedKey }
             }
             if let c = editor.conflict, c.id == id { conflictBar(c) }
         }
@@ -222,6 +240,30 @@ private struct ShortcutRow: View {
     }
 
     private var recording: Bool { editor.recording == id }
+
+    /// Who gets the key first while a page has the keyboard.
+    private var priority: some View {
+        AircSegmented(selection: Binding(get: { center.map.priority(id) }, set: { editor.setPriority($0, for: id) }), segments: [
+            .init(value: KeyPriority.websites, title: "Websites first"),
+            .init(value: KeyPriority.airc, title: "Airc first"),
+        ], height: 24)
+        .frame(width: 196)
+        .help("Websites first: a page that uses the key keeps it (press it again within a second to run this). "
+              + "Airc first: this always runs, and pages never get the key.")
+        .accessibilityLabel("Who gets \(ShortcutCenter.title(id))’s key first")
+    }
+
+    /// A key that can't change (⌘Z outside text fields): shown, not recorded.
+    private var fixedKey: some View {
+        HStack(spacing: 3) {
+            ForEach(Array((center.map.defaultKey(id)?.symbols ?? []).enumerated()), id: \.offset) { AircKeycap(text: $0.element) }
+        }
+        .padding(.horizontal, 6)
+        .frame(minWidth: 44, minHeight: 26, alignment: .trailing)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Shortcut for \(ShortcutCenter.title(id))")
+        .accessibilityValue(center.map.defaultKey(id)?.display ?? "none")
+    }
 
     private var recorder: some View {
         Button { editor.toggle(id) } label: {

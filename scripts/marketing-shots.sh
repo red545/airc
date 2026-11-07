@@ -77,7 +77,7 @@ settings-appearance-light|Settings: Appearance|Translucency, the default look of
 settings-appearance-dark|Settings: Appearance, dark|The same page in dark mode
 settings-privacy|Settings: Privacy|Anonymous usage data and crash reports, off with one switch
 settings-privacy-events|See what Airc sends|The sheet listing every event Airc recorded, word for word
-settings-shortcuts|Settings: Shortcuts|Every command by menu with its key: Open Location moved to ⌥⌘L, and ⌘N typed for New Private Window asking to swap with New Window
+settings-shortcuts|Settings: Shortcuts|Every command by menu with its key and who gets it first: Open Location at Airc first (pages never get ⌘L), and ⌘N typed for New Private Window asking to swap with New Window
 onboarding-welcome|Onboarding|The first window
 onboarding-import|Onboarding: Arc import|Arc found on the Mac, first among the browsers found: Spaces, pinned tabs, folders and Favorites come over as they are
 onboarding-import-browsers|Onboarding: other browsers|Chrome picked on the same step: each profile with its colour, its bookmarks and folders, and the history for ⌘T

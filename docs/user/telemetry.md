@@ -32,8 +32,9 @@ accepted, declined), an extension installed (never which), an update installed, 
 or clicked, a theme change, Live Calendar turned on or a meeting joined from it (never the meeting, its link or
 its time), a Boost changed in its editor (never the site, its style or its code), a private window opened
 (nothing about its pages, ever), and a tab preview's quick action (pin, unpin, add to or remove from Favorites,
-split, Peek; never the tab, its site or its title), and a shortcut changed in Settings → Shortcuts (never which
-command or key).
+split, Peek; never the tab, its site or its title), a shortcut changed in Settings → Shortcuts (never which
+command or key), and Tidy tab titles turned on or off in Settings → AI (never a title, a page or a name;
+[ai.md](ai.md)).
 
 Numbers are only ever sent as ranges: "6-10 Spaces", "250-500 ms", never the exact value.
 

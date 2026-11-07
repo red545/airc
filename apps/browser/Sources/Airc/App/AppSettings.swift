@@ -40,6 +40,8 @@ final class AppSettings: ObservableObject {
         var peekEnabled = true
         /// SB-45: a card with the page's picture beside a sidebar tab under the pointer (Settings → Appearance).
         var tabPreviews = true
+        /// Settings → AI → "Tidy tab titles" (AI/AIFeatures.swift, docs/user/ai.md): off until the person turns it on.
+        var tidyTitles = false
         /// Settings → Privacy → "Play DRM sites with Safari's engine" (docs/user/protected-media.md): Spotify, Netflix
         /// and the other services whose DRM needs more than Chromium's Widevine open in a WebKit page. On by default.
         var webKitProtectedMedia = true
@@ -77,6 +79,7 @@ final class AppSettings: ObservableObject {
             externalLinks = (try? c.decodeIfPresent(ExternalLinkTarget.self, forKey: .externalLinks)) ?? d.externalLinks
             peekEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .peekEnabled)) ?? d.peekEnabled
             tabPreviews = (try? c.decodeIfPresent(Bool.self, forKey: .tabPreviews)) ?? d.tabPreviews
+            tidyTitles = (try? c.decodeIfPresent(Bool.self, forKey: .tidyTitles)) ?? d.tidyTitles
             defaultBrowser = (try? c.decodeIfPresent(DefaultBrowserState.self, forKey: .defaultBrowser)) ?? d.defaultBrowser
             calendar = (try? c.decodeIfPresent(CalendarPreferences.self, forKey: .calendar)) ?? d.calendar
             shortcuts = (try? c.decodeIfPresent([String: String].self, forKey: .shortcuts)) ?? [:]

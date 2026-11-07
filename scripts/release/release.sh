@@ -7,13 +7,14 @@ if [[ ${AIRC_RELEASE_SCRIPT_LOADED:-0} != 1 ]]; then
  exec env AIRC_RELEASE_SCRIPT_LOADED=1 bash -c "$(cat "$0")" "$0" "$@"
 fi
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-channel=stable; green=; dry=0
+channel=stable; green=; dry=0; source_rev=HEAD
 while [[ $# -gt 0 ]]; do
  case "$1" in
  --channel) channel=$2; shift 2;;
  --green-run) green=$2; shift 2;;
+ --revision) source_rev=$2; shift 2;;
  --dry-run) dry=1; shift;;
- --help) echo 'release.sh [--channel stable|nightly] [--green-run STATUS_RUN] [--dry-run]'; exit 0;;
+ --help) echo 'release.sh [--channel stable|nightly] [--green-run STATUS_RUN] [--revision COMMIT] [--dry-run]'; exit 0;;
  *) echo 'Unknown argument' >&2; exit 2;;
  esac
 done
@@ -31,7 +32,8 @@ base="$artifacts/release/$channel"
 mkdir -p "$base"
 exec 9>"$artifacts/release/.public-release.lock"
 flock -n 9 || { echo 'Another public release is running' >&2; exit 1; }
-rev=$(git -C "$ROOT" rev-parse HEAD)
+tooling_rev=$(git -C "$ROOT" rev-parse HEAD)
+rev=$(git -C "$ROOT" rev-parse --verify "${source_rev}^{commit}")
 if [[ -z $green ]]; then
  green=$(python3 "$ROOT/scripts/release/green.py" "$ROOT" "${AIRC_STATUS_DIR:-$(dirname "$ROOT")/status}/runs" "$rev" || true)
 fi
@@ -40,7 +42,7 @@ if [[ -n $green ]]; then
  python3 "$ROOT/scripts/release/green.py" "$ROOT" "$green" "$rev" --check
  qualified=1
 elif [[ $dry != 1 ]]; then
- echo 'No green test run for HEAD application sources. Supply --green-run or use --dry-run (not uploadable).' >&2; exit 1
+ echo 'No green test run for selected application sources. Supply --green-run or use --dry-run (not uploadable).' >&2; exit 1
 fi
 # A global sequence spans stable/nightly. Reserve builds even after failed attempts.
 build=$(python3 - "$artifacts/release" <<'PY'
@@ -67,6 +69,14 @@ ssh "$host" 'test ! -d arcfork/work/launchprep/build/.release-running' || {
  echo 'A remote release is still running (or needs recovery); do not overwrite its work copy.' >&2; exit 1;
 }
 git -C "$ROOT" archive "$rev" | tar -x -C "$scratch"
+# Freeze app inputs at the selected commit, while using committed release fixes/notes.
+git -C "$ROOT" archive "$tooling_rev" scripts/release docs/release-notes-beta.md | tar -x -C "$scratch"
+mkdir -p "$stage/evidence/source-run"
+printf '%s\n' "$rev" > "$stage/evidence/source-revision.txt"
+printf '%s\n' "$tooling_rev" > "$stage/evidence/release-tooling-revision.txt"
+if [[ -n $green ]]; then
+ cp "$green/rev.txt" "$green/steps.tsv" "$stage/evidence/source-run/"
+fi
 AIRC_MAC_HOST="$host" "$scratch/scripts/mac.sh" -w launchprep sync > "$stage/sync.log" 2>&1
 # Only credential paths and the identity travel. Password and EdDSA seed remain on the Mac.
 (umask 077
@@ -87,6 +97,10 @@ AIRC_MAC_HOST="$host" "$scratch/scripts/mac.sh" -w launchprep get build/stable-s
 python3 "$ROOT/scripts/release/upload.py" "$stage" --verify-only
 # Keep symbols on Linux, no SwiftPM trees, test profiles or duplicate DMGs on the Mac.
 AIRC_MAC_HOST="$host" "$scratch/scripts/mac.sh" -w launchprep get build/dSYMs/ "$stage/private-symbols/" >> "$stage/transfer.log" 2>&1 || true
-ssh "$host" 'rm -rf arcfork/work/launchprep/build arcfork/work/launchprep/packages/*/.build arcfork/work/launchprep/apps/browser/.build'
+# The SSH login shell may be zsh, whose unmatched globs fail before rm runs.
+# Disk-conscious operators may already have removed these completed intermediates.
+ssh "$host" 'bash -s' <<'CLEANUP'
+rm -rf arcfork/work/launchprep/build arcfork/work/launchprep/packages/*/.build arcfork/work/launchprep/apps/browser/.build
+CLEANUP
 if [[ $channel == stable ]]; then printf '%s\n' "$stage" > "$artifacts/release/.last-stage"; fi
 echo "Staged: $stage"

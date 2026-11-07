@@ -423,6 +423,14 @@ if [[ -n "$SNAPSHOTS" ]]; then
     # pictures, the hide rules, the actions and the setting. Hover drives the rows' own enter and exit handlers: posted
     # mouse moves never reach tracking areas (the window server makes those events), and HID posting isn't allowed.
     launch --script previews --ephemeral --data-dir "$home/Previews"
+    # Tidy Titles (AIMaxCheck.swift, docs/user/ai.md) with a fake model on loopback pages: off by default, the
+    # "Requires Apple Intelligence" state, short names in the sidebar, the page's own title on hover, hand-renamed
+    # tabs and private windows never sent, a stuck model's timeout, the cache file, and off forgets. With Apple
+    # Intelligence on, also a timed run of the real on-device model on synthetic titles.
+    launch --script aimax --ephemeral --data-dir "$home/AIMax"
+    # Tidy tab titles on at launch (the sidebar's first rows start it) and its names kept across a relaunch.
+    launch --script aimax-write --data-dir "$home/AIMaxRelaunch"
+    launch --script aimax-read --data-dir "$home/AIMaxRelaunch"
     # WIN-5 the sidebar on the right (SidebarRightCheck.swift), on loopback pages: both positions at the default, minimum
     # and maximum widths (sidebar, page card, resize edge, traffic lights, tab preview card, drop edges, ⌘L, Library,
     # downloads card and update pill), ⌘S and the reveal from the right edge, and the setting live across windows.

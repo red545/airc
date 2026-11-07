@@ -272,6 +272,8 @@ public enum TelemetryFeature: Sendable, Equatable {
     case tabPreviewAction(TabPreviewAction)
     /// A shortcut changed in Settings → Shortcuts (a new key, a swap or a clear). Never which command or key.
     case shortcutRemap
+    /// Settings → AI → "Tidy tab titles" turned on or off (docs/user/ai.md). Never a title, a page or a name.
+    case aiTidyTitles(OnOff)
     /// The one manual smoke event that checks a new key end to end.
     case telemetrySmoke
 
@@ -297,6 +299,10 @@ public enum TelemetryFeature: Sendable, Equatable {
 
     public enum TabPreviewAction: String, Sendable, CaseIterable {
         case pin, unpin, favorite, unfavorite, split, peek
+    }
+
+    public enum OnOff: String, Sendable, CaseIterable {
+        case on, off
     }
 
     /// The `feature` property.
@@ -331,6 +337,7 @@ public enum TelemetryFeature: Sendable, Equatable {
         case .privateWindowOpen: "private_window.open"
         case .tabPreviewAction: "tab_preview.action"
         case .shortcutRemap: "shortcut.remap"
+        case .aiTidyTitles: "ai.tidy_titles"
         case .telemetrySmoke: "telemetry.smoke"
         }
     }
@@ -345,6 +352,7 @@ public enum TelemetryFeature: Sendable, Equatable {
         case let .historyMenu(d): d.rawValue
         case let .defaultBrowser(a): a.rawValue
         case let .tabPreviewAction(a): a.rawValue
+        case let .aiTidyTitles(v): v.rawValue
         default: nil
         }
     }

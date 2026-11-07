@@ -20,7 +20,9 @@ final class ShortcutCenter: ObservableObject {
         var byID: [String: BrowserCommand] = [:]
         for c in all where !c.id.isEmpty && byID[c.id] == nil { byID[c.id] = c }
         defaultsByID = byID
-        map = ShortcutMap(commands: all.filter { !$0.id.isEmpty }.map { .init(id: $0.id, defaultKey: Self.combo($0.key, $0.modifiers)) })
+        let undo = KeyMonitor.reopenOnUndo
+        map = ShortcutMap(commands: all.filter { !$0.id.isEmpty }.map { .init(id: $0.id, defaultKey: Self.combo($0.key, $0.modifiers)) }
+                          + [.init(id: undo.id, defaultKey: Self.combo(undo.key, undo.modifiers), remappable: false)])
         commands = CommandMenus.defaults
     }
 
@@ -67,7 +69,16 @@ final class ShortcutCenter: ObservableObject {
         return map.isFreedDefault(typed) ? nil : (key, mods)
     }
 
-    /// A key pages and editors use themselves (⌘B, ⇧⌘V …): the page has it first whatever command it runs.
+    /// The row offers "Websites first / Airc first": a page can have the command's key first now (KeyMonitor.pageCanUse).
+    /// Not for the app menu's own commands (the key monitor never sees them), nor ⌘← ⌘→ (always the page's and the
+    /// fields' first: text navigation), nor ⌘Z's Reopen Closed Tab while the user gave ⌘Z to a command.
+    func offersPriority(_ id: String) -> Bool {
+        if id == KeyMonitor.reopenOnUndo.id { return !owns("z", .command) }
+        guard let cmd = commands.first(where: { $0.id == id }), !cmd.key.isEmpty, cmd.order != .afterPage else { return false }
+        return KeyMonitor.pageCanUse(cmd)
+    }
+
+    /// A key pages and editors use themselves (⌘B, ⇧⌘V …): the page has it first whatever command it runs (Websites first).
     static func isPageCommon(_ cmd: BrowserCommand) -> Bool {
         combo(cmd.key, cmd.modifiers).map { KeyReservation.pageCommon[$0] != nil } ?? false
     }
@@ -148,7 +159,7 @@ final class ShortcutCenter: ObservableObject {
     /// The commands by menu, as the menus list them; the hidden keys and ⌘← ⌘→ with their menu's commands.
     static var groups: [(title: String, commands: [BrowserCommand])] {
         [("Airc", CommandMenus.app()),
-         ("File", CommandMenus.file().compactMap { $0 }),
+         ("File", CommandMenus.file().compactMap { $0 }.flatMap { $0.id == "file.reopenClosedTab" ? [$0, KeyMonitor.reopenOnUndo] : [$0] }),
          ("Edit", CommandMenus.editExtras().compactMap { $0 }),
          ("View", CommandMenus.view().compactMap { $0 }),
          ("Spaces", CommandMenus.spaces().compactMap { $0 }),
@@ -171,6 +182,7 @@ final class ShortcutCenter: ObservableObject {
         case "tabs.forward.arrow": "Forward, outside text fields"
         case "file.openInSpace": "Open in Space (Little Arc, Peek)"
         case "file.moveToSpace": "Move to Space… (Little Arc)"
+        case "file.reopenOnUndo": "Reopen Closed Tab, outside text fields"
         default: shared.defaultCommand(id)?.title ?? id
         }
     }

@@ -151,17 +151,30 @@ public struct KeyReservation: Equatable, Sendable {
     }
 }
 
+/// Who gets a command's key first while a page has the keyboard (Arc's per-command "Prefer Websites" / "Prefer Arc").
+public enum KeyPriority: String, Sendable {
+    /// The page may claim the key (CB-3); pressing it again within a second runs the command. The default.
+    case websites
+    /// The command always runs; the page never sees the key.
+    case airc
+}
+
 /// The user's shortcuts (CB-4): today's table as defaults, and only what the user changed on top. `stored` is what
 /// settings.json keeps, so a command the user never touched follows a new default in a later version, an override that
 /// equals its default is dropped, and commands that no longer exist are ignored. A key belongs to one command at most:
-/// the user's choice wins over a default, the earlier command over a later one.
+/// the user's choice wins over a default, the earlier command over a later one. Each command also has a `KeyPriority`;
+/// only "Airc first" is stored.
 public struct ShortcutMap: Equatable, Sendable {
     public struct Command: Equatable, Sendable {
         public let id: String
         public let defaultKey: KeyCombo?
-        public init(id: String, defaultKey: KeyCombo?) {
+        /// False for a key the user can't change, only its priority (⌘Z's Reopen Closed Tab outside text fields). It
+        /// holds no key in the map: another command may take that key, and then this one gives way.
+        public let remappable: Bool
+        public init(id: String, defaultKey: KeyCombo?, remappable: Bool = true) {
             self.id = id
             self.defaultKey = defaultKey
+            self.remappable = remappable
         }
     }
 
@@ -189,34 +202,60 @@ public struct ShortcutMap: Equatable, Sendable {
     public let commands: [Command]
     /// Command id → the user's key, or nil for "no shortcut".
     public private(set) var overrides: [String: KeyCombo?]
+    /// Commands whose key always runs the command, even when a page has the keyboard ("Airc first").
+    public private(set) var aircFirst: Set<String>
     private var keys: [String: KeyCombo] = [:]
     private var owners: [KeyCombo: String] = [:]
     private let index: [String: Command]
 
-    public init(commands: [Command], overrides: [String: KeyCombo?] = [:]) {
+    public init(commands: [Command], overrides: [String: KeyCombo?] = [:], aircFirst: Set<String> = []) {
         var seen = Set<String>()
         self.commands = commands.filter { seen.insert($0.id).inserted }
-        index = Dictionary(uniqueKeysWithValues: self.commands.map { ($0.id, $0) })
+        let index = Dictionary(uniqueKeysWithValues: self.commands.map { ($0.id, $0) })
+        self.index = index
         self.overrides = [:]
+        self.aircFirst = aircFirst.filter { index[$0] != nil }
         for (id, key) in overrides {
-            guard let c = index[id] else { continue }   // a removed command
+            guard let c = index[id], c.remappable else { continue }   // a removed command, or a fixed key
             if let key, !Self.allowed(key) { continue }  // a hand-edited file
             if key != c.defaultKey { self.overrides[id] = key }
         }
         resolve()
     }
 
-    /// From settings.json: id → "alt+cmd+l", or "" for no shortcut. Unreadable keys are ignored.
+    /// From settings.json: id → "alt+cmd+l", or "" for no shortcut; "<id>:first" → "airc" for Airc first.
+    /// Unreadable keys are ignored. (Builds before the priority read "<id>:first" as an unknown command and skip it.)
     public init(commands: [Command], stored: [String: String]) {
         var o: [String: KeyCombo?] = [:]
+        var first = Set<String>()
         for (id, s) in stored {
-            if s.isEmpty { o[id] = .some(nil) } else if let k = KeyCombo(string: s) { o[id] = k }
+            if id.hasSuffix(Self.prioritySuffix) {
+                if s == KeyPriority.airc.rawValue { first.insert(String(id.dropLast(Self.prioritySuffix.count))) }
+            } else if s.isEmpty { o[id] = .some(nil) } else if let k = KeyCombo(string: s) { o[id] = k }
         }
-        self.init(commands: commands, overrides: o)
+        self.init(commands: commands, overrides: o, aircFirst: first)
     }
 
     /// What settings.json keeps (see `init(commands:stored:)`).
-    public var stored: [String: String] { overrides.mapValues { $0?.string ?? "" } }
+    public var stored: [String: String] {
+        var s = overrides.mapValues { $0?.string ?? "" }
+        for id in aircFirst { s[id + Self.prioritySuffix] = KeyPriority.airc.rawValue }
+        return s
+    }
+
+    /// The settings.json entry for a command's priority: "file.openLocation:first".
+    public static let prioritySuffix = ":first"
+
+    public func priority(_ id: String) -> KeyPriority { aircFirst.contains(id) ? .airc : .websites }
+
+    /// Websites first (the default) or Airc first for `id`.
+    @discardableResult
+    public mutating func setPriority(_ p: KeyPriority, for id: String) -> Outcome {
+        guard index[id] != nil else { return .unknownCommand }
+        guard priority(id) != p else { return .unchanged }
+        if p == .airc { aircFirst.insert(id) } else { aircFirst.remove(id) }
+        return .done
+    }
 
     /// The key `id` has now: the user's, else its default unless the user gave that key to another command.
     public func key(_ id: String) -> KeyCombo? { keys[id] }
@@ -226,13 +265,16 @@ public struct ShortcutMap: Equatable, Sendable {
 
     public func defaultKey(_ id: String) -> KeyCombo? { index[id]?.defaultKey }
 
-    /// The user changed it (`key` may still equal another command's default).
+    /// The user changed its key (`key` may still equal another command's default). Its priority doesn't count.
     public func isCustomized(_ id: String) -> Bool { overrides[id] != nil }
+
+    /// The user can record a key for it (`Command.remappable`).
+    public func isRemappable(_ id: String) -> Bool { index[id]?.remappable ?? false }
 
     /// A key some command has by default that the user moved elsewhere or cleared: it isn't Airc's any more, so it goes
     /// to the page and macOS's menus.
     public func isFreedDefault(_ combo: KeyCombo) -> Bool {
-        owners[combo] == nil && commands.contains { $0.defaultKey == combo }
+        owners[combo] == nil && commands.contains { $0.remappable && $0.defaultKey == combo }
     }
 
     public static func allowed(_ combo: KeyCombo) -> Bool {
@@ -241,7 +283,8 @@ public struct ShortcutMap: Equatable, Sendable {
 
     /// What `assign(combo, to: id)` would do, without doing it.
     public func check(_ combo: KeyCombo, for id: String) -> Outcome {
-        guard index[id] != nil else { return .unknownCommand }
+        guard let c = index[id] else { return .unknownCommand }
+        guard c.remappable else { return .refused("This key can't be changed.") }
         guard combo.isValidShortcut else { return .refused("A shortcut needs ⌘, ⌥ or ⌃.") }
         if let r = KeyReservation.system[combo] { return .refused("\(combo.display) is for \(r).") }
         if keys[id] == combo { return .unchanged }
@@ -252,7 +295,8 @@ public struct ShortcutMap: Equatable, Sendable {
     /// Gives `id` the key `combo` (nil: no shortcut).
     @discardableResult
     public mutating func assign(_ combo: KeyCombo?, to id: String, resolving: Resolution = .refuse) -> Outcome {
-        guard index[id] != nil else { return .unknownCommand }
+        guard let c = index[id] else { return .unknownCommand }
+        guard c.remappable else { return .refused("This key can't be changed.") }
         guard let combo else {
             if keys[id] == nil { return .unchanged }
             set(id, nil)
@@ -274,10 +318,19 @@ public struct ShortcutMap: Equatable, Sendable {
         return .done
     }
 
-    /// `id` back to its default key. If another command has that key now, `resolving` decides as in `assign`.
+    /// `id` back to its default key and Websites first. If another command has that key now, `resolving` decides as in
+    /// `assign` (and on `.conflict` nothing changes, the priority neither).
     @discardableResult
     public mutating func reset(_ id: String, resolving: Resolution = .refuse) -> Outcome {
         guard let c = index[id] else { return .unknownCommand }
+        guard c.remappable else { aircFirst.remove(id); return .done }
+        let o = resetKey(c, resolving: resolving)
+        if o == .done { aircFirst.remove(id) }
+        return o
+    }
+
+    private mutating func resetKey(_ c: Command, resolving: Resolution) -> Outcome {
+        let id = c.id
         guard let d = c.defaultKey else {
             overrides[id] = nil
             resolve()
@@ -290,6 +343,7 @@ public struct ShortcutMap: Equatable, Sendable {
 
     public mutating func resetAll() {
         overrides = [:]
+        aircFirst = []
         resolve()
     }
 
@@ -301,12 +355,12 @@ public struct ShortcutMap: Equatable, Sendable {
     private mutating func resolve() {
         keys = [:]
         owners = [:]
-        for c in commands {
+        for c in commands where c.remappable {
             guard let o = overrides[c.id], let k = o, owners[k] == nil else { continue }
             keys[c.id] = k
             owners[k] = c.id
         }
-        for c in commands where overrides[c.id] == nil {
+        for c in commands where c.remappable && overrides[c.id] == nil {
             guard let k = c.defaultKey, owners[k] == nil else { continue }
             keys[c.id] = k
             owners[k] = c.id
@@ -317,5 +371,7 @@ public struct ShortcutMap: Equatable, Sendable {
         }
     }
 
-    public static func == (a: ShortcutMap, b: ShortcutMap) -> Bool { a.commands == b.commands && a.overrides == b.overrides }
+    public static func == (a: ShortcutMap, b: ShortcutMap) -> Bool {
+        a.commands == b.commands && a.overrides == b.overrides && a.aircFirst == b.aircFirst
+    }
 }
