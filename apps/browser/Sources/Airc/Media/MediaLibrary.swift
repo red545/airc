@@ -14,9 +14,15 @@ final class MediaLibrary {
     private var prompts: DownloadPrompts?
     private var appObservers: [NSObjectProtocol] = []
     private var windowWatchers: [NSKeyValueObservation] = []
+    private var profilesHooked = false
 
-    /// The main window is up (WindowController.init): listen to every profile as it loads.
+    /// A browser window is up (WindowController.init): its sidebar's tray, and (the first time) every profile as it
+    /// loads. WIN-7: the downloads card and the call window go with the window used last (`follow`).
     func attach(_ c: WindowController) {
+        guard !profilesHooked || controller == nil else {
+            c.sidebar.tray.connect(self, controller: c)
+            return follow(c)
+        }
         controller = c
         guard let engine = c.app?.engine else { return }
         if downloads == nil, let d = engine as? EngineDownloads, d.downloadsAvailable {
@@ -37,13 +43,36 @@ final class MediaLibrary {
         calls.chainPictureInPicture()
         PiPOverlays.shared.attach(self)
         c.sidebar.tray.connect(self, controller: c)
-        let previous = c.profiles.didLoad
-        c.profiles.didLoad = { [weak self, weak c] p in
-            previous?(p)
-            guard let self, let c else { return }
-            self.profileLoaded(p, in: c)
+        if !profilesHooked {
+            profilesHooked = true
+            let previous = c.profiles.didLoad
+            let profiles = c.profiles
+            profiles.didLoad = { [weak self, weak profiles] p in
+                previous?(p)
+                guard let self, let profiles else { return }
+                self.profileLoaded(p, profiles: profiles)
+            }
+            for p in profiles.loadedProfiles { profileLoaded(p, profiles: profiles) }
         }
-        for p in c.profiles.loadedProfiles { profileLoaded(p, in: c) }
+        watchWindow(c)
+    }
+
+    /// WIN-7: another browser window is the one used last (it became key, or the one before closed). A call in the call
+    /// window stays with the window its tab is in until it comes back.
+    func follow(_ c: WindowController) {
+        guard controller !== c else { return }
+        if controller != nil, calls.isShowing { return }
+        controller = c
+        // A card on screen stays in its window until it's answered; the next one shows in this window.
+        if prompts?.view == nil {
+            prompts = DownloadPrompts(controller: c, library: self)
+            prompts?.refresh()
+        }
+        watchWindow(c)
+        c.mediaLibraryChromeChanged()
+    }
+
+    private func watchWindow(_ c: WindowController) {
         // The call window follows the main window leaving the screen, not Airc resigning active (Notification Center and
         // Spotlight take the focus with the page still in view).
         appObservers.forEach(NotificationCenter.default.removeObserver)
@@ -58,15 +87,27 @@ final class MediaLibrary {
         }]
     }
 
-    private func profileLoaded(_ p: EngineProfile, in c: WindowController) {
-        guard let id = c.profiles.profileID(for: p) else { return }
+    private func profileLoaded(_ p: EngineProfile, profiles: ProfileHost) {
+        guard let id = profiles.profileID(for: p) else { return }
         downloads?.attach(p, profileID: id)
         media?.attach(p, profileID: id)
     }
 
+    /// WIN-7: a tab's page in whichever browser window has it (the tray's players can be in any window).
+    func page(for tabID: String) -> EngineTab? {
+        (NSApp.delegate as? AppDelegate)?.pageOwner(of: tabID)?.engineTab(for: tabID) ?? controller?.engineTab(for: tabID)
+    }
+
+    func tabID(for page: EngineTab) -> String? {
+        (NSApp.delegate as? AppDelegate)?.controller(owning: page)?.tabID(for: page) ?? controller?.tabID(for: page)
+    }
+
     /// Downloads or players came or went: the tray's height follows.
     func trayContentChanged() {
-        controller?.sidebar.tray.contentChanged()
+        // Every window's sidebar has the tray (WIN-7).
+        let windows = (NSApp.delegate as? AppDelegate)?.controllers ?? []
+        if windows.isEmpty { controller?.sidebar.tray.contentChanged() }
+        windows.forEach { $0.sidebar.tray.contentChanged() }
     }
 
     /// A risky download is being asked about, or no longer.

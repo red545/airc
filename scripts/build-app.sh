@@ -400,6 +400,12 @@ if [[ -n "$SNAPSHOTS" ]]; then
     # profiles, ⌘T ⌘W ⇧⌘N in the window; and SB-21 Manage Spaces (ManageSpacesCheck.swift): reorder, rename, delete.
     # PW-1 in private windows too: ⌘F, the page's shortcuts first (CB-3), downloads (PrivateWindowExtrasCheck.swift).
     launch --script private --ephemeral --data-dir "$home/Private"
+    # WIN-7 several windows (WindowsCheck.swift): ⌘N, each window's own Space and tab, a page moving between windows
+    # without a reload, ⌘W and ⇧⌘W per window, the last window closing and coming back, links from other apps (GURL
+    # Apple events to the app's own pid); then three windows across a relaunch.
+    launch --script windows --ephemeral --data-dir "$home/Windows"
+    launch --script windows-write --data-dir "$home/WindowsSession"
+    launch --script windows-read --data-dir "$home/WindowsSession"
     launch --script managespaces --ephemeral --data-dir "$home/ManageSpaces"
     # MEM-3's exemption (KeepLoadedCheck.swift): with a 2 s timeout, pinned tabs and Favorites on a listed loopback host
     # stay loaded and an unlisted one unloads; on Chromium also as WebKit pages.

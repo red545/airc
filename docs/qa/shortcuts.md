@@ -8,7 +8,8 @@ Owner report: "cmd+shift+v doesn't work … any shortcut like cmd+b". Sources: s
 ## How keys are routed
 
 1. `KeyMonitor` (App/Commands.swift) sees every key first. Browser-first keys run their command at once: ⌘T ⌘W ⌘N ⌘Q,
-   ⇧⌘W, every ⌥ and ⌃ combination, ⌘{ ⌘}.
+   ⇧⌘W, every ⌥ and ⌃ combination, ⌘{ ⌘}. With several windows (WIN-7) a key goes to the browser window it was typed
+   in (`event.window`); a menu click goes to the key browser window, else the one used last.
 2. Other ⌘ and ⇧⌘ keys Airc binds (⌘D ⌘L ⌘S ⇧⌘C …) go to the page first (CB-3). A page that calls
    `preventDefault` keeps the key. Pressing it again within 1 s runs Airc's command. If the page doesn't use the key,
    the command runs once. ⌥⌘V is page-first too, because Docs uses it for Paste Formatting.
@@ -53,9 +54,9 @@ Status: **works** (already there, checked), **added** (this pass), **different**
 |---|---|---|---|---|
 | New tab (Command Bar) | ⌘T | Command Bar | works | Browser-first, as Chrome reserves it |
 | Edit URL | ⌘L | Command Bar on the URL | works | Page first (CB-3) |
-| New window / incognito / blank window | ⌘N / ⇧⌘N / ⌃⌘N | ⌘N stub, ⇧⌘N New Private Window, ⌃⌘N none | ⇧⌘N works | Browser-first. In a private window ⇧⌘N opens another of the same session; ⌘N and ⌃⌘N wait for the multi-window work |
+| New window / incognito / blank window | ⌘N / ⇧⌘N / ⌃⌘N | File › New Window, ⇧⌘N New Private Window, ⌃⌘N none | ⌘N added, ⇧⌘N works, ⌃⌘N missing | Browser-first. ⌘N (WIN-7) opens a window on the key window's Space with the Command Bar, also with no window open and from a private window or Little Arc. In a private window ⇧⌘N opens another of the same session. Arc's ⌃⌘N blank window has its own Today tabs, which needs a window-scoped Today list in AircKit: later. `--script windows` checks ⌘N |
 | Close tab (archive) | ⌘W | Archive Tab | works | |
-| Close window | ⇧⌘W | File › Close Window | added | Browser-first. Closing the last window quits, as with the red button |
+| Close window | ⇧⌘W | File › Close Window | added | Browser-first, in the window the key is for (`--script windows`). Closing the last window leaves Airc running, as Arc and Chrome; ⌘N or the Dock brings it back |
 | Close other tabs | ⌥⌘W | File › Close Other Tabs | added | The other Today tabs go to the Archive, as with Clear. Pinned tabs and Favorites stay. Per the lead, Arc's key. Not in the research notes |
 | Reopen closed tab | ⇧⌘T, ⌘Z | Reopen Closed Tab | works, fixed | ⌘Z used to reopen tabs even while typing in a page, so Docs and form undo never happened |
 | Pin / unpin | ⌘D | Pin / Unpin Tab | works | Page first |

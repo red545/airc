@@ -137,7 +137,8 @@ final class WindowController: NSObject, NSWindowDelegate {
     var dragsInProgress = 0
     /// Tabs whose next committed URL was typed (Command Bar), for history's typed count.
     private var typedNavigations: Set<String> = []
-    private var lastRecordedURL: [String: String] = [:]
+    /// The address each tab last added to history (a page moved in from another window keeps its own, WIN-7).
+    var lastRecordedURL: [String: String] = [:]
     private var colorAnimating = false
     private var colorToken = 0
     private var renderings: [String: (SpaceTheme, Bool, Palette)] = [:]
@@ -157,37 +158,39 @@ final class WindowController: NSObject, NSWindowDelegate {
     private(set) var autoArchiveClosing: Set<String> = []
     private(set) var autoArchiveRetryAt: [String: Date] = [:]
     var revealController: SidebarRevealController?
+    /// WIN-7: this window's own tab per Space, and "Open in another window" (Browser/MultiWindow.swift).
+    var multiWindow = MultiWindowState()
     /// SB-3: the engine's permission, password and autofill prompts, under the URL field (PagePrompts.swift).
     lazy var prompts = PromptPresenter(host: self)
 
-    init(store: SpacesStore, profiles: ProfileHost, engine: BrowserEngine, frame: NSRect, app: AppDelegate? = nil) {
+    /// `opening` (WIN-7): the Space, tab and sidebar of a second window or a restored one; by default the last Space and
+    /// its last tab.
+    init(store: SpacesStore, profiles: ProfileHost, engine: BrowserEngine, frame: NSRect, app: AppDelegate? = nil,
+         opening: WindowOpening = WindowOpening()) {
         self.app = app
         self.store = store
         self.profiles = profiles
         engineWindow = engine.makeWindow(contentRect: frame)
-        currentSpaceID = store.selectedSpace.id
-        sidebarWidth = CGFloat(store.windowState.sidebarWidth)
-        sidebarHidden = store.windowState.sidebarHidden
+        currentSpaceID = opening.spaceID.flatMap { store.space($0)?.id } ?? store.selectedSpace.id
+        sidebarWidth = CGFloat(opening.sidebarWidth ?? store.windowState.sidebarWidth)
+        sidebarHidden = opening.sidebarHidden ?? store.windowState.sidebarHidden
         sidebarFraction = sidebarHidden ? 0 : 1
         super.init()
         engineWindow.delegate = self
-        #if canImport(AircCore)
-        (app?.engine as? ChromiumEngine)?.pictureInPictureRequestsTab = { [weak self] page in
-            // A Little Arc window's mini player comes back to its own window.
-            if let little = self?.app?.littleArcs.first(where: { $0.page === page }) { return little.restoreFromMiniPlayer() }
-            self?.showPictureInPictureTab(page)
-        }
-        (app?.engine as? ChromiumEngine)?.pictureInPictureDidChange = { [weak self] page, state in
-            self?.app?.littleArcs.first { $0.page === page }?.pictureInPictureChanged(active: (state["active"] as? Bool) ?? false)
-        }
-        #endif
+        // Picture in picture's Back to Tab and Little Arc's mini player: once for the app, to the window with the page.
+        app?.installWindowHooksOnce()
+        if let app { app.windowSession.openCount += 1; multiWindow.openedAt = app.windowSession.openCount }
         setUpWindow(frame: frame)
         if let t = app?.settings.translucency { background.translucency = t }
         rebuildPages()
         store.observe { [weak self] change in self?.storeDidChange(change) }
-        let first = store.lastActiveTab(ofSpace: currentSpaceID)
+        let first: String? = switch opening.tab {
+        case .spaceLast: preferredTab(forSpace: currentSpaceID)
+        case .none: nil
+        case .id(let id): store.tab(id) != nil ? id : preferredTab(forSpace: currentSpaceID)
+        }
         applySpace(currentSpaceID)
-        if let first { show(first.id, focus: false) } else { showEmpty() }
+        if let first { show(first, focus: false, takeOver: false) } else { showEmpty() }
         let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, 0) { [weak self] _, _ in
             self?.armFlush()
         }
@@ -362,9 +365,12 @@ final class WindowController: NSObject, NSWindowDelegate {
     }
     func windowDidBecomeKey(_ notification: Notification) {
         positionTrafficLights()
+        // WIN-7: commands, links and the app's panels follow the key window.
+        app?.browserWindowBecameKey(self)
         pictureInPictureWindowActiveChanged()
         mediaLibraryWindowBecameKey()
     }
+    func windowDidMove(_ notification: Notification) { app?.scheduleSessionSave() }
     func windowDidResignKey(_ notification: Notification) { pictureInPictureWindowActiveChanged() }
 
     /// SB-55: the engine enters automatic picture-in-picture only for a tab left in the active window (as Chrome);
@@ -393,6 +399,8 @@ final class WindowController: NSObject, NSWindowDelegate {
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if downloadsHoldClose() { return false }
+        // WIN-7: the last window leaves Chromium's profiles loaded for the next one.
+        app?.keepProfilesIfLastWindowCloses(self)
         #if canImport(AircCore)
         return ChromiumRuntime.closeWindow(engineWindow)
         #else
@@ -407,6 +415,15 @@ final class WindowController: NSObject, NSWindowDelegate {
         trafficLightObservers = []
         saveWindowFrame()
         try? store.flush()
+        // WIN-7: one of several windows (or the last, with Airc staying open): its timers go with it; its pages close
+        // with the window (Chromium's engine closes them, the dev engine's go with their web views).
+        if let o = flushObserver { CFRunLoopRemoveObserver(CFRunLoopGetMain(), o, .commonModes); flushObserver = nil }
+        archiveTimer?.invalidate()
+        archiveTimer = nil
+        unloadTimer?.invalidate()
+        unloadTimer = nil
+        memoryPressure?.cancel()
+        app?.browserWindowWillClose(self)
     }
 
     func windowDidEndLiveResize(_ notification: Notification) {
@@ -417,6 +434,7 @@ final class WindowController: NSObject, NSWindowDelegate {
     private func saveWindowFrame() {
         let f = window.frame
         store.updateWindowState { $0.frame = [f.origin.x, f.origin.y, f.width, f.height] }
+        app?.scheduleSessionSave()
     }
 
     // MARK: Theme
@@ -497,6 +515,8 @@ final class WindowController: NSObject, NSWindowDelegate {
 
     func reloadAll(animated: Bool) {
         if store.space(currentSpaceID) == nil { currentSpaceID = store.selectedSpace.id }
+        // WIN-7: another window closed, archived or moved what this one shows.
+        reconcileWithOtherWindows()
         syncSplitPresentation()
         rebuildPages()
         for p in pageViews.values { p.reload(animated: animated && p.spaceID == currentSpaceID) }
@@ -639,13 +659,15 @@ final class WindowController: NSObject, NSWindowDelegate {
 
     /// The tab a Space's page shows: the window's tab for the current Space, else its last one.
     func displayedTabID(forSpace spaceID: String) -> String? {
-        spaceID == currentSpaceID ? shownTabID : store.lastActiveTab(ofSpace: spaceID)?.id
+        spaceID == currentSpaceID ? shownTabID : preferredTab(forSpace: spaceID)
     }
 
     /// Creates the engine page for a tab if it has none (pinned tabs and Favorites load lazily).
     @discardableResult
     private func ensurePage(_ tabID: String) -> EngineTab? {
         if let p = pages[tabID] { return p }
+        // WIN-7: another window has the page: it moves here, live.
+        if let moved = takePageFromOtherWindow(tabID) { return moved }
         guard let tab = store.tab(tabID), let profile = profiles.engineProfile(for: tab.profileID) else { return nil }
         let url = URL(string: tab.url).flatMap { URLRules.isNewTab($0.absoluteString) ? nil : $0 }
         // MEM-3: a WebKit page unloaded after the timeout comes back with its history and scroll position.
@@ -673,7 +695,7 @@ final class WindowController: NSObject, NSWindowDelegate {
     /// Frees a tab's page; the tab stays and loads again when shown (MEM-3 on the dev engine).
     func unloadPage(_ tabID: String) { dropPage(tabID) }
 
-    private func dropPage(_ tabID: String) {
+    func dropPage(_ tabID: String) {
         hiddenSince[tabID] = nil
         closingTabs.remove(tabID)
         guard let p = pages.removeValue(forKey: tabID) else { return }
@@ -694,12 +716,20 @@ final class WindowController: NSObject, NSWindowDelegate {
 
     /// Puts a tab's page in the card (a view swap, no reload) and marks it viewed. `updatesRows: false` when the
     /// sidebar already shows this tab as selected (a Space switch to the tab its page shows).
-    func show(_ tabID: String, focus: Bool = true, updatesRows: Bool = true, defersNewPage: Bool = false) {
+    /// `takeOver` (WIN-7): a pick (a row, ⌘1–9, the Command Bar) moves a page another window shows here; a Space switch,
+    /// a swipe or a closed tab's neighbour (false) shows "Open in another window" instead.
+    func show(_ tabID: String, focus: Bool = true, updatesRows: Bool = true, defersNewPage: Bool = false, takeOver: Bool = true) {
         bringBackFromCallWindow(tabID)
         guard let tab = store.tab(tabID) else { return }
+        if let other = app?.window(showing: tabID, except: self) {
+            guard takeOver else { return showElsewhere(tabID, updatesRows: updatesRows) }
+            other.pageLeaving(tabID)
+        }
+        let wasElsewhere = multiWindow.elsewhereTabID != nil
         // SV-1: a tab in a split shows its split, with its pane focused.
         if let x = store.split(containing: tabID), store.members(of: x).count >= 2, store.space(x.spaceID) != nil,
            showSplit(x, focus: tabID, focusPage: focus, updatesRows: updatesRows) { return }
+        if wasElsewhere { hideElsewhere() }
         if shownSplitID != nil { leaveSplitPresentation() }
         if let profile = profiles.engineProfile(for: tab.profileID) { engineWindow.activeProfile = profile }
         if defersNewPage, pages[tabID] == nil {
@@ -713,8 +743,9 @@ final class WindowController: NSObject, NSWindowDelegate {
             refreshChrome()
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.shownTabID == tabID else { return }
-                self.show(tabID, focus: focus, updatesRows: false)
+                self.show(tabID, focus: focus, updatesRows: false, takeOver: takeOver)
             }
+            noteShown(tabID)
             return
         }
         if findBar != nil, tabID != shownTabID { closeFind(refocusPage: false) }
@@ -725,8 +756,10 @@ final class WindowController: NSObject, NSWindowDelegate {
         Perf.time("show.activateTab") { engineWindow.activateTab(page) }
         app?.engine.setPictureInPictureWindowActive(page, active: window.isKeyWindow)
         card.showsEmptyState = false
-        let previous = shownTabID
+        // Back from "Open in another window": the page is new to this card.
+        let previous = wasElsewhere ? nil : shownTabID
         shownTabID = tabID
+        noteShown(tabID)
         if previous != tabID {
             pageVisibilityChanged(hidden: previous, shown: tabID)
             scheduleSpareBarRefresh()   // ⌘T lists the other tabs, most recent first
@@ -746,6 +779,9 @@ final class WindowController: NSObject, NSWindowDelegate {
 
     func showEmpty(updatesRows: Bool = true) {
         if shownSplitID != nil { leaveSplitPresentation() }
+        hideElsewhere()
+        multiWindow.tabBySpace[currentSpaceID] = nil
+        app?.scheduleSessionSave()
         protectedMediaToast?.dismiss()
         protectedMediaToast = nil
         pageVisibilityChanged(hidden: shownTabID, shown: nil)
@@ -773,10 +809,39 @@ final class WindowController: NSObject, NSWindowDelegate {
         if updatesRows { scheduleReload() }
     }
 
+    /// WIN-7: `tabID`'s page is in another window. This window keeps the tab selected and its card says so ("Open in
+    /// another window", with Show Here and Go to Window), as Arc's placeholder for moved content. The page leaves
+    /// this window when the other one takes it (takePageFromOtherWindow).
+    func showElsewhere(_ tabID: String, updatesRows: Bool = true) {
+        let before = visibleTabIDs
+        if shownSplitID != nil { leaveSplitPresentation() }
+        if findBar != nil { closeFind(refocusPage: false) }
+        if peek != nil { closePeek() }
+        protectedMediaToast?.dismiss()
+        protectedMediaToast = nil
+        let previous = shownTabID
+        multiWindow.elsewhereTabID = tabID
+        shownTabID = tabID
+        noteShown(tabID)
+        for id in before { pageVisibilityChanged(hidden: id, shown: nil) }
+        card.showsEmptyState = false
+        engineWindow.deactivateAll()
+        presentElsewhere(tabID)
+        prompts.refresh()
+        if updatesRows, previous != tabID {
+            pageView(for: currentSpaceID)?.reload(animated: false)
+            scheduleReload()
+        }
+        refreshChrome()
+        queueArchiveReschedule()
+    }
+
     // MARK: Split View (SV-1)
 
-    /// Every tab whose page is on screen: the split's panes, or the shown tab.
+    /// Every tab whose page is on screen: the split's panes, or the shown tab (none while its page is in another
+    /// window, WIN-7).
     var visibleTabIDs: Set<String> {
+        if multiWindow.elsewhereTabID != nil { return [] }
         if let x = store.split(shownSplitID) { return Set(x.tabIDs) }
         return shownTabID.map { [$0] } ?? []
     }
@@ -792,6 +857,9 @@ final class WindowController: NSObject, NSWindowDelegate {
         }
         let ids = store.members(of: x).map(\.id)
         guard ids.count >= 2, ids.contains(tabID) else { return false }
+        // WIN-7: a window showing these panes gives them up ("Open in another window" there).
+        for id in ids { app?.window(showing: id, except: self)?.pageLeaving(id) }
+        let wasElsewhere = multiWindow.elsewhereTabID != nil
         var panePages: [EngineTab] = []
         for id in ids {
             bringBackFromCallWindow(id)
@@ -803,7 +871,8 @@ final class WindowController: NSObject, NSWindowDelegate {
         if peek != nil { closePeek() }
         let wasShowing = shownSplitID == x.id
         let before = visibleTabIDs
-        let previous = shownTabID
+        let previous = wasElsewhere ? nil : shownTabID
+        if wasElsewhere { hideElsewhere() }
         let container = splitContainer
         if container.frame != card.frame { container.frame = card.frame }
         container.configure(x, tabIDs: ids, palette: currentPalette, animated: wasShowing)
@@ -821,6 +890,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         card.showsEmptyState = false
         shownSplitID = x.id
         shownTabID = tabID
+        noteShown(tabID)
         container.setFocused(tabID)
         app?.engine.setPictureInPictureWindowActive(focused, active: window.isKeyWindow)
         let now = Set(ids)
@@ -886,21 +956,22 @@ final class WindowController: NSObject, NSWindowDelegate {
     /// After a store change the split on screen follows it (a pane came, went or moved; it was separated), and a shown
     /// tab that has just joined a split shows it.
     private func syncSplitPresentation() {
-        guard let shown = shownTabID else { return }
+        // WIN-7: nothing of this window's is on screen while its tab's page is in another window.
+        guard let shown = shownTabID, multiWindow.elsewhereTabID == nil else { return }
         if let sid = shownSplitID {
             guard let x = store.split(sid), store.members(of: x).count >= 2 else {
                 leaveSplitPresentation()
-                if store.tab(shown) != nil { show(shown, focus: false, updatesRows: false) }
-                else if let t = store.lastActiveTab(ofSpace: currentSpaceID) { show(t.id, focus: false, updatesRows: false) }
+                if store.tab(shown) != nil { show(shown, focus: false, updatesRows: false, takeOver: false) }
+                else if let t = preferredTab(forSpace: currentSpaceID) { show(t, focus: false, updatesRows: false, takeOver: false) }
                 else { showEmpty(updatesRows: false) }
                 return
             }
             let ids = store.members(of: x).map(\.id)
             if ids != splitContainer.tabIDs || x.axis != splitContainer.axis || !ids.contains(shown) {
-                show(ids.contains(shown) ? shown : (x.focusedTabID ?? ids[0]), focus: false, updatesRows: false)
+                show(ids.contains(shown) ? shown : (x.focusedTabID ?? ids[0]), focus: false, updatesRows: false, takeOver: false)
             }
         } else if let x = store.split(containing: shown), store.showsSplit(x, inSpace: currentSpaceID), store.members(of: x).count >= 2 {
-            show(x.focusedTabID ?? shown, focus: false, updatesRows: false)
+            show(x.focusedTabID ?? shown, focus: false, updatesRows: false, takeOver: false)
         }
     }
 
@@ -948,6 +1019,9 @@ final class WindowController: NSObject, NSWindowDelegate {
     /// and the person stays, the tab and its page are unchanged.
     func closeTab(_ tabID: String) {
         guard store.tab(tabID) != nil else { return }
+        // WIN-7: its page is in another window, which closes it (its unload handlers, its next tab); this window
+        // follows the store change.
+        if pages[tabID] == nil, let owner = app?.pageOwner(of: tabID, except: self) { return owner.closeTab(tabID) }
         if closePanesInTurn(tabID) { return }
         if let page = pages[tabID], !page.isClosed {
             closingTabs.insert(tabID)
@@ -972,12 +1046,12 @@ final class WindowController: NSObject, NSWindowDelegate {
             guard let i = x.tabIDs.firstIndex(of: tabID), !rest.isEmpty else { return nil }
             return rest[min(i, rest.count - 1)]
         }
-        let next = wasShown ? (pane.flatMap { store.tab($0) } ?? store.tabToSelect(afterClosing: tabID, inSpace: spaceForNext)) : nil
+        let next = wasShown ? (pane.flatMap { store.tab($0) } ?? nextFreeTab(afterClosing: tabID, inSpace: spaceForNext)) : nil
         do { try store.closeTab(tabID) } catch { return }
         dropPage(tabID)
         for id in alsoClosing where store.tab(id) == nil { dropPage(id) }
         if wasShown {
-            if let next, store.tab(next.id) != nil { show(next.id) } else { showEmpty() }
+            if let next, store.tab(next.id) != nil { show(next.id, takeOver: false) } else { showEmpty() }
         }
     }
 
@@ -1047,11 +1121,11 @@ final class WindowController: NSObject, NSWindowDelegate {
     private func archiveNow(_ ids: [String], reason: ArchiveReason, label: String) {
         guard !ids.isEmpty else { return }
         let shown = shownTabID
-        let next = shown.flatMap { ids.contains($0) ? store.tabToSelect(afterClosing: $0, inSpace: currentSpaceID) : nil }
+        let next = shown.flatMap { ids.contains($0) ? nextFreeTab(afterClosing: $0, inSpace: currentSpaceID) : nil }
         guard let archived = try? store.archiveTabs(ids, reason: reason, label: label) else { return }
         archived.forEach(dropPage)
         if let shown, archived.contains(shown) {
-            if let next, store.tab(next.id) != nil { show(next.id) } else { showEmpty() }
+            if let next, store.tab(next.id) != nil { show(next.id, takeOver: false) } else { showEmpty() }
         }
     }
 
@@ -1124,6 +1198,8 @@ final class WindowController: NSObject, NSWindowDelegate {
     private var archiveProtected: Set<String> {
         var protected = visibleTabIDs
         for (id, p) in pages where p.isAudible { protected.insert(id) }
+        // WIN-7: each window archives its own pages; the oldest one also the tabs no window has a page for.
+        protected.formUnion(tabsKeptByOtherWindows)
         // Waiting for its page to close, or skipped because its page would ask "Leave site?" (until its retry).
         protected.formUnion(autoArchiveClosing)
         let now = Date()
@@ -1166,7 +1242,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         let wasShown = id == shownTabID
         if let archived = try? store.autoArchive([id], pageClosed: true) { archived.forEach(dropPage) }
         if wasShown, store.tab(id) == nil {
-            if let t = store.lastActiveTab(ofSpace: currentSpaceID) { show(t.id) } else { showEmpty() }
+            if let t = preferredTab(forSpace: currentSpaceID) { show(t, takeOver: false) } else { showEmpty() }
         }
         queueArchiveReschedule()
     }
@@ -1265,8 +1341,9 @@ final class WindowController: NSObject, NSWindowDelegate {
             }
         }
         Perf.time("show") {
-            if let t = store.lastActiveTab(ofSpace: spaceID) {
-                show(t.id, updatesRows: displayedTabIDBeforeSwitch(spaceID) != t.id, defersNewPage: true)
+            // WIN-7: this window's own tab there (or the Space's last one no other window shows).
+            if let t = preferredTab(forSpace: spaceID) {
+                show(t, updatesRows: displayedTabIDBeforeSwitch(spaceID) != t, defersNewPage: true, takeOver: false)
             } else {
                 showEmpty(updatesRows: false)
             }
@@ -1330,7 +1407,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         let spaces = store.orderedSpaces
         guard spaces.indices.contains(page), spaces[page].id != currentSpaceID else { return }
         applySpace(spaces[page].id)
-        if let t = store.lastActiveTab(ofSpace: spaces[page].id) { show(t.id, focus: false) } else { showEmpty() }
+        if let t = preferredTab(forSpace: spaces[page].id) { show(t, focus: false, takeOver: false) } else { showEmpty() }
     }
 
     func pagerDidSettle(on page: Int) {
@@ -1346,6 +1423,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         }
         sidebarHidden.toggle()
         store.updateWindowState { $0.sidebarHidden = sidebarHidden }
+        app?.scheduleSessionSave()
         let from = sidebarFraction
         let to: CGFloat = sidebarHidden ? 0 : 1
         let duration = sidebarHidden ? AircCurve.sidebarHide.duration : AircCurve.sidebarShow.duration
@@ -1362,6 +1440,7 @@ final class WindowController: NSObject, NSWindowDelegate {
     func setSidebarWidth(_ w: CGFloat) {
         sidebarWidth = min(max(w, AircMetrics.Sidebar.minWidth), AircMetrics.Sidebar.maxWidth)
         store.updateWindowState { $0.sidebarWidth = Double(sidebarWidth) }
+        app?.scheduleSessionSave()
         layoutRoot()
     }
 
@@ -1433,8 +1512,8 @@ extension WindowController: EngineWindowDelegate {
         try? store.forgetTab(id)
         dropPage(id)
         if wasShown {
-            if let opener, store.tab(opener) != nil { show(opener) }
-            else if let t = store.lastActiveTab(ofSpace: currentSpaceID) { show(t.id) } else { showEmpty() }
+            if let opener, store.tab(opener) != nil { show(opener, takeOver: false) }
+            else if let t = preferredTab(forSpace: currentSpaceID) { show(t, takeOver: false) } else { showEmpty() }
         }
     }
 

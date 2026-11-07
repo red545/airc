@@ -19,6 +19,7 @@ ranges (0, 1, 2-7, 8-30 …).
 | `onboarding.step` | each step of the first run | the step, and next, skip or back |
 | `onboarding.finished` | "Open Airc" | whether you imported from Arc |
 | `import.arc` | an Arc import | success or failure; Spaces, tabs and profiles in ranges; whether logins came over |
+| `import.browser` | an import from another browser, a bookmarks file or a passwords CSV file | which browser (chrome, brave, edge, vivaldi, opera, chromium, dia, helium, firefox, zen, safari, bookmarks_file or passwords_file); success or failure; profiles, bookmarks, folders, history entries and passwords in ranges; never a bookmark, page, site or password |
 | `feature.used` | a feature is used | the feature's name, and for some a variant from a fixed list (below) |
 | `perf.daily` | once per day | Command Bar opening time (median and 95th percentile, in ranges), memory use and background CPU, in ranges |
 | `process.gone` | a renderer, GPU or utility helper ends abnormally | `process_type`: renderer, gpu, network, storage, audio, utility:data_decoder, utility:video_capture or other; `exit_signal`: SIGSEGV, SIGBUS, SIGILL, SIGABRT, SIGTRAP, SIGFPE, SIGSYS, SIGKILL, SIGTERM, exit or other; no URLs or paths |

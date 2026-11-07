@@ -2,8 +2,21 @@
 # Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
 # Run from the build checkout. Only public signing output leaves this machine.
 # Every check ends in `|| fail`: macOS's bash 3.2 doesn't stop a set -e script on a false [[ ]].
-set -euo pipefail
+set -Eeuo pipefail
+phase=initialization
+failure_line=unknown
+trap 'failure_line=$LINENO' ERR
+report_exit() {
+  local rc=$?
+  if [[ $rc != 0 ]]; then
+    printf '%s: failed during %s (exit %s, line %s)\n' "${0##*/}" "$phase" "$rc" "$failure_line" >&2
+  fi
+  exit "$rc"
+}
+trap report_exit EXIT
+echo "${0##*/}: starting"
 fail() { echo "prepare-mac.sh: $*" >&2; exit 1; }
+phase="validating candidate metadata and signature"
 ROOT=$PWD
 : "${AIRC_UPDATE_FEED:?Set the dev feed}"
 APP="$ROOT/build/Airc-Chromium.app"
@@ -20,6 +33,7 @@ rm -rf "$OUT"
 mkdir -p "$OUT"
 # Preserve the tested ad-hoc bundle. Sign only the exact staged payload after testing;
 # distribution signatures intentionally disable the engine's test hooks.
+phase="staging the tested app"
 ditto "$APP" "$OUT/Airc.app"
 STAGED="$OUT/Airc.app/Contents/Info.plist"
 # Tested builds carry a test identity (scripts/build-app.sh); the published copy gets the real one back, then is signed.
@@ -27,6 +41,7 @@ published=$(/usr/libexec/PlistBuddy -c "Print :AircPublishedBundleID" "$STAGED" 
 if [[ -n "$published" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $published" -c "Delete :AircPublishedBundleID" "$STAGED"
 fi
+phase="signing the staged app"
 identity=${AIRC_SIGN_IDENTITY:--}
 if [[ "$identity" != - ]]; then
   : "${AIRC_SIGN_KEYCHAIN:?Developer ID publishing requires the dedicated keychain}"
@@ -46,11 +61,13 @@ codesign --verify --deep --strict --verbose=2 "$OUT/Airc.app"
 spctl -a -vv --type exec "$OUT/Airc.app" > "$OUT/spctl.txt" 2>&1 || true
 before=$(codesign -d --verbose=4 "$OUT/Airc.app" 2>&1 | sed -n 's/^CDHash=//p')
 # No scripted scenarios or engine test hooks on a distribution-signed app.
+phase="signed app launch smoke"
 scripts/release/smoke.sh --plain-only "$OUT/Airc.app" "$OUT/smoke"
 codesign --verify --deep --strict "$OUT/Airc.app"
 after=$(codesign -d --verbose=4 "$OUT/Airc.app" 2>&1 | sed -n 's/^CDHash=//p')
 [[ -n "$before" && "$before" == "$after" ]] || fail 'the payload changed during smoke'
 
+phase="validating Sparkle signing key"
 key=${AIRC_SPARKLE_KEY_FILE:-$HOME/arcfork/secrets/sparkle_ed25519_private}
 sparkle=${SPARKLE_ROOT:-$HOME/arcfork/tools/sparkle}
 [[ -f "$key" && ! -L "$key" && $(stat -f %Lp "$key") == 600 && $(stat -f %u "$key") == $(id -u) ]] \
@@ -58,10 +75,12 @@ sparkle=${SPARKLE_ROOT:-$HOME/arcfork/tools/sparkle}
 [[ $(swift infra/release/key-public.swift "$key") == "$(cat infra/release/sparkle-public-key.txt)" ]] \
   || fail 'the signing key does not match infra/release/sparkle-public-key.txt'
 # Canonical archive name matches the stable installation name, without changing its signature.
+phase="archiving and signing update"
 ditto -c -k --sequesterRsrc --keepParent "$OUT/Airc.app" "$OUT/update.zip"
 "$sparkle/bin/sign_update" --ed-key-file "$key" "$OUT/update.zip" > "$OUT/signature.txt"
 cp "$STAGED" "$OUT/Info.plist"
 # Up to three acknowledged published source apps, plus one pending copy. Keys stay on the Mac.
+phase="generating deltas and recording cache"
 python3 scripts/release/deltas.py "$OUT/Airc.app" "$OUT" "$HOME/arcfork/updates-cache.noindex/dev"
 shasum -a 256 "$OUT/update.zip" > "$OUT/sha256.txt"
 # The smoke launched the staged copy, which registered it with Launch Services under the owner's identity: unregister it

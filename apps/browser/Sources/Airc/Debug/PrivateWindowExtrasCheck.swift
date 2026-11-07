@@ -154,7 +154,7 @@ extension SnapshotRunner {
         // MARK: The page's shortcuts first (CB-3)
         // The page takes the keyboard (and ⌘ keys as key equivalents) only in a key window: ShortcutsCheck's stand-in.
         run { [self] in if let w { Self.emulateKeyWindow(w.window) { [weak self] in self?.note($0) } } }
-        step { [self] done in clickIntoPrivatePage({ w }, done) }
+        step { [self] done in clickIntoPrivatePage({ w }) { _ in done() } }
         for (key, state, undo) in [
             (Key.cmd("⌘F", 3, "f"), { (x: PrivateWindowController) in x.findBar != nil ? "find field" : "-" }, { (x: PrivateWindowController) in x.closeFind(refocusPage: true) }),
             (Key.cmd("⌘L", 37, "l"), { (x: PrivateWindowController) in x.commandBar.map { "command bar \($0.mode)" } ?? "-" }, { (x: PrivateWindowController) in x.closeCommandBar() }),
@@ -174,7 +174,7 @@ extension SnapshotRunner {
                 if let w { undo(w) }
             }
             wait(0.3)
-            step { [self] done in clickIntoPrivatePage({ w }, done) }
+            step { [self] done in clickIntoPrivatePage({ w }) { _ in done() } }
         }
         // ⌘Z in a page field: the field's own undo (the Edit menu's undo: on the page), never a browser command.
         let undo = Key.cmd("⌘Z", 6, "z")
@@ -363,22 +363,37 @@ extension SnapshotRunner {
         }
     }
 
-    /// Clicks the private page until it has the keyboard and a user activation (at most three clicks), as
-    /// clickIntoPage does for the main window.
-    func clickIntoPrivatePage(_ w: @escaping () -> PrivateWindowController?, _ done: @escaping () -> Void) {
+    /// Gives the private page the keyboard and waits until it has it (`focusedPage`): posted clicks first, as
+    /// clickIntoPage does for the main window (they also give the page a user activation), each followed by up to 1 s
+    /// for the engine to move the keyboard; then, if three clicks didn't (a ship run, 2026-11-06: "3×: user activation
+    /// 0, focused false", and every key case after it failed for that alone), the page's own focus(). `done(true)` once
+    /// it has the keyboard, whichever way; `done(false)` if it still hasn't.
+    func clickIntoPrivatePage(_ w: @escaping () -> PrivateWindowController?, _ done: @escaping (Bool) -> Void) {
         var clicks = 0
+        let hasKeyboard = { w()?.focusedPage != nil }
         func attempt() {
-            guard let x = w(), let page = x.shownPage else { return done() }
-            if x.focusedPage != nil, clicks > 0 { return done() }
+            guard let x = w(), let page = x.shownPage else { return done(false) }
+            if hasKeyboard(), clicks > 0 { return done(true) }
+            guard clicks < 3 else {
+                note("private extras: \(clicks) clicks left the page without the keyboard (first responder "
+                     + "\(Self.describe(x.window.firstResponder))); giving it the keyboard with the page's focus()")
+                page.focus()
+                return waitUntil(hasKeyboard, timeout: 1) {
+                    self.note("private extras: after focus() the page \(hasKeyboard() ? "has" : "still hasn't") the keyboard")
+                    done(hasKeyboard())
+                }
+            }
             let p = x.card.convert(NSPoint(x: x.card.bounds.midX, y: x.card.bounds.maxY - 60), to: nil)
             clicks += 1
             click(at: p, in: x.window) {
-                page.evaluate("navigator.userActivation ? navigator.userActivation.hasBeenActive : true") { active in
-                    if (active as? Bool == true && x.focusedPage != nil) || clicks >= 3 {
-                        self.note("private extras: clicked into the page \(clicks)×: user activation \(active ?? "-"), focused \(x.focusedPage != nil)")
-                        done()
-                    } else {
-                        attempt()
+                self.waitUntil(hasKeyboard, timeout: 1) {
+                    page.evaluate("navigator.userActivation ? navigator.userActivation.hasBeenActive : true") { active in
+                        if active as? Bool == true && hasKeyboard() {
+                            self.note("private extras: clicked into the page \(clicks)×: user activation \(active ?? "-"), focused true")
+                            done(true)
+                        } else {
+                            attempt()
+                        }
                     }
                 }
             }
@@ -392,25 +407,50 @@ extension SnapshotRunner {
         if k.unavailable { return run { [self] in skip("private extras: \(k.name): this keyboard layout can't type it (\(Self.layoutName))") } }
         step { [self] done in
             if w()?.focusedPage != nil { return done() }
-            clickIntoPrivatePage(w, done)
+            clickIntoPrivatePage(w) { _ in done() }
         }
         step { done in
             guard let p = w()?.shownPage else { return done() }
             p.evaluate("(function(){\(setup);return loadID})()") { _ in done() }
         }
+        // Right before the key, not only before the setup: the page has the keyboard (the case is about where its keys
+        // go, so it must have it), and the key monitor sends this window's keys through it. Otherwise the key goes
+        // straight to the window's command and the case fails for the setup, not for what it checks.
+        var unready: String?
         step { [self] done in
             guard let x = w() else { return done() }
-            postKey(k, to: x.window)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                self.waitUntil({ !KeyMonitor.isWaitingForPage }, timeout: 3) {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + settle, execute: done)
+            func post() {
+                unready = nil
+                postKey(k, to: x.window)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    self.waitUntil({ !KeyMonitor.isWaitingForPage }, timeout: 3) {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + settle, execute: done)
+                    }
                 }
+            }
+            let routed = PrivateBrowsing.shared.window(for: x.window) === x && KeyMonitor.testKeyWindowDispatch != nil
+            if x.focusedPage != nil, routed { return post() }
+            note("private extras: \(k.name): the page lost the keyboard after the setup (first responder "
+                 + "\(Self.describe(x.window.firstResponder)), keys routed \(routed)); back into it, and the setup again")
+            clickIntoPrivatePage(w) { ok in
+                guard ok, routed, let p = x.shownPage else {
+                    unready = "the page never had the keyboard (first responder \(Self.describe(x.window.firstResponder)), "
+                        + "this window's keys routed \(routed))"
+                    return done()
+                }
+                // The click moved the caret the setup put: the setup again, then the key.
+                p.evaluate("(function(){\(setup);return loadID})()") { _ in post() }
             }
         }
         step { [self] done in
             guard let p = w()?.shownPage else { check(false, "private extras: \(k.name): no page"); return done() }
             p.evaluate("state()") { v in
                 let s = (v as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] } ?? [:]
+                // Not posted: the verdict fails, saying why.
+                if let unready {
+                    verdict(s, ["(not posted: \(unready))"])
+                    return done()
+                }
                 verdict(s, s["log"] as? [String] ?? ["(no answer: \(String(describing: v)))"])
                 done()
             }

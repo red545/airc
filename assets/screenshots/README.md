@@ -33,6 +33,7 @@ menu, which can't be drawn off screen; `profiles.webp` shows profiles through Cr
 | `favorite-split.webp` | Favorite splits | A split as one Favorite tile in the Work profile (Linear and SwiftUI), dark | 2026-11-06 | 202611061538 (6312e1a) |
 | `peek.webp` | Peek | A link from the Lisbon article opens over the page: the map of Belém | 2026-11-06 | 202611061538 (6312e1a) |
 | `little-arc.webp` | Little Arc | A link from another app in its own small window, over the Personal Space | 2026-11-06 | 202611062051 (abc32c5) |
+| `multiple-windows.webp` | Several windows | Two windows on different Spaces, each with its own tab: Travel on the Lisbon article in front, Work on linear.app behind | 2026-11-07 | 202611070055 (9970131) |
 | `private-window.webp` | Private windows | A private window (⇧⌘N): dark, its own tabs and New Tab, nothing kept, on Wikipedia's Private browsing | 2026-11-06 | 202611062051 (abc32c5) |
 | `private-window-start.webp` | Private windows: a new one | A new private window before its first tab: what it keeps and what it doesn't | 2026-11-06 | 202611062051 (abc32c5) |
 | `private-window-find.webp` | Private windows: find | ⌘F in a private window: "cookie" found on Wikipedia's Private browsing, the same find field as the main window's | 2026-11-06 | polish1 copy (4b0791f) |

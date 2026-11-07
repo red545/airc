@@ -48,7 +48,8 @@ enum CommandMenus {
         [
             BrowserCommand("New Tab", "t", .command) { $0.openCommandBar(mode: .newTab) },
             BrowserCommand("Open Location…", "l", .command) { $0.openCommandBar(mode: .editURL) },
-            BrowserCommand("New Window", "n", .command) { $0.showStub("New windows") },
+            // WIN-7 (Browser/MultiWindow.swift): another window on this Space, with the Command Bar.
+            BrowserCommand("New Window", "n", .command) { $0.app?.openNewWindow(from: $0) },
             // PW-1 (Browser/PrivateWindow.swift): in a private window, ⇧⌘N opens another one of the same profile.
             BrowserCommand("New Private Window", "n", [.command, .shift]) { c in if let app = c.app { PrivateBrowsing.shared.open(app: app) } },
             BrowserCommand("New Little Arc Window", "n", [.command, .option]) { $0.app?.openLittleArc(url: nil) },
@@ -185,22 +186,27 @@ final class CommandMenuItem: NSMenuItem {
     var command: BrowserCommand?
     weak var app: AppDelegate?
     @objc func fire() {
-        guard let c = app?.controller, let command else { return }
+        guard let app, let command else { return }
+        // WIN-7: the key browser window's command, else the one used last's; with none open, only the ones that open a
+        // window run (AppDelegate.runWithoutWindow).
+        let c = app.controller(for: NSApp.keyWindow) ?? app.controller
+        let opensWindow = { if let c { command.run(c) } else { app.runWithoutWindow(command) } }
         // A private window takes its own shortcuts and the menu commands that make sense there (PrivateWindow.swift).
         if let p = PrivateBrowsing.shared.window(for: NSApp.keyWindow) {
             // The menu runs it now (a click, or a key the page handed back): not once more when the page's answer comes.
             KeyMonitor.cancelPending(command)
             if let e = NSApp.currentEvent, e.type == .keyDown, p.handleKey(e) { return }
             if p.perform(menuTitle: command.title) { return }
-            if ["New Window", "New Little Arc Window"].contains(command.title) { command.run(c) }
+            if ["New Window", "New Little Arc Window"].contains(command.title) { opensWindow() }
             return
         }
         // A Little Arc window takes its own shortcuts; the main window's commands don't reach into it.
-        if let little = app?.littleArc(for: NSApp.keyWindow) {
+        if let little = app.littleArc(for: NSApp.keyWindow) {
             if let e = NSApp.currentEvent, e.type == .keyDown, little.handleKey(e) { return }
-            if command.title == "New Little Arc Window" { command.run(c) }
+            if ["New Window", "New Little Arc Window"].contains(command.title) { opensWindow() }
             return
         }
+        guard let c else { return app.runWithoutWindow(command) }
         KeyMonitor.menuFired(command, in: c)
     }
 }
@@ -268,6 +274,8 @@ enum MainMenu {
         let window = NSMenu(title: "Window")
         window.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         window.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        window.addItem(.separator())
+        window.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
         add(window, to: main)
         NSApp.windowsMenu = window
         return main
@@ -428,7 +436,7 @@ enum KeyMonitor {
         let commands = CommandMenus.all
         _ = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { [weak app] event in
             if event.charactersIgnoringModifiers?.lowercased() == "q" { quitHold?.cancel(); quitHold = nil }
-            if event.keyCode == 53 { app?.controller?.fullScreen.escapeUp() }
+            if event.keyCode == 53 { (app?.controller(for: event.window) ?? app?.controller)?.fullScreen.escapeUp() }
             return event
         }
         let handle: (NSEvent) -> NSEvent? = { [weak app] event in
@@ -441,7 +449,7 @@ enum KeyMonitor {
                 let automated = app.options.isAutomated
                 #endif
                 guard !event.isARepeat, quitHold == nil, !automated else { return nil }
-                app.controller?.showToast("Hold ⌘Q to Quit")
+                (app.controller(for: event.window) ?? app.controller)?.showToast("Hold ⌘Q to Quit")
                 let code = event.keyCode
                 let work = DispatchWorkItem {
                     quitHold = nil
@@ -459,7 +467,8 @@ enum KeyMonitor {
                 if event === offered { offered = nil; return event }
                 return p.handleKeyPageFirst(event) ? nil : event
             }
-            guard let c = app.controller, event.window === c.window else { return event }
+            // WIN-7: the browser window the key is for.
+            guard let c = app.controller(for: event.window) else { return event }
             // Full screen (Arc): Esc goes to the page; a second press, or holding it, leaves full screen.
             // Peek: Esc closes it. So does Site Controls (first: it's above the page).
             if event.keyCode == 53, mods.isEmpty, c.closeSiteControls() { return nil }
@@ -535,7 +544,7 @@ enum KeyMonitor {
     /// The engine hands back a key the page didn't use (Chromium's unhandled-key callback, WebKit's resend): Chrome's
     /// delayed keys (⌘← ⌘→) run their command now. True: one ran.
     static func pageDidNotUse(_ event: NSEvent) -> Bool {
-        guard event.type == .keyDown, let c = (NSApp.delegate as? AppDelegate)?.controller, event.window === c.window,
+        guard event.type == .keyDown, let c = (NSApp.delegate as? AppDelegate)?.controller(for: event.window),
               let chars = event.charactersIgnoringModifiers?.lowercased() else { return false }
         let mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
         guard let cmd = CommandMenus.keysOnly().first(where: { $0.key == chars && $0.modifiers == mods }) else { return false }

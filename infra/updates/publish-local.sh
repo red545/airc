@@ -1,16 +1,35 @@
 #!/bin/bash
 # Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
-set -euo pipefail
+set -Eeuo pipefail
+phase=initialization
+failure_line=unknown
+trap 'failure_line=$LINENO' ERR
+report_exit() {
+  local rc=$?
+  if [[ $rc != 0 ]]; then
+    printf '%s: failed during %s (exit %s, line %s)\n' "${0##*/}" "$phase" "$rc" "$failure_line" >&2
+  fi
+  exit "$rc"
+}
+trap report_exit EXIT
+echo "${0##*/}: starting"
+phase="installing and checking the loopback LaunchAgent"
 infra/updates/local-feed.sh
 feed="$HOME/arcfork/updates-local"
+phase="seeding transition history"
 if [[ ! -e "$feed/appcast.xml" && -f build/dev-seed.xml ]]; then
   cp build/dev-seed.xml "$feed/appcast.xml.tmp"
   mv "$feed/appcast.xml.tmp" "$feed/appcast.xml"
 fi
+phase="signing and preparing the candidate"
 bash infra/updates/prepare-mac.sh
+phase="verifying enclosures and atomically publishing the feed"
 python3 infra/updates/publish.py "$PWD" "$feed" "$PWD/build/dev-update" "$AIRC_UPDATE_FEED"
+phase="acknowledging delta cache"
 build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' build/dev-update/Info.plist)
 touch "$HOME/arcfork/updates-cache.noindex/dev/$build/published"
+phase="checking served appcast"
 curl --fail --silent --show-error --retry 3 "$AIRC_UPDATE_FEED" > build/dev-update/served-appcast.xml
 # Keep tiny evidence; enclosures are already durable in the feed.
+phase="cleaning staged enclosures"
 rm -f build/dev-update/update.zip build/dev-update/*.delta

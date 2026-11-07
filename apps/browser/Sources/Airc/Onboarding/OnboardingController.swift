@@ -251,7 +251,7 @@ final class OnboardingController {
         model.$translucency.removeDuplicates().dropFirst().sink { [weak self] t in
             self?.settings.translucency = t
             if let w = self?.window { onMain { w.background.translucency = t } }
-            self?.app?.controller?.applyTranslucency(t)
+            self?.app?.controllers.forEach { $0.applyTranslucency(t) }
         }.store(in: &subscriptions)
     }
 

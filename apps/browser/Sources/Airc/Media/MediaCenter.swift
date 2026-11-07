@@ -64,7 +64,7 @@ final class MediaCenter: ObservableObject {
         for (key, tab) in watched where !keep.contains(key) {
             engine.observeMediaSession(of: tab, nil)
             watched[key] = nil
-            if let id = library?.controller?.tabID(for: tab) { sessionEnded(id) }
+            if let id = library?.tabID(for: tab) { sessionEnded(id) }
         }
         for tab in all where watched[ObjectIdentifier(tab)] == nil {
             watched[ObjectIdentifier(tab)] = tab
@@ -78,7 +78,7 @@ final class MediaCenter: ObservableObject {
 
     private func sessionChanged(_ tab: EngineTab, _ s: EngineMediaSession) {
         PiPOverlays.shared.sessionChanged(tab, s)
-        guard let c = library?.controller, let id = c.tabID(for: tab) else { return }
+        guard let id = library?.tabID(for: tab) else { return }
         guard s.isPresent, !tab.isClosed else { return sessionEnded(id) }
         let old = sessions[id]
         var p = old ?? Player(tabID: id, session: s, title: "", subtitle: "", pageURL: "", muted: tab.isMuted, since: Date())
@@ -124,8 +124,8 @@ final class MediaCenter: ObservableObject {
 
     /// The page's title, mute or the window changed: the rows say so.
     func pageChanged(_ tabID: String) {
-        if let page = library?.controller?.engineTab(for: tabID) { PiPOverlays.shared.pageChanged(page) }
-        guard var p = sessions[tabID], let page = library?.controller?.engineTab(for: tabID) else { return }
+        if let page = library?.page(for: tabID) { PiPOverlays.shared.pageChanged(page) }
+        guard var p = sessions[tabID], let page = library?.page(for: tabID) else { return }
         describe(&p, tab: page)
         guard p != sessions[tabID] else { return }
         sessions[tabID] = p
@@ -145,7 +145,7 @@ final class MediaCenter: ObservableObject {
 
     @discardableResult
     func perform(_ action: String, _ p: Player) -> Bool {
-        guard let page = library?.controller?.engineTab(for: p.tabID), p.session.actions.contains(action)
+        guard let page = library?.page(for: p.tabID), p.session.actions.contains(action)
             || (["play", "pause"].contains(action) && p.session.playback != .none) else { return false }
         return engine.performMediaAction(action, value: 0, in: page)
     }
@@ -156,7 +156,7 @@ final class MediaCenter: ObservableObject {
 
     /// The tab's sound (playback only: a call's microphone is `togglemicrophone`).
     func toggleMute(_ p: Player) {
-        guard let page = library?.controller?.engineTab(for: p.tabID) else { return }
+        guard let page = library?.page(for: p.tabID) else { return }
         page.isMuted.toggle()
         pageChanged(p.tabID)
     }

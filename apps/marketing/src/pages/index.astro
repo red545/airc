@@ -31,13 +31,6 @@ import shotImport from "../assets/screens/onboarding-import.webp";
 import shotPeek from "../assets/screens/peek.webp";
 import shotSplit from "../assets/screens/split-view-2.webp";
 import shotPip from "../assets/screens/picture-in-picture.webp";
-import shotBoostColors from "../assets/screens/boosts.webp";
-import shotBoostFont from "../assets/screens/boosts-font.webp";
-import shotBoostZap from "../assets/screens/boosts-zap.webp";
-import shotDrmPanel from "../assets/screens/drm-site-controls-panel.webp";
-import shotPrivate from "../assets/screens/private-window.webp";
-import shotPreview from "../assets/screens/tab-preview-card.webp";
-import shotPreviewDark from "../assets/screens/tab-preview-card-dark.webp";
 import { getImage } from "astro:assets";
 
 // The Spaces demo: four Spaces of the same window, each in its own colour and profile.
@@ -58,17 +51,12 @@ const checkedLabel =
   ", " +
   checkedAt.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" }) +
   " UTC";
-// Counts are for what's in the released version; features marked `next` (in nightly builds, not in a stable release
-// yet) are listed but not counted.
-const released = supported.filter((f) => !("next" in f && f.next));
-const passingCount = released.filter((f) => f.status === "passing").length;
-const releasedCount = released.length;
-const nextCount = supported.length - releasedCount;
+const passingCount = supported.filter((f) => f.status === "passing").length;
 
 const facts = [
   { value: `Chromium ${status.chromium.split(".")[0]}`, label: "Real Chrome underneath" },
   { value: "Apache-2.0", label: "Open source, all of it" },
-  { value: `${passingCount} of ${releasedCount}`, label: "Features pass the nightly checks", href: "#supported" },
+  { value: `${passingCount} of ${supported.length}`, label: "Features pass the nightly checks", href: "#supported" },
   { value: "Apple silicon", label: "macOS 14 or later" },
   { value: "Free", label: "No account, no ads", href: "/privacy" },
 ];
@@ -129,7 +117,7 @@ const faqs = [
   { q: "What do I need?", a: "A Mac with Apple silicon and macOS 14 or later. Intel Macs aren't supported." },
   {
     q: "Do Spotify, Netflix and other streaming sites work?",
-    a: "Not in 0.1.0. In the next release (nightly builds first), Spotify, Netflix, Disney+, Max, Apple TV, Apple Music, Prime Video and Tidal open in a Safari-engine page inside Airc, with Apple's FairPlay; every other site stays Chromium. They open without \"browser not supported\", but playback with signed-in accounts is still being tested.",
+    a: "Not yet. They need DRM (Widevine), which Airc doesn't have yet. Support is in progress.",
   },
   {
     q: "Is Safe Browsing on?",
@@ -149,15 +137,6 @@ const faqs = [
   },
 ];
 
-// Boosts: one site, three ways to make it yours. Not in 0.1.0 (it landed after that release's source), so the
-// section says when it arrives; drop the note once a stable release carries it.
-const boostModes = [
-  { key: "colors", label: "Colors", body: "A tint, brightness and contrast, or Invert for a quick dark mode.", img: shotBoostColors, alt: "Wikipedia's Typography article boosted to a warm amber, with the Boost editor open on Colors: tint, brightness, contrast and Invert." },
-  { key: "font", label: "Font", body: "A macOS font and a size. The layout keeps its proportions.", img: shotBoostFont, alt: "The same Boost on Font: the article set in Charter, a size step up, with the fonts that come with macOS." },
-  { key: "zap", label: "Zap", body: "Click anything away. It stays gone on every visit, and one click brings it back.", img: shotBoostZap, alt: "The same Boost on Zap: Wikipedia's Appearance column zapped away, listed with its undo." },
-];
-
-const previewDark = await getImage({ src: shotPreviewDark, widths: [600, 805], format: "webp", quality: 92 });
 const commandDark = await getImage({ src: shotCommandDark, widths: [800, 1200, 1800, 2400], format: "webp", quality: 90 });
 
 const panes = [
@@ -168,13 +147,7 @@ const panes = [
   { id: "links", tab: "Links", sub: "Peek, Air Traffic Control" },
   { id: "split", tab: "Split View", sub: "Two or three panes" },
   { id: "pip", tab: "Picture in picture", sub: "Films and calls float" },
-  { id: "streaming", tab: "Streaming", sub: "Safari's engine, FairPlay" },
-  { id: "private", tab: "Private windows", sub: "Nothing kept, ⇧⌘N" },
-  { id: "previews", tab: "Tab previews", sub: "Hover a tab to see it" },
 ];
-
-// The streaming services that open in Safari's engine (docs/user/protected-media.md lists every one).
-const streamingServices = ["Spotify", "Netflix", "Disney+", "Max", "Apple TV", "Apple Music", "Prime Video", "Tidal"];
 ---
 
 <Layout>
@@ -445,87 +418,6 @@ const streamingServices = ["Spotify", "Netflix", "Disney+", "Max", "Apple TV", "
             <Image src={shotPip} widths={[800, 1200, 1800, 2400]} sizes="(max-width: 900px) 100vw, 760px" quality={90} alt="Picture in picture in Airc: a film floats over the Lisbon article, with Back to Tab, skip, play and a scrubber." />
           </button>
         </article>
-
-        <article id="streaming" class="pane" data-space={spaceOf("streaming")}>
-          <h3 class="pt">Spotify, Netflix and Disney+ open in Safari's engine. <span>The big streaming services get a page with Apple's FairPlay, right inside Airc. Every other site stays Chromium.</span></h3>
-          <div class="pane-demo stream-demo">
-            <ul class="services" aria-label="Services that open in Safari's engine">
-              {streamingServices.map((n) => <li>{n}</li>)}
-            </ul>
-            <button type="button" class="stream-shot" data-zoom={shotDrmPanel.src} data-alt="Site Controls on Spotify: the Safari's engine switch, with Apple's FairPlay." aria-label="Enlarge screenshot">
-              <Image src={shotDrmPanel} widths={[446]} sizes="360px" quality={92} alt="Site Controls on open.spotify.com: Safari's engine is on, with Apple's FairPlay. Spotify's player needs DRM that Chromium can't offer without Google's certification; here you sign in once, and extensions don't run." />
-            </button>
-          </div>
-          <p class="note note-next">
-            <i aria-hidden="true"></i>
-            <span>
-              Coming in the next release, in <a href="/versions#nightly">nightly builds</a> first. So far every service
-              opens without "browser not supported" and a test stream plays; playback with your own account is still
-              being tested. One switch in Site Controls sends a site back to Chromium.
-            </span>
-          </p>
-        </article>
-
-        <article id="private" class="pane" data-space={spaceOf("private")}>
-          <h3 class="pt">Private windows. <span>⇧⌘N opens a dark window on its own off-the-record profile. Its pages stay out of your history, and its cookies and site data go when you close it.</span></h3>
-          <button type="button" class="pane-demo shot" data-zoom={shotPrivate.src} data-alt="A private window in Airc." aria-label="Enlarge screenshot">
-            <Image src={shotPrivate} widths={[800, 1200, 1800, 2400]} sizes="(max-width: 900px) 100vw, 760px" quality={90} alt="A private window in Airc: a dark window with its own tabs and New Tab, marked Private, on Wikipedia's article on private browsing. Its note says Airc doesn't keep this window's history, and its cookies and site data go when you close it." />
-          </button>
-          <p class="note note-next">
-            <i aria-hidden="true"></i>
-            <span>Coming in the next release, in <a href="/versions#nightly">nightly builds</a> first. Files you download stay in your Downloads folder.</span>
-          </p>
-        </article>
-
-        <article id="previews" class="pane" data-space={spaceOf("previews")}>
-          <h3 class="pt">Tab previews. <span>Rest the pointer on a tab and a card shows the page as you left it, its title and site, with pin, Favorite, split and Peek one click away.</span></h3>
-          <div class="pane-demo preview-demo">
-            <button type="button" class="preview-shot" data-zoom={shotPreview.src} data-alt="A tab preview in Airc." aria-label="Enlarge screenshot">
-              <picture>
-                <source media="(prefers-color-scheme: dark)" srcset={previewDark.srcSet.attribute} sizes="(max-width: 900px) 100vw, 640px" />
-                <Image src={shotPreview} widths={[600, 805]} sizes="(max-width: 900px) 100vw, 640px" quality={92} alt="Airc's sidebar with the pointer on the Kyoto tab: a card shows the Wikivoyage page as it was left, its title and en.wikivoyage.org, and buttons to pin, add to Favorites, split and Peek." />
-              </picture>
-            </button>
-          </div>
-          <p class="note note-next">
-            <i aria-hidden="true"></i>
-            <span>Coming in the next release, in <a href="/versions#nightly">nightly builds</a> first. Turn it off in Settings → Appearance.</span>
-          </p>
-        </article>
-      </div>
-    </section>
-
-    <!-- ================================================================ boosts -->
-    <section id="boosts" class="sec boosts" data-space={spaceOf("boosts")}>
-      <div class="sec-head">
-        <p class="tag" style="--c:#e0559f">Boosts</p>
-        <h2 class="tt">Boosts. Make any site yours. <span>Your colours, your font, and Zap for the parts you never want to see.</span></h2>
-        <a class="soon" href="/versions#nightly"><i aria-hidden="true"></i>Coming in the next release, in nightly builds first</a>
-      </div>
-      <div class="boost" data-boost>
-        <div class="boost-tabs" role="tablist" aria-label="Boosts">
-          {boostModes.map((m, i) => (
-            <button type="button" role="tab" class="boost-tab" data-mode={i} aria-selected={i === 0 ? "true" : "false"}>
-              <b>{m.label}</b>
-              <span>{m.body}</span>
-              <i class="boost-prog" aria-hidden="true"></i>
-            </button>
-          ))}
-          <p class="boost-more">
-            <b>Code</b> Your own CSS and JavaScript for a site.
-          </p>
-          <p class="boost-trust">
-            Unlike Arc's, Boosts never leave your Mac: no account, no sync, and only code you write ever runs. The style is
-            in place before the page appears, so it never flashes its old look.
-          </p>
-        </div>
-        <div class="boost-view">
-          {boostModes.map((m, i) => (
-            <button type="button" class={`boost-shot ${i === 0 ? "on" : ""}`} data-shot={i} data-zoom={m.img.src} data-alt={m.alt} aria-label={`Enlarge: ${m.alt}`} aria-hidden={i === 0 ? "false" : "true"} tabindex={i === 0 ? 0 : -1}>
-              <Image src={m.img} widths={[800, 1200, 1800, 2400]} sizes="(max-width: 980px) 100vw, 700px" quality={90} alt={m.alt} loading="lazy" />
-            </button>
-          ))}
-        </div>
       </div>
     </section>
 
@@ -538,8 +430,8 @@ const streamingServices = ["Spotify", "Netflix", "Disney+", "Max", "Apple TV", "
       <div class="run">
         <span class="run-dot" aria-hidden="true"></span>
         <span>
-          <b>{passingCount} of {releasedCount} released features</b> pass the nightly checks ({status.checks.pass} checks passed,{" "}
-          {status.checks.skip} skipped, {status.checks.fail} failed), and {nextCount} more are on the way in the next release. <i class="pend-dot" aria-hidden="true"></i> Check pending: built, not covered by a check yet.
+          <b>{passingCount} of {supported.length} features</b> pass the nightly checks ({status.checks.pass} checks passed,{" "}
+          {status.checks.skip} skipped, {status.checks.fail} failed). <i class="pend-dot" aria-hidden="true"></i> Check pending: built, not covered by a check yet.
         </span>
         <span class="run-meta">Last run {checkedLabel} · build <code>{status.rev}</code> · Chromium {status.chromium}</span>
       </div>
@@ -547,10 +439,7 @@ const streamingServices = ["Spotify", "Netflix", "Disney+", "Max", "Apple TV", "
         {supported.map((f) => (
           <li class="work">
             {f.status === "built" ? (
-              <span
-                class={`state pending ${"next" in f && f.next ? "pending-next" : ""}`}
-                title={"next" in f && f.next ? "Coming in the next release; in nightly builds first." : "Built and in the app. No nightly check covers it yet."}
-              ><i aria-hidden="true"></i></span>
+              <span class="state pending" title="Built and in the app. No nightly check covers it yet."><i aria-hidden="true"></i></span>
             ) : (
               <span
                 class={`state mark mark-${f.status}`}
@@ -566,7 +455,7 @@ const streamingServices = ["Spotify", "Netflix", "Disney+", "Max", "Apple TV", "
             <div>
               <h3>
                 {f.title}
-                {"next" in f && f.next ? <span class="next-label">Next release</span> : f.status === "built" && <span class="pend-label">Check pending</span>}
+                {f.status === "built" && <span class="pend-label">Check pending</span>}
               </h3>
               <p>{f.body}</p>
             </div>
@@ -790,55 +679,6 @@ const streamingServices = ["Spotify", "Netflix", "Disney+", "Max", "Apple TV", "
       ).observe(view);
     }
     show(0, false);
-  }
-
-  // ------------------------------------------------------------------ Boosts: Colors, Font, Zap
-  const boost = document.querySelector<HTMLElement>("[data-boost]");
-  if (boost) {
-    const tabsB = [...boost.querySelectorAll<HTMLButtonElement>("[data-mode]")];
-    const shotsB = [...boost.querySelectorAll<HTMLElement>("[data-shot]")];
-    let k = 0;
-    let timer: number | undefined;
-    let taken = false;
-    const pick = (n: number) => {
-      k = n;
-      tabsB.forEach((t, j) => t.setAttribute("aria-selected", String(j === n)));
-      shotsB.forEach((sh, j) => {
-        sh.classList.toggle("on", j === n);
-        sh.setAttribute("aria-hidden", String(j !== n));
-        sh.tabIndex = j === n ? 0 : -1;
-      });
-      // restart the progress bar on the chosen tab
-      boost.classList.remove("ticking");
-      void boost.offsetWidth;
-      if (timer) boost.classList.add("ticking");
-    };
-    tabsB.forEach((t, j) =>
-      t.addEventListener("click", () => {
-        taken = true;
-        if (timer) clearInterval(timer);
-        timer = undefined;
-        boost.classList.remove("ticking");
-        pick(j);
-        send("boosts_mode", { mode: t.querySelector("b")?.textContent ?? "" });
-      }),
-    );
-    if (!reduce) {
-      new IntersectionObserver(
-        ([e]) => {
-          if (taken) return;
-          if (e.isIntersecting && !timer) {
-            timer = window.setInterval(() => pick((k + 1) % tabsB.length), 4200);
-            boost.classList.add("ticking");
-          } else if (!e.isIntersecting && timer) {
-            clearInterval(timer);
-            timer = undefined;
-            boost.classList.remove("ticking");
-          }
-        },
-        { threshold: 0.5 },
-      ).observe(boost);
-    }
   }
 
   // ------------------------------------------------------------------ the hero post expands
@@ -1990,8 +1830,6 @@ const streamingServices = ["Spotify", "Netflix", "Disney+", "Max", "Apple TV", "
 
   .work .pending { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border-radius: 50%; }
   .work .pending i { width: 8px; height: 8px; }
-  .work .pending-next { color: #6a3fd0; background: rgb(122 76 240 / 0.1); box-shadow: inset 0 0 0 1px rgb(122 76 240 / 0.22); }
-  .work .pending-next i { background: #7a4cf0; }
 
   .pend-label {
     margin-left: 8px;
@@ -2042,140 +1880,6 @@ const streamingServices = ["Spotify", "Netflix", "Disney+", "Max", "Apple TV", "
     .work:nth-child(even) { box-shadow: 0 1px 0 var(--hl); }
     .run { grid-template-columns: auto minmax(0, 1fr); }
     .run-meta { grid-column: 2; white-space: normal; }
-  }
-
-  /* ------------------------------------------------------------------ boosts */
-
-  .soon {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 16px;
-    font-size: 13.5px;
-    font-weight: 550;
-    color: var(--t2);
-  }
-
-  .soon i { width: 7px; height: 7px; border-radius: 50%; background: #7a4cf0; box-shadow: 0 0 0 3px rgb(122 76 240 / 0.2); }
-  .soon:hover { color: var(--t1); }
-
-  .boost {
-    display: grid;
-    grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
-    box-shadow: 0 -1px 0 var(--hl);
-  }
-
-  .boost-tabs { display: grid; align-content: start; padding: 28px var(--pad); gap: 4px; }
-
-  .boost-tab {
-    position: relative;
-    display: grid;
-    gap: 3px;
-    padding: 12px 0 12px 16px;
-    border: 0;
-    background: none;
-    font: inherit;
-    text-align: left;
-    cursor: pointer;
-  }
-
-  .boost-tab::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 10px;
-    bottom: 10px;
-    width: 2px;
-    border-radius: 2px;
-    background: var(--hl);
-  }
-
-  .boost-tab b { font-size: 16px; font-weight: 600; letter-spacing: -0.012em; color: var(--t3); transition: color 0.2s ease; }
-  .boost-tab span { font-size: 14px; line-height: 1.45; font-weight: 500; color: var(--t3); transition: color 0.2s ease; }
-  .boost-tab:hover b { color: var(--t2); }
-  .boost-tab[aria-selected="true"] b { color: var(--t1); }
-  .boost-tab[aria-selected="true"] span { color: var(--t2); }
-
-  .boost-prog {
-    position: absolute;
-    left: 0;
-    top: 10px;
-    width: 2px;
-    height: 0;
-    border-radius: 2px;
-    background: #e0559f;
-  }
-
-  .boost-tab[aria-selected="true"] .boost-prog { height: calc(100% - 20px); }
-
-  @media (prefers-reduced-motion: no-preference) {
-    .ticking .boost-tab[aria-selected="true"] .boost-prog { height: 0; animation: boost-fill 4.2s linear forwards; }
-  }
-
-  @keyframes boost-fill { to { height: calc(100% - 20px); } }
-
-  .boost-more { margin-top: 10px; padding-left: 16px; font-size: 14px; line-height: 1.45; font-weight: 500; color: var(--t2); }
-  .boost-more b { display: block; font-size: 16px; font-weight: 600; color: var(--t1); }
-
-  .boost-trust {
-    margin-top: 22px;
-    padding: 14px 16px;
-    border-radius: 12px;
-    font-size: 13.5px;
-    line-height: 1.5;
-    font-weight: 500;
-    color: var(--t2);
-    background: var(--panel);
-    box-shadow: inset 0 0 0 1px var(--hl);
-  }
-
-  .boost-view {
-    position: relative;
-    display: grid;
-    padding: 28px var(--pad) 28px 0;
-  }
-
-  .boost-shot {
-    grid-area: 1 / 1;
-    padding: 0;
-    border: 0;
-    background: none;
-    cursor: zoom-in;
-    opacity: 0;
-    transform: scale(0.985);
-    transition: opacity 0.5s var(--ease-out), transform 0.6s var(--spring-settle);
-    pointer-events: none;
-  }
-
-  .boost-shot.on { opacity: 1; transform: none; pointer-events: auto; }
-
-  .boost-shot :global(img) {
-    display: block;
-    width: 100%;
-    height: auto;
-    border-radius: 14px;
-    box-shadow: 0 0 0 0.5px rgb(var(--ink) / 0.1), 0 18px 40px -24px rgb(30 25 50 / 0.35);
-  }
-
-  .next-label {
-    margin-left: 8px;
-    padding: 1px 7px;
-    border-radius: 6px;
-    font-size: 11.5px;
-    font-weight: 600;
-    vertical-align: 1px;
-    color: #6a3fd0;
-    background: rgb(122 76 240 / 0.12);
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .next-label { color: #b9a2f2; background: rgb(122 76 240 / 0.22); }
-  }
-
-  @media (max-width: 980px) {
-    .boost { grid-template-columns: 1fr; }
-    .boost-view { padding: 0 var(--pad) 28px; }
-    .boost-tabs { padding-bottom: 8px; }
   }
 
   /* ------------------------------------------------------------------ the repo, under the maintainers */
@@ -2234,71 +1938,4 @@ const streamingServices = ["Spotify", "Netflix", "Disney+", "Max", "Apple TV", "
     .repo { grid-template-columns: auto minmax(0, 1fr); }
     .repo-stars { grid-column: 1 / -1; justify-self: start; }
   }
-
-  /* ------------------------------------------------------------------ streaming */
-
-  .stream-demo {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 300px);
-    align-items: center;
-    gap: clamp(20px, 3vw, 40px);
-    padding: clamp(22px, 3vw, 36px);
-  }
-
-  .services { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; align-content: center; }
-
-  .services li {
-    padding: 7px 12px;
-    border-radius: 999px;
-    font-size: 14px;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-    color: var(--t1);
-    background: var(--surface);
-    box-shadow: inset 0 0 0 1px var(--hl-strong), 0 1px 2px rgb(0 0 0 / 0.04);
-  }
-
-  .stream-shot { display: block; padding: 0; border: 0; background: none; cursor: zoom-in; justify-self: end; }
-
-  .stream-shot :global(img) {
-    display: block;
-    width: 100%;
-    max-width: 300px;
-    height: auto;
-    filter: drop-shadow(0 0 0.5px rgb(0 0 0 / 0.3)) drop-shadow(0 18px 30px rgb(30 25 50 / 0.25));
-    transition: transform 0.35s var(--spring-settle);
-  }
-
-  .stream-shot:hover :global(img) { transform: translateY(-2px); }
-
-  .note-next { display: flex; align-items: flex-start; max-width: 620px; line-height: 1.5; }
-  .note-next i { flex: none; margin-top: 6px; background: #7a4cf0; }
-  .note-next:hover { color: var(--t2); }
-  .note-next a { color: var(--t1); text-decoration: underline; text-decoration-color: var(--hl-strong); text-underline-offset: 3px; }
-
-  @media (max-width: 760px) {
-    .stream-demo { grid-template-columns: 1fr; }
-    .stream-shot { justify-self: center; }
-  }
-
-  /* ------------------------------------------------------------------ tab previews */
-
-  .preview-demo { display: grid; place-items: center; padding: clamp(20px, 3vw, 36px); }
-
-  .preview-shot { display: block; width: 100%; max-width: 640px; padding: 0; border: 0; background: none; cursor: zoom-in; }
-
-  /* The crop is inside the window: the page around the card fades out, the sidebar stays. */
-  .preview-shot :global(img) {
-    display: block;
-    width: 100%;
-    height: auto;
-    border-radius: 14px 0 0 14px;
-    -webkit-mask-image: linear-gradient(90deg, #000 72%, transparent), linear-gradient(transparent, #000 9%, #000 91%, transparent);
-    mask-image: linear-gradient(90deg, #000 72%, transparent), linear-gradient(transparent, #000 9%, #000 91%, transparent);
-    -webkit-mask-composite: source-in;
-    mask-composite: intersect;
-    transition: transform 0.35s var(--spring-settle);
-  }
-
-  .preview-shot:hover :global(img) { transform: translateY(-2px); }
 </style>

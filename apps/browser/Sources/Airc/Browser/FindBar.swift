@@ -81,7 +81,9 @@ final class FindBarView: NSView, NSSearchFieldDelegate {
     /// Chromium reports which match is active as the page moves between them: the bar of the window showing that
     /// page (the main window or a private one) shows "2 of 5".
     static func routeFindState(_ tab: EngineTab, _ state: [String: Any]) {
-        let c = (NSApp.delegate as? AppDelegate)?.controller
+        // The browser window with the page (WIN-7), else the private window showing it.
+        let app = NSApp.delegate as? AppDelegate
+        let c = app?.controller(owning: tab) ?? app?.controller
         let bar = c.flatMap { c in c.shownTabID.flatMap { c.engineTab(for: $0) } === tab ? c.findBar : nil }
             ?? PrivateBrowsing.shared.windows.first { $0.shownPage === tab }?.findBar
         guard let bar, (state["text"] as? String) == bar.field.stringValue else { return }

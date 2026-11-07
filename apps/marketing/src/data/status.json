@@ -14,12 +14,6 @@
       "skip": 1,
       "fail": 0
     },
-    "manage-spaces": {
-      "status": "built",
-      "pass": 0,
-      "skip": 0,
-      "fail": 0
-    },
     "profiles": {
       "status": "passing",
       "pass": 6,
@@ -68,30 +62,6 @@
       "skip": 0,
       "fail": 0
     },
-    "boosts": {
-      "status": "passing",
-      "pass": 40,
-      "skip": 0,
-      "fail": 0
-    },
-    "streaming": {
-      "status": "built",
-      "pass": 0,
-      "skip": 0,
-      "fail": 0
-    },
-    "private": {
-      "status": "built",
-      "pass": 0,
-      "skip": 0,
-      "fail": 0
-    },
-    "previews": {
-      "status": "built",
-      "pass": 0,
-      "skip": 0,
-      "fail": 0
-    },
     "archive": {
       "status": "passing",
       "pass": 5,
@@ -101,12 +71,6 @@
     "find": {
       "status": "passing",
       "pass": 2,
-      "skip": 0,
-      "fail": 0
-    },
-    "save-paste": {
-      "status": "built",
-      "pass": 0,
       "skip": 0,
       "fail": 0
     },
@@ -137,12 +101,6 @@
     "memory": {
       "status": "passing",
       "pass": 2,
-      "skip": 0,
-      "fail": 0
-    },
-    "keep-loaded": {
-      "status": "built",
-      "pass": 0,
       "skip": 0,
       "fail": 0
     }

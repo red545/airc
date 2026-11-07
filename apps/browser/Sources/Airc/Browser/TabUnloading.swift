@@ -72,14 +72,18 @@ extension WindowController {
 
     func setUpUnloading() {
         #if canImport(AircCore)
-        if let chromium = app?.engine as? ChromiumEngine {
-            let apply: (EngineProfile) -> Void = { [weak self] p in
-                chromium.setUnloadTimeout(self?.engineUnloadTimeout ?? 0, for: p)
-                self?.applyPictureInPictureSettings(to: p)
+        // Once for the app (WIN-7: a second window replaced the first's hooks, and MediaLibrary's after them), with the
+        // settings of the window used last.
+        if let app, let chromium = app.engine as? ChromiumEngine, !app.windowSession.unloadHooksInstalled {
+            app.windowSession.unloadHooksInstalled = true
+            let apply: (EngineProfile) -> Void = { [weak app, weak self] p in
+                guard let c = app?.controller ?? self else { return chromium.setUnloadTimeout(0, for: p) }
+                chromium.setUnloadTimeout(c.engineUnloadTimeout, for: p)
+                c.applyPictureInPictureSettings(to: p)
             }
             profiles.didLoad = apply
             profiles.loadedProfiles.forEach(apply)
-            chromium.discardedStateDidChange = { [weak self] _ in self?.scheduleReload() }
+            chromium.discardedStateDidChange = { [weak app] _ in app?.controllers.forEach { $0.scheduleReload() } }
             ChromiumRuntime.memoryPressureHandler = { level in
                 NSLog("Airc: memory pressure \(level); the engine freed the longest-hidden eligible tab")
             }

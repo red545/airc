@@ -141,7 +141,7 @@ final class LittleArcController: NSObject, NSWindowDelegate {
     // MARK: The page
 
     private func open(_ url: URL?) {
-        guard let pid = profileID, let profile = main?.profiles.engineProfile(for: pid) else { return }
+        guard let pid = profileID, let profile = app?.profiles?.engineProfile(for: pid) else { return }
         engineWindow.activeProfile = profile
         let p = engineWindow.openTab(url: url, profile: profile, foreground: true)
         p.delegate = self
@@ -171,7 +171,8 @@ final class LittleArcController: NSObject, NSWindowDelegate {
 
     /// ⌘O: into the chip's Space, the same live page (no reload), as a new Today tab; this window closes.
     func openInSpace(_ target: String? = nil) {
-        guard let main, let page, let store else { return }
+        // WIN-7: the window used last (with every browser window closed, they come back first).
+        guard let page, let store, let main = app?.browserWindow() else { return }
         let sid = target ?? spaceID
         guard let space = store.space(sid) else { return }
         if main.adoptMovedPage(page, inSpace: sid) {
@@ -521,7 +522,7 @@ extension LittleArcController: EngineWindowDelegate {
     /// A link the page opens in a new tab (or a popup) goes to the main window, in this Space: same profile, same page.
     func engineWindow(_ window: EngineWindow, didInsertTab tab: EngineTab, opener: EngineTab?, disposition: TabDisposition) {
         DispatchQueue.main.async { [weak self] in
-            guard let self, let main = self.main else { tab.close(); return }
+            guard let self, let main = self.app?.browserWindow() else { tab.close(); return }
             if !main.adoptMovedPage(tab, inSpace: self.spaceID) {
                 let url = tab.url
                 tab.close()

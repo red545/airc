@@ -337,6 +337,8 @@ extension WindowController {
             m.add("Add Split View", "⌃⇧+") { [weak self] in self?.newSplitView(anchor: t.id) }
             m.add("Duplicate") { [weak self] in _ = try? self?.store.duplicateTab(t.id) }
             m.addItem(moveToMenu(tabID: t.id))
+            // WIN-7 (Arc's "Move to New Window"): its page moves into a new window on this Space.
+            m.add("Move to New Window") { [weak self] in self?.openInNewWindow(t.id) }
             m.addItem(.separator())
             m.add("Pin Tab", "⌘D") { [weak self] in
                 guard let self else { return }
@@ -429,6 +431,8 @@ extension WindowController {
         m.addItem(profileItem)
         m.addItem(.separator())
         m.add("New Folder…") { [weak self] in _ = try? self?.store.createFolder(inSpace: spaceID) }
+        // WIN-7: this Space in a window of its own.
+        m.add("Open in New Window") { [weak self] in self?.openSpaceInNewWindow(spaceID) }
         m.addItem(.separator())
         m.add("Manage Spaces…") { [weak self] in self?.showManageSpaces() }
         m.addItem(.separator())

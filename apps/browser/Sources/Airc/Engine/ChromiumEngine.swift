@@ -796,7 +796,8 @@ final class ChromiumRuntime: NSObject, AircEngineDelegate {
         Self.memoryPressureHandler?(level)
     }
     func engineWillShutDown() { Self.memoryPressureHandler = nil }
-    func engineQuitCancelled() {}
+    /// A page asked "Leave site?" during the quit and the person stayed: the windows stay, and so does their session (WIN-7).
+    func engineQuitCancelled() { (NSApp.delegate as? AppDelegate)?.quitCancelled() }
     func engineWindowForNewBrowser(of profile: AircProfile, type: String) -> AircWindow? { nil }
     /// SB-3: the app's prompt presenter (PagePrompts.swift). Without one every request is dismissed.
     static var permissionHandler: ((EngineTab, [String: Any]) -> Void)?

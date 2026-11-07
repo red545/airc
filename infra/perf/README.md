@@ -219,3 +219,45 @@ HID idle is below five minutes. Public-site outcomes still need inspection;
 a bot challenge with a title is not an equivalent page. The untouched memory
 workload does not visit all tabs, so it does not fill a long-session preview
 cache. Keep that distinction when interpreting previews-on/off results.
+Memory runs require 15 GB free at the start and stop below 14 GB. Disk and HID
+idle are checked every five seconds during each launch. Scratch profiles are removed after
+identity-checked process cleanup, including on interruption. A complete steady
+total requires every discovered process to be sampled and the process set to
+remain unchanged; an exited helper in the independent startup census remains
+a diagnostic and does not by itself invalidate that later total.
+
+## Repeated app pass — 2026-11-06
+
+Five interleaved launches per side, five actions per launch, same Chromium test
+binary with action-specific baseline switches. Values are medians of launch
+medians, with the min–max launch spread; hidden windows and asleep display mean
+**CA commit timing**, not certified 120 Hz presentation.
+
+| Action, ms | Baseline | Retained change |
+|---|---:|---:|
+| Create Space | 8.44 (8.12–9.86) | 6.73 (5.77–7.36) |
+| Command Bar after a verified tab switch | 6.95 (6.38–7.78) | 7.15 (6.13–7.38) |
+| First Command Bar in each fresh process | 13.14 (12.04–15.17) | 13.06 (10.55–15.35) |
+| Command Bar without switching tabs | 6.19 (4.33–6.90) | 6.70 (5.63–7.25) |
+
+New Space skips a duplicate page reload/outgoing-palette chrome update, reuses
+the provisional footer cell and defers covered-page/SwiftUI cleanup. Store work
+was already deferred (0.05 ms median); add-page work falls 1.71 → 0.87 ms.
+All 25 creates per side selected their Space and preserved footer order/icons.
+Two candidate actions exceeded 8.3 ms (8.37 and 8.59): median progress is not a
+strict one-frame guarantee. This test uses an existing selected profile; the
+separate profile card already prepares/adopts a spare before Create Space.
+
+Empty-query candidate pruning removes discarded computation, but the final
+Command Bar distributions overlap and do not demonstrate a speedup or establish
+steady-state non-regression. Earlier five-pair passes were faster; the cold
+first opening remains above budget. Font/index and explicit parked-view drawing
+experiments were rejected and removed. A diagnostic cold-opening trace placed
+8 of 11 main-thread samples in CA commit, including text/keycap drawing.
+
+Preview capacity is now 24 keys, retaining the 640×400 px capture limit and
+8/zero warning/critical trims. Five interleaved full-cache controls with 30
+independent images retain **30.720 → 24.576 MB decoded**, with identical values
+in every pair. LRU and pressure trim checks pass. Tab/item aliases count once
+in decoded bytes. This establishes the cache saving, not a whole-browser
+physical-footprint or MEM-4 improvement; the 30-page on/off comparison is separate.

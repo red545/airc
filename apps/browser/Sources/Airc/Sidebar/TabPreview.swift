@@ -531,6 +531,16 @@ final class TabPreviewController {
         guard isEnabled, let c, c.visibleTabIDs.contains(tabID) || reason == .leaving, !c.isPageUnloaded(tabID),
               let page = c.engineTab(for: tabID), let source = page as? EnginePreviewSnapshotting,
               reason != .leaving || source.picturesLeavingPage else { completion?(nil); return }
+        // The selected tab can belong to a hidden or minimized window. It has no new
+        // frame to copy; keep its last picture until the window is shown again.
+        var requiresVisibleWindow = true
+        #if AIRC_TESTING
+        if ProcessInfo.processInfo.environment["AIRC_PREVIEW_BASELINE"] == "1" { requiresVisibleWindow = false }
+        #endif
+        guard !requiresVisibleWindow || (c.window.isVisible && !c.window.isMiniaturized) else {
+            completion?(nil)
+            return
+        }
         let url = page.url?.absoluteString ?? c.store.tab(tabID)?.url ?? ""
         guard !url.isEmpty, !URLRules.isNewTab(url) else { completion?(nil); return }
         if pending[tabID] != nil {

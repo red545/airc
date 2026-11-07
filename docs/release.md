@@ -390,7 +390,14 @@ EdDSA deltas now stay in `~/arcfork/updates-local/`. `infra/updates/local-feed.s
 installs `~/Library/LaunchAgents/org.airc.devfeed.plist`, serving **only that
 folder**, bound to **127.0.0.1:3483**. It uses the existing Python interpreter and
 `server.py` copied into `~/arcfork/tools/devfeed/`; no new dependencies or root.
-Launchd starts it at login and restarts failures. Directory listings and symlink
+Launchd starts it at login and restarts failures. The installer keeps the existing
+working Python path when login and non-login SSH shells have different PATHs;
+bootstrap retries are bounded, and a unique file probe verifies the served folder.
+`local-feed.sh --proof` tests a separate scratch service and loopback port 3493.
+Every publisher failure logs its phase and exit status. The Linux coordinator
+streams the Mac output into `publish-dev.log`, retains `publish.*/prepare.log`,
+and surfaces the remote failure summary, so
+redirected Mac errors cannot leave an empty `publish-dev.log`. Directory listings and symlink
 escapes are refused (including HEAD requests). This is never exposed by Serve or
 Funnel. Server logs live beside its script.
 

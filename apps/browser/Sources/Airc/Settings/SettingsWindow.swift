@@ -283,14 +283,14 @@ private struct GeneralPage: View {
                     AircPopUp(options: [("15 minutes", 15), ("30 minutes", 30), ("1 hour", 60), ("4 hours", 240), ("Never", 0)],
                               selection: model.settings.values.unloadAfterMinutes) { v in
                         model.settings.values.unloadAfterMinutes = v
-                        model.app?.controller?.applyUnloadSetting()
+                        model.app?.controllers.forEach { $0.applyUnloadSetting() }
                     }
                 }
                 AircToggleRow("Keep chat and mail sites loaded",
                               subtitle: "Pinned tabs and Favorites of Gmail, Google Calendar, Slack, Discord, WhatsApp, Teams, Outlook and similar sites never unload, so their notifications and calls keep coming.",
                               isOn: Binding(get: { model.settings.values.keepChatSitesLoaded }, set: { v in
                                   model.settings.values.keepChatSitesLoaded = v
-                                  model.app?.controller?.applyUnloadSetting()
+                                  model.app?.controllers.forEach { $0.applyUnloadSetting() }
                               }))
             }
             SettingsSection(title: "Backups", help: "Airc keeps a JSON copy of your Spaces, tabs and Favorites every day, the last 14 days. An iCloud Drive folder works.") {
@@ -741,7 +741,7 @@ private struct AppearancePage: View {
                 SettingsRow(title: "Translucency") {
                     AircSegmented(selection: Binding(get: { model.settings.translucency }, set: { t in
                         model.settings.translucency = t
-                        model.controller?.applyTranslucency(t)
+                        model.app?.controllers.forEach { $0.applyTranslucency(t) }   // every window (WIN-7)
                     }), segments: AircTranslucency.allCases.map { .init(value: $0, title: $0.title) })
                     .frame(width: 240)
                 }

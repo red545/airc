@@ -6,6 +6,7 @@ Run on the build Mac with APP OUTPUT --case CASE [--no-debugger].
 The app must be a scratch test build: an org.airc.fscrash* or org.airc.fsexit* bundle identity and a renamed
 executable (AircFullscreen*, AircFsexit*), so its crash reports never count against the owner's Airc ones. Under LLDB
 it must be ad-hoc signed with get-task-allow. Without LLDB the app's own crash records run (CrashRecords, Crash.log).
+The scratch app is launched in front (it takes the screen for its attempt); nothing else is activated.
 No capture or HID posting. Never targets another app, profile, or debugger session.
 """
 import argparse
@@ -65,7 +66,9 @@ def attempt(app, output, case, debugger=True):
     if debugger:
         env += ['--env', 'AIRC_FULLSCREEN_DEBUG_PAUSE=1']
     try:
-        subprocess.run(['open', '-g', '-n', *env, str(app), '--args', '--automated',
+        # Not -g: Launch Services activates the scratch app at launch. On macOS 26 a background app that activates
+        # itself is refused while another app holds the front, and AppKit enters full screen only for the active app.
+        subprocess.run(['open', '-n', *env, str(app), '--args', '--automated',
                         '--engine=chromium', '--snapshot', str(output), '--script', 'fullscreen-exit',
                         '--data-dir', str(output / 'data'), '--use-mock-keychain'], check=True, timeout=3)
         while time.monotonic() - started < 53:

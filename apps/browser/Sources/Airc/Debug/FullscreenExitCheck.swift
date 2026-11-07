@@ -582,6 +582,7 @@ extension SnapshotRunner {
         }
 
         let webKitFullscreen = { (page as? WebKitTab)?.webView.fullscreenState }
+        var escapeTo = ""
         let exits = mode == "switch" || mode == "webkit-switch" ? ["tab", "space"] : ["api", "escape", "button"]
         for target in ["box", "video"] {
             for exit in exits {
@@ -625,12 +626,18 @@ extension SnapshotRunner {
                             return done()
                         }
                         if !ProtectedMedia.isWebKitPage(page) { page.focus() }
+                        // AppKit gives a key to the key window, as a real Esc pressed in this page is. A run that isn't
+                        // active has none, and a posted key doesn't reach a page whose window isn't key, whatever window
+                        // it names (Little Arc's page never saw it in the ship gate). So that window gets it itself then,
+                        // as AppKit delivers it once the window is key.
+                        let viaApp = NSApp.keyWindow === window
+                        escapeTo = viaApp ? "the app (key window)" : "its window (key window: \(NSApp.keyWindow.map { String(describing: type(of: $0)) } ?? "none"))"
                         for type in [NSEvent.EventType.keyDown, .keyUp] {
                             if let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [],
                                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
                                 context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}",
                                 isARepeat: false, keyCode: 53) {
-                                NSApp.sendEvent(event)
+                                if viaApp { NSApp.sendEvent(event) } else { window.sendEvent(event) }
                             }
                         }
                         done()
@@ -649,8 +656,8 @@ extension SnapshotRunner {
                         check(ok && (home || exit == "tab" || exit == "space"),
                               "\(name): exited, video still playing, browser alive (\(fs) page in its window \(home))")
                         if !ok, let page {
-                            page.evaluate("JSON.stringify({fullscreen:!!document.fullscreenElement,paused:video.paused,pip:!!document.pictureInPictureElement,hidden:document.hidden})") { v in
-                                self.note("fullscreen exit state: \(v ?? "unavailable")")
+                            page.evaluate("JSON.stringify({fullscreen:!!document.fullscreenElement,paused:video.paused,pip:!!document.pictureInPictureElement,hidden:document.hidden,escSeen:window.__esc|0})") { v in
+                                self.note("fullscreen exit state: \(v ?? "unavailable")" + (exit == "escape" ? ", Esc sent through \(escapeTo)" : ""))
                             }
                         }
                         // Cleanup even on failed exit; the next request must start windowed.

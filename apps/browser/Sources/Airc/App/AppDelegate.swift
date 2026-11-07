@@ -134,7 +134,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var promptCenter: PromptCenter?
     var profiles: ProfileHost!
     var credentialSink: EngineCredentialSink!
-    var controller: WindowController?
+    /// Every open browser window, the one used last first (WIN-7, Browser/MultiWindow.swift).
+    var controllers: [WindowController] = []
+    /// The browser window commands, links and panels go to: the key one, else the one used last.
+    var controller: WindowController? { controllers.first }
+    var windowSession = WindowSessionState()
     var onboarding: OnboardingController?
     var settingsWindow: SettingsWindowController?
     #if AIRC_TESTING
@@ -271,6 +275,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self, !done else { return }
             done = true
             self.onboarding = nil
+            self.windowSession.browserReady = true
             if o.mode == .firstRun { self.didOpen(c) }
             o.onFinished?(c)
         }
@@ -294,20 +299,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: Windows
 
-    private func makeController() -> WindowController {
-        let c = WindowController(store: store, profiles: profiles, engine: engine, frame: initialFrame(), app: self)
-        controller = c
+    /// A browser window (WIN-7: the first of several, a ⌘N one, a restored one), now the window used last.
+    func makeController(frame: NSRect? = nil, opening: WindowOpening = WindowOpening()) -> WindowController {
+        let c = WindowController(store: store, profiles: profiles, engine: engine, frame: frame ?? initialFrame(), app: self,
+                                 opening: opening)
+        controllers.insert(c, at: 0)
         return c
     }
 
     private func openWindow() {
-        let c = makeController()
+        // WIN-7: the last session's windows, the one used last in front.
+        let restored = restoreWindows()
+        guard let c = restored.first else { return }
+        windowSession.browserReady = true
         if options.snapshotDir != nil {
             // Don't take focus on the owner's Mac.
-            c.window.orderFront(nil)
+            for w in restored.reversed() { w.window.orderFront(nil) }
         } else {
-            c.window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            presentRestored(restored)
         }
         didOpen(c)
         AppTelemetry.shared.launched()
@@ -338,7 +347,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pendingURLs = []
     }
 
-    private func initialFrame() -> NSRect {
+    func initialFrame() -> NSRect {
         let screen = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         if options.snapshotDir != nil {
             return NSRect(x: screen.minX + 40, y: screen.maxY - 840, width: 1280, height: 800)
@@ -374,9 +383,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func openFromOtherApp(_ urls: [URL], source: String?) {
         for url in urls {
             linkTraces[url.absoluteString] = LinkTrace(source: source, activeAtReceipt: NSApp.isActive, front: LinkLog.frontApp(),
-                                                       via: controller == nil ? "the launch queue" : "the app")
+                                                       via: windowSession.browserReady ? "the app" : "the launch queue")
         }
-        if controller == nil {
+        // Before the first browser window (launching, onboarding). After it, a link with every window closed opens one
+        // (routeExternal).
+        if !windowSession.browserReady {
             pendingURLs += urls
             for url in urls {
                 LinkLog.write("link \(LinkLog.host(url)) from \(source ?? "no Apple event"): waiting for the browser window "
@@ -427,8 +438,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DispatchQueue.main.async { self?.routeExternal(request.url) }
                 return true
             }
-            // PK-1: a page's link that should open in Peek.
-            guard let c = self?.controller, c.wantsPeek(request), let opener = request.opener else { return false }
+            // PK-1: a page's link that should open in Peek (in the window with the page, WIN-7).
+            guard let opener = request.opener, let c = self?.controller(owning: opener) ?? self?.controller,
+                  c.wantsPeek(request) else { return false }
             DispatchQueue.main.async { [weak c] in c?.openPeek(request.url, from: opener) }
             return true
         }
@@ -437,24 +449,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// AT-1: the first rule that matches sends the link to its Space (whose profile is signed in); otherwise Little Arc
     /// in the most recent Space's profile, or a tab in that Space (Settings → Links).
     func routeExternal(_ url: URL) {
-        guard let c = controller else { pendingURLs.append(url); return }
+        guard windowSession.browserReady, onboarding == nil || controller != nil else { pendingURLs.append(url); return }
         let trace = linkTraces.removeValue(forKey: url.absoluteString)
         let web = ["http", "https"].contains(url.scheme?.lowercased() ?? "")
-        if web, let sid = LinkRouting.space(for: url, rules: settings.values.linkRules, existingSpaces: Set(store.state.spaces.keys)) {
-            c.openExternal(url, inSpace: sid)
-            bringForward(c.window)
-            logLink(url, trace, route: "a rule's Space", window: c.window, created: false)
-            return
-        }
-        if web, settings.values.externalLinks == .littleArc {
+        let rule = web ? LinkRouting.space(for: url, rules: settings.values.linkRules, existingSpaces: Set(store.state.spaces.keys)) : nil
+        if web, rule == nil, settings.values.externalLinks == .littleArc {
             let l = openLittleArc(url: url)
             if let l, trace != nil { openedLittleArc = (l, Date()) }
             logLink(url, trace, route: "Little Arc", window: l?.window, created: l != nil)
             return
         }
+        // WIN-7: the window used last; with every window closed, the last session's come back first.
+        let created = controller == nil
+        guard let c = browserWindow() else { pendingURLs.append(url); return }
+        if let sid = rule {
+            c.openExternal(url, inSpace: sid)
+            bringForward(c.window)
+            logLink(url, trace, route: "a rule's Space", window: c.window, created: created)
+            return
+        }
         c.openExternal(url, inSpace: c.currentSpaceID)
         bringForward(c.window)
-        logLink(url, trace, route: web ? "a tab in the current Space" : "a tab (not a web link)", window: c.window, created: false)
+        logLink(url, trace, route: web ? "a tab in the current Space" : "a tab (not a web link)", window: c.window, created: created)
     }
 
     /// Links.log: the route, and half a second later where the key window is (a link that opened a window the person
@@ -473,7 +489,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// What a window is, for Links.log.
     func windowName(_ w: NSWindow?) -> String {
         guard let w else { return "none" }
-        if w === controller?.window { return "the browser window" + (w.styleMask.contains(.fullScreen) ? " (full screen)" : "") }
+        if let c = controller(for: w) {
+            let n = controllers.count > 1 ? " \((controllers.firstIndex { $0 === c } ?? 0) + 1) of \(controllers.count)" : ""
+            return "the browser window" + n + (w.styleMask.contains(.fullScreen) ? " (full screen)" : "")
+        }
         if littleArc(for: w) != nil { return "a Little Arc window" }
         if w === settingsWindow?.window { return "Settings" }
         if w === onboarding?.window { return "onboarding" }
@@ -496,9 +515,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// ⌥⌘N, and links from other apps: a Little Arc window in `spaceID`'s profile (the most recent Space by default).
     @discardableResult
     func openLittleArc(url: URL?, spaceID: String? = nil) -> LittleArcController? {
-        guard let c = controller else { return nil }
-        let sid = spaceID ?? c.currentSpaceID
-        let screen = (c.window.screen ?? NSScreen.main)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        // WIN-7: with every browser window closed, in the last Space.
+        guard store != nil, windowSession.browserReady else { return nil }
+        let c = controller
+        let sid = spaceID ?? c?.currentSpaceID ?? store.selectedSpace.id
+        let screen = (c?.window.screen ?? NSScreen.main)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let size = NSSize(width: min(840, screen.width - 80), height: min(620, screen.height - 80))
         // Cascaded from the screen's upper middle, as Arc places it.
         let n = CGFloat(littleArcs.count % 6) * 24
@@ -518,7 +539,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if options.isAutomated { w.orderFront(nil) } else { w.makeKeyAndOrderFront(nil); NSApp.activate() }
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { onboarding == nil }
+    /// WIN-7: Airc stays open with no window (as Arc and Chrome); ⌘N, the Dock or a link brings one back.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     private var awaitingDownloadQuitAnswer = false
 
@@ -526,16 +548,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if awaitingDownloadQuitAnswer { return .terminateLater }
         let library = MediaLibrary.shared
         guard let downloads = library.downloads, !downloads.engine.asksBeforeClosingWithDownloads,
-              downloads.runningCount > 0, let confirm = downloads.engine.downloadsCloseConfirmation else { return .terminateNow }
+              downloads.runningCount > 0, let confirm = downloads.engine.downloadsCloseConfirmation else {
+            // WIN-7: every window is in the session as it is now; the quit closing them doesn't take them out.
+            quitWillCloseWindows()
+            return .terminateNow
+        }
         awaitingDownloadQuitAnswer = true
         confirm(downloads.runningCount) { [weak self] quit in
             self?.awaitingDownloadQuitAnswer = false
+            if quit { self?.quitWillCloseWindows() }
             sender.reply(toApplicationShouldTerminate: quit)
         }
         return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // WIN-7: the dev engine quits with its windows still open (Chromium's closed them, already saved).
+        quitWillCloseWindows()
         try? store?.flush()
         AppTelemetry.shared.willTerminate()
         if options.ephemeral, AppPaths.mayDeleteEphemeral(AppPaths.dataDirectory) {
