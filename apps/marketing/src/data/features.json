@@ -244,5 +244,16 @@
     "checks": [
       "^unload"
     ]
+  },
+  {
+    "id": "keep-loaded",
+    "title": "Chat and mail stay loaded",
+    "body": "Gmail, Calendar, Slack, Discord, WhatsApp, Teams, Outlook and Linear never unload as pinned tabs or Favorites, like Arc. A switch in Settings → General.",
+    "specs": [],
+    "checks": [
+      "^keep loaded",
+      "^keeploaded"
+    ],
+    "next": true
   }
 ]

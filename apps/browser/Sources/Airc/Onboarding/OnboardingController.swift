@@ -5,6 +5,7 @@ import AircKit
 import AppKit
 import Combine
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Runs the first-run flow (spec §2.13, ON-1…5) in an `AircFloatingWindow`: welcome, Arc import with a live sidebar
 /// preview, Spaces and accounts, the Keychain step for logins, theme, default browser, and the member card, then grows
@@ -91,7 +92,7 @@ final class OnboardingController {
         }
     }
 
-    /// Starts at the import step (Settings → Import → "Import from Arc…").
+    /// Starts at the import step (Airc → Import from Another Browser…, Settings → Import).
     func startAtImport() {
         startedAtImport = true
         go(.arc)
@@ -180,7 +181,9 @@ final class OnboardingController {
         model.onBack = { [weak self] in self?.back() }
         model.onImportEverything = { [weak self] in
             guard let self, let b = self.model.blueprint else { return }
-            self.model.chosenSpaces = Set(b.spaces.map(\.sourceID))
+            // Arc's "Import everything"; another browser's import takes the profiles ticked on the step.
+            if self.model.isArcSource { self.model.chosenSpaces = Set(b.spaces.map(\.sourceID)) }
+            guard !self.model.chosenSpaces.isEmpty else { return }
             self.model.choosing = false
             self.runImport()
             self.go(.accounts)
@@ -214,6 +217,16 @@ final class OnboardingController {
         }
         model.onOpen = { [weak self] in self?.finish() }
         model.onShareCard = { [weak self] in self?.shareCard() }
+        model.onSelectSource = { [weak self] source in self?.select(source, picked: true) }
+        model.onChooseBookmarksFile = { [weak self] in self?.chooseBookmarksFile() }
+        model.onChoosePasswordsFile = { [weak self] in self?.choosePasswordsFile() }
+        model.onDiscardPasswordsFile = { [weak self] in self?.discardPasswordsFile() }
+        model.onPasswordsDone = { [weak self] in
+            guard let self else { return }
+            if self.model.step == .logins { return self.go(.theme) }
+            if self.startedAtImport && self.mode == .rerun { return self.requestClose() }
+            self.model.onStartFresh?()
+        }
     }
 
     private func observe() {
@@ -226,9 +239,11 @@ final class OnboardingController {
             self.model.reimport = self.reimportSummary(b, chosen: chosen)
         }.store(in: &subscriptions)
         // Leaving while the logins are written into the profiles would cut that off half way.
-        model.$logins.sink { [weak self] state in
-            if case .reading = state {
+        model.$logins.combineLatest(model.$passwords).sink { [weak self] logins, passwords in
+            if case .reading = logins {
                 self?.model.closeBlockedReason = "Airc is bringing over your logins. You can close this once they're in."
+            } else if passwords == .reading {
+                self?.model.closeBlockedReason = "Airc is bringing over your passwords. You can close this once they're in."
             } else {
                 self?.model.closeBlockedReason = nil
             }
@@ -273,8 +288,12 @@ final class OnboardingController {
     func next() {
         switch model.step {
         case .welcome: go(.arc)
-        case .arc: model.hasArc ? model.onImportEverything?() : model.onStartFresh?()
-        case .accounts: go(model.includeLogins && model.hasArc ? .logins : .theme)
+        case .arc:
+            if model.hasPlan { model.onImportEverything?() }
+            else if model.source == .passwords, case .done = model.passwords { model.onPasswordsDone?() }
+            else if model.source == .bookmarksFile || model.source == .passwords { return }
+            else { model.onStartFresh?() }
+        case .accounts: go(model.offersLoginsStep ? .logins : .theme)
         case .logins: go(.theme)
         case .theme: go(afterTheme)
         case .defaultBrowser: go(.done)
@@ -296,7 +315,7 @@ final class OnboardingController {
                 model.startedFresh = false
                 go(.arc)
             } else {
-                go(model.includeLogins && model.hasArc && model.logins != .skipped ? .logins : .accounts)
+                go(model.offersLoginsStep && model.logins != .skipped ? .logins : .accounts)
             }
         case .defaultBrowser: go(.theme)
         case .done: go(model.offersDefaultBrowser && !DefaultBrowser.shared.isDefault ? .defaultBrowser : .theme)
@@ -343,19 +362,25 @@ final class OnboardingController {
     private func discover() {
         guard !discoveryStarted else { return }
         discoveryStarted = true
+        // Other browsers (IM-4), next to Arc: only their profile lists are read now; a browser's bookmarks and history
+        // when it's picked.
+        Task { @MainActor [weak self] in
+            let installs = await BrowserImportLocator.detect()
+            self?.received(installs)
+        }
         if let fixture {
             model.arcLabel = "Arc 1.171"
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.received(fixture) }
             return
         }
         if LaunchOptions.current.isAutomated {
-            model.arc = .notFound("Automated runs never read Arc's data.")
+            arcMissing("Automated runs never read Arc's data.")
             return
         }
         do {
             arcDirectory = try ArcImporter.locateData()
         } catch {
-            model.arc = .notFound(Self.message(for: error))
+            arcMissing(Self.message(for: error))
             return
         }
         model.arcLabel = Self.arcVersion().map { "Arc \($0)" } ?? "Arc"
@@ -370,7 +395,7 @@ final class OnboardingController {
                 self?.arcDirectory = directory
                 self?.received(plan)
             } catch {
-                self?.model.arc = .notFound(Self.message(for: error))
+                self?.arcMissing(Self.message(for: error))
             }
         }
     }
@@ -379,22 +404,207 @@ final class OnboardingController {
         self.plan = plan
         let b = ImportAdapter.blueprint(from: plan)
         guard !b.spaces.isEmpty else {
-            model.arc = .notFound("Arc is here, but its sidebar has no Spaces to bring over.")
+            arcMissing("Arc is here, but its sidebar has no Spaces to bring over.")
             return
         }
-        model.blueprint = b
-        model.chosenSpaces = Set(b.spaces.map(\.sourceID))
-        model.importChanges = ImportAdapter.changes(for: plan.warnings)
-        model.importNote = nil
-        model.reimport = reimportSummary(b, chosen: model.chosenSpaces)
+        model.arcBlueprint = b
         model.arc = .found(version: nil)
         // Counts only: never a name, title or address.
         NSLog("[onboarding] plan: %ld Spaces, %ld profiles in Arc's list, %ld profile rows, %ld warnings, %ld already in Airc",
               b.spaces.count, plan.profiles.count, OnboardingModel.rows(b, spaces: b.spaces).count, plan.warnings.count,
-              model.reimport?.updated ?? 0)
+              reimportSummary(b, chosen: Set(b.spaces.map(\.sourceID)))?.updated ?? 0)
+        rebuildSources()
+        // Arc comes first, unless the person already picked something else.
+        if !model.pickedSource || model.source == .arc { select(.arc, picked: false) }
+    }
+
+    /// Arc isn't here (or can't be read): another browser takes the step, if one was found.
+    private func arcMissing(_ why: String) {
+        model.arc = .notFound(why)
+        model.arcBlueprint = nil
+        rebuildSources()
+        if model.source == .arc || model.source == nil { select(firstBrowser, picked: false) }
+    }
+
+    private var firstBrowser: OnboardingModel.ImportSource? {
+        model.sources.first { if case .browser = $0.source { true } else { false } }?.source
+    }
+
+    private func received(_ installs: [BrowserInstall]) {
+        model.installs = Dictionary(installs.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        browserOrder = installs.map(\.id)
+        NSLog("[import] %ld other browsers with %ld profiles", installs.count, installs.reduce(0) { $0 + $1.profiles.count })
+        rebuildSources()
+        // Without Arc, the first browser found.
+        if model.source == nil, case .notFound = model.arc { select(firstBrowser, picked: false) }
+    }
+
+    private var browserOrder: [String] = []
+
+    /// Arc (once found), every other browser found, then a bookmarks file and a passwords file.
+    private func rebuildSources() {
+        var items: [OnboardingModel.SourceItem] = []
+        if model.hasArc { items.append(.init(source: .arc, name: "Arc", kind: nil)) }
+        for id in browserOrder {
+            guard let i = model.installs[id] else { continue }
+            items.append(.init(source: .browser(id), name: i.name, kind: i.kind, bundleIDs: i.bundleIDs))
+        }
+        items.append(.init(source: .bookmarksFile, name: "Safari", kind: .safari, bundleIDs: ["com.apple.Safari"]))
+        items.append(.init(source: .passwords, name: "Passwords", kind: nil))
+        model.sources = items
+    }
+
+    /// Shows `source` on the import step: its plan in the preview, its profiles to tick, or the file to choose.
+    func select(_ source: OnboardingModel.ImportSource?, picked: Bool) {
+        if picked { model.pickedSource = true }
+        model.source = source
+        model.choosing = false
+        model.sourceNote = nil
+        if case .browser(let id)? = source, model.browserReads[id] == nil { readBrowser(id) }
+        if source == .passwords, model.passwordsProfile == nil { model.passwordsProfile = defaultPasswordsProfile }
+        model.aircProfiles = store.orderedProfiles.map { ($0.id, $0.name) }
+        showSource()
+    }
+
+    /// The shown source's blueprint, its choices and what it changes, and the preview's rebuild.
+    private func showSource() {
+        let b: ImportBlueprint?
+        switch model.source {
+        case .arc?:
+            b = model.arcBlueprint
+            model.importChanges = ImportAdapter.changes(for: plan?.warnings ?? [])
+        case .browser?, .bookmarksFile?:
+            b = model.selectedRead.map(BrowserImportAdapter.blueprint)
+            model.importChanges = BrowserImportAdapter.changes(for: model.selectedRead?.plan.warnings ?? [])
+        default:
+            b = nil
+            model.importChanges = []
+        }
+        model.blueprint = b
+        model.chosenSpaces = Set(b?.spaces.map(\.sourceID) ?? [])
+        model.importNote = nil
+        model.reimport = b.flatMap { reimportSummary($0, chosen: model.chosenSpaces) }
         model.revealedSpaces = 0
         model.revealedFavorites = 0
-        reveal()
+        model.focusedSpace = 0
+        if b != nil { reveal() } else { revealTimer?.invalidate() }
+        updateWindowTheme(animated: true)
+    }
+
+    /// Reads a browser's bookmarks and history (every profile) off the main thread, once.
+    private func readBrowser(_ id: String) {
+        guard let install = model.installs[id], !reading.contains(id) else { return }
+        reading.insert(id)
+        model.readingSource = true
+        Task { @MainActor [weak self] in
+            let started = CACurrentMediaTime()
+            do {
+                let r = try await BrowserImporter.read(install)
+                self?.model.browserReads[id] = r
+                // Counts only: never a profile's name, a title or an address.
+                NSLog("[import] %@: %ld profiles, %ld bookmarks, %ld folders, %ld history entries, %ld warnings in %.0f ms",
+                      install.kind.rawValue, r.profiles.count, r.bookmarks, r.folders, r.historyEntries, r.plan.warnings.count,
+                      (CACurrentMediaTime() - started) * 1000)
+            } catch {
+                if self?.model.source == .browser(id) { self?.model.sourceNote = "\(install.name)'s bookmarks couldn't be read." }
+            }
+            self?.reading.remove(id)
+            self?.model.readingSource = self?.reading.isEmpty == false
+            if self?.model.source == .browser(id) { self?.showSource() }
+        }
+    }
+
+    private var reading: Set<String> = []
+
+    #if AIRC_TESTING
+    /// Automated runs never show an open panel: the check hands its synthetic files here.
+    var testFiles: [String: URL] = [:]
+    #endif
+
+    /// A file the person chooses (an open panel on the window; a check's synthetic file in automated runs).
+    private func chooseFile(_ key: String, message: String, types: [UTType], _ done: @escaping (URL) -> Void) {
+        #if AIRC_TESTING
+        if LaunchOptions.current.isAutomated {
+            if let url = testFiles[key] { done(url) }
+            return
+        }
+        #endif
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = types
+        panel.message = message
+        panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        panel.beginSheetModal(for: window) { r in
+            guard r == .OK, let url = panel.url else { return }
+            done(url)
+        }
+    }
+
+    /// "Choose File…" on the Safari source: a bookmarks HTML file (Safari's File → Export → Bookmarks…, or any browser's).
+    private func chooseBookmarksFile() {
+        chooseFile("bookmarks", message: "Choose a bookmarks file: Safari's File → Export → Bookmarks…, or any browser's", types: [.html]) { [weak self] url in
+            self?.readBookmarksFile(url)
+        }
+    }
+
+    func readBookmarksFile(_ url: URL) {
+        model.readingSource = true
+        model.sourceNote = nil
+        Task { @MainActor [weak self] in
+            do {
+                let r = try await BrowserImporter.readBookmarksFile(url, kind: .safari)
+                self?.model.browserReads["file"] = r
+                self?.model.bookmarksFileName = url.lastPathComponent
+                NSLog("[import] bookmarks file: %ld bookmarks, %ld folders, %ld warnings", r.bookmarks, r.folders, r.plan.warnings.count)
+            } catch {
+                self?.model.sourceNote = (error as? LocalizedError)?.errorDescription ?? "That file couldn't be read."
+            }
+            self?.model.readingSource = false
+            if self?.model.source == .bookmarksFile { self?.showSource() }
+        }
+    }
+
+    // MARK: Passwords from a CSV file (IM-4)
+
+    /// Into the profile the import step's Passwords source shows first: the current Space's.
+    private var defaultPasswordsProfile: String { store.profile(ofSpace: store.selectedSpace.id).id }
+
+    private func choosePasswordsFile() {
+        guard model.loginsAvailable else { return }
+        chooseFile("passwords", message: "Choose the passwords CSV file you exported", types: [.commaSeparatedText, .plainText]) { [weak self] url in
+            self?.importPasswords(from: url)
+        }
+    }
+
+    /// The file's rows into the chosen profile's password store, then the counts. The file itself is offered to the
+    /// Trash afterwards; nothing holds its rows.
+    func importPasswords(from url: URL) {
+        guard let app, model.passwords != .reading else { return }
+        let profileID = model.passwordsProfile ?? defaultPasswordsProfile
+        model.passwords = .reading
+        model.passwordsFile = url
+        model.passwordsFileName = url.lastPathComponent
+        model.passwordsFileDiscarded = nil
+        PasswordImport.run(file: url, profileID: profileID, sink: app.credentialSink) { [weak self] r in
+            switch r {
+            case .success(let o):
+                self?.model.passwords = .done(o)
+                NSLog("[import] passwords file (%@): %ld imported, %ld duplicates, %ld incomplete, %ld not websites, %ld failed",
+                      o.format.rawValue, o.imported, o.duplicates, o.incomplete, o.notWebsite, o.failed)
+            case .failure(let e):
+                self?.model.passwords = .failed((e as? LocalizedError)?.errorDescription ?? "The file couldn't be read.")
+            }
+        }
+    }
+
+    private func discardPasswordsFile() {
+        guard let url = model.passwordsFile else { return }
+        PasswordImport.discard(url) { [weak self] moved in
+            self?.model.passwordsFileDiscarded = moved
+            if moved { self?.model.passwordsFile = nil }
+        }
     }
 
     /// The live rebuild: Spaces slide into the Space bar one by one, the window taking each one's colour as it
@@ -498,21 +708,31 @@ final class OnboardingController {
     private func runImport() {
         guard let b = model.blueprint, !model.isImporting else { return }
         let options = ImportOptions(spaces: model.chosenSpaces, includeToday: true, includeFavorites: model.includeFavorites)
-        model.importState = .running("Importing Spaces", 0.15)
+        let browser = model.selectedRead
+        model.importState = .running(browser == nil ? "Importing Spaces" : "Importing bookmarks", 0.15)
         let result: ImportResult
         do {
             result = try store.applyImport(Self.blueprintToApply(b, store: store), options: options)
         } catch {
             model.importState = .idle
             model.importNote = "The import stopped: \(error.localizedDescription)"
-            Telemetry.shared.record(.importArc(.init(result: .failed, spaces: 0, tabs: 0, profiles: 0, logins: false)))
+            if let browser {
+                Telemetry.shared.record(.importBrowser(.init(source: BrowserImportAdapter.telemetrySource(browser), result: .failed)))
+            } else {
+                Telemetry.shared.record(.importArc(.init(result: .failed, spaces: 0, tabs: 0, profiles: 0, logins: false)))
+            }
             return
         }
         model.result = result
+        model.importedSource = model.source
+        model.logins = .idle
+        model.passwords = .idle
+        if let browser { importHistory(browser, result: result) }
         // Profiles: load each new one's engine profile (a real Chromium profile with the Chromium engine).
         let created = result.profilesCreated
         var loaded = 0
-        let favicons = Self.faviconURLs(store: store, spaces: Array(result.spaceIDs.values))
+        // Another browser's bookmarks can be thousands of sites: the first ones' icons now, the rest as they show.
+        let favicons = Array(Self.faviconURLs(store: store, spaces: Array(result.spaceIDs.values)).prefix(browser == nil ? .max : 120))
         func icons() {
             guard !favicons.isEmpty else { return done() }
             var fetched = 0
@@ -541,6 +761,32 @@ final class OnboardingController {
                 }
             }
         }
+    }
+
+    /// Another browser's history, into the profiles its Spaces went into (⌘T suggestions), and the import's counts for
+    /// telemetry (ranges only, never a page).
+    private func importHistory(_ r: BrowserImport, result: ImportResult) {
+        let chosen = Set(model.blueprint?.spaces.filter { model.chosenSpaces.contains($0.sourceID) }.map(\.profileSourceID) ?? [])
+        let profiles = r.profiles.filter { chosen.contains($0.sourceKey) }
+        var added = 0
+        if model.includeHistory, let history = app?.history {
+            let visits = BrowserImportAdapter.visits(r, profileIDs: result.profileIDs.filter { chosen.contains($0.key) })
+            let merged = history.importVisits(visits)
+            added = merged.added + merged.updated
+            model.historyImported = visits.count
+        } else {
+            model.historyImported = 0
+        }
+        NSLog("[import] %@: %ld profiles, %ld Spaces, %ld pinned tabs, %ld folders, %ld history entries (%ld new or changed)",
+              r.kind?.rawValue ?? "file", profiles.count, result.spacesCreated + result.spacesUpdated, result.pinnedTabs, result.folders,
+              model.historyImported, added)
+        Telemetry.shared.record(.importBrowser(.init(source: BrowserImportAdapter.telemetrySource(r), result: .success, profiles: profiles.count,
+                                                     bookmarks: result.pinnedTabs, folders: result.folders, history: model.historyImported)))
+        // The passwords file goes into the first of them by default.
+        if let first = model.blueprint?.spaces.first(where: { model.chosenSpaces.contains($0.sourceID) }), let pid = result.profileIDs[first.profileSourceID] {
+            model.passwordsProfile = pid
+        }
+        model.aircProfiles = store.orderedProfiles.map { ($0.id, $0.name) }
     }
 
     /// Favicons of everything imported, fetched now so the first window has them.

@@ -76,7 +76,8 @@ settings-appearance-dark|Settings: Appearance, dark|The same page in dark mode
 settings-privacy|Settings: Privacy|Anonymous usage data and crash reports, off with one switch
 settings-privacy-events|See what Airc sends|The sheet listing every event Airc recorded, word for word
 onboarding-welcome|Onboarding|The first window
-onboarding-import|Onboarding: Arc import|Arc found on the Mac: Spaces, pinned tabs, folders and Favorites come over as they are
+onboarding-import|Onboarding: Arc import|Arc found on the Mac, first among the browsers found: Spaces, pinned tabs, folders and Favorites come over as they are
+onboarding-import-browsers|Onboarding: other browsers|Chrome picked on the same step: each profile with its colour, its bookmarks and folders, and the history for ⌘T
 onboarding-profiles|Onboarding: profiles|Each Arc profile becomes an Airc profile, with its Spaces
 onboarding-colours|Onboarding: Space colours|A colour for each Space before the first window opens
 onboarding-default-browser|Onboarding: default browser|The default-browser step

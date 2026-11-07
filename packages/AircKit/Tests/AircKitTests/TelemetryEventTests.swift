@@ -66,6 +66,10 @@ final class TelemetryEventTests: XCTestCase {
         "onboarding.finished": (["imported": .bool], [:]),
         "import.arc": (["result": values(TelemetryEvent.ImportArc.Result.self), "spaces": labels(TelemetryBucket.counts),
                         "tabs": labels(TelemetryBucket.counts), "profiles": labels(TelemetryBucket.counts), "logins": .bool], [:]),
+        "import.browser": (["browser": values(TelemetryEvent.ImportBrowser.Source.self), "result": values(TelemetryEvent.ImportArc.Result.self),
+                            "profiles": labels(TelemetryBucket.counts), "bookmarks": labels(TelemetryBucket.counts),
+                            "folders": labels(TelemetryBucket.counts), "history": labels(TelemetryBucket.counts),
+                            "passwords": labels(TelemetryBucket.counts)], [:]),
         "feature.used": (["feature": .oneOf(featureNames)], ["variant": .oneOf(variants)]),
         "perf.daily": (["command_bar_opens": labels(TelemetryBucket.counts)],
                        ["command_bar_p50_ms": labels(TelemetryBucket.frame), "command_bar_p95_ms": labels(TelemetryBucket.frame),
@@ -106,6 +110,10 @@ final class TelemetryEventTests: XCTestCase {
         e += [.onboardingFinished(imported: true), .onboardingFinished(imported: false)]
         for result in TelemetryEvent.ImportArc.Result.allCases {
             e.append(.importArc(.init(result: result, spaces: 6, tabs: 140, profiles: 2, logins: result == .success)))
+        }
+        for source in TelemetryEvent.ImportBrowser.Source.allCases {
+            e.append(.importBrowser(.init(source: source, result: source == .opera ? .failed : .success, profiles: 2, bookmarks: 312,
+                                          folders: 4, history: 20_000, passwords: source == .passwordsFile ? 24 : 0)))
         }
         e += allFeatures.map { .featureUsed($0) }
         e.append(.perfDaily(.init(commandBarOpens: 0, commandBarP50Milliseconds: nil, commandBarP95Milliseconds: nil,
@@ -159,7 +167,7 @@ final class TelemetryEventTests: XCTestCase {
         XCTAssertEqual(Set(Self.allFeatures.map(\.name)), Self.featureNames)
         func covered(_ e: TelemetryEvent) -> String {
             switch e {
-            case .appLaunched, .activeDay, .onboardingStep, .onboardingFinished, .importArc, .featureUsed, .perfDaily,
+            case .appLaunched, .activeDay, .onboardingStep, .onboardingFinished, .importArc, .importBrowser, .featureUsed, .perfDaily,
                  .processGone: e.name
             }
         }

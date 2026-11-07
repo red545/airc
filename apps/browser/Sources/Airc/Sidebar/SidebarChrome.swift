@@ -623,6 +623,22 @@ final class SpaceBarView: NSView {
     /// `provisional`: while Create a Space is open, its cell (icon, or "" for the dot) after the others, as current.
     func configure(spaces: [Space], profiles: [String: Profile], palette: Palette, multipleProfiles: Bool,
                    provisional: String? = nil) {
+        // Create replaces the provisional dot with one real Space. Keep each existing cell
+        // bound to its Space and move the provisional cell into the insertion slot. Zipping
+        // by index instead changes every following emoji and its saturation filter, forcing
+        // those labels to redraw in Create's first frame.
+        var adoptsProvisional = hasProvisional && provisional == nil
+        #if AIRC_TESTING
+        if adoptsProvisional, ProcessInfo.processInfo.environment["AIRC_NEW_SPACE_BASELINE"] == "1" { adoptsProvisional = false }
+        #endif
+        if adoptsProvisional, spaces.count == cells.count,
+           let spare = cells.first(where: { $0.spaceID.isEmpty }) {
+            let existing = Dictionary(uniqueKeysWithValues: cells.filter { !$0.spaceID.isEmpty }.map { ($0.spaceID, $0) })
+            let newIDs = Set(spaces.map(\.id)).subtracting(existing.keys)
+            if newIDs.count == 1, Set(existing.keys).isSubset(of: Set(spaces.map(\.id))) {
+                cells = spaces.map { existing[$0.id] ?? spare }
+            }
+        }
         var spaces = spaces
         hasProvisional = provisional != nil
         if let provisional {

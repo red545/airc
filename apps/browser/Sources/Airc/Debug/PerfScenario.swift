@@ -458,7 +458,11 @@ final class PerfRun {
             }
             group.notify(queue: .main) {
                 self.emit(["event": "pages", "pages": pages, "window_visible": self.c.window.isVisible,
-                           "window_occlusion_visible": self.c.window.occlusionState.contains(.visible)])
+                           "window_occlusion_visible": self.c.window.occlusionState.contains(.visible),
+                           "preview_cache_entries": TabPreviewCache.shared.count,
+                           "preview_cache_bytes": TabPreviewCache.shared.storedBytes,
+                           "preview_requests": self.c.tabPreview.stats.requests,
+                           "preview_successes": self.c.tabPreview.stats.results.filter { $0.ok }.count])
                 done()
             }
         }

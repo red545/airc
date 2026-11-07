@@ -54,6 +54,30 @@ listed in `failedDatabases`, and the other one still comes over.
 Returned credentials are plaintext in memory. The engine owns importing and
 re-encrypting them, session restoration and device-bound login failures.
 
+## Other browsers
+
+Bookmarks and history from the Chromium family (Chrome and its channels, Brave, Edge, Vivaldi, Opera, Chromium, Dia,
+Helium), Firefox and Zen; Safari's and any browser's exported bookmarks HTML file; saved passwords only from a CSV file
+the user exported. Nothing here reads another browser's password store, cookies or Keychain item.
+
+- `BrowserImporter.detect(home:)`: the installs under `home`'s Application Support and their profiles, from
+  `Local State` (`profile.info_cache`: name, avatar colour, `profiles_order`) or `profiles.ini`. Only folders with
+  bookmarks or history count; Firefox paths outside the data folder are ignored.
+- `await BrowserImporter.read(_:profiles:includeHistory:historyLimit:)`: an `ImportPlan` with one profile and one Space
+  per browser profile. The bookmarks bar becomes the pinned tabs and folders, "Other bookmarks" and "Mobile
+  bookmarks" (Firefox: Bookmarks Menu, Other Bookmarks, Mobile Bookmarks) one pinned folder each; Favorites stay empty.
+  Plus each profile's newest 20,000 history entries (`ImportedVisit`). `Bookmarks` is read in place, `History` and
+  `places.sqlite` from private copies (`DatabaseCopy`), since the browser may hold them locked.
+- `await BrowserImporter.readBookmarksFile(_:kind:)`: a NETSCAPE-Bookmark-file-1 export; Safari's "Favorites" or the
+  `PERSONAL_TOOLBAR_FOLDER` is the bar. IDs are hashes of folder path, address and name.
+- `await PasswordCSV.read(_:)`: Chrome's, Firefox's and Safari's export columns, by name. Duplicates (same site and
+  username), rows without a password, and non-website logins are counted, never included.
+
+Source keys are `<install>-profile:<profile>`, `<install>-space:<profile>` and `<install>-item:<profile>/<GUID>`
+(Chromium's and Firefox's bookmark GUIDs), so importing again updates in place. A profile whose bookmarks or history
+can't be read still brings the other part (`unreadableBookmarks`, `unreadableHistory`). Limits: 10,000 bookmarks per
+profile, 64 folder levels, 128 MB per bookmarks file, 64 MB and 100,000 rows per CSV file.
+
 ## Tests
 
 ```sh
@@ -73,7 +97,9 @@ counts. It never reads credential databases or calls Keychain:
 AIRC_IMPORT_LOCAL_SMOKE=1 swift test --package-path packages/AircImport --filter LocalSmokeTests
 ```
 
-Archives, history, extensions, backups, applying plans and Chrome import are
-outside this package's assigned scope. Split views in pinned tabs and Favorites stay
+`BrowserTests` covers the other browsers on a synthetic home folder (a Chrome-layout user-data folder, a Firefox
+profile, HTML exports, CSV files with example.com entries), including locked databases, malformed and huge files.
+
+Archives, Arc's history, extensions, backups and applying plans are outside this package's assigned scope. Split views in pinned tabs and Favorites stay
 splits (`ImportedItem.split`, `ImportPlan.favoriteItems`); in Today they become individual
 tabs with a warning. Easels are skipped with a warning; unknown containers keep known children.

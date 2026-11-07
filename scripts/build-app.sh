@@ -308,6 +308,9 @@ if [[ -n "$SNAPSHOTS" ]]; then
     # browser window, then Import from Arc… re-importing without duplicates and closing from every step. Google sign-in is
     # a loopback mock of ListAccounts and the default browser a stand-in: no real account, no system dialog.
     launch --script onboarding-e2e --onboarding --ephemeral --data-dir "$home/OnboardingE2E"
+    # Other browsers (IM-4) on synthetic ones only (BrowserFixtures.swift: Chrome with its History locked, Brave, Firefox, a
+    # Safari export, password CSV files): Airc → Import from Another Browser…, re-imports without duplicates, CSV passwords.
+    launch --script import-browsers --ephemeral --data-dir "$home/ImportBrowsers"
     # Relaunch check: one run writes Spaces and tabs, a second run on the same data shows them.
     launch --script persist-write --data-dir "$home/Persist"
     launch --script persist-read --data-dir "$home/Persist"
@@ -328,7 +331,7 @@ if [[ -n "$SNAPSHOTS" ]]; then
       launch --script prompts --data-dir "$home/Prompts" --use-fake-device-for-media-stream
       # Fullscreen exits: no captures/devices/HID; skip unless drawn and hardware idle >= 3 minutes.
       # Each attempt is capped below 60 seconds and launched into its own scratch profile.
-      for fullscreen_case in native html switch split little; do
+      for fullscreen_case in native native-rapid native-video native-split html switch split little pip; do
         local fullscreen_out="$out/fullscreen-$fullscreen_case"
         mkdir -p "$fullscreen_out"
         rm -f "$fullscreen_out/log.txt"

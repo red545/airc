@@ -59,7 +59,8 @@ menu, which can't be drawn off screen; `profiles.webp` shows profiles through Cr
 | `settings-privacy.webp` | Settings: Privacy | Anonymous usage data and crash reports, off with one switch | 2026-11-06 | 202611061538 (6312e1a) |
 | `settings-privacy-events.webp` | See what Airc sends | The sheet listing every event Airc recorded, word for word | 2026-11-06 | 202611061538 (6312e1a) |
 | `onboarding-welcome.webp` | Onboarding | The first window | 2026-11-06 | 202611061915 (9e1fd56) |
-| `onboarding-import.webp` | Onboarding: Arc import | Arc found on the Mac: Spaces, pinned tabs, folders and Favorites come over as they are | 2026-11-06 | 202611061915 (9e1fd56) |
+| `onboarding-import.webp` | Onboarding: Arc import | Arc found on the Mac, first among the browsers found: Spaces, pinned tabs, folders and Favorites come over as they are | 2026-11-06 | 202611062324 (importbrowsers copy, 550fc0a) |
+| `onboarding-import-browsers.webp` | Onboarding: other browsers | Chrome picked on the same step: each profile with its colour, its bookmarks and folders, and the history for ⌘T | 2026-11-06 | 202611062324 (importbrowsers copy, 550fc0a) |
 | `onboarding-profiles.webp` | Onboarding: profiles | Each Arc profile becomes an Airc profile, with its Spaces | 2026-11-06 | 202611061915 (9e1fd56) |
 | `onboarding-colours.webp` | Onboarding: Space colours | A colour for each Space before the first window opens | 2026-11-06 | 202611061915 (9e1fd56) |
 | `onboarding-default-browser.webp` | Onboarding: default browser | The default-browser step | 2026-11-06 | 202611061915 (9e1fd56) |

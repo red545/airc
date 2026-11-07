@@ -56,9 +56,11 @@ final class FullScreenController {
     }
 
     func willExit() {
-        // AppKit still owns and animates the fullscreen titlebar until didExit. In particular,
-        // frame notifications must not run our windowed traffic-light layout on that titlebar.
-        // Keep the accessory alive and installed while AppKit is using its view during the exit.
+        // AppKit still owns the fullscreen titlebar until didExit. Removing its accessory here
+        // with isFullscreen already false lets frame observers resize that container as AppKit
+        // retiles it. _syncToolbarPosition then recursively fights our geometry until the stack
+        // overflows (reproduced under LLDB). Keep both the accessory and fullscreen layout until
+        // the transition finishes; a positioningTrafficLights reentry guard alone cannot stop it.
         exiting = true
         reveal?.onChange = nil
         cancelEscape()
@@ -74,6 +76,21 @@ final class FullScreenController {
         titlebarRevealed = false
         updateHeader(animated: false)
         c.positionTrafficLights()
+    }
+
+    /// AppKit gave up entering (the window stays windowed): back to the windowed layout.
+    func didFailToEnter() {
+        exiting = false
+        c.isFullscreen = false
+        titlebarRevealed = false
+        updateHeader(animated: false)
+        c.positionTrafficLights()
+    }
+
+    /// AppKit gave up leaving (the window stays in full screen): Esc and the menu-bar reveal work again.
+    func didFailToExit() {
+        exiting = false
+        reveal?.onChange = { [weak self] amount in self?.revealChanged(amount) }
     }
 
     // MARK: The titlebar coming down with the menu bar

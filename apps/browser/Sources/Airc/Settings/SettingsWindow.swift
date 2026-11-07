@@ -843,6 +843,17 @@ private struct ImportPage: View {
                 }
                 SettingsRow(title: "Logins from Arc", subtitle: loginsSummary) { EmptyView() }
             }
+            SettingsSection(title: "Other browsers", help: "Chrome, Brave, Edge, Vivaldi, Opera, Firefox, Zen and others: bookmarks and history. Passwords come from a file you export.") {
+                SettingsRow(title: "Import from another browser", subtitle: "Each profile becomes an Airc profile with its own Space; its bookmarks bar becomes pinned tabs.") {
+                    Button("Import…") { model.app?.startOnboarding(mode: .rerun, atImport: true) }.buttonStyle(.airc(.secondary))
+                }
+                SettingsRow(title: "Passwords from a CSV file", subtitle: "The file your browser's “Export passwords” saves. Into the profile you pick.") {
+                    Button("Import…") {
+                        model.app?.startOnboarding(mode: .rerun, atImport: true)
+                        model.app?.onboarding?.select(.passwords, picked: true)
+                    }.buttonStyle(.airc(.secondary))
+                }
+            }
             if let o = CredentialImport.lastOutcome, !o.rows.isEmpty {
                 // Engine pass 8: what happened to each login and each site's cookies, problems first.
                 VStack(alignment: .leading, spacing: 8) {

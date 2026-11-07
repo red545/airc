@@ -304,6 +304,10 @@ final class WindowController: NSObject, NSWindowDelegate {
         let visible = isFullscreen || (sidebarFraction >= 1 && revealController?.isRevealed != true)
         buttons.forEach { $0.isHidden = !visible }
         guard !isFullscreen else { return }
+        // Never lay out a titlebar AppKit keeps in its full-screen titlebar window (a transition, or one that failed):
+        // moving it there makes AppKit tile it again, and the two called each other until the stack overflowed when
+        // leaving full screen (fsexit, 2026-11-06).
+        guard container.window === window, !window.styleMask.contains(.fullScreen) else { return }
         let h = first.frame.height
         let top = AircMetrics.Window.trafficLightCenters[0].y
         let containerHeight = top + h / 2 + 2
@@ -318,11 +322,29 @@ final class WindowController: NSObject, NSWindowDelegate {
 
     private func trafficLightsMoved() {
         guard !positioningTrafficLights else { return }
+        // AppKit retiling its titlebar reports each move here. Where it and this layout want different frames, every
+        // answer starts another round one level deeper (`_updateTitlebarContainerViewFrameIfNecessary` ↔
+        // `_syncToolbarPosition`) and none returns: leaving full screen overflowed the main thread's stack that way
+        // (fsexit, 2026-11-06). Past a quarter of the stack, stop answering; the next turn puts the buttons back.
+        guard Self.stackInUse < Self.titlebarStackLimit else {
+            trafficLightsNeedPositioning = true
+            DispatchQueue.main.async { [weak self] in self?.positionTrafficLightsIfMoved() }
+            return
+        }
         positionTrafficLights()
         trafficLightsNeedPositioning = true
         root.needsLayout = true
         // In case no layout pass follows (the theme frame was tiled outside one).
         DispatchQueue.main.async { [weak self] in self?.positionTrafficLightsIfMoved() }
+    }
+
+    /// A quarter of the main thread's stack (8 MB), at least 1 MB: far above a layout pass, far below an overflow.
+    private static let titlebarStackLimit = max(1 << 20, pthread_get_stacksize_np(pthread_self()) / 4)
+    /// How much of this thread's stack is in use (it grows down from its top).
+    private static var stackInUse: Int {
+        var here = 0
+        let top = UInt(bitPattern: pthread_get_stackaddr_np(pthread_self()))
+        return withUnsafeMutablePointer(to: &here) { Int(bitPattern: top &- UInt(bitPattern: $0)) }
     }
 
     /// Called from RootView.layout().
@@ -357,14 +379,17 @@ final class WindowController: NSObject, NSWindowDelegate {
         guard let id = tabID(for: page), let tab = store.tab(id) else { return }
         if let sid = tab.spaceID, sid != currentSpaceID { switchToSpace(sid, animated: false) }
         show(id)
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        // Scripted runs never activate the app: it would take focus on the owner's screen mid-suite (and change which
+        // window is key for the checks after it).
+        if LaunchOptions.current.isAutomated { window.orderFront(nil) } else { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
     }
 
     func windowWillEnterFullScreen(_ notification: Notification) { fullScreen.willEnter() }
     func windowDidEnterFullScreen(_ notification: Notification) { fullScreen.didEnter() }
     func windowWillExitFullScreen(_ notification: Notification) { fullScreen.willExit() }
     func windowDidExitFullScreen(_ notification: Notification) { fullScreen.didExit() }
+    func windowDidFailToEnterFullScreen(_ window: NSWindow) { fullScreen.didFailToEnter() }
+    func windowDidFailToExitFullScreen(_ window: NSWindow) { fullScreen.didFailToExit() }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if downloadsHoldClose() { return false }
@@ -490,8 +515,16 @@ final class WindowController: NSObject, NSWindowDelegate {
     /// A new Space's page, built and drawn now, without reloading the other pages.
     func addPage(for spaceID: String) {
         Perf.time("new.addPage.build") { rebuildPages() }
-        Perf.time("new.addPage.reload") { pageView(for: spaceID)?.reload(animated: false) }
-        refreshChrome()
+        // rebuildPages already renders new pages (or refreshes the pre-rendered spare's header).
+        // Re-rendering here invalidates the rows we drew before Enter.
+        #if AIRC_TESTING
+        if ProcessInfo.processInfo.environment["AIRC_NEW_SPACE_BASELINE"] == "1" {
+            Perf.time("new.addPage.reload") { pageView(for: spaceID)?.reload(animated: false) }
+            refreshChrome()
+        }
+        #endif
+        // The caller immediately switches to this Space; show()/showEmpty() refreshes chrome
+        // with its palette. Refreshing here first redraws chrome with the outgoing Space's palette.
         schedulePrewarm()   // the next spare page
     }
 
@@ -723,10 +756,19 @@ final class WindowController: NSObject, NSWindowDelegate {
         card.showsEmptyState = true
         // The empty view (opaque, above the page) covers the page in this frame; the engine hides it right after
         // (on Chromium every tab is set invisible: ~2.5 ms of the New Space frame, §2.12).
-        DispatchQueue.main.async { [weak self] in
+        let hidePage = { [weak self] in
             guard let self, self.shownTabID == nil else { return }
             self.engineWindow.deactivateAll()
         }
+        #if AIRC_TESTING
+        if ProcessInfo.processInfo.environment["AIRC_NEW_SPACE_BASELINE"] == "1" {
+            DispatchQueue.main.async(execute: hidePage)
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02, execute: hidePage)
+        }
+        #else
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02, execute: hidePage)
+        #endif
         refreshChrome()
         if updatesRows { scheduleReload() }
     }

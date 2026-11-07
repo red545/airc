@@ -172,12 +172,18 @@ extension SnapshotRunner {
                 hover(nil)
                 hover(row(red))
             } else {
-                // Again from off the row, so the dwell below starts now.
+                // Again from off the row, so the dwell below starts now. The way found above has already started this
+                // row's dwell, and its card can be up before the pointer leaves, which off and on again in one turn
+                // keeps ("a dwell of -268 ms", 2026-11-06): off the row until no card is up or due, then back, below.
                 hover(nil)
-                hover(row(red))
             }
             note("previews: hover by \(mode) (\(tried.filter { $0 != "ok" }.joined(separator: ", ")))")
         }
+        step { [self] done in
+            guard tried.last == "ok" else { return done() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.waitUntil({ !tp().isShowing }, timeout: 2) { done() } }
+        }
+        run { if tried.last == "ok" { hover(row(red)) } }
         // 2. The dwell, and the card beside the row.
         wait(0.25)
         run { [self] in check(!tp().isShowing, "previews: no card 0.25 s after the pointer rests on a row") }

@@ -217,7 +217,7 @@ enum MainMenu {
         #endif
         appMenu.addItem(.separator())
         appMenu.addItem(closure("Settings…", ",", .command, app) { $0.app?.showSettings() })
-        appMenu.addItem(closure("Import from Arc…", "", [], app) { $0.app?.startOnboarding(mode: .rerun, atImport: true) })
+        appMenu.addItem(closure("Import from Another Browser…", "", [], app) { $0.app?.startOnboarding(mode: .rerun, atImport: true) })
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Hide Airc", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         let others = appMenu.addItem(withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")

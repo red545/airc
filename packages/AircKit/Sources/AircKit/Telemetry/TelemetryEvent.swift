@@ -16,6 +16,9 @@ public enum TelemetryEvent: Sendable, Equatable {
     case onboardingFinished(imported: Bool)
     /// An Arc import ran (onboarding, or Settings → Import).
     case importArc(ImportArc)
+    /// Another browser's bookmarks and history, a bookmarks file, or a passwords CSV file was imported (onboarding,
+    /// Airc → Import from Another Browser…). Which browser and counts in ranges, nothing else.
+    case importBrowser(ImportBrowser)
     /// A feature was used (TelemetryFeature).
     case featureUsed(TelemetryFeature)
     /// Once per calendar day: how fast and how light Airc ran since the last one.
@@ -119,6 +122,35 @@ public enum TelemetryEvent: Sendable, Equatable {
         }
     }
 
+    public struct ImportBrowser: Sendable, Equatable {
+        public enum Source: String, Sendable, CaseIterable {
+            case chrome, brave, edge, vivaldi, opera, chromium, dia, helium, firefox, zen, safari
+            /// A bookmarks HTML file that doesn't say which browser wrote it.
+            case bookmarksFile = "bookmarks_file"
+            /// A passwords CSV file.
+            case passwordsFile = "passwords_file"
+        }
+
+        public var source: Source
+        public var result: ImportArc.Result
+        public var profiles: Int
+        public var bookmarks: Int
+        public var folders: Int
+        public var history: Int
+        public var passwords: Int
+
+        public init(source: Source, result: ImportArc.Result, profiles: Int = 0, bookmarks: Int = 0, folders: Int = 0,
+                    history: Int = 0, passwords: Int = 0) {
+            self.source = source
+            self.result = result
+            self.profiles = profiles
+            self.bookmarks = bookmarks
+            self.folders = folders
+            self.history = history
+            self.passwords = passwords
+        }
+    }
+
     public struct PerfDaily: Sendable, Equatable {
         /// Command Bar openings measured (each one's main-thread work up to its first committed frame).
         public var commandBarOpens: Int
@@ -147,6 +179,7 @@ public enum TelemetryEvent: Sendable, Equatable {
         case .onboardingStep: "onboarding.step"
         case .onboardingFinished: "onboarding.finished"
         case .importArc: "import.arc"
+        case .importBrowser: "import.browser"
         case .featureUsed: "feature.used"
         case .perfDaily: "perf.daily"
         case .processGone: "process.gone"
@@ -173,6 +206,11 @@ public enum TelemetryEvent: Sendable, Equatable {
             return ["result": .string(i.result.rawValue), "spaces": .string(TelemetryBucket.count(i.spaces)),
                     "tabs": .string(TelemetryBucket.count(i.tabs)), "profiles": .string(TelemetryBucket.count(i.profiles)),
                     "logins": .bool(i.logins)]
+        case let .importBrowser(i):
+            return ["browser": .string(i.source.rawValue), "result": .string(i.result.rawValue),
+                    "profiles": .string(TelemetryBucket.count(i.profiles)), "bookmarks": .string(TelemetryBucket.count(i.bookmarks)),
+                    "folders": .string(TelemetryBucket.count(i.folders)), "history": .string(TelemetryBucket.count(i.history)),
+                    "passwords": .string(TelemetryBucket.count(i.passwords))]
         case let .featureUsed(f):
             var p: [String: TelemetryValue] = ["feature": .string(f.name)]
             if let v = f.variant { p["variant"] = .string(v) }

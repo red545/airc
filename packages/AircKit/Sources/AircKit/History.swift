@@ -89,6 +89,38 @@ public final class HistoryStore {
         if (entries[profileID]?.count ?? 0) > Self.maxEntriesPerProfile { prune(profileID) }
     }
 
+    /// Another browser's history (IM-4), merged in one transaction: a page Airc already has keeps the higher visit and
+    /// typed counts and the later visit, and takes the imported title if it had none. Counts are never added up, so
+    /// importing the same history again changes nothing. Only web pages; a profile past the limit is pruned as usual.
+    @discardableResult
+    public func importVisits(_ visits: [HistoryEntry]) -> (added: Int, updated: Int) {
+        var added = 0, updated = 0
+        var changed: [HistoryEntry] = []
+        for v in visits where Self.records(v.url) {
+            if let old = entries[v.profileID]?[v.url] {
+                var e = old
+                e.visitCount = max(old.visitCount, v.visitCount)
+                e.typedCount = max(old.typedCount, v.typedCount)
+                if v.lastVisit > old.lastVisit { e.lastVisit = v.lastVisit }
+                if old.title.isEmpty, !v.title.isEmpty { e.title = v.title }
+                guard e != old else { continue }
+                entries[v.profileID]?[v.url] = e
+                changed.append(e)
+                updated += 1
+            } else {
+                entries[v.profileID, default: [:]][v.url] = v
+                changed.append(v)
+                added += 1
+            }
+        }
+        guard !changed.isEmpty else { return (0, 0) }
+        try? db.transaction { for e in changed { write(e) } }
+        let t = now()
+        for e in changed { indexer.update(e, now: t) }
+        for p in Set(changed.map(\.profileID)) where (entries[p]?.count ?? 0) > Self.maxEntriesPerProfile { prune(p) }
+        return (added, updated)
+    }
+
     /// The page's title arrived after the visit.
     public func updateTitle(profileID: String, url: String, title: String) {
         guard !title.isEmpty, var e = entries[profileID]?[url], e.title != title else { return }

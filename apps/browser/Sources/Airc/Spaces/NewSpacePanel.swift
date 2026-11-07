@@ -386,7 +386,7 @@ extension WindowController {
             previewTheme = nil
             if created {
                 let old = currentSpaceID
-                DispatchQueue.main.async { [weak self] in self?.pageView(for: old)?.reload(animated: false) }
+                afterCreateFrame { [weak self] in self?.pageView(for: old)?.reload(animated: false) }
             } else {
                 refreshChrome()
                 pageView(for: currentSpaceID)?.reload(animated: false)
@@ -398,13 +398,25 @@ extension WindowController {
             page?.alphaValue = 1
             // The card's SwiftUI leave starts in the next frame, not the one that shows the new Space (§2.12: within
             // one frame of Enter); its first 80 ms barely move anyway.
-            DispatchQueue.main.async { p.model.leaving = true }
+            afterCreateFrame { p.model.leaving = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { p.removeFromSuperview() }
         } else {
             page?.page(fromX: -28, opacity: 0, to: 1)
             p.pageAway(toX: 36)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { p.removeFromSuperview() }
         }
+    }
+
+    /// Main-queue async work can still run before Core Animation commits Create's frame.
+    /// Give the new Space a frame before starting SwiftUI's leave and redrawing the old page.
+    private func afterCreateFrame(_ work: @escaping () -> Void) {
+        #if AIRC_TESTING
+        if ProcessInfo.processInfo.environment["AIRC_NEW_SPACE_BASELINE"] == "1" {
+            DispatchQueue.main.async(execute: work)
+            return
+        }
+        #endif
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02, execute: work)
     }
 
     /// SP-11: the native profile menu under the pill: avatar, name, the Google account, ✓, then New Profile….

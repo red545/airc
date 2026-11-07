@@ -49,6 +49,7 @@ final class SnapshotRunner {
         case "onboarding": onboardingScenario()
         case "onboarding-e2e": onboardingE2EScenario()
         case "importux": importUXScenario()
+        case "import-browsers": importBrowsersScenario()
         case "persist-write": persistWrite()
         case "persist-read": persistRead()
         case "split-write": splitPersistWrite()

@@ -114,8 +114,8 @@ def control_action(out, tag, action):
     temporary.replace(out/f'control{tag}.json')
 
 def measure(name, app, args, marker, out, instrumented=False, tag='', expect=(8, 22, 3, 6), leak=True,
-            sample_at=None, pages=None):
-    """One launch. Airc (`instrumented`) waits for its workload, Chrome until `sample_at` seconds after launch (the
+            sample_at=None, pages=None, cpu_seconds=30, launch_env=()):
+    """One launch. Set cpu_seconds=0 for memory-only comparisons (no CPU metric). Airc (`instrumented`) waits for its workload, Chrome until `sample_at` seconds after launch (the
     matched Airc run's memory-sample age, so both are sampled as long after launch); then memory, 30 s of idle CPU
     and, for Airc's reference run, the 100-tab leak cycle. `pages`: Chrome's page list, read before the sample."""
     instance = Instance(app / 'Contents/MacOS' / ('Airc' if name == 'airc' else 'Google Chrome'), marker)
@@ -124,7 +124,9 @@ def measure(name, app, args, marker, out, instrumented=False, tag='', expect=(8,
     events = out/f'events{tag}.jsonl'
     try:
         start = time.monotonic()
-        command(['open','-g','-j','-n', '--env', f'CFFIXED_USER_HOME={out / (name+tag+"-home")}', app, '--args', *args])
+        launch = ['open','-g','-j','-n', '--env', f'CFFIXED_USER_HOME={out / (name+tag+"-home")}']
+        for setting in launch_env: launch += ['--env', setting]
+        command([*launch, app, '--args', *args])
         deadline = start + 20
         while time.monotonic() < deadline:
             instance.discover()
@@ -166,6 +168,7 @@ def measure(name, app, args, marker, out, instrumented=False, tag='', expect=(8,
         memory = []
         for pid in sample:
             try: memory.append({'pid':pid,'main':pid==instance.pid,'kind':kind(sample[pid]['command'],pid==instance.pid),
+                                'executable':Path(sample[pid]['command'].split(' --')[0]).name,
                                 'mb':footprint(pid)})
             except Exception as e: result['errors'].append(str(e))
         result['memory_sample_end_seconds'] = time.monotonic()-start
@@ -177,17 +180,18 @@ def measure(name, app, args, marker, out, instrumented=False, tag='', expect=(8,
             result['errors'].append('incomplete footprint sample or process set changed during memory sampling')
         m['main_mb'] = next((x['mb'] for x in memory if x['main']), None)
         m['renderer_count'] = sum(1 for x in memory if x['kind'] == 'renderer')
-        begin = instance.discover(); t0 = time.monotonic()
-        time.sleep(30)
-        end = instance.discover(); elapsed = time.monotonic()-t0
-        if instance.pid not in begin or instance.pid not in end or set(begin) != set(end):
-            result['errors'].append('process set changed during idle CPU interval')
-        else:
-            m['idle_cpu_percent'] = 100 * sum(end[p]['cpu']-begin[p]['cpu'] for p in begin) / elapsed
-            # Which processes burn the idle CPU (the browser, GPU, each renderer and utility), hottest first.
-            result['idle_cpu_processes'] = sorted(({'pid':p,'kind':kind(begin[p]['command'],p==instance.pid),
-                'cpu_percent':round(100*(end[p]['cpu']-begin[p]['cpu'])/elapsed,3)} for p in begin),
-                key=lambda x:-x['cpu_percent'])
+        if cpu_seconds > 0:
+            begin = instance.discover(); t0 = time.monotonic()
+            time.sleep(cpu_seconds)
+            end = instance.discover(); elapsed = time.monotonic()-t0
+            if instance.pid not in begin or instance.pid not in end or set(begin) != set(end):
+                result['errors'].append('process set changed during idle CPU interval')
+            else:
+                m['idle_cpu_percent'] = 100 * sum(end[p]['cpu']-begin[p]['cpu'] for p in begin) / elapsed
+                # Which processes burn the idle CPU (the browser, GPU, each renderer and utility), hottest first.
+                result['idle_cpu_processes'] = sorted(({'pid':p,'kind':kind(begin[p]['command'],p==instance.pid),
+                    'cpu_percent':round(100*(end[p]['cpu']-begin[p]['cpu'])/elapsed,3)} for p in begin),
+                    key=lambda x:-x['cpu_percent'])
         if instrumented and leak:
             # Only now the timed actions (they show every loaded page once): memory and idle CPU above were taken
             # from the same untouched state as Chrome's.

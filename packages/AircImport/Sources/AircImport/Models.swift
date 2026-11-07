@@ -84,7 +84,12 @@ public struct ImportedProfile: Codable, Sendable, Equatable {
     public var isAvailable: Bool
 }
 public struct ImportWarning: Codable, Sendable, Equatable {
-    public enum Code: String, Codable, Sendable { case splitView, unsupportedItem, easel, note, liveFolder, missingItem, invalidTab, cycle, depthLimit, emptySpaces, emptyItems, newerVersion, missingProfile }
+    public enum Code: String, Codable, Sendable {
+        case splitView, unsupportedItem, easel, note, liveFolder, missingItem, invalidTab, cycle, depthLimit, emptySpaces, emptyItems, newerVersion, missingProfile
+        /// Other browsers (Browsers.swift): a `javascript:` bookmarklet, a Firefox smart folder (`place:` query), more
+        /// bookmarks than one import takes, a profile whose bookmarks or history couldn't be read.
+        case bookmarklet, smartBookmark, tooManyBookmarks, unreadableBookmarks, unreadableHistory
+    }
     public var code: Code
     /// Deliberately excludes source titles, URLs and identifiers.
     public var message: String
@@ -109,6 +114,8 @@ public struct ImportPlan: Codable, Sendable, Equatable {
 public enum ImportError: Error, LocalizedError, Sendable, Equatable {
     case arcNotInstalled, noData, permissionDenied, invalidSidebar, invalidLocalState
     case keychainDeclined, keychainUnavailable, unsupportedEncryption, decryptionFailed, databaseFailed, invalidProfile
+    /// Other browsers' files (Browsers.swift, BookmarksFile.swift, PasswordCSV.swift).
+    case invalidBookmarks, invalidPasswordFile, fileTooLarge
     public var errorDescription: String? {
         switch self {
         case .arcNotInstalled: "Arc isn't installed."
@@ -122,11 +129,14 @@ public enum ImportError: Error, LocalizedError, Sendable, Equatable {
         case .decryptionFailed: "An encrypted Arc value could not be decrypted."
         case .databaseFailed: "Arc's database could not be read. Try closing Arc and importing again."
         case .invalidProfile: "The Arc profile directory is invalid."
+        case .invalidBookmarks: "These bookmarks couldn't be read. Export them again as an HTML file."
+        case .invalidPasswordFile: "This isn't a passwords file: it needs a url and a password column, as Chrome, Firefox and Safari export."
+        case .fileTooLarge: "The file is too large to import."
         }
     }
 }
 public struct ImportProgress: Sendable {
-    public enum Stage: String, Sendable { case discovering, sidebar, profiles, logins, cookies, complete }
+    public enum Stage: String, Sendable { case discovering, sidebar, profiles, logins, cookies, bookmarks, history, complete }
     public var stage: Stage
     public var completed: Int
     public var total: Int

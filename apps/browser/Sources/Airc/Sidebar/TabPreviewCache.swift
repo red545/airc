@@ -3,13 +3,18 @@ import AppKit
 import AircKit
 
 /// The last picture of each tab for its preview card (TabPreview.swift), in memory only: never written anywhere, gone
-/// at quit. Bounded: the `limit` most recently used pictures, each at most `maxPixels` (about 1 MB), so about 40 MB at
+/// at quit. Bounded: the `limit` most recently used pictures, each at most `maxPixels` (about 1 MB), so about 24 MB at
 /// most. A picture is kept under its tab and, for a pinned tab or Favorite, under its item too, so a Favorite whose
 /// page was freed (SB-15) or closed still shows how it looked. Under memory pressure it keeps the 8 most recent
 /// (a warning) or none (critical).
 final class TabPreviewCache {
     static let shared = TabPreviewCache()
-    static let limit = 40
+    static let limit: Int = {
+        #if AIRC_TESTING
+        if ProcessInfo.processInfo.environment["AIRC_PREVIEW_BASELINE"] == "1" { return 40 }
+        #endif
+        return 24
+    }()
     static let maxPixels = CGSize(width: 640, height: 400)
     private let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
 
@@ -72,6 +77,15 @@ final class TabPreviewCache {
     }
 
     var count: Int { shots.count }
+
+    /// Decoded bytes, counting tab/item aliases of the same picture only once.
+    var storedBytes: Int {
+        var seen = Set<ObjectIdentifier>()
+        return shots.values.reduce(0) { bytes, shot in
+            guard seen.insert(ObjectIdentifier(shot.image)).inserted else { return bytes }
+            return bytes + shot.image.bytesPerRow * shot.image.height
+        }
+    }
 
     private func touch(_ k: String) {
         if let i = order.lastIndex(of: k) { order.remove(at: i) }

@@ -50,7 +50,11 @@ final class LittleArcController: NSObject, NSWindowDelegate {
     init(app: AppDelegate, url: URL?, spaceID: String, frame: NSRect) {
         self.app = app
         self.spaceID = spaceID
-        engineWindow = app.engine.makeWindow(contentRect: frame)
+        // Its own window class: the engine's dialog anchor must not send it behind the browser window (LittleArcWindow).
+        let hosted = LittleArcWindow(contentRect: frame, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                                     backing: .buffered, defer: false)
+        hosted.isReleasedWhenClosed = false
+        engineWindow = (app.engine as? EngineCallHosting)?.makeWindow(hosting: hosted) ?? app.engine.makeWindow(contentRect: frame)
         let space = app.store.space(spaceID) ?? app.store.selectedSpace
         background = ThemeBackgroundView(theme: Palette(theme: space.theme, systemDark: Self.systemDark).resolved)
         super.init()
@@ -424,24 +428,6 @@ final class LittleArcController: NSObject, NSWindowDelegate {
 
     private func bringForward(_ w: NSWindow) {
         if app?.options.isAutomated == true { w.orderFront(nil) } else { w.makeKeyAndOrderFront(nil); NSApp.activate() }
-        if w === window { staysInFrontOfTheEngine() }
-    }
-
-    /// The engine hangs an invisible dialog anchor on every window that hosts its pages (WindowHost::UpdateModalParent:
-    /// a child window, shown inactive). Attaching it to a Little Arc window that was just brought forward sends the
-    /// window behind the browser window (Chromium only, ship runs 2026-11-06): the link opened out of sight, and a click
-    /// on it landed on the browser window. So for a moment after it's brought forward, a Little Arc window found behind
-    /// the browser window comes to the front again, until another of our windows takes the key. Called when a link
-    /// opens it and when it comes back.
-    func staysInFrontOfTheEngine(until deadline: Date = Date().addingTimeInterval(1.5)) {
-        guard app?.engine.name.hasPrefix("Chromium") == true, window.isVisible, !isMiniPlayer else { return }
-        if let key = NSApp.keyWindow, key !== window { return }
-        if let browser = main?.window, Self.isBehind(window, browser) {
-            window.orderFront(nil)
-            LinkLog.write("Little Arc: behind the browser window as the engine attached its anchor; in front again")
-        }
-        guard Date() < deadline else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in self?.staysInFrontOfTheEngine(until: deadline) }
     }
 
     /// `w` is below `other` as the window server orders this app's windows on screen (AppKit's own list can lag behind
@@ -608,6 +594,56 @@ extension LittleArcController: PromptHost {
     }
     func promptOwns(_ page: EngineTab) -> Bool { page === self.page }
     func promptToast(_ text: String) { toast.show(text, palette: palette, in: card.frame) }
+}
+
+/// LA-1: Little Arc's window. The engine hangs an invisible dialog anchor on every window that hosts its pages
+/// (WindowHost::UpdateModalParent). Chromium orders the anchor in just below the app's main window
+/// (NativeWidgetNSWindowBridge, a show without activation), and that is the browser window until Little Arc is key in an
+/// active app; attaching the anchor as a child then moves this window down to it, behind the browser window. A link
+/// opened Little Arc out of sight that way, and a click on its link landed on the browser window (ship runs
+/// 2026-11-06). So an attach while it's meant to be in front (ordered front, and no other window of ours has taken
+/// the key since) puts it back in front, and its children with it.
+final class LittleArcWindow: NSWindow {
+    private(set) var keepsFront = false
+    private var keyObserver: NSObjectProtocol?
+
+    override init(contentRect: NSRect, styleMask style: NSWindow.StyleMask, backing: NSWindow.BackingStoreType, defer flag: Bool) {
+        super.init(contentRect: contentRect, styleMask: style, backing: backing, defer: flag)
+        keyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) {
+            [weak self] note in
+            // The person moved on to another window of ours: it stays where they leave it.
+            if let self, let other = note.object as? NSWindow, other !== self, other.parent !== self { self.keepsFront = false }
+        }
+    }
+
+    deinit { keyObserver.map(NotificationCenter.default.removeObserver) }
+
+    override func orderFront(_ sender: Any?) {
+        keepsFront = true
+        super.orderFront(sender)
+    }
+
+    override func makeKeyAndOrderFront(_ sender: Any?) {
+        keepsFront = true
+        super.makeKeyAndOrderFront(sender)
+    }
+
+    override func orderOut(_ sender: Any?) {
+        keepsFront = false
+        super.orderOut(sender)
+    }
+
+    override func addChildWindow(_ child: NSWindow, ordered place: NSWindow.OrderingMode) {
+        super.addChildWindow(child, ordered: place)
+        guard isVisible, keepsFront || isKeyWindow else { return }
+        orderFront(nil)
+        // AppKit may settle the group's order after this turn: once more then.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isVisible, self.keepsFront || self.isKeyWindow else { return }
+            self.orderFront(nil)
+        }
+        LinkLog.write("Little Arc: in front again as the engine attached its dialog anchor")
+    }
 }
 
 /// The window's root: lays out the row and the page; a press nothing takes drags the window (like RootView).

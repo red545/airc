@@ -717,8 +717,13 @@ extension SnapshotRunner {
     func mkOnboardingShots() {
         let fake = FakeDefaultBrowser()
         var o: OnboardingController?
+        // IM-4: the import step's picker lists other browsers: synthetic ones (BrowserFixtures), never the Mac's own.
+        let browsers = FileManager.default.temporaryDirectory.appendingPathComponent("AircMarketingBrowsers-\(UUID().uuidString)")
+        var fixture: BrowserFixtures.Written?
         step { [self] done in
             guard let app else { return done() }
+            fixture = try? BrowserFixtures.write(to: browsers, holdHistory: false, publicSites: true)
+            BrowserImportLocator.testHome = fixture?.home
             DefaultBrowser.shared.system = fake
             app.settings.values.defaultBrowser = DefaultBrowserState()
             let ob = OnboardingController(app: app, mode: .rerun, fixture: OnboardingFixture.plan())
@@ -735,6 +740,12 @@ extension SnapshotRunner {
         run { o?.model.onNext?() }
         wait(3.4)
         mkOnboardingShot("onboarding-import", { o })
+        // Chrome on the same step: its profiles with their colours and what each brings.
+        run { o?.model.onSelectSource?(.browser("chrome")) }
+        wait(2.6)
+        mkOnboardingShot("onboarding-import-browsers", { o })
+        run { o?.model.onSelectSource?(.arc) }
+        wait(2.4)
         run { o?.model.onImportEverything?() }
         wait(0.3)
         run {
@@ -772,6 +783,8 @@ extension SnapshotRunner {
             o?.window.orderOut(nil)
             onboarding = nil
             DefaultBrowser.shared.system = SystemDefaultBrowser()
+            BrowserImportLocator.testHome = nil
+            try? FileManager.default.removeItem(at: browsers)
         }
     }
 

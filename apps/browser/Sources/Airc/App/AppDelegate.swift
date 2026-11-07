@@ -507,8 +507,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Telemetry.shared.record(.featureUsed(.littleArcOpen(url == nil ? .shortcut : .link)))
         littleArcs.append(l)
         bringForward(l.window)
-        // Chromium's dialog anchor, attached right after, would send it behind the browser window.
-        l.staysInFrontOfTheEngine()
         return l
     }
 

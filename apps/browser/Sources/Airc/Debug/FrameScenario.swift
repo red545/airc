@@ -17,7 +17,7 @@ extension SnapshotRunner {
     func framesScenario() {
         let clock = FrameClock()
         var report: [String: Any] = ["engine": app?.engine.name ?? "?"]
-        // Profiling one action: AIRC_FRAMES_ONLY=newspace|cbnew|cburl|cbkey|switch|swipe|sidebar (and AIRC_FRAMES_RUNS) runs only
+        // Profiling one action: AIRC_FRAMES_ONLY=newspace|cbfirst|cbnew|cburl|cbkey|switch|swipe|sidebar|previewcache (and AIRC_FRAMES_RUNS) runs only
         // that one.
         let env = ProcessInfo.processInfo.environment
         let only = env["AIRC_FRAMES_ONLY"]
@@ -61,9 +61,40 @@ extension SnapshotRunner {
             }
         }
 
+        // A full-session cache control: thirty independent page-sized bitmaps, no screen capture.
+        // The ordinary hidden 30-page workload may keep no pictures, so measure this bound separately.
+        if wanted("previewcache") && only != nil {
+            run { [self] in
+                let cache = TabPreviewCache.shared
+                cache.removeAll()
+                for i in 0..<30 {
+                    guard let bitmap = CGContext(data: nil, width: 640, height: 400, bitsPerComponent: 8,
+                                                 bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { continue }
+                    bitmap.setFillColor(CGColor(red: CGFloat(i) / 30, green: 0.4, blue: 0.6, alpha: 1))
+                    bitmap.fill(CGRect(x: 0, y: 0, width: 640, height: 400))
+                    if let image = bitmap.makeImage() {
+                        cache.store(image, url: "https://example.com/", tab: "cache-\(i)", item: nil)
+                    }
+                }
+                let count = cache.count, bytes = cache.storedBytes
+                let lru = (0..<30).allSatisfy { i in
+                    let retained = cache.shot(tab: "cache-\(i)", item: nil, url: "https://example.com/") != nil
+                    return retained == (i >= 30 - min(30, TabPreviewCache.limit))
+                }
+                cache.trim(to: 8)
+                let warningCount = cache.count
+                cache.removeAll()
+                report["preview_cache"] = ["entries": count, "bytes": bytes, "lru_correct": lru,
+                                            "warning_entries": warningCount, "cleared_entries": cache.count]
+                note("frames: preview cache \(count) entries, \(bytes) bytes; LRU \(lru)")
+            }
+        }
+
         // New Space: Create → presented frame (the Space is deleted again after each run).
         var newSpace: [FrameSample] = []
         var created = 0
+        var correctFooters = 0
         for i in 0..<(wanted("newspace") ? runs : 0) {
             run { [self] in
                 c.openNewSpacePanel()
@@ -77,6 +108,17 @@ extension SnapshotRunner {
             wait(0.5)
             run { [self] in
                 if c.store.space(c.currentSpaceID)?.name == "Frames \(i)" { created += 1 }
+                let footer = c.sidebar.footer.cellViews.compactMap { $0 as? SpaceBarView.SpaceCell }
+                if footer.map(\.spaceID) == c.store.orderedSpaces.map(\.id),
+                   zip(footer, c.store.orderedSpaces).allSatisfy({ cell, space in
+                       let expected: String
+                       switch space.icon {
+                       case .emoji(let e)?: expected = e
+                       case .symbol?: expected = "◆"
+                       case nil: expected = ""
+                       }
+                       return cell.label.stringValue == expected
+                   }) { correctFooters += 1 }
                 if let s = c.store.orderedSpaces.first(where: { $0.name == "Frames \(i)" }) {
                     try? c.store.deleteSpace(s.id)
                     c.reloadAll(animated: false)
@@ -88,6 +130,7 @@ extension SnapshotRunner {
         run { [self] in
             report["new_space"] = FrameSample.json(newSpace, budget: 8.3)
             report["new_space_created"] = created
+            report["new_space_correct_footers"] = correctFooters
             note("frames: new space " + FrameSample.text(newSpace) + "; \(created) of \(newSpace.count) created and shown")
             let census = ViewCensus(window: c.window)
             report["views_after_new_space"] = census.summary
@@ -97,7 +140,18 @@ extension SnapshotRunner {
         // Command bar: ⌘T and ⌘L, open → presented frame.
         for (key, mode) in [("command_bar_new_tab", CommandBarMode.newTab), ("command_bar_edit_url", .editURL)] {
             var samples: [FrameSample] = []
-            for _ in 0..<(wanted(mode == .newTab ? "cbnew" : "cburl") ? runs : 0) {
+            var tabSwitches = 0
+            for _ in 0..<((wanted(mode == .newTab ? "cbnew" : "cburl") || (only == "cbfirst" && mode == .newTab)) ? runs : 0) {
+                if only == "cbfirst" {
+                    run { [self] in
+                        let tabs = c.store.todayTabs(ofSpace: c.currentSpaceID).filter { c.engineTab(for: $0.id) != nil }
+                        if let other = tabs.first(where: { $0.id != c.shownTabID }) {
+                            c.show(other.id, focus: false)
+                            if c.shownTabID == other.id { tabSwitches += 1 }
+                        }
+                    }
+                    wait(0.25)
+                }
                 step { [self] done in
                     presented(clock, { self.c.openCommandBar(mode: mode) }) { samples.append($0); done() }
                 }
@@ -105,7 +159,11 @@ extension SnapshotRunner {
                 run { [self] in c.closeCommandBar() }
                 wait(0.35)
             }
-            run { [self] in report[key] = FrameSample.json(samples, budget: 8.0); note("frames: \(key) " + FrameSample.text(samples)) }
+            run { [self] in
+                report[key] = FrameSample.json(samples, budget: 8.0)
+                report[key + "_tab_switches"] = tabSwitches
+                note("frames: \(key) " + FrameSample.text(samples))
+            }
         }
 
         // A keystroke in the open bar (local results in its frame): the query alternates so every key changes them.
@@ -311,10 +369,11 @@ extension SnapshotRunner {
         let dirty = ProcessInfo.processInfo.environment["AIRC_FRAMES_DIRTY"] == "1"
         let counting = ProcessInfo.processInfo.environment["AIRC_FRAMES_COUNT"] == "1"
         if counting { LayoutCounter.install(); LayoutCounter.reset() }
-        if dirty { Perf.enabled = true; Perf.reset() }
+        let sections = ProcessInfo.processInfo.environment["AIRC_FRAMES_SECTIONS"] == "1"
+        if dirty || sections { Perf.enabled = true; Perf.reset() }
         let work = dirty ? { [self] in work(); note("frames: dirty after the action: " + ViewCensus.dirty(c.window)) } : work
-        let done = counting ? { [self] (s: FrameSample) in
-            note("frames: counted in the first frame: " + LayoutCounter.summary)
+        let done = counting || sections ? { [self] (s: FrameSample) in
+            if counting { note("frames: counted in the first frame: " + LayoutCounter.summary) }
             note("frames: sections (ms) " + Perf.report())
             done(s)
         } : done
@@ -389,7 +448,9 @@ struct FrameSample {
                 "work_ms": FrameStats(s.map(\.work)).json,
                 "frames": s.map { $0.frames.map { $0 as Any } ?? NSNull() },
                 "next_frame_share": s.isEmpty ? 0 : FrameStats.round2(Double(s.filter { $0.frames == 1 }.count) / Double(s.count)),
-                "presented_samples_ms": presented.map(FrameStats.round2)]
+                "presented_samples_ms": presented.map(FrameStats.round2),
+                "commit_samples_ms": s.map { FrameStats.round2($0.commit) },
+                "work_samples_ms": s.map { FrameStats.round2($0.work) }]
     }
 
     static func text(_ s: [FrameSample]) -> String {

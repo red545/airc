@@ -1,5 +1,6 @@
 // Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
 import AircDesign
+import AircImport
 import AircKit
 import AppKit
 import SwiftUI
@@ -137,65 +138,89 @@ struct ArcStep: View {
                            drawsBackground: false) {
             SidebarPreview(model: model)
         } content: {
-            content.testAnchor("onboarding.content")
+            VStack(alignment: .leading, spacing: 10) {
+                if showsSources { ImportSourceStrip(model: model) }
+                content
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .testAnchor("onboarding.content")
         } actions: {
             actions
         }
     }
 
+    /// The picker shows once Arc's search is done (IM-4: every browser found, Arc first).
+    private var showsSources: Bool {
+        if case .searching = model.arc, model.source == nil { return false }
+        return !model.sources.isEmpty && !model.choosing
+    }
+
     private var title: String {
-        switch model.arc {
-        case .notFound: "Start fresh."
-        default: model.choosing ? "Choose what comes over." : "Bring your Arc with you."
+        switch model.source {
+        case .browser?: "Bring your \(model.selectedSource?.name ?? "browser") with you."
+        case .bookmarksFile?: "Bring your bookmarks with you."
+        case .passwords?: "Bring your passwords."
+        case .arc?: model.choosing ? "Choose what comes over." : "Bring your Arc with you."
+        case nil:
+            switch model.arc {
+            case .notFound: "Start fresh."
+            default: "Bring your Arc with you."
+            }
         }
     }
 
     private var subtitle: String {
-        switch model.arc {
-        case .searching: "Looking for Arc on this Mac…"
-        case .found:
-            if model.choosing { "Pick the Spaces to bring. Their profiles and Favorites come with them." }
-            else if model.reimport?.line != nil { "Spaces you brought over before update in place from Arc; new ones go after yours. Nothing in Airc is removed." }
-            else { "We found Arc on this Mac. Your Spaces come over exactly as they are, profiles and all." }
-        case .notFound(let why): why
+        switch model.source {
+        case .browser?:
+            if model.reimport?.line != nil { return "Bookmarks you brought over before update in place; new ones go after yours. Nothing in Airc is removed." }
+            return "Each \(model.selectedSource?.name ?? "browser") profile becomes an Airc profile with its own Space: the bookmarks bar as pinned tabs, the rest in a folder."
+        case .bookmarksFile?:
+            return "Safari keeps its library to itself. Export your bookmarks from Safari, or any browser, and choose the file here."
+        case .passwords?:
+            return "Export them from your browser as a CSV file and choose it here. They go into the profile you pick and stay on this Mac."
+        case .arc?, nil:
+            switch model.arc {
+            case .searching: return "Looking for Arc on this Mac…"
+            case .found:
+                if model.choosing { return "Pick the Spaces to bring. Their profiles and Favorites come with them." }
+                if model.reimport?.line != nil { return "Spaces you brought over before update in place from Arc; new ones go after yours. Nothing in Airc is removed." }
+                return "We found Arc on this Mac. Your Spaces come over exactly as they are, profiles and all."
+            case .notFound(let why): return why
+            }
         }
     }
 
     @ViewBuilder private var content: some View {
-        switch model.arc {
-        case .searching:
-            HStack(spacing: 10) {
-                ProgressView().controlSize(.small)
-                Text("Reading Arc's sidebar").aircFont(AircFont.body).foregroundStyle(theme.surfaceTextSecondary.color)
-            }
-        case .notFound:
-            AircGroup {
-                infoRow("sparkles", "One Space to start, in its own profile", "Add more with + at the bottom of the sidebar.")
-                infoRow("person.crop.circle.badge.plus", "A profile per Space when you want one", "Each profile keeps its own logins, history and cookies.")
-            }
-        case .found:
+        switch model.source {
+        case .browser?, .bookmarksFile?: BrowserSourceDetail(model: model)
+        case .passwords?: PasswordsPane(model: model, showsHeader: true)
+        case .arc?:
             if model.choosing { chooser } else { summary }
+        case nil:
+            if case .searching = model.arc {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text("Reading Arc's sidebar").aircFont(AircFont.body).foregroundStyle(theme.surfaceTextSecondary.color)
+                }
+            } else {
+                AircGroup {
+                    infoRow("sparkles", "One Space to start, in its own profile", "Add more with + at the bottom of the sidebar.")
+                    infoRow("person.crop.circle.badge.plus", "A profile per Space when you want one", "Each profile keeps its own logins, history and cookies.")
+                }
+            }
         }
     }
 
     private var summary: some View {
         let c = model.counts
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 14) {
-                ArcAppIcon()
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(model.arcLabel).aircFont(AircFont.title3).foregroundStyle(theme.surfaceText.color)
-                    Text("\(c.spaces) Spaces · \(c.profiles) profiles · \(c.tabs) tabs").aircFont(AircFont.mono)
-                        .foregroundStyle(theme.surfaceTextSecondary.color)
-                }
-                Spacer()
+        return VStack(alignment: .leading, spacing: 10) {
+            SourceHeader(model.arcLabel, "\(c.spaces) Spaces · \(c.profiles) profiles · \(c.tabs) tabs") {
+                ArcAppIcon(size: 36)
+            } trailing: {
                 Button("Back up first") { model.onBackUpArc?() }
                     .buttonStyle(.airc(.secondary, size: .regular))
                     .help("Zip Arc's sidebar and profile list into Documents before importing (IM-5)")
             }
-            .padding(14)
-            .background(groupShape.fill(groupFill))
-            .overlay(groupShape.inset(by: 0.25).stroke(theme.surfaceBorder.color, lineWidth: 0.5))
             AircGroup {
                 checkRow("Spaces, pinned tabs and folders", model.reimport?.line, count: c.tabs, isOn: .constant(true), enabled: false, dims: false)
                     .testAnchor("onboarding.import.spaces")
@@ -241,16 +266,31 @@ struct ArcStep: View {
     }
 
     @ViewBuilder private var actions: some View {
-        switch model.arc {
-        case .searching:
-            Spacer()
+        switch model.source {
+        case .browser?, .bookmarksFile?:
             Button("Start fresh") { model.onStartFresh?() }.buttonStyle(.airc(.plain, size: .large))
-        case .notFound:
-            Button("Back") { model.onBack?() }.buttonStyle(.airc(.plain, size: .large))
             Spacer()
-            Button("Find Arc's folder…") { model.onLocateArc?() }.buttonStyle(.airc(.secondary, size: .large))
-            Button("Continue") { model.onStartFresh?() }.buttonStyle(.airc(.primary, size: .large)).keyboardShortcut(.defaultAction)
-        case .found:
+            if model.source == .bookmarksFile, model.selectedRead == nil {
+                Button("Choose File…") { model.onChooseBookmarksFile?() }
+                    .buttonStyle(.airc(.primary, size: .large))
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(model.readingSource)
+                    .testAnchor("onboarding.primary")
+            } else {
+                if model.source == .bookmarksFile {
+                    Button("Other File…") { model.onChooseBookmarksFile?() }.buttonStyle(.airc(.secondary, size: .large))
+                }
+                Button("Import from \(model.selectedSource?.name ?? "browser")") { model.onImportEverything?() }
+                    .buttonStyle(.airc(.primary, size: .large))
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!model.hasPlan || model.chosenSpaces.isEmpty)
+                    .testAnchor("onboarding.primary")
+            }
+        case .passwords?:
+            Button("Start fresh") { model.onStartFresh?() }.buttonStyle(.airc(.plain, size: .large))
+            Spacer()
+            PasswordsActions(model: model)
+        case .arc?:
             if model.choosing {
                 Button("Back") { model.choosing = false }.buttonStyle(.airc(.plain, size: .large))
                 Spacer()
@@ -268,15 +308,41 @@ struct ArcStep: View {
                     .keyboardShortcut(.defaultAction)
                     .testAnchor("onboarding.primary")
             }
+        case nil:
+            if case .searching = model.arc {
+                Spacer()
+                Button("Start fresh") { model.onStartFresh?() }.buttonStyle(.airc(.plain, size: .large))
+            } else {
+                Button("Back") { model.onBack?() }.buttonStyle(.airc(.plain, size: .large))
+                Spacer()
+                Button("Find Arc's folder…") { model.onLocateArc?() }.buttonStyle(.airc(.secondary, size: .large))
+                Button("Continue") { model.onStartFresh?() }.buttonStyle(.airc(.primary, size: .large)).keyboardShortcut(.defaultAction)
+            }
         }
     }
 
-    private var groupShape: RoundedRectangle { RoundedRectangle(cornerRadius: AircRadius.control + 2, style: .continuous) }
-    private var groupFill: Color { (theme.isDark ? AircColor.white(0.035).over(theme.surface) : AircColor.white()).color }
-
     private func checkRow(_ title: String, _ subtitle: String?, count: Int?, isOn: Binding<Bool>, enabled: Bool = true, dims: Bool = true) -> some View {
+        ImportCheckRow(title: title, subtitle: subtitle, count: count, isOn: isOn, enabled: enabled, dims: dims)
+    }
+
+    private func infoRow(_ symbol: String, _ title: String, _ subtitle: String) -> some View {
+        ImportInfoRow(symbol: symbol, title: title, subtitle: subtitle)
+    }
+}
+
+/// A row with a checkbox, a title (and a subtitle), and a count at the trailing edge.
+struct ImportCheckRow: View {
+    let title: String
+    var subtitle: String?
+    var count: Int?
+    @Binding var isOn: Bool
+    var enabled = true
+    var dims = true
+    @Environment(\.aircTheme) private var theme
+
+    var body: some View {
         HStack(spacing: 12) {
-            AircCheckbox(isOn: isOn, isEnabled: enabled, dimsWhenDisabled: dims)
+            AircCheckbox(isOn: $isOn, isEnabled: enabled, dimsWhenDisabled: dims)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).aircFont(AircFont.body).foregroundStyle(theme.surfaceText.color).lineLimit(1)
                 if let subtitle {
@@ -290,37 +356,415 @@ struct ArcStep: View {
         .padding(.horizontal, 14)
         .frame(height: subtitle == nil ? 44 : 54)
         .contentShape(Rectangle())
-        .onTapGesture { if enabled { withAircAnimation(AircSpring.toggle) { isOn.wrappedValue.toggle() } } }
+        .onTapGesture { if enabled { withAircAnimation(AircSpring.toggle) { isOn.toggle() } } }
     }
+}
 
-    private func infoRow(_ symbol: String, _ title: String, _ subtitle: String) -> some View {
+/// A row that explains: a symbol, a title and a line under it.
+struct ImportInfoRow: View {
+    let symbol: String
+    let title: String
+    let subtitle: String
+    var minHeight: CGFloat = 54
+    @Environment(\.aircTheme) private var theme
+
+    var body: some View {
         HStack(spacing: 12) {
             Image(systemName: symbol).font(.system(size: 14, weight: .medium)).foregroundStyle(theme.accent.color).frame(width: 20)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).aircFont(AircFont.body).foregroundStyle(theme.surfaceText.color)
-                Text(subtitle).aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color)
+                Text(title).aircFont(AircFont.body).foregroundStyle(theme.surfaceText.color).lineLimit(1)
+                Text(subtitle).aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color).lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer()
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 14)
-        .frame(minHeight: 54)
+        .padding(.vertical, 8)
+        .frame(minHeight: minHeight)
+    }
+}
+
+/// The import step's header card: the source's icon, name and counts, and an action at the trailing edge.
+struct SourceHeader<Icon: View, Trailing: View>: View {
+    let title: String
+    let subtitle: String
+    let icon: Icon
+    let trailing: Trailing
+    @Environment(\.aircTheme) private var theme
+
+    init(_ title: String, _ subtitle: String, @ViewBuilder icon: () -> Icon, @ViewBuilder trailing: () -> Trailing) {
+        self.title = title
+        self.subtitle = subtitle
+        self.icon = icon()
+        self.trailing = trailing()
+    }
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: AircRadius.control + 2, style: .continuous)
+        HStack(spacing: 12) {
+            icon
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).aircFont(AircFont.title3).foregroundStyle(theme.surfaceText.color).lineLimit(1)
+                Text(subtitle).aircFont(AircFont.mono).foregroundStyle(theme.surfaceTextSecondary.color)
+                    .lineLimit(1).truncationMode(.tail).help(subtitle)
+            }
+            Spacer(minLength: 8)
+            trailing
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 56)
+        .background(shape.fill((theme.isDark ? AircColor.white(0.035).over(theme.surface) : AircColor.white()).color))
+        .overlay(shape.inset(by: 0.25).stroke(theme.surfaceBorder.color, lineWidth: 0.5))
+        .testAnchor("onboarding.source.header")
+    }
+}
+
+/// IM-4: the sources the import step can bring things from, Arc first, as one row of pills. Past the card's width it
+/// scrolls, with a fade at the edge, and keeps the picked one in view.
+struct ImportSourceStrip: View {
+    @ObservedObject var model: OnboardingModel
+    @Environment(\.aircTheme) private var theme
+    @State private var contentWidth: CGFloat = 0
+    @State private var visibleWidth: CGFloat = 0
+
+    private var overflows: Bool { contentWidth > visibleWidth + 0.5 }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 2) {
+                    ForEach(model.sources) { pill($0).id($0.source) }
+                }
+                .padding(.horizontal, 1)
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { contentWidth = $0 }
+            }
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { visibleWidth = $0 }
+            .onChange(of: model.source) { _, s in
+                guard let s, overflows else { return }
+                withAircAnimation(AircSpring.toggle) { proxy.scrollTo(s) }
+            }
+        }
+        .frame(height: 30)
+        .mask {
+            HStack(spacing: 0) {
+                Rectangle()
+                LinearGradient(colors: [.black, .black.opacity(overflows ? 0 : 1)], startPoint: .leading, endPoint: .trailing).frame(width: 24)
+            }
+        }
+        .testAnchor("onboarding.sources")
+    }
+
+    private func pill(_ s: OnboardingModel.SourceItem) -> some View {
+        let on = model.source == s.source
+        return Button { withAircAnimation(AircSpring.toggle) { model.onSelectSource?(s.source) } } label: {
+            HStack(spacing: 5) {
+                SourceIcon(item: s, size: 16)
+                Text(s.name).aircFont(AircFont.callout.weight(on ? .semibold : .medium)).lineLimit(1).fixedSize()
+            }
+            .foregroundStyle((on ? theme.surfaceText : theme.surfaceTextSecondary).color)
+            .padding(.leading, 6)
+            .padding(.trailing, 9)
+            .frame(height: 28)
+            .background(Capsule().fill(on ? theme.surfaceSelected.color : Color.clear))
+            .overlay(Capsule().inset(by: 0.25).stroke(on ? theme.surfaceBorder.color : Color.clear, lineWidth: 0.5))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(help(s))
+        .accessibilityAddTraits(on ? .isSelected : [])
+        .testAnchor("onboarding.source." + s.anchor)
+    }
+
+    private func help(_ s: OnboardingModel.SourceItem) -> String {
+        switch s.source {
+        case .arc: "Spaces, pinned tabs, Favorites and logins from Arc"
+        case .browser: "Bookmarks and history from \(s.name)"
+        case .bookmarksFile: "Bookmarks from a file Safari (or any browser) exports"
+        case .passwords: "Saved passwords from a CSV file you export"
+        }
+    }
+}
+
+/// A source's icon: the installed app's (never in automated runs), else a calm stand-in in the browser's colour.
+struct SourceIcon: View {
+    let item: OnboardingModel.SourceItem
+    let size: CGFloat
+
+    var body: some View {
+        Group {
+            switch item.source {
+            case .arc: ArcAppIcon(size: size)
+            case .passwords: tile(AircColor(0x8E9AAF), symbol: "key.fill")
+            default:
+                if let icon = SourceIcon.icon(item) {
+                    Image(nsImage: icon).resizable().interpolation(.high)
+                } else if item.kind == .safari {
+                    tile(AircColor(hex: BrowserKind.safari.color) ?? AircColor(0x7FB8F0), symbol: "safari")
+                } else {
+                    tile(item.kind.flatMap { AircColor(hex: $0.color) } ?? AircColor(0x9AA5B8), letter: String(item.name.prefix(1)))
+                }
+            }
+        }
+        .frame(width: size, height: size)
+    }
+
+    private func tile(_ c: AircColor, symbol: String? = nil, letter: String? = nil) -> some View {
+        RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
+            .fill(LinearGradient(colors: [c.color, c.lerp(to: .black(), 0.18).color], startPoint: .top, endPoint: .bottom))
+            .overlay {
+                if let symbol { Image(systemName: symbol).font(.system(size: size * 0.55, weight: .semibold)).foregroundStyle(.white) }
+                if let letter { Text(letter).font(.system(size: size * 0.6, weight: .bold, design: .rounded)).foregroundStyle(.white) }
+            }
+            .padding(size * 0.06)
+    }
+
+    private static var cache: [String: NSImage] = [:]
+    private static var missing: Set<String> = []
+
+    static func icon(_ item: OnboardingModel.SourceItem) -> NSImage? {
+        let key = item.bundleIDs.joined(separator: ",")
+        if let i = cache[key] { return i }
+        guard !missing.contains(key) else { return nil }
+        if let i = BrowserImportLocator.icon(bundleIDs: item.bundleIDs) { cache[key] = i; return i }
+        missing.insert(key)
+        return nil
+    }
+}
+
+/// Another browser's (or a bookmarks file's) part of the import step: its counts, each profile with its colour and
+/// what it brings, ticked to come over, and its history.
+struct BrowserSourceDetail: View {
+    @ObservedObject var model: OnboardingModel
+    @Environment(\.aircTheme) private var theme
+
+    static let rowHeight: CGFloat = 44
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let r = model.selectedRead {
+                header(r)
+                AircGroup {
+                    if model.source == .bookmarksFile {
+                        ImportInfoRow(symbol: "doc.text", title: model.bookmarksFileName ?? "Bookmarks file",
+                                      subtitle: "Becomes the Space “\(r.plan.spaces.first?.name ?? "Safari")”, in its own profile.", minHeight: 52)
+                    } else {
+                        ScrollView(.vertical, showsIndicators: r.profiles.count > 2) {
+                            VStack(spacing: 0) { ForEach(r.profiles) { profileRow($0, r) } }
+                        }
+                        .scrollBounceBehavior(.basedOnSize)
+                        .frame(height: Self.rowHeight * min(CGFloat(r.profiles.count), 2.5))
+                        .testAnchor("onboarding.browser.profiles")
+                        ImportCheckRow(title: "History, for ⌘T suggestions", subtitle: nil, count: chosenHistory(r), isOn: $model.includeHistory)
+                            .testAnchor("onboarding.browser.history")
+                    }
+                }
+                if let note = model.importNote ?? model.sourceNote {
+                    Label(note, systemImage: "exclamationmark.triangle")
+                        .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color).lineLimit(2)
+                } else if !model.importChanges.isEmpty {
+                    ImportChangesLine(changes: model.importChanges)
+                }
+            } else if model.source == .bookmarksFile {
+                SourceHeader("Safari", model.readingSource ? "Reading the file…" : "Bookmarks from a file you export") {
+                    SourceIcon(item: model.selectedSource ?? .init(source: .bookmarksFile, name: "Safari", kind: .safari), size: 36)
+                } trailing: { EmptyView() }
+                AircGroup {
+                    ImportInfoRow(symbol: "square.and.arrow.up", title: "In Safari: File → Export → Bookmarks…",
+                                  subtitle: "It saves “Safari Bookmarks.html”. Favorites become pinned tabs.")
+                    ImportInfoRow(symbol: "doc.on.doc", title: "Any browser's bookmarks file works",
+                                  subtitle: "Chrome, Edge and Firefox export the same kind of file.")
+                }
+                if let note = model.sourceNote {
+                    Label(note, systemImage: "exclamationmark.triangle")
+                        .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color).lineLimit(2)
+                }
+            } else {
+                SourceHeader(model.selectedSource?.name ?? "", model.sourceNote ?? "Reading bookmarks and history…") {
+                    if let s = model.selectedSource { SourceIcon(item: s, size: 36) }
+                } trailing: {
+                    if model.sourceNote == nil { ProgressView().controlSize(.small) }
+                }
+            }
+        }
+    }
+
+    /// The header's line for what's ticked: "26 bookmarks · 6 folders · 300 history entries".
+    static func countsLine(_ r: BrowserImport, chosen spaces: Set<String>, history: Bool) -> String {
+        let chosen = r.profiles.filter { spaces.contains(BrowserImport.Keys.space(r.installID, $0.profileID)) }
+        return BrowserImportAdapter.counts(bookmarks: chosen.reduce(0) { $0 + $1.bookmarks }, folders: chosen.reduce(0) { $0 + $1.folders },
+                                           history: r.fromFile || !history ? nil : chosen.reduce(0) { $0 + $1.history })
+    }
+
+    private func header(_ r: BrowserImport) -> some View {
+        let line = Self.countsLine(r, chosen: model.chosenSpaces, history: model.includeHistory)
+        return SourceHeader(model.source == .bookmarksFile ? (r.kind?.name ?? "Bookmarks") : (model.selectedSource?.name ?? ""), line) {
+            if let s = model.selectedSource { SourceIcon(item: s, size: 36) }
+        } trailing: { EmptyView() }
+        .testAnchor("onboarding.browser.counts")
+    }
+
+    private func chosenHistory(_ r: BrowserImport) -> Int {
+        r.profiles.filter { model.chosenSpaces.contains(BrowserImport.Keys.space(r.installID, $0.profileID)) }.reduce(0) { $0 + $1.history }
+    }
+
+    private func profileRow(_ p: BrowserProfileSummary, _ r: BrowserImport) -> some View {
+        let space = BrowserImport.Keys.space(r.installID, p.profileID)
+        let on = Binding(get: { model.chosenSpaces.contains(space) },
+                         set: { v in if v { model.chosenSpaces.insert(space) } else { model.chosenSpaces.remove(space) } })
+        let color = p.color.flatMap { AircColor(hex: $0) } ?? r.kind.flatMap { AircColor(hex: $0.color) } ?? theme.accent
+        return HStack(spacing: 12) {
+            AircCheckbox(isOn: on)
+            AircProfileAvatar(AircProfileIdentity(name: p.name, color: color), size: 22)
+            Text(p.name).aircFont(AircFont.body).foregroundStyle(theme.surfaceText.color).lineLimit(1)
+            Spacer(minLength: 8)
+            Text(p.unreadable.contains("bookmarks") ? "bookmarks unreadable"
+                 : BrowserImportAdapter.counts(bookmarks: p.bookmarks, folders: p.folders, history: nil))
+                .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextTertiary.color).lineLimit(1).fixedSize()
+        }
+        .padding(.horizontal, 14)
+        .frame(height: Self.rowHeight)
+        .contentShape(Rectangle())
+        .onTapGesture { withAircAnimation(AircSpring.toggle) { on.wrappedValue.toggle() } }
+        .onHover { model.hover(profile: p.sourceKey, inside: $0) }
+        .testAnchor("onboarding.browser.profile.\(p.profileID)")
+    }
+}
+
+/// Passwords from a CSV file (IM-4): which profile they go into, where to export them from, and once read what came
+/// over, with the offer to move the plain-text file to the Trash. On the import step (its Passwords source) and on the
+/// logins step after another browser's import.
+struct PasswordsPane: View {
+    @ObservedObject var model: OnboardingModel
+    var showsHeader: Bool
+    var kind: BrowserKind? = nil
+    @Environment(\.aircTheme) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if showsHeader {
+                SourceHeader("Passwords", "From a CSV file you export") {
+                    SourceIcon(item: .init(source: .passwords, name: "Passwords", kind: nil), size: 36)
+                } trailing: { EmptyView() }
+            }
+            AircGroup {
+                switch model.passwords {
+                case .done(let o):
+                    ImportInfoRow(symbol: o.isFailure ? "exclamationmark.triangle" : "checkmark.circle.fill", title: o.summary,
+                                  subtitle: o.details ?? "Into \(profileName). Saved here, re-encrypted with Airc's own key.", minHeight: 52)
+                        .testAnchor("onboarding.passwords.result")
+                    discardRow
+                default:
+                    intoRow
+                    if model.loginsAvailable {
+                        ImportInfoRow(symbol: "square.and.arrow.up", title: "Export the file from your browser",
+                                      subtitle: PasswordImport.exportHint(kind), minHeight: 52)
+                        ImportInfoRow(symbol: "lock", title: "Plain text until it's in",
+                                      subtitle: "Airc offers to move it to the Trash once it's in.", minHeight: 52)
+                    } else {
+                        ImportInfoRow(symbol: "lock", title: "Comes with the Chromium engine",
+                                      subtitle: "This build runs on WebKit, so no file is read.", minHeight: 52)
+                    }
+                }
+            }
+            switch model.passwords {
+            case .reading:
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text("Bringing over passwords…").aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color)
+                }
+            case .failed(let why):
+                Label(why, systemImage: "exclamationmark.triangle")
+                    .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color).lineLimit(2)
+                    .testAnchor("onboarding.passwords.failed")
+            default: EmptyView()
+            }
+        }
+    }
+
+    private var profileName: String { model.aircProfiles.first { $0.id == model.passwordsProfile }?.name ?? "this profile" }
+
+    private var intoRow: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "person.crop.circle").font(.system(size: 14, weight: .medium)).foregroundStyle(theme.accent.color).frame(width: 20)
+            Text("Into the profile").aircFont(AircFont.body).foregroundStyle(theme.surfaceText.color)
+            Spacer()
+            Menu {
+                ForEach(model.aircProfiles, id: \.id) { p in
+                    Button(p.name) { model.passwordsProfile = p.id }
+                }
+            } label: {
+                Text(profileName).aircFont(AircFont.body.weight(.medium))
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .testAnchor("onboarding.passwords.profile")
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 44)
+    }
+
+    @ViewBuilder private var discardRow: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "trash").font(.system(size: 14, weight: .medium)).foregroundStyle(theme.accent.color).frame(width: 20)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.passwordsFileDiscarded == true ? "Moved to the Trash" : "“\(model.passwordsFileName ?? "The file")” is plain text")
+                    .aircFont(AircFont.body).foregroundStyle(theme.surfaceText.color).lineLimit(1).truncationMode(.middle)
+                Text(model.passwordsFileDiscarded == true ? "Empty the Trash to delete it for good."
+                     : model.passwordsFileDiscarded == false ? "It couldn't be moved. Delete it yourself."
+                     : "Move it to the Trash now that it's in.")
+                    .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color).lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            if model.passwordsFileDiscarded != true {
+                Button("Move to Trash") { model.onDiscardPasswordsFile?() }
+                    .buttonStyle(.airc(.secondary, size: .regular))
+                    .testAnchor("onboarding.passwords.trash")
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 54)
+    }
+}
+
+/// The passwords pane's buttons: choose the file, then Done.
+struct PasswordsActions: View {
+    @ObservedObject var model: OnboardingModel
+
+    var body: some View {
+        switch model.passwords {
+        case .done:
+            Button("Done") { model.onPasswordsDone?() }
+                .buttonStyle(.airc(.primary, size: .large))
+                .keyboardShortcut(.defaultAction)
+                .testAnchor("onboarding.primary")
+        case .reading:
+            Button("Importing…") {}.buttonStyle(.airc(.primary, size: .large)).disabled(true)
+        default:
+            Button("Choose CSV File…") { model.onChoosePasswordsFile?() }
+                .buttonStyle(.airc(.primary, size: .large))
+                .keyboardShortcut(.defaultAction)
+                .disabled(!model.loginsAvailable)
+                .testAnchor("onboarding.primary")
+        }
     }
 }
 
 /// Arc's app icon when Arc is installed (and this isn't an automated run); otherwise a neutral stand-in.
 struct ArcAppIcon: View {
+    var size: CGFloat = 42
+
     var body: some View {
         Group {
             if let icon = ArcAppIcon.installedIcon {
                 Image(nsImage: icon).resizable().interpolation(.high)
             } else {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                RoundedRectangle(cornerRadius: size * 0.214, style: .continuous)
                     .fill(LinearGradient(colors: [AircColor(0xF7B184).color, AircColor(0xE0559F).color], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .overlay(Image(systemName: "arrow.down.forward.and.arrow.up.backward").font(.system(size: 15, weight: .semibold)).foregroundStyle(.white))
-                    .padding(3)
+                    .overlay(Image(systemName: "arrow.down.forward.and.arrow.up.backward").font(.system(size: size * 0.36, weight: .semibold)).foregroundStyle(.white))
+                    .padding(size * 0.07)
             }
         }
-        .frame(width: 42, height: 42)
+        .frame(width: size, height: size)
     }
 
     static let installedIcon: NSImage? = {
@@ -340,7 +784,7 @@ struct AccountsStep: View {
 
     var body: some View {
         AircOnboardingPage(step: OnboardingStep.accounts.dot, of: model.dots, title: "Spaces and accounts.",
-                           subtitle: "Each Arc profile becomes a real profile with its own logins. Sign each one in to its own Google account.",
+                           subtitle: "Each \(model.importedName) profile becomes a real profile with its own logins. Sign each one in to its own Google account.",
                            drawsBackground: false) {
             SidebarPreview(model: model)
         } content: {
@@ -363,11 +807,12 @@ struct AccountsStep: View {
                 }
                 .frame(maxHeight: .infinity, alignment: .top)
                 .testAnchor("onboarding.accounts.list")
-                if model.includeLogins {
+                if model.offersLoginsStep {
                     HStack(alignment: .top, spacing: 10) {
                         Image(systemName: "lock").font(.system(size: 13, weight: .medium)).foregroundStyle(theme.surfaceTextTertiary.color)
-                        Text(model.loginsAvailable ? "Next, macOS asks for your Mac password once, to unlock Arc's saved logins."
-                                                   : "Logins come over with the Chromium engine.")
+                        Text(!model.loginsAvailable ? "Logins come over with the Chromium engine."
+                             : model.importedFromArc ? "Next, macOS asks for your Mac password once, to unlock Arc's saved logins."
+                             : "Next: saved passwords, from a CSV file you export from \(model.importedName).")
                             .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color)
                             .lineLimit(2)
                     }
@@ -378,8 +823,8 @@ struct AccountsStep: View {
         } actions: {
             Button("Back") { model.onBack?() }.buttonStyle(.airc(.plain, size: .large))
             Spacer()
-            if model.includeLogins && model.loginsAvailable {
-                Button("Skip logins") { model.onSkipLogins?() }.buttonStyle(.airc(.secondary, size: .large))
+            if model.offersLoginsStep && model.loginsAvailable {
+                Button(model.importedFromArc ? "Skip logins" : "Skip passwords") { model.onSkipLogins?() }.buttonStyle(.airc(.secondary, size: .large))
             }
             Button("Continue") { model.onNext?() }.buttonStyle(.airc(.primary, size: .large)).keyboardShortcut(.defaultAction)
                 .testAnchor("onboarding.primary")
@@ -535,6 +980,33 @@ struct LoginsStep: View {
     @Environment(\.aircTheme) private var theme
 
     var body: some View {
+        if model.importedFromArc { arc } else { passwords }
+    }
+
+    /// After another browser's import: its saved passwords, from a CSV file it exports (IM-4). Its own password store
+    /// is never read.
+    private var passwords: some View {
+        AircOnboardingPage(step: OnboardingStep.logins.dot, of: model.dots, title: "Bring your passwords.",
+                           subtitle: "\(model.importedName) keeps saved passwords to itself. Export them as a CSV file and choose it here; they go into the profile you pick.",
+                           drawsBackground: false) {
+            SidebarPreview(model: model)
+        } content: {
+            PasswordsPane(model: model, showsHeader: false, kind: model.selectedRead?.kind ?? model.selectedSource?.kind)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .testAnchor("onboarding.content")
+        } actions: {
+            Button("Back") { model.onBack?() }.buttonStyle(.airc(.plain, size: .large))
+            Spacer()
+            switch model.passwords {
+            case .done, .reading: PasswordsActions(model: model)
+            default:
+                Button("Not now") { model.onSkipLogins?() }.buttonStyle(.airc(.secondary, size: .large))
+                PasswordsActions(model: model)
+            }
+        }
+    }
+
+    private var arc: some View {
         AircOnboardingPage(step: OnboardingStep.logins.dot, of: model.dots, title: "Bring your logins.",
                            subtitle: model.loginsAvailable
                                ? "Arc keeps passwords and cookies locked with a key in your Keychain. macOS asks for your Mac password once to unlock it."
@@ -619,7 +1091,7 @@ struct ThemeStep: View {
 
     var body: some View {
         AircOnboardingPage(step: OnboardingStep.theme.dot, of: model.dots,
-                           title: model.hasArc && !model.startedFresh ? "Looks right?" : "Make it yours.",
+                           title: model.importedSource == .arc && !model.startedFresh ? "Looks right?" : "Make it yours.",
                            subtitle: "Pick a colour for each Space. The window re-tints as you choose.",
                            drawsBackground: false) {
             SidebarPreview(model: model)
@@ -655,7 +1127,7 @@ struct ThemeStep: View {
         } actions: {
             Button("Back") { model.onBack?() }.buttonStyle(.airc(.plain, size: .large))
             Spacer()
-            Button(model.hasArc && !model.startedFresh ? "Looks right" : "Continue") { model.onNext?() }
+            Button(model.importedSource == .arc && !model.startedFresh ? "Looks right" : "Continue") { model.onNext?() }
                 .buttonStyle(.airc(.primary, size: .large))
                 .keyboardShortcut(.defaultAction)
         }
@@ -802,6 +1274,8 @@ struct DoneStep: View {
 
     private var subtitle: String {
         if model.startedFresh { return "Here's your card. Your first Space is ready." }
+        if case .done(let o) = model.passwords, o.imported > 0 { return "Here's your card. Your Spaces, bookmarks and passwords are ready." }
+        if !model.importedFromArc { return "Here's your card. Your Spaces and bookmarks are ready." }
         switch model.logins {
         case .done(let o) where !o.isFailure: return "Here's your card. Your Spaces, tabs and logins are ready."
         default: return "Here's your card. Your Spaces and tabs are ready."

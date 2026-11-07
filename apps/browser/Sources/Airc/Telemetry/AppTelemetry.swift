@@ -210,7 +210,8 @@ final class AppTelemetry {
     /// OnboardingController.finish: the import's outcome (if one ran) and the finish itself. A failed import is
     /// recorded where it fails (OnboardingController.runImport).
     static func onboardingFinished(model: OnboardingModel) {
-        if let r = model.result {
+        // Another browser's import is recorded when it runs (import.browser).
+        if let r = model.result, model.importedFromArc {
             var logins = false
             if case .done = model.logins { logins = true }
             Telemetry.shared.record(.importArc(.init(result: .success, spaces: r.spacesCreated + r.spacesUpdated,

@@ -208,6 +208,39 @@ final class HistoryTests: XCTestCase {
         XCTAssertEqual(h.entry(profileID: "work", url: "https://github.com/acme/web")?.visitCount, 5)
     }
 
+    /// IM-4: another browser's history merges into Airc's; importing it again changes nothing.
+    func testImportedVisitsMergeWithoutDoubling() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("airc-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = dir.appendingPathComponent("history.sqlite").path
+        let then = Date(timeIntervalSince1970: 1_790_000_000)
+        let later = then.addingTimeInterval(3600)
+        do {
+            let h = try HistoryStore(path: path)
+            h.now = { then }
+            h.recordVisit(profileID: "work", url: "https://example.com/", typed: true)
+            let visits = [
+                HistoryEntry(profileID: "work", url: "https://example.com/", title: "Example", visitCount: 12, typedCount: 0, lastVisit: later),
+                HistoryEntry(profileID: "work", url: "https://docs.example.com/", title: "Docs", visitCount: 2, lastVisit: then),
+                HistoryEntry(profileID: "work", url: "chrome://settings/", title: "Settings", visitCount: 9, lastVisit: then),
+            ]
+            let first = h.importVisits(visits)
+            XCTAssertEqual(first.added, 1)
+            XCTAssertEqual(first.updated, 1)
+            let again = h.importVisits(visits)
+            XCTAssertEqual(again.added + again.updated, 0, "the same history again changes nothing")
+            XCTAssertEqual(h.search("docs", profileID: "work").first?.entry.url, "https://docs.example.com/", "⌘T finds imported pages")
+            XCTAssertTrue(h.entries(ofProfile: "home").isEmpty, "only the profile it went into")
+        }
+        let h = try HistoryStore(path: path)
+        let e = try XCTUnwrap(h.entry(profileID: "work", url: "https://example.com/"))
+        XCTAssertEqual(e.visitCount, 12, "the higher count, never the sum")
+        XCTAssertEqual(e.typedCount, 1)
+        XCTAssertEqual(e.title, "Example")
+        XCTAssertEqual(e.lastVisit, later)
+        XCTAssertEqual(h.entries(ofProfile: "work").count, 2, "chrome:// pages aren't history")
+    }
+
     func testFrecencyDecays() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let fresh = HistoryEntry(profileID: "p", url: "https://a", visitCount: 2, lastVisit: now)

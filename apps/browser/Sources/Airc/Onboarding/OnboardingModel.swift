@@ -49,6 +49,41 @@ final class OnboardingModel: ObservableObject {
         case skipped
     }
 
+    /// Where an import comes from (IM-4): Arc, another browser found on this Mac (its install ID), a bookmarks file
+    /// (Safari's export, or any browser's), or a passwords CSV file.
+    enum ImportSource: Hashable {
+        case arc
+        case browser(String)
+        case bookmarksFile
+        case passwords
+    }
+
+    /// One entry of the import step's source picker.
+    struct SourceItem: Identifiable, Equatable {
+        var source: ImportSource
+        var name: String
+        var kind: BrowserKind?
+        var bundleIDs: [String] = []
+        var id: ImportSource { source }
+
+        /// For test anchors: "arc", "chrome", "chrome-beta", "file", "passwords".
+        var anchor: String {
+            switch source {
+            case .arc: "arc"
+            case .browser(let id): id
+            case .bookmarksFile: "file"
+            case .passwords: "passwords"
+            }
+        }
+    }
+
+    enum PasswordsState: Equatable {
+        case idle
+        case reading
+        case done(PasswordImport.Outcome)
+        case failed(String)
+    }
+
     @Published var step: OnboardingStep = .welcome
     /// +1 going forward, −1 going back (the card's slide direction).
     @Published var direction = 1
@@ -105,6 +140,41 @@ final class OnboardingModel: ObservableObject {
     @Published var askingDefault = false
     /// The browser links open in now, for the picture of the macOS dialog ("Keep “Safari”").
     var currentBrowser = "Safari"
+    /// The import step's sources, Arc first, then every other browser found, a bookmarks file and a passwords file.
+    @Published var sources: [SourceItem] = []
+    /// The source the import step shows; nil while nothing is found (Start fresh).
+    @Published var source: ImportSource?
+    /// The person picked a source: Arc turning up later doesn't take over.
+    var pickedSource = false
+    /// Arc's own blueprint, kept while another source is shown.
+    var arcBlueprint: ImportBlueprint?
+    /// Other browsers found on this Mac, by install ID.
+    var installs: [String: BrowserInstall] = [:]
+    /// What each browser (by install ID) or the chosen bookmarks file ("file") brings, once read. Counts and the plan
+    /// stay on this Mac: never logged, never sent.
+    @Published var browserReads: [String: BrowserImport] = [:]
+    /// A browser's bookmarks and history are being read.
+    @Published var readingSource = false
+    /// Why the shown source couldn't be read.
+    @Published var sourceNote: String?
+    /// Other browsers' history, for ⌘T suggestions.
+    @Published var includeHistory = true
+    /// The chosen bookmarks file's name.
+    @Published var bookmarksFileName: String?
+    /// Where the last import came from (the accounts and logins steps say so).
+    @Published var importedSource: ImportSource?
+    /// History entries the last browser import brought.
+    @Published var historyImported = 0
+    @Published var passwords: PasswordsState = .idle
+    /// The Airc profile a passwords file goes into.
+    @Published var passwordsProfile: String?
+    /// The chosen CSV file: kept only to offer moving it to the Trash.
+    var passwordsFile: URL?
+    @Published var passwordsFileName: String?
+    /// nil until the person answered; then whether it went to the Trash.
+    @Published var passwordsFileDiscarded: Bool?
+    /// Airc's profiles, for the passwords file's "Into" menu: ID and name.
+    @Published var aircProfiles: [(id: String, name: String)] = []
     @Published var memberName = ""
     @Published var memberNumber = 1
     let systemDark: Bool
@@ -129,6 +199,12 @@ final class OnboardingModel: ObservableObject {
     var onDefaultNotNow: (() -> Void)?
     var onOpen: (() -> Void)?
     var onShareCard: (() -> Void)?
+    var onSelectSource: ((ImportSource) -> Void)?
+    var onChooseBookmarksFile: (() -> Void)?
+    var onChoosePasswordsFile: (() -> Void)?
+    var onDiscardPasswordsFile: (() -> Void)?
+    /// The passwords source's Done: on to the colours (first run) or closed (a re-run opened on import).
+    var onPasswordsDone: (() -> Void)?
 
     init(systemDark: Bool) {
         self.systemDark = systemDark
@@ -147,7 +223,35 @@ final class OnboardingModel: ObservableObject {
         return out
     }
 
-    var hasArc: Bool { if case .found = arc { return blueprint != nil } else { return false } }
+    var hasArc: Bool { if case .found = arc { return arcBlueprint != nil } else { return false } }
+
+    /// The shown source has something to import.
+    var hasPlan: Bool { !(blueprint?.spaces.isEmpty ?? true) }
+
+    var isArcSource: Bool { source == .arc }
+
+    var selectedSource: SourceItem? { sources.first { $0.source == source } }
+
+    /// The browser or file the shown source has read.
+    var selectedRead: BrowserImport? {
+        switch source {
+        case .browser(let id)?: browserReads[id]
+        case .bookmarksFile?: browserReads["file"]
+        default: nil
+        }
+    }
+
+    /// The last import came from Arc (or nothing was imported yet).
+    var importedFromArc: Bool { importedSource == nil || importedSource == .arc }
+
+    /// The last import's source's name ("Arc", "Chrome").
+    var importedName: String {
+        guard let s = importedSource, let item = sources.first(where: { $0.source == s }) else { return "Arc" }
+        return s == .bookmarksFile ? (browserReads["file"]?.kind?.name ?? "Safari") : item.name
+    }
+
+    /// The logins step follows the accounts: Arc's when its logins are ticked; a passwords file after any other.
+    var offersLoginsStep: Bool { importedFromArc ? includeLogins && hasArc : true }
 
     /// The Spaces the browser will have, in order: the plan's chosen ones, or the fresh install's one Space.
     var previewSpaces: [ImportBlueprint.Space] {

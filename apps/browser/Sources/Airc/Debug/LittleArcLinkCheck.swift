@@ -117,6 +117,34 @@ extension SnapshotRunner {
                 done()
             }
         }
+        // The engine's attach, done again by hand, on both engines: an invisible window ordered in just below the
+        // browser window (as Chromium shows the anchor), then made Little Arc's child (as the engine attaches it).
+        // Attaching moves the parent down to its child: Little Arc must come out of it in front again.
+        step { [self] done in
+            guard let w = little?.window, w.isOnActiveSpace else {
+                skip("little arc (Apple event): a dialog anchor attached as the engine attaches its own leaves it in front: the window isn't on the active Space")
+                return done()
+            }
+            let anchor = NSWindow(contentRect: NSRect(x: w.frame.minX + 20, y: w.frame.minY + 20, width: 40, height: 40), styleMask: [.borderless],
+                                  backing: .buffered, defer: false)
+            anchor.isReleasedWhenClosed = false
+            anchor.isOpaque = false
+            anchor.backgroundColor = .clear
+            anchor.alphaValue = 0
+            anchor.ignoresMouseEvents = true
+            let wasFront = !LittleArcController.isBehind(w, c.window)
+            anchor.order(.below, relativeTo: c.window.windowNumber)
+            w.addChildWindow(anchor, ordered: .above)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                let front = !LittleArcController.isBehind(w, self.c.window)
+                self.check(front, "little arc (Apple event): a dialog anchor attached as the engine attaches its own (ordered in below the "
+                           + "browser window, then made a child) leaves it in front (in front before \(wasFront); our windows front to back: "
+                           + "\(self.ourWindowOrder()))")
+                w.removeChildWindow(anchor)
+                anchor.orderOut(nil)
+                done()
+            }
+        }
         littleArcWindowChecks({ little }, label: "little arc (Apple event)", logSince: { logStart })
 
         // A sheet on the browser window (a page's "Leave site?", an alert) doesn't stop links from other apps.

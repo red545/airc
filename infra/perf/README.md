@@ -191,3 +191,31 @@ main-thread work hidden by synchronous layout-only timing; background throttling
 making hidden-window measurements look better than foreground use. Concurrent
 engine compilation, public-site variability, sequential memory sampling and
 launch-probe overhead prevent interpreting this single run as a regression baseline.
+
+## Repeated frame and 30-page checks
+
+`frames.py --app build/Airc-Chromium.app --output build/frame-ab` alternates
+baseline and optimized paths in the same test binary, five launches per side,
+five actions per launch. `newspace` measures Create, `cbfirst` switches a loaded
+tab 250 ms before each Command Bar opening, and `cbnew` reopens it without a tab
+switch. Section timings are logged without the layout-counter swizzles or dirty
+view census. The test-only `AIRC_NEW_SPACE_BASELINE=1` and
+`AIRC_COMMAND_BASELINE=1` restore the earlier paths, only for the action being
+compared. `--actions previewcache` fills the cache with 30 independent bitmaps
+and checks retained decoded bytes, LRU eviction and the eight/zero pressure
+trims (`AIRC_PREVIEW_BASELINE=1` selects the original 40-entry limit).
+Results retain the frame
+source: commit timing with an asleep display is not proof of 120 Hz presentation.
+
+`memory30.py --app build/Airc-Chromium.app --output build/memory30-ab` repeats
+five sequences of Airc with the original 40-entry preview limit, the 24-entry
+limit, previews off, and Chrome.
+It seeds only the scratch `settings.json` (`tabPreviews`), loads the existing
+30-URL workload, and uses `run.py`'s responsibility-based process census,
+physical footprints, executable names and page checks (skipping the unrelated
+30-second CPU interval). Chrome is sampled at the later Airc
+sampling age and its version must stay fixed throughout. Both drivers stop if
+HID idle is below five minutes. Public-site outcomes still need inspection;
+a bot challenge with a title is not an equivalent page. The untouched memory
+workload does not visit all tabs, so it does not fill a long-session preview
+cache. Keep that distinction when interpreting previews-on/off results.

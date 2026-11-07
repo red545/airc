@@ -43,7 +43,7 @@ enum ImportAdapter {
         let spaces = plan.spaces.map { s in
             ImportBlueprint.Space(sourceID: "arc-space:" + s.id, name: s.name, icon: s.emoji == "•" ? nil : .emoji(s.emoji),
                                   theme: theme(s.theme), profileSourceID: profileKey(id: s.profileID, in: plan),
-                                  pinned: s.pinned.map(node), today: s.today.map(tab))
+                                  pinned: s.pinned.map { node($0) }, today: s.today.map { tab($0) })
         }
         // Every profile a Space uses gets a profile, even one Arc's profile list doesn't have (a missing folder): without
         // it, applyImport would put that Space in the default profile, with the default profile's logins.
@@ -53,10 +53,10 @@ enum ImportAdapter {
             profiles.append(placeholderProfile(s.profileSourceID, spaces: spaces.filter { $0.profileSourceID == s.profileSourceID }))
         }
         var favorites: [String: [ImportBlueprint.Tab]] = [:]
-        for (pid, tabs) in plan.favorites { favorites[profileKey(id: pid, in: plan), default: []] += tabs.map(tab) }
+        for (pid, tabs) in plan.favorites { favorites[profileKey(id: pid, in: plan), default: []] += tabs.map { tab($0) } }
         // SV-2: Favorite splits stay splits.
         var favoriteNodes: [String: [ImportBlueprint.Node]] = [:]
-        for (pid, items) in plan.favoriteItems ?? [:] { favoriteNodes[profileKey(id: pid, in: plan), default: []] += items.map(node) }
+        for (pid, items) in plan.favoriteItems ?? [:] { favoriteNodes[profileKey(id: pid, in: plan), default: []] += items.map { node($0) } }
         return ImportBlueprint(profiles: profiles, spaces: spaces, favorites: favorites, favoriteNodes: favoriteNodes)
     }
 
@@ -64,19 +64,20 @@ enum ImportAdapter {
         ArcTheme.theme(from: t.raw?.foundation, fallbackColors: t.colors.isEmpty ? [t.color] : t.colors)
     }
 
-    static func node(_ i: ImportedItem) -> ImportBlueprint.Node {
+    /// `prefix` makes the plan's IDs source keys ("arc-item:"); other browsers' plans have full keys already ("").
+    static func node(_ i: ImportedItem, prefix: String = "arc-item:") -> ImportBlueprint.Node {
         switch i {
-        case .tab(let t): .tab(tab(t))
-        case .folder(let f): .folder(.init(sourceID: "arc-item:" + f.id, title: f.title, children: f.children.map(node)))
+        case .tab(let t): .tab(tab(t, prefix: prefix))
+        case .folder(let f): .folder(.init(sourceID: prefix + f.id, title: f.title, children: f.children.map { node($0, prefix: prefix) }))
         case .split(let x):
-            .split(.init(sourceID: "arc-item:" + x.id, title: x.title, axis: x.axis == "vertical" ? .vertical : .horizontal,
-                         shares: x.shares, focusedSourceID: x.focusedID.map { "arc-item:" + $0 }, tabs: x.tabs.map(tab)))
+            .split(.init(sourceID: prefix + x.id, title: x.title, axis: x.axis == "vertical" ? .vertical : .horizontal,
+                         shares: x.shares, focusedSourceID: x.focusedID.map { prefix + $0 }, tabs: x.tabs.map { tab($0, prefix: prefix) }))
         }
     }
 
-    static func tab(_ t: ImportedTab) -> ImportBlueprint.Tab {
+    static func tab(_ t: ImportedTab, prefix: String = "arc-item:") -> ImportBlueprint.Tab {
         // Arc stores dates as seconds since 2001 (Core Data's reference date).
-        .init(sourceID: "arc-item:" + t.id, url: t.url, title: t.title, pageTitle: t.pageTitle,
+        .init(sourceID: prefix + t.id, url: t.url, title: t.title, pageTitle: t.pageTitle,
               lastActiveAt: t.lastActiveAt.map { Date(timeIntervalSinceReferenceDate: $0) })
     }
 
