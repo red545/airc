@@ -4,7 +4,8 @@ import AircDesign
 import AircKit
 import CoreImage
 
-/// Header row (SB-1): sidebar toggle next to the traffic lights; back, forward, reload right-aligned.
+/// Header row (SB-1): sidebar toggle next to the traffic lights; back, forward, reload right-aligned. With the sidebar
+/// on the right (WIN-5) the traffic lights stay over the page, so the toggle starts the row where it does in full screen.
 final class SidebarHeaderView: NSView {
     weak var controller: WindowController?
     let toggle = GlyphButton(symbol: "sidebar.left", size: 14)
@@ -12,6 +13,13 @@ final class SidebarHeaderView: NSView {
     let forward = GlyphButton(symbol: "arrow.right", size: 14)
     let reload = GlyphButton(symbol: "arrow.clockwise", size: 14)
     var fullscreen = false { didSet { needsLayout = true } }
+    var onRight = false {
+        didSet {
+            guard onRight != oldValue else { return }
+            toggle.symbol = onRight ? "sidebar.right" : "sidebar.left"
+            needsLayout = true
+        }
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -52,7 +60,7 @@ final class SidebarHeaderView: NSView {
         super.layout()
         let s = AircMetrics.Sidebar.headerButton
         let y = AircMetrics.Sidebar.headerCenterY - s / 2
-        let tx = fullscreen ? DesignGaps.toggleXFullscreen : AircMetrics.Sidebar.toggleX
+        let tx = fullscreen || onRight ? DesignGaps.toggleXFullscreen : AircMetrics.Sidebar.toggleX
         toggle.frame = NSRect(x: tx, y: y, width: s, height: s)
         let w = bounds.width
         reload.frame = NSRect(x: w - DesignGaps.headerButtonEndInset - s, y: y, width: s, height: s)

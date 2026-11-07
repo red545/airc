@@ -56,6 +56,7 @@ final class SnapshotRunner {
         case "split-read": splitPersistRead()
         case "events": eventsScenario()
         case "shortcuts": shortcutsScenario()
+        case "shortcutremap": shortcutRemapScenario()
         case "littlearc": littleArcLinkScenario()
         case "littlearc-cold": littleArcColdStartScenario()
         case "drmsettings": protectedContentSettingsScenario()
@@ -108,6 +109,7 @@ final class SnapshotRunner {
         case "keeploaded": keepLoadedScenario()
         case "managespaces": manageSpacesScenario()
         case "previews": previewsScenario()
+        case "sidebarright": sidebarRightScenario()
         case "marketing": marketingScenario()   // product shots, not a check: scripts/marketing-shots.sh only
         default:
             note("unknown script \(script)")
@@ -580,6 +582,11 @@ final class SnapshotRunner {
             root.displayIfNeeded()
             let overlays: [NSView] = [c.commandBar, c.newSpacePanel, c.createProfilePanel, c.manageSpacesPanel, c.folderPreview.panel, c.siteControls, c.boostEditor,
                                       CalendarCard.shared.panel, c.peek?.view, c.prompts.bubble, c.prompts.passwords.view,
+                                      // The revealed sidebar floats over the page, and the footer's cards reach over it (a narrow
+                                      // sidebar, or one on the right).
+                                      c.revealController?.floatingView,
+                                      MediaLibrary.shared.promptView.flatMap { $0.superview === root ? $0 : nil },
+                                      UpdateCenter.shared.confirm.flatMap { $0.superview === root ? $0 : nil },
                                       c.tabPreview.isShowing ? c.tabPreview.card : nil,
                                       c.toast.isHidden ? nil : c.toast, c.protectedMediaToast].compactMap { $0 }
             overlays.forEach { $0.isHidden = true }

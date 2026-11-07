@@ -918,6 +918,13 @@ final class SpacePageView: NSView {
     static let edgeDwell: CFTimeInterval = 0.5
     static let edgeWidth: CGFloat = 14
 
+    /// The Space a drag at `x` (root coordinates) pages to after the dwell: -1 the previous, 1 the next, 0 none.
+    static func edgeSide(at x: CGFloat, sidebar visible: NSRect, onRight: Bool) -> Int {
+        let x = x - visible.minX, width = visible.width, ew = edgeWidth
+        if onRight { return x > width - ew ? 1 : (x < ew && x > -2 * ew) ? -1 : 0 }
+        return x < ew ? -1 : (x > width - ew && x < width + 2 * ew) ? 1 : 0
+    }
+
     /// `shownBefore`: the tab on screen before the press showed this one; a drag over the page brings it back, and the
     /// drop splits it with the dragged tab (SV-1).
     func beginPossibleDrag(entry: SidebarEntry, row: SidebarRowView, event: NSEvent, shownBefore: String? = nil) {
@@ -1021,11 +1028,11 @@ final class SpacePageView: NSView {
                 } else {
                     destination = target.dropDestination(at: p, source: source, entry: entry, carriesFolder: groupHasFolder)
                 }
-                // The edge of the sidebar as it shows in the window (not a page's, which may still be sliding in).
-                let visible = c.sidebar.frame.intersection(c.root.bounds)
-                let x = c.root.convert(e.locationInWindow, from: nil).x - visible.minX
-                let width = visible.width, ew = Self.edgeWidth
-                let side = x < ew ? -1 : (x > width - ew && x < width + 2 * ew) ? 1 : 0
+                // The edge of the sidebar as it shows in the window (not a page's, which may still be sliding in). The
+                // left edge pages to the previous Space and the right one to the next on either side (WIN-5); the
+                // inner edge's zone reaches a little over the page.
+                let visible = c.sidebar.convert(c.sidebar.bounds, to: c.root).intersection(c.root.bounds)
+                let side = Self.edgeSide(at: c.root.convert(e.locationInWindow, from: nil).x, sidebar: visible, onRight: c.sidebarOnRight)
                 if side == 0 { edge = nil } else if edge?.side != side { edge = (side, CACurrentMediaTime()) }
             default:
                 break

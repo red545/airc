@@ -199,17 +199,20 @@ baseline and optimized paths in the same test binary, five launches per side,
 five actions per launch. `newspace` measures Create, `cbfirst` switches a loaded
 tab 250 ms before each Command Bar opening, and `cbnew` reopens it without a tab
 switch. Section timings are logged without the layout-counter swizzles or dirty
-view census. The test-only `AIRC_NEW_SPACE_BASELINE=1` and
-`AIRC_COMMAND_BASELINE=1` restore the earlier paths, only for the action being
-compared. `--actions previewcache` fills the cache with 30 independent bitmaps
+view census. The test-only `AIRC_NEW_SPACE_BASELINE=1` restores the earlier Create path.
+`AIRC_COMMAND_BASELINE=1` selected the earlier Command Bar path in the archived
+pruning experiment. That experiment was reverted after the multi-window recheck;
+current Command Bar A/B launches are repeatability controls of the same path.
+`--actions previewcache` fills the cache with 30 independent bitmaps
 and checks retained decoded bytes, LRU eviction and the eight/zero pressure
 trims (`AIRC_PREVIEW_BASELINE=1` selects the original 40-entry limit).
 Results retain the frame
 source: commit timing with an asleep display is not proof of 120 Hz presentation.
 
 `memory30.py --app build/Airc-Chromium.app --output build/memory30-ab` repeats
-five sequences of Airc with the original 40-entry preview limit, the 24-entry
-limit, previews off, and Chrome.
+five sequences of Airc with the original 40-entry preview limit and hidden-window
+capture behavior, the 24-entry limit with hidden-window captures skipped, previews
+off, and Chrome. The separate cache-fill control isolates the capacity change.
 It seeds only the scratch `settings.json` (`tabPreviews`), loads the existing
 30-URL workload, and uses `run.py`'s responsibility-based process census,
 physical footprints, executable names and page checks (skipping the unrelated
@@ -233,7 +236,7 @@ binary with action-specific baseline switches. Values are medians of launch
 medians, with the min–max launch spread; hidden windows and asleep display mean
 **CA commit timing**, not certified 120 Hz presentation.
 
-| Action, ms | Baseline | Retained change |
+| Action, ms | Baseline | Candidate at the time |
 |---|---:|---:|
 | Create Space | 8.44 (8.12–9.86) | 6.73 (5.77–7.36) |
 | Command Bar after a verified tab switch | 6.95 (6.38–7.78) | 7.15 (6.13–7.38) |
@@ -248,9 +251,10 @@ Two candidate actions exceeded 8.3 ms (8.37 and 8.59): median progress is not a
 strict one-frame guarantee. This test uses an existing selected profile; the
 separate profile card already prepares/adopts a spare before Create Space.
 
-Empty-query candidate pruning removes discarded computation, but the final
+Empty-query candidate pruning removed discarded computation, but these
 Command Bar distributions overlap and do not demonstrate a speedup or establish
-steady-state non-regression. Earlier five-pair passes were faster; the cold
+steady-state non-regression. It was later reverted; see the multi-window recheck.
+Earlier five-pair passes were faster; the cold
 first opening remains above budget. Font/index and explicit parked-view drawing
 experiments were rejected and removed. A diagnostic cold-opening trace placed
 8 of 11 main-thread samples in CA commit, including text/keycap drawing.
@@ -261,3 +265,79 @@ independent images retain **30.720 → 24.576 MB decoded**, with identical value
 in every pair. LRU and pressure trim checks pass. Tab/item aliases count once
 in decoded bytes. This establishes the cache saving, not a whole-browser
 physical-footprint or MEM-4 improvement; the 30-page on/off comparison is separate.
+
+## Multi-window recheck — 2026-11-07
+
+The release testing app includes multi-window HEAD `8ccdc10`; the measured source
+snapshot and working diff are retained with the evidence. Five interleaved A/B
+launch pairs per action, five actions each, minimum observed HID idle 743 s.
+Both engine app builds passed. No engine relink. Values below are medians of
+five launch medians (min–max); the cold row uses the first opening from each
+launch. These remain **CA commit timings**, with no presented-frame samples.
+
+| Action, ms | Baseline A | Tested candidate B | Decision |
+|---|---:|---:|---|
+| Create Space | 9.58 (8.47–11.63) | 7.73 (5.82–9.70) | Retain B |
+| Command Bar after verified tab switch | 6.50 (6.12–7.78) | 6.50 (6.20–6.75) | Retain A |
+| First Command Bar in each fresh process | 12.12 (9.15–13.94) | 11.92 (10.91–13.34) | Cold target open |
+| Command Bar without switching | 4.16 (3.90–5.24) | 4.93 (3.94–5.55) | Retain A |
+
+New Space: store transaction 0.09 → 0.09 ms; build/claim sidebar page
+1.46 → 1.44 ms; whole add-page path 2.56 → 1.51 ms. The duplicate reload
+(0.39 ms median) disappears. The switch is 0.60 → 0.66 ms; background palette
+work rounds to 0.00 on both sides. All 25 creates per side select the new Space
+and preserve footer icons/order. Candidate p95 is 10.88 ms, maximum 10.93 ms,
+with 6/25 actions over 8.3 ms. The median improved; the one-frame guarantee is
+still open. This run uses an existing profile, not the separate Create Profile card.
+
+Command Bar: all 100 timed openings entered make/add/focus. The short first
+steady samples are real openings, not the toggle closing an already-open panel.
+Empty-query pruning established neither a cold-opening improvement nor steady
+non-regression, so `d015833` removes it. The retained baseline path was exercised
+in every A launch above. Font/index warmup and parked-view drawing experiments
+were also removed. The cold AppKit/CA drawing cost remains unresolved.
+
+## Repeated 30-page census — 2026-11-07
+
+Five complete interleaved quartets: original previews, current previews, previews
+off, then the same Chrome 157.0.8103.38. One app runs at a time; every scratch
+profile is removed immediately afterward. The Airc app (Chromium 156.0.8078.88,
+build 202611062350) was pinned throughout. It predates multi-window; these memory
+numbers do **not** certify the later frame build. Sampling starts about 70–83 s
+after launch and ends about 101–116 s after launch; Chrome uses the later Airc
+sample start. All accepted launches passed the five-minute HID guard and had a
+complete, stable steady process census. Interrupted quartets were restarted.
+
+Diagnostic summed physical footprint, decimal MB; median of five launches and
+min–max spread:
+
+| Variant | Total MB | Main process MB | Loaded-page count |
+|---|---:|---:|---|
+| Airc original preview behavior / 40 keys | 2823.26 (2748.65–2840.62) | 145.33 (143.97–145.54) | 29–30 |
+| Airc current preview behavior / 24 keys | 2748.71 (2610.60–2781.49) | 145.33 (143.65–148.37) | 30 |
+| Airc previews off | 2702.88 (2670.47–2736.84) | 143.97 (140.51–147.12) | 29–30 |
+| Chrome | 2711.95 (2575.61–2750.36) | 204.68 (199.65–218.21) | 29 |
+
+**MEM-4 remains unknown.** Reuters returned a different page in Chrome on every
+launch and in some Airc launches; one BBC page also redirected differently.
+Airc uses three profiles/six Spaces, Chrome one profile. Shared-machine load,
+fixed within-quartet order and public-page variability remain confounders. Do not
+turn these totals into a verified Airc/Chrome ratio or an optimization saving.
+
+Every memory launch retained zero preview pictures and zero decoded bytes.
+Original hidden-window picture requests were one per launch; current and off
+were zero, with no successful pictures on any path. The guard saves a pointless
+request; the census cannot establish a full-cache saving. The independent cache
+control above still measures 30.720 → 24.576 MB decoded across five pairs.
+The paired current-minus-original total is −74.75 MB median (−175.16 to −41.77);
+previews-off minus current is −16.74 MB (−78.61 to +71.39). These are observations,
+not causal preview savings, particularly with empty caches and different pages.
+
+No WebKit helper appears in any of the 15 accepted Airc steady censuses.
+The HybridEngine's WebKit side remains lazy in the audited source. Airc has one
+NetworkService and one StorageService per launch, not one per profile. Renderer
+footprints dominate: current Airc median 2433.95 MB (40–41 renderers), Chrome
+2340.32 MB (41–42). Main-process Airc memory is lower; transient Metal compiler
+services vary substantially. This comparison does not isolate profile overhead
+or justify an engine change. The fresh-profile Boost CSS map is empty, so
+installed-Boost costs remain unmeasured. No engine changes were made.

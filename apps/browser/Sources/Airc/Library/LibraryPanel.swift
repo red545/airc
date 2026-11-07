@@ -259,6 +259,9 @@ final class LibraryPanelHost: NSView {
     override func layout() {
         super.layout()
         back.frame = SpaceBarView.libraryButtonFrame(columnHeight: bounds.height)
+        // With the sidebar on the right the panel ends at the window's right edge (WIN-5): the button moves by as much
+        // as the panel is wider than the sidebar, so it still sits on the footer's Library button.
+        if let c = controller, c.sidebarOnRight { back.frame.origin.x += max(0, bounds.width - c.sidebarWidth) }
     }
 
     func setTheme(_ theme: ResolvedTheme) {

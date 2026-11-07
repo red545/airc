@@ -47,6 +47,9 @@ final class AppSettings: ObservableObject {
         var defaultBrowser = DefaultBrowserState()
         /// Live Calendar (Calendar/CalendarCenter.swift): off until the person turns it on.
         var calendar = CalendarPreferences()
+        /// Settings → Shortcuts (CB-4): command id → the user's key ("alt+cmd+l"), "" for none. Only changes are kept;
+        /// the defaults are Commands.swift's table (App/ShortcutCenter.swift).
+        var shortcuts: [String: String] = [:]
 
         init() {}
 
@@ -76,6 +79,7 @@ final class AppSettings: ObservableObject {
             tabPreviews = (try? c.decodeIfPresent(Bool.self, forKey: .tabPreviews)) ?? d.tabPreviews
             defaultBrowser = (try? c.decodeIfPresent(DefaultBrowserState.self, forKey: .defaultBrowser)) ?? d.defaultBrowser
             calendar = (try? c.decodeIfPresent(CalendarPreferences.self, forKey: .calendar)) ?? d.calendar
+            shortcuts = (try? c.decodeIfPresent([String: String].self, forKey: .shortcuts)) ?? [:]
         }
     }
 

@@ -55,6 +55,8 @@ extension SnapshotRunner {
             case "basics": mkBasicsShots(d)
             case "previews": mkPreviewShots(d)
             case "windows": mkWindowsShots(d)
+            case "sidebarright": mkSidebarRightShots(d)
+            case "shortcuts": mkShortcutsShots(d)
             default: note("marketing: unknown part \(part)")
             }
         }

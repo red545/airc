@@ -159,6 +159,15 @@ using airc::NS;
   return airc::SecurityInfoFor(_contents);
 }
 
+- (void)setAutoDiscardable:(BOOL)value {
+  if (!_contents) return;
+  auto* unit = resource_coordinator::TabLifecycleUnitExternal::FromWebContents(_contents);
+  if (!unit || unit->IsAutoDiscardable() == bool(value)) return;
+  unit->SetAutoDiscardable(value);
+  // Re-arm the one-shot when an exemption ends.
+  airc::MemoryHostVisibilityChanged(_contents);
+}
+
 - (BOOL)discard {
   return airc::DiscardSafely(_contents);
 }

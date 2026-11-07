@@ -393,6 +393,8 @@ AIRC_EXPORT
 - (void)setTemporarySource:(nullable AircTab*)source;
 - (void)deliverHeldPageMessages;
 @property(readonly) NSDictionary<NSString*, id>* securityInfo;
+// False protects from both idle-timeout and memory-pressure discards.
+- (void)setAutoDiscardable:(BOOL)autoDiscardable;
 // Refuses visible, audible, captured, loading or edited pages. Preserves navigation state.
 - (BOOL)discard;
 @property(readonly) BOOL discarded;

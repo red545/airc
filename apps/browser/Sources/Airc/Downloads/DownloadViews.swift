@@ -247,7 +247,8 @@ final class DownloadPrompts {
 
     /// Above whatever sits on top of the sidebar's footer (the tray, else the update pill), inset like its rows, so the
     /// card never covers the pill and both take clicks; the same over the hidden sidebar while it's revealed (it follows
-    /// the sidebar in and out, SidebarRevealController); with the sidebar hidden, at the page's bottom-left.
+    /// the sidebar in and out, SidebarRevealController); with the sidebar hidden, at the page's bottom-left. With the
+    /// sidebar on the right (WIN-5) it lines up with the sidebar's right inset instead, and the page's bottom-right.
     func layout() {
         guard let c = controller, let b = bubble else { return }
         let size = b.fittingCardSize
@@ -262,9 +263,11 @@ final class DownloadPrompts {
         } else if shown {
             anchor = c.root.convert(c.sidebar.footer.bounds, from: c.sidebar.footer)
         } else {
-            anchor = NSRect(x: c.card.frame.minX, y: c.card.frame.maxY - 10, width: 0, height: 0)
+            anchor = NSRect(x: c.sidebarOnRight ? c.card.frame.maxX : c.card.frame.minX, y: c.card.frame.maxY - 10, width: 0, height: 0)
         }
-        let x = min(max(8, anchor.minX + AircMetrics.Sidebar.inset), max(8, c.root.bounds.width - size.width - 8))
+        let maxX = max(8, c.root.bounds.width - size.width - 8)
+        let x = c.sidebarOnRight ? max(8, min(anchor.maxX - AircMetrics.Sidebar.inset - size.width, maxX))
+            : min(max(8, anchor.minX + AircMetrics.Sidebar.inset), maxX)
         b.place(at: NSPoint(x: x, y: max(8, anchor.minY - 6 - size.height)))
     }
 }

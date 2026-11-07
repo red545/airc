@@ -15,8 +15,8 @@ import AircCore
 /// brings it back with its history and scroll position when shown. Every site follows the same rule on both engines,
 /// but one: pinned tabs and Favorites of the sites people keep open for notifications and calls (AircKit's
 /// KeepLoadedSites: Gmail, Slack, Discord…) never unload while Settings → General → "Keep chat and mail sites loaded"
-/// is on (the default). Chromium's own timer has no per-page exemption, so while it's on the app runs the timer for
-/// Chromium's pages too and frees each due one with the engine's discard (`AircTab -discard`, with the engine's checks).
+/// is on (the default). Chromium receives a per-page autoDiscardable exemption for both timeout and pressure.
+/// Older frameworks fall back to the app timer.
 /// No repeating timers: one one-shot for the next deadline.
 extension WindowController {
     private static var statesKey = 0
@@ -57,11 +57,11 @@ extension WindowController {
         return KeepLoadedSites.keepsLoaded(engineTab(for: tabID)?.url ?? URL(string: tab.url), extra: extraKeptSites)
     }
 
-    /// The app runs the timer for the Chromium build's Chromium pages (while the exemption is on); the engine's own
-    /// per-profile timer is off meanwhile.
+    /// Compatibility with older frameworks that lack the per-tab exemption.
     var appUnloadsChromiumPages: Bool {
         #if canImport(AircCore)
         return app?.engine is ChromiumEngine && keepsChatSitesLoaded
+            && !AircTab.instancesRespond(to: NSSelectorFromString("setAutoDiscardable:"))
         #else
         return false
         #endif
@@ -96,8 +96,21 @@ extension WindowController {
         memoryPressure = source
     }
 
-    /// Settings changed: Chromium takes the new timeout (or none, while the app runs it); the app reschedules.
+    /// Settings changed: update per-page exemptions before rescheduling either engine.
+    func applyKeepLoadedPolicy() {
+        #if canImport(AircCore)
+        let selector = NSSelectorFromString("setAutoDiscardable:")
+        for (id, page) in pages {
+            guard let core = (page as? ChromiumTab)?.core, core.responds(to: selector) else { continue }
+            typealias Setter = @convention(c) (AnyObject, Selector, Bool) -> Void
+            let setter = unsafeBitCast(core.method(for: selector), to: Setter.self)
+            setter(core, selector, !keepsLoaded(id))
+        }
+        #endif
+    }
+
     func applyUnloadSetting() {
+        applyKeepLoadedPolicy()
         #if canImport(AircCore)
         if let chromium = app?.engine as? ChromiumEngine {
             profiles.loadedProfiles.forEach { chromium.setUnloadTimeout(engineUnloadTimeout, for: $0) }
@@ -124,6 +137,7 @@ extension WindowController {
     }
 
     func pageVisibilityChanged(hidden: String?, shown: String?) {
+        applyKeepLoadedPolicy()
         if let shown { hiddenSince[shown] = nil }
         if let hidden, appUnloads(engineTab(for: hidden)), !keepsLoaded(hidden) { hiddenSince[hidden] = Date() }
         if appUnloads || appUnloadsChromiumPages || hidden != nil { queueUnloadCheck() }

@@ -500,10 +500,12 @@ final class LittleArcController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// Little Arc's own shortcuts while it's the key window (the main window's commands don't apply to it).
+    /// Little Arc's own shortcuts while it's the key window (the main window's commands don't apply to it). The table
+    /// spells the commands' default keys; the user's map (Settings → Shortcuts) says which command a typed key is.
     func handleKey(_ event: NSEvent) -> Bool {
-        let mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
-        guard let key = event.charactersIgnoringModifiers?.lowercased() else { return false }
+        guard let typed = event.charactersIgnoringModifiers?.lowercased(),
+              let (key, mods) = ShortcutCenter.shared.defaultKey(forTyped: typed, event.modifierFlags.intersection([.command, .option, .control, .shift]))
+        else { return false }
         switch (key, mods) {
         case ("o", .command): openInSpace(); return true
         case ("o", [.command, .option]): showSpacesMenu(); return true

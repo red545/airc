@@ -207,17 +207,17 @@ extension SnapshotRunner {
         }
         waitPrivate(page, title: "start", "private extras (\(tag)): a page with a file link loads")
         run { page()?.load(URL(string: base() + "/file.bin")!) }
-        // Chromium's off-the-record profile may ask where to save (a Save panel on the window: its "ask where to save"
-        // pref doesn't follow the Space profile's Preferences): an engine result. The panel is out of process and can't
-        // be answered from here, so the run cancels it and checks the rest of the list without a finished file.
+        // The private session inherits the parent's download preferences: no Save panel.
+        // Cancel a regressed panel safely so the remaining isolation checks can still run.
         var asked = false
         step { [self] done in
             waitUntil({ w?.window.attachedSheet is NSSavePanel || w?.downloads?.items.contains { $0.download.state == .complete } == true }, timeout: 10) {
                 if let panel = w?.window.attachedSheet as? NSSavePanel {
                     asked = true
-                    self.note("ENGINE-FAIL private extras (\(tag)): the engine asks where to save a private window's download (a Save panel on the window), so it waits; cancelled here")
                     panel.cancel(nil)
                 }
+                self.check(!asked && w?.downloads?.items.contains { $0.download.state == .complete } == true,
+                           "private extras (\(tag)): the download completes without a Save panel")
                 done()
             }
         }

@@ -537,7 +537,7 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
     /// The private window's own shortcuts while it's the key window (the main window's commands don't reach into it).
     /// Runs the key's command now (the menu's path); `handleKeyPageFirst` lets the page have it first.
     func handleKey(_ event: NSEvent) -> Bool {
-        guard let (key, mods) = Self.normalizedKey(event), let run = action(forKey: key, modifiers: mods) else { return false }
+        guard let (key, mods) = Self.normalizedKey(event), let run = action(forTyped: key, modifiers: mods) else { return false }
         KeyMonitor.cancelPending(BrowserCommand("", key, mods) { _ in })
         run()
         return true
@@ -551,7 +551,14 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
         return (key, mods)
     }
 
-    /// The command this window runs for a key; nil for keys it leaves to the page and AppKit.
+    /// The command this window runs for a key typed now: the user's map (Settings → Shortcuts) says which command the key
+    /// is, and this window's table below knows the commands by their default keys.
+    func action(forTyped key: String, modifiers mods: NSEvent.ModifierFlags) -> (() -> Void)? {
+        guard let (k, m) = ShortcutCenter.shared.defaultKey(forTyped: key, mods) else { return nil }
+        return action(forKey: k, modifiers: m)
+    }
+
+    /// The command this window runs for a default key; nil for keys it leaves to the page and AppKit.
     func action(forKey key: String, modifiers mods: NSEvent.ModifierFlags) -> (() -> Void)? {
         switch (key, mods) {
         case ("t", .command): return { [weak self] in self?.openCommandBar(mode: .newTab) }

@@ -59,6 +59,7 @@ menu, which can't be drawn off screen; `profiles.webp` shows profiles through Cr
 | `settings-appearance-dark.webp` | Settings: Appearance, dark | The same page in dark mode | 2026-11-06 | 202611062158 (eabcfe2) |
 | `settings-privacy.webp` | Settings: Privacy | Anonymous usage data and crash reports, off with one switch | 2026-11-06 | 202611061538 (6312e1a) |
 | `settings-privacy-events.webp` | See what Airc sends | The sheet listing every event Airc recorded, word for word | 2026-11-06 | 202611061538 (6312e1a) |
+| `settings-shortcuts.webp` | Settings: Shortcuts | Every command by menu with its key: Open Location moved to ⌥⌘L, and ⌘N typed for New Private Window asking to swap with New Window | 2026-11-07 | 202611070158 (aa43811, with uncommitted changes) |
 | `onboarding-welcome.webp` | Onboarding | The first window | 2026-11-06 | 202611061915 (9e1fd56) |
 | `onboarding-import.webp` | Onboarding: Arc import | Arc found on the Mac, first among the browsers found: Spaces, pinned tabs, folders and Favorites come over as they are | 2026-11-06 | 202611062324 (importbrowsers copy, 550fc0a) |
 | `onboarding-import-browsers.webp` | Onboarding: other browsers | Chrome picked on the same step: each profile with its colour, its bookmarks and folders, and the history for ⌘T | 2026-11-06 | 202611062324 (importbrowsers copy, 550fc0a) |

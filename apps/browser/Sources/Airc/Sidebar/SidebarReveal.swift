@@ -3,8 +3,9 @@ import AppKit
 import AircDesign
 import AircKit
 
-/// SB-61: with the sidebar hidden, holding the pointer at the window's left edge slides a floating
-/// sidebar over the page (spring 0.175 s, ζ 0.8). It leaves when the pointer moves ~22 pt past it.
+/// SB-61: with the sidebar hidden, holding the pointer at the window's left edge (the right one with the sidebar on the
+/// right, WIN-5) slides a floating sidebar over the page (spring 0.175 s, ζ 0.8). It leaves when the pointer moves
+/// ~22 pt past it.
 final class SidebarRevealController {
     private weak var controller: WindowController?
     private let edge = EdgeView()
@@ -13,7 +14,14 @@ final class SidebarRevealController {
     private(set) var isRevealed = false
     private var pending: DispatchWorkItem?
     private var monitor: Any?
-    private var offset: CGFloat = 0   // 0 = shown, 1 = off to the left
+    private var offset: CGFloat = 0   // 0 = shown, 1 = off to the side it comes from
+    #if AIRC_TESTING
+    /// The checks (SidebarRightCheck.swift): the strip that reveals, and the floating panel, in the root view.
+    var edgeFrame: NSRect { edge.isHidden ? .zero : edge.frame }
+    var floatingFrame: NSRect { floating.frame }
+    /// The snapshots draw it over the page's picture while it's out.
+    var floatingView: NSView? { isRevealed ? floating : nil }
+    #endif
 
     final class EdgeView: NSView {
         var onMove: (() -> Void)?
@@ -53,11 +61,12 @@ final class SidebarRevealController {
     func layout() {
         guard let c = controller else { return }
         let b = c.root.bounds
-        edge.frame = NSRect(x: 0, y: 0, width: DesignGaps.revealEdge, height: b.height)
+        edge.frame = c.mirroredForSidebar(NSRect(x: 0, y: 0, width: DesignGaps.revealEdge, height: b.height))
         edge.isHidden = !(c.sidebarHidden && c.sidebarFraction <= 0.001)
         let w = c.sidebarWidth
         let x = AircMetrics.Sidebar.floatingInset - (w + AircMetrics.Sidebar.floatingInset + 4) * offset
-        floating.frame = NSRect(x: x, y: AircMetrics.Sidebar.floatingInset, width: w, height: b.height - 2 * AircMetrics.Sidebar.floatingInset)
+        floating.frame = c.mirroredForSidebar(NSRect(x: x, y: AircMetrics.Sidebar.floatingInset, width: w,
+                                                     height: b.height - 2 * AircMetrics.Sidebar.floatingInset))
         floatingBackground.frame = floating.bounds
         if isRevealed { c.sidebar.frame = floating.bounds }
         // The downloads card and the update question sit above the sidebar's footer while it shows, this one too: they
@@ -101,8 +110,9 @@ final class SidebarRevealController {
         let p = c.root.convert(e.locationInWindow, from: nil)
         // The downloads card is wider than a narrow sidebar: the pointer on it (or on the update question) keeps it out.
         let cards = [MediaLibrary.shared.promptView as NSView?, UpdateCenter.shared.confirm as NSView?].compactMap { $0 }
-        if p.x > floating.frame.maxX + AircMetrics.Sidebar.floatingKeepAlive,
-           !cards.contains(where: { $0.superview === c.root && $0.frame.contains(p) }) { hide() }
+        let away = c.sidebarOnRight ? p.x < floating.frame.minX - AircMetrics.Sidebar.floatingKeepAlive
+            : p.x > floating.frame.maxX + AircMetrics.Sidebar.floatingKeepAlive
+        if away, !cards.contains(where: { $0.superview === c.root && $0.frame.contains(p) }) { hide() }
     }
 
     func hide() {
@@ -153,7 +163,8 @@ extension NSView {
 
 private var animatorKey = 0
 
-/// The sidebar's right edge: drag to resize (164–500), past the minimum hides it, double-click resets (WIN-4).
+/// The sidebar's inner edge (its right one, its left one with the sidebar on the right): drag to resize (164–500), past
+/// the minimum hides it, double-click resets (WIN-4).
 final class SidebarResizeHandle: NSView {
     weak var controller: WindowController?
 
@@ -170,7 +181,7 @@ final class SidebarResizeHandle: NSView {
         let startWidth = c.sidebarWidth
         while let e = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
             if e.type == .leftMouseUp { break }
-            let w = startWidth + (e.locationInWindow.x - startX)
+            let w = startWidth + (e.locationInWindow.x - startX) * (c.sidebarOnRight ? -1 : 1)
             if w < AircMetrics.Sidebar.minWidth - 40 {
                 if !c.sidebarHidden { c.toggleSidebar() }
                 break

@@ -2,6 +2,9 @@
 #if AIRC_TESTING // test builds only: public builds compile nothing in Debug/ (App/TestingGate.swift)
 import AppKit
 import AircKit
+#if canImport(AircCore)
+import AircCore
+#endif
 
 /// `--script keeploaded` (both engines; MEM-3's exemption, Browser/TabUnloading.swift), on loopback pages with a 2 s
 /// unload timeout and "localhost" on the never-unload list (AircKit's KeepLoadedSites, as a test entry):
@@ -9,6 +12,7 @@ import AircKit
 ///     Today tab on the listed host unload;
 ///   - with Settings → General → "Keep chat and mail sites loaded" off, the listed pinned tab and Favorite unload too;
 ///   - Chromium build: the same for WebKit pages (both hosts set to play in Safari's engine).
+/// Chromium pressure check also requires --airc-data-dir=<same folder as --data-dir> (scratch-only engine gate).
 /// No account, no camera, microphone or screen.
 extension SnapshotRunner {
     func keepLoadedScenario() {
@@ -93,6 +97,33 @@ extension SnapshotRunner {
                 check(unloaded("plain"), "keep loaded \(label): a pinned tab on an unlisted site unloads")
                 check(unloaded("today"), "keep loaded \(label): a Today tab on a listed site unloads (only pinned tabs and Favorites stay)")
                 check(!unloaded("shown"), "keep loaded \(label): the tab on screen stays")
+            }
+            #if canImport(AircCore)
+            if chromium && !webKit {
+                run { [self] in
+                    check(!c.appUnloadsChromiumPages, "keep loaded: Chromium owns its timeout")
+                    // Disable the timeout: only the pressure signal may discard this fresh control.
+                    WindowController.unloadOverride = 0
+                    c.applyUnloadSetting()
+                    if let id = ids["plain"] { c.show(id, focus: false) }
+                }
+                step { [self] done in
+                    waitUntil({ ids["plain"].flatMap { self.c.engineTab(for: $0) }?.isLoading == false && !unloaded("plain") }, timeout: 8) { done() }
+                }
+                run { [self] in if let id = ids["shown"] { c.show(id, focus: false) } }
+                wait(1)
+                run { [self] in check(AircEngine.simulateMemoryPressure(forTesting: 2), "keep loaded: engine pressure hook accepted") }
+                step { [self] done in
+                    waitUntil({ unloaded("plain") }, timeout: 5) {
+                        self.check(unloaded("plain"), "keep loaded: pressure unloads the unlisted control with timeout disabled")
+                        self.check(!unloaded("chat") && !unloaded("mail"), "keep loaded: pressure preserves listed pin and Favorite")
+                        done()
+                    }
+                }
+            }
+            #endif
+            run { [self] in
+                WindowController.unloadOverride = 2
                 app?.settings.values.keepChatSitesLoaded = false
                 c.applyUnloadSetting()
             }

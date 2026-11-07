@@ -2,7 +2,9 @@
 # Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
 """Interleaved frame A/B in one test binary, isolated profiles, no HID or screenshots.
 
-A is the baseline path; B is the optimized path. Each launch repeats its action.
+A selects the baseline path where a comparison hook exists. Each launch repeats
+its action. Command Bar pruning was reverted: current Command Bar A/B launches
+exercise the same path; its baseline environment flag supports archived binaries.
 The first-command case switches loaded tabs 250 ms before every opening.
 """
 import argparse

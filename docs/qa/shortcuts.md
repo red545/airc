@@ -26,6 +26,45 @@ Owner report: "cmd+shift+v doesn't work … any shortcut like cmd+b". Sources: s
    the keys they bind go to the page first by the same rule, ⌘Z and Paste and Match Style go the AppKit way to the
    page. `--script private` checks ⌘F and ⌘L (page uses / doesn't), ⌘Z in a page field and ⇧⌘V on both engines.
 
+## Your own keys: Settings → Shortcuts (CB-4)
+
+Every key in this file is a default. Settings → Shortcuts (`Settings/ShortcutsSettings.swift`) lists every command by
+menu (the app menu, File, Edit, View, Spaces, Tabs, with the hidden second keys and ⌘← ⌘→ under Tabs), keyless ones
+too. A click on a key records a new one: Esc cancels, Delete (⌫ or ⌦) removes it. Each changed row has a reset arrow,
+and Reset All brings the whole table back.
+
+- **The model** is AircKit's `ShortcutMap` (`packages/AircKit/Sources/AircKit/Shortcuts.swift`, unit tests in
+  `ShortcutMapTests`): today's table as defaults, the user's changes on top. A key belongs to one command at most;
+  the user's choice wins over a default.
+- **Conflicts.** A key another command has asks first: **Swap** gives the other command this one's old key (or none),
+  **Replace** takes the key away from it. Resetting a row whose default someone else has now asks the same.
+- **Refused:** a key without ⌘, ⌥ or ⌃, and macOS's or every app's own: ⌘Q (hold to quit stays), ⌘H ⌥⌘H ⌘M,
+  ⌘Tab ⇧⌘Tab, ⌘ with the key above Tab (switching windows), ⌘Space ⌥⌘Space ⌃Space ⌃⌥Space ⌃⌘Space, ⌃⌘Q, ⌥⌘Esc, ⌥⌘D, ⌃⌘F (Enter Full Screen), ⌘C ⌘V ⌘X ⌘A
+  ⇧⌘Z, ⇧⌘3/4/5 and ⌃⇧⌘3/4, ⌃← ⌃→ ⌃↑ ⌃↓. The recorder says why and keeps listening.
+- **Allowed with a note:** keys pages use themselves: ⌘B ⌘I ⌘U ⌘K ⌘Z ⇧⌘V ⌥⇧⌘V ⌥⌘V ⌘↩ ⌘/ ⌘⌫. Those are always
+  page-first, whatever command has them: a page that uses one keeps it, and a second press within a second runs
+  Airc's command. ⌘Z given to a command still undoes in any field being edited, and no longer reopens closed tabs
+  (⇧⌘T still does).
+- **Key order** otherwise follows the key, as with the defaults: ⌘ and ⇧⌘ keys go to the page first except Chrome's
+  reserved ⌘T ⌘W ⌘N ⌘Q, ⌥ and ⌃ keys to the browser. The commands with a fixed order keep it (⌘{ ⌘} browser-first,
+  ⌘← ⌘→ after the page). Arc's per-command "Prefer Websites / Prefer Arc" switch isn't built.
+- **Live everywhere.** `App/ShortcutCenter.swift` holds the map: the key monitor reads it on every key, the main menu's
+  items get their new keys at once, and private windows and Little Arc, whose key tables spell the defaults, look a
+  typed key up there (`defaultKey(forTyped:)`), so a moved key works and the old one goes to the page. The Command
+  Bar's action hints show the user's keys too.
+- **Menus spell ⇧ letters in upper case** ("L" with ⌘, not "l" with ⇧⌘). AppKit's own matcher gave a freed ⌘L to an
+  item spelled "l" + ⇧ (Library), so a key that left its command still ran another one.
+- **Storage:** `settings.json`'s `shortcuts`, command id → `"alt+cmd+l"`, `""` for none. Only changes are kept: an
+  untouched command follows a new default in a later version, an entry equal to its default, an unknown command or an
+  unreadable or refused key is dropped. Ids are stable (`file.openLocation`, `tabs.library`, `spaces.3` …; Commands.swift).
+- **Telemetry:** `feature.used` `shortcut.remap` per change made in the page, never which command or key.
+
+`--script shortcutremap` (`Debug/ShortcutRemapCheck.swift`, in build-app.sh's suite on both engines) records ⌥⌘L for
+Open Location in the Settings window (⌘L then reaches the page and opens nothing; ⌥⌘L opens the address editor;
+AppKit's menu takes no freed ⌘L), swaps Pin with Library's ⇧⌘L (⇧⌘L pins, ⌘D opens the Library), refuses ⌘H, warns
+about ⌘B, clears with Delete, checks a private window and Little Arc, resets Pin into a conflict and then everything,
+and checks the menus and settings.json after each step.
+
 ## Page and editor keys (both engines)
 
 The loopback editor page has a contenteditable, a textarea and an input, plus a keydown/keyup/beforeinput/paste

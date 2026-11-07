@@ -180,7 +180,7 @@ private struct SettingsRoot: View {
         case .profiles: ProfilesPage(model: model)
         case .spaces: SpacesPage(model: model)
         case .appearance: AppearancePage(model: model)
-        case .shortcuts: ShortcutsPage()
+        case .shortcuts: ShortcutsPage(model: model)
         case .importing: ImportPage(model: model)
         case .privacy: PrivacyPage(model: model)
         case .about: AboutPage(model: model)
@@ -767,61 +767,18 @@ private struct AppearancePage: View {
                 }
             }
             SettingsSection(title: "Sidebar") {
+                // WIN-5: every window moves its sidebar at once (Browser/SidebarSide.swift).
+                SettingsRow(title: "Sidebar position") {
+                    AircSegmented(selection: Binding(get: { model.store.windowState.sidebarOnRight }, set: { onRight in
+                        model.objectWillChange.send()
+                        model.app?.setSidebarOnRight(onRight)
+                    }), segments: [.init(value: false, title: "Left"), .init(value: true, title: "Right")])
+                    .frame(width: 160)
+                }
                 AircToggleRow("Show tab previews", subtitle: "Rest the pointer on a tab to see the page, with pin, Favorites, split and Peek.",
                               isOn: Binding(get: { model.settings.values.tabPreviews }, set: { model.settings.values.tabPreviews = $0 }))
             }
         }
-    }
-}
-
-// MARK: - Shortcuts (read-only for now; CB-4 remapping later)
-
-private struct ShortcutsPage: View {
-    @Environment(\.aircTheme) private var theme
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Arc's shortcuts. Remapping comes in a later version.")
-                .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color)
-            ForEach(Self.groups, id: \.0) { group in
-                SettingsSection(title: group.0) {
-                    ForEach(group.1.filter { !$0.key.isEmpty }, id: \.title) { c in
-                        HStack {
-                            Text(c.title).aircFont(AircFont.body).foregroundStyle(theme.surfaceText.color)
-                            Spacer()
-                            HStack(spacing: 3) { ForEach(Array(Self.keys(c).enumerated()), id: \.offset) { AircKeycap(text: $0.element) } }
-                        }
-                        .padding(.horizontal, 14)
-                        .frame(height: 36)
-                    }
-                }
-            }
-        }
-    }
-
-    static var groups: [(String, [BrowserCommand])] {
-        [("Tabs and pages", CommandMenus.file().compactMap { $0 } + CommandMenus.editExtras().compactMap { $0 }),
-         ("Sidebar", CommandMenus.view().compactMap { $0 }),
-         ("Spaces", CommandMenus.spaces().compactMap { $0 }.filter { !$0.title.hasPrefix("Space ") || $0.title == "Space 1" }),
-         ("Moving around", CommandMenus.tabs().compactMap { $0 }.filter { !$0.title.hasPrefix("Sidebar Tab ") || $0.title == "Sidebar Tab 1" })]
-    }
-
-    static func keys(_ c: BrowserCommand) -> [String] {
-        var k: [String] = []
-        if c.modifiers.contains(.control) { k.append("⌃") }
-        if c.modifiers.contains(.option) { k.append("⌥") }
-        if c.modifiers.contains(.shift) { k.append("⇧") }
-        if c.modifiers.contains(.command) { k.append("⌘") }
-        let key: String = switch c.key {
-        case BrowserCommand.left: "←"
-        case BrowserCommand.right: "→"
-        case BrowserCommand.up: "↑"
-        case BrowserCommand.down: "↓"
-        case "\t": "⇥"
-        default: c.key.uppercased()
-        }
-        let numbered = c.title == "Space 1" || c.title == "Sidebar Tab 1"
-        return k + [numbered ? "1–9" : key]
     }
 }
 

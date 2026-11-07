@@ -270,6 +270,8 @@ public enum TelemetryFeature: Sendable, Equatable {
     case privateWindowOpen
     /// A tab preview card's quick action (SB-45). Never the tab, its site or its title.
     case tabPreviewAction(TabPreviewAction)
+    /// A shortcut changed in Settings → Shortcuts (a new key, a swap or a clear). Never which command or key.
+    case shortcutRemap
     /// The one manual smoke event that checks a new key end to end.
     case telemetrySmoke
 
@@ -328,6 +330,7 @@ public enum TelemetryFeature: Sendable, Equatable {
         case .boostSaved: "boost.save"
         case .privateWindowOpen: "private_window.open"
         case .tabPreviewAction: "tab_preview.action"
+        case .shortcutRemap: "shortcut.remap"
         case .telemetrySmoke: "telemetry.smoke"
         }
     }

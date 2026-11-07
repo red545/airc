@@ -190,9 +190,11 @@ final class TabPreviewController {
     /// Whether the pointer moving from `a` to `b` heads for the card: `b` lies in the triangle from `a` to the card's
     /// near edge (the menu-aim rule).
     private func heading(from a: NSPoint, to b: NSPoint) -> Bool {
-        guard let card, card.superview != nil, b.x > a.x else { return false }
+        let onRight = c?.sidebarOnRight == true
+        guard let card, card.superview != nil, onRight ? b.x < a.x : b.x > a.x else { return false }
         let r = card.convert(card.cardRect, to: nil)
-        let top = NSPoint(x: r.minX, y: r.maxY), bottom = NSPoint(x: r.minX, y: r.minY)
+        let nearX = onRight ? r.maxX : r.minX
+        let top = NSPoint(x: nearX, y: r.maxY), bottom = NSPoint(x: nearX, y: r.minY)
         func side(_ p: NSPoint, _ q: NSPoint, _ s: NSPoint) -> CGFloat { (q.x - p.x) * (s.y - p.y) - (q.y - p.y) * (s.x - p.x) }
         let d1 = side(a, top, b), d2 = side(top, bottom, b), d3 = side(bottom, a, b)
         return !((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0))
@@ -361,12 +363,13 @@ final class TabPreviewController {
         return v
     }
 
-    /// Beside the sidebar, the card's top level with the row's, kept inside the window.
+    /// Beside the sidebar (to its left when it's on the right, WIN-5), the card's top level with the row's, kept inside
+    /// the window.
     static func frame(beside r: SidebarRowView, in c: WindowController) -> NSRect {
         let m = TabPreviewCardView.margin, w = TabPreviewCardView.width, h = TabPreviewCardView.height
         let rowRect = r.convert(r.bounds, to: c.root)
         let sidebar = c.sidebar.convert(c.sidebar.bounds, to: c.root)
-        let x = min(sidebar.maxX + gap, c.root.bounds.width - w - 8)
+        let x = c.sidebarOnRight ? max(sidebar.minX - gap - w, 8) : min(sidebar.maxX + gap, c.root.bounds.width - w - 8)
         let top = min(max(8, rowRect.minY - 4), c.root.bounds.height - h - 8)
         return NSRect(x: x - m, y: top - m, width: w + 2 * m, height: h + 2 * m).integral
     }
@@ -386,8 +389,10 @@ final class TabPreviewController {
         stats.lastPresentSprang = !reduceMotion
         #endif
         if reduceMotion { return layer.fade(from: 0, to: 1, duration: AircMotion.reducedDuration) }
-        // A flipped view's layer has its origin at the top left: scale about the card's left edge, level with the row.
-        let p = CGPoint(x: TabPreviewCardView.margin, y: min(max(anchorY, TabPreviewCardView.margin), card.bounds.height - TabPreviewCardView.margin))
+        // A flipped view's layer has its origin at the top left: scale about the card's edge nearest the sidebar, level
+        // with the row.
+        let nearX = c?.sidebarOnRight == true ? card.bounds.width - TabPreviewCardView.margin : TabPreviewCardView.margin
+        let p = CGPoint(x: nearX, y: min(max(anchorY, TabPreviewCardView.margin), card.bounds.height - TabPreviewCardView.margin))
         var t = CATransform3DMakeTranslation(p.x, p.y, 0)
         t = CATransform3DScale(t, 0.94, 0.94, 1)
         t = CATransform3DTranslate(t, -p.x, -p.y, 0)

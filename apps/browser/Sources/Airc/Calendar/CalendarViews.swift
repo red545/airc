@@ -212,8 +212,9 @@ final class CalendarCard {
         let size = host.fittingSize
         let height = size.height - 2 * m
         let tileInRoot = tile.convert(tile.bounds, to: c.root)
-        let onRight = c.sidebar.frame.minX > c.root.bounds.midX
-        let x = onRight ? c.sidebar.frame.minX - 4 - Self.width - m : c.sidebar.frame.maxX + 4 - m
+        // Docked or revealed (then the sidebar is in the floating panel), on either side (WIN-5).
+        let side = c.sidebar.convert(c.sidebar.bounds, to: c.root)
+        let x = c.sidebarOnRight ? side.minX - 4 - Self.width - m : side.maxX + 4 - m
         let y = min(max(8, tileInRoot.minY), c.root.bounds.height - height - 8) - m
         host.frame = NSRect(x: x, y: y, width: Self.width + 2 * m, height: size.height)
     }

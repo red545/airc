@@ -369,12 +369,18 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     }
 
     /// Over the URL field (⌘L, click) when the sidebar is docked; centred otherwise (⌘T, hidden sidebar). Its left edge
-    /// is the field's and its input row is centred on the field, so it reads as the field growing (Arc ref §2.2).
+    /// is the field's and its input row is centred on the field, so it reads as the field growing (Arc ref §2.2). With
+    /// the sidebar on the right (WIN-5) its right edge is the field's: it grows over the page, to the left.
     private func anchoredRect(in bounds: NSRect, height: CGFloat) -> NSRect? {
         guard mode == .editURL, host?.commandBarAnchorsToURLField == true else { return nil }
-        let x = sidebarFrame.minX + AircMetrics.Sidebar.inset
         let fieldMid = AircMetrics.Sidebar.urlFieldTop + AircMetrics.Sidebar.urlFieldHeight / 2
         let top = fieldMid - AircMetrics.CommandBar.inputHeight / 2
+        if sidebarFrame.midX > bounds.midX {
+            let right = sidebarFrame.maxX - AircMetrics.Sidebar.inset
+            let width = max(320, min(AircMetrics.CommandBar.width - 125, right - 24))
+            return NSRect(x: right - width, y: max(8, top), width: width, height: height)
+        }
+        let x = sidebarFrame.minX + AircMetrics.Sidebar.inset
         let width = min(AircMetrics.CommandBar.width - 125, bounds.width - x - 24)
         return NSRect(x: x, y: max(8, top), width: max(320, width), height: height)
     }
@@ -1118,16 +1124,6 @@ extension WindowController: CommandBarHost {
             urls.insert(t.url)
         }
         for t in store.state.tabs.values where t.profileID == profile.id && t.itemID == nil { addTab(t) }
-        // An empty query only shows recent Today tabs. Avoid constructing pinned, Space and action
-        // candidates (including their icons and shortcuts) that the empty-query branch discards.
-        var recentOnly = q.isEmpty
-        #if AIRC_TESTING
-        if ProcessInfo.processInfo.environment["AIRC_COMMAND_BASELINE"] == "1" { recentOnly = false }
-        #endif
-        if recentOnly {
-            let recent = CommandSearch.rank("", candidates, limit: 6)
-            return recent.compactMap { actions[$0.candidate.id] }
-        }
         for item in store.state.items.values where item.kind == .tab {
             let inProfile = item.profileID == profile.id || (item.spaceID.map { store.space($0)?.profileID == profile.id } ?? false)
             guard inProfile, let saved = item.savedURL else { continue }
@@ -1259,17 +1255,17 @@ extension WindowController: CommandBarHost {
                 guard let self else { return }
                 _ = try? self.store.createFolder(inSpace: self.currentSpaceID)
             },
-            .init(title: sidebarHidden ? "Show Sidebar" : "Hide Sidebar", symbol: "sidebar.left", hint: "⌘S", keywords: ["toggle"]) { [weak self] in self?.toggleSidebar() },
+            .init(title: sidebarHidden ? "Show Sidebar" : "Hide Sidebar", symbol: "sidebar.left", hint: ShortcutCenter.hint("view.toggleSidebar", "⌘S"), keywords: ["toggle"]) { [weak self] in self?.toggleSidebar() },
             .init(title: "Edit Theme Color…", symbol: "paintpalette", hint: "", keywords: ["theme", "colour", "color"]) { [weak self] in
                 guard let self else { return }
                 self.editTheme(self.currentSpaceID)
             },
             .init(title: "Rename Space…", symbol: "pencil", hint: "", keywords: ["space"]) { [weak self] in self?.renameCurrentSpace() },
-            .init(title: "Clear Today", symbol: "arrow.down.to.line", hint: "⇧⌘K", keywords: ["archive", "clean"]) { [weak self] in self?.clearToday() },
-            .init(title: "Library", symbol: "archivebox", hint: "⇧⌘L", keywords: ["archive", "history"]) { [weak self] in self?.showLibrary() },
+            .init(title: "Clear Today", symbol: "arrow.down.to.line", hint: ShortcutCenter.hint("tabs.clearToday", "⇧⌘K"), keywords: ["archive", "clean"]) { [weak self] in self?.clearToday() },
+            .init(title: "Library", symbol: "archivebox", hint: ShortcutCenter.hint("tabs.library", "⇧⌘L"), keywords: ["archive", "history"]) { [weak self] in self?.showLibrary() },
         ]
         if currentTab != nil {
-            a.append(.init(title: "Add Split View", symbol: "rectangle.split.2x1", hint: "⌃⇧+", keywords: ["split", "side", "pane"]) { [weak self] in
+            a.append(.init(title: "Add Split View", symbol: "rectangle.split.2x1", hint: ShortcutCenter.hint("tabs.newSplit", "⌃⇧+"), keywords: ["split", "side", "pane"]) { [weak self] in
                 self?.newSplitView()
             })
         }
@@ -1280,11 +1276,11 @@ extension WindowController: CommandBarHost {
         }
         if let t = currentTab {
             a += [
-                .init(title: t.isToday ? "Pin Tab" : "Unpin Tab", symbol: "pin", hint: "⌘D", keywords: ["bookmark"]) { [weak self] in self?.togglePin() },
+                .init(title: t.isToday ? "Pin Tab" : "Unpin Tab", symbol: "pin", hint: ShortcutCenter.hint("tabs.pin", "⌘D"), keywords: ["bookmark"]) { [weak self] in self?.togglePin() },
                 .init(title: "Add to Favorites", symbol: "star", hint: "", keywords: ["favorite", "favourite"]) { [weak self] in self?.addCurrentToFavorites() },
-                .init(title: "Copy URL", symbol: "link", hint: "⇧⌘C", keywords: ["link"]) { [weak self] in self?.copyURL() },
-                .init(title: "Copy URL as Markdown", symbol: "text.badge.plus", hint: "⌥⇧⌘C", keywords: ["link"]) { [weak self] in self?.copyURLMarkdown() },
-                .init(title: "Reload", symbol: "arrow.clockwise", hint: "⌘R", keywords: ["refresh"]) { [weak self] in self?.reloadOrStop() },
+                .init(title: "Copy URL", symbol: "link", hint: ShortcutCenter.hint("edit.copyURL", "⇧⌘C"), keywords: ["link"]) { [weak self] in self?.copyURL() },
+                .init(title: "Copy URL as Markdown", symbol: "text.badge.plus", hint: ShortcutCenter.hint("edit.copyURLMarkdown", "⌥⇧⌘C"), keywords: ["link"]) { [weak self] in self?.copyURLMarkdown() },
+                .init(title: "Reload", symbol: "arrow.clockwise", hint: ShortcutCenter.hint("view.reload", "⌘R"), keywords: ["refresh"]) { [weak self] in self?.reloadOrStop() },
                 .init(title: "Duplicate Tab", symbol: "plus.square.on.square", hint: "", keywords: ["copy"]) { [weak self] in
                     guard let self, let id = self.shownTabID else { return }
                     _ = try? self.store.duplicateTab(id)

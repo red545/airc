@@ -101,7 +101,7 @@ The named row, settle, reveal/conceal, fold and toast springs in `packages/AircD
 | WIN-2 | done | SidebarChrome header; no tab strip or horizontal toolbar in N/01. |
 | WIN-3 | partial | Fullscreen callbacks hide traffic lights; no fullscreen/notch capture or interactive verification. |
 | WIN-4 | partial | Width clamp/reset/drag exists; SidebarReveal:160 hides 40 pt below minimum, rather than directly past 164 pt. |
-| WIN-5 | missing | WindowController.layoutRoot hardcodes left sidebar; no right-side preference. |
+| WIN-5 | done | Settings → Appearance → Sidebar position; WindowController.layoutRoot mirrors through Browser/SidebarSide.swift, live in every window; `--script sidebarright` on both engines. Private windows and Little Arc stay left. |
 | WIN-6 | can't-tell | No feature kill-switch wiring found in reviewed UI; engine-wide release behavior not verified. |
 | SB-1 | partial | 32 pt header buttons; history menus/long press/command-click missing (issue 5). |
 | SB-2 | partial | 36 pt host field/copy/bar work in source; Site Controls stub. |

@@ -23,6 +23,9 @@ while true; do
   head=$(git -C "$ROOT" rev-parse HEAD)
   newest=$(git -C "$ROOT" log -1 --format=%ct)
   # Only deferred artifact uploads depend on the Mac's uplink speed.
+  # The 01:15 UTC cron nightly (and its public Nightly) needs the lock: start nothing from 01:00 to 01:25 UTC.
+  hm=$((10#$(date -u +%H%M)))
+  if (( hm >= 100 && hm < 125 )); then sleep 60; continue; fi
   if [[ $head != "$last" ]] && (( $(date +%s) - newest >= QUIET )) && flock -n "$STATUS/.lock" true; then
     note "run for $(git -C "$ROOT" rev-parse --short HEAD)"
     "$ROOT/infra/nightly.sh" --ship >> "$LOG" 2>&1

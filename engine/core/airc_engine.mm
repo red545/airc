@@ -1,6 +1,7 @@
 #include "airc/core/airc_memory.h"
 #include "airc/core/airc_drm_policy.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/browser/download/download_prefs.h"
 // Copyright 2026 Mantra Patel
 // SPDX-License-Identifier: Apache-2.0
 // Modified by The Airc Authors
@@ -538,6 +539,14 @@ extern "C" __attribute__((visibility("default"))) int AircMain(
   }
   AircProfile* otr =
       [AircProfile wrapperFor:original->GetPrimaryOTRProfile(true)];
+  if (otr) {
+    // DownloadBubbleUIControllerDelegate sets an OTR-only prompt override when
+    // the download service starts. Airc owns the downloads UI: initialize first,
+    // then remove that override so the parent's live preference is inherited.
+    // Keep Chromium's target validation and explicit Save As handling intact.
+    DownloadPrefs::FromBrowserContext(otr.chromeProfile);
+    otr.chromeProfile->GetPrefs()->ClearPref(prefs::kPromptForDownload);
+  }
   completion(otr, otr ? nil : @"Chrome is destroying it");
 }
 

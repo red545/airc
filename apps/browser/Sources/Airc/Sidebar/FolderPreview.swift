@@ -81,7 +81,9 @@ final class FolderPreviewController {
         let rowInRoot = row.convert(row.bounds, to: c.root)
         // The hosting view is larger than the panel by its shadow's reach, so the shadow isn't clipped.
         let m = Self.shadowMargin
-        let x = c.sidebar.frame.maxX + 4 - m
+        // Beside the sidebar (docked or revealed), to its left when it's on the right (WIN-5).
+        let side = c.sidebar.convert(c.sidebar.bounds, to: c.root)
+        let x = c.sidebarOnRight ? side.minX - 4 - Self.width - m : side.maxX + 4 - m
         let y = min(max(8, rowInRoot.minY - 6), c.root.bounds.height - height - 8) - m
         host.frame = NSRect(x: x, y: y, width: Self.width + 2 * m, height: height + 2 * m)
         host.wantsLayer = true

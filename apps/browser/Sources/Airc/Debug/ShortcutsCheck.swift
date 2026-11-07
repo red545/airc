@@ -477,7 +477,9 @@ extension SnapshotRunner {
             // ⇧⌘W (Close Window) closes the window, so only its menu item is checked.
             run { [self] in
                 let item = NSApp.mainMenu?.items.compactMap(\.submenu).flatMap(\.items).first { $0.title == "Close Window" }
-                check(item?.keyEquivalent == "w" && item?.keyEquivalentModifierMask == [.command, .shift], "shortcuts: File › Close Window is ⇧⌘W")
+                // Menus spell ⇧ letters in upper case (ShortcutCenter.menuEquivalent).
+                let key = item.flatMap { ShortcutCenter.combo($0.keyEquivalent, $0.keyEquivalentModifierMask) }
+                check(key?.display == "⇧⌘W", "shortcuts: File › Close Window is ⇧⌘W (\(key?.display ?? "no item"))")
             }
 
         }

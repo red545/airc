@@ -321,6 +321,9 @@ if [[ -n "$SNAPSHOTS" ]]; then
     launch --script events --ephemeral --data-dir "$home/Events"
     # Page, editor and field shortcuts on a loopback editor page, and Airc's own against Arc's (ShortcutsCheck.swift).
     launch --script shortcuts --ephemeral --data-dir "$home/Shortcuts"
+    # Settings → Shortcuts (ShortcutRemapCheck.swift): ⌘L moved to ⌥⌘L (the page gets ⌘L, ⌥⌘L edits the URL), a swap,
+    # refused and page keys, Delete, resets; the menus, settings.json, a private window and Little Arc follow each change.
+    launch --script shortcutremap --ephemeral --data-dir "$home/ShortcutRemap"
     # Chromium's web-modal dialogs in our window (passkeys, HTTP auth, beforeunload), read through the engine's test
     # hook, which only answers on its scratch-data, mock-keychain test gate.
     if [[ $engine == chromium ]]; then
@@ -409,11 +412,15 @@ if [[ -n "$SNAPSHOTS" ]]; then
     launch --script managespaces --ephemeral --data-dir "$home/ManageSpaces"
     # MEM-3's exemption (KeepLoadedCheck.swift): with a 2 s timeout, pinned tabs and Favorites on a listed loopback host
     # stay loaded and an unlisted one unloads; on Chromium also as WebKit pages.
-    launch --script keeploaded --ephemeral --data-dir "$home/KeepLoaded"
+    launch --script keeploaded --ephemeral --data-dir "$home/KeepLoaded" --airc-data-dir="$home/KeepLoaded"
     # SB-45 tab previews on loopback pages (TabPreviewCheck.swift): the dwell, the card beside the row, live and kept
     # pictures, the hide rules, the actions and the setting. Hover drives the rows' own enter and exit handlers: posted
     # mouse moves never reach tracking areas (the window server makes those events), and HID posting isn't allowed.
     launch --script previews --ephemeral --data-dir "$home/Previews"
+    # WIN-5 the sidebar on the right (SidebarRightCheck.swift), on loopback pages: both positions at the default, minimum
+    # and maximum widths (sidebar, page card, resize edge, traffic lights, tab preview card, drop edges, ⌘L, Library,
+    # downloads card and update pill), ⌘S and the reveal from the right edge, and the setting live across windows.
+    launch --script sidebarright --ephemeral --data-dir "$home/SidebarRight"
     # Site Controls and Safari's-engine pages (Followups3Check.swift), on loopback pages: the location in use (the page
     # script's made-up position, never CoreLocation), macOS's privacy answers as a test override (never a prompt, never
     # System Settings), and on Chromium the blocked pop-ups and the WebKit pages ("localhost" plays a listed service):

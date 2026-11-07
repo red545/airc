@@ -439,13 +439,15 @@ final class UpdateConfirmView: NSView {
     var hostingView: NSView { host }
 
     /// Above the button while the sidebar shows it (docked or revealed), and above the media tray too when the tray
-    /// shows (it sits over the pill: the question never covers its players or downloads); else at the page's bottom-left.
+    /// shows (it sits over the pill: the question never covers its players or downloads); else at the page's bottom-left
+    /// (bottom-right with the sidebar on the right, WIN-5).
     func layoutInWindow() {
         guard let c = controller else { return }
         let button = c.sidebar.update, tray = c.sidebar.tray
         let onScreen = button.isShowing && (c.sidebarFraction >= 1 || c.revealController?.isRevealed == true)
         var anchor = onScreen ? c.root.convert(button.pillRect, from: button)
-            : NSRect(x: c.card.frame.minX + AircMetrics.Sidebar.inset, y: c.card.frame.maxY - 10, width: 260, height: 0)
+            : NSRect(x: c.sidebarOnRight ? c.card.frame.maxX - AircMetrics.Sidebar.inset - 260 : c.card.frame.minX + AircMetrics.Sidebar.inset,
+                     y: c.card.frame.maxY - 10, width: 260, height: 0)
         if onScreen, tray.height > 0 {
             // The tray's height includes its 6 pt top inset: the question keeps 12 pt from its rows, as the downloads card.
             let top = c.root.convert(tray.bounds, from: tray).minY

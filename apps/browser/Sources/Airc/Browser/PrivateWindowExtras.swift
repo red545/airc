@@ -81,7 +81,7 @@ extension PrivateWindowController {
     /// doesn't use it. ⌘Z, ⇧⌘Z and Paste and Match Style aren't this window's: AppKit gives them to the field or page
     /// with the keyboard, then to the Edit menu's undo:, redo: and pasteAndMatchStyle: on it.
     func handleKeyPageFirst(_ event: NSEvent) -> Bool {
-        guard let (key, mods) = Self.normalizedKey(event), let run = action(forKey: key, modifiers: mods) else { return false }
+        guard let (key, mods) = Self.normalizedKey(event), let run = action(forTyped: key, modifiers: mods) else { return false }
         let cmd = CommandMenus.all.first { $0.key.lowercased() == key && $0.modifiers == mods } ?? BrowserCommand("", key, mods) { _ in }
         if KeyMonitor.offerToPage(cmd, page: focusedPage, engine: app?.engine, window: window, run: run) {
             KeyMonitor.deliverToPage(event, in: window)
