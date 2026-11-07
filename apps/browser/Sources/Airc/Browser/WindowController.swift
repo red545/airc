@@ -529,7 +529,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         for p in pageViews.values { p.reload(animated: animated && p.spaceID == currentSpaceID) }
         refreshChrome()
         if !sidebar.pager.isTrackingOrSettling, !colorAnimating {
-            let index = store.orderedSpaces.firstIndex { $0.id == currentSpaceID } ?? 0
+            let index = windowSpaces.firstIndex { $0.id == currentSpaceID } ?? 0
             if abs(sidebar.pager.position - Double(index)) > 0.001 { sidebar.pager.apply(Double(index)) }
             else { pagerDidMove(to: sidebar.pager.position) }
         }
@@ -600,7 +600,7 @@ final class WindowController: NSObject, NSWindowDelegate {
     func hideSparePage() { sparePage?.removeFromSuperview() }
 
     private func rebuildPages() {
-        let spaces = store.orderedSpaces
+        let spaces = windowSpaces
         var ordered: [SpacePageView] = []
         for s in spaces {
             let v = pageViews[s.id] ?? takeSparePage(for: s) ?? SpacePageView(spaceID: s.id, palette: palette(for: s), controller: self)
@@ -627,7 +627,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         sidebar.header.configure(palette: pal, canGoBack: t?.canGoBack ?? false, canGoForward: t?.canGoForward ?? false,
                                  loading: t?.isLoading ?? false, hasPage: t != nil)
         let profilesInUse = Set(store.state.spaces.values.map(\.profileID))
-        sidebar.footer.configure(spaces: store.orderedSpaces, profiles: store.state.profiles, palette: pal,
+        sidebar.footer.configure(spaces: windowSpaces, profiles: store.state.profiles, palette: pal,
                                  multipleProfiles: profilesInUse.count > 1,
                                  provisional: newSpacePanel.map { $0.model.icon ?? "" })
         card.palette = pal
@@ -638,6 +638,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         commandBar?.palette = pal
         library?.setTheme(pal.resolved)
         mediaLibraryChromeChanged()
+        updateWindowTitle()
     }
 
     /// What the card shows while the current Space has no tab: its icon and name, and its profile while several are
@@ -729,6 +730,8 @@ final class WindowController: NSObject, NSWindowDelegate {
     func show(_ tabID: String, focus: Bool = true, updatesRows: Bool = true, defersNewPage: Bool = false, takeOver: Bool = true) {
         bringBackFromCallWindow(tabID)
         guard let tab = store.tab(tabID) else { return }
+        // WIN-7: a blank window's tab elsewhere, or a listed Space's tab in a blank window, shows in its own window.
+        if routeToItsWindow(tab, focus: focus, updatesRows: updatesRows, takeOver: takeOver) { return }
         if let other = app?.window(showing: tabID, except: self) {
             guard takeOver else { return showElsewhere(tabID, updatesRows: updatesRows) }
             other.pageLeaving(tabID)
@@ -1327,7 +1330,7 @@ final class WindowController: NSObject, NSWindowDelegate {
     /// already built and shows its last tab, its background is already rendered, and its store writes are quiet.
     func switchToSpace(_ spaceID: String, animated: Bool) {
         guard let space = store.space(spaceID) else { return }
-        let spaces = store.orderedSpaces
+        let spaces = windowSpaces
         guard let target = spaces.firstIndex(where: { $0.id == spaceID }) else { return }
         let from = sidebar.pager.position
         let fromSpace = store.space(currentSpaceID)
@@ -1368,7 +1371,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         do { try store.moveSpace(id, to: index) } catch { NSSound.beep(); return }
         reloadAll(animated: false)
         // The press's own slide may still be settling: the pager goes straight to the Space's new place.
-        if let i = store.orderedSpaces.firstIndex(where: { $0.id == currentSpaceID }) { sidebar.pager.go(to: i, animated: false) }
+        if let i = windowSpaces.firstIndex(where: { $0.id == currentSpaceID }) { sidebar.pager.go(to: i, animated: false) }
     }
 
     func switchSpace(offset: Int) {
@@ -1394,7 +1397,7 @@ final class WindowController: NSObject, NSWindowDelegate {
 
     /// The pager moved (swipe or settle): blend the window colour by how much of each page shows.
     func pagerDidMove(to position: Double) {
-        let spaces = store.orderedSpaces
+        let spaces = windowSpaces
         guard !spaces.isEmpty else { return }
         sidebar.footer.setPosition(position)
         guard !colorAnimating else { return }
@@ -1412,7 +1415,7 @@ final class WindowController: NSObject, NSWindowDelegate {
 
     /// The swipe was released; the page swap happens now, while the spring settles.
     func pagerWillSettle(on page: Int) {
-        let spaces = store.orderedSpaces
+        let spaces = windowSpaces
         guard spaces.indices.contains(page), spaces[page].id != currentSpaceID else { return }
         applySpace(spaces[page].id)
         if let t = preferredTab(forSpace: spaces[page].id) { show(t, focus: false, takeOver: false) } else { showEmpty() }

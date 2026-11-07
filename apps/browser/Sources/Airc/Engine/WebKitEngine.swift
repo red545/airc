@@ -90,10 +90,14 @@ final class WebKitProfile: EngineProfile {
     let router = ScriptRouter()
     /// Downloads and Media Session tabs (WebKitEngine+Library.swift).
     private(set) lazy var library = WebKitLibrary(profile: self)
+    /// Its pages' icons: the app's (on disk), or for a private session one in memory only, emptied when the session ends
+    /// (PrivateBrowsing.closed).
+    let icons: FaviconCache
 
-    init(directory: String, dataStore: WKWebsiteDataStore) {
+    init(directory: String, dataStore: WKWebsiteDataStore, privateSession: Bool = false) {
         self.directory = directory
         self.dataStore = dataStore
+        icons = privateSession ? FaviconCache(memoryOnly: true) : .shared
         userContent.addUserScript(WKUserScript(source: Self.audioScript, injectionTime: .atDocumentEnd,
                                                forMainFrameOnly: false))
         userContent.add(router, name: "aircAudio")
@@ -577,7 +581,7 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
         guard let pageURL = webView.url, pageURL.scheme?.hasPrefix("http") == true else { return }
         webView.evaluateJavaScript(Self.faviconScript) { [weak self] result, _ in
             guard let self, let s = result as? String, let u = URL(string: s), u != self.faviconURL else { return }
-            FaviconCache.shared.load(u) { [weak self] image in
+            self.webKitProfile.icons.load(u) { [weak self] image in
                 guard let self, let image else { return }
                 self.favicon = image
                 self.faviconURL = u

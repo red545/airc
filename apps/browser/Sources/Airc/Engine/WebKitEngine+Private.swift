@@ -6,6 +6,6 @@ import WebKit
 // private session, shared by its windows like Chromium's off-the-record profile, and gone with the last of them.
 extension WebKitEngine {
     func makePrivateProfile() -> WebKitProfile {
-        WebKitProfile(directory: "private-" + UUID().uuidString, dataStore: .nonPersistent())
+        WebKitProfile(directory: "private-" + UUID().uuidString, dataStore: .nonPersistent(), privateSession: true)
     }
 }

@@ -194,7 +194,8 @@ extension WindowController {
             }
             // Memory pressure: Chromium frees its own pages (the engine's listener); the app, its WebKit pages.
             if pressure, isChromiumPage(page) { continue }
-            if page.isAudible || page.isLoading || SiteControlsCenter.shared?.activity(of: page).isCapturing == true {
+            if page.isAudible || (page as? WebKitTab)?.playsMedia == true || page.isLoading
+                || SiteControlsCenter.shared?.activity(of: page).isCapturing == true {
                 if !pressure { hiddenSince[id] = now }
                 continue
             }
@@ -226,11 +227,13 @@ extension WindowController {
     /// A Chromium page of the Chromium build (the engine discards it; the app closes its WebKit pages).
     private func isChromiumPage(_ page: EngineTab) -> Bool { !appUnloads && !ProtectedMedia.isWebKitPage(page) }
 
-    /// Typed-in form input, or (WebKit, whose sound report misses muted and silent media) a video or sound still
-    /// playing, or one in picture in picture.
+    /// Typed-in form input, or (WebKit) sound WebKit says is playing (media outside the document and Web Audio too), a
+    /// media session playing, or a video or sound in the document still playing (the page script's sound report misses
+    /// muted and silent media), or one in picture in picture.
     private func keepsPage(_ page: EngineTab, _ answer: @escaping (Bool) -> Void) {
         page.hasUnsavedInput { dirty in
-            guard !dirty, page is WebKitTab, !page.isClosed else { return answer(dirty) }
+            guard !dirty, let wk = page as? WebKitTab, !page.isClosed else { return answer(dirty) }
+            if wk.playsMedia { return answer(true) }
             page.evaluate("""
             !!document.pictureInPictureElement || Array.prototype.some.call(document.querySelectorAll('video,audio'),
               function (m) { return !m.paused && !m.ended && m.readyState > 2; })

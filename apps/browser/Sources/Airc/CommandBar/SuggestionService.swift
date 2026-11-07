@@ -23,6 +23,8 @@ final class SuggestionService {
     private var sessions: [String: URLSession] = [:]
     private var cache: [String: [String: [String]]] = [:]   // profile → query → suggestions
     private var pending: DispatchWorkItem?
+    /// Whose query `pending` and `task` are.
+    private var pendingProfileID: String?
     private var task: URLSessionDataTask?
     private var generation = 0
 
@@ -61,6 +63,7 @@ final class SuggestionService {
         task?.cancel()
         generation += 1
         let gen = generation
+        pendingProfileID = profileID
         if let hit = cache[profileID]?[q.lowercased()] { return completion(hit) }
         if canned {
             let list = Self.cannedSuggestions(for: q)
@@ -77,6 +80,8 @@ final class SuggestionService {
                 let list = data.map { SearchSuggestions.parse($0, query: q) } ?? []
                 DispatchQueue.main.async {
                     guard self.generation == gen else { return }
+                    // Cleared while it was on its way (a private window closed): keep nothing of it.
+                    guard self.sessions[profileID] != nil else { return }
                     self.cache[profileID, default: [:]][q.lowercased()] = list
                     if (self.cache[profileID]?.count ?? 0) > 200 { self.cache[profileID] = [:] }
                     completion(list)
@@ -89,10 +94,28 @@ final class SuggestionService {
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.debounce, execute: work)
     }
 
+    /// Forgets a profile's (or a private window's) queries and their answers, and ends its session. A query of its
+    /// still waiting for the debounce or the network is dropped.
     func clear(profileID: String) {
+        if pendingProfileID == profileID {
+            pending?.cancel()
+            task?.cancel()
+            generation += 1
+            pendingProfileID = nil
+        }
         cache[profileID] = nil
         sessions.removeValue(forKey: profileID)?.invalidateAndCancel()
     }
+
+    #if AIRC_TESTING
+    /// Whether anything of `profileID` is kept: cached queries or a session (`--script private`).
+    func keepsAnything(of profileID: String) -> Bool { cache[profileID] != nil || sessions[profileID] != nil }
+    /// A query and its answer, as a live fetch would keep them (canned runs keep none).
+    func rememberForTesting(_ query: String, _ list: [String], profileID: String) {
+        _ = session(for: profileID)
+        cache[profileID, default: [:]][query.lowercased()] = list
+    }
+    #endif
 
     static func cannedSuggestions(for q: String) -> [String] {
         let l = q.lowercased()

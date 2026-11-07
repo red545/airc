@@ -23,6 +23,8 @@ final class ChromiumEngine: BrowserEngine {
             preconditionFailure("ChromiumEngine requires engineDidStart")
         }
         self.core = core
+        // review2 P3: WebKit stores of deleted profiles that an earlier deletion couldn't remove (HybridEngine.swift).
+        DispatchQueue.main.async { [weak self] in self?.retryPendingWebKitDeletions() }
     }
     // SB-55: subscribe from the app's tab/Space model, never from Chromium UI.
     var pictureInPictureDidChange: ((EngineTab, [String: Any]) -> Void)?

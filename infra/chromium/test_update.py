@@ -37,8 +37,11 @@ class UpdateTests(unittest.TestCase):
             self.assertIn('-old api', headers); self.assertIn('+new api', headers)
             self.assertIn('UNRESOLVED', headers)
             patches = (out/'patches.txt').read_text()
-            self.assertIn('001-BUILD.patch: DRIFT', patches)
-            self.assertGreater(len(patches.splitlines()), 40)
+            series = sorted(p.name for p in (snap/'engine/patches').glob('*.patch'))
+            self.assertTrue(series)
+            self.assertIn(f'{series[0]}: DRIFT', patches)
+            for name in series:
+                self.assertIn(f'{name}: DRIFT', patches)
 
     def test_downgrade_does_not_sync(self):
         with patch('sys.argv', ['update.py', '1.0.0.0']), patch.object(update, 'run') as run:

@@ -501,6 +501,57 @@ final class BrowserTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(shape(f.plan.spaces.first!.pinned), ["Bar item", "[Bookmarks Menu: Menu item]", "[Other Bookmarks: Other item]"])
     }
 
+    func testRepeatedIDsInABookmarksFileKeepEveryEntry() async throws {
+        // A crafted file: a link with its folder's ID, a folder inside a folder of the same ID, two siblings sharing
+        // one, and an entry already named like the suffix a repeat would get.
+        let crafted = """
+            <!DOCTYPE NETSCAPE-Bookmark-file-1>
+            <DL><p>
+                <DT><H3 ID="x">Work</H3>
+                <DL><p>
+                    <DT><A HREF="https://a.example/" ID="x">A</A>
+                    <DT><H3 ID="x">Inner</H3>
+                    <DL><p>
+                        <DT><A HREF="https://b.example/" ID="y">B</A>
+                        <DT><A HREF="https://c.example/" ID="y">C</A>
+                        <DT><A HREF="https://d.example/" ID="x#2">D</A>
+                    </DL><p>
+                </DL><p>
+            </DL><p>
+            """
+        let r = try await BrowserImporter.readBookmarksFile(file(crafted, "crafted.html"))
+        let s = try XCTUnwrap(r.plan.spaces.first)
+        XCTAssertEqual(shape(s.pinned), ["[Work: A, [Inner: B, C, D]]"], "every entry stays, in place")
+        XCTAssertEqual(r.bookmarks, 4)
+        func ids(_ items: [ImportedItem]) -> [String] {
+            items.flatMap { item -> [String] in
+                switch item {
+                case .tab(let t): [t.id]
+                case .folder(let f): [f.id] + ids(f.children)
+                case .split(let x): [x.id] + x.tabs.map(\.id)
+                }
+            }
+        }
+        let all = ids(s.pinned)
+        XCTAssertEqual(all.count, 6)
+        XCTAssertEqual(Set(all).count, all.count, "every entry its own ID: \(all)")
+        // No folder holds an item with its own ID, at any depth.
+        func check(_ f: ImportedFolder, above: Set<String>) {
+            let mine = above.union([f.id])
+            for c in f.children {
+                switch c {
+                case .folder(let g): XCTAssertFalse(mine.contains(g.id)); check(g, above: mine)
+                case .tab(let t): XCTAssertFalse(mine.contains(t.id))
+                case .split: break
+                }
+            }
+        }
+        for case .folder(let f) in s.pinned { check(f, above: []) }
+        // The same file again: the same IDs (re-importing updates in place).
+        let again = try await BrowserImporter.readBookmarksFile(file(crafted, "crafted-again.html"))
+        XCTAssertEqual(again.plan, r.plan)
+    }
+
     func testBookmarksFilesThatArent() async throws {
         do {
             _ = try await BrowserImporter.readBookmarksFile(file("name,url\nExample,https://example.com/\n", "not.html"))

@@ -245,6 +245,9 @@ extension SpacesStore {
         try perform("Import", undoable: true) {
             var itemIDs = Dictionary(state.items.values.compactMap { i in i.sourceID.map { ($0, i.id) } }, uniquingKeysWith: { a, _ in a })
             var tabIDs = Dictionary(state.tabs.values.compactMap { t in t.sourceID.map { ($0, t.id) } }, uniquingKeysWith: { a, _ in a })
+            // Pinned items this import has placed: a source ID that comes again (a crafted bookmarks file) gets an item
+            // of its own instead of moving one already placed, which could make a folder its own parent or ancestor.
+            var placed = Set<String>()
             // Profiles.
             var taken = Set(state.profiles.values.map { $0.name.lowercased() })
             for p in b.profiles where neededProfiles.contains(p.sourceID) {
@@ -351,7 +354,7 @@ extension SpacesStore {
                 }
                 put(space)
                 r.spaceIDs[s.sourceID] = space.id
-                applyPinned(s.pinned, spaceID: space.id, parentID: nil, itemIDs: &itemIDs, result: &r)
+                applyPinned(s.pinned, spaceID: space.id, parentID: nil, itemIDs: &itemIDs, placed: &placed, result: &r)
                 if options.includeToday {
                     for (i, t) in s.today.enumerated() {
                         if var existing = tab(tabIDs[t.sourceID]) {
@@ -374,12 +377,17 @@ extension SpacesStore {
     }
 
     private func applyPinned(_ nodes: [ImportBlueprint.Node], spaceID: String, parentID: String?,
-                             itemIDs: inout [String: String], result r: inout ImportResult) {
+                             itemIDs: inout [String: String], placed: inout Set<String>, result r: inout ImportResult) {
         let container = ItemContainer.pinned(spaceID: spaceID)
+        /// The item `sourceID` had before, if it's a `kind` and this import hasn't placed it yet.
+        func reusable(_ sourceID: String, _ kind: ItemKind) -> Item? {
+            guard let existing = item(itemIDs[sourceID]), existing.kind == kind, !placed.contains(existing.id) else { return nil }
+            return existing
+        }
         for (index, node) in nodes.enumerated() {
             switch node {
             case .tab(let t):
-                if var existing = item(itemIDs[t.sourceID]) {
+                if var existing = reusable(t.sourceID, .tab) {
                     existing.container = container
                     existing.parentID = parentID
                     existing.order = Double(index)
@@ -387,22 +395,24 @@ extension SpacesStore {
                     existing.title = t.title
                     if let pt = t.pageTitle { existing.pageTitle = pt }
                     put(existing)
+                    placed.insert(existing.id)
                 } else {
                     let pinned = Item(kind: .tab, container: container, parentID: parentID, order: Double(index), savedURL: t.url,
                                       title: t.title, pageTitle: t.pageTitle, createdAt: now(), sourceID: t.sourceID)
                     put(pinned)
                     itemIDs[t.sourceID] = pinned.id
+                    placed.insert(pinned.id)
                 }
                 r.pinnedTabs += 1
             case .split(let x) where x.tabs.count < 2:
-                applyPinned(x.tabs.map { .tab($0) }, spaceID: spaceID, parentID: parentID, itemIDs: &itemIDs, result: &r)
+                applyPinned(x.tabs.map { .tab($0) }, spaceID: spaceID, parentID: parentID, itemIDs: &itemIDs, placed: &placed, result: &r)
             case .split(let x):
                 applySplit(x, container: container, parentID: parentID, order: Double(index), itemIDs: &itemIDs)
                 r.pinnedTabs += x.tabs.count
                 r.splits += 1
             case .folder(let f):
                 let id: String
-                if var existing = item(itemIDs[f.sourceID]), existing.kind == .folder {
+                if var existing = reusable(f.sourceID, .folder) {
                     existing.container = container
                     existing.parentID = parentID
                     existing.order = Double(index)
@@ -416,8 +426,9 @@ extension SpacesStore {
                     itemIDs[f.sourceID] = folder.id
                     id = folder.id
                 }
+                placed.insert(id)
                 r.folders += 1
-                applyPinned(f.children, spaceID: spaceID, parentID: id, itemIDs: &itemIDs, result: &r)
+                applyPinned(f.children, spaceID: spaceID, parentID: id, itemIDs: &itemIDs, placed: &placed, result: &r)
             }
         }
     }

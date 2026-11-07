@@ -649,10 +649,12 @@ struct PasswordsPane: View {
             AircGroup {
                 switch model.passwords {
                 case .done(let o):
-                    ImportInfoRow(symbol: o.isFailure ? "exclamationmark.triangle" : "checkmark.circle.fill", title: o.summary,
-                                  subtitle: o.details ?? "Into \(profileName). Saved here, re-encrypted with Airc's own key.", minHeight: 52)
+                    ImportInfoRow(symbol: o.isFailure || o.nothingIn ? "exclamationmark.triangle" : "checkmark.circle.fill", title: o.summary,
+                                  subtitle: o.details ?? (o.nothingIn ? "The file had no passwords Airc could bring over."
+                                                          : "Into \(profileName). Saved here, re-encrypted with Airc's own key."),
+                                  minHeight: 52)
                         .testAnchor("onboarding.passwords.result")
-                    discardRow
+                    discardRow(o)
                 default:
                     intoRow
                     if model.loginsAvailable {
@@ -703,19 +705,23 @@ struct PasswordsPane: View {
         .frame(height: 44)
     }
 
-    @ViewBuilder private var discardRow: some View {
+    /// The plain-text file: the offer to move it to the Trash once its passwords are in Airc; otherwise only what
+    /// happened to it (nothing came over: it stays, the only copy of what's in it besides the browser's).
+    @ViewBuilder private func discardRow(_ o: PasswordImport.Outcome) -> some View {
+        let advice = o.fileAdvice
         HStack(spacing: 12) {
-            Image(systemName: "trash").font(.system(size: 14, weight: .medium)).foregroundStyle(theme.accent.color).frame(width: 20)
+            Image(systemName: advice.offersTrash ? "trash" : "doc.text").font(.system(size: 14, weight: .medium))
+                .foregroundStyle(theme.accent.color).frame(width: 20)
             VStack(alignment: .leading, spacing: 2) {
                 Text(model.passwordsFileDiscarded == true ? "Moved to the Trash" : "“\(model.passwordsFileName ?? "The file")” is plain text")
                     .aircFont(AircFont.body).foregroundStyle(theme.surfaceText.color).lineLimit(1).truncationMode(.middle)
                 Text(model.passwordsFileDiscarded == true ? "Empty the Trash to delete it for good."
                      : model.passwordsFileDiscarded == false ? "It couldn't be moved. Delete it yourself."
-                     : "Move it to the Trash now that it's in.")
+                     : advice.text)
                     .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color).lineLimit(1)
             }
             Spacer(minLength: 8)
-            if model.passwordsFileDiscarded != true {
+            if advice.offersTrash && model.passwordsFileDiscarded != true {
                 Button("Move to Trash") { model.onDiscardPasswordsFile?() }
                     .buttonStyle(.airc(.secondary, size: .regular))
                     .testAnchor("onboarding.passwords.trash")

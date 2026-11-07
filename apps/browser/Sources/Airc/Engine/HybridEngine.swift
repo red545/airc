@@ -132,10 +132,46 @@ extension ChromiumEngine {
         return w
     }
 
-    /// Deletes a profile's WebKit cookies and storage (the profile was deleted).
+    /// Deletes a profile's WebKit cookies and storage (the profile was deleted). WebKit refuses while a page still holds
+    /// the store, and Chromium's part is gone by then, so a store it kept is written down in the data folder and removed
+    /// at the next launch, before any page can hold it (review2 P3: never sign-ins on disk with nothing pointing at them).
+    /// Only stores written down here are retried; unknown ones are never swept (test data folders share the namespace).
     func deleteWebKitData(directory: String, completion: @escaping (Bool) -> Void) {
         profiles.values.first { $0.directory == directory }?.hybrid.webKit = nil
-        webKit.deleteStore(directory: directory, completion: completion)
+        webKit.deleteStore(directory: directory) { [webKit] ok in
+            guard !ok else { Self.notePendingWebKitDeletion(directory, pending: false); return completion(true) }
+            // A store that was never made isn't left behind.
+            webKit.storeExists(directory: directory) { exists in
+                Self.notePendingWebKitDeletion(directory, pending: exists)
+                completion(!exists)
+            }
+        }
+    }
+
+    /// The launch: the stores an earlier deletion couldn't remove.
+    func retryPendingWebKitDeletions() {
+        for directory in Self.pendingWebKitDeletions() where !profiles.values.contains(where: { $0.directory == directory }) {
+            webKit.deleteStore(directory: directory) { [webKit] ok in
+                guard !ok else { return Self.notePendingWebKitDeletion(directory, pending: false) }
+                webKit.storeExists(directory: directory) { exists in
+                    Self.notePendingWebKitDeletion(directory, pending: exists)
+                    if exists { NSLog("Airc: the WebKit data of the deleted profile %@ is still on disk; tried again at launch", directory) }
+                }
+            }
+        }
+    }
+
+    private static var pendingFile: URL { AppPaths.dataDirectory.appendingPathComponent("WebKitPendingDeletions.txt") }
+
+    private static func pendingWebKitDeletions() -> [String] {
+        ((try? String(contentsOf: pendingFile, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init).filter { !$0.isEmpty }
+    }
+
+    private static func notePendingWebKitDeletion(_ directory: String, pending: Bool) {
+        var list = pendingWebKitDeletions().filter { $0 != directory }
+        if pending { list.append(directory) }
+        if list.isEmpty { try? FileManager.default.removeItem(at: pendingFile); return }
+        try? list.joined(separator: "\n").write(to: pendingFile, atomically: true, encoding: .utf8)
     }
 
     /// A profile's WebKit side if it has one (nil: none of its pages has been WebKit's yet).

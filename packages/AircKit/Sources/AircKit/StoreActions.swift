@@ -165,8 +165,9 @@ extension SpacesStore {
 
     /// SB-23: the last Space can't be deleted; Today tabs go to the Archive; ⌘Z undoes.
     public func deleteSpace(_ id: String) throws {
-        guard space(id) != nil else { throw StoreError.notFound }
-        guard state.spaces.count > 1 else { throw StoreError.cannotDeleteLastSpace }
+        guard let doomed = space(id) else { throw StoreError.notFound }
+        // A blank window's Space isn't one of the listed Spaces (WIN-7): the last listed one stays.
+        guard doomed.isBlankWindow || orderedSpaces.count > 1 else { throw StoreError.cannotDeleteLastSpace }
         let spacesBefore = orderedSpaces
         try perform("Delete Space", undoable: true) {
             for x in splits(ofSpace: id) { remove(Split.self, x.id) }
@@ -177,6 +178,31 @@ extension SpacesStore {
                 let next = i > 0 ? spacesBefore[i - 1] : spacesBefore[i + 1]
                 updateWindowState { $0.selectedSpaceID = next.id }
             }
+        }
+    }
+
+    // MARK: - Blank windows (WIN-7, ⌃⌘N)
+
+    /// A blank window's own Space: empty, with `from`'s profile and theme (default: the selected Space's), never listed.
+    @discardableResult
+    public func createBlankWindowSpace(from spaceID: String? = nil) throws -> Space {
+        let source = space(spaceID) ?? selectedSpace
+        var s = Space(name: "Blank Window", theme: source.theme, profileID: source.profileID,
+                      order: Ordering.between(orderedSpaces.last?.order, nil), createdAt: now())
+        s.blankWindow = true
+        try perform(nil) { put(s) }
+        return s
+    }
+
+    /// A blank window closed (or wasn't restored): its Today tabs go to the Archive (the Library has them), its pinned
+    /// items and splits go, then the Space. Not undoable: its window is gone.
+    public func closeBlankWindowSpace(_ id: String) throws {
+        guard let s = space(id), s.isBlankWindow else { throw StoreError.notFound }
+        try perform(nil) {
+            for x in splits(ofSpace: id) { remove(Split.self, x.id) }
+            for t in todayTabs(ofSpace: id) { _ = archive(t, reason: .spaceDeleted) }
+            for root in pinnedRoots(ofSpace: id) { removeItemTree(root.id) }
+            remove(Space.self, id)
         }
     }
 
@@ -204,9 +230,10 @@ extension SpacesStore {
         return reload.sorted()
     }
 
-    /// `deferred` writes the selection on the next `flush()` and notifies no one (the hot Space-switch path).
+    /// `deferred` writes the selection on the next `flush()` and notifies no one (the hot Space-switch path). A blank
+    /// window's Space is never the selection (new windows and Little Arc open on a listed Space).
     public func selectSpace(_ id: String, deferred: Bool = false) {
-        guard space(id) != nil else { return }
+        guard let s = space(id), !s.isBlankWindow else { return }
         updateWindowState(deferred: deferred) { $0.selectedSpaceID = id }
     }
 

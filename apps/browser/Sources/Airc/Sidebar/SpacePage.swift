@@ -962,6 +962,11 @@ final class SpacePageView: NSView {
             return false
         }
         let groupRows = group.compactMap { rows[$0] }
+        // SB-35: past the window's edge, the drag can leave it (Sidebar/TabDragOut.swift).
+        let out = TabDragOut(controller: c, source: source, entry: entry, group: sources.count, pressInWindow: event.locationInWindow,
+                             shownBefore: shownBefore)
+        var lastPoint = event.locationInWindow
+        var cancelled = false
         func setCursor() { (copying ? NSCursor.dragCopy : NSCursor.arrow).set() }
         c.dragsInProgress += 1
         defer { c.dragsInProgress -= 1 }
@@ -976,9 +981,11 @@ final class SpacePageView: NSView {
             case .keyDown? where e!.keyCode == 53:  // Esc cancels
                 destination = nil
                 pageZone = nil
+                cancelled = true
                 break tracking
             case .leftMouseUp?:
                 copying = e!.modifierFlags.contains(.option)
+                lastPoint = e!.locationInWindow
                 break tracking
             case .leftMouseDragged?:
                 let e = e!
@@ -1003,6 +1010,7 @@ final class SpacePageView: NSView {
                     c.root.addSubview(o)
                     o.layer?.addSublayer(g)
                     overlay = o
+                    out?.lift(ghost: g, overlay: o, grab: grabOffset)
                     row.alphaValue = 0.35
                     groupRows.forEach { $0.alphaValue = 0.35 }
                     setCursor()
@@ -1014,6 +1022,16 @@ final class SpacePageView: NSView {
                     ghost?.frame.origin = CGPoint(x: w.x - grabOffset.x, y: w.y - grabOffset.y)
                 }
                 CATransaction.commit()
+                lastPoint = e.locationInWindow
+                if out?.update(windowPoint: e.locationInWindow) == true {
+                    // Outside the window: nothing in it is a drop target until the pointer comes back.
+                    target.hideDropIndicator()
+                    c.hideSplitDropPreview()
+                    destination = nil
+                    pageZone = nil
+                    edge = nil
+                    continue
+                }
                 let rootPoint = c.root.convert(e.locationInWindow, from: nil)
                 if sources.count == 1, case .tab(let dragged) = source, let under = shownBefore, under != dragged,
                    c.shownTabID == dragged, c.store.tab(under) != nil, c.card.frame.contains(rootPoint), !c.sidebar.frame.contains(rootPoint) {
@@ -1039,7 +1057,7 @@ final class SpacePageView: NSView {
             }
             // Edge paging: after the dwell, the neighbouring Space comes in and the drag carries on there.
             if dragging, let ed = edge, CACurrentMediaTime() - ed.since >= Self.edgeDwell {
-                let spaces = c.store.orderedSpaces
+                let spaces = c.windowSpaces
                 if let i = spaces.firstIndex(where: { $0.id == target.spaceID }), spaces.indices.contains(i + ed.side) {
                     let next = spaces[i + ed.side].id
                     target.hideDropIndicator()
@@ -1061,6 +1079,8 @@ final class SpacePageView: NSView {
         overlay?.removeFromSuperview()
         hideDropIndicator()
         if target !== self { target.hideDropIndicator() }
+        // Released (or Esc) outside the window: a new window, or another one (TabDragOut).
+        if dragging, out?.finish(drop: !cancelled, windowPoint: lastPoint) == true { return }
         // A plain click (no drag) on a row of the multi-selection leaves just that row, as everywhere else.
         if !dragging, sources.count > 1 { clearSelection() }
         if dragging, let pageZone, case .tab(let id) = source {
@@ -1118,7 +1138,7 @@ final class SpacePageView: NSView {
 
     func endPaneDrag() { hideDropIndicator() }
 
-    private func hideDropIndicator() {
+    func hideDropIndicator() {
         dropLine.isHidden = true
         dropRing.isHidden = true
         highlightedFolder?.isHovered = false
@@ -1160,7 +1180,7 @@ final class SpacePageView: NSView {
 
     /// Where a drop at `p` (page coordinates) lands, and draws the indicator for it.
     /// `carriesFolder`: a dragged multi-selection holds a folder (it can't go into Favorites or Today either).
-    private func dropDestination(at p: NSPoint, source: DragSource, entry: SidebarEntry, carriesFolder: Bool = false) -> DropDestination? {
+    func dropDestination(at p: NSPoint, source: DragSource, entry: SidebarEntry, carriesFolder: Bool = false) -> DropDestination? {
         guard let c = controller else { return nil }
         let store = c.store
         let profileID = store.profile(ofSpace: spaceID).id

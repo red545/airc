@@ -23,6 +23,9 @@ final class ProfileHost {
     private static let createdSparesKey = "createdSpareEngineDirectories"
     /// Each engine profile as it loads (the window applies per-profile engine settings, e.g. MEM-3's timeout).
     var didLoad: ((EngineProfile) -> Void)?
+    /// Each engine profile as it loads, for the app's profile keeper (WIN-7, AppDelegate.keepProfilesLoaded): kept apart
+    /// from `didLoad`, which others chain.
+    var keepLoaded: ((EngineProfile) -> Void)?
 
     init(store: SpacesStore, engine: BrowserEngine) {
         self.store = store
@@ -69,6 +72,7 @@ final class ProfileHost {
             let blocks = self.waiting.removeValue(forKey: p.id) ?? []
             if let e {
                 self.loaded[p.id] = e
+                self.keepLoaded?(e)
                 self.didLoad?(e)
             }
             blocks.forEach { $0(e) }
@@ -124,6 +128,7 @@ final class ProfileHost {
             createdSpares = createdSpares.filter { $0 != dir }
             if let s = spare, s.directory == dir {
                 loaded[p.id] = s.profile
+                keepLoaded?(s.profile)
                 didLoad?(s.profile)
             } else {
                 load(p) { _ in }

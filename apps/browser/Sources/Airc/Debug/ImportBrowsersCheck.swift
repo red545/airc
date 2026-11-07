@@ -18,6 +18,8 @@ import AppKit
 ///   - the logins step offers a passwords CSV file: on Chromium 4 imported · 1 duplicate skipped (and the rest named),
 ///     Move to Trash deletes the file, the same file again is all duplicates, a file that isn't one says so; on WebKit
 ///     nothing is read;
+///   - the file's row offers the Trash only once passwords from it are in Airc: not for a file nothing came over from
+///     (only rows without a password, or every row refused), and it says how many rows didn't come over;
 ///   - importing Chrome again duplicates nothing (Spaces, items, profiles, history counts);
 ///   - Firefox, Brave (its bookmarks unreadable, its history still in) and Safari's file, the file twice;
 ///   - Settings → Import → Passwords opens the Passwords source, and Arc turning up later doesn't take it over.
@@ -132,6 +134,7 @@ extension SnapshotRunner {
                       && o.notWebsite == Expect.passwords.notWebsite && o.failed == 0 && o.format == .chrome,
                       "\(label): \(o.summary) (\(o.details ?? "")) into \(app?.onboarding?.model.passwordsProfile == c.store.defaultProfile.id ? "the first imported profile" : "another profile")")
                 check(o.summary == "4 passwords imported · 1 duplicate skipped", "\(label): the count and duplicates are said plainly (\(o.summary))")
+                check(o.fileAdvice == ("Move it to the Trash now that it's in.", true), "\(label): its passwords in, the file's row offers the Trash (\(o.fileAdvice.text))")
             } else {
                 guard case .failed(let why) = state else { return check(false, "\(label): WebKit doesn't read a passwords file (\(state))") }
                 check(why.contains("Chromium engine") && FileManager.default.fileExists(atPath: fixture?.passwordsFile.path ?? ""),
@@ -152,12 +155,42 @@ extension SnapshotRunner {
                 guard case .done(let o) = state else { return check(false, "\(label): the same file again (\(state))") }
                 check(o.imported == 0 && o.duplicates == Expect.passwords.logins + Expect.passwords.duplicates,
                       "\(label): the same file again: nothing twice (\(o.summary))")
+                check(o.summary == "No new passwords · \(o.duplicates) already saved" && o.fileAdvice.offersTrash
+                      && o.fileAdvice.text.contains("already saved"),
+                      "\(label): the same file again says its passwords were already saved, and still offers the Trash (\(o.summary); \(o.fileAdvice.text))")
             }
+            // Only rows without a password: nothing came over, so the file stays and no Trash is offered.
+            let empty = root.appendingPathComponent("No Passwords.csv")
+            run { [self] in
+                try? Data("name,url,username,password\nExample,https://example.com/,alex,\nOther,https://other.example/,sam,\n".utf8).write(to: empty)
+                app?.onboarding?.model.passwords = .idle
+                app?.onboarding?.model.passwordsFileDiscarded = nil
+            }
+            passwords(label, file: { empty }) { [self] state in
+                guard case .done(let o) = state else { return check(false, "\(label): a file with no usable rows (\(state))") }
+                check(o.imported == 0 && o.incomplete == 2 && o.nothingIn && o.summary == "No passwords imported",
+                      "\(label): a file with no usable rows says nothing came in (\(o.summary); \(o.details ?? ""))")
+                check(!o.fileAdvice.offersTrash && !o.fileAdvice.text.contains("now that it's in"),
+                      "\(label): …and doesn't offer to trash it (\(o.fileAdvice.text))")
+            }
+            run { [self] in
+                check(app?.onboarding?.model.passwordsFileDiscarded == nil && FileManager.default.fileExists(atPath: empty.path),
+                      "\(label): the file nothing came over from is left where it is")
+            }
+            shoot("ib-4b-passwords-nothing-in")
             run { [self] in app?.onboarding?.model.passwords = .idle }
             passwords(label, file: { fixture?.notPasswordsFile }) { [self] state in
                 guard case .failed(let why) = state else { return check(false, "\(label): a CSV without passwords (\(state))") }
                 check(why.contains("url and a password column"), "\(label): a file that isn't a passwords file says so — \(why)")
             }
+        }
+        // Every row refused by the password store, or some: what the file's row says (the engine refuses none here).
+        run { [self] in
+            let refused = PasswordImport.Outcome(imported: 0, duplicates: 0, failed: 3)
+            check(refused.isFailure && !refused.fileAdvice.offersTrash, "\(label): every row refused: no Trash offered (\(refused.summary); \(refused.fileAdvice.text))")
+            let some = PasswordImport.Outcome(imported: 2, duplicates: 0, failed: 1)
+            check(some.fileAdvice == ("1 row didn't come over. Trash it once you have them.", true),
+                  "\(label): some rows refused: it says how many (\(some.fileAdvice.text))")
         }
         run { [self] in app?.onboarding?.requestClose() }
         wait(0.6)

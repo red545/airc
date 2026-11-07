@@ -11,8 +11,12 @@ import AircKit
 ///   - the main window's cookies aren't visible in it, and its own cookie isn't visible in the main window;
 ///   - ⌘T in it opens a tab in it, ⌘W closes one, ⇧⌘N opens another private window, which shares the session;
 ///   - after the last private window closes, a new one starts with no cookie of the old session;
+///   - a closed private window's typed queries and their suggestions aren't kept (SuggestionService);
 ///   - Chromium: a DRM service's page (loopback, chosen for Safari's engine) plays in WebKit in a private store of its
 ///     own, without the main profile's WebKit cookies;
+///   - icons: a private window's WebKit pages (every page on the WebKit engine, the DRM page on Chromium) get theirs
+///     from a cache in memory, emptied when the session ends; none reaches the app's disk cache, while the main
+///     window's WebKit page's icon still does;
 ///   - the window as drawn (private-window.png).
 /// Keys are posted to the app's queue for the private window, never as HID input.
 extension SnapshotRunner {
@@ -29,7 +33,36 @@ extension SnapshotRunner {
         var third: PrivateWindowController?
         let browsing = PrivateBrowsing.shared
         func base(_ host: String = "127.0.0.1") -> String { "http://\(host):\(port)" }
-        let page = { (title: String) in "<!doctype html><html><head><title>\(title)</title></head><body><h1>\(title)</h1></body></html>" }
+        // Every page has an icon of its own (by its title), so the disk cache shows which window's page fetched it.
+        let slug = { (title: String) in title.replacingOccurrences(of: " ", with: "-") }
+        let page = { (title: String) in
+            "<!doctype html><html><head><title>\(title)</title><link rel=\"icon\" href=\"/icon.svg?\(slug(title))\"></head>"
+                + "<body><h1>\(title)</h1></body></html>"
+        }
+        func icon(_ host: String, _ title: String) -> URL { URL(string: base(host) + "/icon.svg?" + slug(title))! }
+        // The private sessions' icon caches, kept to see them emptied once the session ends.
+        var privateIcons: [(cache: FaviconCache, url: URL)] = []
+        // The private windows' suggestion keys, to see their queries forgotten at close.
+        var suggestionKeys: [String] = []
+        /// Waits for `tab()`'s icon, then checks it came from the private session's own cache, in memory.
+        func privateIcon(_ tab: @escaping () -> EngineTab?, host: String, title: String, _ what: String,
+                         when: @escaping () -> Bool = { true }) {
+            step { [self] done in
+                guard when() else { return done() }
+                waitUntil({ tab()?.favicon != nil }, timeout: 8) {
+                    guard let wk = tab() as? WebKitTab else {
+                        self.check(false, "private (\(tag)): \(what) is a WebKit page")
+                        return done()
+                    }
+                    let cache = wk.webKitProfile.icons, url = icon(host, title)
+                    self.check(wk.favicon != nil && wk.faviconURL == url, "private (\(tag)): \(what) shows its icon (\(wk.faviconURL?.absoluteString ?? "none"))")
+                    self.check(cache !== FaviconCache.shared && cache.fileForTesting(url) == nil && cache.cached(url) != nil,
+                               "private (\(tag)): \(what)'s icon is in the session's own cache, in memory only")
+                    privateIcons.append((cache, url))
+                    done()
+                }
+            }
+        }
 
         step { [self] done in
             server = LocalPageServer(responses: [
@@ -37,6 +70,7 @@ extension SnapshotRunner {
                 "/p1": .init(headers: ["Set-Cookie": "pw=1; Path=/"], body: page("private one")),
                 "/p2": .init(body: page("private two")),
                 "/read": .init(body: page("reader")),
+                "/icon.svg": .init(body: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"32\" height=\"32\"><circle cx=\"16\" cy=\"16\" r=\"14\" fill=\"#5B6CF0\"/></svg>"),
             ])
             guard let server else { check(false, "private: the loopback server starts"); return done() }
             server.start { p in
@@ -71,6 +105,7 @@ extension SnapshotRunner {
             w.openPage(URL(string: base() + "/p1?" + token))
         }
         waitPage({ first?.shownPage }, title: "private one", "private (\(tag)): a private window loads a page")
+        if !chromium { privateIcon({ first?.shownPage }, host: "127.0.0.1", title: "private one", "the private page") }
         run { [self] in
             check(c.engineTab(for: mainTabID)?.title == "main page" && c.store.state.tabs.values.allSatisfy { !$0.url.contains(token) },
                   "private (\(tag)): the page opened in the private window, not the main one")
@@ -128,6 +163,10 @@ extension SnapshotRunner {
             guard let bar = w.commandBar, bar.host === w else { return check(false, "private (\(tag)): ⌘T opens the private window's Command Bar") }
             check(true, "private (\(tag)): ⌘T opens the private window's Command Bar")
             bar.type("main page")
+            // What a live fetch keeps for a typed query (canned runs keep none); it must go with the window.
+            check(w.commandBarSuggestions?.profileID == w.suggestionKey, "private (\(tag)): its Command Bar asks for suggestions under its own key")
+            SuggestionService.shared.rememberForTesting("private query " + token, ["private query \(token) meaning"], profileID: w.suggestionKey)
+            suggestionKeys.append(w.suggestionKey)
             check(!bar.results.contains { if case .open(let u) = $0.action { u.absoluteString.contains(mainToken) } else { false } },
                   "private (\(tag)): its Command Bar offers no history (\(bar.results.map(\.badge)))")
             bar.type(base() + "/p2?" + token + "b")
@@ -157,6 +196,10 @@ extension SnapshotRunner {
                 second = browsing.windows.last
                 self.check(browsing.windows.count == 2 && second !== first, "private (\(tag)): ⇧⌘N in a private window opens another (\(browsing.windows.count))")
                 second?.openPage(URL(string: base() + "/read?" + token + "c"))
+                if let k = second?.suggestionKey {
+                    SuggestionService.shared.rememberForTesting("second query " + token, ["second"], profileID: k)
+                    suggestionKeys.append(k)
+                }
                 done()
             }
         }
@@ -173,6 +216,13 @@ extension SnapshotRunner {
             waitUntil({ browsing.windows.isEmpty && browsing.sessionEnded(pid, app: self.app) }, timeout: 10) {
                 self.check(browsing.windows.isEmpty, "private (\(tag)): the private windows close (\(browsing.windows.count) left)")
                 self.check(browsing.sessionEnded(pid, app: self.app), "private (\(tag)): closing the last one ends the private session (engine profile destroyed)")
+                let kept = suggestionKeys.filter { SuggestionService.shared.keepsAnything(of: $0) }
+                self.check(suggestionKeys.count == 2 && kept.isEmpty,
+                           "private (\(tag)): the closed windows' typed queries are forgotten (\(kept.count) of \(suggestionKeys.count) kept)")
+                if !chromium {
+                    self.check(!privateIcons.isEmpty && privateIcons.allSatisfy { $0.cache.cached($0.url) == nil },
+                               "private (\(tag)): the session's icons go when its last window closes (\(privateIcons.count) caches)")
+                }
                 first = nil
                 second = nil
                 done()
@@ -222,6 +272,8 @@ extension SnapshotRunner {
                     }
                 }
             }
+            privateIcon({ third?.shownPage }, host: "localhost", title: "reader", "the private DRM page",
+                        when: { ProtectedMedia.isWebKitPage(self.c.engineTab(for: mainTabID)) })
             run { ProtectedMedia.shared.choose(.chromium, for: drm()) }
         }
         #endif
@@ -267,10 +319,36 @@ extension SnapshotRunner {
             }
         }
 
-        run {
-            third?.closeWindow()
-            server?.stop()
+        run { third?.closeWindow() }
+        // No private page's icon reached the disk cache, and the session's own cache emptied when it ended. The main
+        // window's WebKit page (the dev engine's, or Chromium's DRM page) still keeps its icon there.
+        step { [self] done in
+            let pid = c.store.profile(ofSpace: c.currentSpaceID).id
+            waitUntil({ browsing.windows.isEmpty && browsing.sessionEnded(pid, app: self.app) }, timeout: 10) {
+                let disk = FaviconCache.shared
+                let ours = disk.diskWrites.filter { $0.port == Int(port) }
+                let mainWindow: Set<URL> = [icon("127.0.0.1", "main page"), icon("127.0.0.1", "reader"), icon("localhost", "main page")]
+                let leaked = ours.filter { !mainWindow.contains($0) }
+                let privateOnly = privateIcons.map(\.url)
+                self.check(leaked.isEmpty && privateOnly.allSatisfy { disk.fileForTesting($0).map { !FileManager.default.fileExists(atPath: $0.path) } ?? false },
+                           "private (\(tag)): no private page's icon is written to the favicon cache (\(leaked.map { $0.query ?? "" }))")
+                self.check(!privateIcons.isEmpty && privateIcons.allSatisfy { $0.cache.cached($0.url) == nil },
+                           "private (\(tag)): every private session's icons are gone once it ends (\(privateIcons.count) checked)")
+                let control = chromium ? icon("localhost", "main page") : icon("127.0.0.1", "main page")
+                if chromium && privateIcons.isEmpty {
+                    self.skip("private (\(tag)): the main window's WebKit icon on disk: Safari's engine isn't on for this run")
+                } else {
+                    self.waitUntil({ disk.fileForTesting(control).map { FileManager.default.fileExists(atPath: $0.path) } ?? false }, timeout: 5) {
+                        self.check(disk.fileForTesting(control).map { FileManager.default.fileExists(atPath: $0.path) } ?? false,
+                                   "private (\(tag)): control: the main window's WebKit page's icon is in the favicon cache on disk")
+                        done()
+                    }
+                    return
+                }
+                done()
+            }
         }
+        run { server?.stop() }
         wait(1)
         // Find, the page's shortcuts first and downloads (PrivateWindowExtrasCheck.swift).
         privateWindowExtrasScenario()

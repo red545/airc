@@ -5,6 +5,9 @@ import ImageIO
 
 /// Favicon images by URL: memory first, then a small disk cache, then the network.
 /// Engine-independent: the sidebar uses it for unloaded pinned items and Favorites.
+///
+/// Private sessions (PrivateWindow.swift) have one of their own (`memoryOnly`): no disk cache read or written, nothing
+/// shared with `shared`'s memory, and emptied when the session's last window closes (`forgetAll`).
 final class FaviconCache {
     static let shared = FaviconCache()
 
@@ -21,7 +24,8 @@ final class FaviconCache {
     private var hostRetryAt = ExpiringLRU<String, Date>(limit: FaviconCache.failureLimit)
     private var prunedAt = Date()
     private let session: URLSession
-    private let directory: URL
+    /// The disk cache; nil for a private session's cache.
+    private let directory: URL?
 
     /// How many failed icons and failing hosts are remembered at most.
     static let failureLimit = 4000
@@ -32,6 +36,10 @@ final class FaviconCache {
     private(set) var networkRequests: [URL] = []
     private let recording = LaunchOptions.current.snapshotDir != nil
     var failureCounts: (givenUp: Int, hosts: Int, fetching: Int) { (givenUp.count, hostRetryAt.count, fetches.count) }
+    /// Every icon written to the disk cache, in order, in scripted runs (`--script private`: none from a private window).
+    private(set) var diskWrites: [URL] = []
+    /// The file an icon is kept in on disk (nil: this cache keeps nothing on disk).
+    func fileForTesting(_ url: URL) -> URL? { fileURL(for: url) }
     /// Forgets the icons in memory (the disk cache stays).
     func forgetMemoryForTesting() { memory.removeAllObjects() }
     #endif
@@ -55,7 +63,8 @@ final class FaviconCache {
         var retry: DispatchWorkItem?
     }
 
-    private init() {
+    /// `memoryOnly`: a private session's cache, which never touches the disk.
+    init(memoryOnly: Bool = false) {
         // One session for every profile, so it must not link them: no cookies in or out, no shared cache beyond the
         // icon files below (code review M6).
         let config = URLSessionConfiguration.ephemeral
@@ -66,9 +75,24 @@ final class FaviconCache {
         config.urlCache = nil
         config.urlCredentialStorage = nil
         session = URLSession(configuration: config)
-        directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        if memoryOnly {
+            directory = nil
+            memory.countLimit = 500
+            return
+        }
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Airc/Favicons", isDirectory: true)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        directory = dir
+    }
+
+    /// Forgets every icon, failure and pending fetch (a private session ended). Fetches still in flight answer no one.
+    func forgetAll() {
+        memory.removeAllObjects()
+        fetches.values.forEach { $0.retry?.cancel() }
+        fetches = [:]
+        givenUp = ExpiringLRU(limit: Self.failureLimit)
+        hostRetryAt = ExpiringLRU(limit: Self.failureLimit)
     }
 
     func cached(_ url: URL) -> NSImage? { memory.object(forKey: url as NSURL) }
@@ -80,7 +104,7 @@ final class FaviconCache {
     func stored(_ string: String?, completion: @escaping (NSImage?) -> Void) {
         guard let s = string, let url = URL(string: s) else { return completion(nil) }
         if let img = memory.object(forKey: url as NSURL) { return completion(img) }
-        let file = fileURL(for: url)
+        guard let file = fileURL(for: url) else { return completion(nil) }
         DispatchQueue.global(qos: .userInitiated).async {
             let img = (try? Data(contentsOf: file)).flatMap(Self.decode)
             DispatchQueue.main.async {
@@ -90,7 +114,7 @@ final class FaviconCache {
         }
     }
 
-    private func fileURL(for url: URL) -> URL { directory.appendingPathComponent(Self.stableName(url.absoluteString) + ".icon") }
+    private func fileURL(for url: URL) -> URL? { directory?.appendingPathComponent(Self.stableName(url.absoluteString) + ".icon") }
 
     /// `retrying`: the completion waits through the retries (it runs once, with the icon or with nil when they're used
     /// up). Otherwise it runs after this attempt; the retries go on in the background and fill the cache.
@@ -137,7 +161,7 @@ final class FaviconCache {
         f.attempts += 1
         let file = fileURL(for: url)
         DispatchQueue.global(qos: .userInitiated).async { [session] in
-            if let data = try? Data(contentsOf: file), let img = Self.decode(data) {
+            if let file, let data = try? Data(contentsOf: file), let img = Self.decode(data) {
                 DispatchQueue.main.async { self.finish(url, img, transient: false) }
                 return
             }
@@ -149,7 +173,12 @@ final class FaviconCache {
                 let status = (response as? HTTPURLResponse)?.statusCode ?? (error == nil ? 200 : 0)
                 if let data, status < 400, let i = Self.decode(data) {
                     img = i
-                    try? data.write(to: file)
+                    if let file {
+                        try? data.write(to: file)
+                        #if AIRC_TESTING
+                        if self.recording { DispatchQueue.main.async { self.diskWrites.append(url) } }
+                        #endif
+                    }
                 }
                 // No answer at all, or the server asking to come back later: worth another try.
                 let transient = img == nil && (response == nil || [408, 429].contains(status) || status >= 500)

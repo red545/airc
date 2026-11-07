@@ -30,7 +30,7 @@
 #                                        build with -D AIRC_TESTING. The two keep separate SwiftPM build folders.
 #
 # The app is a SwiftPM executable (apps/browser) wrapped into a bundle here; no Xcode project needed.
-# Chromium: when `Airc Framework.framework` exists at $CHROMIUM_OUT (default ~/arcfork/chromium/src/out/Airc), a second
+# Chromium: when `Airc Framework.framework` exists at $CHROMIUM_OUT (default ~/arcfork/chromium/src/out/AircRelease, else out/Airc), a second
 # bundle, build/Airc-Chromium.app, links and embeds it and runs on Chromium (scripts/perf.sh --app
 # build/Airc-Chromium.app). build/Airc.app is always the fast WebKit build. Without the framework: WebKit only, said so.
 set -euo pipefail
@@ -53,7 +53,12 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-CHROMIUM_OUT="${CHROMIUM_OUT:-$HOME/arcfork/chromium/src/out/Airc}"
+# The release engine (out/AircRelease) is the current one: the ship loop, nightly and owner builds link it. out/Airc
+# (DCHECK) is only rebuilt on request (its objects were removed for disk), so it is used only when asked for or alone.
+if [[ -z ${CHROMIUM_OUT:-} ]]; then
+  CHROMIUM_OUT="$HOME/arcfork/chromium/src/out/AircRelease"
+  [[ -d "$CHROMIUM_OUT/Airc Framework.framework" ]] || CHROMIUM_OUT="$HOME/arcfork/chromium/src/out/Airc"
+fi
 FRAMEWORK="$CHROMIUM_OUT/Airc Framework.framework"
 WITH_CHROMIUM=0
 if [[ "$ENGINE" != webkit ]]; then
@@ -103,8 +108,9 @@ check_privacy_keys "$ROOT/apps/browser/Resources/Info.plist"
 
 if [[ $TEST == 1 ]]; then
   echo "== AircKit tests"
-  swift test --package-path "$ROOT/packages/AircKit" 2>&1 | grep -E "error|failed|Executed [0-9]+ tests" | tail -3
-  [[ ${PIPESTATUS[0]} == 0 ]] || { echo "AircKit tests failed" >&2; exit 1; }
+  if ! swift test --package-path "$ROOT/packages/AircKit" 2>&1 | python3 "$ROOT/infra/xctest_summary.py"; then
+    echo "AircKit tests failed" >&2; exit 1
+  fi
 fi
 
 # Two bundles. build/Airc.app is the WebKit dev engine only: linking Chromium's framework makes every launch load it

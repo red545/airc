@@ -75,6 +75,45 @@ final class ImportTests: XCTestCase {
         XCTAssertEqual(r.todayTabs, 1)
     }
 
+    func testRepeatedSourceIDsNeverNestAFolderInItself() throws {
+        // A plan where one source ID names a folder, a tab inside it and a folder inside that (a crafted bookmarks file
+        // read before AircImport made IDs unique), and two sibling tabs share another.
+        typealias B = ImportBlueprint
+        let tab = { (id: String, url: String) in B.Tab(sourceID: "file-item:" + id, url: url, pageTitle: url) }
+        let plan = B(
+            profiles: [.init(sourceID: "file-profile:file", name: "Bookmarks", isSourceDefault: true)],
+            spaces: [.init(sourceID: "file-space:file", name: "Bookmarks", profileSourceID: "file-profile:file",
+                           pinned: [.folder(.init(sourceID: "file-item:x", title: "Work", children: [
+                               .tab(tab("x", "https://a.example/")),
+                               .folder(.init(sourceID: "file-item:x", title: "Inner", children: [
+                                   .tab(tab("y", "https://b.example/")), .tab(tab("y", "https://c.example/")),
+                               ])),
+                           ]))])])
+        let s = try makeStore()
+        try s.applyImport(plan)
+        let space = try XCTUnwrap(s.space(sourceID: "file-space:file"))
+        let container = ItemContainer.pinned(spaceID: space.id)
+        let roots = s.pinnedRoots(ofSpace: space.id)
+        XCTAssertEqual(roots.map(\.displayTitle), ["Work"])
+        let work = s.children(of: container, parent: try XCTUnwrap(roots.first).id)
+        XCTAssertEqual(work.map(\.kind), [.tab, .folder])
+        XCTAssertEqual(work.first?.savedURL, "https://a.example/")
+        guard work.count == 2 else { return XCTFail("Work holds \(work.count) items") }
+        let inner = s.children(of: container, parent: work[1].id)
+        XCTAssertEqual(inner.compactMap(\.savedURL), ["https://b.example/", "https://c.example/"], "both siblings stay")
+        // Imported again (the source IDs map to some of these items): still no item inside itself, none lost.
+        try s.applyImport(plan)
+        let pinned = s.state.items.values.filter { $0.container == container }
+        XCTAssertTrue(pinned.allSatisfy { $0.parentID != $0.id }, "no item is its own parent")
+        XCTAssertTrue(pinned.allSatisfy { $0.kind != .folder || $0.savedURL == nil }, "no folder became a tab")
+        var reached = Set<String>()
+        func walk(_ parent: String?) {
+            for c in s.children(of: container, parent: parent) where reached.insert(c.id).inserted { walk(c.id) }
+        }
+        walk(nil)
+        XCTAssertEqual(reached.count, pinned.count, "every pinned item is in the sidebar's tree")
+    }
+
     func testReimportIsIdempotent() throws {
         let s = try makeStore()
         try s.applyImport(sampleBlueprint())

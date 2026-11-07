@@ -894,8 +894,14 @@ public final class SpacesStore {
         }
     }
 
+    /// The listed Spaces, in Space bar order (a blank window's Space is its window's only, WIN-7).
     public var orderedSpaces: [Space] {
-        state.spaces.values.sorted { ($0.order, $0.createdAt, $0.id) < ($1.order, $1.createdAt, $1.id) }
+        state.spaces.values.filter { !$0.isBlankWindow }.sorted { ($0.order, $0.createdAt, $0.id) < ($1.order, $1.createdAt, $1.id) }
+    }
+
+    /// WIN-7: the Spaces of blank windows (⌃⌘N), oldest first.
+    public var blankWindowSpaces: [Space] {
+        state.spaces.values.filter(\.isBlankWindow).sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
     }
 
     public func space(_ id: String?) -> Space? { id.flatMap { state.spaces[$0] } }
@@ -904,7 +910,7 @@ public final class SpacesStore {
     public func tab(_ id: String?) -> LiveTab? { id.flatMap { state.tabs[$0] } }
 
     public var selectedSpace: Space {
-        space(windowState.selectedSpaceID) ?? orderedSpaces[0]
+        space(windowState.selectedSpaceID).flatMap { $0.isBlankWindow ? nil : $0 } ?? orderedSpaces[0]
     }
 
     public func profile(ofSpace id: String) -> Profile {

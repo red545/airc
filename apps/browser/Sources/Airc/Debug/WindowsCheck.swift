@@ -8,8 +8,10 @@ import AircKit
 /// the sidebar; each window keeps its own Space and tab; a tab picked in one window that another shows moves its page
 /// (no reload) and leaves "Open in another window" there; ⌘W and ⇧⌘W act on the window the key is for; the last
 /// window closes with Airc still running and comes back; links from other apps (real GURL Apple events) go to the
-/// window used last, or open one. `windows-write` / `windows-read`: three windows survive a relaunch (frames, Spaces,
-/// tabs, sidebar widths, which one was used last, and the one whose page was in another window).
+/// window used last, or open one. Then (multiwindow2) the titles, a tab dragged out of the sidebar (posted drags, both
+/// sidebar sides) into a new window and onto another window's sidebar, and ⌃⌘N's blank window. `windows-write` /
+/// `windows-read`: four windows survive a relaunch (frames, Spaces, tabs, sidebar widths, which one was used last, the
+/// one whose page was in another window, and a blank window with its own tab).
 extension SnapshotRunner {
     private final class WindowsState {
         var server: LocalPageServer?
@@ -205,6 +207,10 @@ extension SnapshotRunner {
         #if canImport(AircCore)
         if app?.engine is ChromiumEngine { windowsChromiumMoves(s) }
         #endif
+        windowsTitles(s)
+        windowsDragOut(s)
+        windowsBlank(s)
+        windowsProfileKeeper(s)
 
         // ⌘W and ⇧⌘W act on the window the key is for.
         step { [self] done in
@@ -396,16 +402,355 @@ extension SnapshotRunner {
     }
     #endif
 
+    // MARK: Titles, drag-out, blank windows (multiwindow2)
+
+    /// Each window's title is its Space's name and its page's title.
+    private func windowsTitles(_ s: WindowsState) {
+        step { [self] done in
+            guard let w1 = s.w1, let w2 = s.w2 else { return done() }
+            waitUntil({ w1.window.title == "Home — Page A" && w2.window.title == "Work — Page C" }, timeout: 4) {
+                self.check(w1.window.title == "Home — Page A" && w2.window.title == "Work — Page C",
+                           "windows titles: each window is titled by its Space and page (“\(w1.window.title)”, “\(w2.window.title)”)")
+                let menu = NSApp.windowsMenu?.items.map(\.title) ?? []
+                self.check(menu.isEmpty || (menu.contains(w1.window.title) && menu.contains(w2.window.title)),
+                           "windows titles: the Window menu lists them apart (\(menu.filter { $0.contains("Page") }))")
+                w2.switchToSpace(s.home, animated: false)
+                let onHome = w2.window.title
+                w2.switchToSpace(s.work, animated: false)
+                self.check(onHome.hasPrefix("Home") && w2.window.title == "Work — Page C",
+                           "windows titles: a Space switch retitles the window (“\(onHome)” → “\(w2.window.title)”)")
+                done()
+            }
+        }
+    }
+
+    /// A posted drag in `w` (as the split and drag checks post theirs): press at `start`, move to `end` over a third of a
+    /// second, hold, release. `w`'s window coordinates, which may lie outside it.
+    private func windowsDrag(in w: NSWindow, from start: NSPoint, to end: NSPoint, _ done: @escaping () -> Void) {
+        func mouse(_ type: NSEvent.EventType, _ p: NSPoint) -> NSEvent? {
+            NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: w.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                               pressure: type == .leftMouseUp ? 0 : 1)
+        }
+        let leg = 0.33, hold = 0.15
+        let t0 = CACurrentMediaTime()
+        var last = start
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { t in
+            let dt = CACurrentMediaTime() - t0
+            if dt <= leg {
+                let f = CGFloat(dt / leg)
+                last = NSPoint(x: start.x + (end.x - start.x) * f, y: start.y + (end.y - start.y) * f)
+                if let e = mouse(.leftMouseDragged, last) { NSApp.postEvent(e, atStart: false) }
+            } else if dt <= leg + hold {
+                if last != end, let e = mouse(.leftMouseDragged, end) { last = end; NSApp.postEvent(e, atStart: false) }
+            } else {
+                t.invalidate()
+                if let e = mouse(.leftMouseUp, last) { NSApp.postEvent(e, atStart: false) }
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        if let down = mouse(.leftMouseDown, start) { w.sendEvent(down) }   // returns after the release
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: done)
+    }
+
+    /// The centre of `tabID`'s Today row in window `w` (its window coordinates).
+    private func rowPoint(_ tabID: String, in w: WindowController) -> NSPoint? {
+        guard let page = w.pageView(for: w.currentSpaceID), let row = todayRow(tabID, in: page) else { return nil }
+        return row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), to: nil)
+    }
+
+    /// SB-35: a row dragged out of the sidebar, dropped where no Airc window is, makes a window there with the same live
+    /// page; dropped on another window's sidebar, it moves there. The sidebar on the left, then on the right.
+    private func windowsDragOut(_ s: WindowsState) {
+        var drop = NSPoint.zero
+        var w3: WindowController?
+        // Two windows side by side at the top of the screen, room below them.
+        step { [self] done in
+            guard let w1 = s.w1, let w2 = s.w2, let a = s.tabs["a"] else { return done() }
+            let v = (w1.window.screen ?? NSScreen.main)?.visibleFrame ?? .zero
+            let width = min(760, (v.width - 30) / 2), height = min(560, v.height - 240)
+            w1.window.setFrame(NSRect(x: v.minX + 10, y: v.maxY - height, width: width, height: height), display: true)
+            w2.window.setFrame(NSRect(x: v.minX + 20 + width, y: v.maxY - height, width: width, height: height), display: true)
+            drop = NSPoint(x: v.minX + width * 0.7, y: v.minY + 90)
+            w1.root.layoutSubtreeIfNeeded()
+            w2.root.layoutSubtreeIfNeeded()
+            check(w1.shownTabID == a && w2.shownTabID == s.tabs["c"], "drag-out: window 1 shows A, window 2 shows C")
+            s.page = w1.engineTab(for: a)
+            pageMarker(s.page) { m in s.marker = m; done() }
+        }
+        step { [self] done in
+            guard let w1 = s.w1, let a = s.tabs["a"], let start = rowPoint(a, in: w1) else {
+                check(false, "drag-out: A's row in window 1")
+                return done()
+            }
+            let before = Set((app?.controllers ?? []).map(ObjectIdentifier.init))
+            windowsDrag(in: w1.window, from: start, to: w1.window.convertPoint(fromScreen: drop)) {
+                self.waitUntil({ (self.app?.controllers.count ?? 0) == 3 }, timeout: 3) {
+                    w3 = self.app?.controllers.first { !before.contains(ObjectIdentifier($0)) }
+                    self.check(w3 != nil, "drag-out: dropping A's row outside every window opens a window")
+                    guard let w3 else { return done() }
+                    let page = w3.engineTab(for: a)
+                    self.check(w3.shownTabID == a && page != nil && page === s.page && w1.engineTab(for: a) == nil,
+                               "drag-out: the new window has A's page, the same page object (\(page === s.page))")
+                    self.check(w3.window.frame.contains(drop) && w3.window.isOnActiveSpace && w3.window.screen == w1.window.screen,
+                               "drag-out: it opens at the drop point, on this Space (frame \(w3.window.frame), drop \(drop))")
+                    self.check(w3.currentSpaceID == s.home && w3.sidebarWidth == w1.sidebarWidth && !w3.isBlankWindow,
+                               "drag-out: on A's Space, with window 1's sidebar width")
+                    self.check(w1.shownTabID == s.tabs["b"] && w1.multiWindow.elsewhereTabID == nil,
+                               "drag-out: window 1 goes on to B (shows \(w1.shownTabID.flatMap { id in s.tabs.first { $0.value == id }?.key } ?? "none"))")
+                    self.pageMarker(page) { m in
+                        self.check(!s.marker.isEmpty && m == s.marker, "drag-out: the page didn't reload (marker \(s.marker) → \(m))")
+                        done()
+                    }
+                }
+            }
+        }
+        capture("windows-dragout")
+        // Onto window 2's sidebar (Work's Today, below C): A moves there, page and all.
+        step { [self] done in
+            guard let w2 = s.w2, let w3, let a = s.tabs["a"], let c = s.tabs["c"],
+                  let start = rowPoint(a, in: w3), let page2 = w2.pageView(for: s.work), let row = todayRow(c, in: page2) else {
+                check(false, "drag-out: rows for the drop onto window 2")
+                return done()
+            }
+            // A point below C's row that lands in Work's Today (not onto C, which would split).
+            let candidates = [row.bounds.height * 0.45, -row.bounds.height * 0.45, row.bounds.height * 1.2, -row.bounds.height * 1.2]
+                .map { row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY + $0), to: nil) }
+            let target = candidates.first { p in
+                if case .today(let sid, _)? = page2.dropDestination(at: page2.convert(p, from: nil), source: .tab(a), entry: .today(self.c.store.tab(a)!)) { return sid == s.work }
+                return false
+            }
+            page2.hideDropIndicator()
+            guard let target else { check(false, "drag-out: a Today drop point in window 2"); return done() }
+            let screen = w2.window.convertPoint(toScreen: target)
+            windowsDrag(in: w3.window, from: start, to: w3.window.convertPoint(fromScreen: screen)) {
+                self.waitUntil({ w2.shownTabID == a }, timeout: 3) {
+                    let page = w2.engineTab(for: a)
+                    self.check(w2.shownTabID == a && page === s.page && w3.engineTab(for: a) == nil,
+                               "drag-out: dropped on window 2's sidebar, A's page moves there (same page \(page === s.page))")
+                    self.check(self.c.store.tab(a)?.spaceID == s.work && self.c.store.todayRows(ofSpace: s.work).map(\.id).contains(a),
+                               "drag-out: A is in Work's Today where the line showed")
+                    self.check(w3.shownTabID == nil || w3.multiWindow.elsewhereTabID == nil,
+                               "drag-out: the window it left goes on (shows \(w3.shownTabID ?? "the empty Space"))")
+                    self.pageMarker(page) { m in
+                        self.check(m == s.marker, "drag-out: still no reload (\(m))")
+                        done()
+                    }
+                }
+            }
+        }
+        // Back as it was: A in Home in window 1, C in window 2, window 3 closed.
+        step { [self] done in
+            guard let w1 = s.w1, let w2 = s.w2, let a = s.tabs["a"] else { return done() }
+            _ = try? c.store.moveTab(a, toSpace: s.home)
+            w3?.window.performClose(nil)
+            waitUntil({ (self.app?.controllers.count ?? 0) == 2 }, timeout: 4) {
+                w1.show(a, focus: false)
+                w2.show(s.tabs["c"] ?? "", focus: false)
+                done()
+            }
+        }
+        // The sidebar on the right: B's row out of window 1 the same way.
+        step { [self] done in
+            guard let w1 = s.w1, let b = s.tabs["b"] else { return done() }
+            app?.setSidebarOnRight(true)
+            app?.controllers.forEach { $0.root.layoutSubtreeIfNeeded() }
+            w1.show(b, focus: false)
+            waitUntil({ w1.engineTab(for: b)?.isLoading == false }, timeout: 6) {
+                s.page = w1.engineTab(for: b)
+                self.pageMarker(s.page) { m in s.marker = m; done() }
+            }
+        }
+        step { [self] done in
+            guard let w1 = s.w1, let b = s.tabs["b"], let start = rowPoint(b, in: w1) else {
+                check(false, "drag-out (right): B's row")
+                return done()
+            }
+            check(w1.sidebarOnRight && start.x > w1.window.frame.width / 2, "drag-out (right): the sidebar is on the right (row at x \(Int(start.x)))")
+            let before = Set((app?.controllers ?? []).map(ObjectIdentifier.init))
+            windowsDrag(in: w1.window, from: start, to: w1.window.convertPoint(fromScreen: drop)) {
+                self.waitUntil({ (self.app?.controllers.count ?? 0) == 3 }, timeout: 3) {
+                    let w4 = self.app?.controllers.first { !before.contains(ObjectIdentifier($0)) }
+                    let page = w4?.engineTab(for: b)
+                    self.check(w4?.shownTabID == b && page === s.page && w4?.sidebarOnRight == true && w4?.window.frame.contains(drop) == true,
+                               "drag-out (right): a window at the drop point with B's page (same page \(page === s.page))")
+                    self.pageMarker(page) { m in
+                        self.check(!s.marker.isEmpty && m == s.marker, "drag-out (right): no reload (\(m))")
+                        self.app?.setSidebarOnRight(false)
+                        w4?.window.performClose(nil)
+                        self.waitUntil({ (self.app?.controllers.count ?? 0) == 2 }, timeout: 4) {
+                            w1.show(s.tabs["a"] ?? "", focus: false)
+                            done()
+                        }
+                    }
+                }
+            }
+        }
+        waitForPage()
+    }
+
+    /// ⌃⌘N: a blank window, on a Space of its own (Arc: blank windows are separate). Its tabs are its own; it closes with
+    /// its Space, its tabs in the Archive.
+    private func windowsBlank(_ s: WindowsState) {
+        var wb: WindowController?
+        var blankTab = ""
+        step { [self] done in
+            guard let w1 = s.w1 else { return done() }
+            let before = Set((app?.controllers ?? []).map(ObjectIdentifier.init))
+            postWindowKey("n", code: 45, mods: [.command, .control], to: w1.window)
+            waitUntil({ (self.app?.controllers.count ?? 0) == before.count + 1 }, timeout: 3) {
+                wb = self.app?.controllers.first { !before.contains(ObjectIdentifier($0)) }
+                guard let wb else { self.check(false, "blank window: ⌃⌘N opens a window"); return done() }
+                let store = self.c.store
+                let sid = wb.currentSpaceID
+                self.check(wb.isBlankWindow && store.space(sid)?.isBlankWindow == true && !store.orderedSpaces.contains { $0.id == sid },
+                           "blank window: ⌃⌘N opens a window on a Space of its own, not in the Space bar")
+                self.check(wb.windowSpaces.map(\.id) == [sid] && store.todayTabs(ofSpace: sid).isEmpty && wb.shownTabID == nil && wb.commandBar != nil,
+                           "blank window: empty, paging through its own Space only, with the Command Bar")
+                self.check(store.space(sid)?.profileID == store.space(w1.currentSpaceID)?.profileID && store.selectedSpace.id != sid,
+                           "blank window: window 1's profile; the selection stays on a listed Space")
+                self.check(!w1.windowSpaces.contains { $0.id == sid } && w1.pageView(for: sid) == nil,
+                           "blank window: other windows don't list it")
+                wb.closeCommandBar()
+                if let t = try? store.openTab(url: s.base + "/e.html", inSpace: sid) { blankTab = t.id; wb.show(t.id, focus: false) }
+                done()
+            }
+        }
+        waitForPage()
+        step { [self] done in
+            guard let wb, let w1 = s.w1 else { return done() }
+            let store = c.store
+            waitUntil({ wb.window.title == "Blank Window — Page E" }, timeout: 4) {
+                self.check(wb.shownTabID == blankTab && wb.engineTab(for: blankTab) != nil && wb.window.title == "Blank Window — Page E",
+                           "blank window: its own tab loads (title “\(wb.window.title)”)")
+                self.check(store.tab(blankTab)?.spaceID == wb.currentSpaceID && !store.todayTabs(ofSpace: s.home).contains { $0.id == blankTab }
+                           && w1.pageView(for: s.home).flatMap { self.todayRow(blankTab, in: $0) } == nil,
+                           "blank window: its Today tab isn't in Home's Today in window 1")
+                // Picking it from another window (as the Command Bar's Switch to Tab does) shows it in its own window.
+                w1.show(blankTab, focus: false)
+                self.check(w1.currentSpaceID == s.home && w1.shownTabID == s.tabs["a"] && wb.shownTabID == blankTab,
+                           "blank window: its tab picked in window 1 stays in the blank window (window 1 still shows \(w1.shownTabID.flatMap { id in s.tabs.first { $0.value == id }?.key } ?? "none"))")
+                // ⌘N from a blank window: an ordinary window.
+                let before = Set((self.app?.controllers ?? []).map(ObjectIdentifier.init))
+                self.postWindowKey("n", code: 45, mods: .command, to: wb.window)
+                self.waitUntil({ (self.app?.controllers.count ?? 0) == before.count + 1 }, timeout: 3) {
+                    let n = self.app?.controllers.first { !before.contains(ObjectIdentifier($0)) }
+                    self.check(n != nil && n?.isBlankWindow == false && n?.currentSpaceID != wb.currentSpaceID,
+                               "blank window: ⌘N there opens an ordinary window (on \(n.flatMap { store.space($0.currentSpaceID)?.name } ?? "?"))")
+                    n?.closeCommandBar()
+                    n?.window.performClose(nil)
+                    done()
+                }
+            }
+        }
+        capture("windows-blank")
+        step { [self] done in
+            guard let wb else { return done() }
+            let sid = wb.currentSpaceID
+            let count = app?.controllers.count ?? 0
+            wb.window.performClose(nil)
+            waitUntil({ self.c.store.space(sid) == nil && (self.app?.controllers.count ?? 0) == count - 1 }, timeout: 4) {
+                let store = self.c.store
+                self.check(store.space(sid) == nil && store.tab(blankTab) == nil && store.state.archive.values.contains { $0.tab.id == blankTab },
+                           "blank window: closing it removes its Space; its tab goes to the Archive")
+                done()
+            }
+        }
+        wait(0.5)
+    }
+
+    /// review2 P1: closing a window that alone used a profile leaves the profile loaded (Chromium destroys a profile with
+    /// its last browser; AppDelegate.keepProfilesLoaded holds one for each). Window 1 then loads that profile's tabs, and
+    /// Little Arc opens in it. Deleting the profile still works.
+    private func windowsProfileKeeper(_ s: WindowsState) {
+        var spaceID = "", profileID = "", tabID = ""
+        var other: WindowController?
+        var little: LittleArcController?
+        step { [self] done in
+            guard let app, let w1 = s.w1 else { return done() }
+            let store = app.store!
+            guard let p = try? app.profiles.createProfile(name: "Second", emoji: "🧪", color: nil),
+                  let space = try? store.createSpace(name: "Second", icon: .emoji("🧪"), profileID: p.id, after: s.work),
+                  let t = try? store.openTab(url: s.base + "/f.html", inSpace: space.id) else {
+                check(false, "profile keeper: a second profile with a Space and a tab")
+                return done()
+            }
+            (profileID, spaceID, tabID) = (p.id, space.id, t.id)
+            check(w1.engineTab(for: t.id) == nil && store.profile(ofSpace: w1.currentSpaceID).id != p.id,
+                  "profile keeper: window 1 has never used the second profile")
+            // The Space's Open in New Window, once the profile has loaded: the only window with that profile's page.
+            app.profiles.whenLoaded(p.id, { _ in
+                other = app.openNewWindow(from: w1, spaceID: space.id, tab: .spaceLast, commandBar: false)
+                self.waitUntil({ other?.engineTab(for: t.id)?.isLoading == false && other?.engineTab(for: t.id)?.title.isEmpty == false }, timeout: 10) {
+                    let page = other?.engineTab(for: t.id)
+                    self.check(page?.title == "Page F", "profile keeper: the new window loads the second profile's page "
+                               + "(\(page.map { "“\($0.title)” \($0.url?.absoluteString ?? "")" } ?? "no page"), shows \(other?.shownTabID == t.id))")
+                    done()
+                }
+            }, failed: { self.check(false, "profile keeper: the second profile loads"); done() })
+        }
+        step { [self] done in
+            guard let app, let other else { return done() }
+            let count = app.controllers.count
+            other.window.performClose(nil)
+            waitUntil({ app.controllers.count == count - 1 }, timeout: 4) {
+                // Chromium destroys an unkept profile right after its last browser closes.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: done)
+            }
+        }
+        step { [self] done in
+            guard let w1 = s.w1 else { return done() }
+            w1.switchToSpace(spaceID, animated: false)
+            w1.show(tabID, focus: false)
+            let page = w1.engineTab(for: tabID)
+            waitUntil({ page?.isLoading == false && page?.title.isEmpty == false }, timeout: 10) {
+                guard let page else { self.check(false, "profile keeper: window 1 has the tab's page"); return done() }
+                page.evaluate("document.title") { title in
+                    self.check((title as? String) == "Page F",
+                               "profile keeper: after that window closed, window 1 loads the second profile's tab (title \(title as? String ?? "none"))")
+                    done()
+                }
+            }
+        }
+        step { [self] done in
+            guard let app else { return done() }
+            little = app.openLittleArc(url: URL(string: s.base + "/g.html?little"), spaceID: spaceID)
+            let page = little?.page
+            waitUntil({ page?.isLoading == false && page?.title.isEmpty == false }, timeout: 10) {
+                self.check(page?.title == "Page G", "profile keeper: Little Arc opens in the second profile (\(page?.title ?? "no page"))")
+                little?.closeWindow()
+                done()
+            }
+        }
+        // Deleting it still works (the engine closes the keeper's browser for it too).
+        step { [self] done in
+            guard let app, let w1 = s.w1 else { return done() }
+            w1.switchToSpace(s.home, animated: false)
+            w1.show(s.tabs["a"] ?? "", focus: false)
+            try? app.store.deleteSpace(spaceID)
+            var result: Bool?
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                app.profiles.deleteProfile(profileID) { result = $0 }
+            }
+            waitUntil({ result != nil }, timeout: 8) {
+                self.check(result == true && app.store.profile(profileID) == nil, "profile keeper: the second profile can still be deleted (\(result.map(String.init) ?? "no answer"))")
+                done()
+            }
+        }
+        waitForPage()
+    }
+
     // MARK: Session restore
 
     private struct WindowsExpected: Codable {
-        struct W: Codable { var frame: [Double]; var spaceID: String; var tabID: String?; var elsewhere: Bool; var sidebarWidth: Double }
+        struct W: Codable { var frame: [Double]; var spaceID: String; var tabID: String?; var elsewhere: Bool; var sidebarWidth: Double; var blank: Bool? }
         var windows: [W]
     }
 
     private var windowsExpectedFile: URL { dir.appendingPathComponent("windows-session.json") }
 
-    /// Three windows: Home with A, Work with C (narrower sidebar, used last), and Home again with A's page in the first.
+    /// Four windows: Home with A, Work with C (wider sidebar, used last), Home again with A's page in the first, and a
+    /// blank window with its own tab.
     func windowsSessionWrite() {
         let s = WindowsState()
         windowsSetUp(s, pages: [("a", "home"), ("b", "home"), ("c", "work")])
@@ -415,15 +760,20 @@ extension SnapshotRunner {
             w1.window.setFrame(NSRect(x: screen.minX + 30, y: screen.maxY - 760, width: 1100, height: 720), display: false)
             let w3 = app.openNewWindow(from: w1, spaceID: s.home, tab: .id(s.tabs["a"] ?? ""), commandBar: false)
             w3?.window.setFrame(NSRect(x: screen.minX + 400, y: screen.maxY - 700, width: 900, height: 640), display: false)
+            let wb = app.openBlankWindow(from: w1)
+            wb?.closeCommandBar()
+            if let wb, let t = try? c.store.openTab(url: s.base + "/b.html?blank", inSpace: wb.currentSpaceID) { wb.show(t.id, focus: false) }
+            wb?.window.setFrame(NSRect(x: screen.minX + 300, y: screen.maxY - 660, width: 860, height: 600), display: false)
             let w2 = app.openNewWindow(from: w1, spaceID: s.work, tab: .id(s.tabs["c"] ?? ""), commandBar: false)
             w2?.window.setFrame(NSRect(x: screen.minX + 200, y: screen.maxY - 820, width: 1000, height: 700), display: false)
             w2?.setSidebarWidth(260)
             check(w3?.multiWindow.elsewhereTabID == s.tabs["a"], "windows-write: the third window shows A as open in another window")
-            check(app.controllers.count == 3 && app.controller === w2, "windows-write: three windows, Work's used last")
+            check(app.controllers.count == 4 && app.controller === w2 && wb?.isBlankWindow == true && wb?.shownTabID != nil,
+                  "windows-write: four windows (one blank, with its own tab), Work's used last")
             let expected = WindowsExpected(windows: app.controllers.map {
                 let f = $0.window.frame
                 return .init(frame: [f.minX, f.minY, f.width, f.height], spaceID: $0.currentSpaceID, tabID: $0.shownTabID,
-                             elsewhere: $0.multiWindow.elsewhereTabID != nil, sidebarWidth: Double($0.sidebarWidth))
+                             elsewhere: $0.multiWindow.elsewhereTabID != nil, sidebarWidth: Double($0.sidebarWidth), blank: $0.isBlankWindow)
             })
             try? JSONEncoder().encode(expected).write(to: windowsExpectedFile)
             done()
@@ -449,6 +799,11 @@ extension SnapshotRunner {
                 check((c.multiWindow.elsewhereTabID != nil) == e.elsewhere,
                       "windows-read: window \(i + 1) \(e.elsewhere ? "says its tab is in another window" : "has its page")")
                 check(abs(Double(c.sidebarWidth) - e.sidebarWidth) < 0.5, "windows-read: window \(i + 1)'s sidebar width \(Int(c.sidebarWidth))")
+                if let blank = e.blank {
+                    check(c.isBlankWindow == blank && (!blank || (c.store.todayTabs(ofSpace: c.currentSpaceID).map(\.id) == [e.tabID].compactMap { $0 }
+                                                                  && !c.store.orderedSpaces.contains { $0.id == c.currentSpaceID })),
+                          "windows-read: window \(i + 1) \(blank ? "is the blank window, with its own tab" : "is an ordinary window")")
+                }
             }
             done()
         }

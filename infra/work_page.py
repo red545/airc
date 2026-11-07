@@ -5,29 +5,16 @@
     infra/work_page.py [--state FILE] [--status DIR]
 
 Reads the lead's state file (default ../briefs/work.json next to the repo; never committed), the ship loop's runs and
-log in the status folder (default ../status), the dev feed (AIRC_UPDATE_FEED from ../airc.env) and git, then writes
-DIR/work.html. Run from cron every few minutes; it never prints the feed's address.
+log in the status folder (default ../status), cached installed/local-feed build numbers from the Mac, and git,
+then writes DIR/work.html. Run from cron every few minutes; SSH attempts are cached for ten minutes.
 """
-import argparse, html, json, os, pathlib, re, subprocess, urllib.request
+import argparse, html, json, os, pathlib, re, subprocess
 from datetime import datetime, timezone
+from owner_versions import owner_versions
+from xctest_summary import FAILED
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 e = lambda s: html.escape(str(s))
-
-
-def feed_versions():
-    url = None
-    env = ROOT.parent / 'airc.env'
-    if env.exists():
-        m = re.search(r'AIRC_UPDATE_FEED=(\S+)', env.read_text())
-        url = m and m.group(1).strip('"\'')
-    if not url:
-        return []
-    try:
-        xml = urllib.request.urlopen(url, timeout=5).read().decode()
-    except Exception:
-        return []
-    return re.findall(r'<sparkle:version>(\d+)</sparkle:version>', xml)
 
 
 def build_label(v):
@@ -106,7 +93,7 @@ def main():
     status = pathlib.Path(a.status)
     state = json.loads(pathlib.Path(a.state).read_text()) if pathlib.Path(a.state).exists() else {}
     live = json.loads((status / 'live.json').read_text()) if (status / 'live.json').exists() else {}
-    versions = feed_versions()
+    owner = owner_versions(status)
     rs = runs(status)
     now = datetime.now(timezone.utc).strftime('%H:%M UTC')
 
@@ -179,7 +166,7 @@ footer{color:var(--faint);font-size:12px;margin-top:28px;text-align:center}
              f'<div class="sub">Built and maintained by AI · updated {e(now)}</div></div><nav class="links">'
              + ''.join(f'<a href="{e(u)}">{e(t)}</a>' for t, u in state.get('links', [])) + '</nav></header>')
 
-    live_build = build_label(versions[0]) if versions else 'unknown'
+    live_build = build_label(owner['latest']) if owner.get('latest') else 'unknown'
     running = building_now()
     cur = rs[0] if rs else None
     if running and cur:
@@ -194,12 +181,17 @@ footer{color:var(--faint);font-size:12px;margin-top:28px;text-align:center}
                       '<div class="small">A build starts about two minutes after new commits land.</div>')
     online = live.get('online')
     h.append('<section class="tiles">'
-             f'<div class="tile"><div class="label">Live build</div><div class="big rounded">{e(live_build)}</div>'
-             '<div class="small">Your Airc updates to this one. Airc menu → Check for Updates…</div></div>'
+             f'<div class="tile"><div class="label">Your Mac’s feed</div><div class="big rounded">{e(live_build)}</div>'
+             '<div class="small">Latest checked local feed. Airc menu → Check for Updates…</div></div>'
              f'<div class="tile">{build_tile}</div>'
              f'<div class="tile"><div class="label">Build Mac</div><div class="big rounded"><span class="dot {"green" if online else "red"}"></span>'
              f'{"Online" if online else "Offline"}</div><div class="small">{e(live.get("disk_free", "?"))} free · checked {e(str(live.get("checked", "?"))[-9:])}</div></div>'
              '</section>')
+
+    checked = datetime.fromtimestamp(owner['checked'], timezone.utc).strftime('%d %b %H:%M UTC') if owner.get('checked') else 'unavailable'
+    h.append(f'<p>Your Airc: build {e(owner.get("installed", "unknown"))} (installed) · '
+             f'latest on your Mac\'s feed: {e(owner.get("latest", "unknown"))}'
+             f' <span class="small">(checked {e(checked)})</span></p>')
 
     main, side = [], []
     ag = state.get('running', [])
@@ -231,6 +223,15 @@ footer{color:var(--faint);font-size:12px;margin-top:28px;text-align:center}
         side.append(f'<div class="build"><span class="dot {color}{pulse}"></span><span><b>{e(result)}</b> · '
                     f'<span class="small">{e(name[-4:-2])}:{e(name[-2:])}</span> <code>{e(rev)}</code></span>'
                     f'<span class="what">{e(subject)}</span></div>')
+        failures = []
+        for log in sorted((status / 'runs' / name).glob('*.log')):
+            if log.name != 'build-app.log' and not log.name.startswith('test-'):
+                continue
+            with log.open(errors='replace') as stream:
+                failures.extend(line.strip() for line in stream if FAILED.search(line))
+        if failures:
+            side.append('<details><summary>Failing unit tests</summary><ul class="list">'
+                        + ''.join(f'<li>{e(line)}</li>' for line in dict.fromkeys(failures)) + '</ul></details>')
     side.append('</div>')
     if state.get('queued'):
         side.append('<h2>Next in the queue</h2><div class="card"><ul class="list">'

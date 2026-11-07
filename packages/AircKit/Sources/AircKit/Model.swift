@@ -194,6 +194,12 @@ public struct Space: Codable, Hashable, Sendable, Identifiable {
     public var createdAt: Date
     /// The imported Space's source ID ("arc-space:<id>"); re-importing updates this Space.
     public var sourceID: String?
+    /// WIN-7: the Space of a blank window (⌃⌘N, Arc's "blank windows are separate"): that window's own Today tabs and
+    /// pinned items. It's never listed with the others (Space bar, Command Bar, Library, Manage Spaces), and goes when
+    /// its window closes (`closeBlankWindowSpace`). nil in every other Space (and in rows from before it).
+    public var blankWindow: Bool?
+
+    public var isBlankWindow: Bool { blankWindow == true }
 
     public init(id: String = newID(), name: String, icon: SpaceIcon? = nil, theme: SpaceTheme = .neutral,
                 profileID: String, order: Double = 0, lastActiveTabID: String? = nil,

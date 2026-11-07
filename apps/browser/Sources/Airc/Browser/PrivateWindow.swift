@@ -111,8 +111,11 @@ final class PrivateBrowsing {
         let pid = w.profileID
         guard !windows.contains(where: { $0.profileID == pid }), let p = sessions.removeValue(forKey: pid) else { return }
         sessionDownloads.removeValue(forKey: pid)?.stop()
+        // Its WebKit pages' icons were kept in memory only (WebKitProfile.icons): they go now, not with the last page.
+        (p as? WebKitProfile)?.icons.forgetAll()
         #if canImport(AircCore)
         if let chromium = w.app?.engine as? ChromiumEngine {
+            chromium.loadedWebKitProfile(for: p)?.icons.forgetAll()
             ending[pid] = p
             chromium.releaseOffTheRecordProfile(p)
             // The window's browser may still be closing: ask again shortly (once it's gone, asking does nothing).
@@ -212,8 +215,9 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
     var downloadsWatch: AnyCancellable?
     lazy var prompts = PromptPresenter(host: self)
     private var lights: TrafficLights?
-    /// Its own key for live search suggestions: nothing typed here shares a session or cache with the profile's.
-    private let suggestionKey = "private-" + UUID().uuidString
+    /// Its own key for live search suggestions: nothing typed here shares a session or cache with the profile's. Its
+    /// queries are forgotten when the window closes.
+    let suggestionKey = "private-" + UUID().uuidString
 
     /// Dark whatever the system's appearance: a near-black slate (Arc's incognito windows are dark).
     static let theme: AircKit.SpaceTheme = DesignTheme(colors: [AircColor(0x3B3E4C), AircColor(0x191A20)], intensity: 0.86,
@@ -493,6 +497,7 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
         pages = []
         shownID = nil
         lights = nil
+        SuggestionService.shared.clear(profileID: suggestionKey)
         PrivateBrowsing.shared.closed(self)
     }
 

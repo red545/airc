@@ -11,7 +11,9 @@ import AircCore
 ///   - a pinned tab and a Favorite on the listed host stay loaded; a pinned tab on an unlisted host (127.0.0.1) and a
 ///     Today tab on the listed host unload;
 ///   - with Settings → General → "Keep chat and mail sites loaded" off, the listed pinned tab and Favorite unload too;
-///   - Chromium build: the same for WebKit pages (both hosts set to play in Safari's engine).
+///   - Chromium build: the same for WebKit pages (both hosts set to play in Safari's engine);
+///   - WebKit pages: a Today tab on the unlisted host playing through an `Audio` element that isn't in the document
+///     stays loaded (WebKit's own media state, not the page script's report); it unloads once it pauses.
 /// Chromium pressure check also requires --airc-data-dir=<same folder as --data-dir> (scratch-only engine gate).
 /// No account, no camera, microphone or screen.
 extension SnapshotRunner {
@@ -22,12 +24,31 @@ extension SnapshotRunner {
         var space = ""
         func url(_ host: String, _ path: String) -> String { "http://\(host):\(port)\(path)" }
         let page = { (title: String) in "<!doctype html><title>\(title)</title><h1>\(title)</h1>" }
+        // A looping second of an almost silent tone (amplitude 2 of 32767, at a tenth of the volume) through an Audio
+        // element never added to the document: no media event reaches the page script's listeners on `document`.
+        let detached = { (title: String) in page(title) + """
+            <script>
+            (function(){
+              var rate = 8000, n = rate, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+              function s(o, t){ for (var i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); }
+              s(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); s(8, 'WAVEfmt '); v.setUint32(16, 16, true);
+              v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);
+              v.setUint16(32, 2, true); v.setUint16(34, 16, true); s(36, 'data'); v.setUint32(40, n * 2, true);
+              for (var i = 0; i < n; i++) v.setInt16(44 + i * 2, Math.round(2 * Math.sin(i / rate * 2 * Math.PI * 440)), true);
+              var a = new Audio(URL.createObjectURL(new Blob([buf], {type: 'audio/wav'})));
+              a.loop = true; a.volume = 0.1;
+              window.__detached = a; window.__played = 'pending';
+              a.play().then(function(){ window.__played = 'playing'; }, function(e){ window.__played = 'refused: ' + e.name; });
+            })();
+            </script>
+            """ }
 
         step { [self] done in
             var pages: [String: String] = [:]
             for p in ["chat", "plain", "mail", "today", "shown"] {
                 for n in ["", "2"] { pages["/\(p)\(n)"] = page(p + n) }
             }
+            for n in ["", "2"] { pages["/detached\(n)"] = detached("detached" + n) }
             server = LocalPageServer(pages: pages)
             guard let server else { check(false, "keep loaded: the loopback server starts"); return done() }
             server.start { p in
@@ -49,13 +70,14 @@ extension SnapshotRunner {
         /// One round: the four tabs, each shown once, then a fifth shown; after the timeout, which pages are left.
         func round(_ label: String, suffix: String, webKit: Bool) {
             var ids: [String: String] = [:]
-            let kinds = ["chat", "plain", "mail", "today", "shown"]
+            // WebKit pages: also a Today tab playing through a detached Audio element (shown before "shown").
+            let kinds = ["chat", "plain", "mail", "today"] + (webKit ? ["detached"] : []) + ["shown"]
             step { [self] done in
                 guard port != 0 else { return done() }
                 do {
                     let pid = c.store.profile(ofSpace: space).id
                     for k in kinds {
-                        let host = ["plain", "shown"].contains(k) ? "127.0.0.1" : "localhost"
+                        let host = ["plain", "shown", "detached"].contains(k) ? "127.0.0.1" : "localhost"
                         let t = try c.store.openTab(url: url(host, "/\(k)\(suffix)"), inSpace: space, activate: false, title: k)
                         ids[k] = t.id
                         if k == "chat" || k == "plain" { try c.store.togglePin(t.id, inSpace: space) }
@@ -97,6 +119,30 @@ extension SnapshotRunner {
                 check(unloaded("plain"), "keep loaded \(label): a pinned tab on an unlisted site unloads")
                 check(unloaded("today"), "keep loaded \(label): a Today tab on a listed site unloads (only pinned tabs and Favorites stay)")
                 check(!unloaded("shown"), "keep loaded \(label): the tab on screen stays")
+            }
+            if webKit {
+                step { [self] done in
+                    guard let id = ids["detached"], let t = c.engineTab(for: id) as? WebKitTab, !unloaded("detached") else {
+                        check(false, "keep loaded \(label): a page playing through a detached Audio element stays loaded (unloaded)")
+                        return done()
+                    }
+                    t.evaluate("[window.__played, !window.__detached.paused, document.contains(window.__detached)].join(' ')") { v in
+                        let state = (v as? String) ?? "?"
+                        self.check(state.hasPrefix("playing true false"),
+                                   "keep loaded \(label): the detached Audio element plays, outside the document (\(state))")
+                        self.check(t.engineReportsAudio == true && !t.isAudible,
+                                   "keep loaded \(label): WebKit reports its sound, the page script doesn't (engine \(t.engineReportsAudio.map(String.init) ?? "n/a"), script \(t.isAudible))")
+                        self.check(!unloaded("detached"), "keep loaded \(label): a hidden page playing through a detached Audio element stays loaded")
+                        // Paused, it's an ordinary hidden page again.
+                        t.evaluate("window.__detached.pause(); true") { _ in done() }
+                    }
+                }
+                step { [self] done in
+                    waitUntil({ unloaded("detached") }, timeout: 10) {
+                        self.check(unloaded("detached"), "keep loaded \(label): once its sound pauses, it unloads")
+                        done()
+                    }
+                }
             }
             #if canImport(AircCore)
             if chromium && !webKit {

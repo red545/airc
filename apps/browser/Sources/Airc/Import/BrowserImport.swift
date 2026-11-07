@@ -131,11 +131,26 @@ enum PasswordImport {
         var profileID = ""
         var format: PasswordFile.Format = .other
 
-        /// "24 passwords imported · 3 duplicates skipped".
+        /// "24 passwords imported · 3 duplicates skipped"; "No new passwords · 5 already saved"; "No passwords imported".
         var summary: String {
+            if imported == 0 {
+                return duplicates > 0 ? "No new passwords · \(duplicates) already saved" : "No passwords imported"
+            }
             var parts = [BrowserImportAdapter.plural(imported, "password") + " imported"]
             if duplicates > 0 { parts.append(BrowserImportAdapter.plural(duplicates, "duplicate") + " skipped") }
             return parts.joined(separator: " · ")
+        }
+
+        /// Nothing of the file is in Airc: no row came in, and none was already saved.
+        var nothingIn: Bool { imported == 0 && duplicates == 0 }
+
+        /// What the result says about the plain-text file, and whether it offers the Trash: only once passwords from
+        /// it are in Airc (imported now, or already saved).
+        var fileAdvice: (text: String, offersTrash: Bool) {
+            if nothingIn { return ("None of it came over, so Airc leaves it where it is.", false) }
+            if failed > 0 { return ("\(BrowserImportAdapter.plural(failed, "row")) didn't come over. Trash it once you have them.", true) }
+            if imported == 0 { return ("Its passwords were already saved here. Move it to the Trash.", true) }
+            return ("Move it to the Trash now that it's in.", true)
         }
 
         /// The rest, if any: "1 row without a password · 1 app login".

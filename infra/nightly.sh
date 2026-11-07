@@ -84,7 +84,7 @@ step export bash -c "ssh -o ConnectTimeout=15 '$HOST' 'rm -rf ~/$REMOTE && mkdir
 GREEN=1   # every step so far passed: only a green run is published
 for name in $(git -C "$ROOT" ls-tree --name-only HEAD packages/ | xargs -n1 basename 2>/dev/null); do
   in_head "packages/$name/Package.swift" || continue
-  step "test-$name" mac "cd ~/$REMOTE && caffeinate -i -s swift test --package-path packages/$name" || GREEN=0
+  step "test-$name" mac "set -o pipefail; cd ~/$REMOTE && caffeinate -i -s swift test --package-path packages/$name 2>&1 | python3 infra/xctest_summary.py" || GREEN=0
 done
 
 if in_head scripts/build-app.sh; then
@@ -111,6 +111,8 @@ if in_head scripts/build-app.sh; then
     # Advice, not a gate: the WebKit dev engine's checks on the same build, after the owner's build is out.
     step snapshots-webkit mac "cd ~/$REMOTE && AIRC_SIGN_IDENTITY=- caffeinate -i -s scripts/build-app.sh --no-test --engine webkit --snapshots build/snapshots-webkit"
   fi
+  # Free report slots after app tests, including failed runs, on both ship and nightly.
+  step crash-hygiene mac "cd ~/$REMOTE && python3 infra/diagnostic_hygiene.py"
   # Persist uploads locally before the next export replaces nightly. APFS clones cost no uplink.
   step defer-artifacts mac "cd ~/$REMOTE && bash infra/updates/defer-mac.sh $STAMP"
   # Text check results are small and keep the work/status pages current even while images wait.

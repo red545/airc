@@ -15,6 +15,12 @@ import SwiftUI
 //   the window shows its own tab of that Space, or the placeholder.
 // - Commands act on the key window; links from other apps go to the window used last. Closing the last window leaves
 //   Airc running (⌘N or the Dock brings it back); the session keeps every window's frame, Space and tab.
+// - ⌃⌘N opens a blank window (Arc: "blank windows are separate"): a window on a Space of its own (Space.blankWindow),
+//   so its Today tabs are its own and no other window lists them. It pages through that Space only; its Space goes,
+//   its Today tabs to the Archive, when the person closes it, and comes back with it after a relaunch.
+// - SB-35: a tab dragged out of the sidebar and dropped outside every Airc window moves its page (live) to a new window
+//   at the drop point; dropped on another browser window, it moves there (on its sidebar: to the row the line marks).
+// - Each window's title is its Space's name and its page's title, so the Window menu and Mission Control tell them apart.
 
 /// How a browser window opens: its Space, its tab and its sidebar (nil: the defaults of the store's window state).
 struct WindowOpening {
@@ -53,7 +59,7 @@ struct WindowSessionState {
     var hooksInstalled = false
     var unloadHooksInstalled = false
     var openCount = 0
-    /// Chromium only: the hidden window that keeps every profile loaded while no browser window is open.
+    /// Chromium only: the hidden window that keeps every loaded profile alive, whichever windows are open.
     var profileKeeper: EngineWindow?
     /// What the store has now (no read back before each write).
     var lastSaved: WindowSession?
@@ -107,20 +113,32 @@ extension AppDelegate {
 
     /// ⌘N, the Dock menu, a Space's or a tab's Open in New Window: a window on `spaceID` (default: `source`'s Space),
     /// cascaded from `source`, with its sidebar width. With no tab it opens the Command Bar, as ⌘T: a new window is a
-    /// new tab's worth of window.
+    /// new tab's worth of window. `frame`: where it goes instead (a tab dropped outside every window, SB-35).
     @discardableResult
     func openNewWindow(from source: WindowController?, spaceID: String? = nil, tab: WindowOpening.Tab = .none,
-                       commandBar: Bool = true) -> WindowController? {
+                       commandBar: Bool = true, frame explicitFrame: NSRect? = nil) -> WindowController? {
         guard store != nil, onboarding == nil else { return nil }
         let base = source ?? controller
-        let frame = base.map { cascade(from: $0.window) } ?? savedSession()?.windows.first.flatMap(restorableFrame) ?? defaultFrame()
-        let opening = WindowOpening(spaceID: spaceID ?? base?.currentSpaceID, tab: tab,
+        let frame = explicitFrame ?? base.map { cascade(from: $0.window) } ?? savedSession()?.windows.first.flatMap(restorableFrame) ?? defaultFrame()
+        // ⌘N from a blank window: a window on the listed Spaces (only ⌃⌘N names a blank Space).
+        let baseSpace = base.flatMap { $0.isBlankWindow ? nil : $0.currentSpaceID }
+        let opening = WindowOpening(spaceID: spaceID ?? baseSpace, tab: tab,
                                     sidebarWidth: base.map { Double($0.sidebarWidth) }, sidebarHidden: base?.sidebarHidden)
         let c = makeController(frame: frame, opening: opening)
         present(c)
         if commandBar, tab == .none { c.openCommandBar(mode: .newTab) }
         scheduleSessionSave()
         return c
+    }
+
+    /// ⌃⌘N (Arc's New Blank Window): a window on a new Space of its own, empty, with `source`'s profile and theme, and
+    /// the Command Bar open, as ⌘N.
+    @discardableResult
+    func openBlankWindow(from source: WindowController?) -> WindowController? {
+        guard let store, onboarding == nil else { return nil }
+        let base = source ?? controller
+        guard let space = try? store.createBlankWindowSpace(from: base?.currentSpaceID) else { NSSound.beep(); return nil }
+        return openNewWindow(from: base, spaceID: space.id, tab: .none)
     }
 
     /// The next window's frame: the same size, 22 pt down and right (AppKit's cascade), on the same screen.
@@ -164,6 +182,15 @@ extension AppDelegate {
         // Its pages are gone: the other windows' auto-archive takes their tabs (WindowController.archiveProtected).
         controllers.forEach { $0.queueArchiveReschedule() }
         if !windowSession.quitting, !last { saveSession() }
+        // A blank window closed by the person: its Space goes, its Today tabs to the Archive (after the window has gone,
+        // so its own reload doesn't see it). The quit keeps it for the next launch.
+        if !windowSession.quitting, c.isBlankWindow {
+            let id = c.currentSpaceID
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.controllers.contains(where: { $0.currentSpaceID == id }) else { return }
+                try? self.store.closeBlankWindowSpace(id)
+            }
+        }
     }
 
     /// The Dock icon with no browser window open (as Chrome): the last session's windows come back.
@@ -184,6 +211,7 @@ extension AppDelegate {
     func runWithoutWindow(_ command: BrowserCommand) {
         switch command.title {
         case "New Window", "New Tab", "Open Location…": openNewWindow(from: nil)
+        case "New Blank Window": openBlankWindow(from: nil)
         case "New Private Window": PrivateBrowsing.shared.open(app: self)
         case "New Little Arc Window": openLittleArc(url: nil)
         default: break
@@ -203,6 +231,10 @@ extension AppDelegate {
     /// Launch: the windows of the last session (most recent in front), or one window on the last Space.
     func restoreWindows() -> [WindowController] {
         let saved = (savedSession()?.windows ?? []).filter { store.space($0.spaceID) != nil }
+        // Blank windows' Spaces no saved window has (the session was lost): their tabs go to the Archive. The ones of
+        // windows open now stay (a reopen with a window still open).
+        let kept = Set(saved.map(\.spaceID) + controllers.map(\.currentSpaceID))
+        for s in store.blankWindowSpaces where !kept.contains(s.id) { try? store.closeBlankWindowSpace(s.id) }
         guard !saved.isEmpty else { return [makeController(frame: initialFrame(), opening: WindowOpening())] }
         var made: [Int: WindowController] = [:]
         // Oldest first, so the window used last ends up first in `controllers`; windows whose page another window had
@@ -251,13 +283,16 @@ extension AppDelegate {
         }
     }
 
-    /// The last browser window is closing (by the person). Chromium destroys a profile when its last browser window
-    /// closes (DestroyProfileOnBrowserClose), and Airc keeps every profile loaded: a hidden engine window, internal (no
-    /// extension or history sees it), holds a browser for each one, so the next window's pages open in them. It stays
-    /// until the quit.
-    func keepProfilesIfLastWindowCloses(_ c: WindowController) {
+    /// Chromium destroys a profile when its last browser goes (DestroyProfileOnBrowserClose, on by default on Mac), and
+    /// each engine window holds browsers only for the profiles it used: closing one of several windows (a Work Space's
+    /// Open in New Window) or the last one would unload a profile, and its pages elsewhere, Little Arc and private
+    /// windows would show "Unable to open page" until a relaunch (review2 P1). So from the first window to the quit a
+    /// hidden engine window, internal (no extension or history sees it), holds a browser for every loaded profile, and
+    /// for each one that loads later. A profile goes only when the person deletes it (the engine's deletion closes its
+    /// browsers, this one's too).
+    func keepProfilesLoaded() {
         #if canImport(AircCore)
-        guard controllers.count == 1, controllers.first === c, !windowSession.quitting, engine is ChromiumEngine else { return }
+        guard engine is ChromiumEngine else { return }
         let keeper = windowSession.profileKeeper ?? {
             let w = engine.makeWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 320))
             (w as? ChromiumWindow)?.core.internal = true
@@ -266,7 +301,15 @@ extension AppDelegate {
             return w
         }()
         profiles.loadedProfiles.forEach(keeper.prepareProfile)
+        profiles.keepLoaded = { [weak keeper] p in keeper?.prepareProfile(p) }
         #endif
+    }
+
+    /// A browser window is closing (by the person): the keeper is there already (made with the first window); this
+    /// only makes sure, so no close can unload a profile.
+    func keepProfilesIfLastWindowCloses(_ c: WindowController) {
+        guard !windowSession.quitting else { return }
+        keepProfilesLoaded()
     }
 
     /// The quit: the session as it is now; the windows' closing doesn't change it.
@@ -297,6 +340,9 @@ extension AppDelegate {
     func installWindowHooksOnce() {
         guard !windowSession.hooksInstalled else { return }
         windowSession.hooksInstalled = true
+        // Every loaded profile stays loaded, whichever windows close (keepProfilesLoaded); right after the first window,
+        // off its launch path.
+        DispatchQueue.main.async { [weak self] in self?.keepProfilesLoaded() }
         #if canImport(AircCore)
         guard let chromium = engine as? ChromiumEngine else { return }
         chromium.pictureInPictureRequestsTab = { [weak self] page in
@@ -326,6 +372,48 @@ private final class DockMenuItem: NSMenuItem {
 // MARK: - A window's part
 
 extension WindowController {
+    /// A blank window (⌃⌘N): its Space is its own.
+    var isBlankWindow: Bool { store.space(currentSpaceID)?.isBlankWindow == true }
+
+    /// The Spaces this window pages through (the Space bar, swipes, ⌥⌘←→): every listed Space, or a blank window's own.
+    var windowSpaces: [Space] {
+        if let s = store.space(currentSpaceID), s.isBlankWindow { return [s] }
+        return store.orderedSpaces
+    }
+
+    /// `show` for a tab of a Space this window doesn't page through (a blank window's tab picked in another window, a
+    /// listed Space's tab picked in a blank window, from the Command Bar or Back to Tab): it shows in its own window,
+    /// on its Space, which comes to the front. False: it belongs here. Automatic paths (`takeOver` false) never move it.
+    func routeToItsWindow(_ tab: LiveTab, focus: Bool, updatesRows: Bool, takeOver: Bool) -> Bool {
+        guard let sid = tab.spaceID, sid != currentSpaceID, let space = store.space(sid), let app else { return false }
+        let home: WindowController?
+        if space.isBlankWindow {
+            home = app.controllers.first { $0 !== self && $0.currentSpaceID == sid }
+        } else if isBlankWindow {
+            home = app.controllers.first { !$0.isBlankWindow }
+                ?? (takeOver ? app.openNewWindow(from: self, spaceID: sid, tab: .none, commandBar: false) : nil)
+        } else {
+            return false
+        }
+        guard let home else { return false }
+        guard takeOver else { showEmpty(updatesRows: updatesRows); return true }
+        if home.currentSpaceID != sid { home.switchToSpace(sid, animated: false) }
+        home.show(tab.id, focus: focus, updatesRows: updatesRows, takeOver: true)
+        app.present(home)
+        return true
+    }
+
+    /// The window's title, for the Window menu, Mission Control and ⌘`: its Space's name, then its page's title.
+    func updateWindowTitle() {
+        let space = store.space(currentSpaceID)?.name ?? "Airc"
+        let page = shownTabID.flatMap { id -> String? in
+            let live = pages[id]?.title ?? ""
+            return live.isEmpty ? store.tab(id)?.displayTitle : live
+        }
+        let title = page.map { "\(space) — \($0)" } ?? space
+        if window.title != title { window.title = title }
+    }
+
     /// The tab this window shows in `spaceID` when it switches there: its own last one there (even if another window has
     /// its page now: then "Open in another window"), else the Space's last tab unless another window shows it.
     func preferredTab(forSpace spaceID: String) -> String? {
@@ -475,18 +563,39 @@ extension WindowController {
                                     sidebarWidth: Double(sidebarWidth), sidebarHidden: sidebarHidden)
     }
 
-    /// A tab's Move to New Window (Arc): a window on its Space showing it (its page moves there, live); this window goes
-    /// on to the next tab.
-    func openInNewWindow(_ tabID: String) {
-        guard let tab = store.tab(tabID), let app,
-              let w = app.openNewWindow(from: self, spaceID: tab.spaceID ?? currentSpaceID, tab: .none, commandBar: false) else { return }
+    /// A tab's Move to New Window (Arc), and a tab dragged out of the sidebar (SB-35, at `frame`): a window on its Space
+    /// showing it (its page moves there, live); this window goes on to the next tab. A blank window's tab gets a blank
+    /// window of its own, the tab moved into its Space.
+    @discardableResult
+    func openInNewWindow(_ tabID: String, frame: NSRect? = nil, returnTo: String? = nil) -> WindowController? {
+        guard let tab = store.tab(tabID), let app else { return nil }
+        let wasShown = visibleTabIDs.contains(tabID)
+        var spaceID = tab.spaceID ?? currentSpaceID
+        if store.space(spaceID)?.isBlankWindow == true {
+            guard let blank = try? store.createBlankWindowSpace(from: spaceID) else { return nil }
+            _ = try? store.moveTab(tabID, toSpace: blank.id)
+            spaceID = blank.id
+        }
+        guard let w = app.openNewWindow(from: self, spaceID: spaceID, tab: .none, commandBar: false, frame: frame) else { return nil }
         w.show(tabID, focus: true, takeOver: true)
-        guard multiWindow.elsewhereTabID == tabID else { return }
+        if wasShown, multiWindow.elsewhereTabID != nil { goOnAfterPageLeft(tabID, returnTo: returnTo) }
+        return w
+    }
+
+    /// This window's page went to another window for good (Move to New Window, a drag out): `returnTo` (the tab it
+    /// showed before the drag's press) if it's still here and free, else the next free tab.
+    func goOnAfterPageLeft(_ tabID: String, returnTo: String? = nil) {
+        if let back = returnTo, back != tabID, let t = store.tab(back), t.spaceID == nil || t.spaceID == currentSpaceID,
+           app?.window(showing: back, except: self) == nil {
+            return show(back, focus: false, takeOver: false)
+        }
         if let next = nextFreeTab(afterClosing: tabID, inSpace: currentSpaceID) { show(next.id, focus: false, takeOver: false) } else { showEmpty() }
     }
 
-    /// A Space's Open in New Window: a window on it, showing its last tab no other window shows.
+    /// A Space's Open in New Window: a window on it, showing its last tab no other window shows. (A blank window's
+    /// Space is in its own window only.)
     func openSpaceInNewWindow(_ spaceID: String) {
+        guard store.space(spaceID)?.isBlankWindow != true else { return NSSound.beep() }
         app?.openNewWindow(from: self, spaceID: spaceID, tab: .spaceLast, commandBar: false)
     }
 }

@@ -68,6 +68,10 @@ struct BookmarkBuilder {
     private(set) var folders = 0
     private(set) var warnings: [ImportWarning] = []
     private var stopped = false
+    /// The IDs given out so far, with how many times each was asked for: a file's own IDs (an HTML file's `ID`
+    /// attributes, GUIDs) can repeat in a crafted or hand-edited file, and one ID for two entries would make the import
+    /// merge them, or put a folder inside itself.
+    private var given: [String: Int] = [:]
 
     init(prefix: String, maxBookmarks: Int) {
         self.prefix = prefix
@@ -88,12 +92,26 @@ struct BookmarkBuilder {
             return nil
         }
         bookmarks += 1
-        return .tab(.init(id: prefix + id, url: url, title: nonempty(name), pageTitle: nil, lastActiveAt: nil))
+        return .tab(.init(id: prefix + unique(id), url: url, title: nonempty(name), pageTitle: nil, lastActiveAt: nil))
     }
 
+    /// Called after its children were built: a folder whose ID repeats one inside it keeps the ID its first holder
+    /// (in reading order, the deeper one) took, plus a suffix. The same file read again gives the same IDs.
     mutating func folder(id: String, title: String?, fallback: String = "Folder", children: [ImportedItem]) -> ImportedFolder {
         folders += 1
-        return .init(id: prefix + id, title: nonempty(title) ?? fallback, children: children)
+        return .init(id: prefix + unique(id), title: nonempty(title) ?? fallback, children: children)
+    }
+
+    /// `id`, or for a repeat `id#2`, `id#3`… (skipping any the file uses itself), so every entry of one import has its
+    /// own ID.
+    private mutating func unique(_ id: String) -> String {
+        guard let n = given[id] else { given[id] = 1; return id }
+        var k = n + 1
+        while given["\(id)#\(k)"] != nil { k += 1 }
+        given[id] = k
+        let out = "\(id)#\(k)"
+        given[out] = 1
+        return out
     }
 
     func deep(_ depth: Int) -> Bool { depth > Self.maxDepth }

@@ -64,6 +64,8 @@ enum CommandMenus {
             BrowserCommand("New Window", "n", .command, id: "file.newWindow") { $0.app?.openNewWindow(from: $0) },
             // PW-1 (Browser/PrivateWindow.swift): in a private window, ⇧⌘N opens another one of the same profile.
             BrowserCommand("New Private Window", "n", [.command, .shift], id: "file.newPrivateWindow") { c in if let app = c.app { PrivateBrowsing.shared.open(app: app) } },
+            // WIN-7: Arc's blank window, on a Space of its own: its Today tabs are its own (Browser/MultiWindow.swift).
+            BrowserCommand("New Blank Window", "n", [.command, .control], id: "file.newBlankWindow") { $0.app?.openBlankWindow(from: $0) },
             BrowserCommand("New Little Arc Window", "n", [.command, .option], id: "file.newLittleArc") { $0.app?.openLittleArc(url: nil) },
             nil,
             // LA-1: these act in a Little Arc window (LittleArcController.handleKey); the main window has nothing to move.
@@ -213,13 +215,13 @@ final class CommandMenuItem: NSMenuItem {
             KeyMonitor.cancelPending(command)
             if let e = NSApp.currentEvent, e.type == .keyDown, p.handleKey(e) { return }
             if p.perform(menuTitle: command.title) { return }
-            if ["New Window", "New Little Arc Window"].contains(command.title) { opensWindow() }
+            if ["New Window", "New Blank Window", "New Little Arc Window"].contains(command.title) { opensWindow() }
             return
         }
         // A Little Arc window takes its own shortcuts; the main window's commands don't reach into it.
         if let little = app.littleArc(for: NSApp.keyWindow) {
             if let e = NSApp.currentEvent, e.type == .keyDown, little.handleKey(e) { return }
-            if ["New Window", "New Little Arc Window"].contains(command.title) { opensWindow() }
+            if ["New Window", "New Blank Window", "New Little Arc Window"].contains(command.title) { opensWindow() }
             return
         }
         guard let c else { return app.runWithoutWindow(command) }
