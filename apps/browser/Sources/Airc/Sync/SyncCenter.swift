@@ -38,7 +38,17 @@ final class SyncCenter: ObservableObject {
     /// How many live databases (CKContainers) this launch made: checks assert none while sync is off.
     private(set) var cloudDatabasesMade = 0
     private(set) var keyStore: SyncKeyStore?
+    #if AIRC_TESTING
+    static var testSubscription: String {
+        if MainActor.assumeIsolated({ ICloudTwoMacCheck.requested }),
+           let zone = MainActor.assumeIsolated({ ICloudTwoMacCheck.argument("--sync-cloudkit-test-zone") }), zone.hasPrefix("AircSidebarTest") {
+            return "airc-sidebar-test-changes-" + zone
+        }
+        return "airc-sidebar-test-changes"
+    }
+    #else
     static let testSubscription = "airc-sidebar-test-changes"
+    #endif
     static let testKeychainService = "Airc sidebar sync test"
     private weak var app: AppDelegate?
     private var timer: Timer?
@@ -57,6 +67,13 @@ final class SyncCenter: ObservableObject {
     func start(app: AppDelegate) {
         guard self.app == nil else { return }
         self.app = app
+        #if AIRC_TESTING
+        let twoMac = MainActor.assumeIsolated { ICloudTwoMacCheck.enabled }
+        if MainActor.assumeIsolated({ ICloudTwoMacCheck.requested }) && !twoMac {
+            status = .unavailable("Invalid isolated sync test configuration")
+            return
+        }
+        #endif
         let keys: SyncKeyStore
         let transport: (UUID) -> SyncGroupTransport
         var deviceName = Host.current().localizedName ?? "Mac"
@@ -70,14 +87,30 @@ final class SyncCenter: ObservableObject {
             let zone = testZone()
             backend = .cloudKit(container: container)
             cloudTestZone = zone
-            // The real-iCloud test's key is local (not synchronizable): its two installations share one Mac.
+            #if AIRC_TESTING
+            if twoMac {
+                keys = ICloudTwoMacKeys(accessGroup: SyncCapability.keychainAccessGroup,
+                    service: MainActor.assumeIsolated { ICloudTwoMacCheck.service }, root: MainActor.assumeIsolated { ICloudTwoMacCheck.root })
+            } else {
+                keys = zone == nil ? KeychainSyncKeyStore(accessGroup: SyncCapability.keychainAccessGroup)
+                    : KeychainSyncKeyStore(accessGroup: SyncCapability.keychainAccessGroup, service: Self.testKeychainService,
+                                           synchronizable: false, accessibility: .afterFirstUnlockThisDeviceOnly)
+            }
+            #else
             keys = zone == nil ? KeychainSyncKeyStore(accessGroup: SyncCapability.keychainAccessGroup)
                 : KeychainSyncKeyStore(accessGroup: SyncCapability.keychainAccessGroup, service: Self.testKeychainService, synchronizable: false,
                                        accessibility: .afterFirstUnlockThisDeviceOnly)
+            #endif
             transport = { [weak self] device in
                 let database = CloudKitSyncDatabase(container: container)
                 self?.cloudDatabase = database
                 self?.cloudDatabasesMade += 1
+                #if AIRC_TESTING
+                if twoMac {
+                    let wrapped = ICloudTwoMacDatabase(database, root: MainActor.assumeIsolated { ICloudTwoMacCheck.root })
+                    return CloudKitSyncTransport(database: wrapped, device: device, zone: zone!, subscription: Self.testSubscription)
+                }
+                #endif
                 return CloudKitSyncTransport(database: database, device: device, zone: zone ?? SyncCloudSchema.zone,
                                              subscription: zone == nil ? SyncCloudSchema.subscription : Self.testSubscription)
             }
@@ -110,6 +143,11 @@ final class SyncCenter: ObservableObject {
             })
         let engine = MainActor.assumeIsolated { SyncEngine(store: store, environment: environment) }
         self.engine = engine
+        #if AIRC_TESTING
+        if twoMac && CommandLine.arguments.contains("--sync-test-cleanup") {
+            MainActor.assumeIsolated { engine.setEnabled(false) }
+        }
+        #endif
         let cloudKit: Bool = if case .cloudKit = backend { true } else { false }
         triggers = SyncTriggers.plan(cloudKit: cloudKit, pushEntitlement: SyncCapability.receivesPushes)
         let triggers = triggers
@@ -117,6 +155,9 @@ final class SyncCenter: ObservableObject {
         MainActor.assumeIsolated { engine.onChange = { [weak self] in self?.refresh() } }
         refresh()
         if isEnabled { syncSoon() }
+        #if AIRC_TESTING
+        if twoMac { MainActor.assumeIsolated { ICloudTwoMacCheck.start(app: app) } }
+        #endif
     }
 
     /// The Settings switch.
@@ -136,6 +177,9 @@ final class SyncCenter: ObservableObject {
             observers.append(center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
                 guard let self, Date().timeIntervalSince(self.lastActivationSync) > triggers.activationInterval else { return }
                 self.lastActivationSync = Date()
+                #if AIRC_TESTING
+                MainActor.assumeIsolated { ICloudTwoMacCheck.event("trigger.activation") }
+                #endif
                 self.syncSoon()
             })
             observers.append(center.addObserver(forName: Notification.Name("CKAccountChangedNotification"), object: nil, queue: .main) { [weak self] _ in
@@ -143,7 +187,12 @@ final class SyncCenter: ObservableObject {
                 guard let engine = self?.engine else { return }
                 MainActor.assumeIsolated { engine.accountDidChange() }
             })
-            timer = Timer.scheduledTimer(withTimeInterval: triggers.fallbackInterval, repeats: true) { [weak self] _ in self?.syncSoon() }
+            timer = Timer.scheduledTimer(withTimeInterval: triggers.fallbackInterval, repeats: true) { [weak self] _ in
+                #if AIRC_TESTING
+                MainActor.assumeIsolated { ICloudTwoMacCheck.event("trigger.fallback") }
+                #endif
+                self?.syncSoon()
+            }
             timer?.tolerance = 60
             registerForPushes()
         } else {
@@ -192,6 +241,9 @@ final class SyncCenter: ObservableObject {
     func remoteNotification(_ userInfo: [String: Any]) {
         let subscription = cloudTestZone == nil ? SyncCloudSchema.subscription : Self.testSubscription
         guard SyncTriggers.isSidebarPush(userInfo, subscription: subscription) else { return }
+        #if AIRC_TESTING
+        MainActor.assumeIsolated { ICloudTwoMacCheck.event("trigger.push") }
+        #endif
         syncSoon()
     }
 
@@ -266,6 +318,14 @@ extension AppDelegate {
         SyncCenter.shared.remoteNotification(userInfo)
     }
 
-    @objc func application(_ application: NSApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {}
-    @objc func application(_ application: NSApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {}
+    @objc func application(_ application: NSApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        #if AIRC_TESTING
+        MainActor.assumeIsolated { ICloudTwoMacCheck.event("push.registered") }
+        #endif
+    }
+    @objc func application(_ application: NSApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        #if AIRC_TESTING
+        MainActor.assumeIsolated { ICloudTwoMacCheck.event("push.registration-failed", ["code": (error as NSError).code]) }
+        #endif
+    }
 }

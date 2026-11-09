@@ -14,9 +14,9 @@ scripts/marketing-shots.sh --parts views,media   # some parts: browser, views, m
 The scenario is `--script marketing` (`apps/browser/Sources/Airc/Debug/Marketing*.swift`). A new feature adds its shot
 there and to the list in `scripts/marketing-shots.sh` (AGENTS.md, "Marketing screenshots").
 
-Not shown yet: Meet's own Document PiP under Airc's top bar (the demo call opens its Document PiP, which closes at once
-in the scripted run; `--script pipcontrols` captures the bar on a test page), and the profile menu itself (a native
-menu, which can't be drawn off screen; `profiles.webp` shows profiles through Create Profile instead).
+The Document PiP shot uses a synthetic call page with illustrated participants, not an authenticated Meet session.
+Not shown yet: the profile menu itself (a native menu, which can't be drawn off screen; `profiles.webp` shows
+profiles through Create Profile instead).
 
 | File | Feature | What it shows | Date | Build |
 |---|---|---|---|---|
@@ -76,10 +76,10 @@ menu, which can't be drawn off screen; `profiles.webp` shows profiles through Cr
 | `mini-player-pill.webp` | Minimized Mini Player | A playing film collapsed to its title and pause button | 2026-11-08 | 202611080811 (P16a isolated build) |
 | `picture-in-picture.webp` | Picture in picture | A playing film over the Lisbon article: Back to Tab, hide, skip 15 s, pause and the scrubber | 2026-11-08 | 202611080811 (P16a isolated build) |
 | `picture-in-picture-call.webp` | Picture in picture, call | A call's video floating over another page, with microphone, camera and Leave | 2026-11-07 | 202611070855 (ac85637, with uncommitted changes) |
-| — | Picture in picture, Meet | Not taken yet: A call page's own Document PiP (as Meet opens one) under Airc's slim top bar | | |
+| `picture-in-picture-meet.webp` | Document picture in picture | A synthetic call page opens its own 640×400 window through its registered site action, with illustrated participants and one site control row below Airc's bar | 2026-11-09 | 202611092210 (b0affccc + PiP changes) |
 | `downloads.webp` | Downloads | A film downloading, with its progress in the sidebar | 2026-11-06 | 202611061538 (6312e1a) |
 | `downloads-library.webp` | Downloads Library | The Library's Downloads list: finished files and the one still running | 2026-11-06 | 202611061631 (005428d) |
-| `call-window.webp` | Call window | A call (illustrated tiles, no camera) in its floating window, its controls in the sidebar | 2026-11-07 | 202611072311 (9cbd6a7) |
+| `call-window.webp` | Call window | A synthetic full call page in the resizable 800×600 fallback; Airc's permanent bar sits above the page and its single call-control row | 2026-11-09 | 202611092210 (b0affccc + PiP changes) |
 | `multi-select.webp` | Multi-selection | Three Today tabs ⌘-clicked in Personal, with their menu: copy, share, duplicate, split, pin, a new folder, move, close, archive | 2026-11-08 | 202611080125 (8196410, with this part's own commit) |
 | `tab-menu.webp` | Tab menus | The Kyoto tab's menu in Personal, as Arc's: Copy Link, Share, Rename, Mute, Customize Page, Add Split View, Move to, Archive | 2026-11-08 | 202611080343 (e9abd05, with this part's own commit) |
 | `folder-markdown.webp` | Folder links as Markdown | The Recipes folder's menu: Copy All Links and Copy All Links as Markdown, titles and order kept | 2026-11-08 | 202611080343 (e9abd05, with this part's own commit) |

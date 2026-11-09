@@ -415,7 +415,9 @@ extension SnapshotRunner {
               under: "lisbon", size: NSSize(width: 480, height: 270), kind: "video")
         mkPiP(d, name: "picture-in-picture-call", page: MarketingDemo.site("meet", "/weekly-sync"), title: "Weekly design sync", space: "work",
               under: "linear", size: NSSize(width: 400, height: 225), kind: "video")
-        mkPiP(d, name: "picture-in-picture-meet", page: MarketingDemo.site("meet", "/weekly-sync?pip=document"), title: "Weekly design sync",
+        // Chromium validates Document PiP's URL in the browser too: a renderer
+        // secure-context override cannot qualify an ordinary HTTP origin.
+        mkPiP(d, name: "picture-in-picture-meet", page: "http://meet.localhost/weekly-sync?pip=document", title: "Weekly design sync",
               space: "work", under: "linear", size: nil, kind: "document")
         mkCall(d)
     }
@@ -444,7 +446,10 @@ extension SnapshotRunner {
             guard let chromium = app?.engine as? ChromiumEngine, let p = page() else { return done() }
             func open() {
                 if kind == "document" {
-                    note("marketing: \(name): enterpictureinpicture sent \(chromium.performMediaAction("enterpictureinpicture", value: 0, in: p))")
+                    // Leaving the call asks its registered handler through the
+                    // normal call-window path. A second explicit request here
+                    // would race that entry and replace the site's new window.
+                    note("marketing: \(name): waiting for the site's automatic entry")
                 } else {
                     chromium.enterPictureInPictureForHost(p) { route, opened in self.note("marketing: \(name): host entry \(route) \(opened)") }
                 }

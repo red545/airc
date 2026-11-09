@@ -258,3 +258,27 @@ pushes, offline and account changes, and a notarized release's first sync on a c
 - Profile names sync only to name new empty profiles; renaming a profile on one Mac doesn't rename it on another.
 - Silent pushes need the Push Notifications capability on the App ID (the profile's `aps-environment`); without it
   sync is on activation and every 10 minutes.
+
+### Authorized two-Mac qualification
+
+`--sync-two-macs` extends the real-cloud test only in `AIRC_TESTING` builds. It requires scripted/automated mode,
+explicit isolated test data, an `AircSidebarTest` zone and a deadline less than thirty minutes away. The separate
+service `Airc sidebar sync test (two Macs)` uses the provisioned access group, `synchronizable: true` and
+`whenUnlocked`. Keys are never copied by the runner. Each zone gets its own test subscription. The existing
+single-Mac `icloudsync-real-a/-b/-cleanup` scenarios retain their local-only key.
+
+`Debug/ICloudTwoMacCheck.swift` drives the same SyncCenter and SpacesStore through a synthetic command mailbox.
+It records first-sync sheet presence, backups, the independent same-named Spaces after Merge, Replace, edits,
+Keychain lookup times and activation/push/fallback triggers. An injected network-unavailable error isolates the
+app's CloudKit transport for offline conflict testing; it is not a physical network-disconnection test.
+
+`scripts/sync-two-macs.py --dry-run --output DIR` runs both roles serially on the build host, under the UI lock.
+Build/sign with `scripts/sync-test-build.sh` under the normal build locks; it uses the configured Developer ID
+identity and provisioning profile with the matching Xcode compiler and SDK. Upload assertions read only committed
+completion metadata from the isolated sync-state file (time, enabled state and pending-upload count), retaining
+the UI timestamp separately. Account identifiers and sealed payloads are not exported by this probe.
+The two-host mode additionally requires a prepared signed bundle archive and enforces the owner's single dated
+access window. `scripts/sync-test-host.py` limits every launch, selects cleanup PIDs by the exact test bundle
+executable path, and runs a bounded laptop guardian to remove its bundle/data and unregister it. No account
+sign-out, real zone/key access, system network change, or public-build flag is introduced. Qualification remains
+pending until both-host results and key/zone/subscription cleanup evidence are recorded by the operator.

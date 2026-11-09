@@ -200,13 +200,20 @@ class AircContextMenu : public RenderViewContextMenuMacCocoa {
     const std::u16string& selection = params().selection_text;
     AircTab* tab = TabOf(source_web_contents_);
     id<AircTabDelegate> delegate = tab.delegate;
-    if (selection.empty() || params().is_editable ||
-        ![delegate respondsToSelector:@selector(tab:contextMenuItemsForSelection:)]) {
-      return;
+    NSMutableArray<NSDictionary*>* items = [NSMutableArray array];
+    if (!selection.empty() && !params().is_editable &&
+        [delegate respondsToSelector:@selector(tab:contextMenuItemsForSelection:)]) {
+      [items addObjectsFromArray:[delegate tab:tab
+          contextMenuItemsForSelection:base::SysUTF16ToNSString(selection)] ?: @[]];
     }
-    NSArray<NSDictionary*>* items =
-        [delegate tab:tab
-            contextMenuItemsForSelection:base::SysUTF16ToNSString(selection)];
+    if ([delegate respondsToSelector:@selector(tab:contextMenuItemsForPage:)]) {
+      [items addObjectsFromArray:[delegate tab:tab contextMenuItemsForPage:@{
+        @"linkURL": base::SysUTF8ToNSString(params().link_url.spec()),
+        @"mediaType": @(static_cast<int>(params().media_type)),
+        @"selection": base::SysUTF16ToNSString(selection),
+        @"editable": @(params().is_editable)
+      }] ?: @[]];
+    }
     std::optional<size_t> copy =
         menu_model_.GetIndexOfCommandId(IDC_CONTENT_CONTEXT_COPY);
     size_t at = copy ? *copy + 1 : menu_model_.GetItemCount();

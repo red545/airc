@@ -336,6 +336,10 @@ AIRC_EXPORT
 // Password rows carry "bounds": NSStringFromRect of the field in page-view DIPs (top-left origin).
 - (void)tab:(AircTab*)tab didShowAutofillSuggestions:(NSArray<NSDictionary<NSString*, NSString*>*>*)items;
 - (void)tab:(AircTab*)tab didBlockRequests:(int)count lastURL:(NSString*)url;
+// Asked for every context, including page, link, media, selection and editable.
+// Context keys: linkURL, mediaType (Chromium enum), selection, editable.
+- (NSArray<NSDictionary<NSString*, NSString*>*>*)tab:(AircTab*)tab
+    contextMenuItemsForPage:(NSDictionary<NSString*, id>*)context;
 - (NSArray<NSDictionary<NSString*, NSString*>*>*)tab:(AircTab*)tab
                          contextMenuItemsForSelection:(NSString*)text;
 - (void)tab:(AircTab*)tab
@@ -591,6 +595,14 @@ AIRC_EXPORT
     NS_SWIFT_NAME(loadInternalProfile(completion:));
 @end
 @interface AircProfile (HostAPI)
+// Normal Chromium permission review. Main-thread completion: status is installed,
+// alreadyInstalled, denied, failed, or blockedByPolicy; reason is human-readable.
+- (void)installWebStoreExtension:(NSString*)extensionID parentWindow:(NSWindow*)window
+    completion:(void (^)(NSDictionary<NSString*, NSString*>*))completion
+    NS_SWIFT_NAME(installWebStoreExtension(_:parentWindow:completion:));
+// Local CRX only in an unsigned, mock-keychain test instance; same Chromium prompt.
+- (void)installExtensionFixture:(NSString*)path extensionID:(NSString*)extensionID
+    parentWindow:(NSWindow*)window completion:(void (^)(NSDictionary<NSString*, NSString*>*))completion;
 @property(readonly) NSArray<NSDictionary<NSString*, id>*>* extensions;
 @end
 // Services are bound to this profile. Completion/visit blocks run on the UI thread.

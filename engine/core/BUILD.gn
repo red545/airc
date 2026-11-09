@@ -104,6 +104,7 @@ source_set("core") {
     "airc_device_chooser.h",
     "airc_device_chooser.mm",
     "airc_extension_drop.mm",
+    "airc_extension_install.mm",
     "airc_extension_drop.h",
     "airc_extension_shortcuts.h",
     "airc_extension_shortcuts.mm",

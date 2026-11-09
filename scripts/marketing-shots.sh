@@ -182,12 +182,14 @@ if [ "$ON_MAC" = 1 ]; then
     sync_args=""; [ "$part" = sync ] && sync_args="--sync-mock $home/sync-cloud --sync-keychain $home/sync-keychain"
     # Synthetic unpacked extensions (parityp09) need the engine's test gate: its Chromium folder, --airc-data-dir.
     gate_args=""; [ "$part" = parityp09 ] && { mkdir -p "$home/$part/Chromium"; gate_args="--airc-data-dir=$home/$part --airc-test=unpackedExtension"; }
-    case "$part" in calls|media2) mkdir -p "$home/$part/Chromium"; gate_args="--airc-data-dir=$home/$part --airc-test=parityp16a" ;; esac
+    # Local synthetic peers use direct host candidates; Airc routes the site PiP action.
+    disabled_features=HttpsUpgrades
+    case "$part" in calls|media2) disabled_features+=,WebRtcHideLocalIpsWithMdns; mkdir -p "$home/$part/Chromium"; gate_args="--airc-data-dir=$home/$part --airc-test=parityp16a --airc-switches=autoPip=off" ;; esac
     python3 "$ROOT/scripts/ui-check-lock.py" open -g -n -W --env "CFFIXED_USER_HOME=$home" --env "AIRC_MARKETING_PART=$part" --env "AIRC_MARKETING_PORT=$port" \
       --env "AIRC_LIVE_SUGGESTIONS=$live" --env "AIRC_SYNC_DEVICE_NAME=MacBook Pro" "$app" --args \
       --engine=chromium --snapshot "$out/png" --script marketing --ephemeral --data-dir "$home/$part" \
-      --autoplay-policy=no-user-gesture-required "--host-resolver-rules=MAP *.aircbrowser.com 127.0.0.1:$port" \
-      "--unsafely-treat-insecure-origin-as-secure=$secure" --disable-features=HttpsUpgrades \
+      --autoplay-policy=no-user-gesture-required "--host-resolver-rules=MAP *.aircbrowser.com 127.0.0.1:$port,MAP meet.localhost 127.0.0.1:$port" \
+      "--unsafely-treat-insecure-origin-as-secure=$secure" --disable-features="$disabled_features" \
       -AppleLanguages '(en-GB)' -AppleLocale en_GB $sync_args $gate_args
     grep -q "marketing: $part done" "$out/png/log.txt" 2>/dev/null || echo "  marketing: $part didn't finish (crash or timeout; see log.txt)"
   done

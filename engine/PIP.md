@@ -487,6 +487,10 @@ There are no scrims or Airc call buttons over the page. The media tray retains
 its controls, and the existing hide, Esc-collapse and context-menu actions remain.
 This is a full page, not a browser-selected speaker tile: the site decides which
 participants it renders, and the user can enlarge the window for more space.
+The panel becomes key when a page press arrives, before delaying that press for
+drag arbitration. Its nonactivating panel style preserves the foreground app;
+the site's first camera, microphone or Leave click must take effect without a
+second click. `medialib-call` checks the first-click result and foreground app.
 
 Document PiP retains Chromium's requested/cached inner size, non-client bar and
 min/max rules. Airc no longer proportionally screen-fits Document PiP a second
@@ -511,11 +515,15 @@ disabled deliberately so the registered-site-action path must succeed. Run with
 the UI lock, `AIRC_REAL_CLICKS=1`, and `--airc-test=parityp16a`; existing owner-idle
 and test-window safety guards apply. No camera, microphone or display stream is
 requested. The marketing `calls` part refreshes `picture-in-picture-meet` at
-640×400 with the fixture's full site controls below Airc's bar.
+640×400 with the fixture's full site controls below Airc's bar. It leaves the tab
+and waits for the normal site-action route; it must not race that route with a
+second explicit entry request. Its loopback demo uses a `.localhost` origin,
+which Chromium permits for Document PiP. Marking an ordinary HTTP origin secure
+for renderer tests does not satisfy the browser-side Document PiP URL check.
 
 `AIRC_PIPMEET_GEOMETRY=1` runs only routing and native/JS geometry checks, with no
-native pointer events, key requests or app activation. It can run while the owner
-is active; the normal input-driven suite still requires 120 seconds of HID idle.
+native pointer events, key requests or app activation. Run it in a dedicated
+test session under the UI lock; it must not interrupt an active desktop. The normal input-driven suite requires 120 seconds of HID idle.
 
 Historical comparison: [Chromium 134's window manager](https://chromium.googlesource.com/chromium/src/+/refs/tags/134.0.6998.35/chrome/browser/picture_in_picture/picture_in_picture_window_manager.cc)
 also used a 240×52 desktop minimum, added the excluded non-client margin to the
@@ -541,3 +549,25 @@ was captured before this change; neither image is an authenticated Meet call.
 `site-route.png` captures the site's native Document PiP reached through tab leave.
 `requested.png` and `resized.png` accompany the native/JS geometry assertions;
 `video.png` accompanies the video aspect/remembered-placement regression.
+
+WebKit tab closure waits for `closeAllMediaPresentations` to complete, retaining
+the tab and view through that asynchronous operation. Window/view teardown runs
+on the following main-queue turn, after WebKit's close callbacks have returned.
+The `pipreturn-return` probe sends the stop action and dismisses the native PiP
+controller; PIP delivers its own animation-completed callback. The probe must
+not synthesize `pipDidClose:` while the native window is still closing.
+
+WebKit host requests retain their standard PiP entry promise on the video until
+it settles. Close awaits that entry before exiting; the legacy presentation mode
+can report PiP before the standard API has finished entering. This keeps a queued
+entry from restoring stale DOM PiP state after the native window has closed.
+
+Qualification (2026-11-09): both app builds pass from a clean `b0affccc` export
+plus the PiP changes, with framework UUID `4C4C44DE-5555-3144-A16E-A37E4A455D8D`.
+Two fresh Chromium rounds pass geometry, native controls, calls, media2, tray,
+return and aspect checks. WebKit return/tray and first-click checks pass. Its ten
+call-peer ICE assertions and the media2 system-PiP menu assertion remain
+**FAIL-BASELINE**, reproduced on a clean `d10f6cd` export without these app changes.
+All five call/video marketing captures completed and were inspected. Real Meet
+participant selection, remote media and service-specific controls still require
+one authenticated call; synthetic fixtures do not establish those results.
