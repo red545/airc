@@ -177,6 +177,13 @@ public struct TidyTitleCache: Codable, Equatable, Sendable {
     }
 
     public mutating func touch(_ url: String, now: Date = Date()) { entries[url]?.used = now }
+    public mutating func remove(profileID: String, url: String? = nil) {
+        entries = entries.filter { key, _ in
+            // Old unscoped entries cannot be assigned safely to a surviving profile.
+            guard key.contains("\n") else { return false }
+            return url.map { key != profileID + "\n" + $0 } ?? !key.hasPrefix(profileID + "\n")
+        }
+    }
     public mutating func removeAll() { entries.removeAll() }
 }
 
@@ -264,7 +271,8 @@ public final class TidyTitles {
     /// The short name a sidebar row shows for a page, or nil for its own title. A tab the person renamed
     /// (`customName`) and every page of a private window keep theirs and are never sent to the model. A title that
     /// needs a name and has none yet is queued; `onChange` says when it arrives.
-    public func name(for title: String, url: String, customName: String? = nil, isPrivate: Bool = false) -> String? {
+    public func name(for title: String, url: String, customName: String? = nil, isPrivate: Bool = false, profileID: String = "") -> String? {
+        let url = profileID.isEmpty ? url : profileID + "\n" + url
         guard isActive, !isPrivate, !url.isEmpty else { return nil }
         if let customName, !customName.trimmingCharacters(in: .whitespaces).isEmpty { return nil }
         if let m = memo[url], m.title == title { return m.name }
@@ -327,7 +335,7 @@ public final class TidyTitles {
         if !changed.isEmpty {
             for url in changed { memo[url] = nil }
             scheduleSave()
-            onChange?(changed)
+            onChange?(Set(changed.map { $0.components(separatedBy: "\n").last ?? $0 }))
         }
         if !queue.isEmpty { schedule(after: options.debounce) }
     }
@@ -342,6 +350,17 @@ public final class TidyTitles {
         saveTask?.cancel()
         saveTask = nil
         if let fileURL { try? FileManager.default.removeItem(at: fileURL) }
+    }
+
+    /// Delete Profile, Clear Data and removal of a history URL also forget queued work and late model answers.
+    public func forget(profileID: String, url: String? = nil) {
+        load()
+        epoch += 1
+        clearQueue()
+        memo.removeAll()
+        retryAt.removeAll()
+        cache.remove(profileID: profileID, url: url)
+        save()
     }
 
     /// Writes the cache file now (quit, tests).
@@ -360,7 +379,7 @@ public final class TidyTitles {
         if let until = retryAt[url + "\n" + fingerprint], until > now() { return }
         if retryAt.count >= 1024 { retryAt = retryAt.filter { $0.value > now() } }
         if pending[url] == nil { queue.append(url) }
-        pending[url] = Pending(request: TidyTitlePrompt.request(title: title, url: url), title: title, fingerprint: fingerprint)
+        pending[url] = Pending(request: TidyTitlePrompt.request(title: title, url: url.components(separatedBy: "\n").last ?? url), title: title, fingerprint: fingerprint)
         if !running { schedule(after: options.debounce) }
     }
 

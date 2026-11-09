@@ -47,12 +47,14 @@ final class TelemetryEventTests: XCTestCase {
         "history_menu.open", "download.start", "download.complete", "site_controls.open", "default_browser.prompt",
         "extension.install", "update.install", "theme.change", "calendar.enable", "calendar.join", "telemetry.smoke",
         "update.ready_shown", "update.restart_clicked", "boost.save", "private_window.open", "tab_preview.action",
-        "shortcut.remap", "ai.tidy_titles",
+        "shortcut.remap", "ai.tidy_titles", "developer_mode.toggle", "capture", "ai.ask_page", "ai.link_preview",
+        "ai.tidy_downloads", "note.create",
     ]
 
     static let variants: Set<String> = ["new_tab", "edit_url", "2", "3", "4", "shortcut", "link", "video", "call", "document",
                                         "back", "forward", "shown", "accepted", "declined", "pin", "unpin", "favorite",
-                                        "unfavorite", "split", "peek", "on", "off"]
+                                        "unfavorite", "split", "peek", "on", "off", "copy", "save", "share", "used",
+                                        "command_bar", "plus_menu"]
 
     /// Per event: its own properties (required ones first) beyond the super properties.
     static let eventRules: [String: (required: [String: Rule], optional: [String: Rule])] = [
@@ -93,6 +95,10 @@ final class TelemetryEventTests: XCTestCase {
            .updateReadyShown, .updateRestartClicked, .boostSaved, .privateWindowOpen, .shortcutRemap]
         + TelemetryFeature.TabPreviewAction.allCases.map { .tabPreviewAction($0) }
         + TelemetryFeature.OnOff.allCases.map { .aiTidyTitles($0) }
+        + TelemetryFeature.OnOff.allCases.map { .developerMode($0) }
+        + TelemetryFeature.CaptureAction.allCases.map { .capture($0) }
+        + TelemetryFeature.AIUse.allCases.flatMap { [.aiAskPage($0), .aiLinkPreview($0), .aiTidyDownloads($0)] }
+        + TelemetryFeature.NoteSource.allCases.map { .noteCreate($0) }
 
     /// One of every event, with extreme numbers too.
     static let allEvents: [TelemetryEvent] = {
@@ -165,9 +171,15 @@ final class TelemetryEventTests: XCTestCase {
             case .tabPreviewAction: 28
             case .shortcutRemap: 29
             case .aiTidyTitles: 30
+            case .developerMode: 31
+            case .capture: 32
+            case .aiAskPage: 33
+            case .aiLinkPreview: 34
+            case .aiTidyDownloads: 35
+            case .noteCreate: 36
             }
         }
-        XCTAssertEqual(Set(Self.allFeatures.map(index)), Set(0...30))
+        XCTAssertEqual(Set(Self.allFeatures.map(index)), Set(0...36))
         XCTAssertEqual(Set(Self.allFeatures.map(\.name)), Self.featureNames)
         func covered(_ e: TelemetryEvent) -> String {
             switch e {

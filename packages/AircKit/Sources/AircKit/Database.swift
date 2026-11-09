@@ -4,7 +4,9 @@ import Foundation
 import SQLite3
 
 /// A minimal wrapper around the system SQLite3 library.
-final class Database {
+final class Database: @unchecked Sendable {
+    // Protect the statement cache as well as SQLite; a restore owns one whole transaction.
+    private let lock = NSRecursiveLock()
     enum DBError: Error, CustomStringConvertible {
         case open(String), prepare(String, String), step(String)
         var description: String {
@@ -40,6 +42,7 @@ final class Database {
     private var errorMessage: String { String(cString: sqlite3_errmsg(db)) }
 
     func exec(_ sql: String) throws {
+        lock.lock(); defer { lock.unlock() }
         var err: UnsafeMutablePointer<CChar>?
         if sqlite3_exec(db, sql, nil, nil, &err) != SQLITE_OK {
             let msg = err.map { String(cString: $0) } ?? errorMessage
@@ -81,6 +84,7 @@ final class Database {
     }
 
     func run(_ sql: String, _ values: [Value] = []) throws {
+        lock.lock(); defer { lock.unlock() }
         let s = try statement(sql)
         bind(s, values)
         let rc = sqlite3_step(s)
@@ -90,6 +94,7 @@ final class Database {
 
     /// Runs a query and returns each row's columns as strings, doubles or nil.
     func query(_ sql: String, _ values: [Value] = []) throws -> [[Any?]] {
+        lock.lock(); defer { lock.unlock() }
         let s = try statement(sql)
         bind(s, values)
         var rows: [[Any?]] = []
@@ -117,6 +122,7 @@ final class Database {
     }
 
     func transaction(_ body: () throws -> Void) throws {
+        lock.lock(); defer { lock.unlock() }
         try exec("BEGIN IMMEDIATE")
         do {
             try body()

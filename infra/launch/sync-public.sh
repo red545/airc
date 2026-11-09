@@ -77,7 +77,7 @@ diff <(GIT_INDEX_FILE=$work/src-index git -C "$ROOT" ls-files -s -- "${pathspec[
   echo "Sync with development ($(date -u +%Y-%m-%d\ %H:%M) UTC)"
   echo
   if [[ -n "$last" ]] && git -C "$ROOT" cat-file -e "$last^{commit}" 2>/dev/null; then
-    git -C "$ROOT" log --reverse --no-merges --format='- %s' "$last..$src" -- "${pathspec[@]}" | head -60
+    git -C "$ROOT" log --reverse --no-merges --format='- %s' "$last..$src" -- "${pathspec[@]}" | awk 'NR <= 60'
   fi
 } >"$work/message"
 commit=$(git --git-dir="$PUB/.git" commit-tree "$tree" -p "$parent" -F "$work/message")

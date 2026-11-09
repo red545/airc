@@ -17,11 +17,11 @@ mv "$out/package/Airc-$AIRC_RELEASE_VERSION-$AIRC_RELEASE_BUILD.dmg" "$out/Airc-
 cp "$out/package/Airc.app/Contents/Info.plist" "$out/Info.plist"
 touch "$out/package.done"
 fi
-scripts/release/qualify.sh "$out/Airc-$AIRC_RELEASE_VERSION.dmg" "$out/evidence/install" > "$out/evidence/qualification.log" 2>&1
+python3 scripts/ui-check-lock.py scripts/release/qualify.sh "$out/Airc-$AIRC_RELEASE_VERSION.dmg" "$out/evidence/install" > "$out/evidence/qualification.log" 2>&1
 for kind in delta full; do
  AIRC_PROOF_CHANNEL="$AIRC_RELEASE_CHANNEL" AIRC_PROOF_DIR="$ROOT/build/launchprep-$kind" AIRC_PROOF_FULL=$([[ $kind == full ]] && echo 1 || echo 0) \
  AIRC_PROOF_FROM_IDENTITY="$AIRC_SIGN_IDENTITY" AIRC_PROOF_TO_IDENTITY="$AIRC_SIGN_IDENTITY" \
- infra/release/test-updater/run.sh > "$out/evidence/sparkle-$kind.log" 2>&1
+ python3 scripts/ui-check-lock.py infra/release/test-updater/run.sh > "$out/evidence/sparkle-$kind.log" 2>&1
  cp "$ROOT/build/launchprep-$kind/releases/appcast.xml" "$out/evidence/sparkle-$kind.xml"
 done
 ditto -c -k --sequesterRsrc --keepParent "$out/package/Airc.app" "$out/Airc-$AIRC_RELEASE_VERSION.zip"

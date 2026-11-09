@@ -1,0 +1,183 @@
+# Copyright 2023 The Chromium Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+# @generated from third_party/rust/chromium_crates_io/BUILD.gn.hbs by
+# tools/crates/gnrt.
+# Do not edit!
+
+import("//build/rust/cargo_crate.gni")
+
+cargo_crate("airc_lib") {
+  crate_name = "zerovec"
+  epoch = "0.11"
+  crate_type = "rlib"
+  crate_root = "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/lib.rs"
+  sources = [
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/cow.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/hashmap/algorithms.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/hashmap/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/hashmap/serde.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/lib.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map/borrowed.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map/databake.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map/kv.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map/map.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map/serde.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map/serde_helpers.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map/vecs.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map2d/borrowed.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map2d/cursor.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map2d/databake.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map2d/map.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map2d/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map2d/serde.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/samples.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/schemars.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/chars.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/custom.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/encode.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/macros.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/multi.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/niche.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/option.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/plain.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/slices.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/test_utils.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/tuple.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/tuplevar.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/vartuple.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/varzerovec/components.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/varzerovec/databake.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/varzerovec/error.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/varzerovec/lengthless.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/varzerovec/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/varzerovec/owned.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/varzerovec/serde.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/varzerovec/slice.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/varzerovec/vec.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/yoke_impls.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/zerofrom_impls.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/zerovec/databake.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/zerovec/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/zerovec/serde.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/zerovec/slice.rs",
+  ]
+  inputs = [
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/cow.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/hashmap/algorithms.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/hashmap/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/hashmap/serde.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/lib.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map/borrowed.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map/databake.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map/kv.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map/map.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map/serde.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map/serde_helpers.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map/vecs.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map2d/borrowed.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map2d/cursor.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map2d/databake.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map2d/map.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map2d/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/map2d/serde.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/samples.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/schemars.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/snapshots/zerovec__schemars__tests__schema_varzerovec_str.snap",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/snapshots/zerovec__schemars__tests__schema_varzerovec_zeroslice.snap",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/snapshots/zerovec__schemars__tests__schema_zeromap_u32_str.snap",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/snapshots/zerovec__schemars__tests__schema_zerovec_char.snap",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/snapshots/zerovec__schemars__tests__schema_zerovec_u32.snap",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/chars.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/custom.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/encode.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/macros.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/multi.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/niche.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/option.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/plain.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/slices.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/test_utils.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/tuple.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/tuplevar.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/ule/vartuple.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/varzerovec/components.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/varzerovec/databake.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/varzerovec/error.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/varzerovec/lengthless.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/varzerovec/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/varzerovec/owned.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/varzerovec/serde.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/varzerovec/slice.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/varzerovec/vec.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/yoke_impls.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/zerofrom_impls.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/zerovec/databake.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/zerovec/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/zerovec/serde.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec/src/zerovec/slice.rs",
+  ]
+
+  build_native_rust_unit_tests = false
+  edition = "2021"
+  cargo_pkg_authors = "The ICU4X Project Developers"
+  cargo_pkg_name = "zerovec"
+  cargo_pkg_description = "Zero-copy vector backed by a byte array"
+  cargo_pkg_repository = "https://github.com/unicode-org/icu4x"
+  cargo_pkg_version = "0.11.9"
+  rustc_metadata = "airc-blocking-${crate_name}-${cargo_pkg_version}"
+
+  allow_unsafe = true
+
+  deps = [
+    "//airc/core/blocking-rust/third_party/yoke/v0_8:airc_lib",
+    "//airc/core/blocking-rust/third_party/zerofrom/v0_1:airc_lib",
+    "//airc/core/blocking-rust/third_party/zerovec_derive/v0_11:airc_lib",
+  ]
+  features = [
+    "derive",
+    "yoke",
+  ]
+
+  # Only for usage from third-party crates. Add the crate to
+  # //airc/core/blocking-rust/third_party/chromium_crates_io/Cargo.toml to use
+  # it from first-party code.
+  visibility = [ "//airc/core/blocking-rust/third_party/*" ]
+  visibility += [ "//build/rust/*" ]
+  visibility += [ "//airc/core/blocking-rust/*" ]
+
+  #####################################################################
+  # Tweaking which GN `config`s apply to this target.
+
+  # Config changes that apply to all `//third_party/rust` crates.
+  _configs_to_remove = [
+    # We don't need code coverage data for any `chromium_crates_io` crates.
+    "//build/config/coverage:default_coverage",
+
+    # This is third-party code, so remove `chromium_code` config.  We are not
+    # at the same time adding `//build/config/compiler:no_chromium_code`,
+    # because 1) we don't want to pull how warnings are handled by that config
+    # and 2) that config doesn't have any non-warnings-related stuff.
+    "//build/config/compiler:chromium_code",
+  ]
+  _configs_to_add = []
+
+  # Changing (if needed) which configs apply to this specific crate (based on
+  # `extra_kv.configs_to_remove` and `extra_kv.configs_to_add` from
+  # `gnrt_config.toml`).
+  _configs_to_remove += []
+  _configs_to_add += []
+
+  # Applying config changes.
+  library_configs -= _configs_to_remove
+  library_configs += _configs_to_add
+  executable_configs -= _configs_to_remove
+  executable_configs += _configs_to_add
+  proc_macro_configs -= _configs_to_remove
+  proc_macro_configs += _configs_to_add
+}

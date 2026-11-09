@@ -10,6 +10,8 @@ import os
 
 public enum EntityKind: String, Codable, Sendable, CaseIterable {
     case profile, space, item, tab, archive, split
+    /// Notes (Notes.swift): what a note says. Its tab or pinned item is an ordinary row with the note's address.
+    case note
 }
 
 /// Everything the store holds, keyed by ID.
@@ -21,9 +23,11 @@ public struct StoreState: Codable, Hashable, Sendable {
     public var archive: [String: ArchiveEntry] = [:]
     /// SV-1: Split Views (Splits.swift). Older stores and backups have none.
     public var splits: [String: Split] = [:]
+    /// Notes (Notes.swift). Stores and backups from before schema 2 have none.
+    public var notes: [String: Note] = [:]
     public init() {}
 
-    private enum CodingKeys: String, CodingKey { case profiles, spaces, items, tabs, archive, splits }
+    private enum CodingKeys: String, CodingKey { case profiles, spaces, items, tabs, archive, splits, notes }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         profiles = try c.decode([String: Profile].self, forKey: .profiles)
@@ -32,6 +36,27 @@ public struct StoreState: Codable, Hashable, Sendable {
         tabs = try c.decode([String: LiveTab].self, forKey: .tabs)
         archive = try c.decode([String: ArchiveEntry].self, forKey: .archive)
         splits = try c.decodeIfPresent([String: Split].self, forKey: .splits) ?? [:]
+        notes = try c.decodeIfPresent([String: Note].self, forKey: .notes) ?? [:]
+    }
+
+    /// A state without notes encodes as a schema-1 state did (no `notes` key), so 0.1.2 reads its backups as its own.
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(profiles, forKey: .profiles)
+        try c.encode(spaces, forKey: .spaces)
+        try c.encode(items, forKey: .items)
+        try c.encode(tabs, forKey: .tabs)
+        try c.encode(archive, forKey: .archive)
+        try c.encode(splits, forKey: .splits)
+        if !notes.isEmpty { try c.encode(notes, forKey: .notes) }
+    }
+
+    /// The schema a backup of this state needs: 2 when it holds notes or a note's row (Notes.swift), else 1, which
+    /// Airc 0.1.2 restores.
+    public var requiredSchema: Int {
+        let noteRows = !notes.isEmpty || tabs.values.contains { NoteURL.isNote($0.url) }
+            || items.values.contains { NoteURL.isNote($0.savedURL) } || archive.values.contains { NoteURL.isNote($0.tab.url) }
+        return noteRows ? 2 : 1
     }
 }
 
@@ -72,7 +97,7 @@ public struct EntityRef: Hashable, Sendable {
 
 /// A value as it was before a transaction touched it (nil = it didn't exist).
 enum EntitySnapshot: Hashable, Sendable {
-    case profile(Profile?), space(Space?), item(Item?), tab(LiveTab?), archive(ArchiveEntry?), split(Split?)
+    case profile(Profile?), space(Space?), item(Item?), tab(LiveTab?), archive(ArchiveEntry?), split(Split?), note(Note?)
 }
 
 /// What a transaction changed. Observers use it to refresh only what they show.
@@ -109,7 +134,17 @@ public enum StoreError: Error, Equatable, Sendable {
 }
 
 public final class SpacesStore {
-    public static let schemaVersion = 1
+    /// The newest schema this build reads. 1: the first store. 2 (2026-11-07): notes (`note` rows, Notes.swift).
+    /// What a store or backup is marked with is what its data needs, not this: see `schemaMark`.
+    public static let schemaVersion = 2
+    /// The mark on disk (meta `schema`). It says what the data needs, so going back to an older Airc stays safe until
+    /// that's untrue: a store that never had a note stays at 1 and Airc 0.1.2 opens it without its "Some data is from a
+    /// newer Airc" note (lead, 2026-11-07). The first note row raises it to 2 in the same transaction (`writePending`,
+    /// `restoreBackup`). It never goes down again while this build reads it, even when the last note is deleted: the
+    /// note's delete stays in the op log (compaction keeps each row's last operation), the store has had notes, and a
+    /// mark that only rises keeps "a newer build wrote here" reliable for older builds. A 2 on a store with no note in
+    /// its rows or its op log was written by ffa8abf, which raised the mark at open; it goes back to 1.
+    public private(set) var schemaMark = 1
     public static let maxFavorites = 12
     public static let maxUndo = 50
 
@@ -118,6 +153,9 @@ public final class SpacesStore {
     public let deviceID: String
     /// Injected for tests.
     public var now: () -> Date = Date.init
+
+    public private(set) var isRestoring = false
+    public private(set) var lastRestoreApplyDuration: TimeInterval = 0
 
     private let db: Database
     private let encoder: JSONEncoder = {
@@ -196,14 +234,36 @@ public final class SpacesStore {
         }
         // An older build never lowers the schema mark, so the newer one still knows its data was opened elsewhere.
         let stored = (try db.query("SELECT value FROM meta WHERE key='schema'").first?.first as? String).flatMap { Int($0) }
-        if let stored, stored > Self.schemaVersion {
+        if Self.isNewer(stored, than: Self.schemaVersion), let stored {
             newerSchemaVersion = stored
+            schemaMark = stored
             Self.log.warning("store written by schema \(stored, privacy: .public); this build reads \(Self.schemaVersion, privacy: .public)")
         } else {
-            try db.run("INSERT OR REPLACE INTO meta(key, value) VALUES('schema', ?)", [.text("\(Self.schemaVersion)")])
+            // Schema 1 → 2 rewrites no row: the mark follows the data (`schemaMark`).
+            let mark = try Self.notesEverWritten(db) ? 2 : 1
+            if stored != mark {
+                try db.run("INSERT OR REPLACE INTO meta(key, value) VALUES('schema', ?)", [.text("\(mark)")])
+            }
+            schemaMark = mark
         }
         try load()
         try repair()
+    }
+
+    /// What a reader of schema `reader` makes of a stored mark: newer data it keeps untouched and warns about. Every
+    /// build so far (0.1.2's too) has the same rule.
+    static func isNewer(_ stored: Int?, than reader: Int) -> Bool { (stored ?? 0) > reader }
+
+    /// Whether a note row was ever written here (it's there, or its last operation is in the op log).
+    static func notesEverWritten(_ db: Database) throws -> Bool {
+        try !db.query("SELECT 1 FROM entities WHERE kind='note' LIMIT 1").isEmpty
+            || !db.query("SELECT 1 FROM ops WHERE kind='note' LIMIT 1").isEmpty
+    }
+
+    /// The SQL that raises the mark to 2 with a transaction's first note row (`schemaMark`). Inside that transaction.
+    static func raiseMarkForNotes(_ db: Database) throws {
+        try db.run("INSERT OR REPLACE INTO meta(key, value) VALUES('schema', '2')")
+        log.info("store schema 1 → 2: its first note")
     }
 
     // MARK: Loading
@@ -229,6 +289,7 @@ public final class SpacesStore {
                 case .tab: let v = try decoder.decode(LiveTab.self, from: body); s.tabs[v.id] = v
                 case .archive: let v = try decoder.decode(ArchiveEntry.self, from: body); s.archive[v.id] = v
                 case .split: let v = try decoder.decode(Split.self, from: body); s.splits[v.id] = v
+                case .note: let v = try decoder.decode(Note.self, from: body); s.notes[v.id] = v
                 }
             } catch {
                 unreadable.append(UnreadableRow(kind: kindRaw, id: id, reason: Self.describe(error)))
@@ -415,6 +476,7 @@ public final class SpacesStore {
     @discardableResult
     public func perform<R>(_ label: String?, undoable: Bool = false, deferred: Bool = false, contentOnly: Bool = false,
                            _ body: () throws -> R) throws -> R {
+        guard !isRestoring else { throw BackupError.restoreInProgress }
         if txDepth == 0 {
             txBefore = [:]
             txChanged = []
@@ -474,6 +536,7 @@ public final class SpacesStore {
 
     /// Writes pending changes and their op-log entries in one SQLite transaction.
     public func flush() throws {
+        guard !isRestoring else { return }
         if windowStateDirty {
             windowStateDirty = false
             try saveWindowState()
@@ -501,7 +564,10 @@ public final class SpacesStore {
             failNextFlushes -= 1
             throw Database.DBError.step("injected failure")
         }
+        // The first note row raises the store's mark to 2, in the same transaction (`schemaMark`).
+        let raisesMark = schemaMark < 2 && refs.contains { $0.kind == .note && !hidden.contains($0) }
         try db.transaction {
+            if raisesMark { try Self.raiseMarkForNotes(db) }
             for ref in refs.sorted(by: { ($0.kind.rawValue, $0.id) < ($1.kind.rawValue, $1.id) }) {
                 // A row this build couldn't read is never overwritten or deleted (H4).
                 if hidden.contains(ref) { continue }
@@ -518,6 +584,7 @@ public final class SpacesStore {
                 }
             }
         }
+        if raisesMark { schemaMark = 2 }
     }
 
     public var hasPendingWrites: Bool { !pendingWrites.isEmpty || windowStateDirty }
@@ -531,6 +598,7 @@ public final class SpacesStore {
         case .tab: data = try state.tabs[ref.id].map { try encoder.encode($0) }
         case .archive: data = try state.archive[ref.id].map { try encoder.encode($0) }
         case .split: data = try state.splits[ref.id].map { try encoder.encode($0) }
+        case .note: data = try state.notes[ref.id].map { try encoder.encode($0) }
         }
         return data.map { String(decoding: $0, as: UTF8.self) }
     }
@@ -561,6 +629,7 @@ public final class SpacesStore {
         case .tab: out = try? encoder.encode(decoder.decode(LiveTab.self, from: data))
         case .archive: out = try? encoder.encode(decoder.decode(ArchiveEntry.self, from: data))
         case .split: out = try? encoder.encode(decoder.decode(Split.self, from: data))
+        case .note: out = try? encoder.encode(decoder.decode(Note.self, from: data))
         }
         return out.map { String(decoding: $0, as: UTF8.self) }
     }
@@ -594,6 +663,7 @@ public final class SpacesStore {
         case .tab: .tab(state.tabs[ref.id])
         case .archive: .archive(state.archive[ref.id])
         case .split: .split(state.splits[ref.id])
+        case .note: .note(state.notes[ref.id])
         }
     }
 
@@ -606,6 +676,7 @@ public final class SpacesStore {
         case .tab(let v): state.tabs[id] = v
         case .archive(let v): state.archive[id] = v
         case .split(let v): state.splits[id] = v
+        case .note(let v): state.notes[id] = v
         }
     }
 
@@ -636,6 +707,17 @@ public final class SpacesStore {
     }
 
     // MARK: Undo (SB-23, SB-40, ⌘Z after close and archive)
+
+    /// Old Close/Clear Today undo records must not bring permanently removed tabs back.
+    /// Keep unrelated undo steps; discard a whole affected transaction to preserve its integrity.
+    func discardUndoForRemovedArchive(_ entries: [ArchiveEntry]) {
+        let archives = Set(entries.map(\.id)), tabs = Set(entries.map { $0.tab.id })
+        undoStack.removeAll { entry in
+            entry.before.keys.contains { ref in
+                (ref.kind == .archive && archives.contains(ref.id)) || (ref.kind == .tab && tabs.contains(ref.id))
+            }
+        }
+    }
 
     public var canUndo: Bool { !undoStack.isEmpty }
     public var undoLabel: String? { undoStack.last?.label }
@@ -672,6 +754,7 @@ public final class SpacesStore {
                     case .tab(let v): if let v { put(v) } else { remove(LiveTab.self, ref.id) }
                     case .archive(let v): if let v { put(v) } else { remove(ArchiveEntry.self, ref.id) }
                     case .split(let v): if let v { put(v) } else { remove(Split.self, ref.id) }
+                    case .note(let v): if let v { put(v) } else { remove(Note.self, ref.id) }
                     }
                 }
                 moved = try keepRestoredTabsInTheirProfiles(entry.before)
@@ -694,7 +777,8 @@ public final class SpacesStore {
         var restoredAny = false
         for (ref, snap) in before.sorted(by: { $0.key.id < $1.key.id }) {
             guard case .tab(let old?) = snap, let t = tab(ref.id) else {
-                if case .tab = snap {} else { restoredAny = true }
+                // Anything but a closed tab counts: an item or split, or a tab the action made (gone again now).
+                if case .tab(_?) = snap {} else { restoredAny = true }
                 continue
             }
             let target: String? = if let iid = t.itemID {
@@ -738,6 +822,7 @@ public final class SpacesStore {
     // MARK: Window state (device-local, not in the op log)
 
     public func updateWindowState(deferred: Bool = false, _ change: (inout WindowState) -> Void) {
+        guard !isRestoring else { return }
         var w = windowState
         change(&w)
         guard w != windowState else { return }
@@ -802,11 +887,12 @@ public final class SpacesStore {
     }
 
     /// Archive retention (code review M5): entries older than `age` go, and at most `maxEntries` stay (newest kept).
+    /// Archived notes are what someone wrote, not pages they passed: they stay until the Archive is cleared.
     /// Returns how many were removed.
     @discardableResult
     public func pruneArchive(olderThan age: TimeInterval = 90 * 86400, maxEntries: Int = 5000) throws -> Int {
         let cutoff = now().addingTimeInterval(-age)
-        let sorted = archivedEntries
+        let sorted = archivedEntries.filter { !NoteURL.isNote($0.tab.url) }
         let victims = sorted.enumerated().filter { $0.offset >= maxEntries || $0.element.archivedAt < cutoff }.map(\.element.id)
         guard !victims.isEmpty else { return 0 }
         try perform(nil) { for id in victims { remove(ArchiveEntry.self, id) } }
@@ -834,10 +920,12 @@ public final class SpacesStore {
         let e = JSONEncoder()
         e.dateEncodingStrategy = .iso8601
         e.outputFormatting = [.sortedKeys, .prettyPrinted]
-        return try e.encode(Backup(version: Self.schemaVersion, exportedAt: now(), device: deviceID, state: state))
+        // Schema 1 unless it holds notes: Airc 0.1.2 restores a backup without them (`StoreState.requiredSchema`).
+        return try e.encode(Backup(version: state.requiredSchema, exportedAt: now(), device: deviceID, state: state))
     }
 
-    /// Writes `airc-backup-YYYY-MM-DD.json` into `directory` unless today's exists. Keeps `keep` files.
+    /// Writes `airc-backup-YYYY-MM-DD.json` into `directory` unless today's exists. Keeps `keep` of those daily files;
+    /// other files there (Back Up Now's `airc-backup-manual-…`, recovery points) are never counted or removed.
     @discardableResult
     public func backupIfNeeded(to directory: URL, keep: Int = 14) throws -> URL? {
         let fm = FileManager.default
@@ -849,8 +937,10 @@ public final class SpacesStore {
         let url = directory.appendingPathComponent("airc-backup-\(f.string(from: now())).json")
         guard !fm.fileExists(atPath: url.path) else { return nil }
         try exportJSON().write(to: url, options: .atomic)
+        // Only daily names: "airc-backup-manual-…" shares the prefix and sorts after every date, so it would take the
+        // kept places and go itself past `keep`.
         let backups = try fm.contentsOfDirectory(atPath: directory.path)
-            .filter { $0.hasPrefix("airc-backup-") && $0.hasSuffix(".json") }
+            .filter { $0.range(of: #"^airc-backup-[0-9]{4}-[0-9]{2}-[0-9]{2}\.json$"#, options: .regularExpression) != nil }
             .sorted()
         for old in backups.dropLast(keep) {
             try? fm.removeItem(at: directory.appendingPathComponent(old))
@@ -860,9 +950,16 @@ public final class SpacesStore {
 
     /// Replaces everything with a backup's contents (as one change in the op log).
     public func restore(fromBackup data: Data) throws {
-        let d = JSONDecoder()
-        d.dateDecodingStrategy = .iso8601
-        let backup = try d.decode(Backup.self, from: data)
+        try restore(backup: Self.readBackup(data))
+    }
+
+    private func restore(backup: Backup) throws {
+        // Its Today tabs come back as just used, in their order of use (as the Arc import's do): kept as they were,
+        // auto-archive (SB-43) would take every Today tab of a backup older than the interval within seconds.
+        var tabs = backup.state.tabs
+        let date = now()
+        let today = tabs.values.filter(\.isToday).sorted { ($0.lastActiveAt, $0.id) > ($1.lastActiveAt, $1.id) }
+        for (rank, t) in today.enumerated() { tabs[t.id]?.lastActiveAt = date.addingTimeInterval(-Double(rank)) }
         try perform("Restore Backup") {
             for p in state.profiles.keys where backup.state.profiles[p] == nil { remove(Profile.self, p) }
             for s in state.spaces.keys where backup.state.spaces[s] == nil { remove(Space.self, s) }
@@ -870,15 +967,104 @@ public final class SpacesStore {
             for t in state.tabs.keys where backup.state.tabs[t] == nil { remove(LiveTab.self, t) }
             for a in state.archive.keys where backup.state.archive[a] == nil { remove(ArchiveEntry.self, a) }
             for x in state.splits.keys where backup.state.splits[x] == nil { remove(Split.self, x) }
+            for n in state.notes.keys where backup.state.notes[n] == nil { remove(Note.self, n) }
             backup.state.profiles.values.forEach { put($0) }
             backup.state.spaces.values.forEach { put($0) }
             backup.state.items.values.forEach { put($0) }
-            backup.state.tabs.values.forEach { put($0) }
+            tabs.values.forEach { put($0) }
             backup.state.archive.values.forEach { put($0) }
             backup.state.splits.values.forEach { put($0) }
+            backup.state.notes.values.forEach { put($0) }
+            undoStack.removeAll()
         }
         undoStack.removeAll()
         try repair()
+    }
+
+    /// Owns the write boundary until completion. No live model/encoder crosses threads. Pending
+    /// writes are included in the recovery snapshot and superseded by the single durable restore.
+    /// Failed preparation or SQLite COMMIT leaves state, pending writes, and undo untouched.
+    @MainActor
+    @discardableResult
+    public func restoreBackup(_ data: Data, savingCurrentTo directory: URL) async throws -> URL {
+        guard !isRestoring, txDepth == 0 else { throw BackupError.restoreInProgress }
+        isRestoring = true
+        defer { isRestoring = false }
+        let current = Backup(version: state.requiredSchema, exportedAt: now(), device: deviceID, state: state)
+        let window = windowState, pending = pendingWrites, hiddenRows = hidden
+        let mark = schemaMark
+        let database = db
+        let fail = failNextFlushes > 0
+        if fail { failNextFlushes -= 1 }
+        let result = try await Task.detached { @Sendable in
+            let backup = try Self.readBackup(data)
+            // Repair and restamp on an isolated store, never the live one.
+            let prepared = try SpacesStore(path: nil)
+            prepared.now = { current.exportedAt }
+            prepared.windowState = window
+            try prepared.restore(backup: backup)
+            guard prepared.hidden.isEmpty else { throw BackupError.invalidState }
+            let replacement = prepared.state
+            func refs(_ state: StoreState) -> Set<EntityRef> {
+                var result = Set<EntityRef>()
+                func add<E: StoreEntity>(_ rows: [String: E]) {
+                    result.formUnion(rows.keys.map { EntityRef(kind: E.entityKind, id: $0) })
+                }
+                add(state.profiles); add(state.spaces); add(state.items)
+                add(state.tabs); add(state.archive); add(state.splits); add(state.notes)
+                return result
+            }
+            let changed = refs(current.state).union(refs(backup.state)).union(pending)
+            let e = JSONEncoder()
+            e.dateEncodingStrategy = .iso8601
+            e.outputFormatting = [.sortedKeys, .prettyPrinted]
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let recovery = directory.appendingPathComponent("airc-before-restore-\(UUID().uuidString).json")
+            try e.encode(current).write(to: recovery, options: .atomic)
+            let ts = current.exportedAt.timeIntervalSince1970
+            // The database lock covers the entire transaction, including unknown-field merging.
+            let raisesMark = mark < 2 && changed.contains { $0.kind == .note && !hiddenRows.contains($0) && !prepared.hidden.contains($0) }
+            try database.transaction {
+                // The backup's first note raises the store's mark (`schemaMark`).
+                if raisesMark { try Self.raiseMarkForNotes(database) }
+                for ref in changed where !hiddenRows.contains(ref) && !prepared.hidden.contains(ref) {
+                    if var body = try prepared.encodedBody(ref) {
+                        if let raw = try database.query("SELECT body FROM entities WHERE kind=? AND id=?",
+                            [.text(ref.kind.rawValue), .text(ref.id)]).first?.first as? String,
+                           let loaded = prepared.reencoded(ref.kind, raw), loaded != raw {
+                            body = Self.merge(raw: raw, loaded: loaded, current: body)
+                        }
+                        try database.run("INSERT OR REPLACE INTO entities(kind,id,body,ts) VALUES(?,?,?,?)",
+                            [.text(ref.kind.rawValue), .text(ref.id), .text(body), .real(ts)])
+                        try database.run("INSERT INTO ops(ts,device,kind,id,op,body) VALUES(?,?,?,?,'put',?)",
+                            [.real(ts), .text(current.device), .text(ref.kind.rawValue), .text(ref.id), .text(body)])
+                    } else {
+                        try database.run("DELETE FROM entities WHERE kind=? AND id=?", [.text(ref.kind.rawValue), .text(ref.id)])
+                        try database.run("INSERT INTO ops(ts,device,kind,id,op,body) VALUES(?,?,?,?,'delete',NULL)",
+                            [.real(ts), .text(current.device), .text(ref.kind.rawValue), .text(ref.id)])
+                    }
+                }
+                let body = String(decoding: try prepared.encoder.encode(prepared.windowState), as: UTF8.self)
+                try database.run("INSERT OR REPLACE INTO meta(key,value) VALUES('window',?)", [.text(body)])
+                if fail { throw Database.DBError.step("injected restore failure") }
+            }
+            return (recovery, replacement, prepared.windowState, changed, raisesMark)
+        }.value
+        let start = Date.timeIntervalSinceReferenceDate
+        if result.4 { schemaMark = 2 }
+        state = result.1
+        windowState = result.2
+        cachedTabByItem = nil
+        pendingWrites = []
+        windowStateDirty = false
+        cleanOnDisk = []
+        undoStack = []
+        reportedWriteFailure = false
+        isRestoring = false
+        let change = StoreChange(refs: result.3, windowStateChanged: true)
+        for o in observers.sorted(by: { $0.key < $1.key }) { o.value(change) }
+        lastRestoreApplyDuration = Date.timeIntervalSinceReferenceDate - start
+        return result.0
     }
 
     // MARK: Basic queries

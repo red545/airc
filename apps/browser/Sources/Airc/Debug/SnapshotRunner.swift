@@ -17,9 +17,12 @@ final class SnapshotRunner {
     private var log: [String] = []
     var spaces: [String: String] = [:]   // name → ID
     var onboarding: OnboardingController?
+    var uiAttempt: UICheckAttempt?
+    var collectingUICase = false
     private var started = false
 
     init(app: AppDelegate, directory: URL, script: String) {
+        UICheckAttempt.observeWrites()
         self.app = app
         dir = directory
         self.script = script
@@ -45,9 +48,13 @@ final class SnapshotRunner {
         started = true
         note("engine: \(app?.engine.name ?? "?")")
         switch script {
+        case "profilesignin": profileSignInScenario()
+        case "arcbits": arcbitsScenario()
         case "showcase": showcase()
         case "onboarding": onboardingScenario()
         case "onboarding-e2e": onboardingE2EScenario()
+        case "arcimport2": arcImport2Scenario()
+        case "arcaccept": importAcceptanceScenario()
         case "importux": importUXScenario()
         case "import-browsers": importBrowsersScenario()
         case "persist-write": persistWrite()
@@ -55,10 +62,12 @@ final class SnapshotRunner {
         case "split-write": splitPersistWrite()
         case "split-read": splitPersistRead()
         case "events": eventsScenario()
+        case "routing": routingCheck()
         case "shortcuts": shortcutsScenario()
         case "shortcutremap": shortcutRemapScenario()
         case "littlearc": littleArcLinkScenario()
         case "littlearc-cold": littleArcColdStartScenario()
+        case "littlearc-look": littleArcLookScenario()
         case "drmsettings": protectedContentSettingsScenario()
         #if canImport(AircCore)
         case "drmwebkit": drmWebKitScenario(read: false)
@@ -68,13 +77,26 @@ final class SnapshotRunner {
         #endif
         case "perf": perfScenario()
         case "callspace": callSpaceScenario()
+        case "devmode": developerModeScenario()
+        case "parityp20c", "parityp20c-probe", "parityp20c-memory-off", "parityp20c-memory-on": parityP20cScenario()
+        case "devtoolscommands": devToolsCommandsScenario()
         case "sitecontrols": siteControlsScenario()
         case "calendar": calendarScenario()
         case "updatebutton": updateButtonScenario()
         case "boosts": boostsScenario()
+        case "boostsplus": boostsPlusScenario()
+        case "boosts2": boostsTwoScenario()
+        case "boosts3": boostsThreeScenario()
+        case "themeparity": themeParityScenario()
         case "medialib", "medialib-downloads", "medialib-media", "medialib-call": mediaLibScenario()
-        case "pipcontrols": pipControlsScenario()
+        case "pipcontrols", "pipcontrols-media2": pipControlsScenario()
+        case "media2": media2Scenario()
+        case "parityp16a", "parityp16a-video": parityP16aScenario()
+        case "webkitmedia": webKitMediaScenario()
+        case "pipreturn", "pipreturn-tray", "pipreturn-return", "pipreturn-aspect": pipReturnScenario()
         case "cbperf": commandBarHistoryPerf()
+        case "parityp09": parityP09Scenario()   // P09: pinned extensions in the toolbar, their popups
+        case "parityp07": parityP07Scenario()   // P07a: Site Search, suggestion deletion, input methods
         case "frames": framesScenario()
         case "extension": extensionScenario()
         case "fullscreen": fullScreenScenario()
@@ -101,18 +123,58 @@ final class SnapshotRunner {
         case "crashreports": crashReportsScenario()
         case "crashvis": crashVisibilityScenario()
         case "followups": followupsScenario()
+        case "splitparity": splitParityScenario()
+        case "parityk07": parityK07Scenario()   // K07: Arc's AppleScript dictionary, in-process (Scripting/)
         case "followups3": followups3Scenario()
         case "private": privateWindowScenario()
         case "windows": windowsScenario()
         case "windows-write": windowsSessionWrite()
         case "windows-read": windowsSessionRead()
         case "keeploaded": keepLoadedScenario()
+        case "scrollrestore": scrollRestoreScenario()
+        case "smallwins": smallwinsScenario()
+        case "archive": autoArchiveLeaveCheck(); clearArchiveCheck()
         case "managespaces": manageSpacesScenario()
         case "previews": previewsScenario()
+        case "p11a": parityP11aScenario()
+        case "favretry": faviconRetryScenario()
+        case "parityp10", "parityp10-relaunch": parityP10Scenario()
+        case "parityp03", "parityp03-relaunch", "parityp03-relaunch2": parityP03Scenario()
+        case "parityp03b": parityP03bScenario()   // P03b: Cycle Tab, Esc's order, ⌥⌘⌫ remap and ✕, international brackets
+        case "parityp04": parityP04Scenario()   // P04: files, folders, links and text into the sidebar; the export
+        case "parityp06b": parityP06bScenario()   // P06b: Little Arc from any app, Show/Close all, archiving
+        case "parityp06d": parityP06dScenario()   // P06d: links clicked with ⌥⌘ open in Little Airc
+        case "parityp06c": parityP06cScenario()   // P06c: Split View extras (Expand Current Split, Separate Page, ⌥-click)
+        case "parityp20d": parityP20dScenario()   // P20d: developer commands in the menu bar, the Task Manager
+        case "parityw07": parityW07Scenario()   // W07: the window drags from the top of the page
+        case "parityp01c": parityP01cScenario()   // P01c: Move to ›, folder reset and Turn into Space, the Space header, Shared Quotes
+        case "parityp08c": parityP08cScenario()   // P08c: Capture in Portrait Mode in View and the Site Control Center
+        case "parityp07d": parityP07dScenario()   // P07d: a site search as the profile's default search engine
         case "aimax": MainActor.assumeIsolated { aimaxScenario() }
         case "aimax-write", "aimax-read": MainActor.assumeIsolated { aimaxRelaunchScenario(write: script == "aimax-write") }
+        case "askpage": MainActor.assumeIsolated { askPageScenario() }
+        case "linkpreview": MainActor.assumeIsolated { linkPreviewScenario() }
+        case "tidydownloads": MainActor.assumeIsolated { tidyDownloadsScenario() }
         case "sidebarright": sidebarRightScenario()
+        case "multiselect": multiSelectScenario()
+        case "sidebarpolish": sidebarPolishScenario()
+        case "capture": captureScenario()
+        case "notescapture": notesCaptureScenario()
+        case "notescapture-read": notesCaptureReadScenario()
+        case "notes": notesScenario()
+        case "parityp01": parityP01Scenario()
+        case "parityp01b": parityP01bScenario()
+        case "parityp21b": parityP21bScenario()
+        case "p21b-write": p21bWrite()
+        case "p21b-read": p21bRead()
+        case "parityk05": parityK05Scenario()
+        case "notes-read": notesReadScenario()
+        case "agentspike": agentSpikeScenario()   // the agent server end to end (AgentSpikeCheck.swift)
+        case "library2": library2Scenario()
+        case "icloudsync", "icloudsync-second", "icloudsync-replace", "icloudsync-return", "icloudsync-unavailable": iCloudSyncScenario()
+        case "icloudsync-real-a", "icloudsync-real-b", "icloudsync-real-cleanup": iCloudRealScenario()
         case "marketing": marketingScenario()   // product shots, not a check: scripts/marketing-shots.sh only
+        case "social": socialScenario()   // video frames for the social studio, not a check: tools/social/mac-frames.sh only
         default:
             note("unknown script \(script)")
             finish()
@@ -122,8 +184,10 @@ final class SnapshotRunner {
         // Never hang the build: quit after four minutes whatever happens (the perf harness allows 660 s).
         let limit: Double = script == "perf" ? 660 : 240
         DispatchQueue.main.asyncAfter(deadline: .now() + limit) {
-            self.note("FAIL \(self.script): timed out after \(Int(limit)) s with \(self.steps.count) steps left")
-            self.finish()
+            // Held up by the Mac (our window off the active Space, the screen locked, another app's window over ours,
+            // or interference behind the latest cases): FAIL-ENV. With the window on screen and in front: a FAIL.
+            let left = "\(self.script): timed out after \(Int(limit)) s with \(self.steps.count) steps left"
+            self.finishForcing(self.timeoutInterference.map { "FAIL-ENV \(left) (\($0))" } ?? "FAIL \(left)")
         }
     }
 
@@ -131,6 +195,71 @@ final class SnapshotRunner {
         guard !steps.isEmpty else { return finish() }
         let s = steps.removeFirst()
         s { DispatchQueue.main.async { self.next() } }
+    }
+
+    /// Capture a complete case (setup, input and assertions), not just its final assertion.
+    func uiCase(window: @escaping () -> NSWindow?, _ build: () -> Void) {
+        if collectingUICase { build(); return }
+        let start = steps.count
+        collectingUICase = true
+        build()
+        collectingUICase = false
+        let caseSteps = Array(steps[start...])
+        steps.removeSubrange(start...)
+        step { [self] done in
+            let fixture = UICheckAttempt.ownedFixture()
+            func attempt(_ retry: Bool) {
+                let context = UICheckAttempt(window: window())
+                context.retry = retry
+                uiAttempt = context
+                func next(_ index: Int) {
+                    guard index < caseSteps.count else {
+                        context.sample()
+                        context.stop()
+                        uiAttempt = nil
+                        let evidence = context.interference
+                        // A retry only where it could help: not with our window on another Space, under another
+                        // app's window or behind a locked screen (FAIL-ENV at once, the run's time kept for the rest).
+                        if (!context.results.allSatisfy({ $0.0 }) || context.invalidClipboard), let evidence, !retry, context.retryCouldHelp {
+                            note("RETRY UI case: " + evidence)
+                            if let fixture = context.pasteboardReadOnly ? UICheckAttempt.lastFixture : fixture {
+                                Self.restorePasteboard(fixture); UICheckAttempt.markFixture()
+                            }
+                            return DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) { attempt(true) }
+                        }
+                        if context.results.allSatisfy({ $0.0 }), evidence == nil,
+                           UICheckAttempt.ownsCurrentContents, NSPasteboard.general.changeCount != context.pasteboardBefore {
+                            UICheckAttempt.markFixture()
+                        }
+                        for (passed, what) in context.results {
+                            let ok = passed && !context.invalidClipboard
+                            note((ok ? "PASS " : evidence == nil ? "FAIL " : "FAIL-ENV ") + what
+                                 + (!ok ? evidence.map { retry ? " (after one retry: \($0))" : " (not retried: \($0))" } ?? "" : ""))
+                        }
+                        return done()
+                    }
+                    let action = caseSteps[index]
+                    action { DispatchQueue.main.async { next(index + 1) } }
+                }
+                next(0)
+            }
+            attempt(false)
+        }
+    }
+
+    /// Why a run that ran out of time was held up by the Mac rather than by Airc: the screen locked, the window off the
+    /// active Space or under another process's window now, or interference behind the latest UI cases (FAIL-ENV).
+    /// nil: the window is on screen and in front, so the timeout is a real failure.
+    var timeoutInterference: String? {
+        if Self.screenLocked { return "screen locked" }
+        if let w = app?.controller?.window {
+            if !w.isOnActiveSpace { return "window off the active Space" }
+            let centre = w.convertPoint(toScreen: NSPoint(x: w.contentView?.bounds.midX ?? 0, y: w.contentView?.bounds.midY ?? 0))
+            let top = NSWindow.windowNumber(at: centre, belowWindowWithWindowNumber: 0)
+            if top != 0, top != w.windowNumber, Self.windowInfo(top).pid != getpid() { return "another process's window over ours" }
+        }
+        let last = log.last { $0.hasPrefix("PASS ") || $0.hasPrefix("FAIL ") || $0.hasPrefix("FAIL-ENV ") }
+        return last?.hasPrefix("FAIL-ENV ") == true ? "the latest cases were FAIL-ENV" : nil
     }
 
     func step(_ s: @escaping (@escaping () -> Void) -> Void) { steps.append(s) }
@@ -151,9 +280,44 @@ final class SnapshotRunner {
         }
     }
 
-    func note(_ s: String) {
+    // All click-anchor and sheet helpers (including the Library extensions) report here.
+    // Limit this to drawing failures: a failed model assertion must remain a real FAIL.
+    private var firstObservedLock: Date?
+    func note(_ message: String) {
+        var s = message
+        let locked = Self.screenLocked
+        if locked, firstObservedLock == nil { firstObservedLock = Date() }
+        if !locked { firstObservedLock = nil }
+        let drawingFailure = (s.hasPrefix("FAIL click ") && s.contains(": not on screen"))
+            || s.hasPrefix("FAIL no sheet to press ") || s.hasPrefix("FAIL the sheet has no ")
+        if locked, drawingFailure, let observed = firstObservedLock {
+            let session = CGSessionCopyCurrentDictionary() as? [String: Any]
+            let epoch = (session?["CGSSessionScreenLockedTime"] as? NSNumber)?.doubleValue
+            let since = epoch.flatMap { $0 > 0 && $0 <= Date().timeIntervalSince1970
+                ? Date(timeIntervalSince1970: $0) : nil } ?? observed
+            let source = epoch == nil ? "first observed" : "session lock time"
+            s = "FAIL-ENV " + s.dropFirst(5)
+                + " (screen locked; \(source) \(ISO8601DateFormatter().string(from: since)); "
+                + String(format: "duration >= %.1f s)", Date().timeIntervalSince(since))
+        }
+        if s.hasPrefix("FAIL ") || s.hasPrefix("FAIL-ENV ")
+            || s.hasPrefix("FAIL-INDEPENDENT ") || s.hasPrefix("ENGINE-FAIL ") {
+            // Keep the instant of failure: a later lock in this scenario must not excuse it.
+            log.append("UI-FAIL-STATE \(Date().timeIntervalSince1970) \(locked ? "locked" : "unlocked")")
+        }
         log.append(s)
         print("[snapshot] " + s)
+    }
+
+    /// Ends the run now, whatever holds it: the message (a FAIL or FAIL-ENV line), sheets and modal sessions dismissed,
+    /// then the usual quit; if the app is still running 10 s later (a page's "Leave site?" holding the quit open), it
+    /// exits. A hung check must never keep the Mac's UI lock.
+    func finishForcing(_ message: String) {
+        note(message)
+        if NSApp.modalWindow != nil { NSApp.abortModal() }
+        for w in NSApp.windows { if let sheet = w.attachedSheet { w.endSheet(sheet) } }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 10) { exit(70) }
+        finish()
     }
 
     func finish() {
@@ -589,7 +753,9 @@ final class SnapshotRunner {
                                       c.revealController?.floatingView,
                                       MediaLibrary.shared.promptView.flatMap { $0.superview === root ? $0 : nil },
                                       UpdateCenter.shared.confirm.flatMap { $0.superview === root ? $0 : nil },
-                                      c.tabPreview.isShowing ? c.tabPreview.card : nil,
+                                      c.tabPreview.isShowing ? c.tabPreview.presentedCard : nil,
+                                      c.recentFiles.isShowing ? c.recentFiles.card : nil,
+                                      MainActor.assumeIsolated { BlockingNotices.overlay(in: c) },
                                       c.toast.isHidden ? nil : c.toast, c.protectedMediaToast].compactMap { $0 }
             overlays.forEach { $0.isHidden = true }
             let frameView = root.superview ?? root

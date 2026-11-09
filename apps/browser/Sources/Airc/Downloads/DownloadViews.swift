@@ -83,6 +83,8 @@ private struct LibraryDownloadRow: View {
     let item: DownloadCenter.Item
     @ObservedObject var center: DownloadCenter
     let profileName: String?
+    /// Tidy Downloads' suggested names (AI/TidyDownloadsFeature.swift).
+    @ObservedObject private var tidy = TidyDownloadsFeature.Model.shared
     @State private var hovered = false
     @Environment(\.aircTheme) private var theme
 
@@ -94,12 +96,24 @@ private struct LibraryDownloadRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(d.fileName).aircFont(AircFont.row).foregroundStyle(theme.text.color.opacity(d.state == .cancelled ? 0.6 : 1))
                     .lineLimit(1).truncationMode(.middle)
-                Text([DownloadCenter.status(item), profileName].compactMap { $0 }.joined(separator: " · "))
-                    .aircFont(AircFont.caption)
-                    .foregroundStyle((d.dangerous ? AircColor.downloadWarning : theme.textTertiary).color)
-                    .lineLimit(1)
+                if let name = suggestedName {
+                    (Text(Image(systemName: "sparkles")) + Text(" Rename to “\(name)”"))
+                        .aircFont(AircFont.caption)
+                        .foregroundStyle(theme.textSecondary.color)
+                        .lineLimit(1).truncationMode(.middle)
+                        .testAnchor("library.tidy.\(d.id)")
+                } else {
+                    Text([DownloadCenter.status(item), profileName].compactMap { $0 }.joined(separator: " · "))
+                        .aircFont(AircFont.caption)
+                        .foregroundStyle((d.dangerous ? AircColor.downloadWarning : theme.textTertiary).color)
+                        .lineLimit(1)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            if suggestedName != nil, !hovered {
+                Button("Rename") { TidyDownloadsFeature.rename(item, center: center) }
+                    .buttonStyle(.airc(.secondary, size: .small)).testAnchor("library.rename.\(d.id)")
+            }
             if d.dangerous {
                 Button("Keep…") { center.askAgain(item) }.buttonStyle(.airc(.secondary, size: .small)).testAnchor("library.keep.\(d.id)")
                 Button("Discard") { center.perform(.discard, item) }.buttonStyle(.airc(.primary, size: .small)).testAnchor("library.discard.\(d.id)")
@@ -133,16 +147,27 @@ private struct LibraryDownloadRow: View {
                 TrayButton(symbol: "arrow.clockwise", help: "Retry", anchor: "library.retry.\(d.id)") { center.perform(.retry, item) }
                 TrayButton(symbol: "xmark", help: "Remove from List", anchor: "library.remove.\(d.id)") { center.perform(.remove, item) }
             case .complete:
+                if suggestedName != nil {
+                    TrayButton(symbol: "sparkles", help: "Rename to the suggested name", anchor: "library.renameHover.\(d.id)") {
+                        TidyDownloadsFeature.rename(item, center: center)
+                    }
+                }
                 TrayButton(symbol: "magnifyingglass", help: "Show in Finder", anchor: "library.reveal.\(d.id)") { center.showInFinder(item) }
                 TrayButton(symbol: "xmark", help: "Remove from List", anchor: "library.remove.\(d.id)") { center.perform(.remove, item) }
             }
         }
     }
 
+    private var suggestedName: String? { tidy.suggestions[item.id] == nil ? nil : TidyDownloadsFeature.suggestion(for: item) }
+
     @ViewBuilder private var menu: some View {
         if d.state == .complete {
             Button("Open") { center.open(item) }
             Button("Show in Finder") { center.showInFinder(item) }
+        }
+        if let name = suggestedName {
+            Button("Rename to “\(name)”") { TidyDownloadsFeature.rename(item, center: center) }
+            Button("Keep This Name") { TidyDownloadsFeature.dismiss(item) }
         }
         if d.state == .inProgress, !d.dangerous {
             Button(d.paused ? "Resume" : "Pause") { center.perform(d.paused ? .resume : .pause, item) }

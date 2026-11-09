@@ -122,3 +122,16 @@
 
 # FILE content/browser/download/save_file_manager.cc | Propagate final SavePackage rename failures instead of reporting success. | Seam: private rename loop ignores errors and unconditionally schedules Finish; public download observers cannot recover the result.
 028-save-rename-error.patch
+
+# FILE chrome/browser/optimization_guide/model_execution/optimization_guide_global_state.cc | Respect the manifest broker feature before constructing its assets and performance evaluator. | Seam: eager constructor has no embedder factory; reuse the upstream unavailable capability.
+029-model-manifest-policy.patch
+
+# FILE chrome/browser/prefs/chrome_command_line_pref_store.cc | Map the Airc no-protection switch to both effective prefs before service startup. | Seam: command-line preference mapping is a private static table with no embedder registration.
+030-safe-browsing-prefs.patch
+# FILE chrome/browser/safe_browsing/generated_safe_browsing_pref.cc | Keep the protection selector enforced without inventing an enterprise controller for command-line prefs. | Seam: generated-pref serialization assumes every non-user-modifiable pref is managed.
+
+# Signed main-app group for local profile passkeys.
+031-passkeys.patch
+
+# FILE chrome/browser/ui/views/media_router/media_router_dialog_controller_views.cc | Host Cast and site presentations in the native picker; preserve fullscreen blocking and teardown. | Seam: Views owns private controller creation.
+032-cast-host.patch

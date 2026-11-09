@@ -205,6 +205,31 @@ extension SnapshotRunner {
         }
     }
 
+    /// Exercise the site's own controls in the full-page fallback, through native input.
+    fileprivate func clickCallPage(_ element: String, effect: @escaping () -> Bool) {
+        step { [self] done in
+            guard let page = MediaLibrary.shared.calls.page, let w = page.view.window else {
+                check(false, "call: missing page for site control"); return done()
+            }
+            page.evaluate("JSON.stringify((()=>{let r=document.getElementById('\(element)').getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]})())") { value in
+                guard let json = value as? String,
+                      let xy = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [Double], xy.count == 2 else {
+                    self.check(false, "call: missing site control geometry"); return done()
+                }
+                let y = page.view.isFlipped ? xy[1] : page.view.bounds.height - xy[1]
+                let foreground = NSWorkspace.shared.frontmostApplication?.processIdentifier
+                self.click(at: page.view.convert(NSPoint(x: xy[0], y: y), to: nil), in: w) {
+                    self.waitUntil(effect, timeout: 2) {
+                        self.check(effect(), "call: first site \(element) click takes effect (panel key \(w.isKeyWindow))")
+                        self.check(NSWorkspace.shared.frontmostApplication?.processIdentifier == foreground,
+                                   "call: site click keeps the foreground app unchanged")
+                        done()
+                    }
+                }
+            }
+        }
+    }
+
     /// Posted mouse events: a press in the middle of the call window, a drag by a share of the screen, a release.
     fileprivate func dragCallWindow(fx: CGFloat, fy: CGFloat, command: Bool) {
         step { [self] done in
@@ -836,21 +861,21 @@ extension SnapshotRunner {
                 done()
             }
         }
-        clickCallButton({ $0.camera }, "camera", effect: { session()?.cameraOn == false })
+        clickCallPage("camera", effect: { session()?.cameraOn == false })
         step { [self] done in waitUntil({ session()?.cameraOn == false }, timeout: 3) { done() } }
         step { [self] done in
             pageValue({ call }, "state()") { v in
                 let s = v as? [String: Any] ?? [:]
                 self.check((s["cam"] as? Bool) == false && session()?.cameraOn == false,
-                           "call: the call window's camera button turns the camera off (page \(s["cam"] ?? "-"))")
+                           "call: the site's camera button turns the camera off (page \(s["cam"] ?? "-"))")
                 done()
             }
         }
-        clickCallButton({ $0.mic }, "microphone", effect: { session()?.microphoneOn == true })
+        clickCallPage("mic", effect: { session()?.microphoneOn == true })
         step { [self] done in waitUntil({ session()?.microphoneOn == true }, timeout: 3) { done() } }
         run { [self] in
             check(session()?.microphoneOn == true && (calls.window as? CallPanel)?.view.mic.symbol == "mic.fill",
-                  "call: the call window's microphone button unmutes it, and shows it")
+                  "call: the site's microphone button unmutes it")
         }
         sample("after the controls")
         // Back to Tab.
@@ -973,7 +998,7 @@ extension SnapshotRunner {
         // Leave from the call window: the call ends and the window goes.
         run { [self] in c.show(other, focus: false) }
         expectWindow("before Leave", true)
-        clickCallButton({ $0.leave }, "Leave", effect: { session()?.isCall != true })
+        clickCallPage("leave", effect: { session()?.isCall != true })
         step { [self] done in waitUntil({ session()?.isCall != true && !calls.isShowing }, timeout: 4) { done() } }
         step { [self] done in
             pageValue({ call }, "state()") { v in
@@ -1028,6 +1053,8 @@ final class MediaLibServer {
     private let listener: NWListener
     private let queue = DispatchQueue(label: "airc.test.medialib-server")
     private var beats: [(at: CFTimeInterval, id: String)] = []
+    private var artworkRequests = 0
+    var artworkRequestCount: Int { queue.sync { artworkRequests } }
     private var cutting = true
     /// /interrupt stops cutting off (before the check's retry).
     func stopCutting() { queue.sync { cutting = false } }
@@ -1114,7 +1141,9 @@ final class MediaLibServer {
         case (_, "/dl"): send(c, "200 OK", ["Content-Type": "text/html; charset=utf-8"], Data(Self.downloadsPage.utf8))
         case (_, "/music"): send(c, "200 OK", ["Content-Type": "text/html; charset=utf-8"], Data(Self.musicPage.utf8))
         case (_, "/call"): send(c, "200 OK", ["Content-Type": "text/html; charset=utf-8"], Data(Self.callPage.utf8))
-        case (_, "/art.png"): send(c, "200 OK", ["Content-Type": "image/png"], art)
+        case (_, "/art.png"):
+            artworkRequests += 1
+            send(c, "200 OK", ["Content-Type": "image/png"], art)
         case (_, "/silence.wav"): sendRange(c, silence, type: "audio/wav", range: range)
         case (_, "/danger"):
             send(c, "200 OK", ["Content-Type": "application/octet-stream", "Content-Disposition": "attachment; filename=\"inert.command\""],
@@ -1229,7 +1258,7 @@ final class MediaLibServer {
     <!doctype html><meta charset="utf-8"><title>Call fixture</title>
     <style>body{margin:0;background:#193349;color:#fff;font:14px system-ui;overflow:hidden}video{width:100vw;height:100vh;object-fit:cover}
     #s{position:fixed;left:12px;bottom:12px;padding:4px 8px;border-radius:6px;background:rgba(0,0,0,.4)}</style>
-    <video id="v" autoplay muted playsinline></video><audio id="r" src="/silence.wav" loop></audio><div id="s">connecting</div>
+    <video id="v" autoplay muted playsinline></video><audio id="r" src="/silence.wav" loop></audio><div id="s">connecting</div><div style="position:fixed;bottom:48px;left:20px;display:flex;gap:12px"><button id="mic" onclick="toggleMic()">Microphone</button><button id="camera" onclick="toggleCamera()">Camera</button><button id="leave" onclick="hangup()">Leave</button></div>
     <script>
     var id = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2)), events = [], stream, a, b, mic = true, cam = true, ended = false;
     var sent = 0, failed = 0, ticks = 0;
@@ -1284,13 +1313,15 @@ final class MediaLibServer {
       await a.setLocalDescription(await a.createOffer()); await b.setRemoteDescription(a.localDescription);
       await b.setLocalDescription(await b.createAnswer()); await a.setRemoteDescription(b.localDescription);
       var ms = navigator.mediaSession;
-      ms.setActionHandler('togglemicrophone', function(){ mic = !mic; stream.getAudioTracks().forEach(function(t){ t.enabled = mic; }); events.push('mic:' + mic); report(); });
-      ms.setActionHandler('togglecamera', function(){ cam = !cam; stream.getVideoTracks().forEach(function(t){ t.enabled = cam; }); events.push('cam:' + cam); report(); });
+      ms.setActionHandler('togglemicrophone', toggleMic);
+      ms.setActionHandler('togglecamera', toggleCamera);
       ms.setActionHandler('hangup', hangup);
       // The far end's audio, as a call plays it (silent here: the fake devices' tone never reaches the speakers).
       document.getElementById('r').play().catch(function(e){ events.push('audio:' + e.name); });
       report(); events.push('started'); document.title = 'Call fixture (live)';
     }
+    function toggleMic(){ mic = !mic; stream.getAudioTracks().forEach(function(t){ t.enabled = mic; }); events.push('mic:' + mic); report(); }
+    function toggleCamera(){ cam = !cam; stream.getVideoTracks().forEach(function(t){ t.enabled = cam; }); events.push('cam:' + cam); report(); }
     function hangup(){
       ended = true; events.push('hangup');
       if (stream) stream.getTracks().forEach(function(t){ t.stop(); });

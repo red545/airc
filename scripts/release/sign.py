@@ -3,6 +3,8 @@
 """Sign real files inside out; never traverse framework symlink aliases."""
 import os, pathlib, plistlib, stat, subprocess, sys, tempfile
 from entitlement_policy import is_cdm_helper_bundle
+import icloud
+import passkeys
 app = pathlib.Path(sys.argv[1]).resolve()
 identity = sys.argv[2]
 keychain = os.environ.get('AIRC_SIGN_KEYCHAIN') if identity != '-' else None
@@ -39,6 +41,18 @@ if app.suffix == '.dmg':
     subprocess.run(['codesign', '--verify', '--strict', str(app)], check=True)
     sys.exit(0)
 
+embedded = app / 'Contents/embedded.provisionprofile'
+profile = None
+passkey_entitlements = {}
+if embedded.is_file():
+    if identity == '-':
+        sys.exit('A provisioning profile requires Developer ID signing')
+    try:
+        profile = icloud.decode(embedded)
+        passkey_entitlements = passkeys.entitlements(profile, icloud.bundle_id(app))
+    except icloud.ProfileError as error:
+        sys.exit(str(error))
+
 with tempfile.TemporaryDirectory(dir=app.parent, prefix='.entitlements-') as tmp:
     ents = {}
     for kind in ('app', 'renderer', 'gpu', 'helper', 'cdm-helper'):
@@ -47,10 +61,24 @@ with tempfile.TemporaryDirectory(dir=app.parent, prefix='.entitlements-') as tmp
             source = config.parents[1] / 'engine/cdm-helper.entitlements.plist'
         data = plistlib.loads(source.read_bytes())
         if identity == '-': data['com.apple.security.cs.disable-library-validation'] = True
-        if kind == 'app' and os.environ.get('AIRC_PASSKEY_ENTITLEMENTS'):
+        if kind == 'app': data.update(passkey_entitlements)
+        # Profile-granted extras for the main app only: passkeys, and iCloud sync (icloud.py prepare). One profile must
+        # grant both; list values such as keychain-access-groups are merged, not replaced.
+        for variable, what in (('AIRC_PASSKEY_ENTITLEMENTS', 'Passkeys'), ('AIRC_ICLOUD_ENTITLEMENTS', 'iCloud sync')):
+            if kind != 'app' or not os.environ.get(variable):
+                continue
             if identity == '-' or not (app/'Contents/embedded.provisionprofile').is_file():
-                sys.exit('Passkeys require Developer ID and embedded.provisionprofile')
-            data.update(plistlib.loads(pathlib.Path(os.environ['AIRC_PASSKEY_ENTITLEMENTS']).read_bytes()))
+                sys.exit(f'{what} requires Developer ID and embedded.provisionprofile')
+            for key, value in plistlib.loads(pathlib.Path(os.environ[variable]).read_bytes()).items():
+                if isinstance(value, list) and isinstance(data.get(key), list):
+                    data[key] = data[key] + [v for v in value if v not in data[key]]
+                else:
+                    data[key] = value
+        if kind == 'app' and profile is not None:
+            try:
+                passkeys.validate(profile, data)
+            except icloud.ProfileError as error:
+                sys.exit(str(error))
         if identity != '-' and kind != 'cdm-helper' and data.get('com.apple.security.cs.disable-library-validation'):
             sys.exit('Developer ID entitlements must not disable library validation')
         ents[kind] = pathlib.Path(tmp)/f'{kind}.plist'
@@ -74,3 +102,8 @@ with tempfile.TemporaryDirectory(dir=app.parent, prefix='.entitlements-') as tmp
 subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
 if identity != '-':
     subprocess.run([sys.executable, str(pathlib.Path(__file__).with_name('check-entitlements.py')), str(app)], check=True)
+
+if profile is not None:
+    if icloud.signing_leaf(app) not in profile.get('DeveloperCertificates', []):
+        sys.exit('The embedded profile was issued for another signing certificate')
+    passkeys.validate(profile, icloud.signed_entitlements(app))

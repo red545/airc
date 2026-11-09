@@ -1,3 +1,4 @@
+#include "airc/core/airc_passkeys.h"
 #include "airc/core/airc_memory.h"
 #include "airc/core/airc_drm_policy.h"
 #include "chrome/common/pref_names.h"
@@ -448,33 +449,42 @@ extern "C" __attribute__((visibility("default"))) int AircMain(
     }
     return;
   }
-  airc::NoteProfileDeleting(chrome_profile);
-  base::WeakPtr<Profile> weak = chrome_profile->GetWeakPtr();
-  const base::FilePath path = chrome_profile->GetPath();
-  manager->GetDeleteProfileHelper().MaybeScheduleProfileForDeletion(
-      chrome_profile->GetPath(), base::DoNothing(),
-      ProfileMetrics::DELETE_PROFILE_SETTINGS);
-  if (weak) {
-    manager->ClearFirstBrowserWindowKeepAlive(weak.get());
-  }
-  for (const base::TimeDelta delay : {base::Seconds(2), base::Seconds(10)}) {
-    content::GetUIThreadTaskRunner({})->PostDelayedTask(
-        FROM_HERE, base::BindOnce([](const base::FilePath& dir) {
-          if (!IsProfileDirectoryMarkedForDeletion(dir) ||
-              g_browser_process->profile_manager()->GetProfileByPath(dir)) {
-            return;
-          }
-          base::ThreadPool::PostTask(
-              FROM_HERE,
-              {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
-               base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
-              base::BindOnce(base::IgnoreResult(&base::DeletePathRecursively), dir));
-        }, path),
-        delay);
-  }
-  if (completion) {
-    completion(YES);
-  }
+  airc::DeleteProfilePasskeys(chrome_profile, base::BindOnce(
+      [](AircProfile* profile, void (^completion)(BOOL), bool ok) {
+        Profile* chrome_profile = profile.chromeProfile;
+        if (!ok || !chrome_profile) {
+          if (completion) completion(NO);
+          return;
+        }
+        ProfileManager* manager = g_browser_process->profile_manager();
+        airc::NoteProfileDeleting(chrome_profile);
+        base::WeakPtr<Profile> weak = chrome_profile->GetWeakPtr();
+        const base::FilePath path = chrome_profile->GetPath();
+        manager->GetDeleteProfileHelper().MaybeScheduleProfileForDeletion(
+            chrome_profile->GetPath(), base::DoNothing(),
+            ProfileMetrics::DELETE_PROFILE_SETTINGS);
+        if (weak) {
+          manager->ClearFirstBrowserWindowKeepAlive(weak.get());
+        }
+        for (const base::TimeDelta delay : {base::Seconds(2), base::Seconds(10)}) {
+          content::GetUIThreadTaskRunner({})->PostDelayedTask(
+              FROM_HERE, base::BindOnce([](const base::FilePath& dir) {
+                if (!IsProfileDirectoryMarkedForDeletion(dir) ||
+                    g_browser_process->profile_manager()->GetProfileByPath(dir)) {
+                  return;
+                }
+                base::ThreadPool::PostTask(
+                    FROM_HERE,
+                    {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+                     base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
+                    base::BindOnce(base::IgnoreResult(&base::DeletePathRecursively), dir));
+              }, path),
+              delay);
+        }
+        if (completion) {
+          completion(YES);
+        }
+      }, profile, [completion copy]));
 }
 
 - (void)releaseProfile:(AircProfile*)profile {

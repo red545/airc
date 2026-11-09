@@ -1,0 +1,139 @@
+---
+// Where a Boost link (https://aircbrowser.com/boost#…) lands when it's opened in another browser. The whole Boost is in
+// the fragment, which browsers never send to a server, and Airc opens these links itself without asking for this page.
+// So the page is plain HTML and CSS: no scripts, no analytics (the site's analytics would record the full address,
+// fragment included), and nothing reads the address. It stands alone, without the site's layout, for that reason.
+import "@fontsource-variable/inter/wght.css";
+import "@fontsource-variable/figtree/wght.css";
+import "../styles/global.css";
+import { Image } from "astro:assets";
+import icon from "../assets/icon.png";
+import iconSmall from "../assets/icon-small.png";
+import Download from "../components/Download.astro";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light only" />
+    <meta name="theme-color" content="#FCFBFA" />
+    <meta name="robots" content="noindex" />
+    <meta name="referrer" content="no-referrer" />
+    <title>An Airc Boost</title>
+    <meta name="description" content="This is an Airc Boost link. Open it in Airc to review the Boost and add it." />
+    <link rel="icon" type="image/png" href={iconSmall.src} />
+  </head>
+  <body>
+    <main class="wrap">
+      <article class="card">
+        <Image class="icon" src={icon} alt="" width={56} height={56} densities={[1, 2, 3]} format="png" />
+        <p class="tag">Boost link</p>
+        <h1>This is an Airc Boost. <span>Open it in Airc to see what it changes, then add it.</span></h1>
+        <p class="lede">
+          A Boost restyles one site: its colours and font, the parts you hide, sometimes its own CSS or code. This link
+          carries the whole Boost after its <code>#</code>, the part a browser never sends to any server, this one
+          included. This page is plain HTML: it runs no scripts and reads nothing from the link.
+        </p>
+        <ol class="steps">
+          <li><b>Copy this page's address</b> from the address bar.</li>
+          <li><b>Open it in Airc</b>: paste it into Airc's address (⌘L), or click the link anywhere with Airc as your browser.</li>
+          <li><b>Review it.</b> Airc shows what the Boost changes and all of its code, with Try It On, before anything is added.</li>
+        </ol>
+        <p class="note">Boost links open in Airc 0.1.3 and later.</p>
+        <div class="dl"><Download from="boost" /></div>
+        <p class="more"><a href="/">What's Airc?</a><span aria-hidden="true">·</span><a href="/features#boosts">Boosts</a></p>
+      </article>
+    </main>
+  </body>
+</html>
+
+<style>
+  :global(html), :global(body) { min-height: 100%; }
+
+  :global(body) {
+    margin: 0;
+    background:
+      radial-gradient(60% 50% at 15% 0%, color-mix(in srgb, #53ca9f 22%, transparent), transparent 70%),
+      radial-gradient(50% 50% at 90% 10%, color-mix(in srgb, #c79bff 22%, transparent), transparent 70%),
+      var(--win, #ebe8e4);
+  }
+
+  .wrap {
+    display: grid;
+    place-items: center;
+    min-height: 100vh;
+    padding: 24px;
+    box-sizing: border-box;
+  }
+
+  .card {
+    width: min(100%, 620px);
+    padding: clamp(28px, 5vw, 48px);
+    border-radius: 18px;
+    background: var(--bg);
+    box-shadow: 0 0 0 0.5px rgb(var(--ink) / 0.1), 0 24px 60px -24px rgb(30 25 20 / 0.35);
+  }
+
+  .card :global(.icon) { display: block; width: 56px; height: 56px; margin-bottom: 20px; }
+
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    height: 24px;
+    margin: 0 0 14px;
+    padding: 0 9px;
+    border-radius: 7px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #1f7a4a;
+    background: rgb(47 158 98 / 0.12);
+  }
+
+  h1 {
+    margin: 0;
+    font-size: clamp(28px, 4.4vw, 36px);
+    line-height: 1.1;
+    font-weight: 560;
+    letter-spacing: -0.026em;
+    color: var(--t1);
+    text-wrap: balance;
+  }
+
+  h1 span { color: var(--t3); }
+
+  .lede { margin: 18px 0 0; font-size: 15.5px; line-height: 1.6; color: var(--t2); }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.9em;
+    padding: 1px 5px;
+    border-radius: 5px;
+    background: var(--panel);
+    box-shadow: inset 0 0 0 1px var(--hl);
+  }
+
+  .steps {
+    display: grid;
+    gap: 10px;
+    margin: 22px 0 0;
+    padding: 18px 20px 18px 38px;
+    border-radius: 12px;
+    background: var(--bg-sunk);
+    box-shadow: inset 0 0 0 1px var(--hl);
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--t2);
+  }
+
+  .steps b { font-weight: 600; color: var(--t1); }
+
+  .note { margin: 14px 0 0; font-size: 13.5px; color: var(--t3); }
+
+  .dl { margin-top: 28px; }
+
+  .more { display: flex; justify-content: center; gap: 10px; margin: 18px 0 0; font-size: 14px; color: var(--t3); }
+  .more a { color: var(--t2); text-decoration: underline; text-decoration-color: var(--hl-strong); text-underline-offset: 3px; }
+  .more a:hover { color: var(--t1); }
+</style>

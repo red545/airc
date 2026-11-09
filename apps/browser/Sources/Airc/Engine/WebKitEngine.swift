@@ -8,6 +8,7 @@ import WebKit
 
 final class WebKitEngine: BrowserEngine {
     /// Snapshot runs use throwaway data stores (still one per profile, so still separate).
+    var linkRouter: ((EngineLinkRequest) -> Bool)?
     let ephemeral: Bool
     /// The Chromium build's WebKit pages (HybridEngine.swift): stores named from the data folder plus the profile, so a
     /// test instance (`--data-dir`) never shares the daily one's. Nil for the dev engine (its names predate this).
@@ -67,7 +68,13 @@ final class WebKitEngine: BrowserEngine {
     }
 
     func makeWindow(contentRect: NSRect) -> EngineWindow {
-        WebKitWindow(contentRect: contentRect)
+        let window = WebKitWindow(contentRect: contentRect)
+        window.linkPolicy = { [weak self] tab, url, newTab, background in
+            self?.linkRouter?(EngineLinkRequest(url: url, source: "page",
+                disposition: newTab ? (background ? "background_tab" : "foreground_tab") : "current_tab",
+                sourceBundleID: nil, userGesture: true, opener: tab)) ?? false
+        }
+        return window
     }
 
     /// A stable UUID per profile folder name (WebKit names data stores by UUID), and per data folder when `scope` is
@@ -85,6 +92,7 @@ final class WebKitEngine: BrowserEngine {
 final class WebKitProfile: EngineProfile {
     let directory: String
     let dataStore: WKWebsiteDataStore
+    let privateSession: Bool
     /// Shared by every tab of the profile, including popups WebKit creates from it.
     let userContent = WKUserContentController()
     let router = ScriptRouter()
@@ -97,10 +105,8 @@ final class WebKitProfile: EngineProfile {
     init(directory: String, dataStore: WKWebsiteDataStore, privateSession: Bool = false) {
         self.directory = directory
         self.dataStore = dataStore
+        self.privateSession = privateSession
         icons = privateSession ? FaviconCache(memoryOnly: true) : .shared
-        userContent.addUserScript(WKUserScript(source: Self.audioScript, injectionTime: .atDocumentEnd,
-                                               forMainFrameOnly: false))
-        userContent.add(router, name: "aircAudio")
         userContent.addUserScript(WKUserScript(source: Self.keysScript, injectionTime: .atDocumentStart,
                                                forMainFrameOnly: false))
         userContent.add(router, name: "aircKeys")
@@ -295,6 +301,7 @@ final class WebKitWindow: EngineWindow {
 
     /// Shows these panes (the Chromium build: a split's WebKit panes) and hides the page shown alone.
     func attachPanes(_ panes: [(tab: WebKitTab, host: NSView)]) {
+        for old in visibleTabs where !panes.contains(where: { $0.tab === old }) { old.leaveElementFullscreen() }
         shown?.webView.isHidden = true
         shown = nil
         for old in paneTabs where !panes.contains(where: { $0.tab === old }) { old.webView.removeFromSuperview() }
@@ -330,14 +337,19 @@ final class WebKitWindow: EngineWindow {
 
     /// Back to one page: the panes' web views leave their pane hosts.
     private func leavePanes(except keep: WebKitTab? = nil) {
-        for t in paneTabs where t !== keep { t.webView.removeFromSuperview(); t.webView.isHidden = false }
+        for t in paneTabs where t !== keep { t.leaveElementFullscreen(); t.webView.removeFromSuperview(); t.webView.isHidden = false }
         paneTabs = []
     }
 
     func activateTab(_ tab: EngineTab) {
         guard let t = tab as? WebKitTab else { return }
         if !paneTabs.isEmpty { leavePanes(except: t) }
+        // WebKit temporarily moves its view into its fullscreen window. Reselecting the same tab must not
+        // steal it from there; WebKit restores its placeholder when the presentation ends.
+        if shown === t, t.webView.fullscreenState != .notInFullscreen { return }
         guard shown !== t || t.webView.superview !== hostView else { return }
+        t.webView.closeAllMediaPresentations(completionHandler: nil)
+        shown?.leaveElementFullscreen()
         shown?.webView.isHidden = true
         if t.webView.superview !== hostView {
             t.webView.frame = hostView.bounds
@@ -356,6 +368,7 @@ final class WebKitWindow: EngineWindow {
     }
 
     func deactivateAll() {
+        shown?.leaveElementFullscreen()
         shown?.webView.isHidden = true
         shown = nil
         leavePanes()
@@ -392,10 +405,37 @@ final class WebKitWindow: EngineWindow {
 }
 
 final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
+    /// End only an element presentation, never the browser's native fullscreen or a standalone PiP player.
+    /// Use WebKit's presentation API so its temporary window and placeholder are cleaned up too.
+    private var closingElementFullscreen = false
+    private var fullscreenExitCompletions: [() -> Void] = []
+
+    func leaveElementFullscreen(completion: (() -> Void)? = nil) {
+        #if AIRC_TESTING
+        elementFullscreenExitRequests += 1
+        #endif
+        if let completion { fullscreenExitCompletions.append(completion) }
+        guard !closingElementFullscreen else { return }
+        func finished() {
+            closingElementFullscreen = false
+            let callbacks = fullscreenExitCompletions
+            fullscreenExitCompletions.removeAll()
+            callbacks.forEach { $0() }
+        }
+        guard webView.fullscreenState != .notInFullscreen else { return finished() }
+        closingElementFullscreen = true
+        webView.closeAllMediaPresentations(completionHandler: finished)
+    }
+
+    #if AIRC_TESTING
+    private(set) var elementFullscreenExitRequests = 0
+    #endif
+
     private static var nextID = 1
     let tabID: Int
     let webView: WKWebView
     let webKitProfile: WebKitProfile
+    var developerNavigationGeneration = 0
     weak var window: WebKitWindow?
     weak var delegate: EngineTabDelegate?
     /// The Chromium build: the app's profile this page counts as (its WebKit store is `webKitProfile`'s).
@@ -444,8 +484,8 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
 
     var isMuted = false {
         didSet {
-            webView.evaluateJavaScript(
-                "document.querySelectorAll('audio,video').forEach(function(m){m.muted=\(isMuted)})")
+            webKitProfile.library.mute(self)
+            delegate?.tabDidChangeAudio(self)
         }
     }
 
@@ -512,7 +552,17 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
 
     /// ⌥⌘I / ⌥⌘J: Web Inspector, in its own window (WebKit has no public call for it; without the private one, only
     /// the page's Inspect Element opens it).
+    var isDevToolsOpen: Bool {
+        guard webView.responds(to: NSSelectorFromString("_inspector")),
+              let inspector = webView.value(forKey: "_inspector") as? NSObject,
+              inspector.responds(to: NSSelectorFromString("isVisible")) else { return false }
+        return inspector.value(forKey: "visible") as? Bool ?? false
+    }
     func showDevTools(console: Bool) -> Bool {
+        // isInspectable enables remote inspection; the local inspector also needs developer extras.
+        let preferences = webView.configuration.preferences
+        guard preferences.responds(to: NSSelectorFromString("_setDeveloperExtrasEnabled:")) else { return false }
+        preferences.setValue(true, forKey: "developerExtrasEnabled")
         guard webView.responds(to: NSSelectorFromString("_inspector")),
               let inspector = webView.value(forKey: "_inspector") as? NSObject else { return false }
         let selector = NSSelectorFromString(console ? "showConsole" : "show")
@@ -549,12 +599,21 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
     func close() {
         guard !isClosed else { return }
         isClosed = true
-        observations = []
-        webView.stopLoading()
-        webView.navigationDelegate = nil
-        webView.uiDelegate = nil
-        webView.removeFromSuperview()
-        window?.remove(self)
+        webKitProfile.library.clearSession(of: self)
+        webView.pauseAllMediaPlayback(completionHandler: nil)
+        // PiP closes asynchronously. Keep the tab/view alive until WebKit has
+        // finished its presentation callbacks, then leave that callback's stack
+        // before removing the last window/media references to the view.
+        webView.closeAllMediaPresentations { [self] in
+            DispatchQueue.main.async { [self] in
+                observations = []
+                webView.stopLoading()
+                webView.navigationDelegate = nil
+                webView.uiDelegate = nil
+                webView.removeFromSuperview()
+                window?.remove(self)
+            }
+        }
     }
 
     // MARK: Favicons
@@ -618,6 +677,7 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
             decisionHandler(.download, preferences)
             return
         }
+        WebKitBlocking.navigation(self, action: action, preferences: preferences)
         decisionHandler(.allow, preferences)
     }
 
@@ -638,11 +698,15 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        webKitProfile.library.mute(self)
         refreshFavicon()
         delegate?.tabDidChangeLoading(self)
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        WebKitBlocking.committed(self)
+        setAudible(false)
+        webKitProfile.library.clearSession(of: self)
         delegate?.tabDidChangeURL(self)
     }
 

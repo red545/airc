@@ -1,0 +1,22 @@
+# Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
+# Pinned, isolated gnrt graph: no upgrades to Chromium’s existing Rust crates.
+import("//build/rust/rust_static_library.gni")
+rust_static_library("blocking") {
+  crate_root = "src/lib.rs"
+  sources = [ "src/lib.rs" ]
+  edition = "2024"
+  allow_unsafe = true  # C ABI only: pointer ownership documented at each entry.
+  build_native_rust_unit_tests = false
+  deps = [
+    "//airc/core/blocking-rust/third_party/adblock/v0_13:airc_lib",
+    "//airc/core/blocking-rust/third_party/serde/v1:airc_lib",
+    "//airc/core/blocking-rust/third_party/serde_json/v1:airc_lib",
+  ]
+  # Never enable measure-heap here: Chromium owns its Rust allocator.
+}
+
+executable("blocking_bridge_test") {
+  testonly = true
+  sources = [ "blocking_bridge_test.cc" ]
+  deps = [ ":blocking" ]
+}

@@ -26,6 +26,8 @@ final class ProfileHost {
     /// Each engine profile as it loads, for the app's profile keeper (WIN-7, AppDelegate.keepProfilesLoaded): kept apart
     /// from `didLoad`, which others chain.
     var keepLoaded: ((EngineProfile) -> Void)?
+    /// Install profile protection before a caller can navigate its first page.
+    var beforeUse: ((EngineProfile, String, @escaping () -> Void) -> Void)?
 
     init(store: SpacesStore, engine: BrowserEngine) {
         self.store = store
@@ -33,6 +35,9 @@ final class ProfileHost {
     }
 
     func loadAll(completion: @escaping () -> Void) {
+        // A restored backup can reuse a profile ID with a different engine directory.
+        // Forget the binding, not the browser data; loading below binds the restored directory.
+        loaded = loaded.filter { store.profile($0.key)?.engineDirectory == $0.value.directory }
         let profiles = store.orderedProfiles
         var remaining = profiles.count
         guard remaining > 0 else { return completion() }
@@ -69,14 +74,23 @@ final class ProfileHost {
         waiting[p.id] = [done]
         engine.loadProfile(directory: p.engineDirectory) { [weak self] e in
             guard let self else { return }
-            let blocks = self.waiting.removeValue(forKey: p.id) ?? []
-            if let e {
-                self.loaded[p.id] = e
-                self.keepLoaded?(e)
-                self.didLoad?(e)
+            guard let e else {
+                let blocks = self.waiting.removeValue(forKey: p.id) ?? []
+                blocks.forEach { $0(nil) }; return
             }
+            self.finishLoading(e, id: p.id)
+        }
+    }
+
+    private func finishLoading(_ e: EngineProfile, id: String) {
+        let ready = { [weak self] in
+            guard let self else { return }
+            self.loaded[id] = e
+            self.keepLoaded?(e); self.didLoad?(e)
+            let blocks = self.waiting.removeValue(forKey: id) ?? []
             blocks.forEach { $0(e) }
         }
+        if let beforeUse { beforeUse(e, id, ready) } else { ready() }
     }
 
     /// The spare's folder name, kept across launches until New Profile adopts it.
@@ -127,9 +141,8 @@ final class ProfileHost {
             spareDirectory = nil
             createdSpares = createdSpares.filter { $0 != dir }
             if let s = spare, s.directory == dir {
-                loaded[p.id] = s.profile
-                keepLoaded?(s.profile)
-                didLoad?(s.profile)
+                waiting[p.id] = waiting[p.id] ?? []
+                finishLoading(s.profile, id: p.id)
             } else {
                 load(p) { _ in }
             }
@@ -197,6 +210,7 @@ final class ProfileHost {
             self.loaded[profileID] = nil
             do { try self.store.deleteProfile(profileID) } catch { return completion(false) }
             SuggestionService.shared.clear(profileID: profileID)
+            ServicePreviewCenter.shared.forget(profileID: profileID)   // its tab pictures and site previews (P11a)
             completion(true)
         }
         if let e = loaded[profileID] { return engine.deleteProfile(e, completion: finish) }

@@ -11,7 +11,7 @@ import SwiftUI
 enum ProfileAvatarImage {
     private static var cache: [String: NSImage] = [:]
 
-    static func image(_ p: Profile, size: CGFloat) -> NSImage { image(emoji: p.emoji, name: p.name, color: p.color.aircColor, size: size) }
+    static func image(_ p: Profile, size: CGFloat) -> NSImage { image(emoji: p.googleAccount == nil ? p.emoji : "", name: p.googleAccount ?? p.name, color: p.color.aircColor, size: size) }
 
     static func image(emoji: String, name: String, color: AircColor, size: CGFloat) -> NSImage {
         let key = "\(emoji)|\(emoji.isEmpty ? name.prefix(1) : "")|\(color.hexString)|\(size)"

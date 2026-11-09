@@ -58,10 +58,10 @@ public struct AircProfileAvatar: View {
                 Image(decorative: photo, scale: 1).resizable().interpolation(.high).aspectRatio(contentMode: .fill)
             } else {
                 Circle().fill(AircProfileColor.pastel(identity.color).color)
-                if !identity.emoji.isEmpty {
+                if identity.account == nil, !identity.emoji.isEmpty {
                     Text(identity.emoji).font(.system(size: size * 0.56))
                 } else {
-                    Text(String(identity.name.prefix(1)).uppercased())
+                    Text(String((identity.account ?? identity.name).prefix(1)).uppercased())
                         .font(.system(size: size * 0.46, weight: .semibold, design: .rounded))
                         .foregroundStyle(identity.color.color)
                 }
@@ -72,6 +72,7 @@ public struct AircProfileAvatar: View {
         .overlay(Circle().inset(by: 0.25).stroke(AircColor.black(0.10).color, lineWidth: 0.5))
         .background { if let ring { Circle().inset(by: -1.5).fill(ring.color) } }
         .accessibilityLabel(identity.name)
+        .help(identity.account ?? identity.name)
     }
 
     /// The avatar as an image, for `NSMenuItem.image` in the native profile menu.

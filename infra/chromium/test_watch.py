@@ -1,6 +1,7 @@
 # Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
 
 """Offline regression checks: python3 -m unittest discover -s infra/chromium."""
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -11,6 +12,65 @@ import status_section
 
 
 class WatchTests(unittest.TestCase):
+    def test_review_is_bound_to_post_content_and_pin(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            pin = '156.0.1.9'
+            content = f'{pin} security fixes CVE-2026-1234'
+            url = 'https://example.test/release'
+            entry = {'content': {'$t': content}, 'title': {'$t': 'Release'},
+                     'link': [{'rel': 'alternate', 'href': url}]}
+            feed = {'feed': {'entry': [entry]}}
+            review = {'url': url, 'pinned': pin,
+                      'content_sha256': hashlib.sha256(content.encode()).hexdigest()}
+            review_file = root / 'reviewed-posts.json'
+            with patch.object(watch, 'HERE', root), patch.object(watch, 'fetch', return_value=feed):
+                self.assertEqual(watch.security([pin], pin)['urgency'], 'review-required')
+                review_file.write_text(json.dumps([review]))
+                result = watch.security([pin], pin)
+                self.assertEqual(result['urgency'], 'reviewed')
+                self.assertEqual(result['entries'][0]['cves'], ['CVE-2026-1234'])
+                self.assertEqual(watch.security([pin, '156.0.1.10'], pin)['urgency'], 'review-required')
+                self.assertEqual(watch.security([pin], '156.0.1.8')['urgency'], 'review-required')
+                entry['content']['$t'] += ' new information'
+                self.assertEqual(watch.security([pin], pin)['urgency'], 'review-required')
+                entry['content']['$t'] = content
+                entry['link'][0]['href'] += '-new'
+                self.assertEqual(watch.security([pin], pin)['urgency'], 'review-required')
+                entry['link'][0]['href'] = url
+                feed['feed']['entry'].append({**entry, 'link': [{'rel': 'alternate', 'href': url + '-other'}]})
+                self.assertEqual(watch.security([pin], pin)['urgency'], 'review-required')
+                feed['feed']['entry'] = []
+                self.assertEqual(watch.security([pin], pin)['urgency'], 'review-required')
+
+    def test_review_never_suppresses_exploit_or_fetch_error(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            pin = '156.0.1.9'
+            content = f'{pin} Google is aware that an exploit for CVE-2026-1234 exists in the wild.'
+            url = 'https://example.test/release'
+            feed = {'feed': {'entry': [{'content': {'$t': content}, 'title': {'$t': 'Release'},
+                                      'link': [{'rel': 'alternate', 'href': url}]}]}}
+            review_file = root / 'reviewed-posts.json'
+            review_file.write_text(json.dumps([{'url': url, 'pinned': pin,
+                'content_sha256': hashlib.sha256(content.encode()).hexdigest()}]))
+            with patch.object(watch, 'HERE', root), patch.object(watch, 'fetch', return_value=feed):
+                result = watch.security([pin], pin)
+                self.assertTrue(result['entries'][0]['reviewed'])
+                self.assertEqual(result['urgency'], 'urgent')
+                with patch.object(watch, 'fetch', side_effect=[feed, OSError('offline')]):
+                    self.assertTrue(watch.security([pin, '156.0.1.10'], pin)['errors'])
+                feed['feed']['entry'][0]['content']['$t'] = pin
+                review_file.write_text(json.dumps([{'url': url, 'pinned': pin,
+                    'content_sha256': hashlib.sha256(pin.encode()).hexdigest()}]))
+                with patch.object(watch, 'fetch', side_effect=[feed, OSError('offline')]):
+                    self.assertEqual(watch.security([pin, '156.0.1.10'], pin)['urgency'], 'review-required')
+                for invalid in ('{', '{}', '[null]'):
+                    review_file.write_text(invalid)
+                    result = watch.security([pin], pin)
+                    self.assertTrue(result['errors'])
+                    self.assertEqual(result['urgency'], 'review-required')
+
     def test_numeric_gap(self):
         self.assertEqual(watch.classify('156.0.1.9', '156.0.1.10'), 'security-respin')
         self.assertEqual(watch.classify('156.0.1.9', '158.0.1.1'), 'new-major')

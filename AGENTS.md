@@ -50,8 +50,9 @@ scripts/mac.sh -w <your-task> get build/screenshots ./artifacts/   # copy result
 ```
 
 - Use your own `-w` name so parallel agents don't share build folders.
-- The Mac is also the owner's laptop. Launch test builds in the background (`open -g`), never take focus,
-  quit them when done, and don't touch anything outside `~/arcfork/`.
+- The build host is the dedicated Mac (`buildmac`), separate from the owner's laptop. Start all new builds
+  and checks there. Keep the laptop idle and leave already-running jobs alone. Use the shared build/UI locks,
+  keep at least 15 GiB free, and quit only your own test apps when done.
 - Xcode 27 doesn't ship Apple's Metal compiler, which Chromium's ANGLE needs: install it once with
   `xcodebuild -downloadComponent MetalToolchain` (no sudo; already done on the build Mac).
 - The Chromium checkout on the Mac is `~/arcfork/chromium/src` at the tag in `CHROMIUM_VERSION`. Only one

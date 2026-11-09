@@ -5,6 +5,10 @@ import Foundation
 public enum SyncError: Error, Equatable {
     case invalidOperation, conflictingOperationID, clockExhausted, invalidOrder
     case wrongGroup, unsupportedVersion, invalidEnvelope
+    /// Sync was turned off, or the account changed, while this work waited: nothing after it may run.
+    case cancelled
+    /// Some of iCloud's batches can't be read here, so iCloud's sidebar isn't known completely (no Replace).
+    case incompleteSnapshot
 }
 
 /// Total order: physical milliseconds, logical counter, then installation ID.

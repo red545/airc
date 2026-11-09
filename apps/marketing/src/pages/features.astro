@@ -1,0 +1,489 @@
+---
+// Every feature, grouped (src/data/catalog.ts), each with one line and, where there is one, its screenshot: choosing a
+// feature shows its shot beside the list. A feature appears once the release that brings it is published (preview
+// deployments show them all, marked); planned ones are marked Coming.
+import Layout from "../layouts/Layout.astro";
+import Download from "../components/Download.astro";
+import { Image } from "astro:assets";
+import type { ImageMetadata } from "astro";
+import { groups, shotAlt, shown, type Feature } from "../data/catalog";
+import { getPublished, SHOW_UNRELEASED } from "../lib/release";
+import videos from "../data/videos.json";
+
+const published = await getPublished();
+const isPublished = (f: Feature) => f.since === "coming" || published.has(f.since);
+// A group has its own page (/features/<id>) once it has a released feature and its video is in (previews: every group).
+// Any video for the group (its own, or one of its features') that shows here: released and published, or a preview.
+const hasVideo = (id: string) =>
+  Object.entries(videos as Record<string, { released: boolean; since: string; group?: string }>).some(
+    ([vid, v]) => (v.group ?? vid) === id && ((v.released && published.has(v.since)) || SHOW_UNRELEASED),
+  );
+const hasPage = (g: { id: string; features: Feature[] }) =>
+  g.features.some((f) => f.since !== "coming" && shown(f, published, SHOW_UNRELEASED)) && (hasVideo(g.id) || SHOW_UNRELEASED);
+const visible = groups
+  .map((g) => ({ ...g, features: g.features.filter((f) => shown(f, published, SHOW_UNRELEASED)) }))
+  .filter((g) => g.features.length);
+const count = visible.reduce((n, g) => n + g.features.filter((f) => f.since !== "coming").length, 0);
+const drafts = visible.flatMap((g) => g.features).filter((f) => !isPublished(f));
+const release = (since: string) => (since === "next" ? "the next release" : since);
+const draftVersions = [...new Set(drafts.map((f) => f.since))]
+  .sort((a, b) => (a === "next" ? 1 : b === "next" ? -1 : a.localeCompare(b, "en", { numeric: true })))
+  .map(release)
+  .join(" and ");
+
+const files = import.meta.glob<{ default: ImageMetadata }>("../assets/screens/*.webp", { eager: true });
+const image = (name: string) => {
+  const m = files[`../assets/screens/${name}.webp`];
+  if (!m) throw new Error(`features: no screenshot ${name}.webp in src/assets/screens`);
+  return m.default;
+};
+// Crops (scripts/sync-screenshots.mjs) sit on the view's backdrop; whole-window shots fill it.
+const isCrop = (name: string) => /-(card|panel|menu|window)$/.test(name);
+---
+
+<Layout title="Features · Airc" description="Everything Airc does: Spaces and profiles, the Command Bar, Little Airc, Split View, Peek, Boosts, Capture and more, with screenshots of each.">
+  <article class="features">
+    <header class="head">
+      <p class="tag" style="--c:#2f9e62">Features</p>
+      <h1>Everything in Airc. <span>{count} features you can use today, grouped the way you'd look for them, and what's coming.</span></h1>
+      {drafts.length > 0 && (
+        <p class="draft-note"><i aria-hidden="true"></i>Preview: this includes what {draftVersions} brings, which isn't published yet.</p>
+      )}
+    </header>
+
+    <nav class="jump" aria-label="Feature groups" data-jump>
+      {visible.map((g) => <a href={`#${g.id}`} style={`--c:${g.color}`} data-jump-to={g.id}>{g.name}</a>)}
+    </nav>
+
+    {visible.map((g) => {
+      const shots = g.features.filter((f) => f.shot).map((f) => f.shot!);
+      return (
+        <section class="group" id={g.id} style={`--c:${g.color}`} data-group>
+          <header class="g-head">
+            <p class="g-name"><i aria-hidden="true"></i>{g.name}</p>
+            <h2>{g.sub}</h2>
+            {hasPage(g) && (
+              <a class="g-page" href={`/features/${g.id}`}>{hasVideo(g.id) ? `Watch ${g.name}` : `More on ${g.name}`} <span aria-hidden="true">→</span></a>
+            )}
+          </header>
+          <div class={`g-body ${shots.length ? "has-view" : ""}`}>
+            <ul class="g-list">
+              {g.features.map((f) => {
+                const inner = (
+                  <>
+                    <span class="f-title">
+                      {f.title}
+                      {f.since === "coming" ? (
+                        <span class="badge badge-coming">Coming</span>
+                      ) : f.since !== "0.1.0" ? (
+                        <span class={`badge ${isPublished(f) ? "badge-new" : "badge-draft"}`} title={isPublished(f) ? undefined : "Not published yet"}>{f.since === "next" ? "Next release" : `New in ${f.since}`}</span>
+                      ) : null}
+                    </span>
+                    <span class="f-line">{f.line}</span>
+                  </>
+                );
+                return (
+                  <li>
+                    {f.shot ? (
+                      <button type="button" class="feat" data-show={shots.indexOf(f.shot)} aria-pressed={shots.indexOf(f.shot) === 0 ? "true" : "false"} aria-controls={`${g.id}-view`}>
+                        {inner}
+                        <svg class="f-has" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="2" /><path d="M2.5 11l3.2-3 2.3 2.1L10.300 8l3.200 3" /></svg>
+                      </button>
+                    ) : (
+                      <div class="feat feat-plain">{inner}</div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+            {shots.length > 0 && (
+              <div class="g-view" id={`${g.id}-view`}>
+                {shots.map((name, i) => (
+                  <button
+                    type="button"
+                    class={`g-shot ${isCrop(name) ? "crop" : ""} ${i === 0 ? "on" : ""}`}
+                    data-shot={i}
+                    hidden={i !== 0}
+                    data-zoom={image(name).src}
+                    data-alt={shotAlt[name] ?? ""}
+                    aria-label={`Enlarge: ${shotAlt[name] ?? name}`}
+                  >
+                    <Image src={image(name)} widths={[600, 900, 1300, 1800]} sizes="(max-width: 980px) 100vw, 640px" quality={88} alt={shotAlt[name] ?? ""} loading="lazy" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+      );
+    })}
+
+    <footer class="end">
+      <p>
+        Known limits, like Safe Browsing still being off, are in the <a href="/changelog">changelog</a>. Nightly checks
+        on real Chromium cover the core features: see <a href="/#supported">what works</a>.
+      </p>
+      <Download from="features" />
+    </footer>
+  </article>
+</Layout>
+
+<script>
+  import { track as send } from "../lib/analytics";
+
+  // Choosing a feature shows its screenshot in its group's view.
+  for (const g of document.querySelectorAll<HTMLElement>("[data-group]")) {
+    const buttons = [...g.querySelectorAll<HTMLButtonElement>("[data-show]")];
+    const shots = [...g.querySelectorAll<HTMLElement>("[data-shot]")];
+    const view = g.querySelector<HTMLElement>(".g-view");
+    const pick = (i: string) => {
+      buttons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.show === i)));
+      for (const s of shots) {
+        const on = s.dataset.shot === i;
+        if (on && s.hidden) {
+          s.hidden = false;
+          requestAnimationFrame(() => s.classList.add("on"));
+        } else if (!on) {
+          s.classList.remove("on");
+          s.hidden = true;
+        }
+      }
+    };
+    for (const b of buttons) {
+      // Load the shot as soon as the pointer is over its feature, so it's there on click.
+      b.addEventListener("pointerenter", () => {
+        const img = shots.find((s) => s.dataset.shot === b.dataset.show)?.querySelector("img");
+        if (img) img.loading = "eager";
+      });
+      b.addEventListener("click", () => {
+        pick(b.dataset.show!);
+        send("features_shot", { group: g.id, feature: b.querySelector(".f-title")?.firstChild?.textContent?.trim() ?? "" });
+        if (view && matchMedia("(max-width: 980px)").matches) view.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      });
+    }
+  }
+
+  // The group you're reading is marked in the jump bar.
+  const links = new Map([...document.querySelectorAll<HTMLAnchorElement>("[data-jump-to]")].map((a) => [a.dataset.jumpTo!, a]));
+  const seen = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        links.forEach((a, id) => a.classList.toggle("on", id === e.target.id));
+        links.get(e.target.id)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      }
+    },
+    { rootMargin: "-30% 0px -60% 0px" },
+  );
+  document.querySelectorAll("[data-group]").forEach((g) => seen.observe(g));
+</script>
+
+<style>
+  .features {
+    --pad: clamp(20px, 4vw, 56px);
+    --cont: #7a8190;
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: clamp(48px, 7vw, 96px) 0 0;
+  }
+
+  .head { padding: 0 var(--pad); max-width: 860px; }
+
+  .tag {
+    --c: var(--t3);
+    display: inline-flex;
+    align-items: center;
+    height: 24px;
+    margin-bottom: 18px;
+    padding: 0 9px;
+    border-radius: 7px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--c) 78%, #000);
+    background: color-mix(in srgb, var(--c) 11%, var(--bg));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 22%, transparent);
+  }
+
+  h1 {
+    font-size: clamp(32px, 4vw, 52px);
+    line-height: 1.06;
+    font-weight: 550;
+    letter-spacing: -0.026em;
+    color: var(--t1);
+    text-wrap: balance;
+  }
+
+  h1 span { color: var(--cont); }
+
+  .draft-note {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 20px;
+    padding: 6px 12px;
+    border-radius: 9px;
+    font-size: 13.5px;
+    font-weight: 550;
+    color: #8a5a00;
+    background: rgb(232 163 43 / 0.12);
+    box-shadow: inset 0 0 0 1px rgb(232 163 43 / 0.28);
+  }
+
+  .draft-note i { width: 7px; height: 7px; border-radius: 50%; background: #e8a32b; }
+
+  /* ------------------------------------------------------------------ the jump bar */
+
+  .jump {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    gap: 6px;
+    margin-top: clamp(32px, 4vw, 48px);
+    padding: 12px var(--pad);
+    overflow-x: auto;
+    scrollbar-width: none;
+    background: color-mix(in srgb, var(--bg) 86%, transparent);
+    backdrop-filter: saturate(1.6) blur(14px);
+    -webkit-backdrop-filter: saturate(1.6) blur(14px);
+    box-shadow: 0 1px 0 var(--hl);
+  }
+
+  .jump::-webkit-scrollbar { display: none; }
+
+  /* Small screens: the page scrolls under the window's 56 px top bar, so the jump bar sits below it. */
+  @media (max-width: 900px) {
+    .jump { top: 56px; }
+    .group { scroll-margin-top: 110px; }
+  }
+
+  .jump a {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    height: 30px;
+    padding: 0 12px;
+    border-radius: 9px;
+    font-size: 13.5px;
+    font-weight: 550;
+    color: var(--t2);
+    transition: color 0.15s ease, background 0.2s ease;
+  }
+
+  .jump a:hover { color: var(--t1); background: var(--panel); }
+
+  .jump a.on {
+    color: color-mix(in srgb, var(--c) 78%, #000);
+    background: color-mix(in srgb, var(--c) 11%, var(--bg));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 22%, transparent);
+  }
+
+  /* ------------------------------------------------------------------ a group */
+
+  .group { padding: clamp(48px, 6vw, 80px) var(--pad) 0; scroll-margin-top: 54px; }
+
+  .g-head { max-width: 760px; margin-bottom: clamp(20px, 2.6vw, 32px); }
+
+  .g-page {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 32px;
+    margin-top: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--c) 80%, #000);
+  }
+
+  .g-page:hover span { transform: translateX(2px); }
+  .g-page span { transition: transform 0.2s var(--spring-settle); }
+
+  .g-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--c) 80%, #000);
+  }
+
+  .g-name i { width: 8px; height: 8px; border-radius: 3px; background: var(--c); }
+
+  .g-head h2 {
+    font-size: clamp(24px, 2.6vw, 34px);
+    line-height: 1.15;
+    font-weight: 550;
+    letter-spacing: -0.02em;
+    color: var(--t1);
+    text-wrap: balance;
+  }
+
+  .g-body { display: grid; gap: clamp(20px, 3vw, 40px); }
+  .g-body.has-view { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: start; }
+
+  .g-list {
+    display: grid;
+    grid-template-columns: 1fr;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-radius: 16px;
+    box-shadow: inset 0 0 0 1px var(--hl);
+    overflow: hidden;
+  }
+
+  .g-body:not(.has-view) .g-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+  .g-list li { box-shadow: 0 1px 0 var(--hl); }
+  .g-body:not(.has-view) .g-list li:nth-child(odd) { box-shadow: 1px 0 0 var(--hl), 0 1px 0 var(--hl); }
+
+  .feat {
+    position: relative;
+    display: grid;
+    gap: 3px;
+    width: 100%;
+    height: 100%;
+    padding: 15px 44px 15px 18px;
+    border: 0;
+    background: none;
+    font: inherit;
+    text-align: left;
+    color: inherit;
+  }
+
+  button.feat { cursor: pointer; transition: background 0.2s ease; }
+  button.feat:hover { background: var(--panel); }
+  button.feat:focus-visible { outline: 2px solid var(--c); outline-offset: -2px; }
+
+  button.feat[aria-pressed="true"] { background: color-mix(in srgb, var(--c) 7%, var(--bg)); }
+
+  button.feat::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 12px;
+    bottom: 12px;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: var(--c);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+
+  button.feat[aria-pressed="true"]::before { opacity: 1; }
+
+  .f-title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    font-size: 15.5px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--t1);
+  }
+
+  .f-line { font-size: 14.5px; line-height: 1.5; font-weight: 450; color: var(--t2); }
+
+  .f-has {
+    position: absolute;
+    top: 17px;
+    right: 16px;
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: var(--t3);
+    stroke-width: 1.3;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: stroke 0.2s ease;
+  }
+
+  button.feat[aria-pressed="true"] .f-has,
+  button.feat:hover .f-has { stroke: var(--c); }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    height: 19px;
+    padding: 0 7px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0;
+  }
+
+  .badge-new { color: #1f7a4a; background: rgb(47 158 98 / 0.12); }
+  .badge-draft { color: #8a5a00; background: rgb(232 163 43 / 0.16); }
+  .badge-coming { color: #5b3fc0; background: rgb(122 76 240 / 0.12); }
+
+  /* ------------------------------------------------------------------ the screenshot beside the list */
+
+  .g-view {
+    position: sticky;
+    top: 70px;
+    aspect-ratio: 3 / 2;
+    border-radius: 16px;
+    overflow: hidden;
+    background:
+      radial-gradient(120% 90% at 20% 0%, color-mix(in srgb, var(--c) 16%, transparent), transparent 60%),
+      radial-gradient(100% 80% at 100% 100%, color-mix(in srgb, var(--c) 10%, transparent), transparent 60%),
+      var(--panel);
+    box-shadow: inset 0 0 0 1px var(--hl);
+  }
+
+  .g-shot {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    grid-template: 100% / 100%;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: zoom-in;
+    opacity: 0;
+    transition: opacity 0.4s var(--ease-out);
+  }
+
+  .g-shot[hidden] { display: none; }
+  .g-shot.on { opacity: 1; }
+
+  .g-shot :global(img) {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+
+  .g-shot.crop { padding: clamp(18px, 4%, 36px); }
+
+  .g-shot.crop :global(img) {
+    filter: drop-shadow(0 0 0.5px rgb(0 0 0 / 0.3)) drop-shadow(0 16px 28px rgb(30 25 50 / 0.22));
+  }
+
+  @media (max-width: 980px) {
+    .g-body.has-view { grid-template-columns: 1fr; }
+    .g-view { position: relative; top: 0; grid-row: 1; }
+  }
+
+  @media (max-width: 640px) {
+    .g-body:not(.has-view) .g-list { grid-template-columns: 1fr; }
+    .g-body:not(.has-view) .g-list li:nth-child(odd) { box-shadow: 0 1px 0 var(--hl); }
+  }
+
+  /* ------------------------------------------------------------------ the end */
+
+  .end {
+    display: grid;
+    justify-items: center;
+    gap: 28px;
+    margin-top: clamp(64px, 8vw, 112px);
+    padding: clamp(40px, 5vw, 64px) var(--pad);
+    text-align: center;
+    box-shadow: 0 -1px 0 var(--hl);
+  }
+
+  .end p { max-width: 560px; font-size: 15px; line-height: 1.6; font-weight: 450; color: var(--t2); text-wrap: balance; }
+  .end a { color: var(--t1); text-decoration: underline; text-decoration-color: var(--hl-strong); text-underline-offset: 3px; }
+</style>

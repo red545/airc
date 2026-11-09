@@ -25,6 +25,33 @@ source_set("launch_switches") {
   frameworks = [ "Security.framework" ]
 }
 
+# Standalone regression cases, each run in a fresh process to retain the real
+# immutable cache. No browser or full DCHECK rebuild is needed.
+executable("launch_switches_test") {
+  testonly = true
+  sources = [ "airc_launch_switches_test.cc" ]
+  deps = [
+    ":launch_switches",
+    "//base",
+    "//chrome/common:non_code_constants",
+    "//components/os_crypt/common:switches",
+    "//content/public/common",
+  ]
+}
+
+source_set("passkey_access_group") {
+  sources = [ "airc_passkey_access_group.mm", "airc_passkey_store.mm", "airc_passkeys.h" ]
+  deps = [ "//base", "//crypto", "//device/fido" ]
+  frameworks = [ "Security.framework" ]
+}
+
+executable("passkeys_store_test") {
+  testonly = true
+  sources = [ "airc_passkeys_store_test.mm" ]
+  deps = [ ":passkey_access_group", "//base", "//crypto", "//device/fido" ]
+  frameworks = [ "Foundation.framework", "Security.framework" ]
+}
+
 source_set("hooks") {
   sources = [
   ]
@@ -32,6 +59,9 @@ source_set("hooks") {
 
 source_set("core") {
   sources = [
+    "airc_blocking.h",
+    "airc_blocking.mm",
+    "airc_blocking_ffi.h",
     "airc_app_urls.h",
     "airc_app_urls.mm",
     "airc_autofill_bubble_handler.mm",
@@ -67,6 +97,8 @@ source_set("core") {
     "airc_context_menu_share.mm",
     "airc_desktop_capture.h",
     "airc_desktop_capture.mm",
+    "airc_developer_commands.h",
+    "airc_developer_commands.mm",
     "airc_devtools_call.h",
     "airc_devtools_call.mm",
     "airc_device_chooser.h",
@@ -103,6 +135,8 @@ source_set("core") {
     "airc_page_script.h",
     "airc_page_view.h",
     "airc_page_view.mm",
+    "airc_passkeys.h",
+    "airc_passkeys.mm",
     "airc_password_prompt.h",
     "airc_password_prompt.mm",
     "airc_permissions.h",
@@ -130,6 +164,8 @@ source_set("core") {
     "airc_drm.mm",
     "airc_drm_policy.h",
     "airc_drm_network.h",
+    "airc_discard_request.cc",
+    "airc_discard_request.h",
     "airc_memory.mm",
     "airc_media_session.h",
     "airc_media_session.mm",
@@ -147,6 +183,7 @@ source_set("core") {
     "airc_tab_media.mm",
     "airc_tab_navigation.mm",
     "airc_tab_page.mm",
+    "airc_task_manager.mm",
     "airc_tab_exports.mm",
     "airc_save_file.cc",
     "airc_save_file.h",
@@ -159,6 +196,8 @@ source_set("core") {
   all_dependent_configs = [ ":exports" ]
 
   deps = [
+    ":passkey_access_group",
+    "blocking-rust:blocking",
     ":hooks",
     ":launch_switches",
     "//base",
@@ -173,6 +212,7 @@ source_set("core") {
     "//chrome/browser/permissions/system",
     "//chrome/browser/profiles:profile",
     "//chrome/browser/printing",
+    "//chrome/browser/task_manager",
     "//chrome/browser/ui",
     "//chrome/browser/ui/views/exclusive_access",
     "//chrome/browser/ui/views/eye_dropper",
@@ -248,4 +288,23 @@ source_set("core") {
   ]
 
   weak_frameworks = [ "MetalFX.framework" ]
+}
+
+# Pure request/cancellation rules; no browser or framework link is required.
+executable("discard_request_test") {
+  testonly = true
+  sources = [
+    "airc_discard_request.cc",
+    "airc_discard_request.h",
+    "airc_discard_request_test.cc",
+  ]
+}
+
+# Input validation, also runnable with a host C++17 compiler.
+executable("developer_commands_test") {
+  testonly = true
+  sources = [
+    "airc_developer_commands.h",
+    "airc_developer_commands_test.cc",
+  ]
 }

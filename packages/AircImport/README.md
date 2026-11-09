@@ -7,8 +7,8 @@ No UI, engine integration, third-party dependencies or network requests.
 
 - `ArcImporter.locateData(home:)`: locate Arc data, with typed installation,
   missing-data and permission failures.
-- `await ArcImporter.plan(at:includeToday:progress:)`: discover profiles and parse
-  the sidebar on a worker task; returns `ImportPlan`.
+- `await ArcImporter.plan(at:includeToday:tempRoot:now:progress:)`: discover profiles, parse
+  the sidebar, and read history and extension metadata on a worker task; returns `ImportPlan`.
 - `ArcSidebarParser.parse(_:includeToday:)`: pure in-memory sidebar parser.
 - `ArcImporter.discoverProfiles(at:referenced:)`: merge Local State metadata,
   profile folders and sidebar references.
@@ -31,6 +31,34 @@ parser's preferred palette color. Rendering the raw Arc theme is the app's job.
 Warnings are structural and never include source names, URLs or titles.
 `ImportError` supplies user-facing messages; `ImportProgress` reports stages.
 Callbacks execute on the worker, so UI callers must hop to the main actor.
+
+## Arc history and extensions
+
+`ImportPlan.history` and `.extensions` are keyed by Arc profile ID. `mappedHistory(profileIDs:)`
+uses the same `arc-profile:<directory>` keys as the sidebar import; unknown or unselected destinations
+are omitted. The app merges visits by destination profile and URL, preserving the higher counts on
+reimport, and saves the extension checklist locally for onboarding and Settings → Import.
+
+`History`, `Preferences` and `Secure Preferences` are copied to private temporary folders, which
+are deleted after reading. History uses the shared Chromium query with a 90-day window and 20,000-page
+cap, excludes hidden/internal URLs, and opens the copy with `mode=ro&immutable=1`. It never opens the
+source in SQLite. WAL and journal files are not copied: if a WAL is present, the import warns that
+recent visits may need quitting Arc and importing again. A busy or unreadable profile does not stop
+the rest of the import.
+
+The extension checklist merges `extensions.settings` from both preferences files (Secure Preferences
+wins), excludes component and Arc-internal entries, and records enabled state. It never installs an
+extension. For localized `__MSG_…__` names, the only additional reads are `manifest.json` and
+`_locales/<language>/messages.json` within that installed extension version. Each file is capped at
+1 MiB, opened read-only without following symlinks, copied privately and deleted after parsing.
+Names use the system's preferred languages (including base languages), then `default_locale`, then
+`en`; unreadable or missing names fall back to the saved name or ID. The reader never enumerates or
+copies the extension tree or reads scripts. No history/checklist path accesses credentials,
+encrypted values or Keychain.
+
+Synthetic tests: `swift test --package-path packages/AircImport --filter ArcProfileDataTests`.
+The app's `--script arcimport2` covers both engines, onboarding, reimport, Settings, command-bar results
+and a loopback Web Store button. The marketing part is `arcimport2`.
 
 ## Credentials
 

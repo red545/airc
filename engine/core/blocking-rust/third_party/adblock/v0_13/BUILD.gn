@@ -1,0 +1,176 @@
+# Copyright 2023 The Chromium Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+# @generated from third_party/rust/chromium_crates_io/BUILD.gn.hbs by
+# tools/crates/gnrt.
+# Do not edit!
+
+import("//build/rust/cargo_crate.gni")
+
+cargo_crate("airc_lib") {
+  crate_name = "adblock"
+  epoch = "0.13"
+  crate_type = "rlib"
+  crate_root = "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/lib.rs"
+  sources = [
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/blocker.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/content_blocking.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/cosmetic_filter_cache.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/cosmetic_filter_cache_builder.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/cosmetic_filter_utils.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/data_format/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/engine.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/filters/abstract_network.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/filters/cosmetic.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/filters/fb_builder.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/filters/fb_network.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/filters/fb_network_builder.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/filters/filter_data_context.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/filters/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/filters/network.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/filters/network_matchers.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/filters/token_selector.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/containers/fb_index.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/containers/flat_map.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/containers/flat_multimap.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/containers/flat_serialize.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/containers/flat_set.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/containers/hash_index.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/containers/hash_map.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/containers/hash_set.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/containers/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/containers/sorted_index.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/fb_network_filter_generated.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/unsafe_tools.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/lib.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/lists.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/network_filter_list.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/optimizer.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/regex_manager.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/request.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/resources/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/resources/resource_assembler.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/resources/resource_storage.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/sourcemap.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/url_parser/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/url_parser/parser.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/utils.rs",
+  ]
+  inputs = [
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/blocker.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/content_blocking.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/cosmetic_filter_cache.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/cosmetic_filter_cache_builder.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/cosmetic_filter_utils.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/data_format/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/engine.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/filters/abstract_network.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/filters/cosmetic.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/filters/fb_builder.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/filters/fb_network.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/filters/fb_network_builder.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/filters/filter_data_context.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/filters/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/filters/network.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/filters/network_matchers.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/filters/token_selector.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/containers/fb_index.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/containers/flat_map.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/containers/flat_multimap.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/containers/flat_serialize.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/containers/flat_set.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/containers/hash_index.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/containers/hash_map.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/containers/hash_set.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/containers/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/containers/sorted_index.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/fb_network_filter.fbs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/fb_network_filter_generated.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/flatbuffers/unsafe_tools.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/lib.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/lists.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/network_filter_list.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/optimizer.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/regex_manager.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/request.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/resources/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/resources/resource_assembler.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/resources/resource_storage.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/sourcemap.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/url_parser/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/url_parser/parser.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/src/utils.rs",
+  ]
+
+  build_native_rust_unit_tests = false
+  edition = "2024"
+  cargo_pkg_authors = "Anton Lazarev <alazarev@brave.com>, Andrius Aucinas"
+  cargo_pkg_name = "adblock"
+  cargo_pkg_description = "Native Rust module for Adblock Plus syntax (e.g. EasyList, EasyPrivacy) filter parsing and matching."
+  cargo_pkg_repository = "https://github.com/brave/adblock-rust/"
+  cargo_pkg_version = "0.13.5"
+  rustc_metadata = "airc-blocking-${crate_name}-${cargo_pkg_version}"
+
+  allow_unsafe = true
+
+  deps = [
+    "//airc/core/blocking-rust/third_party/addr/v0_15:airc_lib",
+    "//airc/core/blocking-rust/third_party/arrayvec/v0_7:airc_lib",
+    "//airc/core/blocking-rust/third_party/base64/v0_22:airc_lib",
+    "//airc/core/blocking-rust/third_party/bitflags/v2:airc_lib",
+    "//airc/core/blocking-rust/third_party/flatbuffers/v25:airc_lib",
+    "//airc/core/blocking-rust/third_party/idna/v1:airc_lib",
+    "//airc/core/blocking-rust/third_party/itertools/v0_14:airc_lib",
+    "//airc/core/blocking-rust/third_party/memchr/v2:airc_lib",
+    "//airc/core/blocking-rust/third_party/percent_encoding/v2:airc_lib",
+    "//airc/core/blocking-rust/third_party/regex/v1:airc_lib",
+    "//airc/core/blocking-rust/third_party/rustc_hash/v2:airc_lib",
+    "//airc/core/blocking-rust/third_party/seahash/v4:airc_lib",
+    "//airc/core/blocking-rust/third_party/serde/v1:airc_lib",
+    "//airc/core/blocking-rust/third_party/serde_json/v1:airc_lib",
+    "//airc/core/blocking-rust/third_party/thiserror/v1:airc_lib",
+  ]
+  features = [
+    "addr",
+    "content-blocking",
+    "embedded-domain-resolver",
+    "full-regex-handling",
+  ]
+
+  visibility = []
+  visibility += [ "//build/rust/*" ]
+  visibility += [ "//airc/core/blocking-rust/*" ]
+
+  #####################################################################
+  # Tweaking which GN `config`s apply to this target.
+
+  # Config changes that apply to all `//third_party/rust` crates.
+  _configs_to_remove = [
+    # We don't need code coverage data for any `chromium_crates_io` crates.
+    "//build/config/coverage:default_coverage",
+
+    # This is third-party code, so remove `chromium_code` config.  We are not
+    # at the same time adding `//build/config/compiler:no_chromium_code`,
+    # because 1) we don't want to pull how warnings are handled by that config
+    # and 2) that config doesn't have any non-warnings-related stuff.
+    "//build/config/compiler:chromium_code",
+  ]
+  _configs_to_add = []
+
+  # Changing (if needed) which configs apply to this specific crate (based on
+  # `extra_kv.configs_to_remove` and `extra_kv.configs_to_add` from
+  # `gnrt_config.toml`).
+  _configs_to_remove += []
+  _configs_to_add += []
+
+  # Applying config changes.
+  library_configs -= _configs_to_remove
+  library_configs += _configs_to_add
+  executable_configs -= _configs_to_remove
+  executable_configs += _configs_to_add
+  proc_macro_configs -= _configs_to_remove
+  proc_macro_configs += _configs_to_add
+}

@@ -18,6 +18,7 @@ echo "${0##*/}: starting"
 fail() { echo "prepare-mac.sh: $*" >&2; exit 1; }
 phase="validating candidate metadata and signature"
 ROOT=$PWD
+source infra/updates/dev-paths.sh
 : "${AIRC_UPDATE_FEED:?Set the dev feed}"
 APP="$ROOT/build/Airc-Chromium.app"
 OUT="$ROOT/build/dev-update"
@@ -81,7 +82,7 @@ ditto -c -k --sequesterRsrc --keepParent "$OUT/Airc.app" "$OUT/update.zip"
 cp "$STAGED" "$OUT/Info.plist"
 # Up to three acknowledged published source apps, plus one pending copy. Keys stay on the Mac.
 phase="generating deltas and recording cache"
-python3 scripts/release/deltas.py "$OUT/Airc.app" "$OUT" "$HOME/arcfork/updates-cache.noindex/dev"
+python3 scripts/release/deltas.py "$OUT/Airc.app" "$OUT" "$DEV_CACHE_DIR"
 shasum -a 256 "$OUT/update.zip" > "$OUT/sha256.txt"
 # The smoke launched the staged copy, which registered it with Launch Services under the owner's identity: unregister it
 # before deleting it, or links from other apps go to a missing app.

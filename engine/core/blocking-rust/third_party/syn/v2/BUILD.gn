@@ -1,0 +1,194 @@
+# Copyright 2023 The Chromium Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+# @generated from third_party/rust/chromium_crates_io/BUILD.gn.hbs by
+# tools/crates/gnrt.
+# Do not edit!
+
+import("//build/rust/cargo_crate.gni")
+
+cargo_crate("airc_lib") {
+  crate_name = "syn"
+  epoch = "2"
+  crate_type = "rlib"
+  crate_root =
+      "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/lib.rs"
+  sources = [
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/attr.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/bigint.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/buffer.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/classify.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/custom_keyword.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/custom_punctuation.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/data.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/derive.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/discouraged.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/drops.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/error.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/export.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/expr.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/ext.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/file.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/fixup.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/gen/clone.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/gen/debug.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/gen/eq.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/gen/fold.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/gen/hash.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/gen/visit.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/gen/visit_mut.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/generics.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/group.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/ident.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/item.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/lib.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/lifetime.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/lit.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/lookahead.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/mac.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/macros.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/meta.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/op.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/parse.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/parse_macro_input.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/parse_quote.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/pat.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/path.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/precedence.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/print.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/punctuated.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/restriction.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/scan_expr.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/sealed.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/span.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/spanned.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/stmt.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/thread.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/token.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/tt.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/ty.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/verbatim.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/whitespace.rs",
+  ]
+  inputs = [
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/attr.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/bigint.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/buffer.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/classify.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/custom_keyword.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/custom_punctuation.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/data.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/derive.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/discouraged.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/drops.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/error.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/export.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/expr.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/ext.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/file.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/fixup.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/gen/clone.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/gen/debug.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/gen/eq.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/gen/fold.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/gen/hash.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/gen/token.css",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/gen/visit.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/gen/visit_mut.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/generics.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/group.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/ident.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/item.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/lib.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/lifetime.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/lit.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/lookahead.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/mac.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/macros.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/meta.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/op.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/parse.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/parse_macro_input.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/parse_quote.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/pat.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/path.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/precedence.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/print.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/punctuated.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/restriction.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/scan_expr.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/sealed.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/span.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/spanned.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/stmt.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/thread.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/token.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/tt.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/ty.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/verbatim.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/src/whitespace.rs",
+  ]
+
+  build_native_rust_unit_tests = false
+  edition = "2021"
+  cargo_pkg_authors = "David Tolnay <dtolnay@gmail.com>"
+  cargo_pkg_name = "syn"
+  cargo_pkg_description = "Parser for Rust source code"
+  cargo_pkg_repository = "https://github.com/dtolnay/syn"
+  cargo_pkg_version = "2.0.119"
+  rustc_metadata = "airc-blocking-${crate_name}-${cargo_pkg_version}"
+
+  allow_unsafe = true
+
+  deps = [
+    "//airc/core/blocking-rust/third_party/proc_macro2/v1:airc_lib",
+    "//airc/core/blocking-rust/third_party/quote/v1:airc_lib",
+    "//airc/core/blocking-rust/third_party/unicode_ident/v1:airc_lib",
+  ]
+  features = [
+    "clone-impls",
+    "default",
+    "derive",
+    "parsing",
+    "printing",
+    "proc-macro",
+  ]
+
+  # Only for usage from third-party crates. Add the crate to
+  # //airc/core/blocking-rust/third_party/chromium_crates_io/Cargo.toml to use
+  # it from first-party code.
+  visibility = [ "//airc/core/blocking-rust/third_party/*" ]
+  visibility += [ "//build/rust/*" ]
+  visibility += [ "//airc/core/blocking-rust/*" ]
+
+  #####################################################################
+  # Tweaking which GN `config`s apply to this target.
+
+  # Config changes that apply to all `//third_party/rust` crates.
+  _configs_to_remove = [
+    # We don't need code coverage data for any `chromium_crates_io` crates.
+    "//build/config/coverage:default_coverage",
+
+    # This is third-party code, so remove `chromium_code` config.  We are not
+    # at the same time adding `//build/config/compiler:no_chromium_code`,
+    # because 1) we don't want to pull how warnings are handled by that config
+    # and 2) that config doesn't have any non-warnings-related stuff.
+    "//build/config/compiler:chromium_code",
+  ]
+  _configs_to_add = []
+
+  # Changing (if needed) which configs apply to this specific crate (based on
+  # `extra_kv.configs_to_remove` and `extra_kv.configs_to_add` from
+  # `gnrt_config.toml`).
+  _configs_to_remove += []
+  _configs_to_add += []
+
+  # Applying config changes.
+  library_configs -= _configs_to_remove
+  library_configs += _configs_to_add
+  executable_configs -= _configs_to_remove
+  executable_configs += _configs_to_add
+  proc_macro_configs -= _configs_to_remove
+  proc_macro_configs += _configs_to_add
+}

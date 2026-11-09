@@ -277,15 +277,16 @@ void StartPictureInPictureObserver() {
 namespace airc {
 namespace {
 const char kPlacedPip = 0;
-NSRect SavedFrame(Profile* profile) {
+NSRect SavedFrame(Profile* profile, bool document = false) {
   const std::string* frame = profile->GetPrefs()->GetDict(prefs::kAppWindowPlacement)
-      .FindString("airc_pip_frame");
+      .FindString(document ? "airc_document_pip_frame" : "airc_pip_frame");
   return frame ? NSRectFromString(base::SysUTF8ToNSString(*frame)) : NSZeroRect;
 }
-void SaveFrame(Profile* profile, NSRect frame) {
+void SaveFrame(Profile* profile, NSRect frame, bool document = false) {
+  const char* key = document ? "airc_document_pip_frame" : "airc_pip_frame";
   ScopedDictPrefUpdate update(profile->GetPrefs(), prefs::kAppWindowPlacement);
-  if (NSIsEmptyRect(frame)) update->Remove("airc_pip_frame");
-  else update->Set("airc_pip_frame", base::SysNSStringToUTF8(NSStringFromRect(frame)));
+  if (NSIsEmptyRect(frame)) update->Remove(key);
+  else update->Set(key, base::SysNSStringToUTF8(NSStringFromRect(frame)));
 }
 NSWindow* PipWindow() {
   auto* manager = PictureInPictureWindowManager::GetInstance();
@@ -346,24 +347,51 @@ bool AutoPipAllowed(content::WebContents* contents) {
   return settings->GetDefaultContentSetting(ContentSettingsType::AUTO_PICTURE_IN_PICTURE,
                                             nullptr) != CONTENT_SETTING_BLOCK;
 }
+// The video's own shape (its natural size), else the window's as Chromium fitted it; 0 for Document PiP, whose page
+// picks its size.
+double PipAspect(content::WebContents* opener, NSWindow* window) {
+  if (PictureInPictureWindowManager::GetInstance()->GetChildWebContents()) return 0;
+  if (auto* video = VideoOverlay(opener); video && !video->GetNaturalSize().IsEmpty())
+    return static_cast<double>(video->GetNaturalSize().width()) / video->GetNaturalSize().height();
+  return window.frame.size.height > 0 ? window.frame.size.width / window.frame.size.height : 0;
+}
+// The remembered placement is a corner position and a size (its area), never a shape: each video keeps its own
+// aspect ratio, as macOS's picture in picture does, and the window fits the screen's visible frame.
 void PlacePipWindow() {
   InstallAppOverlay();
   auto* opener = PictureInPictureWindowManager::GetInstance()->GetWebContents();
   NSWindow* window = PipWindow();
   if (!opener || !window || !SwitchOn("pipPlacement")) return;
   auto* profile = Profile::FromBrowserContext(opener->GetBrowserContext());
-  NSRect saved = SavedFrame(profile);
+  const bool document = PictureInPictureWindowManager::GetInstance()->GetChildWebContents() != nullptr;
+  NSRect saved = SavedFrame(profile, document);
   NSScreen* screen = opener->GetTopLevelNativeWindow().GetNativeNSWindow().screen ?: NSScreen.mainScreen;
   for (NSScreen* candidate in NSScreen.screens)
     if (!NSIsEmptyRect(NSIntersectionRect(candidate.visibleFrame, saved))) { screen = candidate; break; }
   NSRect area = NSInsetRect(screen.visibleFrame, 20, 20);
-  NSRect frame = NSIsEmptyRect(saved) ? window.frame : saved;
-  frame.size.width = MIN(frame.size.width, area.size.width);
-  frame.size.height = MIN(frame.size.height, area.size.height);
-  if (NSIsEmptyRect(saved)) frame.origin = NSMakePoint(NSMaxX(area)-frame.size.width, NSMinY(area));
+  NSRect frame = window.frame;
+  double aspect = PipAspect(opener, window);
+  if (!NSIsEmptyRect(saved) && aspect > 0) {
+    double size = saved.size.width * saved.size.height;
+    frame.size = NSMakeSize(std::sqrt(size * aspect), std::sqrt(size / aspect));
+  }
+  // Document PiP already has Chromium's requested/cached viewport and min/max
+  // constraints. Only video gets our additional proportional screen fit.
+  if (!document) {
+    double fit = MIN(1.0, MIN(area.size.width / frame.size.width, area.size.height / frame.size.height));
+    frame.size = NSMakeSize(std::floor(frame.size.width * fit), std::floor(frame.size.height * fit));
+  }
+  if (NSIsEmptyRect(saved)) {
+    frame.origin = NSMakePoint(NSMaxX(area)-frame.size.width, NSMinY(area));
+  } else {
+    // The saved window's corner nearest the screen's stays where it was.
+    bool right = NSMidX(saved) > NSMidX(area), top = NSMidY(saved) > NSMidY(area);
+    frame.origin = NSMakePoint(right ? NSMaxX(saved)-frame.size.width : NSMinX(saved),
+                               top ? NSMaxY(saved)-frame.size.height : NSMinY(saved));
+  }
   frame.origin.x = MAX(NSMinX(area), MIN(frame.origin.x, NSMaxX(area)-frame.size.width));
   frame.origin.y = MAX(NSMinY(area), MIN(frame.origin.y, NSMaxY(area)-frame.size.height));
-  ConfigurePipWindow(window);
+  ConfigurePipWindow(window, document);
   [window setFrame:frame display:YES];
   objc_setAssociatedObject(window, &kPlacedPip, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
   // Notifications are process-scoped; only the current PiP is persisted.
@@ -371,8 +399,13 @@ void PlacePipWindow() {
 void SavePipFrame(NSNotification* note) {
   NSWindow* window = PipWindow();
   auto* opener = PictureInPictureWindowManager::GetInstance()->GetWebContents();
-  if (window && objc_getAssociatedObject(window, &kPlacedPip) && note.object == window && opener && SwitchOn("pipPlacement"))
-    SaveFrame(Profile::FromBrowserContext(opener->GetBrowserContext()), window.frame);
+  if (!window || !objc_getAssociatedObject(window, &kPlacedPip) || note.object != window || !opener ||
+      !SwitchOn("pipPlacement")) return;
+  // A frame that isn't the video's shape (the app's collapsed pill, a step of its animation) is never remembered.
+  double aspect = PipAspect(opener, window), now = window.frame.size.width / MAX(1.0, window.frame.size.height);
+  if (aspect > 0 && std::abs(now / aspect - 1) > 0.02) return;
+  SaveFrame(Profile::FromBrowserContext(opener->GetBrowserContext()), window.frame,
+            PictureInPictureWindowManager::GetInstance()->GetChildWebContents() != nullptr);
 }
 }  // namespace
 }  // namespace airc
@@ -418,6 +451,7 @@ void SavePipFrame(NSNotification* note) {
   if (self.destroyed || !self.chromeProfile || !std::isfinite(frame.origin.x) ||
       !std::isfinite(frame.origin.y) || !std::isfinite(frame.size.width) || !std::isfinite(frame.size.height)) return;
   airc::SaveFrame(self.chromeProfile, frame);
+  if (NSIsEmptyRect(frame)) airc::SaveFrame(self.chromeProfile, frame, true);
   auto* opener = PictureInPictureWindowManager::GetInstance()->GetWebContents();
   if (opener && opener->GetBrowserContext() == self.chromeProfile) airc::PlacePipWindow();
 }
@@ -434,8 +468,11 @@ void SavePipFrame(NSNotification* note) {
   if (!self.contents || manager->GetWebContents() != self.contents || !window) return nil;
   bool document = manager->GetChildWebContents() != nullptr;
   auto* video = document ? nullptr : airc::VideoOverlay(self.contents);
+  NSView* document_view = document ? manager->GetChildWebContents()->GetNativeView().GetNativeNSView() : nil;
   return @{@"kind": document ? @"document" : @"video", @"window": window,
            @"appOverlay": objc_getAssociatedObject(window, &airc::kPipOverlay) ?: NSNull.null,
+           @"documentView": document_view ?: NSNull.null,
+           @"topBarHeight": @(document ? airc::DocumentTopBarHeight(window) : 0),
            @"chromeControls": @(video && (video->AreControlsVisible() || video->AreTitleAndScrimVisibleForTesting()))};
 }
 @end

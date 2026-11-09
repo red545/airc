@@ -10,7 +10,8 @@ import AircKit
 /// - on another browser window: it moves there (on its sidebar, to the row the line marks), and that window comes to
 ///   the front;
 /// - on another kind of Airc window (Settings, Little Arc, a private window): nothing.
-/// The window it left goes on to its next free tab (WIN-7). Folders and multi-selections don't leave the window.
+/// The window it left goes on to its next free tab (WIN-7). Folders don't leave the window; a multi-selection (SB-36)
+/// goes only onto another window's sidebar, never into a new window.
 final class TabDragOut {
     enum Target {
         case newWindow
@@ -20,6 +21,9 @@ final class TabDragOut {
 
     private weak var controller: WindowController?
     private let source: DragSource
+    /// SB-36: every dragged row, in order (one for a single row).
+    private let sources: [DragSource]
+    private let carriesFolder: Bool
     private let entry: SidebarEntry
     /// The press in the window (window coordinates): the new window puts the same point under the pointer.
     private let pressInWindow: NSPoint
@@ -37,13 +41,14 @@ final class TabDragOut {
     /// The panel's margin around the ghost, for its shadow.
     private static let margin: CGFloat = 16
 
-    /// nil: this drag can't leave the window (a folder, a multi-selection).
-    init?(controller: WindowController, source: DragSource, entry: SidebarEntry, group: Int, pressInWindow: NSPoint,
-          shownBefore: String?) {
-        guard group == 1 else { return nil }
-        if case .item(let id) = source, controller.store.item(id)?.kind == .folder { return nil }
+    /// nil: this drag can't leave the window (a folder). `sources`: a multi-selection's rows, in order.
+    init?(controller: WindowController, source: DragSource, entry: SidebarEntry, sources: [DragSource], carriesFolder: Bool,
+          pressInWindow: NSPoint, shownBefore: String?) {
+        if sources.count <= 1, case .item(let id) = source, controller.store.item(id)?.kind == .folder { return nil }
         self.controller = controller
         self.source = source
+        self.sources = sources.count > 1 ? sources : [source]
+        self.carriesFolder = carriesFolder
         self.entry = entry
         self.pressInWindow = pressInWindow
         self.shownBefore = shownBefore
@@ -79,7 +84,9 @@ final class TabDragOut {
             if hoveredPage !== page { clearHover() }
             hoveredPage = page
             destination = page.dropDestination(at: page.convert(other.window.convertPoint(fromScreen: p), from: nil),
-                                               source: source, entry: entry)
+                                               source: source, entry: entry, carriesFolder: carriesFolder)
+            // A selection lands in a list, never in a split.
+            if sources.count > 1, case .split? = destination { destination = nil; page.hideDropIndicator() }
         } else {
             clearHover()
         }
@@ -94,7 +101,9 @@ final class TabDragOut {
         guard drop else { return true }
         let p = c.window.convertPoint(toScreen: windowPoint)
         switch Self.target(at: p, from: c, below: panel?.windowNumber ?? 0) {
+        case .newWindow where sources.count > 1: break
         case .newWindow: c.dropInNewWindow(source, at: p, pressInWindow: pressInWindow, returnTo: shownBefore)
+        case .window(let other) where sources.count > 1: c.drop(sources, into: other, at: destination)
         case .window(let other): c.drop(source, into: other, at: destination, returnTo: shownBefore)
         case .none: break
         }

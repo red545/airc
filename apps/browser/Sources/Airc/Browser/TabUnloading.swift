@@ -137,6 +137,7 @@ extension WindowController {
     }
 
     func pageVisibilityChanged(hidden: String?, shown: String?) {
+        linkPreviewPageHidden(hidden)   // a link preview card over a page going out of sight goes with it
         applyKeepLoadedPolicy()
         if let shown { hiddenSince[shown] = nil }
         if let hidden, appUnloads(engineTab(for: hidden)), !keepsLoaded(hidden) { hiddenSince[hidden] = Date() }
@@ -214,7 +215,6 @@ extension WindowController {
                     // The engine keeps a page its checks protect (a call, an active media session): asked again later.
                     if page.discard() { self.hiddenSince[id] = nil; self.scheduleReload() } else { self.hiddenSince[id] = Date() }
                 } else {
-                    if let state = (page as? WebKitTab)?.unloadState { self.unloadedStates[id] = state }
                     self.unloadPage(id)
                     self.scheduleReload()
                 }
@@ -226,6 +226,20 @@ extension WindowController {
 
     /// A Chromium page of the Chromium build (the engine discards it; the app closes its WebKit pages).
     private func isChromiumPage(_ page: EngineTab) -> Bool { !appUnloads && !ProtectedMedia.isWebKitPage(page) }
+
+    /// All explicit unload callers share the timer's native restoration path. A
+    /// closed pane is still ordinary cleanup; it must not acquire restorable state.
+    func unloadPagePreservingState(_ tabID: String) {
+        guard let page = engineTab(for: tabID), !page.isClosed else { return dropPage(tabID) }
+        if isChromiumPage(page) {
+            // Keep the native navigation entry and the app's page mapping. A refused
+            // discard (visible, dirty, playing, etc.) must never fall through to close.
+            if page.discard() { hiddenSince[tabID] = nil; scheduleReload() }
+            return
+        }
+        if let state = (page as? WebKitTab)?.unloadState { unloadedStates[tabID] = state }
+        dropPage(tabID)
+    }
 
     /// Typed-in form input, or (WebKit) sound WebKit says is playing (media outside the document and Web Audio too), a
     /// media session playing, or a video or sound in the document still playing (the page script's sound report misses

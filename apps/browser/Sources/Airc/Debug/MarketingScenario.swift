@@ -40,23 +40,47 @@ extension SnapshotRunner {
         let part = ProcessInfo.processInfo.environment["AIRC_MARKETING_PART"] ?? "browser"
         let d = MarketingDemo()
         note("marketing: part \(part)")
+        if part == "blocking" { mkBlockingShots(); return }
         mkPrepare(d)
         if part == "onboarding" {
             mkOnboardingShots()
+        } else if part == "arcimport2" {
+            arcImport2Scenario(marketing: true)
         } else {
             mkSeed(d)
             switch part {
+            case "boostsplus": mkBoostSharingShot()
+            case "profilesignin": mkProfileSignInShot()
             case "browser": mkBrowserShots(d)
+            case "smallwins": mkSmallwinsShots()
+            case "archive": mkArchiveShots()
             case "views": mkViewShots(d)
             case "media": mkMediaShots(d)
             case "calls": mkCallShots(d)
+            case "media2": mkMedia2Shots(d)
+            case "routing": mkRoutingShots(d)
             case "settings": mkSettingsShots(d)
+            case "sync": mkSyncShots(d)
             case "drm": mkDRMShots(d)
             case "basics": mkBasicsShots(d)
             case "previews": mkPreviewShots(d)
             case "windows": mkWindowsShots(d)
             case "sidebarright": mkSidebarRightShots(d)
+            case "multiselect": mkMultiSelectShots(d)
+            case "parityp01": mkParityP01Shots(d)
+            case "parityp21b": mkParityP21bShots(d)   // MarketingParityP21b.swift: What's New, the question, App Icon
+            case "capture": mkCaptureShots(d)
+            case "notes": mkNotesShots(d)
+            case "parityp07": mkParityP07Shots(d)   // MarketingParityP07.swift: Site Search
+            case "parityp03b": mkParityP03bShots(d)   // MarketingParityP03b.swift: the Command Bar's ✕ on a history row
+            case "parityp09": mkParityP09Shots(d)   // MarketingParityP09.swift: extensions in the toolbar
+            case "parityp20d": mkParityP20dShots(d)   // MarketingParityP20d.swift: the Task Manager
+            case "library": mkLibraryShots(d)
+            case "parityp10": mkParityP10Shots(d)   // MarketingParityP10.swift: Library folders and Notes
             case "shortcuts": mkShortcutsShots(d)
+            case "arcbits": mkArcbitsShots()
+            case "devmode": mkDeveloperModeShots()
+            case "ai": MainActor.assumeIsolated { mkAIShots(d) }
             default: note("marketing: unknown part \(part)")
             }
         }

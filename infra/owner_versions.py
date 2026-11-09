@@ -42,9 +42,13 @@ def owner_versions(status):
         data['attempted'] = now
         # Persist failed attempts too: offline Macs must not get polled every cron tick.
         cache.write_text(json.dumps(data))
+        # Owner installation telemetry must never silently query the build host.
+        host = os.environ.get('AIRC_OWNER_MAC_HOST')
+        if not host:
+            return data
         try:
             result = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
-                                     os.environ.get('AIRC_MAC_HOST', 'mac'),
+                                     host,
                                      'python3 -c ' + shlex.quote(REMOTE)],
                                     capture_output=True, text=True, timeout=20, check=True)
             values = json.loads(result.stdout)

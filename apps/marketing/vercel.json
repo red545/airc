@@ -4,9 +4,7 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm build",
   "outputDirectory": "dist",
-  "git": {
-    "deploymentEnabled": false
-  },
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ../../docs/user ../../docs/release-notes-beta.md ../../assets/screenshots ../../CHROMIUM_VERSION",
   "headers": [
     {
       "source": "/_astro/(.*)",

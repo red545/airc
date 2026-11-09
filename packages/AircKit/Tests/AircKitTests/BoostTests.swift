@@ -94,10 +94,44 @@ final class BoostTests: XCTestCase {
         XCTAssertTrue(css.contains("font-family: Georgia, \"Times New Roman\", serif !important"), css)
         XCTAssertTrue(css.contains("pre, pre *, code, code *"), "code keeps its face")
         XCTAssertTrue(css.contains(".material-icons"), "icon fonts keep their face")
-        XCTAssertTrue(css.contains("body { zoom: 1.1 !important; }"), css)
+        XCTAssertFalse(css.contains("zoom"), "the size is the page's zoom, never CSS zoom (it made 100vh layouts overflow)")
         b.font = BoostFont(family: nil, size: 99)
         XCTAssertEqual(b.font.scale, 1.5, "out-of-range steps clamp")
         XCTAssertFalse(BoostStyle.generated(for: b).contains("font-family"))
+        XCTAssertEqual(BoostStyle.generated(for: b), "", "a size alone adds no CSS")
+        XCTAssertFalse(b.isEmpty, "but it's still a Boost")
+    }
+
+    func testTextCaseAndSaturation() {
+        var b = Boost(domain: "example.com")
+        b.font = BoostFont(textCase: .uppercase)
+        let css = BoostStyle.generated(for: b)
+        XCTAssertTrue(css.contains("text-transform: uppercase !important"), css)
+        XCTAssertTrue(css.contains("input, textarea"), "fields and code keep their case")
+        b.font.textCase = "smallcaps"
+        XCTAssertFalse(BoostStyle.generated(for: b).contains("text-transform"), "an unknown case keeps the site's")
+        XCTAssertTrue(b.font.isDefault)
+        b.colors = BoostColors(saturation: 0.4)
+        XCTAssertTrue(BoostStyle.generated(for: b).contains("filter: saturate(0.4) !important"), BoostStyle.generated(for: b))
+        XCTAssertFalse(b.colors.isDefault)
+    }
+
+    /// A frame of a page on the same site adds what a frame adds itself: its page's filter and tint already cover it,
+    /// and the invert its page takes back for frames is put on again.
+    func testFrameStyleAddsNoSecondFilterOrTint() {
+        var b = Boost(domain: "example.com")
+        b.colors = BoostColors(hue: 0.3, tint: 0.4, brightness: 0.8, contrast: 1.2, saturation: 0.5, invert: false)
+        b.font = BoostFont(family: .charter)
+        b.zaps = [BoostZap(selector: ".ad", label: "Ad")]
+        let frame = BoostStyle.generated(for: b, frame: true)
+        XCTAssertFalse(frame.contains("filter") || frame.contains("::after"), frame)
+        XCTAssertTrue(frame.contains("Charter") && frame.contains(".ad { display: none"), frame)
+        b.colors.invert = true
+        let inverted = BoostStyle.generated(for: b, frame: true)
+        XCTAssertTrue(inverted.contains("html { filter: invert(1) hue-rotate(180deg) !important; }"), inverted)
+        XCTAssertFalse(inverted.contains("brightness") || inverted.contains(":where(html)"), inverted)
+        let script = BoostPageScript.source(boosts: [b], version: 1)
+        XCTAssertTrue(script.contains("\"gf\""), "the map carries the frame's style when it differs")
     }
 
     func testEachZapIsItsOwnRuleAndBadSelectorsAreDropped() {
@@ -209,6 +243,39 @@ final class BoostTests: XCTestCase {
         var document = new Document(); document.readyState = 'loading';
         var getComputedStyle = function () { return { backgroundColor: 'rgba(0, 0, 0, 0)' }; };
         var crypto = { getRandomValues: function (a) { for (var i = 0; i < a.length; i++) a[i] = Math.floor(Math.random() * 4294967296); return a; } };
+        // Just enough of URL, fetch, Response and Headers for the imports: `served` is what the fake origin answers.
+        var served = {}, fetched = [];
+        function URL(u, base) {
+          var m = new RegExp('^(https?:)//([^/?#]+)(.*)$').exec(u);
+          if (!m && /^[a-z][a-z0-9+.-]*:/i.test(u)) { this.protocol = u.slice(0, u.indexOf(':') + 1).toLowerCase(); this.origin = 'null'; this.href = u; return; }
+          if (!m) {
+            var b = new RegExp('^(https?:)//([^/?#]+)(/[^?#]*)?').exec(base || '');
+            if (!b) throw new TypeError('Invalid URL');
+            if (u.slice(0, 2) === '//') return URL.call(this, b[1] + u, base);
+            var dir = u.charAt(0) === '/' ? '' : (b[3] || '/').replace(/[^/]*$/, '');
+            m = [null, b[1], b[2], (u.charAt(0) === '/' ? '' : dir) + u];
+          }
+          this.protocol = m[1]; this.host = m[2]; this.origin = m[1] + '//' + m[2]; this.href = m[1] + '//' + m[2] + (m[3] || '/');
+        }
+        function Headers(h) { this.h = h; }
+        Headers.prototype.get = function (k) { return this.h[k.toLowerCase()] || null; };
+        function Response(body, type, ok) { this.body = body; this.ok = ok; this.headers = new Headers({ 'content-type': type }); }
+        Response.prototype.text = function () { return Promise.resolve(this.body); };
+        function fetch(href, init) {
+          fetched.push(href + ' ' + init.mode + ' ' + init.credentials);
+          var s = served[href];
+          return s ? Promise.resolve(new Response(s[0], s[1], s[2] !== false)) : Promise.reject(new TypeError('Failed to fetch'));
+        }
+        function atob(s) {
+          var abc = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/', out = '', bits = 0, n = 0;
+          for (var i = 0; i < s.length; i++) {
+            var v = abc.indexOf(s.charAt(i)); if (v < 0) continue;
+            bits = (bits << 6) | v; n += 6;
+            if (n >= 8) { n -= 8; out += String.fromCharCode((bits >> n) & 255); }
+          }
+          return out;
+        }
+        function failures() { return posted.filter(function (p) { return p[0] === 'boost.importFailed'; }).map(function (p) { return JSON.parse(p[1]); }); }
         function styles() { return adopted.map(function (s) { return s.text; }).join(''); }
         function ready() {
           for (var i = posted.length - 1; i >= 0; i--) if (posted[i][0] === 'boost.ready') return JSON.parse(posted[i][1]);
@@ -221,11 +288,17 @@ final class BoostTests: XCTestCase {
         try XCTUnwrap(PageScriptComposer.compose(parts: [("boost", BoostPageScript.source(boosts: boosts, version: version))], base: nil))
     }
 
-    static func page(_ script: String, protocol scheme: String, hostname: String, origin: String) throws -> JSContext {
+    static func page(_ script: String, protocol scheme: String, hostname: String, origin: String,
+                     href: String? = nil, frameIn pageOrigin: String? = nil, served: [String: (String, String)] = [:]) throws -> JSContext {
         let js = try XCTUnwrap(JSContext())
         js.evaluateScript(fakePage)
-        let location = BoostPageScript.json(["protocol": scheme, "hostname": hostname, "origin": origin])
-        js.evaluateScript("var location = \(location);")
+        var loc: [String: Any] = ["protocol": scheme, "hostname": hostname, "origin": origin, "href": href ?? origin + "/"]
+        if let pageOrigin {
+            loc["ancestorOrigins"] = [pageOrigin]
+            js.evaluateScript("window.top = {};")
+        }
+        js.evaluateScript("var location = \(BoostPageScript.json(loc));")
+        for (url, answer) in served { js.evaluateScript("served[\(BoostPageScript.json(url))] = \(BoostPageScript.json([answer.0, answer.1]));") }
         js.evaluateScript("var receive = (\(script))(function (kind, json) { posted.push([kind, json]); });")
         XCTAssertNil(js.exception, "\(js.exception!)")
         return js

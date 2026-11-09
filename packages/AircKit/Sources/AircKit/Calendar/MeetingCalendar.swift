@@ -106,6 +106,66 @@ public enum CalendarSites {
         default: return false
         }
     }
+
+    /// The Calendar Favorite's page for a new event (Arc's hover card "+", which links to Google's event editor), in
+    /// the same account (`/u/N/`). nil for calendars without one we know.
+    public static func newEventURL(_ favorite: String) -> URL? {
+        guard isCalendarFavorite(favorite), let c = URLComponents(string: favorite), let host = c.host?.lowercased() else { return nil }
+        switch host {
+        case "calendar.google.com": return URL(string: "https://calendar.google.com/calendar/u/\(googleAccount(c.path))/r/eventedit")
+        case "outlook.live.com", "outlook.office.com", "outlook.office365.com": return URL(string: "https://\(host)/calendar/0/deeplink/compose")
+        default: return nil
+        }
+    }
+
+    /// The Calendar Favorite's page for one day (a meeting picked in the hover card). nil for calendars without one we
+    /// know.
+    public static func dayURL(_ favorite: String, day: Date, calendar: Calendar = .current) -> URL? {
+        guard isCalendarFavorite(favorite), let c = URLComponents(string: favorite), let host = c.host?.lowercased() else { return nil }
+        let d = calendar.dateComponents([.year, .month, .day], from: day)
+        guard let y = d.year, let m = d.month, let n = d.day else { return nil }
+        switch host {
+        case "calendar.google.com": return URL(string: "https://calendar.google.com/calendar/u/\(googleAccount(c.path))/r/day/\(y)/\(m)/\(n)")
+        case "outlook.live.com", "outlook.office.com", "outlook.office365.com": return URL(string: "https://\(host)/calendar/0/view/day/\(y)/\(m)/\(n)")
+        default: return nil
+        }
+    }
+
+    /// Google's account index in `/calendar/u/N/…` (0 when there's none).
+    private static func googleAccount(_ path: String) -> Int {
+        let parts = path.split(separator: "/")
+        guard let i = parts.firstIndex(of: "u"), i + 1 < parts.count, let n = Int(parts[i + 1]), n >= 0 else { return 0 }
+        return n
+    }
+}
+
+/// How long before a meeting the sidebar's Join prompt comes (Arc's "Show Meeting Link" times, from the Calendar
+/// Favorite's menu).
+public enum JoinLead: String, Codable, CaseIterable, Sendable {
+    case tenMinutes, fiveMinutes, twoMinutes, onStart
+
+    public var seconds: TimeInterval {
+        switch self {
+        case .tenMinutes: 600
+        case .fiveMinutes: 300
+        case .twoMinutes: 120
+        case .onStart: 0
+        }
+    }
+
+    /// Arc's menu titles.
+    public var title: String {
+        switch self {
+        case .tenMinutes: "Ten Minutes Before"
+        case .fiveMinutes: "Five Minutes Before"
+        case .twoMinutes: "Two Minutes Before"
+        case .onStart: "On Start"
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        self = JoinLead(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .twoMinutes
+    }
 }
 
 /// When the countdown, the Join prompt and the hover card show what. All of it is a function of the events and the
@@ -119,6 +179,8 @@ public enum MeetingSchedule {
     public static let lateJoin: TimeInterval = 5 * 60
     /// The hover card lists meetings starting in the next 24 hours.
     public static let cardHorizon: TimeInterval = 24 * 60 * 60
+    /// The hover card's Join is the big (primary) one from this long before the start ("a meeting moments away").
+    public static let soonJoin: TimeInterval = 10 * 60
 
     /// Timed events only, in order of start (then end, then ID, so ties are stable).
     static func timed(_ events: [CalendarEvent]) -> [CalendarEvent] {
@@ -148,14 +210,26 @@ public enum MeetingSchedule {
         return m >= 60 ? "in 1h" : "in \(m)m"
     }
 
-    /// The meeting for the sidebar's Join prompt: one with a link, from a minute before its start to five minutes
-    /// after (or its end). `dismissed` holds the IDs the person closed.
-    public static func promptEvent(_ events: [CalendarEvent], now: Date, dismissed: Set<String> = []) -> CalendarEvent? {
+    /// The meeting for the sidebar's Join prompt: one with a link, from `lead` before its start (a minute unless the
+    /// person chose one of Arc's times, JoinLead) to five minutes after (or its end). `dismissed` holds the IDs the
+    /// person closed.
+    public static func promptEvent(_ events: [CalendarEvent], now: Date, dismissed: Set<String> = [],
+                                   lead: TimeInterval = promptLead) -> CalendarEvent? {
         timed(events).first { e in
             guard e.link != nil, !dismissed.contains(e.id) else { return false }
             let r = e.start.timeIntervalSince(now)
-            return r <= promptLead && -r < lateJoin && now < e.end
+            return r <= lead && -r < lateJoin && now < e.end
         }
+    }
+
+    /// ⌃⌘J, Arc's "Open meeting link for your next event": the meeting whose call it joins. The one the Join prompt
+    /// shows (even if the person closed the prompt), else one with a link that is on now (the latest to start: the one
+    /// you're late for), else the next one with a link starting within a day. nil when there's none.
+    public static func joinTarget(_ events: [CalendarEvent], now: Date, lead: TimeInterval = promptLead) -> CalendarEvent? {
+        if let e = promptEvent(events, now: now, lead: lead) { return e }
+        let linked = timed(events).filter { $0.link != nil && $0.end > now }
+        if let on = linked.filter({ $0.start <= now }).last { return on }
+        return linked.first { $0.start.timeIntervalSince(now) <= cardHorizon }
     }
 
     /// "in 1 min" before the start, "now" after it.
@@ -172,9 +246,9 @@ public enum MeetingSchedule {
     }
 
     /// The next moment anything above changes: a countdown minute ticking over, a meeting entering the hour, the
-    /// prompt's minute, a start, the end of the five late minutes, an end, or a meeting entering the card's day.
+    /// prompt's time (`promptLead` before), the card's big Join (`soonJoin` before), a start, the end of the five late minutes, an end, or a meeting entering the card's day.
     /// nil when nothing is coming.
-    public static func nextBoundary(_ events: [CalendarEvent], now: Date) -> Date? {
+    public static func nextBoundary(_ events: [CalendarEvent], now: Date, promptLead: TimeInterval = promptLead) -> Date? {
         var next: Date?
         func consider(_ t: Date) { if t > now, next.map({ t < $0 }) ?? true { next = t } }
         for e in timed(events) where e.end > now || e.start.addingTimeInterval(lateJoin) > now {
@@ -182,6 +256,7 @@ public enum MeetingSchedule {
             consider(e.start.addingTimeInterval(-cardHorizon))
             consider(e.start.addingTimeInterval(-countdownLead))
             consider(e.start.addingTimeInterval(-promptLead))
+            consider(e.start.addingTimeInterval(-soonJoin))
             if r > 0, r <= countdownLead {
                 // The label is ceil(r / 60) minutes; it next changes when r reaches the minute below.
                 let m = (r / 60).rounded(.up)

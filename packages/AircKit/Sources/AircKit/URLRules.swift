@@ -14,6 +14,8 @@ public enum URLRules {
 
     /// SB-2: the URL field shows the host only, with `www.` dropped.
     public static func displayHost(_ url: String) -> String {
+        // A note's address field, Command Bar row and Library row say what it is (Notes.swift).
+        if NoteURL.isNote(url) { return "Note" }
         guard let u = URLComponents(string: url), let host = u.host, !host.isEmpty else {
             if isNewTab(url) { return "" }
             return url
@@ -136,7 +138,39 @@ public enum URLRules {
     /// Markdown link for ⌥⇧⌘C.
     public static func markdownLink(title: String, url: String) -> String {
         let t = title.isEmpty ? displayURL(url) : title
-        return "[\(t.replacingOccurrences(of: "]", with: "\\]"))](\(url))"
+        let label = markdownText(t.components(separatedBy: .newlines).joined(separator: " "))
+        let target = url.replacingOccurrences(of: "\\", with: "%5C")
+            .replacingOccurrences(of: "(", with: "%28").replacingOccurrences(of: ")", with: "%29")
+            .replacingOccurrences(of: "\n", with: "%0A").replacingOccurrences(of: "\r", with: "%0D")
+            .replacingOccurrences(of: " ", with: "%20")
+        return "[\(label)](\(target))"
+    }
+
+    /// Plain selected text stays literal Markdown, including empty lines in a multi-line quote.
+    public static func markdownQuote(title: String, url: String, selection: String) -> String {
+        let text = selection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? title : selection
+        let lines = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        return lines.components(separatedBy: "\n").map { "> " + markdownText($0, lineStart: true) }.joined(separator: "\n")
+            + "\n\n" + markdownLink(title: title, url: url)
+    }
+
+    /// Escapes only what would change the text's meaning, so the copy still reads well where Markdown isn't rendered
+    /// (Slack, Notes): backslashes, brackets and backticks anywhere, and at a line's start a heading, quote or list marker.
+    private static func markdownText(_ text: String, lineStart: Bool = false) -> String {
+        var out = text.reduce(into: "") { result, c in
+            if "\\[]`".contains(c) { result.append("\\") }
+            result.append(c)
+        }
+        guard lineStart else { return out }
+        let lead = out.prefix { $0 == " " }
+        let rest = out.dropFirst(lead.count)
+        if let first = rest.first, "#>-+*".contains(first) {
+            out = String(lead) + "\\" + String(rest)
+        } else if let dot = rest.firstIndex(where: { $0 == "." || $0 == ")" }), !rest[..<dot].isEmpty,
+                  rest[..<dot].allSatisfy(\.isNumber) {
+            out = String(lead) + String(rest[..<dot]) + "\\" + String(rest[dot...])
+        }
+        return out
     }
 }
 

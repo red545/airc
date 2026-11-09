@@ -1,0 +1,28 @@
+<!doctype html><meta charset="utf-8"><title>Airc passkey fixture</title>
+<style>body{font:18px system-ui;max-width:680px;margin:60px auto}button,input{font:inherit;padding:12px;margin:8px}pre{white-space:pre-wrap}</style>
+<h1>Passkeys on this Mac</h1>
+<p>Synthetic credentials only. Choose “Airc profile” for the local test; iCloud Keychain stores outside the profile.</p>
+<label>Username <input id="username" autocomplete="username webauthn" value="fixture"></label><br>
+<button id="create">Create passkey</button><button id="get">Sign in (picker)</button><button id="conditional">Sign in (autofill)</button><button id="cancel">Cancel</button>
+<pre id="result">Ready</pre>
+<script>
+let controller;
+const challenge=()=>crypto.getRandomValues(new Uint8Array(32));
+const log=value=>document.querySelector('#result').textContent=JSON.stringify(value,null,2);
+async function run(kind) {
+ controller?.abort(); controller=new AbortController();
+ try {
+  const publicKey=kind==='create'?{
+   challenge:challenge(),rp:{name:'Airc synthetic fixture'},
+   user:{id:new Uint8Array([1,2,3]),name:username.value,displayName:'Synthetic fixture'},
+   pubKeyCredParams:[{type:'public-key',alg:-7}],
+   authenticatorSelection:{residentKey:'required',userVerification:'required'},timeout:60000
+  }:{challenge:challenge(),userVerification:'required',timeout:60000};
+  const credential=await navigator.credentials[kind==='create'?'create':'get']({publicKey,
+   signal:controller.signal,...(kind==='conditional'?{mediation:'conditional'}:{})});
+  log({operation:kind,type:credential.type,id:credential.id});
+ }catch(e){log({operation:kind,error:e.name});}
+}
+for(const id of ['create','get','conditional'])document.getElementById(id).onclick=()=>run(id);
+document.getElementById('cancel').onclick=()=>controller?.abort();
+</script>

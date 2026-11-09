@@ -36,7 +36,8 @@ const when = (iso: string) =>
       </div>
       <p class="note">
         Stable updates itself: Airc checks this feed and offers <i>Restart to Update</i> when a verified update is ready.
-        Spotify, Netflix and other DRM sites don't play yet, and Safe Browsing isn't active; the{" "}
+        Spotify, Netflix and other DRM sites open with Safari's engine (playback with a subscription isn't tested yet), and
+        Safe Browsing isn't active; the{" "}
         <a href={latest.notes}>release notes</a> say what else to know.
       </p>
     </section>
@@ -165,10 +166,6 @@ const when = (iso: string) =>
     padding: clamp(48px, 7vw, 96px) clamp(20px, 4vw, 56px);
   }
 
-  @media (prefers-color-scheme: dark) {
-    .versions { --cont: #a0a6b2; }
-  }
-
   .tag {
     --c: var(--t3);
     display: inline-flex;
@@ -241,11 +238,6 @@ const when = (iso: string) =>
 
   .chip-stable { color: #1d7a49; background: rgb(47 158 98 / 0.12); }
   .chip-nightly { color: #6a3fd0; background: rgb(122 76 240 / 0.12); }
-
-  @media (prefers-color-scheme: dark) {
-    .chip-stable { color: #6fd9a0; background: rgb(47 158 98 / 0.2); }
-    .chip-nightly { color: #b9a2f2; background: rgb(122 76 240 / 0.22); }
-  }
 
   .note { margin-top: 16px; max-width: 640px; font-size: 14.5px; line-height: 1.6; font-weight: 500; color: var(--t2); }
   .note b { color: var(--t1); font-weight: 600; }

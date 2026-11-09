@@ -10,7 +10,7 @@ import AircKit
 ///   - the Boost's CSS is there at first paint: the page's own head script, the first parsed elements and its first
 ///     animation frame already see it (no flash), also under a strict Content-Security-Policy;
 ///   - the font, the custom CSS and the custom JS apply, the JS once per page load and only on its own site;
-///   - nothing applies on site B, and the top frame only (an iframe of site A keeps its own style);
+///   - nothing applies on site B; a same-site iframe takes the frame style (BST-3; `--script boosts2` checks frames);
 ///   - editing in the editor changes the open page at once, without a reload;
 ///   - Zap hides the element the click lands on, stores a selector, and the element is hidden from the first paint
 ///     of a reload; undoing it shows it again;
@@ -36,6 +36,9 @@ extension SnapshotRunner {
         let center = { BoostCenter.shared }
         let siteA = "127.0.0.1", siteB = "localhost"
         let editor = { self.c.boostEditor?.model }
+        // The page's adopted sheets but the Space palette's (P07: every web page has Arc's --arc-palette-* sheet).
+        let boostSheets = "Array.prototype.filter.call(document.adoptedStyleSheets, function (s) { return !Array.prototype.some.call(s.cssRules, "
+            + "function (r) { return r.cssText.indexOf('--arc-palette-') >= 0; }); }).length"
         func base(_ host: String) -> String { "http://\(host):\(port)" }
 
         let probe = """
@@ -183,8 +186,9 @@ extension SnapshotRunner {
             $0.contains("invert(1)")
         }
         waitJS("document.documentElement.dataset.boostJs + '/' + window.__boostRuns", "the custom JS runs on its site, once") { $0 == "127.0.0.1/1" }
-        expectJS("document.querySelector('iframe').contentDocument.getElementById('hero') && getComputedStyle(document.querySelector('iframe').contentDocument.getElementById('hero')).color",
-                 "an iframe keeps its own style (top frame only)") { $0 == "rgb(10, 20, 30)" }
+        // BST-3: a frame of the page's own site takes the Boost's style for frames (`--script boosts2` has the rest).
+        waitJS("document.querySelector('iframe').contentDocument.getElementById('hero') && getComputedStyle(document.querySelector('iframe').contentDocument.getElementById('hero')).color",
+               "a same-site iframe takes the Boost's style too") { $0 == "rgb(1, 2, 3)" }
         go({ base(siteA) + "/other" }, title: "other")
         waitJS("document.documentElement.dataset.boostJs + '/' + window.__boostRuns", "another page of the site runs it once too") { $0 == "127.0.0.1/1" }
 
@@ -226,8 +230,10 @@ extension SnapshotRunner {
         }
         run { [self] in editor()?.setFamily(.menlo); editor()?.stepSize(1) }
         waitJS("getComputedStyle(document.body).fontFamily + '|' + getComputedStyle(document.body).zoom", "font and size change at once") {
-            $0.contains("Menlo") && $0.hasSuffix("|1.1")
+            $0.contains("Menlo") && $0.hasSuffix("|1")
         }
+        // The size is the page's zoom (BST-3), not CSS zoom.
+        run { [self] in check(BoostZoom.near(page()?.zoomFactor ?? 0, 1.1), "boosts (\(tag)): the size is the page's zoom (\(page()?.zoomFactor ?? 0))") }
         run { [self] in editor()?.section = .colors }
         wait(0.4)
         capture("boosts-editor-colors")
@@ -393,7 +399,7 @@ extension SnapshotRunner {
             $0 == "\(victim)/1"
         }
         visit(attacker, title: "attacker")
-        expectJS("JSON.stringify([window.__atStart.filter, window.__heroAtParse, document.adoptedStyleSheets.length])",
+        expectJS("JSON.stringify([window.__atStart.filter, window.__heroAtParse, " + boostSheets + "])",
                  "another tenant of duckdns.org gets none of its style") { $0 == #"["none","rgb(10, 20, 30)",0]"# }
         wait(1)
         expectJS("String(document.documentElement.dataset.boostJs) + '/' + String(window.__boostRuns)",
@@ -442,7 +448,7 @@ extension SnapshotRunner {
                   + "(\(delivered.map { $0.kind }); the tab's record: \(page().flatMap { center()?.document(of: $0)?.origin } ?? "gone"))")
             check(page().flatMap { center()?.document(of: $0) } == nil, "boosts (\(tag)): the tab's record of the boosted page is gone")
         }
-        expectJS("JSON.stringify([String(window.__stolen), document.adoptedStyleSheets.length, getComputedStyle(document.getElementById('hero')).color])",
+        expectJS("JSON.stringify([String(window.__stolen), " + boostSheets + ", getComputedStyle(document.getElementById('hero')).color])",
                  "the blob: document got nothing (no message, no style)") { $0.hasPrefix(#"["undefined",0,"#) && !$0.contains("rgb(7, 8, 9)") }
         // Not Back: Chromium's history intervention skips the entry of a page that navigated away without a gesture.
         go({ base(siteA) + "/boost" }, title: "boost")
@@ -487,7 +493,7 @@ extension SnapshotRunner {
         }
         settle()
         visit(victim, title: "victim-held")
-        expectJS("JSON.stringify([window.__atStart.filter, document.adoptedStyleSheets.length])", "a held Boost applies nowhere") { $0 == #"["none",0]"# }
+        expectJS("JSON.stringify([window.__atStart.filter, " + boostSheets + "])", "a held Boost applies nowhere") { $0 == #"["none",0]"# }
         wait(1)
         expectJS("String(document.documentElement.dataset.boostJs)", "a held Boost's code doesn't run") { $0 == "undefined" }
         run { [self] in

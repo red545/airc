@@ -4,7 +4,9 @@
 # Later builds are started by infra/nightly.sh. Does nothing once ~/arcfork/airc-engine.log exists.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-HOST="${AIRC_MAC_HOST:-mac}"
+HOST="${AIRC_MAC_HOST:-buildmac}"
+# Dedicated-host engine changes are serialized and attested by the engine owner.
+[[ $HOST != buildmac ]] || exit 0
 git -C "$ROOT" cat-file -e HEAD:engine/build.sh 2>/dev/null || exit 0
 ssh -o ConnectTimeout=15 -o BatchMode=yes "$HOST" 'zsh -lc "
   [[ -e ~/arcfork/airc-engine.log ]] && exit 0

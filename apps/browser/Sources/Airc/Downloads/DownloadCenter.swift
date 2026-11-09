@@ -76,6 +76,8 @@ final class DownloadCenter: ObservableObject {
         if old == nil, d.state == .inProgress { Telemetry.shared.record(.featureUsed(.downloadStarted)) }
         var item = old ?? Item(profileID: profileID, download: d)
         item.download = d
+        // Tidy Downloads: a file renamed in the Library shows its new name and path (AI/TidyDownloadsFeature.swift).
+        TidyDownloadsFeature.applyRename(&item.download, key: key)
         let now = CACurrentMediaTime()
         if d.state == .inProgress, !d.paused, let s = lastSample[key], d.received > s.bytes, now - s.at > 0.05 {
             let instant = Double(d.received - s.bytes) / (now - s.at)
@@ -91,6 +93,12 @@ final class DownloadCenter: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.finishedLinger + 0.05) { [weak self] in self?.publishSoon() }
         }
         byKey[key] = item
+        // Tidy Downloads (AI/TidyDownloadsFeature.swift): a download that just finished. A small file can arrive
+        // already complete (Chromium); the history replayed at launch can't (it finished more than a minute ago).
+        if d.state == .complete, old?.download.state != .complete,
+           old != nil || (d.endTime.map { Date().timeIntervalSince($0) < 60 } ?? false) {
+            TidyDownloadsFeature.finished(item)
+        }
         if old == nil, let i = retries.firstIndex(where: { $0.profileID == profileID && $0.url == d.url && $0.oldID != d.id }) {
             let r = retries.remove(at: i)
             if let p = profile(profileID) { engine.performDownloadAction(.remove, id: r.oldID, in: p) }
@@ -143,6 +151,14 @@ final class DownloadCenter: ObservableObject {
 
     func item(_ key: String) -> Item? { byKey[key] }
 
+    /// Tidy Downloads renamed this download's file: its row shows the new name.
+    func renamed(_ key: String) {
+        guard var i = byKey[key] else { return }
+        TidyDownloadsFeature.applyRename(&i.download, key: key)
+        byKey[key] = i
+        publishSoon()
+    }
+
     private func profile(_ id: String) -> EngineProfile? { library?.controller?.profiles.engineProfile(for: id) }
 
     // MARK: Actions
@@ -159,11 +175,14 @@ final class DownloadCenter: ObservableObject {
     /// A finished file opens in its app; a running one opens when it's done (toggled).
     func open(_ item: Item) {
         if item.download.state == .complete, let intercept = Self.interceptOpen, intercept(item) { return }
+        // A file Tidy Downloads renamed: the engine only knows its old path.
+        if let url = TidyDownloadsFeature.renamedFile(item) { NSWorkspace.shared.open(url); return }
         perform(.open, item)
     }
 
     func file(_ item: Item) -> URL? {
         guard item.download.state == .complete, !item.download.dangerous, let p = profile(item.profileID) else { return nil }
+        if let renamed = TidyDownloadsFeature.renamedFile(item) { return renamed }
         return engine.downloadedFile(item.download.id, in: p)
     }
 

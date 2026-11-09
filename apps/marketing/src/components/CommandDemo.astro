@@ -1,0 +1,391 @@
+---
+// ⌘T, typing. The two queries and their results are the nightly's command bar captures (06-command-bar, 06b): "wiki"
+// in the Home Space, then "/pin". It types itself while on screen; the page's own command bar is one ⌘K away.
+import { Image } from "astro:assets";
+import home from "../assets/shots/swipe-personal.webp";
+
+type Row = { icon: "w" | "search" | "pin"; title: string; sub?: string; action?: string; keys?: string[] };
+const queries: { text: string; rest: string; glyph: "search" | "cmd"; rows: Row[] }[] = [
+  {
+    text: "wiki",
+    rest: "pedia.org",
+    glyph: "search",
+    rows: [
+      { icon: "w", title: "wikipedia.org", action: "Open" },
+      { icon: "search", title: "wiki", sub: "Search Google" },
+      { icon: "w", title: "Wikitext - Wikipedia", sub: "en.wikipedia.org" },
+      { icon: "w", title: "Lisbon - Wikipedia", sub: "en.wikipedia.org" },
+      { icon: "w", title: "Arc (web browser) - Wikipedia", sub: "en.wikipedia.org" },
+      { icon: "search", title: "wikipedia" },
+    ],
+  },
+  { text: "/pin", rest: "", glyph: "cmd", rows: [{ icon: "pin", title: "Pin Tab", action: "Run", keys: ["⌘", "D"] }] },
+];
+
+// The typed part of a title is bold, as in the app (search suggestions stay plain).
+const bold = (r: Row, typed: string) => {
+  const q = typed.replace(/^\//, "").toLowerCase();
+  const at = r.icon === "search" || !q ? -1 : r.title.toLowerCase().indexOf(q);
+  return at < 0 ? [r.title, "", ""] : [r.title.slice(0, at), r.title.slice(at, at + q.length), r.title.slice(at + q.length)];
+};
+const first = queries[0];
+---
+
+<div class="cbd" data-cbd>
+  <Image class="cbd-page" src={home} widths={[800, 1280, 1600]} sizes="(max-width: 900px) 100vw, 640px" alt="" />
+  <div
+    class="cbd-panel"
+    role="img"
+    aria-label="Airc's command bar over a page: typing “wiki” offers wikipedia.org, a Google search and three open Wikipedia tabs; typing “/pin” offers the Pin Tab command."
+  >
+    <div class="cbd-field" aria-hidden="true">
+      <span class="cbd-glyph" data-glyph={first.glyph}>
+        <svg class="g-search" viewBox="0 0 24 24"><circle cx="10.500" cy="10.500" r="6"></circle><path d="M15 15l5 5"></path></svg>
+        <svg class="g-cmd" viewBox="0 0 24 24"><path d="M9 9V6.500A2.500 2.500 0 1 0 6.500 9H9zm0 0h6m-6 0v6m6-6V6.500A2.500 2.500 0 1 1 17.500 9H15zm0 0v6m0 0h2.500a2.500 2.500 0 1 1-2.500 2.500V15zm0 0H9m0 0v2.500A2.500 2.500 0 1 1 6.500 15H9z"></path></svg>
+      </span>
+      <span class="cbd-input"><span class="cbd-typed">{first.text}</span><span class="cbd-rest">{first.rest}</span></span>
+      <span class="cbd-chip"><span>🏡</span> Personal</span>
+    </div>
+    <ul class="cbd-list" aria-hidden="true">
+      {first.rows.map((r, i) => {
+        const [a, b, c] = bold(r, first.text);
+        return (
+          <li class={i === 0 ? "sel" : undefined}>
+            <span class={`ic ic-${r.icon}`}></span>
+            <span class="t">{a}<b>{b}</b>{c}</span>
+            {r.sub && <span class="s">{r.sub}</span>}
+            {r.action && i === 0 && <span class="a">{r.action}<kbd>↵</kbd></span>}
+          </li>
+        );
+      })}
+    </ul>
+  </div>
+</div>
+
+<script define:vars={{ queries }}>
+  window.__aircCommandQueries = queries;
+</script>
+
+<script>
+  type Row = { icon: string; title: string; sub?: string; action?: string; keys?: string[] };
+  type Query = { text: string; rest: string; glyph: string; rows: Row[] };
+  const queries = (window as any).__aircCommandQueries as Query[];
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  for (const root of document.querySelectorAll<HTMLElement>("[data-cbd]")) {
+    const glyph = root.querySelector<HTMLElement>(".cbd-glyph")!;
+    const typedEl = root.querySelector<HTMLElement>(".cbd-typed")!;
+    const restEl = root.querySelector<HTMLElement>(".cbd-rest")!;
+    const list = root.querySelector<HTMLElement>(".cbd-list")!;
+    const input = root.querySelector<HTMLElement>(".cbd-input")!;
+
+    const row = (r: Row, typed: string, sel: boolean) => {
+      const li = document.createElement("li");
+      if (sel) li.className = "sel";
+      const q = typed.replace(/^\//, "").toLowerCase();
+      const at = r.icon === "search" || !q ? -1 : r.title.toLowerCase().indexOf(q);
+      const ic = document.createElement("span");
+      ic.className = `ic ic-${r.icon}`;
+      const t = document.createElement("span");
+      t.className = "t";
+      if (at < 0) t.textContent = r.title;
+      else {
+        const b = document.createElement("b");
+        b.textContent = r.title.slice(at, at + q.length);
+        t.append(r.title.slice(0, at), b, r.title.slice(at + q.length));
+      }
+      li.append(ic, t);
+      if (r.sub) {
+        const s = document.createElement("span");
+        s.className = "s";
+        s.textContent = r.sub;
+        li.append(s);
+      }
+      if (r.action && sel) {
+        const a = document.createElement("span");
+        a.className = "a";
+        a.append(r.action);
+        const k = document.createElement("kbd");
+        k.textContent = "↵";
+        a.append(k);
+        for (const key of r.keys ?? []) {
+          const kk = document.createElement("kbd");
+          kk.className = "key";
+          kk.textContent = key;
+          a.append(kk);
+        }
+        li.append(a);
+      }
+      return li;
+    };
+
+    // The list grows and shrinks with a spring-like ease rather than jumping.
+    const setRows = (rows: Row[], typed: string) => {
+      const from = list.offsetHeight;
+      list.replaceChildren(...rows.map((r, i) => row(r, typed, i === 0)));
+      const to = list.offsetHeight;
+      if (from !== to && !reduce)
+        list.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: 320, easing: "cubic-bezier(0.25, 1, 0.3, 1)" });
+    };
+
+    let running = false;
+    let visible = false;
+
+    const play = async () => {
+      if (running) return;
+      running = true;
+      let qi = 0;
+      while (visible) {
+        const q = queries[qi];
+        // Clear what's there: select it, then delete.
+        input.classList.add("selected");
+        await wait(380);
+        input.classList.remove("selected");
+        typedEl.textContent = "";
+        restEl.textContent = "";
+        setRows([], "");
+        glyph.dataset.glyph = q.glyph;
+        await wait(420);
+        for (let k = 1; k <= q.text.length; k++) {
+          const typed = q.text.slice(0, k);
+          typedEl.textContent = typed;
+          restEl.textContent = k === q.text.length ? q.rest : q.text.slice(k) + q.rest;
+          if (q.text.startsWith("/")) restEl.textContent = "";
+          if (k >= 2 || !q.text.startsWith("/")) setRows(q.rows, typed);
+          await wait(95 + Math.random() * 70);
+        }
+        await wait(2600);
+        qi = (qi + 1) % queries.length;
+      }
+      running = false;
+    };
+
+    if (!reduce)
+      new IntersectionObserver(
+        ([e]) => {
+          visible = e.isIntersecting;
+          if (visible) play();
+        },
+        { threshold: 0.55 },
+      ).observe(root);
+  }
+</script>
+
+<style>
+  /* A corner of the Home Space's window, with the command bar over its page, as the app centres it on the card. */
+  .cbd {
+    position: relative;
+    width: 100%;
+    max-width: 600px;
+    aspect-ratio: 6 / 5;
+    overflow: hidden;
+    border-radius: 12px;
+    box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.18), 0 22px 48px -20px rgb(30 25 20 / 0.38);
+    isolation: isolate;
+  }
+
+  .cbd :global(.cbd-page) {
+    position: absolute;
+    top: -9%;
+    left: -28%;
+    width: 168%;
+    max-width: none;
+    height: auto;
+    pointer-events: none;
+    filter: saturate(0.9);
+  }
+
+  /* The app dims the page a touch behind the panel. */
+  .cbd::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background: rgb(20 17 15 / 0.06);
+  }
+
+  .cbd-panel {
+    position: absolute;
+    z-index: 2;
+    top: 15%;
+    left: 50%;
+    width: 88%;
+    transform: translateX(-50%);
+    overflow: hidden;
+    border-radius: 14px;
+    background: #f3fcf8; /* the Home Space's mint, very light, as in the capture */
+    box-shadow: 0 0 0 0.5px rgb(20 60 40 / 0.14), 0 2px 6px rgb(20 40 30 / 0.06), 0 28px 60px -18px rgb(20 50 35 / 0.4);
+    font-family: var(--font);
+    color: #1c1a19;
+  }
+
+  .cbd-field {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    height: 50px;
+    padding: 0 12px 0 16px;
+    box-shadow: 0 0.5px 0 rgb(20 60 40 / 0.1);
+  }
+
+  .cbd-glyph { position: relative; flex: none; width: 18px; height: 18px; color: rgb(28 26 25 / 0.55); }
+
+  .cbd-glyph svg {
+    position: absolute;
+    inset: 0;
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: opacity 0.15s ease;
+  }
+
+  .cbd-glyph[data-glyph="search"] .g-cmd,
+  .cbd-glyph[data-glyph="cmd"] .g-search { opacity: 0; }
+
+  .cbd-input {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    font-size: 17px;
+    letter-spacing: -0.015em;
+    white-space: nowrap;
+    border-radius: 4px;
+  }
+
+  .cbd-typed { color: #1c1a19; }
+
+  /* The rest of the address the app completes inline, then a caret. */
+  .cbd-rest { color: rgb(28 26 25 / 0.42); }
+
+  .cbd-typed::after {
+    content: "";
+    display: inline-block;
+    width: 1.5px;
+    height: 1.1em;
+    margin: 0 -1.5px -0.18em 0;
+    background: #2f6af0;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .cbd-typed::after { animation: cbd-caret 1.1s steps(1) infinite; }
+  }
+
+  @keyframes cbd-caret { 50% { opacity: 0; } }
+
+  .cbd-input.selected .cbd-typed,
+  .cbd-input.selected .cbd-rest { background: rgb(47 106 240 / 0.22); color: #1c1a19; }
+
+  .cbd-chip {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgb(28 26 25 / 0.05);
+    font-size: 12px;
+    font-weight: 500;
+    color: rgb(28 26 25 / 0.6);
+  }
+
+  .cbd-list { margin: 0; padding: 6px; list-style: none; }
+  .cbd-list:empty { padding: 0; }
+
+  .cbd-list :global(li) {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    height: 38px;
+    padding: 0 10px;
+    border-radius: 9px;
+    font-size: 14px;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+  }
+
+  .cbd-list :global(li.sel) { background: rgb(83 202 159 / 0.17); }
+  .cbd-list :global(.t) { overflow: hidden; text-overflow: ellipsis; }
+  .cbd-list :global(.t b) { font-weight: 650; }
+  .cbd-list :global(.s) { overflow: hidden; font-size: 13px; color: rgb(28 26 25 / 0.42); text-overflow: ellipsis; }
+
+  .cbd-list :global(.a) {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-left: auto;
+    font-size: 13px;
+    font-weight: 600;
+    color: #17895a;
+  }
+
+  .cbd-list :global(.a kbd) {
+    height: 20px;
+    min-width: 22px;
+    margin: 0 0 0 3px;
+    font-size: 11px;
+    color: rgb(28 26 25 / 0.5);
+    background: rgb(28 26 25 / 0.05);
+  }
+
+  .cbd-list :global(.a kbd.key) { margin-left: 0; }
+
+  /* Row icons: Wikipedia's W, the search glass, the pin. */
+  .cbd-list :global(.ic) {
+    position: relative;
+    flex: none;
+    width: 18px;
+    height: 18px;
+    display: grid;
+    place-items: center;
+    border-radius: 4px;
+  }
+
+  .cbd-list :global(.ic-w) {
+    background: #fff;
+    box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.12);
+  }
+
+  .cbd-list :global(.ic-w::before) {
+    content: "W";
+    font-family: "Linux Libertine", "Hoefler Text", Georgia, "Times New Roman", serif;
+    font-size: 13px;
+    line-height: 1;
+    color: #111;
+  }
+
+  .cbd-list :global(.ic-search::before),
+  .cbd-list :global(.ic-pin::before) {
+    content: "";
+    width: 16px;
+    height: 16px;
+    background: #1c1a19;
+    -webkit-mask: var(--m) center / contain no-repeat;
+    mask: var(--m) center / contain no-repeat;
+  }
+
+  .cbd-list :global(.ic-search) {
+    --m: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.6' stroke-linecap='round'%3E%3Ccircle cx='10' cy='10' r='6'/%3E%3Cpath d='M14.5 14.5 20 20'/%3E%3C/svg%3E");
+  }
+
+  .cbd-list :global(.ic-pin) {
+    --m: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 4h6M10 4v5l-3 4h10l-3-4V4M12 13v7'/%3E%3C/svg%3E");
+  }
+
+  @media (max-width: 900px) {
+    .cbd { aspect-ratio: 5 / 5; }
+    .cbd-panel { width: 92%; top: 10%; }
+    .cbd-chip { display: none; }
+  }
+
+  @media (max-width: 480px) {
+    .cbd-field { height: 44px; }
+    .cbd-input { font-size: 15px; }
+    .cbd-list :global(li) { height: 34px; font-size: 13px; }
+    .cbd-list :global(.s) { display: none; }
+  }
+</style>

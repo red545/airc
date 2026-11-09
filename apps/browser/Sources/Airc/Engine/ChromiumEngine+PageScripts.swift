@@ -18,6 +18,12 @@ extension ChromiumEngine: EnginePageScripts {
         WebKitPageScripts.shared.setSource(source)
     }
 
+    // Chromium runs its page script in every frame itself; its WebKit pages need the frames-only one too, so their
+    // frames behave as Chromium's do (Boosts in a page's same-site frames, boosts3).
+    func setFramePageScript(_ source: String?) {
+        WebKitPageScripts.shared.setFrameSource(source)
+    }
+
     var pageMessageHandler: ((EngineTab, EnginePageMessage) -> Void)? {
         get { ChromiumPageScripts.handler }
         set {

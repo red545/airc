@@ -65,7 +65,8 @@ final class ForwardCompatTests: XCTestCase {
             try db.run("INSERT INTO entities(kind, id, body, ts) VALUES('item', 'easel-1', ?, 0)", [.text(futureItem)])
             try db.run("INSERT INTO entities(kind, id, body, ts) VALUES('tab', 'easel-tab', ?, 0)", [.text(futureTab)])
             try db.run("INSERT INTO entities(kind, id, body, ts) VALUES('group', 'g-1', '{\"name\":\"Group\"}', 0)")
-            try db.run("UPDATE meta SET value='2' WHERE key='schema'")
+            // A schema newer than this build's.
+            try db.run("UPDATE meta SET value='\(SpacesStore.schemaVersion + 1)' WHERE key='schema'")
         }
         let before = try rows()
 
@@ -74,7 +75,7 @@ final class ForwardCompatTests: XCTestCase {
             let s = try SpacesStore(path: path)
             let hiddenIDs = Set(s.unreadableRows.map(\.id))
             XCTAssertEqual(hiddenIDs, [ids["home"]!, ids["pin"]!, ids["pinTab"]!, "easel-1", "easel-tab", "g-1"])
-            XCTAssertEqual(s.newerSchemaVersion, 2)
+            XCTAssertEqual(s.newerSchemaVersion, SpacesStore.schemaVersion + 1)
             // The future profile reads, keeps its Space, and nothing moved to the default profile.
             XCTAssertEqual(s.profile(ids["work"]!)?.searchEngine, .google)
             XCTAssertEqual(s.space(ids["ws"]!)?.profileID, ids["work"]!)
@@ -98,7 +99,8 @@ final class ForwardCompatTests: XCTestCase {
         XCTAssertEqual(written["name"] as? String, "Work 2")
         XCTAssertEqual(written["searchEngine"] as? String, "perplexity", "a newer build's value was overwritten")
         XCTAssertEqual(written["syncAccount"] as? String, "someone@example.com", "a newer build's field was dropped")
-        XCTAssertEqual(try Database(path: path).query("SELECT value FROM meta WHERE key='schema'").first?.first as? String, "2")
+        XCTAssertEqual(try Database(path: path).query("SELECT value FROM meta WHERE key='schema'").first?.first as? String,
+                       "\(SpacesStore.schemaVersion + 1)")
 
         // The damaged row is fixed (or a newer build reads it): everything comes back.
         try Database(path: path).run("UPDATE entities SET body=? WHERE kind='space' AND id=?", [.text(homeBody), .text(ids["home"]!)])

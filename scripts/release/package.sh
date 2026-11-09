@@ -29,7 +29,7 @@ if [[ $build_app == 1 ]]; then
   fi
   # A public build: no test code (AIRC_PUBLIC_BUILD, App/TestingGate.swift). Do not inherit a private feed, test
   # defaults, a test identity or a signing identity from a dev shell.
-  env -u AIRC_LAUNCH_ARGS -u AIRC_BUNDLE_ID -u AIRC_PASSKEY_ENTITLEMENTS \
+  env -u AIRC_LAUNCH_ARGS -u AIRC_BUNDLE_ID -u AIRC_PASSKEY_ENTITLEMENTS -u AIRC_ICLOUD_ENTITLEMENTS \
     -u AIRC_TELEMETRY_KEY -u AIRC_TELEMETRY_HOST \
     AIRC_PUBLIC_BUILD=1 CHROMIUM_OUT="$chromium_out" AIRC_CHROMIUM_CREDITS="$credits" \
     AIRC_DEV_CHANNEL=0 AIRC_UPDATE_CHANNEL="${AIRC_RELEASE_CHANNEL:-stable}" \
@@ -38,6 +38,8 @@ if [[ $build_app == 1 ]]; then
     "$ROOT/scripts/build-app.sh"
 fi
 [[ $(uname) == Darwin && -d "$app/Contents" ]] || { echo 'Run on macOS with a built app.' >&2; exit 1; }
+# All shared engine/credits reads finished in build-app.sh; the coordinator can release its ship lock.
+touch "$out/engine-read.done"
 mkdir -p "$work/stage/.background"
 ditto "$app" "$work/stage/Airc.app"
 plist="$work/stage/Airc.app/Contents/Info.plist"
@@ -49,10 +51,19 @@ fi
 # Supplied apps must already have release metadata; never silently sanitize one.
 python3 "$ROOT/scripts/release/check-release.py" "$work/stage/Airc.app"
 "$ROOT/scripts/release/scan-bundle.sh" "$work/stage/Airc.app"
-python3 "$ROOT/scripts/release/sign.py" "$work/stage/Airc.app" "$identity"
+# iCloud sync (docs/release.md, "iCloud sync"): a Developer ID provisioning profile for this bundle ID in
+# AIRC_ICLOUD_PROFILE_DIR (default ~/arcfork/secrets) is embedded before signing, and the main app alone gets its CloudKit
+# entitlements. Without one the release is unchanged. Team and app identifiers come from the profile, never the repo.
+icloud_entitlements=
+if [[ "$identity" != '-' ]]; then
+ icloud_entitlements=$(python3 "$ROOT/scripts/release/icloud.py" prepare "$work/stage/Airc.app" "$work")
+fi
+AIRC_ICLOUD_ENTITLEMENTS="$icloud_entitlements" python3 "$ROOT/scripts/release/sign.py" "$work/stage/Airc.app" "$identity"
 if [[ "$identity" != '-' ]]; then
  python3 "$ROOT/scripts/release/check-entitlements.py" "$work/stage/Airc.app"
 fi
+# The signature and the embedded profile agree (codesign -d --entitlements, security cms -D), helpers have no iCloud.
+[[ -z "$icloud_entitlements" ]] || python3 "$ROOT/scripts/release/icloud.py" verify "$work/stage/Airc.app"
 export AIRC_NOTARY_KEYCHAIN=${AIRC_NOTARY_KEYCHAIN:-${AIRC_SIGN_KEYCHAIN:-}}
 notary_args=()
 [[ -z "$AIRC_NOTARY_KEYCHAIN" ]] || notary_args=(--keychain "$AIRC_NOTARY_KEYCHAIN")

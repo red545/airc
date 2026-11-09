@@ -29,14 +29,28 @@ final class SyncStoreTests: XCTestCase {
 
     func testArchiveActionWithTodayOffStillConflictsWithPin() throws {
         let store = try makeStore()
-        let tab = try store.openTab(url: "https://example.com", inSpace: store.selectedSpace.id)
+        let space = store.selectedSpace.id
+        let tab = try store.openTab(url: "https://example.com", inSpace: space)
         var adapter = SyncStoreAdapter(), replica = SyncReplica()
         try adapter.capture(store.state, into: &replica, now: 1)
         XCTAssertFalse(replica.records.keys.contains { $0.kind == .row })
+        // A Today tab no other Mac can know about (never pinned, Today export off): closing it sends nothing.
         _ = try store.closeTab(tab.id)
-        let ops = try adapter.capture(store.state, into: &replica, now: 2)
-        XCTAssertEqual(ops.count, 1)
-        XCTAssertEqual(ops.first?.record, .init(.row, "tab:" + tab.id))
+        XCTAssertTrue(try adapter.capture(store.state, into: &replica, now: 2).isEmpty)
+        // Pinned, unpinned and archived: one record whose lifecycle says archived, so it meets a concurrent pin.
+        let other = try store.openTab(url: "https://example.org", inSpace: space)
+        try adapter.capture(store.state, into: &replica, now: 3)
+        try store.move(.tab(other.id), to: .pinned(spaceID: space, parentID: nil, index: 0))
+        try adapter.capture(store.state, into: &replica, now: 4)
+        let id = SyncRecordID(.row, "tab:" + other.id)
+        XCTAssertEqual(replica.records[id]?[.location], .location(.pinned(space: space)))
+        let item = try XCTUnwrap(store.tab(other.id)?.itemID)
+        try store.move(.item(item), to: .today(spaceID: space, index: 0))
+        try adapter.capture(store.state, into: &replica, now: 5)
+        XCTAssertEqual(replica.records[id]?[.location], .location(.archived))
+        _ = try store.closeTab(other.id)
+        let ops = try adapter.capture(store.state, into: &replica, now: 6)
+        XCTAssertEqual(ops.map(\.record), [id])
         XCTAssertEqual(ops.first?.fields, [.location: .location(.archived)])
     }
 

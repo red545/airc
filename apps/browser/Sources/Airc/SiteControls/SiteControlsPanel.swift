@@ -9,8 +9,8 @@ import SwiftUI
 // field's right end, research §2.2) or one of its indicators opens a card under the field, where the permission
 // prompts hang (PagePrompts.swift): the site with its favicon and connection (certificate on click), what the page
 // uses now (camera, microphone, screen, location), what macOS keeps from Airc that the site wants (SystemPrivacy.swift),
-// the pop-ups it blocked, the site's permissions in this Space's profile, its zoom, its cookies and storage, and Copy
-// link. It grows from the field on Arc's popover spring (`grow`) and closes with Esc, a click outside, or when
+// the pop-ups it blocked, the site's permissions in this Space's profile, its zoom, its cookies and storage, Capture and
+// Capture in Portrait Mode (P08c), and Copy link. It grows from the field on Arc's popover spring (`grow`) and closes with Esc, a click outside, or when
 // the page it describes goes off screen. Every change applies at once.
 //
 // Arc's panel itself isn't measured in the research note; the card follows the prompt card's geometry (surface,
@@ -174,6 +174,14 @@ final class SiteControlsModel: ObservableObject {
     func copyLink() {
         controller?.closeSiteControls()
         controller?.copyURL()
+    }
+
+    /// P08c, the Site Control Center's Capture and Capture in Portrait Mode: the card closes (at once, so Capture's
+    /// still picture never waits on its fade), then Capture starts as View › Capture… and its Portrait would.
+    func capture(portrait: Bool) {
+        guard let c = controller else { return }
+        c.closeSiteControls(animated: false)
+        c.startCapture(portrait: portrait)
     }
 
     /// "Boost this site" / Edit: the editor takes over from the card.
@@ -362,9 +370,18 @@ struct SiteControlsCard: View {
                 divider
                 safariEngineRow
             }
+            if model.isWebsite, let page = model.page, let center = BlockingCenter.shared {
+                divider
+                BlockingSiteRow(center: center, page: page).environment(\.aircTheme, ui)
+            }
             if model.boostDomain != nil {
                 divider
                 boostRow
+            }
+            // DEV-1: Arc's "Developer Mode" site setting (Browser/DeveloperMode.swift).
+            if DeveloperSiteRow.shows(model.page) {
+                divider
+                DeveloperSiteRow(page: model.page, ui: ui)
             }
             if let using = model.usingText { usingRow(using) }
             ForEach(model.systemRows, id: \.self) { systemRow($0) }
@@ -422,7 +439,7 @@ struct SiteControlsCard: View {
                 Button { model.showsConnection.toggle() } label: {
                     HStack(spacing: 4) {
                         Image(systemName: model.connectionSymbol).font(.system(size: 10, weight: .semibold))
-                        Text(model.connectionText).aircFont(AircFont.callout)
+                        Text(model.connectionText).aircFont(AircFont.callout).lineLimit(1)
                         Image(systemName: "chevron.right").font(.system(size: 8, weight: .bold))
                             .rotationEffect(.degrees(model.showsConnection ? 90 : 0))
                     }
@@ -433,7 +450,16 @@ struct SiteControlsCard: View {
                 .testAnchor("site.connection")
             }
             Spacer(minLength: AircSpacing.s)
-            iconButton("link", help: "Copy link", anchor: "site.copy") { model.copyLink() }
+            // P08c: Capture and Capture in Portrait Mode, beside Copy link (Arc's Site Control Center), close together so
+            // the site's name keeps its room.
+            HStack(spacing: 2) {
+                iconButton("camera.viewfinder", help: ["Capture", ShortcutCenter.hint("view.capture", "⇧⌘2")].filter { !$0.isEmpty }.joined(separator: " "),
+                           anchor: "site.capture") {
+                    model.capture(portrait: false)
+                }
+                iconButton("camera.macro", help: "Capture in Portrait Mode", anchor: "site.capturePortrait") { model.capture(portrait: true) }
+                iconButton("link", help: "Copy link", anchor: "site.copy") { model.copyLink() }
+            }
         }
         .padding(.horizontal, inset)
     }
@@ -884,6 +910,9 @@ private struct SitePlate: View {
 final class SiteControlsPanelView: NSView {
     let model: SiteControlsModel
     private var host: AircFirstClickHostingView<SiteControlsCard>!
+    /// Clips the card at the window's foot and scrolls it from its top when it's taller than the room under the field
+    /// (overlay scroller). Without it, the clamped hosting view centred its content and cut off the header and the foot.
+    private let scroll = NSScrollView()
     private var menuButtons: [SitePermission: CGRect] = [:]
     /// The card's size as SwiftUI last laid it out (NSHostingView's fittingSize reads zero from inside that layout).
     private var contentSize: CGSize = .zero
@@ -918,12 +947,20 @@ final class SiteControlsPanelView: NSView {
         // No safe-area insets (PromptBubbleView: a card made under the titlebar kept shifted hit regions).
         host.safeAreaRegions = []
         // The card's corners clip its content; the shadow stays on this view's layer.
-        host.wantsLayer = true
-        host.layer?.cornerRadius = AircRadius.popover
-        host.layer?.cornerCurve = .continuous
-        host.layer?.masksToBounds = true
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.scrollerStyle = .overlay
+        scroll.horizontalScrollElasticity = .none
+        scroll.verticalScrollElasticity = .allowed
+        scroll.contentView.drawsBackground = false
+        scroll.wantsLayer = true
+        scroll.layer?.cornerRadius = AircRadius.popover
+        scroll.layer?.cornerCurve = .continuous
+        scroll.layer?.masksToBounds = true
+        scroll.documentView = host
         model.menuAnchor = { [weak self] p in self?.menuButtons[p] }
-        addSubview(host)
+        addSubview(scroll)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -931,11 +968,15 @@ final class SiteControlsPanelView: NSView {
     override var mouseDownCanMoveWindow: Bool { false }
     var hostingView: NSView { host }
 
-    /// Top-left at `origin` (the superview's flipped coordinates), sized to the card, at most `maxHeight` tall.
+    /// Top-left at `origin` (the superview's flipped coordinates), sized to the card, at most `maxHeight` tall; a taller
+    /// card starts at its header and scrolls.
     func place(at origin: NSPoint, maxHeight: CGFloat) {
         let size = contentSize.height > 1 ? contentSize : host.fittingSize
+        let wasTop = scroll.contentView.bounds.minY <= 0.5
         frame = NSRect(x: origin.x.rounded(), y: origin.y.rounded(), width: size.width, height: min(size.height, max(120, maxHeight)))
-        host.frame = bounds
+        scroll.frame = bounds
+        host.frame = NSRect(x: 0, y: 0, width: size.width, height: max(size.height, bounds.height))
+        if wasTop { host.scroll(.zero) }
     }
 
     /// The URL field's slider button and its icons open and close the card themselves (on release), so a press on one

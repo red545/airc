@@ -43,6 +43,7 @@ final class OnboardingController {
         settings = app.settings
         let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         model = OnboardingModel(systemDark: dark)
+        model.importApp = app
         model.translucency = settings.translucency
         model.memberName = Self.memberName(settings: settings)
         model.memberNumber = Self.memberNumber(deviceID: store.deviceID)
@@ -368,6 +369,12 @@ final class OnboardingController {
             let installs = await BrowserImportLocator.detect()
             self?.received(installs)
         }
+        #if AIRC_TESTING
+        if LaunchOptions.current.isAutomated, let directory = Self.testArcDirectory {
+            load(from: directory)
+            return
+        }
+        #endif
         if let fixture {
             model.arcLabel = "Arc 1.171"
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.received(fixture) }
@@ -387,11 +394,19 @@ final class OnboardingController {
         load(from: arcDirectory!)
     }
 
+    #if AIRC_TESTING
+    static var testArcDirectory: URL?
+    #endif
     private func load(from directory: URL) {
         model.arc = .searching
         Task { @MainActor [weak self] in
             do {
-                let plan = try await ArcImporter.plan(at: directory)
+                let model = self?.model
+                let plan = try await ArcImporter.plan(at: directory) { progress in
+                    Task { @MainActor in
+                        model?.arcReadProgress = progress.stage == .history ? "Reading Arc’s history" : progress.stage == .extensions ? "Reading extension lists" : "Reading Arc’s sidebar"
+                    }
+                }
                 self?.arcDirectory = directory
                 self?.received(plan)
             } catch {
@@ -728,6 +743,15 @@ final class OnboardingController {
         model.logins = .idle
         model.passwords = .idle
         if let browser { importHistory(browser, result: result) }
+        else if let plan {
+            let chosen = Set(b.spaces.filter { model.chosenSpaces.contains($0.sourceID) }.map(\.profileSourceID))
+            let mapped = result.profileIDs.filter { chosen.contains($0.key) }
+            model.importState = .running("Importing history and extension checklist", 0.25)
+            let visits = model.includeHistory ? ImportAdapter.visits(plan, profileIDs: mapped) : []
+            app?.history.importVisits(visits)
+            model.historyImported = visits.count
+            ArcExtensionChecklist.shared.merge(plan, profileIDs: mapped)
+        }
         // Profiles: load each new one's engine profile (a real Chromium profile with the Chromium engine).
         let created = result.profilesCreated
         var loaded = 0

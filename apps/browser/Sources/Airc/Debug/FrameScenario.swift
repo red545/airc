@@ -17,18 +17,29 @@ extension SnapshotRunner {
     func framesScenario() {
         let clock = FrameClock()
         var report: [String: Any] = ["engine": app?.engine.name ?? "?"]
-        // Profiling one action: AIRC_FRAMES_ONLY=newspace|cbfirst|cbnew|cburl|cbkey|switch|swipe|sidebar|previewcache (and AIRC_FRAMES_RUNS) runs only
+        // Profiling one action: AIRC_FRAMES_ONLY=newspace|cbfirst|cbnew|cburl|cbkey|switch|swipe|folder|sidebar|previewcache (and AIRC_FRAMES_RUNS) runs only
         // that one.
         let env = ProcessInfo.processInfo.environment
         let only = env["AIRC_FRAMES_ONLY"]
         let runs = env["AIRC_FRAMES_RUNS"].flatMap(Int.init) ?? 10
         func wanted(_ name: String) -> Bool { only == nil || only == name }
+        if only == "mem3" { gapMemoryScenario(); return }
         seedFramesWorkload()
         run { [self] in clock.start(on: c.root) }
+        if FrameProbe.enabled {
+            run { [self] in
+                note("frames: probe on, main run loop observers (order activities callout): " + FrameProbe.observers())
+                note("frames: probe commit phases available \(class_getClassMethod(CATransaction.self, Selector(("addCommitHandler:forPhase:"))) != nil)")
+                FrameProbe.watchKeyViewLookups()
+                MainThreadSampler.shared.start()
+            }
+        }
         wait(1.5)
         run { [self] in
+            framesEnvViolations = []
             report["refresh_hz"] = clock.refreshHz.map(FrameStats.round2) ?? NSNull()
             report["display_frames"] = clock.running
+            report["environment_start"] = framesEnvironment()
             report["load"] = Self.loadAverage()
             let census = ViewCensus(window: c.window)
             report["views"] = census.summary
@@ -103,6 +114,7 @@ extension SnapshotRunner {
             wait(0.6)
             step { [self] done in
                 guard c.newSpacePanel != nil else { note("frames: new space \(i): the card didn't open"); return done() }
+                FrameProbe.begin("newspace \(i)", tag: 400 + i)
                 presented(clock, { self.c.newSpacePanel?.model.onCreate?() }) { newSpace.append($0); done() }
             }
             wait(0.5)
@@ -141,7 +153,7 @@ extension SnapshotRunner {
         for (key, mode) in [("command_bar_new_tab", CommandBarMode.newTab), ("command_bar_edit_url", .editURL)] {
             var samples: [FrameSample] = []
             var tabSwitches = 0
-            for _ in 0..<((wanted(mode == .newTab ? "cbnew" : "cburl") || (only == "cbfirst" && mode == .newTab)) ? runs : 0) {
+            for n in 0..<((wanted(mode == .newTab ? "cbnew" : "cburl") || (only == "cbfirst" && mode == .newTab)) ? runs : 0) {
                 if only == "cbfirst" {
                     run { [self] in
                         let tabs = c.store.todayTabs(ofSpace: c.currentSpaceID).filter { c.engineTab(for: $0.id) != nil }
@@ -153,7 +165,8 @@ extension SnapshotRunner {
                     wait(0.25)
                 }
                 step { [self] done in
-                    presented(clock, { self.c.openCommandBar(mode: mode) }) { samples.append($0); done() }
+                    FrameProbe.begin("\(only == "cbfirst" ? "cbfirst" : key) \(n)", tag: 300 + n)
+                    presented(clock, { self.c.openCommandBar(mode: mode) }) { samples.append($0); MainThreadSampler.tag = 0; done() }
                 }
                 wait(0.35)
                 run { [self] in c.closeCommandBar() }
@@ -166,22 +179,119 @@ extension SnapshotRunner {
             }
         }
 
-        // A keystroke in the open bar (local results in its frame): the query alternates so every key changes them.
-        var keys: [FrameSample] = []
-        if wanted("cbkey") {
-            run { [self] in c.openCommandBar(mode: .newTab) }
+        if wanted("feedback") {
+            var samples: [FrameSample] = []
+            var pressed = 0
+            for _ in 0..<runs {
+                step { [self] done in
+                    guard let page = c.sidebar.pager.pages.first(where: { $0.spaceID == c.currentSpaceID }),
+                          let row = page.rows.values.compactMap({ $0 as? TabRowView }).first(where: { $0.tabID == c.shownTabID }),
+                          let event = NSEvent.mouseEvent(with: .leftMouseDown,
+                            location: row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), to: nil),
+                            modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                            windowNumber: c.window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+                    else { return done() }
+                    // mouseDown enters AppKit's nested tracking loop. Observe its first
+                    // commit BEFORE entering, and release with an in-process event.
+                    let start = CACurrentMediaTime()
+                    var commit: Double?
+                    let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, CFIndex.max) { _, _ in
+                        if commit == nil && row.isPressed {
+                            commit = CACurrentMediaTime(); pressed += 1
+                        }
+                    }
+                    CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+                    let release = Timer(timeInterval: 0.15, repeats: false) { _ in
+                        if let up = NSEvent.mouseEvent(with: .leftMouseUp, location: event.locationInWindow,
+                            modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                            windowNumber: event.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 0) {
+                            NSApp.postEvent(up, atStart: false)
+                        }
+                    }
+                    RunLoop.main.add(release, forMode: .common)
+                    row.mouseDown(with: event)
+                    CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes)
+                    release.invalidate()
+                    row.mouseUp(with: event)
+                    if let commit {
+                        let shown = clock.presented(after: commit)
+                        let preceding = clock.ticks.last { $0 <= start }
+                        samples.append(FrameSample(work: (CACurrentMediaTime() - start) * 1000,
+                            commit: (commit - start) * 1000, presented: shown.map { ($0 - start) * 1000 },
+                            frames: shown.flatMap { t in preceding.map { Int(((t - $0) / (clock.interval ?? (1 / 120))).rounded()) } }))
+                    }
+                    done()
+                }
+                wait(0.3)
+            }
+            run { report["feedback"] = FrameSample.json(samples, budget: 1000 / 120)
+                report["feedback_pressed"] = pressed }
+        }
+
+        if wanted("suggestions") {
+            var samples: [Double] = []
+            var correct = 0
+            run { [self] in report["suggestions_interceptor_installed"] = GapSuggestionProtocol.install(); c.openCommandBar(mode: .newTab) }
             wait(0.4)
             for i in 0..<runs {
                 step { [self] done in
-                    let text = ["w", "wi", "wik", "wiki", "g", "gi", "git", "gith"][i % 8]
-                    presented(clock, { self.c.commandBar?.type(text) }) { keys.append($0); done() }
+                    let query = "gapquery\(i)"
+                    let start = CACurrentMediaTime()
+                    c.commandBar?.type(query)
+                    gapPoll({ self.c.commandBar?.resultTitles.contains(where: { $0.contains(query + " loopback") }) == true }, timeout: 2) {
+                        if self.c.commandBar?.resultTitles.contains(where: { $0.contains(query + " loopback") }) == true {
+                            correct += 1; samples.append((CACurrentMediaTime() - start) * 1000)
+                        }
+                        done()
+                    }
                 }
                 wait(0.2)
             }
             run { [self] in
-                c.closeCommandBar()
+                report["suggestions_samples_ms"] = samples; report["suggestions_correct"] = correct
+                report["suggestions_loopback_requests"] = GapSuggestionProtocol.requests
+                c.closeCommandBar(); GapSuggestionProtocol.uninstall()
+            }
+        }
+
+        // Verify actual tab AND history rows before the keystroke's first commit.
+        if wanted("cbkey") {
+            var keys: [FrameSample] = []
+            var rows: [[String: Any]] = []
+            run { [self] in
+                let profile = c.store.profile(ofSpace: c.currentSpaceID).id
+                for i in 0..<runs {
+                    app?.history.recordVisit(profileID: profile, url: "https://history.example/gap\(i)", title: "gap\(i) history", typed: true)
+                    _ = try? c.store.openTab(url: Self.page("gap\(i) tab"), inSpace: c.currentSpaceID, activate: false, title: "gap\(i) tab")
+                }
+                c.reloadAll(animated: false); c.openCommandBar(mode: .newTab)
+            }
+            wait(1)
+            for i in 0..<runs {
+                step { [self] done in
+                    var start = 0.0
+                    var historyAt: Double?
+                    var tabFound = false
+                    c.commandBar?.onHistoryApplied = { n in if n > 0 { historyAt = CACurrentMediaTime() } }
+                    presented(clock, {
+                        start = CACurrentMediaTime(); self.c.commandBar?.type("gap\(i)")
+                        tabFound = self.c.commandBar?.results.contains { if case .tab = $0.action { return $0.title == "gap\(i) tab" }; return false } == true
+                    }) { sample in
+                        keys.append(sample)
+                        let results = self.c.commandBar?.results ?? []
+                        rows.append(["history_ms": historyAt.map { ($0 - start) * 1000 } ?? NSNull(),
+                                     "history_before_commit": historyAt.map { $0 <= start + sample.commit / 1000 } ?? false,
+                                     "tab_found": tabFound,
+                                     "history_found": results.contains { $0.historyURL == "https://history.example/gap\(i)" }])
+                        done()
+                    }
+                }
+                wait(0.2)
+            }
+            run { [self] in
+                c.commandBar?.onHistoryApplied = nil; c.closeCommandBar()
                 report["command_bar_key"] = FrameSample.json(keys, budget: 8.0)
-                note("frames: command_bar_key " + FrameSample.text(keys))
+                report["local_results"] = rows
             }
         }
 
@@ -221,40 +331,266 @@ extension SnapshotRunner {
         // Swipe: a two-finger swipe of half a page over 0.2 s, released, then the settle. Display-link driven, so
         // only with the display on (the settle never runs otherwise).
         var swipeDeltas: [[Double]] = []
+        var swipeTicks: [[Double]] = []
         for i in 0..<(only == nil ? 6 : only == "swipe" ? runs : 0) {
             step { [self] done in
                 guard clock.isTicking else { return done() }
-                swipe(clock, towardsNext: i % 2 == 0) { d in swipeDeltas.append(d); done() }
+                let before = CACurrentMediaTime()
+                let envBefore = framesEnvironmentProblem()
+                FrameProbe.begin("swipe \(i)", tag: 100 + i)
+                swipe(clock, towardsNext: i % 2 == 0) { [self] d in
+                    // P02: a swipe with the window off screen at either end doesn't count.
+                    if let why = envBefore ?? framesEnvironmentProblem() { framesEnvViolations.append("swipe: " + why); return done() }
+                    swipeDeltas.append(d); swipeTicks.append(clock.ticks.filter { $0 >= before }); done()
+                }
             }
             wait(0.3)
         }
         run { [self] in
             report["swipe_frames"] = DropStats(swipeDeltas, interval: clock.interval).json
+            report["swipe_120hz"] = DropStats(swipeDeltas, interval: 1 / 120).json
+            report["swipe_timestamps_s"] = swipeTicks
             note("frames: swipe " + DropStats(swipeDeltas, interval: clock.interval).description)
         }
 
-        // Sidebar hide and show (⌘S): every frame of the 100–110 ms animation, the page reflowing.
-        var hideDeltas: [[Double]] = [], showDeltas: [[Double]] = []
-        for _ in 0..<(only == nil ? 5 : only == "sidebar" ? runs : 0) {
+        // SB-33: a folder closing and opening on its own curves (close: the ω 25 spring; open: 200 ms ease-out), toggle →
+        // presented frame, then every frame. The toggle renders at once here (the store's change would render on the next
+        // turn), so the sample includes the sidebar's re-render.
+        var folderOpen: [FrameSample] = [], folderClose: [FrameSample] = []
+        var folderOpenDeltas: [[Double]] = [], folderCloseDeltas: [[Double]] = []
+        for _ in 0..<(only == nil ? 6 : only == "folder" ? runs : 0) {
             step { [self] done in
-                guard clock.isTicking else { return done() }
-                animation(clock, seconds: 0.25, { self.c.toggleSidebar() }) { _, d in hideDeltas.append(d); done() }
-            }
-            wait(0.3)
-            step { [self] done in
-                guard clock.isTicking else { return done() }
-                animation(clock, seconds: 0.25, { self.c.toggleSidebar() }) { _, d in showDeltas.append(d); done() }
+                guard let folder = c.store.pinnedRoots(ofSpace: c.currentSpaceID).first(where: { $0.kind == .folder }) else {
+                    note("frames: no folder in the current Space")
+                    return done()
+                }
+                let opening = folder.isCollapsed
+                animation(clock, seconds: 0.45, {
+                    self.c.toggleFolder(folder.id)
+                    self.c.reloadAll(animated: true)
+                }) { s, d in
+                    if opening { folderOpen.append(s); folderOpenDeltas.append(d) } else { folderClose.append(s); folderCloseDeltas.append(d) }
+                    done()
+                }
             }
             wait(0.3)
         }
+        if wanted("folder") {
+            run { [self] in
+                report["folder_open"] = FrameSample.json(folderOpen, budget: 16.7)
+                report["folder_close"] = FrameSample.json(folderClose, budget: 16.7)
+                report["folder_open_frames"] = DropStats(folderOpenDeltas, interval: clock.interval).json
+                report["folder_close_frames"] = DropStats(folderCloseDeltas, interval: clock.interval).json
+                note("frames: folder open " + FrameSample.text(folderOpen) + "; motion " + DropStats(folderOpenDeltas, interval: clock.interval).description)
+                note("frames: folder close " + FrameSample.text(folderClose) + "; motion " + DropStats(folderCloseDeltas, interval: clock.interval).description)
+            }
+        }
+
+        // Sidebar hide and show (⌘S): every frame of the 100–110 ms animation, the page reflowing. P02: started on a
+        // vsync and ended on the first vsync that finds the sidebar at rest, so the duration is in whole frames, with the
+        // frame deltas in between for drops.
+        var hide: [Double] = [], show: [Double] = []
+        var hideFrames: [Double] = [], showFrames: [Double] = []
+        var hideDeltas: [[Double]] = [], showDeltas: [[Double]] = []
+        for _ in 0..<(only == nil ? 5 : only == "sidebar" ? runs : 0) {
+            for target: CGFloat in [0, 1] {
+                step { [self] done in
+                    guard clock.isTicking else { return done() }
+                    let envBefore = framesEnvironmentProblem()
+                    FrameProbe.begin("sidebar \(target == 0 ? "hide" : "show")", tag: target == 0 ? 200 : 201)
+                    clock.atNextFrame { [self] vsync in
+                        let start = CACurrentMediaTime()
+                        c.toggleSidebar()
+                        clock.everyFrame { [self] t in
+                            let atRest = abs(c.sidebarFraction - target) < 0.001
+                            if !atRest && t - vsync < 2 { return true }
+                            if let why = envBefore ?? framesEnvironmentProblem() {
+                                framesEnvViolations.append("sidebar: " + why)
+                            } else if atRest {
+                                if FrameProbe.enabled {
+                                    FrameProbe.marks.append(["label": FrameProbe.label, "start_vsync_ms": vsync * 1000, "rest_vsync_ms": t * 1000,
+                                                             "ticks_ms": clock.ticks.filter { $0 >= vsync && $0 <= t }.map { $0 * 1000 }])
+                                }
+                                let ms = (CACurrentMediaTime() - start) * 1000
+                                let byFrames = (t - vsync) * 1000
+                                if target == 0 { hide.append(ms); hideFrames.append(byFrames); hideDeltas.append(clock.deltas(from: vsync, to: t)) }
+                                else { show.append(ms); showFrames.append(byFrames); showDeltas.append(clock.deltas(from: vsync, to: t)) }
+                            }
+                            DispatchQueue.main.async(execute: done)
+                            return false
+                        }
+                    }
+                }
+                wait(0.3)
+            }
+        }
+        if only == "dialogslide" { dialogDuringSidebarSlide() }
+        if only == "devstrip" { developerStripAcrossSpaces() }
         run { [self] in
+            report["sidebar_hide_samples_ms"] = hide
+            report["sidebar_show_samples_ms"] = show
+            report["sidebar_hide_vsync_ms"] = hideFrames.map(FrameStats.round2)
+            report["sidebar_show_vsync_ms"] = showFrames.map(FrameStats.round2)
             report["sidebar_hide_frames"] = DropStats(hideDeltas, interval: clock.interval).json
             report["sidebar_show_frames"] = DropStats(showDeltas, interval: clock.interval).json
-            note("frames: sidebar hide " + DropStats(hideDeltas, interval: clock.interval).description)
-            note("frames: sidebar show " + DropStats(showDeltas, interval: clock.interval).description)
+            report["environment_end"] = framesEnvironment()
+            report["environment_violations"] = framesEnvViolations
+            note("frames: sidebar hide \(FrameStats(hideFrames)) by vsync, show \(FrameStats(showFrames)); environment problems \(framesEnvViolations.count)")
+            if FrameProbe.enabled {
+                report["swipe_late_at"] = DropStats(swipeDeltas, interval: 1 / 120).lateAt
+                note("frames: probe \(MainThreadSampler.shared.count) samples every \(MainThreadSampler.shared.interval) µs, full \(MainThreadSampler.shared.full)")
+                note("frames: probe key-view lookups " + FrameProbe.keyViewSummary)
+                FrameProbe.write(to: dir)
+            }
             clock.stop()
+        }
+        // P02b: the harness symbolicates the probe's addresses with `atos -p`, which needs this process alive, and
+        // writes probe-symbols.done when it has (at most 120 s).
+        if FrameProbe.enabled {
+            step { [self] done in
+                waitUntil({ FileManager.default.fileExists(atPath: self.dir.appendingPathComponent("probe-symbols.done").path) }, timeout: 120) {
+                    done()
+                }
+            }
+        }
+        run { [self] in
             if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) {
                 try? data.write(to: dir.appendingPathComponent("frames.json"))
+            }
+        }
+    }
+
+    /// P02b (`AIRC_FRAMES_ONLY=dialogslide`, Chromium, launched with `--airc-test=modalDialogs` and `--airc-data-dir`
+    /// whose Chromium folder exists): a page's JS alert stays where the engine put it over the page card through ⌘S. The
+    /// engine's dialog parent follows the page lazily while no dialog shows (bde185a), so: an alert shown right after a
+    /// slide, before the lazy re-anchor, lands where one shown at rest does; an alert held through hide and show ends
+    /// each slide at the same place relative to the card. Cancelled through the engine's test hook.
+    private func dialogDuringSidebarSlide() {
+        #if canImport(AircCore)
+        guard let engine = app?.engine as? ChromiumEngine else { return run { [self] in note("dialogslide: Chromium only") } }
+        let page = { self.c.shownTabID.flatMap { self.c.engineTab(for: $0) } }
+        func dialogs() -> [[String: Any]] { page().map { engine.modalDialogState(for: $0)["dialogs"] as? [[String: Any]] ?? [] } ?? [] }
+        func dialogWindow() -> NSWindow? {
+            guard let n = (dialogs().first?["windowNumber"] as? NSNumber)?.intValue else { return nil }
+            return NSApp.windows.first { $0.windowNumber == n }
+        }
+        /// The dialog's place relative to the page card on screen: centre x offset and top offset (points).
+        func offset() -> (dx: CGFloat, top: CGFloat)? {
+            guard let w = dialogWindow(), w.isVisible else { return nil }
+            let card = c.window.convertToScreen(c.card.convert(c.card.bounds, to: nil))
+            return (w.frame.midX - card.midX, card.maxY - w.frame.maxY)
+        }
+        func alert(_ name: String, _ got: @escaping ((dx: CGFloat, top: CGFloat)?) -> Void) {
+            step { [self] done in
+                page()?.evaluate("setTimeout(function(){alert('\(name)')}, 0); 1") { _ in }
+                waitUntil({ offset() != nil }, timeout: 8) { got(offset()); done() }
+            }
+        }
+        func cancel(_ name: String) {
+            step { [self] done in
+                let ok = page().map { engine.cancelModalDialog(in: $0) } ?? false
+                waitUntil({ dialogs().isEmpty }, timeout: 4) {
+                    self.check(ok && dialogs().isEmpty, "dialogslide: \(name): the alert closes (handler found \(ok))")
+                    done()
+                }
+            }
+        }
+        func same(_ a: (dx: CGFloat, top: CGFloat)?, _ b: (dx: CGFloat, top: CGFloat)?) -> Bool {
+            guard let a, let b else { return false }
+            return abs(a.dx - b.dx) <= 1.5 && abs(a.top - b.top) <= 1.5
+        }
+        func text(_ o: (dx: CGFloat, top: CGFloat)?) -> String { o.map { String(format: "dx %.1f, top %.1f", $0.dx, $0.top) } ?? "no dialog" }
+        /// With the window off screen AppKit defers dialogs: that's FAIL-ENV with the reason, never a pass.
+        func verdict(_ ok: Bool, _ what: String) {
+            if let why = framesEnvironmentProblem() { note("FAIL-ENV " + what + " (\(why))") } else { check(ok, what) }
+        }
+        var atRest: (dx: CGFloat, top: CGFloat)?
+        // 1. At rest, sidebar shown: where the engine puts an alert over this card.
+        alert("p02b rest") { o in atRest = o; verdict(o != nil, "dialogslide: an alert shows over the card at rest (\(text(o)))") }
+        cancel("at rest")
+        // 2. Right after a hide, before the parent's lazy re-anchor (150 ms): the dialog about to show re-anchors it.
+        run { [self] in c.toggleSidebar() }
+        wait(0.16)   // the slide (110 ms) is over; the lazy re-anchor isn't due yet
+        alert("p02b after hide") { o in
+            verdict(same(o, atRest), "dialogslide: an alert shown right after ⌘S hides the sidebar sits over the card as at rest (\(text(o)); at rest \(text(atRest)))")
+        }
+        cancel("after hide")
+        run { [self] in c.toggleSidebar() }
+        wait(0.5)
+        // 3. Held through hide and show: at rest after each slide, at the same place relative to the card.
+        alert("p02b held") { _ in }
+        var mid: (dx: CGFloat, top: CGFloat)?
+        run { [self] in c.toggleSidebar() }
+        wait(0.05)
+        run { mid = offset() }
+        wait(0.35)
+        run { [self] in
+            let o = offset()
+            verdict(same(o, atRest), "dialogslide: an alert held through ⌘S (hide) ends over the card as at rest (\(text(o)); mid-slide \(text(mid)))")
+            c.toggleSidebar()
+        }
+        wait(0.4)
+        run {
+            let o = offset()
+            verdict(same(o, atRest), "dialogslide: and through ⌘S (show) (\(text(o)))")
+        }
+        cancel("held")
+        #else
+        run { [self] in note("dialogslide: Chromium only") }
+        #endif
+    }
+
+    /// P02b (`AIRC_FRAMES_ONLY=devstrip`): a hidden Developer Mode strip is no longer configured on every page render, so
+    /// it must still show and hide with its page: a localhost page (Developer Mode turns on by itself there) shows it, a
+    /// Space without one hides it, and coming back shows it again; an ordinary page hides it, the localhost one shows it.
+    private func developerStripAcrossSpaces() {
+        var server: LocalPageServer?
+        var base = ""
+        var tabID = ""
+        let strip = { self.c.pageView(for: self.c.currentSpaceID)?.developerStrip }
+        let shown = { (strip()?.isHidden == false) && (strip()?.window != nil) }
+        step { [self] done in
+            server = LocalPageServer(pages: ["/dev.html": "<title>devstrip</title><p>local</p><script>console.log('p02b')</script>"])
+            guard let server else { return done() }
+            server.start { port in
+                base = port.map { "http://localhost:\($0)" } ?? ""
+                done()
+            }
+        }
+        run { [self] in
+            guard !base.isEmpty, let t = try? c.store.openTab(url: base + "/dev.html", inSpace: c.currentSpaceID, title: "devstrip") else {
+                return check(false, "devstrip: the loopback page opens")
+            }
+            tabID = t.id
+            c.reloadAll(animated: false)
+            c.show(t.id, focus: false)
+        }
+        step { [self] done in
+            waitUntil({ self.c.engineTab(for: tabID)?.isLoading == false && shown() }, timeout: 10) {
+                self.check(shown(), "devstrip: a localhost page shows the strip (count \(strip()?.countTitle ?? "-"))")
+                done()
+            }
+        }
+        let home = { self.c.store.orderedSpaces[0].id }, other = { self.c.store.orderedSpaces[1].id }
+        run { [self] in c.switchToSpace(other(), animated: false) }
+        wait(0.5)
+        run { [self] in check(!shown(), "devstrip: a Space with no developer page has no strip") }
+        run { [self] in c.switchToSpace(home(), animated: false); if c.shownTabID != tabID { c.show(tabID, focus: false) } }
+        wait(0.5)
+        run { [self] in check(shown(), "devstrip: back on its Space the strip shows again (count \(strip()?.countTitle ?? "-"))") }
+        run { [self] in if let url = URL(string: Self.page("Ordinary page")) { c.engineTab(for: tabID)?.load(url) } }
+        step { [self] done in
+            waitUntil({ self.c.engineTab(for: tabID)?.title == "Ordinary page" && !shown() }, timeout: 8) {
+                self.check(!shown(), "devstrip: an ordinary page in the same tab hides it")
+                done()
+            }
+        }
+        run { [self] in if let url = URL(string: base + "/dev.html") { c.engineTab(for: tabID)?.load(url) } }
+        step { [self] done in
+            waitUntil({ self.c.engineTab(for: tabID)?.title == "devstrip" && shown() }, timeout: 8) {
+                self.check(shown(), "devstrip: and the localhost page shows it again")
+                server?.stop()
+                done()
             }
         }
     }
@@ -371,7 +707,11 @@ extension SnapshotRunner {
         if counting { LayoutCounter.install(); LayoutCounter.reset() }
         let sections = ProcessInfo.processInfo.environment["AIRC_FRAMES_SECTIONS"] == "1"
         if dirty || sections { Perf.enabled = true; Perf.reset() }
-        let work = dirty ? { [self] in work(); note("frames: dirty after the action: " + ViewCensus.dirty(c.window)) } : work
+        let unprobed = dirty ? { [self] in work(); note("frames: dirty after the action: " + ViewCensus.dirty(c.window)) } : work
+        // P02b: with the probe on, the turn's phases and Core Animation's commit phases are marked too.
+        var probeMarks: [String: Double] = [:]
+        let probeLabel = FrameProbe.label
+        let work = FrameProbe.enabled ? { unprobed(); FrameProbe.markTurn { probeMarks = $0 } } : unprobed
         let done = counting || sections ? { [self] (s: FrameSample) in
             if counting { note("frames: counted in the first frame: " + LayoutCounter.summary) }
             note("frames: sections (ms) " + Perf.report())
@@ -384,14 +724,26 @@ extension SnapshotRunner {
             }
             return
         }
-        clock.atNextFrame { vsync in
+        let before = framesEnvironmentProblem()
+        clock.atNextFrame { [self] vsync in
             let t0 = CACurrentMediaTime()
-            FrameTiming.measure(work) { t in
+            FrameTiming.measure(work) { [self] t in
                 let commit = t0 + t.frame / 1000
                 let shown = clock.presented(after: commit)
                 let interval = clock.interval ?? (1.0 / 120)
-                done(FrameSample(work: t.work, commit: t.frame, presented: shown.map { ($0 - t0) * 1000 },
-                                 frames: shown.map { Int((($0 - vsync) / interval).rounded()) }))
+                var sample = FrameSample(work: t.work, commit: t.frame, presented: shown.map { ($0 - t0) * 1000 },
+                                         frames: shown.map { Int((($0 - vsync) / interval).rounded()) })
+                // P02: a sample only counts with the display really showing our window, start to end.
+                if let why = before ?? framesEnvironmentProblem() {
+                    sample.environment = why
+                    framesEnvViolations.append(why)
+                }
+                if FrameProbe.enabled {
+                    FrameProbe.marks.append(["label": probeLabel, "vsync_ms": vsync * 1000, "t0_ms": t0 * 1000, "commit_ms": sample.commit,
+                                             "work_ms": sample.work, "presented_ms": sample.presented ?? -1, "frames": sample.frames ?? -1,
+                                             "marks": probeMarks, "environment": sample.environment ?? ""])
+                }
+                done(sample)
             }
         }
     }
@@ -423,6 +775,10 @@ extension SnapshotRunner {
             if i == 0 { start = t }
             let phase: NSEvent.Phase = i == 0 ? .began : i < frames ? .changed : .ended
             pager.track(phase: phase, momentum: [], dx: phase == .ended ? 0 : dx, dy: 0, precise: true)
+            if FrameProbe.enabled, phase == .ended || i == 0 {
+                FrameProbe.marks.append(["label": FrameProbe.label, (phase == .ended ? "release_vsync_ms" : "start_vsync_ms"): t * 1000,
+                                         "at_ms": CACurrentMediaTime() * 1000])
+            }
             i += 1
             return phase != .ended
         }
@@ -432,6 +788,25 @@ extension SnapshotRunner {
 
 /// The seeded tabs whose pages load in the background.
 private var framesRecent: [String] = []
+/// P02: samples taken while the display didn't really show the window (they're reported, never counted).
+private var framesEnvViolations: [String] = []
+
+extension SnapshotRunner {
+    /// Why a frame sample wouldn't be a real presentation now: the screen locked, our window off the active Space or
+    /// covered. Nil when the display shows it.
+    func framesEnvironmentProblem() -> String? {
+        if Self.screenLocked { return "the screen is locked" }
+        if !c.window.isOnActiveSpace { return "the window isn't on the active Space" }
+        if !c.window.occlusionState.contains(.visible) { return "the window is covered" }
+        return nil
+    }
+
+    func framesEnvironment() -> [String: Any] {
+        ["locked": Self.screenLocked, "active_space": c.window.isOnActiveSpace,
+         "visible": c.window.occlusionState.contains(.visible), "key": c.window.isKeyWindow,
+         "hid_idle_s": FrameStats.round2(CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: CGEventType(rawValue: ~0)!))]
+    }
+}
 
 /// One action's timing: main-thread work, the commit, and the presented frame (ms from the action's start).
 struct FrameSample {
@@ -440,10 +815,13 @@ struct FrameSample {
     var presented: Double?
     /// Vsyncs from the one the action started on to the one that shows it (1 = the next frame).
     var frames: Int?
+    /// P02: why the sample doesn't count (the window off the active Space, covered, the screen locked); nil: it does.
+    var environment: String? = nil
 
     static func json(_ s: [FrameSample], budget: Double) -> [String: Any] {
         let presented = s.compactMap(\.presented)
         return ["runs": s.count, "budget_ms": budget,
+                "environment_violations": s.compactMap(\.environment),
                 "presented_ms": FrameStats(presented).json, "commit_ms": FrameStats(s.map(\.commit)).json,
                 "work_ms": FrameStats(s.map(\.work)).json,
                 "frames": s.map { $0.frames.map { $0 as Any } ?? NSNull() },
@@ -480,10 +858,15 @@ struct DropStats: CustomStringConvertible {
     let deltas: [Double]
     let interval: Double
     let runs: Int
+    /// P02: where in its run each late frame fell (the delta's index from the run's start), to tell a hitch at a fixed
+    /// point of an animation (its first frame, a page swap) from scattered drops.
+    let lateAt: [Int]
     init(_ runs: [[Double]], interval: CFTimeInterval?) {
         deltas = runs.flatMap { $0 }
-        self.interval = (interval ?? 1.0 / 120) * 1000
+        let ms = (interval ?? 1.0 / 120) * 1000
+        self.interval = ms
         self.runs = runs.count
+        lateAt = runs.flatMap { run in run.indices.filter { run[$0] > ms * 1.5 } }
     }
     /// Gaps longer than 1.5 intervals.
     var late: [Double] { deltas.filter { $0 > interval * 1.5 } }
@@ -491,7 +874,7 @@ struct DropStats: CustomStringConvertible {
     var json: [String: Any] {
         ["runs": runs, "frames": deltas.count, "late_frames": late.count, "missed_vsyncs": missed,
          "max_delta_ms": FrameStats.round2(deltas.max() ?? 0), "median_delta_ms": FrameStats.round2(FrameStats(deltas).median.isNaN ? 0 : FrameStats(deltas).median),
-         "late_deltas_ms": late.map(FrameStats.round2)]
+         "late_deltas_ms": late.map(FrameStats.round2), "late_at": lateAt]
     }
     var description: String {
         String(format: "%d frames over %d runs, %d late (%d vsyncs missed), max delta %.2f ms, interval %.2f ms", deltas.count, runs,
@@ -650,6 +1033,241 @@ enum LayoutCounter {
             let f = unsafeBitCast(original, to: F.self)
             let block: @convention(block) (NSView) -> Void = { v in count(v); f(v, sel) }
             method_setImplementation(m, imp_implementationWithBlock(block))
+        }
+    }
+}
+// MARK: - P02b: where a late frame's time goes
+
+/// `AIRC_FRAMES_PROBE=1` (P02b): a sampling profiler for the main thread while the measured actions run, so a late
+/// commit or a late animation frame can be attributed to the code that ran in it (Instruments needs Developer Tools
+/// access, which the build Mac doesn't grant without a prompt). A background thread suspends the main thread every
+/// `AIRC_FRAMES_PROBE_US` µs (default 250), copies its frame-pointer chain into a preallocated buffer and resumes it.
+/// Nothing allocates or locks while the main thread is stopped (it may hold malloc's lock). Diagnostic only: the
+/// suspensions cost the main thread a few per cent, so probe runs never give the timing numbers.
+final class MainThreadSampler: @unchecked Sendable {
+    static let shared = MainThreadSampler()
+    /// What the main thread is doing now (the scenario sets it; samples carry it).
+    nonisolated(unsafe) static var tag = 0
+    private let capacity = 6_000_000
+    private let buffer = UnsafeMutablePointer<UInt64>.allocate(capacity: 6_000_000)
+    private var used = 0
+    private var mainThread: thread_act_t = 0
+    private var stackLow: UInt64 = 0, stackHigh: UInt64 = 0
+    private let lock = NSLock()
+    private var running = false
+    private var stopped = DispatchSemaphore(value: 0)
+    private(set) var interval: useconds_t = 250
+    private(set) var count = 0
+    private(set) var full = false
+
+    var isRunning: Bool { lock.lock(); defer { lock.unlock() }; return running }
+
+    /// Call on the main thread.
+    func start() {
+        guard !isRunning else { return }
+        mainThread = pthread_mach_thread_np(pthread_self())
+        let top = UInt64(UInt(bitPattern: pthread_get_stackaddr_np(pthread_self())))
+        stackHigh = top
+        stackLow = top - UInt64(pthread_get_stacksize_np(pthread_self()))
+        interval = useconds_t(ProcessInfo.processInfo.environment["AIRC_FRAMES_PROBE_US"].flatMap(Int.init) ?? 250)
+        lock.lock(); running = true; lock.unlock()
+        stopped = DispatchSemaphore(value: 0)
+        let t = Thread { [self] in loop() }
+        t.qualityOfService = .userInteractive
+        t.name = "p02b.sampler"
+        t.start()
+    }
+
+    func stop() {
+        lock.lock()
+        let was = running
+        running = false
+        lock.unlock()
+        if was { stopped.wait() }
+    }
+
+    private func loop() {
+        while true {
+            lock.lock()
+            let go = running
+            lock.unlock()
+            if !go { break }
+            sampleOnce()
+            usleep(interval)
+        }
+        stopped.signal()
+    }
+
+    private func sampleOnce() {
+        #if arch(arm64)
+        guard used + 200 < capacity else { full = true; return }
+        let tag = UInt64(bitPattern: Int64(Self.tag))
+        let t = mach_absolute_time()
+        guard thread_suspend(mainThread) == KERN_SUCCESS else { return }
+        var state = arm_thread_state64_t()
+        var n = mach_msg_type_number_t(MemoryLayout<arm_thread_state64_t>.size / MemoryLayout<natural_t>.size)
+        let kr = withUnsafeMutablePointer(to: &state) { p in
+            p.withMemoryRebound(to: natural_t.self, capacity: Int(n)) { thread_get_state(mainThread, ARM_THREAD_STATE64, $0, &n) }
+        }
+        if kr != KERN_SUCCESS { thread_resume(mainThread); return }
+        let mask: UInt64 = 0x0000_7FFF_FFFF_FFFF   // pointer authentication bits off
+        let start = used
+        buffer[start] = t
+        buffer[start + 1] = tag
+        var i = start + 3
+        buffer[i] = state.__pc & mask; i += 1
+        let lrSlot = i; buffer[i] = state.__lr & mask; i += 1
+        var fp = state.__fp
+        var first = true
+        while fp >= stackLow, fp + 16 <= stackHigh, fp & 7 == 0, i - start < 190 {
+            guard let frame = UnsafePointer<UInt64>(bitPattern: UInt(fp)) else { break }
+            let next = frame[0]
+            let ret = frame[1] & mask
+            if ret == 0 { break }
+            if first, ret == buffer[lrSlot] { buffer[lrSlot] = 0 }   // the leaf had pushed its frame: LR is this caller
+            first = false
+            buffer[i] = ret; i += 1
+            if next <= fp { break }
+            fp = next
+        }
+        thread_resume(mainThread)
+        buffer[start + 2] = UInt64(i - start - 3)
+        used = i
+        count += 1
+        #endif
+    }
+
+    /// Writes `probe-samples.txt` (one sample per line: ms on CACurrentMediaTime's clock, tag, return addresses leaf
+    /// first) and `probe-pcs.txt` (each address once, with dladdr's image and nearest exported symbol); clears.
+    func write(to dir: URL) {
+        stop()
+        var info = mach_timebase_info_data_t()
+        mach_timebase_info(&info)
+        let toMs = Double(info.numer) / Double(info.denom) / 1e6
+        var lines: [String] = []
+        var pcs = Set<UInt64>()
+        var i = 0
+        while i < used {
+            let t = Double(buffer[i]) * toMs
+            let tag = Int64(bitPattern: buffer[i + 1])
+            let depth = Int(buffer[i + 2])
+            var frames: [String] = []
+            for k in 0..<depth where buffer[i + 3 + k] != 0 {
+                let pc = buffer[i + 3 + k]
+                pcs.insert(pc)
+                frames.append(String(pc, radix: 16))
+            }
+            lines.append(String(format: "%.4f %lld ", t, tag) + frames.joined(separator: " "))
+            i += 3 + depth
+        }
+        try? lines.joined(separator: "\n").write(to: dir.appendingPathComponent("probe-samples.txt"), atomically: true, encoding: .utf8)
+        var map: [String] = []
+        for pc in pcs.sorted() {
+            var d = Dl_info()
+            var line = String(pc, radix: 16)
+            if dladdr(UnsafeRawPointer(bitPattern: UInt(pc)), &d) != 0 {
+                let image = d.dli_fname.map { String(cString: $0) } ?? "?"
+                let base = UInt64(UInt(bitPattern: d.dli_fbase))
+                let sym = d.dli_sname.map { String(cString: $0) } ?? "?"
+                let off = pc &- UInt64(UInt(bitPattern: d.dli_saddr))
+                line += " \(image) \(String(base, radix: 16)) \(sym)+\(off)"
+            }
+            map.append(line)
+        }
+        try? map.joined(separator: "\n").write(to: dir.appendingPathComponent("probe-pcs.txt"), atomically: true, encoding: .utf8)
+        used = 0
+        count = 0
+    }
+}
+
+/// P02b probe marks: the phases of an action's run-loop turn and of its Core Animation commit, on CACurrentMediaTime's
+/// clock (ms), written to `probe-marks.json` with the sampler's stacks.
+enum FrameProbe {
+    static let enabled = ProcessInfo.processInfo.environment["AIRC_FRAMES_PROBE"] == "1"
+    nonisolated(unsafe) static var marks: [[String: Any]] = []
+    /// The action being measured ("cbfirst 0"); samples carry `MainThreadSampler.tag`.
+    nonisolated(unsafe) static var label = ""
+
+    static func begin(_ label: String, tag: Int) {
+        self.label = label
+        MainThreadSampler.tag = tag
+    }
+
+    /// `CATransaction`'s commit phases (`addCommitHandler:forPhase:`, not in the public header: 0 before layout, 1 before
+    /// the commit, 2 after it). False when the runtime doesn't have it.
+    @discardableResult
+    static func onCommitPhase(_ phase: Int32, _ block: @escaping () -> Void) -> Bool {
+        let sel = Selector(("addCommitHandler:forPhase:"))
+        guard let m = class_getClassMethod(CATransaction.self, sel) else { return false }
+        typealias F = @convention(c) (AnyClass, Selector, @escaping @convention(block) () -> Void, Int32) -> Void
+        unsafeBitCast(method_getImplementation(m), to: F.self)(CATransaction.self, sel, block, phase)
+        return true
+    }
+
+    /// After `work` (inside its run-loop turn): when the turn reaches its before-waiting observers (order 0), the one
+    /// just before Core Animation's (order 1999999), and CA's own commit phases. `done` gets the marks (ms).
+    static func markTurn(_ done: @escaping ([String: Double]) -> Void) {
+        var m: [String: Double] = [:]
+        let now = { CACurrentMediaTime() * 1000 }
+        m["work_end"] = now()
+        let phases = ["ca_pre_layout", "ca_pre_commit", "ca_post_commit"]
+        for (i, name) in phases.enumerated() { onCommitPhase(Int32(i)) { if m[name] == nil { m[name] = now() } } }
+        for (order, name) in [(0, "bw_first"), (1_999_999, "bw_before_ca"), (Int.max, "bw_after_ca")] {
+            let o = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, false, CFIndex(order)) { _, _ in
+                if m[name] == nil { m[name] = now() }
+                if name == "bw_after_ca" { done(m) }
+            }
+            CFRunLoopAddObserver(CFRunLoopGetMain(), o, .commonModes)
+        }
+    }
+
+    /// The main run loop's observers, once (their orders say which runs before Core Animation's commit).
+    static func observers() -> String {
+        let d = CFCopyDescription(CFRunLoopGetMain()) as String
+        return d.components(separatedBy: "\n").filter { $0.contains("CFRunLoopObserver") }
+            .map { line -> String in
+                let order = line.range(of: "order = ").map { String(line[$0.upperBound...].prefix { $0 != "," }) } ?? "?"
+                let callout = line.range(of: "callout = ").map { String(line[$0.upperBound...].prefix { $0 != " " && $0 != "(" }) } ?? "?"
+                let act = line.range(of: "activities = ").map { String(line[$0.upperBound...].prefix { $0 != "," }) } ?? "?"
+                return "\(order) \(act) \(callout)"
+            }
+            .reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+            .joined(separator: "; ")
+    }
+
+    /// AppKit's key-view lookups (`nextValidKeyView`, `previousValidKeyView`) by receiver class: calls and ms. With no
+    /// key loop of its own a view's lookup walks the whole window (P02b: AutoFill asks after every focus).
+    nonisolated(unsafe) static var keyViewLookups: [String: (calls: Int, ms: Double)] = [:]
+
+    static func watchKeyViewLookups() {
+        for name in ["nextValidKeyView", "previousValidKeyView"] {
+            let sel = Selector(name)
+            guard let m = class_getInstanceMethod(NSView.self, sel) else { continue }
+            typealias F = @convention(c) (NSView, Selector) -> NSView?
+            let original = unsafeBitCast(method_getImplementation(m), to: F.self)
+            let block: @convention(block) (NSView) -> NSView? = { v in
+                let t = CACurrentMediaTime()
+                let r = original(v, sel)
+                let key = name + " " + String(describing: type(of: v))
+                let old = keyViewLookups[key] ?? (0, 0)
+                keyViewLookups[key] = (old.calls + 1, old.ms + (CACurrentMediaTime() - t) * 1000)
+                return r
+            }
+            method_setImplementation(m, imp_implementationWithBlock(block))
+        }
+    }
+
+    static var keyViewSummary: String {
+        keyViewLookups.sorted { $0.value.ms > $1.value.ms }.map { String(format: "%@ ×%d %.2f ms", $0.key, $0.value.calls, $0.value.ms) }
+            .joined(separator: ", ")
+    }
+
+    static func write(to dir: URL) {
+        let value: [String: Any] = ["pid": Int(getpid()), "marks": marks, "key_view_lookups": keyViewSummary, "interval_us": Int(MainThreadSampler.shared.interval),
+                                    "samples": MainThreadSampler.shared.count, "full": MainThreadSampler.shared.full]
+        MainThreadSampler.shared.write(to: dir)
+        if let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: dir.appendingPathComponent("probe-marks.json"))
         }
     }
 }

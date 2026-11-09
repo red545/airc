@@ -49,6 +49,11 @@ class Strings : public ui::ResourceBundle::Delegate {
 
   bool GetLocalizedString(int message_id,
                           std::u16string* value) const override {
+    if (message_id == IDS_WEBAUTHN_YOUR_CHROME_PROFILE ||
+        message_id == IDS_WEBAUTHN_SOURCE_CHROME_PROFILE) {
+      *value = u"Your Airc profile";
+      return true;
+    }
     if (message_id == IDS_EXTENSION_INSTALLED_MANAGE_INFO) {
       *value = kManageExtensions;
       return true;

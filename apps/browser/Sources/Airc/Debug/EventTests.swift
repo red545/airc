@@ -25,6 +25,8 @@ extension SnapshotRunner {
         waitForPage()
         // AIRC_EVENTS_ONLY=split,archive: just those checks (for working on them).
         if let only = ProcessInfo.processInfo.environment["AIRC_EVENTS_ONLY"]?.split(separator: ",").map(String.init) {
+            if only.contains("unload") { unloading() }
+            if only.contains("unloadretry") { unloadRetryScenario() }
             if only.contains("split") { splitChecks() }
             if only.contains("archive") { autoArchiveLeaveCheck() }
             if only.contains("history") { historyMenuCheck() }
@@ -716,6 +718,11 @@ extension SnapshotRunner {
     /// one comes back when shown.
     private func unloading() {
         var plain = "", typed = "", shown = ""
+        var freedBeforeRestore = false
+        var hiddenAt = ProcessInfo.processInfo.systemUptime
+        var freedAfter: TimeInterval?
+        var typedKeptThroughout = true, shownKeptThroughout = true
+        var protectionSamples = 0
         run { [self] in
             WindowController.unloadOverride = 1
             c.applyUnloadSetting()
@@ -728,16 +735,35 @@ extension SnapshotRunner {
             c.show(plain, focus: false)
         }
         wait(0.8)
-        run { [self] in c.show(typed, focus: false) }
+        run { [self] in c.show(typed, focus: false); hiddenAt = ProcessInfo.processInfo.systemUptime }
         wait(0.8)
         run { [self] in
             c.engineTab(for: typed)?.evaluate("document.getElementById('f').value = 'typed by hand'; true", completion: nil)
             c.show(shown, focus: false)
         }
-        wait(3.5)
+        // Ten seconds covers the 1 s unload timer, three 2 s ACK waits and
+        // the 1 s / 2 s retry backoffs. The focused check covers the 60 s fallback.
+        // Poll protections from the start and latch any failure, even if the page
+        // later reloads. Retain at least the original 3.5 s protection window.
+        step { [self] done in
+            let started = ProcessInfo.processInfo.systemUptime
+            waitUntil({
+                let now = ProcessInfo.processInfo.systemUptime
+                protectionSamples += 1
+                typedKeptThroughout = !self.isUnloaded(typed) && typedKeptThroughout
+                shownKeptThroughout = !self.isUnloaded(shown) && shownKeptThroughout
+                if self.isUnloaded(plain), freedAfter == nil { freedAfter = now - hiddenAt }
+                return freedAfter != nil && now - started >= 3.5
+            }, timeout: 10, then: done)
+        }
         run { [self] in
-            let freed = isUnloaded(plain), kept = !isUnloaded(typed), visible = !isUnloaded(shown)
+            let freed = isUnloaded(plain)
+            let kept = typedKeptThroughout && !isUnloaded(typed)
+            let visible = shownKeptThroughout && !isUnloaded(shown)
+            freedBeforeRestore = freed
             let what = "unload (MEM-3): hidden tab freed \(freed), tab with typed input kept \(kept), visible tab kept \(visible)"
+            let observed = freedAfter.map { String(format: "%.3f", $0) } ?? "not freed"
+            note("MEM3 hidden-to-first-freed seconds: \(observed); protection samples: \(protectionSamples)")
             if c.appUnloads {
                 check(freed && kept && visible, what)
             } else {
@@ -748,7 +774,7 @@ extension SnapshotRunner {
         }
         wait(0.6)
         run { [self] in
-            check(!isUnloaded(plain) && c.shownTabID == plain, "unload (MEM-3): the freed tab loads again when shown")
+            check(freedBeforeRestore && !isUnloaded(plain) && c.shownTabID == plain, "unload (MEM-3): the freed tab loads again when shown")
             WindowController.unloadOverride = nil
             c.applyUnloadSetting()
         }
@@ -874,6 +900,7 @@ extension SnapshotRunner {
     }
 
     func check(_ ok: Bool, _ what: String) {
+        if let uiAttempt { uiAttempt.results.append((ok, what)); return }
         // Daytime ship runs (infra/nightly.sh --ship): a failure while our window can't take real input (covered by
         // the owner's windows, on another Space, or the screen locked) is FAIL-ENV, which the publish gate doesn't count.
         if !ok, ProcessInfo.processInfo.environment["AIRC_SHIP_GATE"] == "1", let why = inputBlocked {

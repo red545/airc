@@ -562,36 +562,9 @@ final class ChromiumTab: NSObject, EngineTab, AircTabDelegate {
     func go(offset: Int) { core.go(toOffset: Int32(offset)) }
     func zoom(step: Int) { core.zoomStep(Int32(step.signum())) }
     var zoomFactor: Double { core.zoomFactor }
-    fileprivate private(set) var toolsPanel: ChromiumToolsPanel?
-    func showDevTools(console: Bool) -> Bool {
-        guard !isClosed else { return false }
-        if !console, toolsPanel != nil { dismissDevTools(); return true }
-        guard core.executeChromeCommand(console ? 40005 : 40237) else { return false }
-        attachDevTools(attempt: 0)
-        return true
-    }
-    private func attachDevTools(attempt: Int) {
-        guard !isClosed, let owner else { return }
-        if let view = core.devToolsView {
-            if toolsPanel == nil {
-                let panel = ChromiumToolsPanel(tab: core, parent: owner.window)
-                toolsPanel = panel
-                panel.onClose = { [weak self, weak panel] in
-                    if self?.toolsPanel === panel { self?.toolsPanel = nil }
-                }
-            }
-            toolsPanel?.show(view)
-        } else if attempt < 50 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                self?.attachDevTools(attempt: attempt + 1)
-            }
-        }
-    }
-    fileprivate func dismissDevTools() {
-        toolsPanel?.panel.close()
-        toolsPanel = nil
-        core.closeDevTools()
-    }
+    var isDevToolsOpen: Bool { toolsPanel?.panel.isVisible == true && core.devToolsView != nil }
+    var toolsPanel: ChromiumToolsPanel?
+    var toolsGeneration = 0
     func printPage(from window: NSWindow) -> Bool {
         guard owner?.window === window else { return false }
         return core.executeChromeCommand(35007) // IDC_BASIC_PRINT
@@ -713,7 +686,7 @@ final class ChromiumTab: NSObject, EngineTab, AircTabDelegate {
 }
 // Chromium's docked DevTools view needs a native host in Airc. Keep it in an
 // owned utility panel; a successful command dispatch alone would leave it hidden.
-private final class ChromiumToolsPanel: NSObject, NSWindowDelegate {
+final class ChromiumToolsPanel: NSObject, NSWindowDelegate {
     let panel: NSPanel
     private let tab: AircTab
     private weak var parentWindow: NSWindow?
@@ -727,6 +700,7 @@ private final class ChromiumToolsPanel: NSObject, NSWindowDelegate {
                         backing: .buffered, defer: false)
         super.init()
         panel.title = "Developer Tools"
+        panel.level = .normal
         panel.isReleasedWhenClosed = false
         panel.delegate = self
         parent.addChildWindow(panel, ordered: .above)
@@ -744,9 +718,10 @@ private final class ChromiumToolsPanel: NSObject, NSWindowDelegate {
         }
     }
     func windowWillClose(_ notification: Notification) {
+        parentWindow?.removeChildWindow(panel)
         tab.closeDevTools()
         let callback = onClose
-        DispatchQueue.main.async { callback?() }
+        callback?()
     }
     deinit { panel.orderOut(nil) }
 }
@@ -783,7 +758,7 @@ final class ChromiumRuntime: NSObject, AircEngineDelegate {
     static func run(arguments: [String] = CommandLine.arguments, started: @escaping () -> Void) -> Int32 {
         precondition(!arguments.isEmpty && arguments.allSatisfy { !$0.contains("\0") })
         let delegate = ChromiumRuntime(started: started)
-        let strings = arguments.map { strdup($0)! }
+        let strings = launchArguments(arguments).map { strdup($0)! }
         defer { strings.forEach { free($0) } }
         var arguments: [UnsafePointer<CChar>?] = strings.map { UnsafePointer<CChar>($0) } + [nil]
         return arguments.withUnsafeMutableBufferPointer { buffer in
@@ -791,6 +766,31 @@ final class ChromiumRuntime: NSObject, AircEngineDelegate {
                 AircEngine.run(argc: Int32(strings.count), argv: $0, delegate: delegate)
             }
         }
+    }
+    /// Keep browser services without an Airc UI from fetching at startup. Coalesce repeated switches: Chromium
+    /// otherwise keeps only the last value, silently dropping either the caller's features or our media-key owner.
+    static func launchArguments(_ arguments: [String]) -> [String] {
+        var result = arguments
+        func merge(_ name: String, defaults: [String], defaultKey: String? = nil) {
+            let prefix = "--" + name + "="
+            var values = result.filter { $0.hasPrefix(prefix) }.flatMap {
+                $0.dropFirst(prefix.count).split(separator: ",").map(String.init)
+            }
+            result.removeAll { $0.hasPrefix(prefix) }
+            let overridden = defaultKey.map { key in values.contains { $0.hasPrefix(key + "=") } } ?? false
+            if !overridden { values += defaults }
+            var seen = Set<String>()
+            result.append(prefix + values.filter { seen.insert($0).inserted }.joined(separator: ","))
+        }
+        // Airc owns Now Playing. It has no Google AI-mode omnibox or automatic translation-prompt ranking;
+        // disabling the ranker leaves user-requested translation available.
+        merge("disable-features", defaults: ["HardwareMediaKeyHandling", "AimEnabled",
+                                             "TranslateRankerQuery", "TranslateRankerEnforcement"])
+        // Avoid bulk component downloads competing with startup and session restoration. Defer the first routine
+        // check to five minutes, keeping Chromium's normal five-hour schedule and on-demand requests, including CRLSet
+        // and Widevine. An explicit interval still works for diagnostics. Never disable the component updater.
+        merge("component-updater", defaults: ["initial-delay=300"], defaultKey: "initial-delay")
+        return result
     }
     func engineDidStart() { started() }
     static var memoryPressureHandler: ((Int) -> Void)?

@@ -92,7 +92,8 @@ final class SplitRowView: SidebarRowView {
             let color = dim ? palette.textSecondary : palette.textPrimary
             return Model(tabID: t.id, paneID: nil,
                          title: NSAttributedString(string: TextLimits.clip(text), attributes: [.foregroundColor: color, .font: AircFont.row.appFont]),
-                         image: page?.favicon, iconURL: t.faviconURL, page: t.url, alpha: page == nil ? 0.5 : 1, drifted: false,
+                         // A note's pane has no page (Notes/NoteSplit.swift): never dimmed as unloaded.
+                         image: page?.favicon, iconURL: t.faviconURL, page: t.url, alpha: page == nil && !NoteURL.isNote(t.url) ? 0.5 : 1, drifted: false,
                          badge: t.profileID != home ? controller?.store.profile(t.profileID) : nil)
         }
         apply(models, axis: x.axis, palette: palette, selected: selected)
@@ -158,7 +159,7 @@ final class SplitRowView: SidebarRowView {
             s.drifted = m.drifted
             if !s.title.attributedStringValue.isEqual(to: m.title) { s.title.attributedStringValue = m.title }
             s.favicon.set(image: m.image, url: m.iconURL, fallbackPage: m.page, palette: palette,
-                          symbol: arrow == k ? "arrow.uturn.backward" : nil)
+                          symbol: arrow == k ? "arrow.uturn.backward" : NoteURL.isNote(m.page) ? "note.text" : nil)
             s.favicon.alphaValue = arrow == k ? 1 : m.alpha
             s.badge.isHidden = m.badge == nil
             if let other = m.badge { LayerImage.set(ProfileAvatarImage.image(other, size: 11), on: s.badge, in: self) }
@@ -340,6 +341,11 @@ final class SplitRowView: SidebarRowView {
     // Press activates on mouse-down (Arc), on the pane that was pressed. Dragging is handled by the page.
     override func mouseDown(with event: NSEvent) {
         guard let entry else { return }
+        // Arc (1.17.2): ⌥-click separates the split into tabs; an ⌥-drag still drags it (Browser/SplitExtras.swift).
+        if event.modifierFlags.intersection([.command, .shift, .option, .control]) == .option, let c = controller, c.optionClickSplits(entry) {
+            if page?.beginPossibleDrag(entry: entry, row: self, event: event) == false { c.optionClickSplit(entry) }
+            return
+        }
         let p = convert(event.locationInWindow, from: nil)
         let k = segment(at: p)
         if splitItem != nil, let k, segments[k].drifted, !segments[k].tabID.isEmpty,

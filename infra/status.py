@@ -8,9 +8,10 @@ usage: status.py STATUS_DIR [--live]
 """
 import html, json, os, re, subprocess, sys, time
 from pathlib import Path
+from run_result import state as run_state, LABELS
 
 status = Path(sys.argv[1])
-host = os.environ.get("AIRC_MAC_HOST", "mac")
+host = os.environ.get("AIRC_MAC_HOST", "buildmac")
 runs_dir = status / "runs"
 runs_dir.mkdir(parents=True, exist_ok=True)
 
@@ -77,6 +78,7 @@ for d in sorted(runs_dir.iterdir(), reverse=True)[:30]:
 e = html.escape
 def badge(rc):
     return '<span class="ok">passed</span>' if rc == 0 else (
+        '<span class="skip">waiting / ENV</span>' if rc == 75 else
         '<span class="skip">skipped</span>' if rc == 3 else f'<span class="bad">failed ({rc})</span>')
 def dur(s):
     return f"{s // 3600}h {s % 3600 // 60}m" if s >= 3600 else (f"{s // 60}m {s % 60}s" if s >= 60 else f"{s}s")
@@ -84,11 +86,15 @@ def dur(s):
 rows = []
 for i, (name, rev, subj, steps, shots) in enumerate(runs):
     ok = all(rc in (0, 3) for _, rc, _ in steps) and steps
-    head = f'<summary><b>{e(name.replace("_", " "))} UTC</b> · <code>{e(rev)}</code> {e(subj)} · {"✅" if ok else "❌"}</summary>'
+    state = run_state(runs_dir / name)
+    outcome = f'<span class="skip">{LABELS[state]}</span>' if state in ('WAIT', 'ENV') else ("✅" if ok else "❌")
+    head = f'<summary><b>{e(name.replace("_", " "))} UTC</b> · <code>{e(rev)}</code> {e(subj)} · {outcome}</summary>'
     body = "".join(f'<tr><td>{e(n)}</td><td>{badge(rc)}</td><td>{dur(s)}</td>'
                    f'<td><a href="runs/{e(name)}/{e(n)}.log">log</a></td></tr>' for n, rc, s in steps)
+    evidence = (f'<p class="dim"><a href="runs/{e(name)}/ui-gate.json">UI gate: lock evidence and classified results</a></p>'
+                if (runs_dir / name / 'ui-gate.json').exists() else '')
     gallery = "".join(f'<a href="runs/{e(name)}/snapshots/{e(p.name)}"><img src="runs/{e(name)}/snapshots/{e(p.name)}" loading="lazy"></a>' for p in shots)
-    rows.append(f'<details{" open" if i == 0 else ""}>{head}<table>{body}</table><div class="shots">{gallery}</div></details>')
+    rows.append(f'<details{" open" if i == 0 else ""}>{head}<table>{body}</table>{evidence}<div class="shots">{gallery}</div></details>')
 
 livehtml = "<p>No live data yet.</p>"
 if live:

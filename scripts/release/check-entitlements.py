@@ -7,6 +7,7 @@ import plistlib
 import subprocess
 import sys
 from entitlement_policy import library_validation_error
+import icloud
 
 MACHO = (b'\xcf\xfa\xed\xfe', b'\xfe\xed\xfa\xcf', b'\xca\xfe\xba\xbe', b'\xbe\xba\xfe\xca')
 
@@ -16,6 +17,8 @@ def check(app):
     if identity.returncode:
         print('FAIL entitlement gate: a valid Developer ID bundle is required')
         return 1
+    executable = plistlib.loads((app / "Contents/Info.plist").read_bytes())["CFBundleExecutable"]
+    main = app / "Contents/MacOS" / executable
     count = 0
     errors = []
     for root, dirs, files in os.walk(app, followlinks=False):
@@ -31,6 +34,8 @@ def check(app):
                 if result.returncode: raise ValueError('codesign failed')
                 entitlements = plistlib.loads(result.stdout) if result.stdout.strip() else {}
                 error = library_validation_error(relative, entitlements)
+                if path != main and any(key in entitlements for key in icloud.RESTRICTED):
+                    error = "profile entitlements belong only on the main app"
             except (ValueError, plistlib.InvalidFileException):
                 error = 'could not inspect signed entitlements'
             if error: errors.append(f'{relative}: {error}')

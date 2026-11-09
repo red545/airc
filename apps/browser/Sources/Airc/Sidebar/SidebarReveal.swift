@@ -15,12 +15,21 @@ final class SidebarRevealController {
     private var pending: DispatchWorkItem?
     private var monitor: Any?
     private var offset: CGFloat = 0   // 0 = shown, 1 = off to the side it comes from
+    /// Menus being tracked now (the main menu, a context menu, a pop-up button's).
+    private var menusOpen = 0
+    private var menuObservers: [NSObjectProtocol] = []
     #if AIRC_TESTING
     /// The checks (SidebarRightCheck.swift): the strip that reveals, and the floating panel, in the root view.
     var edgeFrame: NSRect { edge.isHidden ? .zero : edge.frame }
     var floatingFrame: NSRect { floating.frame }
     /// The snapshots draw it over the page's picture while it's out.
     var floatingView: NSView? { isRevealed ? floating : nil }
+    /// SidebarPolishCheck.swift: the strip itself (its mouseMoved is what arms the dwell), stand-ins for what a scripted
+    /// run can't make real (it's never the key window, and the pointer is the owner's), and each dwell's verdict.
+    var edgeView: NSView { edge }
+    var testConditions: ((inout SidebarRevealGate.Conditions) -> Void)?
+    private(set) var dwellVerdicts: [SidebarRevealGate.Refusal?] = []
+    var isDwelling: Bool { pending.map { !$0.isCancelled } ?? false }
     #endif
 
     final class EdgeView: NSView {
@@ -56,6 +65,22 @@ final class SidebarRevealController {
         }
         edge.onMove = { [weak self] in self?.armReveal() }
         edge.onExit = { [weak self] in self?.pending?.cancel() }
+        let center = NotificationCenter.default
+        menuObservers = [
+            center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { [weak self] _ in
+                self?.menusOpen += 1
+            },
+            center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                self.menusOpen = max(0, self.menusOpen - 1)
+            },
+        ]
+    }
+
+    deinit {
+        menuObservers.forEach(NotificationCenter.default.removeObserver)
+        // A window closed while its sidebar was revealed: its pointer monitor goes too.
+        if let monitor { NSEvent.removeMonitor(monitor) }
     }
 
     func layout() {
@@ -77,9 +102,35 @@ final class SidebarRevealController {
 
     private func armReveal() {
         guard let c = controller, c.sidebarHidden, !isRevealed, pending == nil || pending!.isCancelled else { return }
-        let work = DispatchWorkItem { [weak self] in self?.reveal() }
+        let work = DispatchWorkItem { [weak self] in self?.dwellEnded() }
         pending = work
         DispatchQueue.main.asyncAfter(deadline: .now() + DesignGaps.revealDelay, execute: work)
+    }
+
+    /// The dwell is over: reveal only if what started it still holds (SB-61). The window may have lost key, the pointer
+    /// may have left without an exit event (a jump, a window on top), ⌘S may have shown the sidebar, a sheet or menu
+    /// may have come up, or a press may have turned into a drag.
+    private func dwellEnded() {
+        pending = nil
+        guard let c = controller else { return }
+        let p = c.root.convert(c.window.mouseLocationOutsideOfEventStream, from: nil)
+        let now = SidebarRevealGate.Conditions(
+            windowIsKey: c.window.isKeyWindow,
+            sidebarHidden: c.sidebarHidden && c.sidebarFraction <= 0.001,
+            alreadyRevealed: isRevealed,
+            pointerInStrip: !edge.isHidden && edge.frame.insetBy(dx: -1, dy: 0).contains(p),
+            sheetOrModal: c.window.attachedSheet != nil || NSApp.modalWindow != nil,
+            menuOpen: menusOpen > 0,
+            mouseButtonDown: NSEvent.pressedMouseButtons != 0)
+        #if AIRC_TESTING
+        var conditions = now
+        testConditions?(&conditions)
+        let refusal = SidebarRevealGate.refusal(conditions)
+        dwellVerdicts.append(refusal)
+        #else
+        let refusal = SidebarRevealGate.refusal(now)
+        #endif
+        if refusal == nil { reveal() }
     }
 
     func reveal() {
@@ -164,7 +215,7 @@ extension NSView {
 private var animatorKey = 0
 
 /// The sidebar's inner edge (its right one, its left one with the sidebar on the right): drag to resize (164–500), past
-/// the minimum hides it, double-click resets (WIN-4).
+/// the minimum hides it (as soon as the drag goes below it, as in Arc), double-click resets (WIN-4).
 final class SidebarResizeHandle: NSView {
     weak var controller: WindowController?
 
@@ -182,7 +233,7 @@ final class SidebarResizeHandle: NSView {
         while let e = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
             if e.type == .leftMouseUp { break }
             let w = startWidth + (e.locationInWindow.x - startX) * (c.sidebarOnRight ? -1 : 1)
-            if w < AircMetrics.Sidebar.minWidth - 40 {
+            if SidebarResize.hides(proposedWidth: Double(w), minWidth: Double(AircMetrics.Sidebar.minWidth)) {
                 if !c.sidebarHidden { c.toggleSidebar() }
                 break
             }

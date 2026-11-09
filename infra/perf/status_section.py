@@ -13,7 +13,8 @@ def render(runs_dir):
             if data.get('schema_version') == 1: history.append((path, data))
         except (OSError, ValueError, AttributeError):
             continue
-    if not history: return '<p>No performance runs yet.</p>'
+    gaps = render_gaps(runs_dir)
+    if not history: return '<p>No reference performance runs yet.</p>' + gaps
     path, latest = history[-1]
     esc = lambda x: html.escape(str(x))
     def num(value):
@@ -26,6 +27,9 @@ def render(runs_dir):
                        ('space_layout_ms','Space synchronous layout (ms; proxy)')]:
         values = [latest.get(n,{}).get('metrics',{}).get(key) for n in ['airc',chrome]]
         rows.append(f'<tr><td>{title}</td><td>{num(values[0])}</td><td>{num(values[1])}</td><td>{num(latest.get("ratios",{}).get(key))}</td></tr>')
+    gap_data = read_gaps(runs_dir)
+    overrides = {b['id']: b for b in gap_data.get('budgets', []) if b.get('status') != 'unknown'}
+    latest = dict(latest, budgets=[dict(b, status=overrides[b['id']]['status'] + ' (separate gap probe; see below)') if b['id'] in overrides else b for b in latest.get('budgets', [])])
     budget_rows = ''.join(f'<tr><td>{esc(b["id"])}</td><td>{esc(b["budget"])}</td><td>{esc(b["status"])}</td></tr>' for b in latest.get('budgets',[]))
     # Shared scale, chronological points, missing observations break lines.
     pair = lambda d: ['airc', 'chrome_8' if 'chrome_8' in d else 'chrome']
@@ -55,4 +59,34 @@ def render(runs_dir):
             f'<a href="runs/{esc(path.parent.name)}/results.json">JSON</a></p>'
             + ''.join(f'<p class="dim">{esc(n)}</p>' for n in latest.get('notes',[]))
             + f'<table><tr><th>Metric</th><th>Airc</th><th>Chrome{" (same 8 pages)" if chrome == "chrome_8" else ""}</th><th>Airc/Chrome</th></tr>'+''.join(rows)+'</table>'
-            + fair + svg+'<table>'+budget_rows+'</table>')
+            + fair + svg+'<table>'+budget_rows+'</table>' + gaps)
+
+
+def read_gaps(runs_dir):
+    path = runs_dir.parent / 'perf-gaps/gaps.json'
+    try:
+        data = json.loads(path.read_text())
+        if data.get('kind') != 'performance-gaps': return {}
+        from .gap_results import budgets
+        data['budgets'] = budgets(data)
+        return data
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return {}
+
+
+def render_gaps(runs_dir):
+    data = read_gaps(runs_dir)
+    if not data: return ''
+    esc = lambda value: html.escape(str(value))
+    rows = []
+    for b in data['budgets']:
+        metrics = []
+        for key, value in b['measurements'].items():
+            if isinstance(value, dict) and 'median' in value:
+                metrics.append(f"{key}: {value['median']:.3f} ({value['min']:.3f}–{value['max']:.3f}; n={value['n']})")
+            elif value: metrics.append(f'{key}: {value}')
+        rows.append(f"<tr><td>{esc(b['id'])}</td><td>{esc(b['status'])}</td><td>{esc('; '.join(metrics) or 'unmeasured')}</td><td>{esc(b['reason'])}</td></tr>")
+    return (f"<h3>Separate gap probes</h3><p>{esc(data.get('timestamp'))} · <a href='perf-gaps/gaps.json'>JSON</a> · "
+            f"binary <code>{esc(data.get('binary_sha256', '')[:12])}</code>. Medians (min–max); sources and scopes below. "
+            "These results do not replace the reference workload above.</p>"
+            + '<table><tr><th>Budget</th><th>Status</th><th>Measurement</th><th>Method / limits</th></tr>' + ''.join(rows) + '</table>')

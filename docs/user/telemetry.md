@@ -25,7 +25,7 @@ ranges (0, 1, 2-7, 8-30 …).
 | `process.gone` | a renderer, GPU or utility helper ends abnormally | `process_type`: renderer, gpu, network, storage, audio, utility:data_decoder, utility:video_capture or other; `exit_signal`: SIGSEGV, SIGBUS, SIGILL, SIGABRT, SIGTRAP, SIGFPE, SIGSYS, SIGKILL, SIGTERM, exit or other; no URLs or paths |
 
 The features: the Command Bar (new tab or edit URL), split view (made with 2, 3 or 4 panes, pinned, made a
-Favorite), Peek (opened, opened as a tab), Little Arc (from the shortcut or a link from another app), picture in
+Favorite), Peek (opened, opened as a tab), Little Airc (from the shortcut or a link from another app), picture in
 picture (video, call or document), a new Space, a new profile, a new Favorite, an Air Traffic Control rule, Find,
 the Back/Forward history menu, a download started or finished, Site Controls, the default-browser prompt (shown,
 accepted, declined), an extension installed (never which), an update installed, the sidebar's update button shown
@@ -33,8 +33,14 @@ or clicked, a theme change, Live Calendar turned on or a meeting joined from it 
 its time), a Boost changed in its editor (never the site, its style or its code), a private window opened
 (nothing about its pages, ever), and a tab preview's quick action (pin, unpin, add to or remove from Favorites,
 split, Peek; never the tab, its site or its title), a shortcut changed in Settings → Shortcuts (never which
-command or key), and Tidy tab titles turned on or off in Settings → AI (never a title, a page or a name;
-[ai.md](ai.md)).
+command or key), Tidy tab titles turned on or off in Settings → AI (never a title, a page or a name;
+[ai.md](ai.md)), a Capture copied, saved or shared (feature `capture`, variant `copy`, `save` or `share`; never
+the page, its site, the picture or where it went, and nothing from a private window; [capture.md](capture.md)), and
+Ask on Page, link previews and Tidy downloads (features `ai.ask_page`, `ai.link_preview`, `ai.tidy_downloads`, variant
+`on` or `off` when turned on or off in Settings → AI, `used` for a question asked, a link preview shown (at most once a
+minute) or a suggested file name applied; never a question, an answer, a page, an address, a summary or a file name,
+and nothing from a private window; [ai.md](ai.md)), and a note made (feature `note.create`, variant `shortcut`,
+`command_bar` or `plus_menu`; never what it says, its title, its pictures or where it is; [notes.md](notes.md)).
 
 Numbers are only ever sent as ranges: "6-10 Spaces", "250-500 ms", never the exact value.
 
@@ -139,3 +145,7 @@ one of Airc's signal records (written by `apps/browser/Sources/AircCrashLog/Cras
 build) and recorded with `Telemetry.shared.record(report)`. A new field goes through a format check there and into the
 allowlist in `CrashReportTests.swift`. A published build keeps its dSYMs in `build/dSYMs` on the build Mac
 (`scripts/build-app.sh`), and `infra/updates/upload-symbols.sh` sends new ones to PostHog after each publish.
+
+Developer Mode records only its toggles (a site on or off, or Settings' automatic switch): `feature.used`, feature
+`developer_mode.toggle`, closed variant `on` or `off`. Inspect, Hard Reload and the console badge add no events. No host, URL, message text or error count
+is collected. See [Developer Mode](devmode.md).

@@ -7,7 +7,7 @@
 #
 # Env: AIRC_SHIP_QUIET (seconds the newest commit must be old before a run starts, default 120, so an agent's
 # series of commits lands in one build), AIRC_STATUS_DIR (default ../status next to the repo).
-# A red run is not retried until main moves again; a run that found the Mac offline is retried.
+# Red runs wait for new commits. Locked-screen and ENV runs retry after three minutes; offline runs also retry.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -30,7 +30,19 @@ while true; do
     note "run for $(git -C "$ROOT" rev-parse --short HEAD)"
     "$ROOT/infra/nightly.sh" --ship >> "$LOG" 2>&1
     run=$(ls -td "$STATUS"/runs/*/ 2>/dev/null | head -1)
-    if grep -q $'^mac-online\t0' "$run/steps.tsv" 2>/dev/null; then
+    if grep -q $'^engine-ready\t75' "$run/steps.tsv" 2>/dev/null; then
+      note "waiting for engine owner"
+      sleep 60
+      continue
+    fi
+    if python3 "$ROOT/infra/run_result.py" "$run" >> "$LOG"; then
+      note "UI environment unavailable; retrying in three minutes"
+      sleep 60; sleep 60; sleep 60
+      continue
+    fi
+    # A HEAD counts as tested only once its sources reached the Mac: the Mac can answer the online check and drop
+    # before the export (a sleeping laptop's short wakes), which must not mark the HEAD done.
+    if grep -q $'^mac-online\t0' "$run/steps.tsv" 2>/dev/null && grep -q $'^export\t0' "$run/steps.tsv" 2>/dev/null; then
       last=$head
       note "finished: $(awk -F'\t' '$1=="publish-dev"{print "publish-dev exit " $2}' "$run/steps.tsv")"
     else

@@ -50,6 +50,10 @@ extension WindowController {
 /// change and a tab change; it never shows while rows are dragged, while the Space pager moves, or over the Command
 /// Bar, Site Controls, the Library or the other panels. Keyboard users get no card. Settings → Appearance → "Show tab
 /// previews" turns it off (and forgets the pictures).
+///
+/// S04: a pinned tab or Favorite of a service with a preview (Previews/, PreviewService) shows the service's card
+/// instead: unread mail, the day's meetings, the pages recently visited there. A Calendar Favorite showing Live
+/// Calendar's own card (Calendar/CalendarViews.swift) gets no second card from here.
 final class TabPreviewController {
     static let dwell: TimeInterval = 0.4
     /// Off a row or the card: this long to reach the card or another row before it hides.
@@ -63,10 +67,15 @@ final class TabPreviewController {
     /// The page on screen is pictured again when the pointer comes to the sidebar if its picture is older than this.
     static let staleAfter: CFTimeInterval = 2
 
-    enum Thumbnail: String { case none, live, cached, placeholder }
+    enum Thumbnail: String { case none, live, cached, placeholder, service }
 
     private weak var c: WindowController?
     private(set) var card: TabPreviewCardView?
+    /// S04: the service card, made on first use and reused.
+    private(set) var serviceCard: ServicePreviewCardView?
+    /// The account whose card is up.
+    private(set) var shownAccount: PreviewAccount?
+    private var serviceObserver: NSObjectProtocol?
     private(set) var isShowing = false
     /// The row under the pointer, and the pointer's last known place (window coordinates, from the rows' events).
     private weak var row: SidebarRowView?
@@ -109,10 +118,14 @@ final class TabPreviewController {
             self?.hide()
             TabPreviewCache.shared.removeAll()
         }
+        serviceObserver = nc.addObserver(forName: ServicePreviewCenter.changed, object: nil, queue: .main) { [weak self] n in
+            self?.serviceChanged(n.object as? PreviewAccount)
+        }
     }
 
     deinit {
         menuObservers.forEach(NotificationCenter.default.removeObserver)
+        if let serviceObserver { NotificationCenter.default.removeObserver(serviceObserver) }
         disarm()
     }
 
@@ -191,8 +204,7 @@ final class TabPreviewController {
     /// near edge (the menu-aim rule).
     private func heading(from a: NSPoint, to b: NSPoint) -> Bool {
         let onRight = c?.sidebarOnRight == true
-        guard let card, card.superview != nil, onRight ? b.x < a.x : b.x > a.x else { return false }
-        let r = card.convert(card.cardRect, to: nil)
+        guard let r = shownCardRect, onRight ? b.x < a.x : b.x > a.x else { return false }
         let nearX = onRight ? r.maxX : r.minX
         let top = NSPoint(x: nearX, y: r.maxY), bottom = NSPoint(x: nearX, y: r.minY)
         func side(_ p: NSPoint, _ q: NSPoint, _ s: NSPoint) -> CGFloat { (q.x - p.x) * (s.y - p.y) - (q.y - p.y) * (s.x - p.x) }
@@ -224,11 +236,13 @@ final class TabPreviewController {
         switch e.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
             // The card's own buttons.
-            if isShowing, let card, e.window === c?.window, card.cardRect.contains(card.convert(e.locationInWindow, from: nil)) {
-                return e
-            }
+            if isShowing, e.window === c?.window, shownCardRect?.contains(e.locationInWindow) == true { return e }
             dismiss(suppressing: row)
         case .scrollWheel:
+            // A service card's list scrolls.
+            if isShowing, serviceCard?.superview != nil, e.window === c?.window, shownCardRect?.contains(e.locationInWindow) == true {
+                return e
+            }
             lastScroll = CACurrentMediaTime()
             dismiss(suppressing: nil)
         case .keyDown:
@@ -270,15 +284,28 @@ final class TabPreviewController {
         switchWork?.cancel()
         guard let c, let entry = (r as? TabPreviewRow)?.previewEntry, entry.liveTab != nil || entry.item?.savedURL != nil,
               canShow(r, c) else { return }
+        // Live Calendar's own card is this Favorite's preview.
+        if let tile = r as? FavoriteTileView, tile.calendarFace != nil, CalendarCenter.shared.cardState != nil,
+           CalendarCenter.shared.shows(.preview, for: entry.item?.id) {
+            if isShowing { hide() }
+            return
+        }
         #if AIRC_TESTING
         let t0 = CACurrentMediaTime()
         defer { stats.showCost.append(CACurrentMediaTime() - t0); stats.shows += 1; stats.lastShownAt = CACurrentMediaTime() }
         #endif
+        // A deleted profile's pictures go (and are never another profile's).
+        TabPreviewCache.shared.retain(profiles: Set(c.store.state.profiles.keys))
+        if let account = serviceAccount(for: entry, in: c) { return showService(account, entry: entry, row: r, in: c) }
+        if serviceCard?.superview != nil {
+            serviceCard?.removeFromSuperview()
+            shownAccount = nil
+        }
         let card = self.card ?? makeCard()
         let url = Self.url(of: entry, in: c)
         card.apply(content(of: entry, url: url, in: c), palette: c.currentPalette)
         let tabID = entry.liveTab?.id
-        if let shot = TabPreviewCache.shared.shot(tab: tabID, item: entry.item?.id, url: url) {
+        if let shot = TabPreviewCache.shared.shot(tab: tabID, item: entry.item?.id, url: url, profileID: Self.profileID(of: entry, in: c)) {
             card.setThumbnail(shot.image)
             thumbnail = .cached
         } else {
@@ -325,6 +352,9 @@ final class TabPreviewController {
             thumbnail = .none
             card?.layer?.removeAllAnimations()
             card?.removeFromSuperview()
+            serviceCard?.layer?.removeAllAnimations()
+            serviceCard?.removeFromSuperview()
+            shownAccount = nil
         }
         if row == nil { disarm() }
     }
@@ -365,8 +395,9 @@ final class TabPreviewController {
 
     /// Beside the sidebar (to its left when it's on the right, WIN-5), the card's top level with the row's, kept inside
     /// the window.
-    static func frame(beside r: SidebarRowView, in c: WindowController) -> NSRect {
-        let m = TabPreviewCardView.margin, w = TabPreviewCardView.width, h = TabPreviewCardView.height
+    static func frame(beside r: SidebarRowView, in c: WindowController, width w: CGFloat = TabPreviewCardView.width,
+                      height h: CGFloat = TabPreviewCardView.height) -> NSRect {
+        let m = TabPreviewCardView.margin
         let rowRect = r.convert(r.bounds, to: c.root)
         let sidebar = c.sidebar.convert(c.sidebar.bounds, to: c.root)
         let x = c.sidebarOnRight ? max(sidebar.minX - gap - w, 8) : min(sidebar.maxX + gap, c.root.bounds.width - w - 8)
@@ -383,7 +414,7 @@ final class TabPreviewController {
     }
 
     /// Grows from the row's edge on the popover spring and fades in (Reduce Motion: a 150 ms fade).
-    private func present(_ card: TabPreviewCardView, anchorY: CGFloat) {
+    private func present(_ card: NSView, anchorY: CGFloat) {
         guard let layer = card.layer else { return }
         #if AIRC_TESTING
         stats.lastPresentSprang = !reduceMotion
@@ -402,7 +433,7 @@ final class TabPreviewController {
     }
 
     /// Row to row with the card up: it glides to the new row on the row spring (Reduce Motion: a cross-fade in place).
-    private func move(_ card: TabPreviewCardView, from old: NSRect, to new: NSRect) {
+    private func move(_ card: NSView, from old: NSRect, to new: NSRect) {
         guard let layer = card.layer, old != new else { return }
         layer.removeAnimation(forKey: "grow")
         if reduceMotion {
@@ -441,6 +472,158 @@ final class TabPreviewController {
                      isPinned: item.map { !$0.isFavorite } ?? false, isFavorite: item?.isFavorite ?? false,
                      canSplit: c.shownTabID != nil && !onScreen && (shownSplit?.tabIDs.count ?? 1) < Split.maxPanes && !url.isEmpty,
                      canPeek: c.shownTabID != nil && !onScreen && web)
+    }
+
+    // MARK: Service cards (S04)
+
+    /// The card that's up: the page picture's or a service's (the scripted runs' captures draw it over the page).
+    var presentedCard: NSView? {
+        if let v = serviceCard, v.superview != nil { return v }
+        if let v = card, v.superview != nil { return v }
+        return nil
+    }
+
+    /// The window rectangle of the card that's up, if one is.
+    private var shownCardRect: NSRect? {
+        if let v = serviceCard, v.superview != nil { return v.convert(v.cardRect, to: nil) }
+        if let v = card, v.superview != nil { return v.convert(v.cardRect, to: nil) }
+        return nil
+    }
+
+    /// The profile a row's page loads in: its tab's, else its Favorite's, else its pinned item's Space's.
+    static func profileID(of entry: SidebarEntry, in c: WindowController) -> String {
+        if let t = entry.liveTab.flatMap({ c.store.tab($0.id) }) { return t.profileID }
+        if let i = entry.item.flatMap({ c.store.item($0.id) }) {
+            if let p = i.profileID { return p }
+            if let s = i.spaceID { return c.store.profile(ofSpace: s).id }
+        }
+        return c.store.profile(ofSpace: c.currentSpaceID).id
+    }
+
+    /// The service account a pinned tab or Favorite shows a card for (Today tabs keep the picture, as in Arc).
+    private func serviceAccount(for entry: SidebarEntry, in c: WindowController) -> PreviewAccount? {
+        guard let item = entry.item, item.kind != .split else { return nil }
+        return ServicePreviewCenter.shared.account(for: Self.url(of: entry, in: c), profileID: Self.profileID(of: entry, in: c))
+    }
+
+    private func showService(_ a: PreviewAccount, entry: SidebarEntry, row r: SidebarRowView, in c: WindowController) {
+        if card?.superview != nil {
+            card?.layer?.removeAllAnimations()
+            card?.removeFromSuperview()
+        }
+        let v = serviceCard ?? makeServiceCard()
+        let wasShowing = isShowing && v.superview != nil
+        let oldFrame = v.frame
+        let frame = Self.frame(beside: r, in: c, width: ServicePreviewCardView.width, height: ServicePreviewCardView.height)
+        v.frame = frame
+        configure(v.model, account: a, entry: entry, in: c)
+        if !wasShowing {
+            c.folderPreview.hide()
+            c.root.addSubview(v, positioned: .below, relativeTo: c.toast)
+        }
+        v.layoutSubtreeIfNeeded()
+        isShowing = true
+        shownRow = r
+        shownEntry = entry
+        shownAccount = a
+        insideCard = false
+        thumbnail = .service
+        #if AIRC_TESTING
+        stats.serviceShows += 1
+        #endif
+        let rowMid = r.convert(NSPoint(x: 0, y: r.bounds.midY), to: c.root).y
+        if wasShowing { move(v, from: oldFrame, to: frame) } else { present(v, anchorY: rowMid - frame.minY) }
+        ServicePreviewCenter.shared.refresh(a)
+    }
+
+    private func makeServiceCard() -> ServicePreviewCardView {
+        let v = ServicePreviewCardView(frame: NSRect(origin: .zero, size: ServicePreviewCardView.frameSize))
+        v.onHover = { [weak self] inside in
+            guard let self else { return }
+            self.insideCard = inside
+            if inside { self.hideWork?.cancel() } else if self.row == nil { self.scheduleHide() }
+        }
+        serviceCard = v
+        return v
+    }
+
+    /// What the card shows for `a`, and where its rows and buttons go: the item's own tab for a message, a day or "+"
+    /// of mail and calendars; a new tab for a recent page or a documents site's "+" (Arc: "open it as a new tab").
+    private func configure(_ m: ServicePreviewModel, account a: PreviewAccount, entry: SidebarEntry, in c: WindowController) {
+        let center = ServicePreviewCenter.shared
+        m.showID += 1
+        m.account = a
+        m.state = center.state(a) ?? .loading
+        m.now = center.now()
+        m.theme = c.currentPalette.resolved
+        let page = entry.liveTab.flatMap { c.engineTab(for: $0.id) }
+        m.icon = page?.favicon ?? FaviconCache.shared.cached(entry.item?.faviconURL ?? entry.liveTab?.faviconURL)
+        let itemID = entry.item?.id ?? ""
+        let space = c.currentSpaceID
+        let pageURL = Self.url(of: entry, in: c)
+        let saved = entry.item.flatMap { c.store.item($0.id)?.savedURL } ?? pageURL
+        m.onMail = { [weak c] mail in
+            guard let c, let u = URL(string: mail.url ?? saved) else { return }
+            center.open(u, inItem: itemID, spaceID: space, controller: c)
+        }
+        m.onPage = { [weak c] p in
+            guard let c, let u = URL(string: p.url) else { return }
+            center.openNewTab(u, spaceID: space, controller: c)
+        }
+        m.onEvent = { [weak c] e in
+            guard let c, let u = CalendarSites.dayURL(saved, day: e.start) ?? URL(string: saved) else { return }
+            center.open(u, inItem: itemID, spaceID: space, controller: c)
+        }
+        m.onJoin = { [weak self, weak c] e in
+            guard let c else { return }
+            self?.hide()
+            CalendarCenter.shared.join(e, spaceID: space, controller: c)
+        }
+        m.onAction = { [weak c] in
+            guard let c, let u = PreviewService.actionURL(for: pageURL) ?? PreviewService.actionURL(for: saved) else { return }
+            if a.service.family == .recents { center.openNewTab(u, spaceID: space, controller: c) } else {
+                center.open(u, inItem: itemID, spaceID: space, controller: c)
+            }
+        }
+        m.onSignIn = { center.signIn(a) }
+        m.onRemove = { center.remove(a) }
+        m.onSettings = { [weak self] in
+            guard let self, let v = self.serviceCard else { return }
+            let menu = NSMenu()
+            let out = NSMenuItem(title: "Sign Out of \(a.service.name)", action: nil, keyEquivalent: "")
+            out.target = ServicePreviewMenuTarget.shared
+            out.action = #selector(ServicePreviewMenuTarget.signOut(_:))
+            out.representedObject = a
+            menu.addItem(out)
+            let r = v.cardRect
+            _ = menu.popUp(positioning: nil, at: NSPoint(x: r.maxX - 40, y: r.maxY - 10), in: v)
+        }
+    }
+
+    /// An account's state changed (or a profile was forgotten, or a calendar line's minute ticked): the card that's up
+    /// and the pinned rows' lines follow.
+    private func serviceChanged(_ a: PreviewAccount?) {
+        refreshStatusRows(a)
+        guard isShowing, let shown = shownAccount, let v = serviceCard, a == nil || a == shown else { return }
+        guard let s = ServicePreviewCenter.shared.state(shown) else { return hide() }
+        if v.model.state != s { v.model.state = s }
+        v.model.now = ServicePreviewCenter.shared.now()
+    }
+
+    /// The pinned rows of this window's Spaces showing `a` (any, for nil) read their line again (TabRowView shows
+    /// ServicePreviewCenter.statusLine under the title).
+    private func refreshStatusRows(_ a: PreviewAccount?) {
+        guard let c else { return }
+        for space in c.windowSpaces {
+            guard let p = c.pageView(for: space.id) else { continue }
+            for r in p.list.subviews.compactMap({ $0 as? TabRowView }) {
+                guard let e = r.entry, case .pinned = e, let palette = r.palette,
+                      let s = PreviewService.detect(Self.url(of: e, in: c)), s.family != .recents else { continue }
+                if let a, a != PreviewAccount(url: Self.url(of: e, in: c), profileID: Self.profileID(of: e, in: c)) { continue }
+                r.configure(e, palette: palette, selected: r.isSelected)
+                r.needsLayout = true
+            }
+        }
     }
 
     // MARK: Actions
@@ -554,6 +737,7 @@ final class TabPreviewController {
         }
         pending[tabID] = completion.map { [$0] } ?? []
         let itemID = c.store.tab(tabID)?.itemID
+        let profileID = c.store.tab(tabID)?.profileID ?? c.store.profile(ofSpace: c.currentSpaceID).id
         #if AIRC_TESTING
         let t0 = CACurrentMediaTime()
         stats.requests[reason.rawValue, default: 0] += 1
@@ -563,7 +747,7 @@ final class TabPreviewController {
             #if AIRC_TESTING
             self.stats.results.append((reason.rawValue, image != nil, CACurrentMediaTime() - t0))
             #endif
-            if let image, self.isEnabled { TabPreviewCache.shared.store(image, url: url, tab: tabID, item: itemID) }
+            if let image, self.isEnabled { TabPreviewCache.shared.store(image, url: url, tab: tabID, item: itemID, profileID: profileID) }
             let waiting = self.pending.removeValue(forKey: tabID) ?? []
             waiting.forEach { $0(image) }
         }
@@ -581,6 +765,7 @@ final class TabPreviewController {
         var hoverCost: [Double] = []
         var showCost: [Double] = []
         var actions: [String] = []
+        var serviceShows = 0
         var lastEnterAt: CFTimeInterval = 0
         var lastShownAt: CFTimeInterval = 0
         var lastPresentSprang = false

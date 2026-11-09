@@ -1,0 +1,9 @@
+[
+  {
+    "url": "https://chromereleases.googleblog.com/2026/11/extended-stable-update-for-desktop.html",
+    "pinned": "156.0.8078.88",
+    "content_sha256": "fee82824495cbbf4b85a914188fed84fa27e132cec4b79dd123386daa23028d7",
+    "reviewed_on": "2026-11-07",
+    "note": "docs/launch/security-updates.md#review-2026-11-07"
+  }
+]

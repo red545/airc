@@ -409,3 +409,68 @@ cold samples. These coarse profiler samples are diagnostic, not the timing
 comparison. No engine build, focus activation, HID posting or screen capture
 was used. The fallback before idle preparation and actual foreground 120 Hz
 presentation remain outside this measurement.
+
+## Missing-budget probes (`gaps.py`)
+
+Build the test app from a clean source archive plus the probe changes, then run:
+
+```sh
+python3 infra/perf/gaps.py --app build/Airc-Chromium.app --output build/gaps --runs 5 --samples 5
+```
+
+The driver starts a fresh process/data/home for every action and repetition. It
+uses the UI-check lock (refuses its timeout fallback), `open -g -n -W`, and checks
+HID idle ≥300 s and free container space ≥14 GB before launch and every second.
+Activity or low space aborts the sequence and retains completed evidence. Resume
+in a fresh output directory; do not pool different binaries. The process cleanup
+uses the existing responsibility/identity census. Remove the task work folder
+only after exporting its results. No engine build, HID events, screen capture,
+camera or microphone is needed. `--profile --actions ACTION --runs 1 --samples 20`
+adds a separate diagnostic `sample` stack profile; never pool it into acceptance.
+
+`gaps.json` retains binary SHA-256, per-launch guards, every sample and budgets.
+Three or more completed launches are required for acceptance. Summaries are
+medians of process medians and their min–max spread; first Command Bar opening
+uses only the first opening in each process. Strict limits check every sample,
+not only the headline median. Incomplete evidence remains unknown; a verified
+failed component can fail a composite requirement without its other components.
+
+- **swipe:** uses the pager's `track` phases, 24 updates then release, records raw
+  display-link timestamps and missed vsyncs against both observed and 120 Hz rates.
+  A 60 Hz/asleep display cannot certify 120 Hz. Callback gaps are a main-thread
+  presentation proxy, not GPU fence measurements.
+- **feedback:** calls the visible loaded tab row's native `mouseDown`, checks its
+  pressed state, then releases it. Records commit and next display timestamp.
+  This certifies the press case only, not hover or every selection path.
+- **sidebar:** measures key action to `sidebarFraction` endpoint (tolerance .001),
+  with a bounded 1 ms poll. Raw hide/show durations retain observation overhead.
+- **command:** first opening after a verified loaded-tab switch; synthetic tab and
+  history matches checked against the keystroke commit; loopback suggestions go
+  through the production service's debounce, parsing and row application. A
+  test-only URLProtocol redirects Google suggestion traffic to the driver's local
+  server. Unique queries avoid cache hits; request counts prove interception.
+  Suggestions include up to 1 ms row-observation overhead, not WAN latency.
+- **MEM-3:** reuses the keep-loaded fixture pattern, 2 s timeout override, trusted
+  DevTools form input, almost-silent synthetic WebAudio, shown/pinned/Favorite
+  exclusions, real engine pressure hook, two eligible tabs for LRU ordering,
+  and title/favicon/scroll restoration. The JSON includes fixture verification;
+  no hardware media permissions. This is a synthetic Chromium check, not a
+  real 30-minute wait or a mixed-engine acceptance suite.
+- **MEM-6:** deterministic no-media pages, 3 profiles/6 Spaces/30 tabs/8 loaded,
+  30 s settle then 30 s all-responsible-process CPU (100%=one core), stable process
+  census required. The `census` control action captures the main CFRunLoop's
+  description before CPU sampling, deduplicates timers across modes, and retains
+  the raw text, intervals, next-fire offsets and count due within 30 seconds.
+  Positive intervals include parked framework timers and must not be read as
+  evidence of frequent wakeups. It includes framework timers, not just the archive
+  timer previously exposed as `idle_timer_count`. Dispatch queues and engine
+  worker timers are outside this census: nonzero fails literal timer absence;
+  zero cannot prove global absence. CPU over budget gets a hottest-process
+  `sample` profile; a nonzero timer census also captures a main-process profile
+  when CPU is under budget. Run-loop description format changes leave the count unknown.
+
+To display a reviewed result, copy its `gaps.json` to
+`STATUS_DIR/perf-gaps/gaps.json` and regenerate `infra/status.py STATUS_DIR`.
+The renderer recalculates budgets, links the evidence, shows timestamp and binary
+hash, and labels these separate probes. It never fills missing values with zero
+or silently merges these synthetic runs into a nightly reference workload.

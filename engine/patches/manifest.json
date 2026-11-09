@@ -217,7 +217,7 @@
   },
   "components/remote_cocoa/app_shim/native_widget_mac_nswindow.mm": {
     "before": "9f5f2ab2d6f9c959c7593d782a2fc4276294bc02f79c2fc609f717711dca7efc",
-    "after": "7a3e324afd4e4d2b30d3438570ae50117dbd88e8b5ec32738774df8e9bae249c"
+    "after": "e203ac2acc2eda73f05f9d81bcedff5821c6b00eb487b5c80a674b19f240f657"
   },
   "components/remote_cocoa/app_shim/mouse_capture.mm": {
     "before": "23595f0727d9d455d9ac18afda0bb9a2bf6c746c0f903f50d20bc774115bbe92",
@@ -242,5 +242,25 @@
   "content/browser/download/save_file_manager.cc": {
     "before": "92dcc279caad42371eafa74ad90235e7d27fd4c2b3c6d903cb326a61c3b602c7",
     "after": "491708fb37d96b84cf10f200dcc088ee53318b3e297c023a7785b81f856c67e9"
+  },
+  "chrome/browser/optimization_guide/model_execution/optimization_guide_global_state.cc": {
+    "before": "5e47ca4af446febd2851e8ed26516adf865609a49128d3e63cee5e70c4079550",
+    "after": "af5d317e401150cbf81f6d5147235bc5b7ae15e81d46bfce73ce5b3c2e1fae3a"
+  },
+  "chrome/browser/prefs/chrome_command_line_pref_store.cc": {
+    "before": "1f4df8de12fbf79629fc8ff45b289f2ef92806d4aaec283d6dc41eec7463b2d8",
+    "after": "9e0dfa0a2199329d9c94d30c76192f4dd38c7071d32715c90983c86fdc42c5a9"
+  },
+  "chrome/browser/safe_browsing/generated_safe_browsing_pref.cc": {
+    "before": "5fe938ecf517138ebee0246781dbe3a7de83615a8d0bd14208c71632c6fe92fa",
+    "after": "045c4fd28095c55261b3cb1707c2e27ff180022c4c60e6229a5c7d4558a46502"
+  },
+  "chrome/browser/webauthn/chrome_web_authentication_delegate.cc": {
+    "before": "6027d0e3e08eb1b83fc59759aa8f4a6789cbb2364ff83867ead42e2809828775",
+    "after": "71c76c62a9d16c41c05e53843cfceaea8ab36761d5c5ccbb6da11f958314a747"
+  },
+  "chrome/browser/ui/views/media_router/media_router_dialog_controller_views.cc": {
+    "before": "907ec84d4706f9f9c5d5446eec0c55b7a53459fc712971b2dd2b411aaecca0fa",
+    "after": "e1c91f52817ecb8dfb905dc4097a435267d1296297dc621851184157d703e1bb"
   }
 }

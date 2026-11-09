@@ -162,6 +162,11 @@ extension SpacesStore {
 
     // MARK: Making and changing splits
 
+    /// Whether `tabID` can be a pane of a Today split: any tab, and a note while it's in Today (New Note in Split,
+    /// Arc's "a new Note beside your current page"). A pinned note isn't one, and a split holding a note never becomes
+    /// a pinned or Favorite split (pinSplit); drags never put a note in a split (dropIntoSplit).
+    func canBeTodayPane(_ tabID: String) -> Bool { !isNoteTab(tabID) || tab(tabID)?.isToday == true }
+
     /// A split of `tabIDs` (2–4 distinct live tabs, in pane order) shown in `spaceID`'s Today list at `order` (default:
     /// where its first Today tab of that Space was, else the top). Tabs in another split leave it. One undo step.
     @discardableResult
@@ -170,7 +175,7 @@ extension SpacesStore {
         var seen = Set<String>()
         let ids = tabIDs.filter { seen.insert($0).inserted }
         guard space(spaceID) != nil, (2...Split.maxPanes).contains(ids.count), ids.allSatisfy({ tab($0) != nil }),
-              !ids.contains(where: isItemSplitPane) else {
+              !ids.contains(where: isItemSplitPane), ids.allSatisfy(canBeTodayPane) else {
             throw StoreError.invalidMove
         }
         let place = order ?? ids.compactMap { tab($0) }.filter { $0.isToday && $0.spaceID == spaceID && split(containing: $0.id) == nil }
@@ -188,7 +193,7 @@ extension SpacesStore {
     /// Adds `tabID` as a pane at `index` (default: last). The new pane takes an equal share from the others.
     public func addToSplit(_ splitID: String, tabID: String, at index: Int? = nil, focus: Bool = true) throws {
         if state.splits[splitID] == nil, item(splitID)?.kind == .split { return try addPane(tabID, toSplitItem: splitID, at: index, focus: focus) }
-        guard var x = split(splitID), tab(tabID) != nil, !x.tabIDs.contains(tabID), !isItemSplitPane(tabID) else { throw StoreError.invalidMove }
+        guard var x = split(splitID), tab(tabID) != nil, !x.tabIDs.contains(tabID), !isItemSplitPane(tabID), canBeTodayPane(tabID) else { throw StoreError.invalidMove }
         guard x.tabIDs.count < Split.maxPanes else { throw StoreError.splitFull }
         let n = Double(x.tabIDs.count)
         let i = min(max(index ?? x.tabIDs.count, 0), x.tabIDs.count)
@@ -265,7 +270,9 @@ extension SpacesStore {
     /// when `leading`); on a split (or a tab in one), the tab joins it next to its target. The dropped tab keeps its
     /// own Space and profile, so a tab dragged in from another Space keeps its logins (a cross-Space split).
     func dropIntoSplit(_ tabID: String, inSpace spaceID: String, onto target: String, leading: Bool) throws {
-        guard tab(tabID) != nil, target != tabID, space(spaceID) != nil else { throw StoreError.invalidMove }
+        // Notes are never panes (Notes.swift): not dropped onto a row, and nothing dropped onto theirs.
+        guard tab(tabID) != nil, target != tabID, space(spaceID) != nil, !isNoteTab(tabID), !isNoteTab(target),
+              !NoteURL.isNote(item(target)?.savedURL) else { throw StoreError.invalidMove }
         // SV-2: a pinned or Favorite split's pane leaves it for Today first, in the same undo step.
         if isItemSplitPane(tabID) {
             return try perform("Split View", undoable: true) {

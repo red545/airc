@@ -21,8 +21,12 @@ public enum AircMotion {
 
     /// Whether the user turned on Reduce Motion.
     @MainActor public static var prefersReducedMotion: Bool {
-        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        reduceMotionOverride ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
+
+    /// Scripted checks only (ThemeParityCheck): the system's Reduce Motion as if it were set, for every reader of
+    /// `prefersReducedMotion`, without touching the Mac's own accessibility settings. nil follows the system.
+    @MainActor public static var reduceMotionOverride: Bool?
 
     /// SwiftUI: the 150 ms ease-in-out every motion becomes.
     public static var crossfade: Animation { .easeInOut(duration: reducedDuration) }

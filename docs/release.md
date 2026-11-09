@@ -91,15 +91,45 @@ and passes its path via `--ed-key-file`. Overrides: `SPARKLE_ROOT` and
    `--key`, `--key-id`, `--issuer`. Keep credentials outside the repository.
 3. The permanent public bundle identifier is **`com.aircbrowser.Airc`**, confirmed by the owner (spec D8).
    `stable-metadata.py` sets it on the freshly compiled public staging copy; test identities are never inherited.
-4. Separately request Apple's browser passkey capability. The checked-in
-   `passkeys-template.entitlements.plist` is **not enabled**. Replace TEAMID and
-   bundle ID in an external copy, obtain Apple's approved provisioning profile,
-   embed it at `Contents/embedded.provisionprofile`, and set
-   `AIRC_PASSKEY_ENTITLEMENTS` to the completed entitlement file. The signer
-   rejects ad-hoc use or a missing profile. Apple must approve the exact group and
-   capability; the template alone cannot enable passkeys.
+4. Local Mac passkeys use the signed main app's `<team>.<bundle id>.webauthn` Keychain group.
+   `sign.py` derives it from the embedded Developer ID provisioning profile when granted; no manual entitlement
+   file is needed. iCloud Keychain additionally needs Apple's managed browser capability. Follow
+   [the passkeys setup](../engine/PASSKEYS.md#icloud-keychain-owner-step), then regenerate the profile.
+   The signer adds `com.apple.developer.web-browser.public-key-credential` only if that profile grants `true`.
+   `passkeys-template.entitlements.plist` is documentation, not an automatic entitlement grant.
+   Manual `AIRC_PASSKEY_ENTITLEMENTS` extras must also fit the embedded profile; ad-hoc use is refused.
 5. Select hosting and authorize public launch separately. The planned production
    feed is not live. Use a private HTTPS feed override until launch.
+6. iCloud sync (below): the `iCloud.com.aircbrowser.Airc` container, the App ID's iCloud capability with CloudKit
+   (optionally Push Notifications), a Developer ID provisioning profile in `~/arcfork/secrets/`, and the CloudKit
+   schema deployed to Production ([sync.md](sync.md), "Deploying the schema").
+
+## iCloud sync
+
+Settings → Sync uses CloudKit's private database ([sync.md](sync.md)). CloudKit needs entitlements that only a
+provisioning profile grants, so `package.sh` adds them when, and only when, a profile for the staged bundle ID exists:
+
+- `scripts/release/icloud.py prepare` looks in `AIRC_ICLOUD_PROFILE_DIR` (default `~/arcfork/secrets`) for a
+  `*.provisionprofile` (decoded with `security cms -D`) whose app ID is `<team>.<bundle id>`, that is a Developer ID
+  profile (`ProvisionsAllDevices`), unexpired, with the `iCloud.<bundle id>` container and CloudKit. The newest match
+  is copied to `Contents/embedded.provisionprofile` **before signing**. Anything else (no file, an expired profile, a
+  dev bundle's, one without CloudKit) prints one line and the release is unchanged. A matching profile that can't
+  grant what's needed (no Production environment, another keychain group) fails the release: fix the profile.
+- Only the **main app** gets the extra entitlements (`sign.py` merges them like the passkey ones; list values such as
+  `keychain-access-groups` are joined, so one profile can grant passkeys and iCloud): `com.apple.developer.icloud-services`
+  = CloudKit, `com.apple.developer.icloud-container-identifiers` = the container,
+  `com.apple.developer.icloud-container-environment` = Production (`AIRC_ICLOUD_ENVIRONMENT=Development` for a test
+  build), the application and team identifiers, `keychain-access-groups` = `<team>.<bundle id>` for the synchronizable
+  group key, and `aps-environment` when the profile has Push Notifications. Helpers, the framework and Sparkle get none.
+- After signing, `icloud.py verify` compares `codesign -d --entitlements` of the main app with the embedded profile's
+  entitlements and fails if any is outside the profile, if any nested code has iCloud or Keychain entitlements, or if
+  the profile doesn't contain the certificate the app was signed with. That last one passes every signature check and
+  then macOS refuses to launch the app (AMFI -413 "No matching profile found"); regenerate the profile with the build
+  Mac's Developer ID certificate.
+- Team and application identifiers are read from the profile at build time. They're never printed or committed.
+
+Ad hoc packaging never looks for a profile. Without the entitlement the app says "iCloud sync is available in release
+builds once set up" and never touches CloudKit (`SyncCapability`).
 
 ## Release gates
 
@@ -383,10 +413,12 @@ References: [Sparkle setup](https://sparkle-project.org/documentation/),
 [Apple notarization](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution),
 [seed format](https://github.com/sparkle-project/Sparkle/blob/2.10.1/generate_keys/main.swift).
 
-## Private dev channel (local to the build Mac)
+## Private dev channel and dedicated-host migration
 
-The dev channel has one user, running on the build Mac itself. Signed ZIPs and
-EdDSA deltas now stay in `~/arcfork/updates-local/`. `infra/updates/local-feed.sh`
+The existing dev installation still reads the owner laptop's loopback feed. Its
+LaunchAgent and feed stay intact while all new builds and tests move to the dedicated
+Mac. The ship loop, nightly and publishing remain held until a green dry ship and
+signed scratch dev-feed proof. Existing signed ZIPs and EdDSA deltas stay in `~/arcfork/updates-local/`. `infra/updates/local-feed.sh`
 installs `~/Library/LaunchAgents/org.airc.devfeed.plist`, serving **only that
 folder**, bound to **127.0.0.1:3483**. It uses the existing Python interpreter and
 `server.py` copied into `~/arcfork/tools/devfeed/`; no new dependencies or root.
@@ -398,19 +430,25 @@ Every publisher failure logs its phase and exit status. The Linux coordinator
 streams the Mac output into `publish-dev.log`, retains `publish.*/prepare.log`,
 and surfaces the remote failure summary, so
 redirected Mac errors cannot leave an empty `publish-dev.log`. Directory listings and symlink
-escapes are refused (including HEAD requests). This is never exposed by Serve or
-Funnel. Server logs live beside its script.
+escapes are refused (including HEAD requests). The existing loopback feed stays unchanged
+until cutover. A separately rooted signed scratch dev feed may use tailnet-only HTTPS
+Serve, with distinct frontend/backend ports; never Funnel. A service health probe
+alone does not prove a signed app update. Server logs live beside its script.
 
-Dev builds default to `http://127.0.0.1:3483/appcast.xml`. `nightly.sh` selects that
-URL regardless of an older `AIRC_UPDATE_FEED` in private operator configuration.
+Dev builds default to `http://127.0.0.1:3483/appcast.xml`. `nightly.sh` and `publish.sh`
+read `LOCAL_FEED` from private operator configuration, retaining that compatibility
+default until the feed bridge is qualified. An older `AIRC_UPDATE_FEED` does not override it.
 The dev plist enables `NSAllowsLocalNetworking`; public builds retain their ATS
 policy. Sparkle still verifies every archive and delta against the same EdDSA
 public key. No certificate exception or trusted self-signed certificate is needed.
 Apple documents local networking in [NSAllowsLocalNetworking](https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity/nsallowslocalnetworking).
 
 The operator's `airc.env` beside the checkout still sets `AIRC_DEV_CHANNEL=1`,
-signing configuration, and optional `AIRC_MAC_HOST`, `AIRC_UPDATES_DIR` and
-`AIRC_STATUS_DIR`. Never commit it; `AIRC_UPDATES_CONFIG` overrides its path.
+`LOCAL_FEED`, and optional `AIRC_MAC_HOST`, `AIRC_UPDATES_DIR` and `AIRC_STATUS_DIR`.
+The dedicated host defaults to `buildmac`; signing configuration is sourced only there
+from `~/arcfork/setup/signing/signing.env`. Set `AIRC_PUBLISH_HOLD=1` to refuse dev
+and public release preparation before metadata/staging writes. Never commit operator
+configuration; `AIRC_UPDATES_CONFIG` overrides its path. See [host routing](dev/build-mac.md).
 
 **Switch-over.** Keep the Linux HTTPS service (`infra/updates/serve.sh`) running.
 Each publish atomically mirrors the small appcast there; its newest enclosures

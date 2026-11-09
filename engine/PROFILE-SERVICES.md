@@ -16,8 +16,13 @@ Do not retain credentials in `PendingCredentials` after handing them off.
 Objective-C / imported Swift methods on `AircProfile`:
 
 - `importLogins(_:completion:)`: keys `origin`, `signonRealm`, `actionURL`,
-  `username`, `password`. Only HTTP(S) HTML credentials with a matching origin-only
-  realm are accepted. Completion returns `saved`, `skipped`, `rejected`, and ordered
+  `username`, `password`, optional `scheme` and `federationOrigin` (P22b). HTML
+  credentials need a matching origin-only realm. `scheme` `basic`, `digest` or
+  `other` is HTTP authentication: the realm is the origin plus the server's realm
+  name (`https://host/Realm`, Chromium's own form; proxy realms are refused), so
+  the browser's sign-in box fills them. `federationOrigin` (an HTTPS origin) is a
+  federated sign-in: empty password, realm `federation://<host>/<provider host>`.
+  Readback also compares scheme and federation origin. Completion returns `saved`, `skipped`, `rejected`, and ordered
   `results`: `{index, status, reason}`. Status is `saved`, `skipped-duplicate`, or
   `rejected`. No credentials are included in results. Imports serialize per profile
   store, read the matching realm before adding, and read it back after AddLogin.
@@ -34,10 +39,27 @@ Objective-C / imported Swift methods on `AircProfile`:
   Chromium microseconds since 1601; zero is session-only. SameSite is -1 unset,
   0 none, 1 lax, 2 strict. A leading dot denotes a domain cookie; otherwise host-only.
   Completion returns `accepted`, `rejected`, and ordered `{index,status,reason}`
-  results. Invalid domains, expired cookies, invalid SameSite and partition metadata
+  results. A row whose metadata has `top_frame_site_key` (and optionally
+  `has_cross_site_ancestor` "1") is a partitioned cookie and goes into that
+  partition (`CookiePartitionKey::FromUntrustedInput`); it must be Secure (P22b).
+  Invalid domains, expired cookies, invalid SameSite and invalid partition keys
   receive explicit reasons; Chromium exclusion strings describe prefix and secure/
   SameSite failures. Expired rows are rejected rather than counted as successful
   deletion operations. Accepted means CookieManager inclusion, not disk fsync.
+
+- `AircProfile.importKinds` (class property, P22b): `httpAuthLogins`,
+  `federatedLogins`, `partitionedCookies`, `localStorage`. The app feature-detects
+  it before any profile loads; older engines don't have it.
+- `importLocalStorage(_:completion:)` (P22b): rows `{origin, items}`, `origin` an
+  HTTP(S) origin, `items` `[{key, value}]` as `NSData`, the bytes as Chromium's
+  localStorage database holds them (format prefix included). First-party storage
+  keys only. One site at a time through `LocalStorageControl.BindStorageArea`: a
+  site that already has local storage keeps it (`skipped-existing`); otherwise each
+  item is `Put` and the area read back (`imported` means it holds exactly what was
+  sent). Over 10 MiB, a failed Put (the site is emptied again) or a readback
+  mismatch is `rejected` with a reason; `store unavailable` without a profile or
+  storage service. Completion: `imported`, `skipped`, `rejected`, ordered
+  `{index,status,reason,items}`. Flushed at the end. No keys or values in results.
 
 ## Unloaded profile cleanup
 

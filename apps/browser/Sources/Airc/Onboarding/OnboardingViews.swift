@@ -195,12 +195,18 @@ struct ArcStep: View {
         case .browser?, .bookmarksFile?: BrowserSourceDetail(model: model)
         case .passwords?: PasswordsPane(model: model, showsHeader: true)
         case .arc?:
-            if model.choosing { chooser } else { summary }
+            if model.choosing { chooser } else {
+                ScrollView(.vertical, showsIndicators: true) {
+                    summary
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .testAnchor("onboarding.import.viewport")
+            }
         case nil:
             if case .searching = model.arc {
                 HStack(spacing: 10) {
                     ProgressView().controlSize(.small)
-                    Text("Reading Arc's sidebar").aircFont(AircFont.body).foregroundStyle(theme.surfaceTextSecondary.color)
+                    Text(model.arcReadProgress).aircFont(AircFont.body).foregroundStyle(theme.surfaceTextSecondary.color)
                 }
             } else {
                 AircGroup {
@@ -226,7 +232,10 @@ struct ArcStep: View {
                     .testAnchor("onboarding.import.spaces")
                 checkRow("Favorites, per profile", nil, count: c.favorites, isOn: $model.includeFavorites)
                     .testAnchor("onboarding.import.favorites")
+                checkRow("Browsing history", "Last 90 days, for ⌘T suggestions.", count: nil, isOn: $model.includeHistory)
+                    .testAnchor("onboarding.import.history")
                 checkRow("Logins and saved passwords", "macOS asks for your Mac password once.", count: nil, isOn: $model.includeLogins)
+                    .testAnchor("onboarding.import.logins")
             }
             if let note = model.importNote {
                 Label(note, systemImage: "exclamationmark.triangle")
@@ -813,6 +822,11 @@ struct AccountsStep: View {
                 }
                 .frame(maxHeight: .infinity, alignment: .top)
                 .testAnchor("onboarding.accounts.list")
+                if model.importedFromArc, model.result != nil {
+                    Text("\(model.historyImported.formatted()) history entries imported")
+                        .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color)
+                    ArcExtensionChecklistView(app: model.importApp, profileIDs: Set(model.result?.profileIDs.values.map { $0 } ?? []))
+                }
                 if model.offersLoginsStep {
                     HStack(alignment: .top, spacing: 10) {
                         Image(systemName: "lock").font(.system(size: 13, weight: .medium)).foregroundStyle(theme.surfaceTextTertiary.color)
@@ -1044,7 +1058,12 @@ struct LoginsStep: View {
             switch model.logins {
             case _ where !model.loginsAvailable:
                 Button("Continue") { model.onSkipLogins?() }.buttonStyle(.airc(.primary, size: .large)).keyboardShortcut(.defaultAction)
-            case .done, .failed:
+            case .failed:
+                // P22: a declined or locked Keychain, or no key, can be tried again at once.
+                Button("Try Again") { model.onImportLogins?() }.buttonStyle(.airc(.secondary, size: .large))
+                    .testAnchor("onboarding.logins.retry")
+                Button("Continue") { model.onNext?() }.buttonStyle(.airc(.primary, size: .large)).keyboardShortcut(.defaultAction)
+            case .done:
                 Button("Continue") { model.onNext?() }.buttonStyle(.airc(.primary, size: .large)).keyboardShortcut(.defaultAction)
             case .reading:
                 Button("Importing…") {}.buttonStyle(.airc(.primary, size: .large)).disabled(true)

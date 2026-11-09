@@ -86,9 +86,10 @@ public struct KeyCombo: Hashable, Sendable, Codable, CustomStringConvertible {
     }
 }
 
-/// Why a key can't be a shortcut (`.system`) or what else uses it (`.pageCommon`: allowed, with a warning).
+/// Why a key can't be a shortcut (`.system`) or what else uses it (`.pageCommon`, `.systemMayTake`: allowed, with a
+/// warning).
 public struct KeyReservation: Equatable, Sendable {
-    public enum Kind: Sendable { case system, pageCommon }
+    public enum Kind: Sendable { case system, pageCommon, systemMayTake }
     public let kind: Kind
     /// What it does, as Settings says it: "Quit Airc (hold ⌘Q)", "bold in text editors".
     public let what: String
@@ -107,7 +108,6 @@ public struct KeyReservation: Equatable, Sendable {
             KeyCombo("~", [.shift, .command]): "switching windows",
             KeyCombo("space", cmd): "Spotlight",
             KeyCombo("space", [.option, .command]): "Finder search",
-            KeyCombo("space", .control): "switching input sources",
             KeyCombo("space", [.control, .option]): "switching input sources",
             KeyCombo("space", [.control, .command]): "Emoji & Symbols",
             KeyCombo("q", [.control, .command]): "Lock Screen",
@@ -144,26 +144,97 @@ public struct KeyReservation: Equatable, Sendable {
         KeyCombo("delete", .command): "deleting to the line's start",
     ]
 
+    /// Keys macOS takes first only when a setting there is on (Arc: "System shortcuts may take priority over this
+    /// shortcut"). ⌃Space is Arc's Reveal Current Tab; with two input sources, macOS switches between them on it instead.
+    public static let systemMayTake: [KeyCombo: String] = [
+        KeyCombo("space", .control): "switching input sources, when macOS has more than one",
+    ]
+
     public static func of(_ combo: KeyCombo) -> KeyReservation? {
         if let w = system[combo] { return KeyReservation(kind: .system, what: w) }
         if let w = pageCommon[combo] { return KeyReservation(kind: .pageCommon, what: w) }
+        if let w = systemMayTake[combo] { return KeyReservation(kind: .systemMayTake, what: w) }
         return nil
     }
 }
 
-/// Who gets a command's key first while a page has the keyboard (Arc's per-command "Prefer Websites" / "Prefer Arc").
-public enum KeyPriority: String, Sendable {
-    /// The page may claim the key (CB-3); pressing it again within a second runs the command. The default.
+/// Who gets a command's key first while a page has the keyboard: Arc's per-command picker (Settings → Shortcuts), with
+/// its three choices in its order.
+public enum KeyPriority: String, Sendable, CaseIterable {
+    /// Arc's "Use Both", the default: the page may claim the key (CB-3); pressing it again within a second runs the
+    /// command.
     case websites
-    /// The command always runs; the page never sees the key.
+    /// Arc's "Prefer Websites": a page that uses the key keeps it, however often it's pressed. The command runs only when
+    /// the page doesn't use it.
+    case websitesOnly
+    /// Arc's "Prefer Arc": the command always runs; the page never sees the key.
     case airc
+
+    /// The page is offered the key first.
+    public var pageMayHave: Bool { self != .airc }
+    /// A second press within `KeyPriority.secondPressWindow` of one the page used runs the command.
+    public var secondPressRuns: Bool { self == .websites }
+
+    /// Arc's own names.
+    public var title: String {
+        switch self {
+        case .websites: "Use Both"
+        case .websitesOnly: "Prefer Websites"
+        case .airc: "Prefer Airc"
+        }
+    }
+
+    /// Arc's subtitles.
+    public var subtitle: String {
+        switch self {
+        case .websites: "Press this shortcut once to use the website’s shortcut. Press it twice to use Airc’s shortcut."
+        case .websitesOnly: "When shortcuts conflict, the website wins."
+        case .airc: "When shortcuts conflict, Airc wins."
+        }
+    }
+
+    /// How settings.json spells a choice other than the default ("<id>:first").
+    var stored: String? {
+        switch self {
+        case .websites: nil
+        case .websitesOnly: "websitesOnly"
+        case .airc: "airc"
+        }
+    }
+
+    init?(stored: String) {
+        switch stored {
+        case "airc": self = .airc
+        case "websitesOnly": self = .websitesOnly
+        default: return nil
+        }
+    }
+}
+
+/// What a page's use of a command's key means for the command (KeyMonitor's arbitration, CB-3), as a pure function of
+/// the command's priority and the time since the page last used the same key.
+public enum KeyArbitration: Equatable, Sendable {
+    /// Hand the key to the page and wait for its answer; run the command if the page didn't use it.
+    case offerToPage
+    /// Run the command now; the page never sees the key.
+    case runCommand
+
+    /// `sincePageUsed`: seconds since the page used this key (nil: it didn't, or longer ago than anyone remembers).
+    public static func decide(_ p: KeyPriority, pageCanUse: Bool, sincePageUsed: Double?) -> KeyArbitration {
+        guard pageCanUse, p.pageMayHave else { return .runCommand }
+        if p.secondPressRuns, let t = sincePageUsed, t >= 0, t < secondPressWindow { return .runCommand }
+        return .offerToPage
+    }
+
+    /// Arc's "press it twice": about a second.
+    public static let secondPressWindow: Double = 1.0
 }
 
 /// The user's shortcuts (CB-4): today's table as defaults, and only what the user changed on top. `stored` is what
 /// settings.json keeps, so a command the user never touched follows a new default in a later version, an override that
 /// equals its default is dropped, and commands that no longer exist are ignored. A key belongs to one command at most:
 /// the user's choice wins over a default, the earlier command over a later one. Each command also has a `KeyPriority`;
-/// only "Airc first" is stored.
+/// only a choice other than "Use Both" is stored.
 public struct ShortcutMap: Equatable, Sendable {
     public struct Command: Equatable, Sendable {
         public let id: String
@@ -202,19 +273,24 @@ public struct ShortcutMap: Equatable, Sendable {
     public let commands: [Command]
     /// Command id → the user's key, or nil for "no shortcut".
     public private(set) var overrides: [String: KeyCombo?]
-    /// Commands whose key always runs the command, even when a page has the keyboard ("Airc first").
-    public private(set) var aircFirst: Set<String>
+    /// Each command's priority other than the default (Use Both).
+    public private(set) var priorities: [String: KeyPriority]
+    /// Commands whose key always runs the command, even when a page has the keyboard ("Prefer Airc").
+    public var aircFirst: Set<String> { Set(priorities.compactMap { $0.value == .airc ? $0.key : nil }) }
     private var keys: [String: KeyCombo] = [:]
     private var owners: [KeyCombo: String] = [:]
     private let index: [String: Command]
 
-    public init(commands: [Command], overrides: [String: KeyCombo?] = [:], aircFirst: Set<String> = []) {
+    public init(commands: [Command], overrides: [String: KeyCombo?] = [:], aircFirst: Set<String> = [],
+                priorities: [String: KeyPriority] = [:]) {
         var seen = Set<String>()
         self.commands = commands.filter { seen.insert($0.id).inserted }
         let index = Dictionary(uniqueKeysWithValues: self.commands.map { ($0.id, $0) })
         self.index = index
         self.overrides = [:]
-        self.aircFirst = aircFirst.filter { index[$0] != nil }
+        var p = priorities.filter { index[$0.key] != nil && $0.value != .websites }
+        for id in aircFirst where index[id] != nil { p[id] = .airc }
+        self.priorities = p
         for (id, key) in overrides {
             guard let c = index[id], c.remappable else { continue }   // a removed command, or a fixed key
             if let key, !Self.allowed(key) { continue }  // a hand-edited file
@@ -223,37 +299,38 @@ public struct ShortcutMap: Equatable, Sendable {
         resolve()
     }
 
-    /// From settings.json: id → "alt+cmd+l", or "" for no shortcut; "<id>:first" → "airc" for Airc first.
-    /// Unreadable keys are ignored. (Builds before the priority read "<id>:first" as an unknown command and skip it.)
+    /// From settings.json: id → "alt+cmd+l", or "" for no shortcut; "<id>:first" → "airc" (Prefer Airc) or
+    /// "websitesOnly" (Prefer Websites). Unreadable keys are ignored. (Builds before the priority read "<id>:first" as an
+    /// unknown command and skip it; builds before Prefer Websites read "websitesOnly" as Use Both.)
     public init(commands: [Command], stored: [String: String]) {
         var o: [String: KeyCombo?] = [:]
-        var first = Set<String>()
+        var p: [String: KeyPriority] = [:]
         for (id, s) in stored {
             if id.hasSuffix(Self.prioritySuffix) {
-                if s == KeyPriority.airc.rawValue { first.insert(String(id.dropLast(Self.prioritySuffix.count))) }
+                if let k = KeyPriority(stored: s) { p[String(id.dropLast(Self.prioritySuffix.count))] = k }
             } else if s.isEmpty { o[id] = .some(nil) } else if let k = KeyCombo(string: s) { o[id] = k }
         }
-        self.init(commands: commands, overrides: o, aircFirst: first)
+        self.init(commands: commands, overrides: o, priorities: p)
     }
 
     /// What settings.json keeps (see `init(commands:stored:)`).
     public var stored: [String: String] {
         var s = overrides.mapValues { $0?.string ?? "" }
-        for id in aircFirst { s[id + Self.prioritySuffix] = KeyPriority.airc.rawValue }
+        for (id, p) in priorities { if let v = p.stored { s[id + Self.prioritySuffix] = v } }
         return s
     }
 
     /// The settings.json entry for a command's priority: "file.openLocation:first".
     public static let prioritySuffix = ":first"
 
-    public func priority(_ id: String) -> KeyPriority { aircFirst.contains(id) ? .airc : .websites }
+    public func priority(_ id: String) -> KeyPriority { priorities[id] ?? .websites }
 
-    /// Websites first (the default) or Airc first for `id`.
+    /// Use Both (the default), Prefer Websites or Prefer Airc for `id`.
     @discardableResult
     public mutating func setPriority(_ p: KeyPriority, for id: String) -> Outcome {
         guard index[id] != nil else { return .unknownCommand }
         guard priority(id) != p else { return .unchanged }
-        if p == .airc { aircFirst.insert(id) } else { aircFirst.remove(id) }
+        priorities[id] = p == .websites ? nil : p
         return .done
     }
 
@@ -318,14 +395,14 @@ public struct ShortcutMap: Equatable, Sendable {
         return .done
     }
 
-    /// `id` back to its default key and Websites first. If another command has that key now, `resolving` decides as in
+    /// `id` back to its default key and Use Both. If another command has that key now, `resolving` decides as in
     /// `assign` (and on `.conflict` nothing changes, the priority neither).
     @discardableResult
     public mutating func reset(_ id: String, resolving: Resolution = .refuse) -> Outcome {
         guard let c = index[id] else { return .unknownCommand }
-        guard c.remappable else { aircFirst.remove(id); return .done }
+        guard c.remappable else { priorities[id] = nil; return .done }
         let o = resetKey(c, resolving: resolving)
-        if o == .done { aircFirst.remove(id) }
+        if o == .done { priorities[id] = nil }
         return o
     }
 
@@ -343,7 +420,7 @@ public struct ShortcutMap: Equatable, Sendable {
 
     public mutating func resetAll() {
         overrides = [:]
-        aircFirst = []
+        priorities = [:]
         resolve()
     }
 
@@ -372,6 +449,6 @@ public struct ShortcutMap: Equatable, Sendable {
     }
 
     public static func == (a: ShortcutMap, b: ShortcutMap) -> Bool {
-        a.commands == b.commands && a.overrides == b.overrides && a.aircFirst == b.aircFirst
+        a.commands == b.commands && a.overrides == b.overrides && a.priorities == b.priorities
     }
 }

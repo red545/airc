@@ -7,6 +7,17 @@ import XCTest
 /// cap). Prints the timings; `swift test -c release -Xswiftc -enable-testing --filter HistoryPerfTests` gives the
 /// release numbers.
 final class HistoryPerfTests: XCTestCase {
+    func testRemovedURLCannotRemainAsPublishedHostCompletion() throws {
+        let h = try HistoryStore(path: nil)
+        h.recordVisit(profileID: "p", url: "https://removed.example/page", title: "Removed")
+        h.recordVisit(profileID: "q", url: "https://removed.example/page", title: "Other profile")
+        XCTAssertNotNil(h.indexSnapshotNow(profileID: "p").inlineCompletion(for: "removed"))
+        h.remove(profileID: "p", url: "https://removed.example/page")
+        XCTAssertNil(h.indexSnapshotNow(profileID: "p").inlineCompletion(for: "removed"))
+        XCTAssertNil(h.indexSnapshot(profileID: "p")?.inlineCompletion(for: "removed"))
+        XCTAssertNotNil(h.indexSnapshotNow(profileID: "q").inlineCompletion(for: "removed"))
+    }
+
     private func fullHistory() throws -> HistoryStore {
         let h = try HistoryStore(path: nil)
         let clock = TestClock()

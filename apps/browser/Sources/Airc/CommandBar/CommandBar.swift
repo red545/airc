@@ -10,6 +10,43 @@ enum CommandBarMode: Equatable {
     case editURL
 }
 
+/// What the bar searches while a scope's pill leads the field (Arc's Site Search: "yt", Tab, then the query). Return
+/// searches the scope instead of the profile's engine, Backspace on an empty query or Esc leaves it. One kind today; a
+/// new kind (a ChatGPT prompt, package P07b) adds a case with its own name, placeholder and `results(for:)`.
+enum CommandBarScope: Equatable {
+    case site(SiteSearch)
+
+    var name: String {
+        switch self {
+        case .site(let s): s.name
+        }
+    }
+
+    /// Arc's "Site Search placeholder where the wildcard is the name of the site".
+    var placeholder: String { "Search \(name)…" }
+}
+
+/// A window's site searches for its bar: its profile's (Settings → Site Search), and whether Space starts one too.
+struct CommandBarSiteSearches {
+    var index: SiteSearchIndex
+    var spaceTriggers: Bool
+
+    /// Rebuilt only when the profile's list changes; asked on every keystroke.
+    private static var cache: [String: SiteSearchIndex] = [:]
+
+    static func of(_ settings: SiteSearchSettings, profileID: String) -> CommandBarSiteSearches {
+        let list = settings.searches(for: profileID)
+        let index: SiteSearchIndex
+        if let hit = cache[profileID], hit.searches == list {
+            index = hit
+        } else {
+            index = SiteSearchIndex(list)
+            cache[profileID] = index
+        }
+        return CommandBarSiteSearches(index: index, spaceTriggers: settings.spaceTriggers(for: profileID))
+    }
+}
+
 /// One result row.
 struct CommandResult {
     enum Action {
@@ -25,8 +62,25 @@ struct CommandResult {
     var icon: Icon
     var matches: [Int]
     var action: Action
+    /// Stable across asynchronous ranking changes; labels and row positions are not identity.
+    enum SelectionID: Equatable {
+        case open(URL, kind: String), tab(String), item(String), space(String), command(String)
+    }
+    var selectionID: SelectionID {
+        switch action {
+        case .open(let url): return .open(url, kind: historyURL == nil ? badge : "history")
+        case .tab(let id): return .tab(id)
+        case .item(let id): return .item(id)
+        case .space(let id): return .space(id)
+        case .run: return .command(title)
+        }
+    }
     /// An action's shortcut as keycaps ("⇧", "⌘", "C"), shown on its row (design.md §7 "Command bar").
     var shortcut: [String] = []
+    /// Only a history suggestion can be removed. Tabs, commands and search rows never carry this.
+    var historyURL: String?
+    /// The "Search YouTube" row: choosing it (Return, a click) starts that site's search instead of running `action`.
+    var startsScope: CommandBarScope?
 
     /// "⌥⇧⌘C" → ["⌥", "⇧", "⌘", "C"]: one keycap per modifier, then the key.
     static func keys(of hint: String) -> [String] {
@@ -64,6 +118,24 @@ protocol CommandBarHost: AnyObject {
                         inlineSite: CommonSites.Site?, suggestions: [String], history: [HistoryMatch]) -> [CommandResult]
     func closeCommandBar()
     func performCommand(_ action: CommandResult.Action, newTab: Bool, typed: Bool)
+    /// This window's site searches (its profile's); nil: none.
+    var commandBarSiteSearches: CommandBarSiteSearches? { get }
+    /// Whether rows may show (and, once chosen, fetch) site icons; a private window's never do.
+    var commandBarShowsSiteIcons: Bool { get }
+}
+
+extension CommandBarHost {
+    var commandBarSiteSearches: CommandBarSiteSearches? { nil }
+    var commandBarShowsSiteIcons: Bool { true }
+}
+
+/// A private window searches its profile's sites too (as Chrome's incognito keeps its profile's search engines), with
+/// letter tiles for icons: nothing is fetched or cached for it.
+extension PrivateWindowController {
+    var commandBarSiteSearches: CommandBarSiteSearches? {
+        app.map { CommandBarSiteSearches.of($0.settings.values.siteSearch, profileID: profileID) }
+    }
+    var commandBarShowsSiteIcons: Bool { false }
 }
 
 /// The Command Bar (CB-1, Arc ref §5): a centred 765 pt panel, 64 pt input row, opens in one frame. ⌘L and a click on
@@ -88,6 +160,8 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     private var rows: [CommandRowView] = []
     private(set) var results: [CommandResult] = []
     private(set) var selected = 0
+    private var selectedHistoryURL: String?
+    private var userSelectedResult: CommandResult.SelectionID?
     private(set) var panelRect = NSRect.zero
     private var sidebarFrame = NSRect.zero
     private var contentFrame = NSRect.zero
@@ -97,14 +171,25 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     private var suggestionQuery = ""
     /// The last history matches (searched off the main thread, H5) and the query they were for.
     private var historyHits: [HistoryMatch] = []
+    private var removedHistory = Set<String>()
     #if AIRC_TESTING
     /// Debug hook: history matches were applied to the rows (`--script cbperf`).
     var onHistoryApplied: ((Int) -> Void)?
+    /// What reached the bar from the keyboard, in order ("insertTab:", "text", "suggestionKey"): proof that a posted
+    /// key was delivered (`--script parityp07`).
+    var keyLog: [String] = []
     #endif
     /// The inline completion shown after the caret, if any.
     private(set) var inline: InlineCompletion.Match?
     /// The built-in site the inline completion came from, when nothing of yours completed what was typed.
     private(set) var inlineSite: CommonSites.Site?
+    /// Site Search: the scope the field searches now, shown as a pill before the text; nil for the plain bar.
+    private(set) var scope: CommandBarScope?
+    /// What was typed before the scope began ("yt"): leaving it with Backspace puts it back.
+    private var scopeOrigin = ""
+    /// The site Tab would search for what's typed (its "Search YouTube" row is shown).
+    private(set) var siteCandidate: SiteSearch?
+    private let scopePill = CommandBarScopePill()
 
     init(mode: CommandBarMode, palette: Palette, host: CommandBarHost) {
         self.mode = mode
@@ -141,6 +226,9 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         panel.layer?.addSublayer(chipBackground)
         panel.addSubview(chip)
         panel.layer?.addSublayer(separator)
+        scopePill.isHidden = true
+        scopePill.onMenu = { [weak self] in self?.scopeMenu() }
+        panel.addSubview(scopePill)
         applyPalette()
     }
 
@@ -158,7 +246,14 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         suggestions = []
         suggestionQuery = ""
         historyHits = []
+        removedHistory = []
         deletingEdit = false
+        siteCandidate = nil
+        scopeOrigin = ""
+        if scope != nil {
+            scope = nil
+            applyScope()
+        }
         if !input.stringValue.isEmpty { input.stringValue = "" }
         // Restyling with the same palette re-set every row and the field, which then measured and redrew (§2.12).
         if self.palette != palette { self.palette = palette } else { updateChip() }
@@ -181,6 +276,8 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
 
     func park() {
         isParked = true
+        // A parked bar's rows aren't under the pointer, whatever their tracking areas last heard.
+        for r in rows { r.clearHover() }
         input.refusesFirstResponder = true
         if Self.parksLayer {
             input.isParked = true
@@ -202,6 +299,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     /// size), set now so Core Animation draws it in an idle frame, and the opening only moves the bar in and focuses it.
     func prepareForNextOpening(palette: Palette, in bounds: NSRect, sidebarFrame: NSRect, contentFrame: NSRect) {
         guard isParked else { return }
+        if Self.localHistoryEnabled, let source = host?.commandBarHistory { source.store.prepareLocalIndex(profileID: source.profileID) }
         let timing = Perf.enabled
         Perf.enabled = false
         defer { Perf.enabled = timing }
@@ -225,6 +323,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         TextInputWarmup.run()
     }
 
+
     /// Builds the row views ahead (hidden), so the first opening doesn't create them.
     func preloadRows(_ n: Int) {
         while rows.count < n { rows.append(makeRow()) }
@@ -239,9 +338,15 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
             self.selected = i
             self.execute()
         }
+        r.onRemove = { [weak self, weak r] in
+            guard let self, !self.isParked, let r, let i = self.rows.firstIndex(where: { $0 === r }) else { return }
+            self.removeHistorySuggestion(at: i)
+            // The keyboard stays in the field (the ✕ never takes it).
+            if self.window?.firstResponder !== self.input.currentEditor() { self.window?.makeFirstResponder(self.input) }
+        }
         r.onHover = { [weak self, weak r] in
             guard let self, !self.isParked, let r, let i = self.rows.firstIndex(where: { $0 === r }), i < self.results.count else { return }
-            self.select(i)
+            self.select(i, userMoved: true)
         }
         panel.addSubview(r)
         return r
@@ -301,7 +406,17 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     var query: String { typed }
     var inlineText: String? { inline?.text }
     var resultTitles: [String] { results.map { $0.title + ($0.subtitle.isEmpty ? "" : " (\($0.badge))") } }
-    var isActionsMode: Bool { typed.hasPrefix("/") }
+    /// "/…" lists actions, except as a site search's query ("/r/swift" on Reddit).
+    var isActionsMode: Bool { scope == nil && typed.hasPrefix("/") }
+    /// An input method is composing (Japanese, Chinese): the field's marked text is the input method's, so nothing
+    /// completes, replaces or selects text and no key starts a scope until it's committed.
+    var isComposing: Bool { (input.currentEditor() as? NSTextView)?.hasMarkedText() == true }
+    /// The field's text, marked text included (checks).
+    var fieldText: String { input.stringValue }
+    /// The rows on screen, top to bottom (checks: the hover ✕).
+    var visibleRows: [CommandRowView] { Array(rows.prefix(results.count)) }
+    /// What the empty field shows ("Search YouTube…"); setting the attributed placeholder clears the plain one.
+    var placeholderText: String { input.placeholderAttributedString?.string ?? input.placeholderString ?? "" }
 
     private func applyPalette() {
         panel.layer?.backgroundColor = palette.panelBackground.cgColor
@@ -317,8 +432,8 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         panel.layer?.borderWidth = 0.5
         panel.layer?.borderColor = palette.panelBorder.cgColor
         input.textColor = palette.panelText
-        input.placeholderAttributedString = NSAttributedString(string: "Search or Enter URL…", attributes: [
-            .foregroundColor: palette.panelSecondary, .font: AircFont.commandInput.appFont])
+        applyPlaceholder()
+        scopePill.palette = palette
         glass.contentTintColor = palette.panelSecondary
         separator.backgroundColor = palette.panelBorder.cgColor
         chip.textColor = palette.panelSecondary
@@ -340,6 +455,98 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         chipBackground.isHidden = hidden
         CATransaction.commit()
     }
+
+    private func applyPlaceholder() {
+        let text = scope?.placeholder ?? "Search or Enter URL…"
+        input.placeholderString = text
+        input.placeholderAttributedString = NSAttributedString(string: text, attributes: [
+            .foregroundColor: palette.panelSecondary, .font: AircFont.commandInput.appFont])
+    }
+
+    // MARK: Site Search
+
+    /// The pill, placeholder and glyph for the current scope (none: the plain bar).
+    private func applyScope() {
+        if case .site(let s)? = scope {
+            scopePill.show(s, icons: host?.commandBarShowsSiteIcons ?? false)
+        }
+        if scopePill.isHidden != (scope == nil) { scopePill.isHidden = scope == nil }
+        applyPlaceholder()
+        input.setAccessibilityLabel(scope.map { "Search \($0.name)" })
+        if let sv = superview { layoutIn(sv.bounds, sidebarFrame: sidebarFrame, contentFrame: contentFrame) }
+    }
+
+    /// Tab (or Space after a shortcut, or the "Search YouTube" row): the field empties, the site's pill leads it and
+    /// Return searches the site. `origin` is what Backspace on the empty query puts back (what was typed).
+    func enterScope(_ s: CommandBarScope, origin: String? = nil) {
+        guard !isComposing else { return }
+        scopeOrigin = origin ?? typed
+        scope = s
+        inline = nil
+        inlineSite = nil
+        siteCandidate = nil
+        suggestions = []
+        suggestionQuery = ""
+        typed = ""
+        input.stringValue = ""
+        applyScope()
+        if case .site(let site) = s, host?.commandBarShowsSiteIcons == true { scopePill.fetchIcon(site) }
+        update(allowCompletion: false)
+        NSAccessibility.post(element: input, notification: .announcementRequested,
+                             userInfo: [.announcement: "Searching \(s.name)", .priority: NSAccessibilityPriorityLevel.high.rawValue])
+    }
+
+    /// Back to the plain bar. Backspace and Esc put back what was typed before the scope ("yt"), then the query if there
+    /// was one, the caret after "yt " (as Chrome's keyword mode); a profile switch that drops the site keeps the query.
+    func leaveScope(restoring: Bool = true) {
+        guard scope != nil else { return }
+        let query = typed
+        scope = nil
+        applyScope()
+        let text = !restoring ? query : query.isEmpty ? scopeOrigin : scopeOrigin + " " + query
+        let caret = !restoring ? (text as NSString).length : (scopeOrigin as NSString).length + (query.isEmpty ? 0 : 1)
+        scopeOrigin = ""
+        typed = text
+        input.stringValue = text
+        if let editor = input.currentEditor() as? NSTextView { editor.selectedRange = NSRange(location: caret, length: 0) }
+        update(allowCompletion: false)
+    }
+
+    /// A click on the pill: Arc's menu. Change Site Search › every site, Remove “…” Site Search (leaves it), Manage.
+    private func scopeMenu() {
+        guard case .site(let current)? = scope else { return }
+        let menu = NSMenu()
+        let change = NSMenuItem(title: "Change Site Search", action: nil, keyEquivalent: "")
+        let sites = NSMenu()
+        for s in host?.commandBarSiteSearches?.index.searches ?? [] {
+            sites.add(s.name) { [weak self] in
+                guard let self, self.scope != nil else { return }
+                self.scope = .site(s)
+                self.applyScope()
+                if self.host?.commandBarShowsSiteIcons == true { self.scopePill.fetchIcon(s) }
+                self.update(allowCompletion: false)
+            }.state = s.id == current.id ? .on : .off
+        }
+        change.submenu = sites
+        menu.addItem(change)
+        menu.add("Remove \(current.name) Site Search") { [weak self] in self?.leaveScope(restoring: false) }
+        menu.addItem(.separator())
+        menu.add("Manage Site Searches…") { [weak self] in
+            self?.host?.closeCommandBar()
+            (NSApp.delegate as? AppDelegate)?.showSettings(page: .siteSearch)
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: scopePill.bounds.maxY + 4), in: scopePill)
+    }
+
+    #if AIRC_TESTING
+    /// The pill's menu titles (checks): the menu itself is modal.
+    var scopeMenuTitles: [String] {
+        guard case .site(let current)? = scope else { return [] }
+        return ["Change Site Search", "Remove \(current.name) Site Search", "Manage Site Searches…"]
+    }
+    var scopePillFrame: NSRect { scopePill.isHidden ? .zero : scopePill.convert(scopePill.bounds, to: self) }
+    var inputFrame: NSRect { input.convert(input.bounds, to: self) }
+    #endif
 
     /// Opened from the URL field: the panel grows out of `field` (in this view's coordinates) to its own rect with the
     /// `grow` spring; the input row stays centred on the field, so the text doesn't move. The shadow fades in with it.
@@ -438,8 +645,16 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         shadowView.frame = panelRect
         glass.frame = NSRect(x: 20, y: (AircMetrics.CommandBar.inputHeight - 24) / 2, width: 24, height: 24)
         // Over the URL field the text starts where the field's host did (12 pt in), so it doesn't jump (review #10).
-        glass.isHidden = anchored != nil
-        let inputX: CGFloat = anchored != nil ? AircAddressFieldLabel.leadingInset : 54
+        glass.isHidden = anchored != nil || scope != nil
+        var inputX: CGFloat = anchored != nil ? AircAddressFieldLabel.leadingInset : 54
+        if scope != nil {
+            // Site Search: the site's pill where the glass was, the query after it.
+            let size = scopePill.intrinsicContentSize
+            let pillX: CGFloat = anchored != nil ? max(6, AircAddressFieldLabel.leadingInset - 6) : 16
+            scopePill.frame = NSRect(x: pillX, y: ((AircMetrics.CommandBar.inputHeight - size.height) / 2).rounded(),
+                                     width: min(size.width, width * 0.45), height: size.height)
+            inputX = scopePill.frame.maxX + 8
+        }
         chip.sizeToFit()
         let chipW = chip.isHidden ? 0 : chip.frame.width + 18
         chip.frame = NSRect(x: width - 16 - chipW + 9, y: (AircMetrics.CommandBar.inputHeight - chip.frame.height) / 2,
@@ -465,35 +680,63 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     // MARK: Typing and inline completion
 
     func controlTextDidChange(_ obj: Notification) {
+        #if AIRC_TESTING
+        keyLog.append("text")
+        #endif
         textDidChange(byDeleting: deletingEdit)
         deletingEdit = false
     }
 
     private func textDidChange(byDeleting deleting: Bool) {
         let text = input.stringValue
+        let before = typed
         typed = text
-        update(allowCompletion: !deleting)
+        // "Space or Tab" (a profile's choice): a space typed right after a whole shortcut ("yt ") starts its search.
+        if !deleting, scope == nil, text == before + " ", Self.siteSearchEnabled, !isComposing, let sites = host?.commandBarSiteSearches,
+           sites.spaceTriggers, let s = sites.index.spaceMatch(text),
+           (input.currentEditor() as? NSTextView)?.selectedRange() ?? NSRange(location: 0, length: 0) == NSRange(location: (text as NSString).length, length: 0) {
+            return enterScope(.site(s), origin: before)
+        }
+        // Marked text is the input method's: nothing completes over it (a pinyin "bai" must stay "bai", not baidu.com).
+        update(allowCompletion: !deleting && !isComposing)
     }
 
     func update(allowCompletion: Bool = true) {
         guard let c = host else { return }
         let q = typed
-        // History is searched off the main thread (H5). Until its answer arrives, the previous matches that still match
-        // keep their rows, so typing on doesn't make them jump.
-        historyHits = historyHits.filter { h in
-            CommandSearch.score(q, in: h.entry.title) != nil || CommandSearch.score(q, in: URLRules.displayURL(h.entry.url)) != nil
+        let sites = Perf.time("cb.sitesearch") { Self.siteSearchEnabled ? c.commandBarSiteSearches : nil }
+        // A site edited in Settings is searched as it is now; another profile's Space without it ends its search.
+        if case .site(let s)? = scope {
+            guard let now = sites?.index.searches.first(where: { $0.id == s.id }) else { return leaveScope(restoring: false) }
+            if now != s {
+                scope = .site(now)
+                applyScope()
+            }
+        }
+        let composing = isComposing
+        // A bounded, prebuilt tier supplies local rows in this event, without waiting for the
+        // history queue. The full index still refines later through identity-preserving replacement.
+        if Self.localHistoryEnabled, !isActionsMode, !q.trimmingCharacters(in: .whitespaces).isEmpty,
+           let source = c.commandBarHistory {
+            historyHits = Perf.time("cb.local") {
+                source.store.localMatches(q, profileID: source.profileID).filter { !removedHistory.contains($0.entry.url) }
+            }
+        } else {
+            historyHits = historyHits.filter { h in
+                CommandSearch.score(q, in: h.entry.title) != nil || CommandSearch.score(q, in: URLRules.displayURL(h.entry.url)) != nil
+            }
         }
         // Yours first (history, open tabs, pinned items); a well-known site only when nothing of yours completes it.
         var site: CommonSites.Site?
         inline = Perf.time("cb.inline") { () -> InlineCompletion.Match? in
-            guard allowCompletion && !isActionsMode else { return nil }
+            guard allowCompletion && !isActionsMode && scope == nil && !composing else { return nil }
             if let m = c.inlineCompletion(for: q) { return m }
             guard let s = c.siteCompletion(for: q, history: historyHits) else { return nil }
             site = s.site
             return s.match
         }
         inlineSite = site
-        if let editor = input.currentEditor() as? NSTextView {
+        if let editor = input.currentEditor() as? NSTextView, !composing {
             // The completion goes after the caret, selected so typing on replaces it (Chrome, Arc), drawn in the
             // theme's completion ink on its highlight, never the system selection colour (design §7, review #8).
             let r = palette.resolved
@@ -506,14 +749,37 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         }
         let glyph = Symbols.image(isActionsMode ? "command" : "magnifyingglass", size: 17, weight: .medium)
         if glass.image !== glyph { glass.image = glyph }
-        if suggestionQuery != q { suggestions = [] }
-        results = Perf.time("cb.results") {
-            c.commandResults(for: q, mode: mode, inline: inline, inlineSite: inlineSite, suggestions: suggestions, history: historyHits)
+        siteCandidate = Perf.time("cb.sitematch") { () -> SiteSearch? in
+            guard scope == nil, !isActionsMode, !composing, let sites else { return nil }
+            return sites.index.match(q, host: inline?.url ?? inlineSite?.url)
         }
+        if suggestionQuery != q { suggestions = [] }
+        results = Perf.time("cb.results") { composedResults(q, history: historyHits, suggestions: suggestions) }
         Perf.time("cb.rows") { reloadRows() }
+        #if AIRC_TESTING
+        if Self.localHistoryEnabled, !historyHits.isEmpty { onHistoryApplied?(historyHits.count) }
+        #endif
         requestHistory(for: q)
         requestSuggestions(for: q)
     }
+
+    /// Test builds can leave Site Search out (`AIRC_SITE_SEARCH=0`), to time typing with and without it in one binary,
+    /// as cblocal timed the local history tier.
+    private static let siteSearchEnabled: Bool = {
+        #if AIRC_TESTING
+        return ProcessInfo.processInfo.environment["AIRC_SITE_SEARCH"] != "0"
+        #else
+        return true
+        #endif
+    }()
+
+    private static let localHistoryEnabled: Bool = {
+        #if AIRC_TESTING
+        return ProcessInfo.processInfo.environment["AIRC_LOCAL_HISTORY"] != "0"
+        #else
+        return true
+        #endif
+    }()
 
     private func requestHistory(for q: String) {
         guard let source = host?.commandBarHistory, !isActionsMode,
@@ -521,12 +787,12 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         source.store.search(q, profileID: source.profileID, limit: 8) { [weak self] hits in
             MainActor.assumeIsolated {
                 guard let self, let c = self.host, self.typed == q else { return }
+                let hits = hits.filter { !self.removedHistory.contains($0.entry.url) }
+                // The hot tier often already supplied exactly these rows. Avoid a second layout
+                // (and a misleading second "applied" timestamp) when refinement changes nothing.
+                guard !Self.localHistoryEnabled || hits != self.historyHits else { return }
                 self.historyHits = hits
-                let keep = self.selected
-                self.results = c.commandResults(for: q, mode: self.mode, inline: self.inline, inlineSite: self.inlineSite,
-                                                suggestions: self.suggestions, history: hits)
-                self.reloadRows()
-                self.select(min(keep, max(0, self.results.count - 1)))
+                self.replaceAsyncResults(self.composedResults(q, history: hits, suggestions: self.suggestions))
                 #if AIRC_TESTING
                 self.onHistoryApplied?(hits.count)
                 #endif
@@ -535,52 +801,205 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     }
 
     private func requestSuggestions(for q: String) {
-        guard let c = host, !isActionsMode, URLRules.normalizeInput(q) == nil,
+        // A site search's query never goes to the profile's engine.
+        guard let c = host, scope == nil, !isActionsMode, URLRules.normalizeInput(q) == nil,
               q.trimmingCharacters(in: .whitespaces).count >= 2, let source = c.commandBarSuggestions else { return }
         SuggestionService.shared.fetch(q, engine: source.engine, profileID: source.profileID) { [weak self] list in
-            guard let self, self.typed == q, !list.isEmpty else { return }
+            guard let self, self.typed == q, self.scope == nil, !list.isEmpty else { return }
             self.suggestions = list
             self.suggestionQuery = q
-            let keep = self.selected
-            self.results = c.commandResults(for: q, mode: self.mode, inline: self.inline, inlineSite: self.inlineSite,
-                                            suggestions: list, history: self.historyHits)
-            self.reloadRows()
-            self.select(min(keep, max(0, self.results.count - 1)))
+            self.replaceAsyncResults(self.composedResults(q, history: self.historyHits, suggestions: list))
         }
     }
 
+    /// The rows for `q`: in a site search, its search and then your pages on that site; otherwise the host's, with the
+    /// "Search YouTube" row second while a site matches what's typed.
+    private func composedResults(_ q: String, history: [HistoryMatch], suggestions: [String]) -> [CommandResult] {
+        guard let c = host else { return [] }
+        if case .site(let s)? = scope { return siteResults(q, site: s, history: history) }
+        var rows = c.commandResults(for: q, mode: mode, inline: inline, inlineSite: inlineSite, suggestions: suggestions, history: history)
+        if let s = siteCandidate {
+            // Arc's hint: "Tab", or "Space or Tab" where the profile lets Space start it too.
+            let spaces = c.commandBarSiteSearches?.spaceTriggers == true
+            var row = CommandResult(title: "Search \(s.name)", subtitle: spaces ? "Press Space or Tab" : "Press Tab", badge: "Site Search",
+                                    icon: siteIcon(s), matches: [], action: .run {})
+            row.startsScope = .site(s)
+            rows.insert(row, at: min(1, rows.count))
+            if rows.count > AircMetrics.CommandBar.maxRows { rows.removeLast() }
+        }
+        return rows
+    }
+
+    /// In a site search: the site's search for the query (Return), then up to five pages of this profile's history on
+    /// that site that match it.
+    private func siteResults(_ q: String, site s: SiteSearch, history: [HistoryMatch]) -> [CommandResult] {
+        let query = q.trimmingCharacters(in: .whitespaces)
+        guard let url = s.url(for: query) else { return [] }
+        var out = [CommandResult(title: query, subtitle: AircCommandText.searchSubtitle(engine: s.name), badge: "Search",
+                                 icon: siteIcon(s), matches: [], action: .open(url))]
+        let icons = host?.commandBarShowsSiteIcons == true
+        for h in history where out.count < 6 && s.covers(h.entry.url) {
+            guard let page = URL(string: h.entry.url) else { continue }
+            let title = h.entry.title.isEmpty ? URLRules.displayURL(h.entry.url) : h.entry.title
+            out.append(CommandResult(title: title, subtitle: URLRules.displayHost(h.entry.url), badge: "Open",
+                                     icon: icons ? .favicon(image: nil, url: nil, page: h.entry.url) : .symbol("globe"),
+                                     matches: CommandSearch.score(query, in: title)?.matches ?? [], action: .open(page),
+                                     historyURL: h.entry.url))
+        }
+        return out
+    }
+
+    /// A site's icon on its rows: its favicon (a letter tile until it's cached); a magnifying glass in private windows.
+    private func siteIcon(_ s: SiteSearch) -> CommandResult.Icon {
+        guard host?.commandBarShowsSiteIcons == true, let home = s.homeURL else { return .symbol("magnifyingglass") }
+        return .site(page: home, name: s.name)
+    }
+
+    /// An explicit keyboard/hover choice survives late history and suggestions. Untouched selection
+    /// follows the new top result. Query edits still reset normally, without changing inline completion.
+    private func replaceAsyncResults(_ updated: [CommandResult]) {
+        let identity = userSelectedResult, index = selected
+        results = updated
+        reloadRows()
+        if let identity {
+            let next = results.firstIndex { $0.selectionID == identity } ?? min(index, max(0, results.count - 1))
+            select(next, userMoved: true)
+        }
+    }
+
+    #if AIRC_TESTING
+    func applyLateResultsForTesting(_ updated: [CommandResult]) { replaceAsyncResults(updated) }
+    #endif
+
     private func reloadRows() {
+        userSelectedResult = nil
         selected = 0
         while rows.count < results.count { rows.append(makeRow()) }
         // Rows beyond the results stay, hidden, for the next keystroke or opening.
         for (i, r) in rows.enumerated() where r.isHidden != (i >= results.count) { r.isHidden = i >= results.count }
         Perf.time("cb.configure") { for (r, res) in zip(rows, results) { r.configure(res) } }
+        selectedHistoryURL = nil
         Perf.time("cb.select") { select(0) }
         Perf.time("cb.layout") { if let sv = superview { layoutIn(sv.bounds, sidebarFrame: sidebarFrame, contentFrame: contentFrame) } }
     }
 
-    private func select(_ i: Int) {
+    private func select(_ i: Int, userMoved: Bool = false) {
+        if userMoved {
+            userSelectedResult = results.indices.contains(i) ? results[i].selectionID : nil
+            selectedHistoryURL = results.indices.contains(i) ? results[i].historyURL : nil
+        }
         selected = i
         for (j, r) in rows.enumerated() { r.isSelected = j == i }
     }
 
+    /// The Command Bar's keys, before anything else in the window reads them (the app's key monitor asks it first).
+    ///
+    /// Esc (P03b): the bar is the innermost surface, so Esc is its own while it's open, before Peek, find, full screen
+    /// or the sidebar's keyboard (KeyMonitor), and only one of them closes per press: a completion goes, a site search
+    /// ends, then the bar closes (`cancel`). While an input method composes, Esc is the input method's.
+    ///
+    /// Removing a history suggestion, before AppKit reads the key as text editing. ⌥⌘⌫ is Arc's key ("deletes a
+    /// selected suggestion", Arc's 2023-10-12 notes), changeable in Settings → Shortcuts (ShortcutCenter's
+    /// `removeSuggestion`): the highlighted row, also the first one. ⇧⌫ (Chrome's) only removes a row you moved to
+    /// (arrows, pointer), so a ⇧ held while deleting text still deletes text. Any other row, or text being composed by an
+    /// input method, leaves the key to the field. The row's ✕ on hover does the same with the pointer.
+    func handleSuggestionKey(_ event: NSEvent) -> Bool {
+        #if AIRC_TESTING
+        if event.keyCode == 51 { keyLog.append("suggestionKey") }
+        #endif
+        guard event.type == .keyDown, !isParked else { return false }
+        let mods = event.modifierFlags.intersection([.shift, .command, .option, .control])
+        if event.keyCode == 53, mods.isEmpty {
+            #if AIRC_TESTING
+            keyLog.append("cancelOperation:")   // the field's own Esc, which this stands in for
+            #endif
+            if let editor = input.currentEditor() as? NSTextView, window?.firstResponder === editor, editor.hasMarkedText() {
+                editor.keyDown(with: event)
+            } else {
+                cancel()
+            }
+            return true
+        }
+        guard let editor = input.currentEditor() as? NSTextView, window?.firstResponder === editor, !editor.hasMarkedText()
+        else { return false }
+        let key = ShortcutCenter.typed(event)
+        let arcKey = key != nil && key == ShortcutCenter.shared.commandBarKey(ShortcutCenter.removeSuggestion.id)
+        guard arcKey || (event.keyCode == 51 && mods == .shift && selectedHistoryURL != nil),
+              results.indices.contains(selected), let url = results[selected].historyURL, arcKey || selectedHistoryURL == url
+        else { return false }
+        return removeHistorySuggestion(at: selected)
+    }
+
+    /// Takes row `index`'s page out of the profile's history (and Tidy's memory of it), with the row fading out and the
+    /// ones below sliding up. False: not a history row.
+    @discardableResult
+    func removeHistorySuggestion(at index: Int) -> Bool {
+        guard results.indices.contains(index), let url = results[index].historyURL, let source = host?.commandBarHistory
+        else { return false }
+        source.store.remove(profileID: source.profileID, url: url)
+        AIFeatures.shared.tidy.forget(profileID: source.profileID, url: url)
+        removedHistory.insert(url)
+        historyHits.removeAll { $0.entry.url == url }
+        if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            let fade = CATransition(); fade.type = .fade; fade.duration = 0.12
+            panel.layer?.add(fade, forKey: "historyRemovalFade")
+        }
+        results.remove(at: index)
+        if index == 0, inline != nil {
+            inline = nil
+            inlineSite = nil
+            input.stringValue = typed
+        }
+        selectedHistoryURL = nil
+        reloadRows()
+        select(min(index, max(0, results.count - 1)))
+        if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            for row in rows.dropFirst(index) where !row.isHidden {
+                let slide = CASpringAnimation(keyPath: "transform.translation.y")
+                slide.fromValue = 8; slide.toValue = 0
+                slide.mass = 1; slide.stiffness = 900; slide.damping = 54; slide.duration = 0.18
+                row.layer?.add(slide, forKey: "historyRemoval")
+            }
+        }
+        return true
+    }
+
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        #if AIRC_TESTING
+        keyLog.append(NSStringFromSelector(selector))
+        #endif
+        // An input method passes on only the keys it doesn't use; while it composes, the field does what it always does.
+        if textView.hasMarkedText() { return false }
+        // Site Search: Backspace at the start (an empty query) leaves the site's search, as Arc's "back to the previous
+        // search state" and Chrome's keyword mode.
+        if scope != nil, Self.backwardDeletes.contains(selector), textView.selectedRange() == NSRange(location: 0, length: 0) {
+            leaveScope()
+            return true
+        }
         if NSStringFromSelector(selector).hasPrefix("delete") { deletingEdit = true; return false }
         switch selector {
         case #selector(NSResponder.moveDown(_:)):
-            if !results.isEmpty { select((selected + 1) % results.count) }
+            if !results.isEmpty { select((selected + 1) % results.count, userMoved: true) }
             return true
         case #selector(NSResponder.moveUp(_:)):
-            if !results.isEmpty { select((selected - 1 + results.count) % results.count) }
+            if !results.isEmpty { select((selected - 1 + results.count) % results.count, userMoved: true) }
             return true
         case #selector(NSResponder.insertNewline(_:)):
             execute()
             return true
         case #selector(NSResponder.insertTab(_:)):
-            // Tab on an empty field: actions (Arc). With an inline completion: accept it.
+            // In a site search Tab stays in the field.
+            if scope != nil { return true }
+            // Tab on an empty field: actions (Arc). On a site's shortcut or name: that site's search (Arc's Site
+            // Search), before accepting an inline completion ("you" → youtube.com: Tab searches YouTube, → accepts).
+            // With an inline completion: accept it.
             if typed.isEmpty {
                 input.stringValue = "/"
                 textDidChange(byDeleting: false)
+                return true
+            }
+            if let s = siteCandidate {
+                enterScope(.site(s))
                 return true
             }
             if inline != nil {
@@ -591,29 +1010,134 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
             }
             return false
         case #selector(NSResponder.cancelOperation(_:)):
-            if inline != nil {
-                // First Esc drops the completion, the second closes.
-                input.stringValue = typed
-                inline = nil
-                inlineSite = nil
-                update(allowCompletion: false)
-                return true
-            }
-            host?.closeCommandBar()
+            // Esc normally comes through handleSuggestionKey; this is the field's own (VoiceOver's escape action).
+            cancel()
             return true
         default:
             return false
         }
     }
 
+    /// Esc: a completion goes first, then a site search ends (what was typed before it comes back), then the bar closes.
+    private func cancel() {
+        if inline != nil {
+            input.stringValue = typed
+            inline = nil
+            inlineSite = nil
+            update(allowCompletion: false)
+            return
+        }
+        if scope != nil { return leaveScope() }
+        host?.closeCommandBar()
+    }
+
+    private static let backwardDeletes: Set<Selector> = [#selector(NSResponder.deleteBackward(_:)),
+                                                         #selector(NSResponder.deleteWordBackward(_:)),
+                                                         #selector(NSResponder.deleteToBeginningOfLine(_:)),
+                                                         #selector(NSResponder.deleteBackwardByDecomposingPreviousCharacter(_:))]
+
     private func execute() {
         guard results.indices.contains(selected) else { return }
         let r = results[selected]
+        // "Search YouTube": the bar stays, now searching the site.
+        if let s = r.startsScope { return enterScope(s) }
         // Chosen: now its icon may come from the network (rows never ask for one while you type).
         CommandRowView.fetchIcon(of: r)
         host?.closeCommandBar()
         host?.performCommand(r.action, newTab: mode == .newTab, typed: true)
     }
+}
+
+/// Site Search's pill at the start of the field (Arc's scoped-search pill): the site's icon and name on a soft accent
+/// capsule. A click opens its menu (CommandBarView.scopeMenu).
+final class CommandBarScopePill: NSView {
+    var palette: Palette? { didSet { restyle() } }
+    var onMenu: (() -> Void)?
+    private let icon = CALayer()
+    private let label = NSTextField(labelWithString: "")
+    /// The favicon asked for, so a late answer for an earlier site is dropped.
+    private var iconKey: String?
+    static let height: CGFloat = 30
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.cornerRadius = 8
+        layer?.cornerCurve = .continuous
+        icon.actions = LayerImage.noActions
+        icon.contentsGravity = .resizeAspect
+        layer?.addSublayer(icon)
+        label.font = AircFont.row.weight(.semibold).appFont
+        label.lineBreakMode = .byTruncatingTail
+        addSubview(label)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+    override var isFlipped: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    /// `s`'s name, and its icon: a letter tile until its favicon is in the caches (never fetched here; `icons` false, a
+    /// private window: the tile only).
+    func show(_ s: SiteSearch, icons: Bool) {
+        if label.stringValue != s.name {
+            label.stringValue = s.name
+            invalidateIntrinsicContentSize()
+            needsLayout = true
+        }
+        setAccessibilityLabel("Searching \(s.name). Change Site Search")
+        let key = icons ? s.homeURL.flatMap(FaviconCache.guess(for:)) : nil
+        iconKey = key
+        if let img = FaviconCache.shared.cached(key) { return LayerImage.set(img, on: icon, in: self) }
+        LayerImage.set(LetterTile.image(for: s.name), on: icon, in: self)
+        guard let key else { return }
+        FaviconCache.shared.stored(key) { [weak self] img in
+            guard let self, self.iconKey == key, let img else { return }
+            LayerImage.set(img, on: self.icon, in: self)
+        }
+    }
+
+    /// The site is being searched: now its favicon may come from the network, as a chosen row's does.
+    func fetchIcon(_ s: SiteSearch) {
+        guard let key = s.homeURL.flatMap(FaviconCache.guess(for:)), key == iconKey, FaviconCache.shared.cached(key) == nil else { return }
+        FaviconCache.shared.load(key) { [weak self] img in
+            guard let self, self.iconKey == key, let img else { return }
+            LayerImage.set(img, on: self.icon, in: self)
+        }
+    }
+
+    /// The name's width in the label's font, with room to spare: the label's own intrinsic size left "Wikipedia" a
+    /// point or two short ("Wikipe…").
+    private var nameWidth: CGFloat {
+        ceil((label.stringValue as NSString).size(withAttributes: [.font: label.font ?? AircFont.row.appFont]).width) + 4
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: 8 + 16 + 6 + nameWidth + 10, height: Self.height)
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        icon.frame = NSRect(x: 8, y: (bounds.height - 16) / 2, width: 16, height: 16)
+        CATransaction.commit()
+        let h = label.intrinsicContentSize.height
+        label.frame = NSRect(x: 30, y: ((bounds.height - h) / 2).rounded(), width: max(0, min(nameWidth, bounds.width - 40)), height: h)
+    }
+
+    private func restyle() {
+        guard let p = palette else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.backgroundColor = p.resolved.accent.alpha(p.resolved.isDark ? 0.24 : 0.14).cgColor
+        CATransaction.commit()
+        label.textColor = p.panelText
+    }
+
+    override func mouseDown(with event: NSEvent) { onMenu?() }
+    override func accessibilityPerformPress() -> Bool { onMenu?(); return true }
 }
 
 /// The parked bar retains its in-window view geometry, so AppKit must not register an I-beam over the page.
@@ -706,6 +1230,10 @@ final class CommandRowView: NSView {
     var isSelected = false { didSet { if isSelected != oldValue { restyle() } } }
     var onClick: (() -> Void)?
     var onHover: (() -> Void)?
+    /// The ✕ a history row shows under the pointer (Arc's, 2023-05-18): the page leaves the history, as with ⌥⌘⌫.
+    var onRemove: (() -> Void)?
+    private(set) var isHovered = false { didSet { if isHovered != oldValue { updateRemoveButton() } } }
+    let removeButton = CommandRowRemoveButton()
     private let icon = FaviconView()
     /// Built-in sites' icons get a view of their own: a favicon view keeps loading the last icon it was asked for, and a
     /// late one must not land on a row that has become a search row since (typing "sp" then "spot").
@@ -734,7 +1262,9 @@ final class CommandRowView: NSView {
         subtitle.lineBreakMode = .byClipping
         emoji.font = NSFont.systemFont(ofSize: AircMetrics.Footer.spaceEmoji)
         emoji.alignment = .center
-        for v in [icon, siteIcon, emoji, title, subtitle, action] as [NSView] { addSubview(v) }
+        for v in [icon, siteIcon, emoji, title, subtitle, action, removeButton] as [NSView] { addSubview(v) }
+        removeButton.isHidden = true
+        removeButton.onPress = { [weak self] in self?.onRemove?() }
         siteIcon.isHidden = true
         tile.actions = LayerImage.noActions
         tile.isHidden = true
@@ -747,6 +1277,21 @@ final class CommandRowView: NSView {
     func configure(_ r: CommandResult) {
         result = r
         restyle()
+        updateRemoveButton()
+    }
+
+    /// The ✕ shows on a history row under the pointer (the row's other trailing parts move left of it).
+    private func updateRemoveButton() {
+        let show = isHovered && !isHidden && result?.historyURL != nil
+        removeButton.palette = palette
+        if removeButton.isHidden != !show {
+            removeButton.isHidden = !show
+            needsLayout = true
+        }
+        if show {
+            let key = ShortcutCenter.shared.commandBarKey(ShortcutCenter.removeSuggestion.id)?.display
+            removeButton.toolTip = key.map { "Remove from History (\($0))" } ?? "Remove from History"
+        }
     }
 
     /// What the labels show now: the bar is reused and reconfigured on every opening and keystroke, and setting the
@@ -901,8 +1446,14 @@ final class CommandRowView: NSView {
         tile.frame = siteIcon.bounds
         CATransaction.commit()
         emoji.frame = NSRect(x: 11, y: (h - 20) / 2, width: 24, height: 20)
-        // Trailing: the shortcut's keycaps, then (selected) the action and ↵ before them.
+        // Trailing: the ✕ under the pointer, the shortcut's keycaps, then (selected) the action and ↵ before them.
         var x = bounds.width - m.actionTrailing
+        if !removeButton.isHidden {
+            let s = CommandRowRemoveButton.size
+            x -= s
+            removeButton.frame = NSRect(x: x, y: (h - s) / 2, width: s, height: s)
+            x -= 8
+        }
         let shown = keycaps.filter { !$0.isHidden }
         for k in shown.reversed() {
             let w = AircKeycapView.size(for: k.text).width
@@ -929,8 +1480,76 @@ final class CommandRowView: NSView {
         addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
-    override func mouseEntered(with event: NSEvent) { onHover?() }
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+        onHover?()
+    }
+    override func mouseExited(with event: NSEvent) { isHovered = false }
+    func clearHover() { isHovered = false }
     override func mouseDown(with event: NSEvent) { onClick?() }
+
+    #if AIRC_TESTING
+    /// ParityP03bCheck: the pointer over the row (posted mouse moves never reach tracking areas).
+    func setHoveredForTesting(_ on: Bool) {
+        isHovered = on
+        if on { onHover?() }
+        layoutSubtreeIfNeeded()
+    }
+    #endif
+}
+
+/// A history row's ✕ (CommandRowView): a small round button, darker under the pointer. A click removes the row and
+/// never chooses it; VoiceOver reads it as "Remove from History".
+final class CommandRowRemoveButton: NSView {
+    static let size: CGFloat = 20
+    var onPress: (() -> Void)?
+    var palette: Palette? { didSet { needsDisplay = true } }
+    private var pressed = false { didSet { needsDisplay = true } }
+    private var inside = false { didSet { needsDisplay = true } }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel("Remove from History")
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override var isFlipped: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let theme = palette?.resolved
+        let ink = (theme?.surfaceTextSecondary.nsColor ?? .secondaryLabelColor)
+        if inside || pressed {
+            ink.withAlphaComponent(pressed ? 0.22 : 0.14).setFill()
+            NSBezierPath(ovalIn: bounds.insetBy(dx: 1, dy: 1)).fill()
+        }
+        let c = NSPoint(x: bounds.midX, y: bounds.midY), r: CGFloat = 3.5
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: c.x - r, y: c.y - r)); path.line(to: NSPoint(x: c.x + r, y: c.y + r))
+        path.move(to: NSPoint(x: c.x + r, y: c.y - r)); path.line(to: NSPoint(x: c.x - r, y: c.y + r))
+        path.lineWidth = 1.5
+        path.lineCapStyle = .round
+        ink.setStroke()
+        path.stroke()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+    override func mouseEntered(with event: NSEvent) { inside = true }
+    override func mouseExited(with event: NSEvent) { inside = false }
+    override func mouseDown(with event: NSEvent) { pressed = true }
+    override func mouseUp(with event: NSEvent) {
+        pressed = false
+        if bounds.contains(convert(event.locationInWindow, from: nil)) { onPress?() }
+    }
+    override func accessibilityPerformPress() -> Bool {
+        onPress?()
+        return true
+    }
 }
 
 // MARK: - Results and actions
@@ -952,7 +1571,15 @@ extension WindowController: CommandBarHost {
     var commandBarSuggestions: (engine: SearchEngine, profileID: String)? {
         guard app?.settings.values.suggestionsEnabled ?? true else { return nil }
         let profile = store.profile(ofSpace: currentSpaceID)
+        // P07d: a site search made the default has no suggestion service (as Chrome's custom engines without one).
+        guard profile.defaultSearch.site == nil else { return nil }
         return (profile.searchEngine, profile.id)
+    }
+
+    /// The current Space's profile's site searches: profiles keep their own (Settings → Site Search).
+    var commandBarSiteSearches: CommandBarSiteSearches? {
+        guard let settings = app?.settings else { return nil }
+        return CommandBarSiteSearches.of(settings.values.siteSearch, profileID: store.profile(ofSpace: currentSpaceID).id)
     }
 
     func openCommandBar(mode: CommandBarMode) {
@@ -995,7 +1622,8 @@ extension WindowController: CommandBarHost {
            let field = pageView(for: currentSpaceID)?.urlField, field.window != nil {
             bar.grow(from: field.convert(field.bounds, to: bar))
         }
-        let current = mode == .editURL ? (engineTab(for: shownTabID ?? "")?.url?.absoluteString ?? currentTab?.url ?? "") : ""
+        var current = mode == .editURL ? (engineTab(for: shownTabID ?? "")?.url?.absoluteString ?? currentTab?.url ?? "") : ""
+        if NoteURL.isNote(current) { current = "" }   // a note's address is nothing to edit
         Perf.time("cb.open.focus") { bar.focus(with: URLRules.isNewTab(current) ? "" : current) }
         pageView(for: currentSpaceID)?.refreshNewTabRow()
     }
@@ -1125,6 +1753,15 @@ extension WindowController: CommandBarHost {
 
     /// Open tabs, pinned items, Favorites and history of the current profile (SP-24), Spaces, commands, the search row
     /// and the profile's search suggestions. "/…" lists only actions.
+    /// Test builds can build every candidate for an empty query as before (`AIRC_CB_EMPTY_BASELINE=1`, P02b).
+    private static let prunesEmptyQuery: Bool = {
+        #if AIRC_TESTING
+        return ProcessInfo.processInfo.environment["AIRC_CB_EMPTY_BASELINE"] != "1"
+        #else
+        return true
+        #endif
+    }()
+
     func commandResults(for query: String, mode: CommandBarMode, inline: InlineCompletion.Match? = nil,
                         inlineSite: CommonSites.Site? = nil, suggestions: [String] = [],
                         history: [HistoryMatch] = []) -> [CommandResult] {
@@ -1164,6 +1801,14 @@ extension WindowController: CommandBarHost {
             urls.insert(t.url)
         }
         for t in store.state.tabs.values where t.profileID == profile.id && t.itemID == nil { addTab(t) }
+
+        if q.isEmpty, Self.prunesEmptyQuery {
+            // ⌘T on its own: the most recent tabs of this profile first. Nothing else ranks for an empty query, so the
+            // pinned items, Spaces and actions below aren't built for it: every action's title, keywords and keycaps
+            // were most of the parked bar's idle refresh (P02b: ~2.5 ms of a frame right after a swipe's settle) and part
+            // of every opening.
+            return CommandSearch.rank("", candidates, limit: 6).compactMap { actions[$0.candidate.id] }
+        }
         for item in store.state.items.values where item.kind == .tab {
             let inProfile = item.profileID == profile.id || (item.spaceID.map { store.space($0)?.profileID == profile.id } ?? false)
             guard inProfile, let saved = item.savedURL else { continue }
@@ -1212,7 +1857,7 @@ extension WindowController: CommandBarHost {
                                         boost: min(12, 4 * log2(1 + r.entry.frecency(now: now)))))
                 actions[id] = CommandResult(title: title, subtitle: URLRules.displayHost(r.entry.url), badge: "Open",
                                             icon: .favicon(image: nil, url: nil, page: r.entry.url), matches: [],
-                                            action: .open(URL(string: r.entry.url)!))
+                                            action: .open(URL(string: r.entry.url)!), historyURL: r.entry.url)
             }
         }
 
@@ -1249,26 +1894,28 @@ extension WindowController: CommandBarHost {
         case .site(let m): m.isExact || (q.contains(" ") && m.score >= 95)
         case nil: false
         }
+        let web = profile.defaultSearch   // P07d: the profile's default, a site search included
         let search = { (text: String, subtitle: String) in
             CommandResult(title: text, subtitle: subtitle, badge: "Search", icon: .symbol("magnifyingglass"), matches: [],
-                          action: .open(profile.searchEngine.searchURL(for: text)))
+                          action: .open(web.url(for: text) ?? profile.searchEngine.searchURL(for: text)))
         }
         if inline != nil, let site = inlineSite,
            let row = siteResult(site, matches: CommandSearch.score(q, in: site.name)?.matches ?? []) {
             // A built-in site completed inline: its row first, by name ("Spotify  open.spotify.com").
             out.append(row)
-            out.append(search(q, AircCommandText.searchSubtitle(engine: profile.searchEngine.name)))
+            out.append(search(q, AircCommandText.searchSubtitle(engine: web.name)))
         } else if let m = inline, let url = URL(string: m.url) {
             // The completed address first: Enter opens what the field shows.
             out.append(CommandResult(title: m.text, subtitle: "", badge: "Open",
-                                     icon: .favicon(image: nil, url: nil, page: m.url), matches: Array(0..<m.typedCount), action: .open(url)))
-            out.append(search(q, AircCommandText.searchSubtitle(engine: profile.searchEngine.name)))
+                                     icon: .favicon(image: nil, url: nil, page: m.url), matches: Array(0..<m.typedCount), action: .open(url),
+                                     historyURL: !urls.contains(m.url) && history.contains(where: { $0.entry.url == m.url }) ? m.url : nil))
+            out.append(search(q, AircCommandText.searchSubtitle(engine: web.name)))
         } else if let u = URLRules.normalizeInput(q), let url = URL(string: u) {
             out.append(CommandResult(title: q, subtitle: "", badge: "Open", icon: .favicon(image: nil, url: nil, page: u),
                                      matches: [], action: .open(url)))
         } else {
             if strong, !ranked.isEmpty { out.append(ranked.removeFirst()) }
-            out.append(search(q, AircCommandText.searchSubtitle(engine: profile.searchEngine.name)))
+            out.append(search(q, AircCommandText.searchSubtitle(engine: web.name)))
         }
         // A few top hits, then the engine's suggestions, then the rest.
         out += ranked.prefix(3)
@@ -1290,11 +1937,17 @@ extension WindowController: CommandBarHost {
 
     func commandActions() -> [CommandAction] {
         var a: [CommandAction] = [
+            .init(title: "New Boost…", symbol: "paintbrush.pointed", hint: ShortcutCenter.hint("file.newBoost", "⌃⇧B"), keywords: ["boost", "css", "customize"]) { [weak self] in self?.newBoost() },
+            .init(title: "Boost Gallery", symbol: "square.grid.2x2", hint: "", keywords: ["boost", "gallery", "style", "theme"]) { [weak self] in self?.showBoostGallery() },
             .init(title: "New Space…", symbol: "plus.square.on.square", hint: "", keywords: ["space", "create"]) { [weak self] in self?.openNewSpacePanel() },
             .init(title: "New Folder", symbol: "folder.badge.plus", hint: "", keywords: ["folder"]) { [weak self] in
                 guard let self else { return }
                 _ = try? self.store.createFolder(inSpace: self.currentSpaceID)
             },
+            // Arc's "Create Note; Note; Scratchpad".
+            .init(title: newNoteTitle, symbol: "note.text", hint: ShortcutCenter.hint("file.newNote", "⌃⇧N"),
+                  keywords: ["note", "notes", "scratchpad", "write", "create", "doc", "document", "page"]) { [weak self] in self?.newNote(source: .commandBar) },
+            .init(title: pageToolbar == nil ? "Show Toolbar" : "Hide Toolbar", symbol: "rectangle.topthird.inset.filled", hint: ShortcutCenter.hint("view.showToolbar", "⇧⌘D"), keywords: ["address", "url"]) { [weak self] in self?.togglePageToolbar() },
             .init(title: sidebarHidden ? "Show Sidebar" : "Hide Sidebar", symbol: "sidebar.left", hint: ShortcutCenter.hint("view.toggleSidebar", "⌘S"), keywords: ["toggle"]) { [weak self] in self?.toggleSidebar() },
             .init(title: "Edit Theme Color…", symbol: "paintpalette", hint: "", keywords: ["theme", "colour", "color"]) { [weak self] in
                 guard let self else { return }
@@ -1303,7 +1956,13 @@ extension WindowController: CommandBarHost {
             .init(title: "Rename Space…", symbol: "pencil", hint: "", keywords: ["space"]) { [weak self] in self?.renameCurrentSpace() },
             .init(title: "Clear Today", symbol: "arrow.down.to.line", hint: ShortcutCenter.hint("tabs.clearToday", "⇧⌘K"), keywords: ["archive", "clean"]) { [weak self] in self?.clearToday() },
             .init(title: "Library", symbol: "archivebox", hint: ShortcutCenter.hint("tabs.library", "⇧⌘L"), keywords: ["archive", "history"]) { [weak self] in self?.showLibrary() },
+            // Arc: "Hit CMD T and type 'Site Search Settings' to get started."
+            .init(title: "Site Search Settings…", symbol: "magnifyingglass", hint: "",
+                  keywords: ["site search", "search engines", "shortcut", "keyword", "tab"]) { [weak self] in
+                self?.app?.showSettings(page: .siteSearch)
+            },
         ]
+        a += noteCommandActions()   // New Airc Note, Export and Import (Notes/NoteExport.swift)
         if currentTab != nil {
             a.append(.init(title: "Add Split View", symbol: "rectangle.split.2x1", hint: ShortcutCenter.hint("tabs.newSplit", "⌃⇧+"), keywords: ["split", "side", "pane"]) { [weak self] in
                 self?.newSplitView()
@@ -1314,18 +1973,30 @@ extension WindowController: CommandBarHost {
                 self?.separateShownSplit()
             })
         }
+        a += splitCommandActions() + calendarCommandActions() + developerCommandActions()   // SplitActions, CalendarMenu, DeveloperMode
         if let t = currentTab {
             a += [
                 .init(title: t.isToday ? "Pin Tab" : "Unpin Tab", symbol: "pin", hint: ShortcutCenter.hint("tabs.pin", "⌘D"), keywords: ["bookmark"]) { [weak self] in self?.togglePin() },
                 .init(title: "Add to Favorites", symbol: "star", hint: "", keywords: ["favorite", "favourite"]) { [weak self] in self?.addCurrentToFavorites() },
                 .init(title: "Copy URL", symbol: "link", hint: ShortcutCenter.hint("edit.copyURL", "⇧⌘C"), keywords: ["link"]) { [weak self] in self?.copyURL() },
                 .init(title: "Copy URL as Markdown", symbol: "text.badge.plus", hint: ShortcutCenter.hint("edit.copyURLMarkdown", "⌥⇧⌘C"), keywords: ["link"]) { [weak self] in self?.copyURLMarkdown() },
+                .init(title: "Copy URL as Quote", symbol: "text.quote", hint: ShortcutCenter.hint("edit.copyURLQuote", "⌃⇧⌘C"), keywords: ["link", "selection"]) { [weak self] in self?.copyURLQuote() },
+                .init(title: "Capture…", symbol: "camera.viewfinder", hint: ShortcutCenter.hint("view.capture", "⇧⌘2"),
+                      keywords: ["screenshot", "snapshot", "picture", "image", "copy"]) { [weak self] in self?.startCapture() },
+                .init(title: "Capture Full Page", symbol: "arrow.up.and.down.text.horizontal", hint: "",
+                      keywords: ["screenshot", "full page", "whole page", "long", "scrolling"]) { [weak self] in self?.startCapture(fullPage: true) },
+                .init(title: "Capture in Portrait Mode", symbol: "camera.macro", hint: "", keywords: ["screenshot", "portrait", "pretty", "frame", "wallpaper"]) { [weak self] in self?.startCapture(portrait: true) },
                 .init(title: "Reload", symbol: "arrow.clockwise", hint: ShortcutCenter.hint("view.reload", "⌘R"), keywords: ["refresh"]) { [weak self] in self?.reloadOrStop() },
                 .init(title: "Duplicate Tab", symbol: "plus.square.on.square", hint: "", keywords: ["copy"]) { [weak self] in
                     guard let self, let id = self.shownTabID else { return }
                     _ = try? self.store.duplicateTab(id)
                 },
             ]
+            // Ask on Page (AI/AskPageCard.swift), while it's on.
+            if app?.settings.values.askPage == true {
+                a.append(.init(title: "Ask This Page…", symbol: "sparkles", hint: "",
+                               keywords: ["ask", "question", "ai", "summarize", "apple intelligence"]) { [weak self] in self?.showAsk() })
+            }
             if !t.isToday && store.isDrifted(t.id) {
                 a.append(.init(title: "Reset Tab", symbol: "arrow.uturn.backward", hint: "", keywords: ["pinned"]) { [weak self] in
                     self?.resetToSaved(t.id, keepCurrent: false)
@@ -1337,6 +2008,8 @@ extension WindowController: CommandBarHost {
                 })
             }
         }
+        a += contextCommandActions()   // the menus' actions (Browser/WindowActions.swift)
+        a += menuCommandActions(excluding: Set(a.map(\.title)))   // the menu bar's (App/ParityCommandCatalog.swift)
         return a
     }
 }

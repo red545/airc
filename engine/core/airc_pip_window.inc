@@ -3,6 +3,17 @@
 // Chromium supplies the AppKit half of panel behavior, but not the WindowServer
 // activation tag normally installed by NSPanel's initializer. Keep this SPI
 // narrow and guarded; never change an existing window's Objective-C class.
+// Readback exists only for an admitted engine test instance; production has no diagnostics.
+static const char kPipProductionConfiguration = 0;
+@interface NSWindow (AircPipTestConfiguration)
+- (NSDictionary*)aircProductionPiPConfiguration;
+@end
+@implementation NSWindow (AircPipTestConfiguration)
+- (NSDictionary*)aircProductionPiPConfiguration {
+  return airc::TestInstance() ? objc_getAssociatedObject(self, &kPipProductionConfiguration) : nil;
+}
+@end
+
 @interface NSWindow (AircPipActivationTag)
 - (void)_setPreventsActivation:(BOOL)preventsActivation;
 @end
@@ -19,6 +30,7 @@
 @property(nonatomic) NSTimeInterval lastTime;
 @property(nonatomic) BOOL dragging;
 @property(nonatomic) BOOL replaying;
+@property(nonatomic) BOOL document;
 @property(nonatomic) BOOL freePlacement;
 @property(nonatomic) BOOL overlayBackground;
 @property(nonatomic) NSUInteger generation;
@@ -42,7 +54,12 @@ int AppOverlayHit(NSWindow* window, NSPoint inWindow, NSView* __strong* control)
   if (control) *control = hit;
   return !hit ? 0 : hit == overlay ? 2 : 1;
 }
-void ConfigurePipWindow(NSWindow* window) {
+bool PipAppIsForeground() {
+  // Nonactivating panels can make NSApp.active true without owning foreground.
+  return NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier ==
+         NSRunningApplication.currentApplication.processIdentifier;
+}
+void ConfigurePipWindow(NSWindow* window, bool document = false) {
   if (![window isKindOfClass:NativeWidgetMacNSWindow.class]) return;
   // Chromium's supported panel-equivalent mode. Preserve its bridge, frame,
   // command dispatcher and accessibility implementation; no class swizzling.
@@ -50,7 +67,7 @@ void ConfigurePipWindow(NSWindow* window) {
   if ([window respondsToSelector:@selector(_setPreventsActivation:)])
     [window _setPreventsActivation:YES];
   window.hidesOnDeactivate = NO;
-  window.level = NSFloatingWindowLevel;
+  window.level = TestInstance() ? NSNormalWindowLevel : NSFloatingWindowLevel;
   auto behavior = window.collectionBehavior;
   behavior &= ~(NSWindowCollectionBehaviorMoveToActiveSpace |
                 NSWindowCollectionBehaviorFullScreenPrimary |
@@ -65,10 +82,22 @@ void ConfigurePipWindow(NSWindow* window) {
     behavior &= ~(NSWindowCollectionBehaviorPrimary | NSWindowCollectionBehaviorAuxiliary);
     behavior |= NSWindowCollectionBehaviorCanJoinAllApplications;
   }
+  if (TestInstance()) {
+    objc_setAssociatedObject(window, &kPipProductionConfiguration,
+        @{@"level": @(NSFloatingWindowLevel), @"collectionBehavior": @(behavior)},
+        OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    behavior &= ~(NSWindowCollectionBehaviorCanJoinAllSpaces |
+                  NSWindowCollectionBehaviorCanJoinAllApplications |
+                  NSWindowCollectionBehaviorFullScreenAuxiliary);
+  }
   window.collectionBehavior = behavior;
   if (!objc_getAssociatedObject(window, &kPipPointer)) {
     AircPipPointer* pointer = [AircPipPointer new];
     pointer.window = window;
+    pointer.document = document;
+    // Before first Show: panel independence alone still allows keyboard theft.
+    // Foreground keyboard input is granted by a deliberate site-control press.
+    if (document) [(NativeWidgetMacNSWindow*)window setPreventKeyWindow:YES];
     objc_setAssociatedObject(window, &kPipPointer, pointer, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
   }
 }
@@ -81,12 +110,19 @@ void StartPipWindowPolicy() {
             if (!SwitchOn("pipPlacement")) return;
             auto* widget = native->GetWidget();
             bool pip = widget->GetName() == "PictureInPictureWindow";
+            bool document = false;
             if (widget->GetName() == "BrowserWidget") {
               auto* view = static_cast<BrowserView*>(widget->widget_delegate());
-              pip = view->browser()->GetType() == BrowserWindowInterface::TYPE_PICTURE_IN_PICTURE;
+              document = pip = view->browser()->GetType() == BrowserWindowInterface::TYPE_PICTURE_IN_PICTURE;
             }
-            if (pip) ConfigurePipWindow(native->GetNativeWindow().GetNativeNSWindow());
+            if (pip) ConfigurePipWindow(native->GetNativeWindow().GetNativeNSWindow(), document);
           })));
+  g_airc_pip_prevent_key = [](NSWindow* window) {
+    AircPipPointer* pointer = objc_getAssociatedObject(window, &kPipPointer);
+    // Checked on every key request, including site focus and after Chromium's
+    // off-Space ordering clears its temporary _preventKeyWindow ivar directly.
+    return pointer.document && !PipAppIsForeground();
+  };
   g_airc_pip_nonactivating = [](NSWindow* window) {
     return objc_getAssociatedObject(window, &kPipPointer) != nil;
   };
@@ -104,7 +140,7 @@ void StartPipWindowPolicy() {
 @synthesize startFrame = _startFrame, startPoint = _startPoint, lastPoint = _lastPoint;
 @synthesize velocity = _velocity, lastTime = _lastTime, dragging = _dragging;
 @synthesize replaying = _replaying, freePlacement = _freePlacement, generation = _generation;
-@synthesize overlayBackground = _overlayBackground;
+@synthesize overlayBackground = _overlayBackground, document = _document;
 - (NSPoint)screenPoint:(NSEvent*)event {
   return [self.window convertPointToScreen:event.locationInWindow];
 }
@@ -140,6 +176,10 @@ void StartPipWindowPolicy() {
   // hit-tested sequence to its native content receiver, retaining Views/renderer
   // control handling without asking NSWindow to activate the application.
   if (event.type == NSEventTypeLeftMouseDown) {
+    if (self.document && airc::PipAppIsForeground()) {
+      [(NativeWidgetMacNSWindow*)self.window setPreventKeyWindow:NO];
+      [self.window makeKeyWindow];
+    }
     NSView* root = self.window.contentView;
     self.controlView = [root hitTest:[root.superview convertPoint:event.locationInWindow fromView:nil]];
   }

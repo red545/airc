@@ -133,6 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// SB-3: routes the engine's prompts to the window showing their page (PagePrompts.swift).
     var promptCenter: PromptCenter?
     var profiles: ProfileHost!
+    var blocking: BlockingCenter!
     var credentialSink: EngineCredentialSink!
     /// Every open browser window, the one used last first (WIN-7, Browser/MultiWindow.swift).
     var controllers: [WindowController] = []
@@ -207,7 +208,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         BoostCenter.start(engine: engine)
         // SB-2: the page script's location and device-ask part (SiteUse.swift), on the same script.
         SiteUse.start()
+        // P07: Arc's page palette (--arc-palette-*), the theme of each page's Space (ThemePagePalette.swift).
+        ThemePagePalette.start(app: self)
+        DeveloperMode.shared.start(settings: settings)
+        // Link previews' part of the page script, before the first page opens (only when an AI setting is on).
+        MainActor.assumeIsolated { AIFeatures.startIfNeeded(settings: settings) }
         profiles = ProfileHost(store: store, engine: engine)
+        MainActor.assumeIsolated {
+            blocking = BlockingCenter(app: self)
+            profiles.beforeUse = { [weak self] profile, id, ready in
+                MainActor.assumeIsolated {
+                    self?.blocking.prepare(profile: profile, id: id) { [weak self] in
+                        ready()
+                        guard let self else { return }
+                        for controller in self.controllers where controller.store.profile(ofSpace: controller.currentSpaceID).id == id {
+                            BlockingNotices.show(in: controller)
+                        }
+                    }
+                }
+            }
+        }
         promptCenter = PromptCenter(engine: engine)
         installLinkRouter()
         credentialSink = EngineCredentialSink.make(engine: engine, profiles: profiles)
@@ -220,6 +240,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         profiles.loadAll { [weak self] in
             guard let self else { return }
+            #if AIRC_TESTING
+            // agentspike (Agent/AgentCenter.swift): agents, when switched on; --agent-headless opens no window.
+            if AgentCenter.shared.launch(app: self) { return }
+            #endif
             if self.shouldShowOnboarding(firstRun: firstRun) {
                 self.startOnboarding(mode: .firstRun)
             } else {
@@ -326,6 +350,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func didOpen(_ c: WindowController) {
+        MainActor.assumeIsolated {
+            BlockingNotices.show(in: c)
+            Task { await blocking.refresh() }
+        }
         #if AIRC_TESTING
         LaunchDiagnostics.start(c)   // AIRC_DIAG_LOG only
         #endif
@@ -341,8 +369,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.profiles.removeOrphanSpares()
             try? self.store.compactOperations(olderThan: 7 * 86400)
             try? self.store.pruneArchive()
+            // Notes no row points at any more, then pictures no note shows (Notes/NoteEditor.swift, NoteImages).
+            NoteCenter.collectGarbage(store: self.store, backups: AppPaths.backups)
         }
-        _ = try? store.backupIfNeeded(to: settings.values.backupFolder.map { URL(fileURLWithPath: $0) } ?? AppPaths.backups)
+        _ = try? settings.backUp(store)
+        // iCloud sync (Sync/SyncCenter.swift): off until turned on in Settings → Sync.
+        SyncCenter.shared.start(app: self)
         pendingURLs.forEach(open)
         pendingURLs = []
     }
@@ -398,6 +430,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Through the engine's routing policy while the Apple event is current (it knows the sending app); it hands
         // external links to `routeExternal` (linkRouter). An engine without one: straight there.
         for url in urls {
+            if BoostSharing.accepts(url) { routeExternal(url); continue }
             if engine.routeExternalURL(url) { linkTraces[url.absoluteString]?.via = "the engine's policy" } else { routeExternal(url) }
         }
     }
@@ -421,6 +454,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The engine's routing policy: links from other apps are Airc's (rules, Little Arc); a page's own links keep
     /// Chromium's behaviour. Tab changes wait for the next turn, as the engine asks.
     func installLinkRouter() {
+        // LA-1: links from an app in native full screen open Little Arc over it (LittleArcFullScreen).
+        LittleArcFullScreen.shared.install(app: self)
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             // After AppKit has picked its key window for the activation.
             DispatchQueue.main.async { self?.littleArcKeyAfterActivation() }
@@ -433,16 +468,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             l.notePress(e, wasKey: wasKey)
             return e
         }
+        LittleArcLinkClicks.start()
         engine.linkRouter = { [weak self] request in
             if request.source == "external" {
                 DispatchQueue.main.async { self?.routeExternal(request.url) }
                 return true
             }
-            // PK-1: a page's link that should open in Peek (in the window with the page, WIN-7).
-            guard let opener = request.opener, let c = self?.controller(owning: opener) ?? self?.controller,
-                  c.wantsPeek(request) else { return false }
-            DispatchQueue.main.async { [weak c] in c?.openPeek(request.url, from: opener) }
+            guard let self, request.source == "page", let opener = request.opener else { return false }
+            // P06d: a link clicked with ⌥⌘ opens in Little Airc (Browser/LittleArcLinkClicks.swift).
+            if let sid = self.optionCommandClickSpace(request, from: opener) {
+                DispatchQueue.main.async { [weak self] in _ = self?.openLittleArc(url: request.url, spaceID: sid) }
+                return true
+            }
+            // No fallback to the most recent window: private and Little Arc pages must stay there.
+            guard let c = self.controllers.first(where: { $0.tabID(for: opener) != nil || $0.peek?.page === opener }) else { return false }
+            let target = LinkRouting.pageTarget(from: opener.url, to: request.url, userGesture: request.userGesture,
+                                                wantsPeek: c.wantsPeek(request), fromPeek: c.peek?.page === opener,
+                                                rules: self.settings.values.linkRules,
+                                                existingSpaces: Set(self.store.orderedSpaces.map(\.id)))
+            switch target {
+            case .engine: return false
+            case .peek:
+                DispatchQueue.main.async { [weak c] in c?.openPeek(request.url, from: opener) }
+            case .space(let id):
+                DispatchQueue.main.async { [weak c] in c?.openExternal(request.url, inSpace: id) }
+            }
             return true
+        }
+        engine.contextMenuSpaces = { [weak self] page, _ in
+            guard let c = self?.controllers.first(where: { $0.tabID(for: page) != nil || $0.peek?.page === page }) else { return [] }
+            return c.windowSpaces.map { space in
+                let icon: String
+                if case .emoji(let emoji)? = space.icon { icon = emoji } else { icon = "●" }
+                return ["id": space.id, "title": icon + " " + space.name]
+            }
+        }
+        engine.openLinkInSpace = { [weak self] page, raw, id in
+            guard let url = URL(string: raw), ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+                  let c = self?.controllers.first(where: { $0.tabID(for: page) != nil || $0.peek?.page === page }),
+                  c.windowSpaces.contains(where: { $0.id == id }) else { return }
+            DispatchQueue.main.async { [weak c] in c?.openExternal(url, inSpace: id) }
         }
     }
 
@@ -450,11 +515,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// in the most recent Space's profile, or a tab in that Space (Settings → Links).
     func routeExternal(_ url: URL) {
         guard windowSession.browserReady, onboarding == nil || controller != nil else { pendingURLs.append(url); return }
+        if BoostSharing.accepts(url), let c = browserWindow() {
+            BoostSharing.open(url, on: c.window)
+            return
+        }
         let trace = linkTraces.removeValue(forKey: url.absoluteString)
+        // The full-screen app the link came from, if it was in full screen (every route takes it; Little Arc uses it).
+        let fullScreenApp = LittleArcFullScreen.shared.takeLinkSource()
         let web = ["http", "https"].contains(url.scheme?.lowercased() ?? "")
         let rule = web ? LinkRouting.space(for: url, rules: settings.values.linkRules, existingSpaces: Set(store.state.spaces.keys)) : nil
         if web, rule == nil, settings.values.externalLinks == .littleArc {
-            let l = openLittleArc(url: url)
+            let l = openLittleArc(url: url, overFullScreenOf: fullScreenApp)
             if let l, trace != nil { openedLittleArc = (l, Date()) }
             logLink(url, trace, route: "Little Arc", window: l?.window, created: l != nil)
             return
@@ -513,21 +584,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// ⌥⌘N, and links from other apps: a Little Arc window in `spaceID`'s profile (the most recent Space by default).
+    /// A link from an app in native full screen (`overFullScreenOf` that app) opens it as a panel over that app.
     @discardableResult
-    func openLittleArc(url: URL?, spaceID: String? = nil) -> LittleArcController? {
+    func openLittleArc(url: URL?, spaceID: String? = nil, overFullScreenOf fullScreenApp: pid_t? = nil) -> LittleArcController? {
         // WIN-7: with every browser window closed, in the last Space.
         guard store != nil, windowSession.browserReady else { return nil }
         let c = controller
-        let sid = spaceID ?? c?.currentSpaceID ?? store.selectedSpace.id
+        let recent = spaceID ?? c?.currentSpaceID ?? store.selectedSpace.id
+        let sid = spaceID ?? url.map { settings.values.littleArcProfiles.space(for: $0, rules: settings.values.linkRules,
+                            spaces: store.orderedSpaces, recentSpaceID: recent) } ?? recent
         let screen = (c?.window.screen ?? NSScreen.main)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let size = NSSize(width: min(840, screen.width - 80), height: min(620, screen.height - 80))
         // Cascaded from the screen's upper middle, as Arc places it.
         let n = CGFloat(littleArcs.count % 6) * 24
         let frame = NSRect(x: screen.midX - size.width / 2 + n, y: screen.maxY - size.height - 60 - n, width: size.width, height: size.height)
-        let l = LittleArcController(app: self, url: url, spaceID: sid, frame: frame)
+        let l = LittleArcController(app: self, url: url, spaceID: sid, frame: frame, overFullScreen: fullScreenApp != nil)
         Telemetry.shared.record(.featureUsed(.littleArcOpen(url == nil ? .shortcut : .link)))
         littleArcs.append(l)
-        bringForward(l.window)
+        if let fullScreenApp {
+            // Key without activating Airc (a non-activating panel): no Space switch, and the full-screen app stays.
+            if options.isAutomated, !LittleArcController.actsAsOwner { l.window.orderFront(nil) } else { l.window.makeKeyAndOrderFront(nil) }
+            LittleArcFullScreen.shared.shown(l, over: fullScreenApp)
+        } else {
+            bringForward(l.window)
+        }
         return l
     }
 
@@ -536,7 +616,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func littleArc(for window: NSWindow?) -> LittleArcController? { littleArcs.first { $0.window === window } }
 
     private func bringForward(_ w: NSWindow) {
-        if options.isAutomated { w.orderFront(nil) } else { w.makeKeyAndOrderFront(nil); NSApp.activate() }
+        // A scratch copy in the by-hand full-screen proof acts as the owner's build (LittleArcController.actsAsOwner).
+        if options.isAutomated, !LittleArcController.actsAsOwner { w.orderFront(nil) } else { w.makeKeyAndOrderFront(nil); NSApp.activate() }
     }
 
     /// WIN-7: Airc stays open with no window (as Arc and Chrome); ⌘N, the Dock or a link brings one back.

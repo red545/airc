@@ -9,14 +9,16 @@ status="${AIRC_STATUS_DIR:-$(dirname "$ROOT")/status}"
 before=$(ls -td "$status"/runs/*/ 2>/dev/null | head -1 || true)
 upload_config=${AIRC_PUBLIC_UPLOAD_CONFIG:-$(dirname "$ROOT")/secrets/public-release.env}
 [[ ! -f "$upload_config" ]] || source "$upload_config"
-"$ROOT/infra/nightly.sh"
+# A daytime ship run can still hold the lock at 01:15 (2026-11-08: skipped as "another run is in progress"). The run
+# itself waits for it, up to 90 minutes, holding the lock from then on (a separate wait-then-run lost the race).
+AIRC_LOCK_WAIT=5400 "$ROOT/infra/nightly.sh"
 after=$(ls -td "$status"/runs/*/ 2>/dev/null | head -1)
 [[ "$before" != "$after" ]] || { echo 'Nightly did not create a new run'; exit 1; }
 python3 "$ROOT/scripts/release/green.py" "$ROOT" "$after" "$(git -C "$ROOT" rev-parse HEAD)" --check
 # The lead can hold public promotion (a known issue on main): the private nightly above still ran.
 hold="$status/public-hold"
-if [[ -f "$hold" ]]; then
- echo "Public nightly held: $(head -1 "$hold")"
+if [[ -f "$hold" || ${AIRC_PUBLISH_HOLD:-0} == 1 ]]; then
+ echo "Public nightly held: $(head -1 "$hold" 2>/dev/null || echo operator publication hold)"
  exit 0
 fi
 # Storage is provisioned only after the first fully qualified public candidate.

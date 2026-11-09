@@ -6,7 +6,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 CONFIG=${AIRC_UPDATES_CONFIG:-$(dirname "$ROOT")/airc.env}
 [[ ! -f "$CONFIG" ]] || source "$CONFIG"
 STATUS=${AIRC_STATUS_DIR:-$(dirname "$ROOT")/status}
-HOST=${AIRC_MAC_HOST:-mac}
+HOST=${AIRC_MAC_HOST:-buildmac}
 mkdir -p "$STATUS"
 exec 6>"$STATUS/.deferred.lock"
 flock -n 6 || exit 0

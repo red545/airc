@@ -7,12 +7,14 @@ import SwiftUI
 
 // The Boost editor (BST-1, Arc's Boost panel): a floating card over the top-right corner of the page, opened from Site
 // Controls ("Boost this site") or View → Boost This Site…. Four sections, all live on the page while you edit:
-// Colors (tint, brightness, contrast, invert), Font (a system font and a size), Zap (click elements to hide them) and
+// Colors (tint, brightness, contrast, saturation, invert), Font (a system font, the page's size as its zoom, and a
+// letter case), Zap (click elements to hide them) and
 // Code (the site's own CSS and JavaScript, saved with Save or ⌘S; the JavaScript runs on the host it was saved on unless
 // "All of <site>" is on). A Boost held since the move to the whole public suffix list (`Boost.needsSite`) shows as a
 // banner on the pages it may have been made for, to use there or delete. It stays open while you work on the page; ✕ or Esc
 // close it (Esc first ends Zap), and so does leaving the site or the tab. The card follows the Site Controls card's
-// surface (radius 14, popover shadow), 320 pt wide.
+// surface (radius 14, popover shadow), 320 pt wide. The header's name opens Arc's Boost menu: Rename, Reset All Edits,
+// Share and Delete (BST-3).
 
 // MARK: - Model
 
@@ -52,11 +54,11 @@ final class BoostEditorModel: ObservableObject {
     private var center: BoostCenter? { BoostCenter.shared }
     var codeDirty: Bool { css != boost.css || js != boost.js }
 
-    init(domain: String, page: EngineTab, ui: ResolvedTheme) {
+    init(domain: String, page: EngineTab?, ui: ResolvedTheme) {
         self.domain = domain
         self.page = page
         self.ui = ui
-        pageHost = BoostDomain.webHost(of: page.url)
+        pageHost = BoostDomain.webHost(of: page?.url)
         isExactSite = BoostDomain.isExactHost(domain)
         let stored = BoostCenter.shared?.store.boost(domain: domain)
         boost = stored ?? Boost(domain: domain)
@@ -72,7 +74,9 @@ final class BoostEditorModel: ObservableObject {
     func reload() {
         let stored = center?.store.boost(domain: domain)
         let next = stored ?? Boost(domain: domain)
+        let cleanCode = !codeDirty
         if next != boost { boost = next }
+        if cleanCode { css = next.css; js = next.js }
         if exists != (stored != nil) { exists = stored != nil }
         let z = center?.isZapping(page) == true
         if z != zapping { zapping = z }
@@ -109,6 +113,52 @@ final class BoostEditorModel: ObservableObject {
 
     func setFamily(_ family: BoostFontFamily?) { change { $0.font.family = family?.rawValue } }
 
+    func setCase(_ textCase: BoostTextCase?) { change { $0.font.textCase = textCase?.rawValue } }
+
+    /// The header's title: the Boost's name, or "Boost".
+    var title: String { boost.name ?? "Boost" }
+
+    /// Where it came from, for the footer: "From Sam · version 2", "Shared · version 3", "From the Airc gallery".
+    var originLine: String? {
+        guard let o = boost.origin else { return nil }
+        let edited = o.edited(boost) ? " · edited" : ""
+        switch o.kind {
+        case .shared: return "Shared · version \(o.revision)\(edited)"
+        case .installed:
+            if o.gallery { return "From the gallery\(edited)" }
+            return "From \(o.author ?? "someone") · version \(o.revision)\(edited)"
+        }
+    }
+
+    func rename(_ name: String) {
+        edited = true
+        center?.store.rename(domain: domain, to: name)
+        reload()
+    }
+
+    /// Arc's "Reset all Edits": every setting, zap and line of code back to none (the name and switch stay).
+    func resetAllEdits() {
+        change {
+            $0.colors = BoostColors(); $0.font = BoostFont(); $0.zaps = []; $0.css = ""; $0.js = ""; $0.scriptHost = nil
+        }
+        css = ""; js = ""
+        Self.drafts[domain] = nil
+    }
+
+    /// The CSS's leading imports and how each loads (BoostCSSImports), with what the pages reported.
+    var importLines: [(url: String, ok: Bool, note: String)] {
+        let failures = center?.importFailures[domain] ?? [:]
+        return BoostCSSImports.review(css, site: domain).map { rule, source in
+            if let why = failures[rule.url] { return (rule.url, false, BoostCSSImports.runtimeExplanation(why)) }
+            switch source {
+            case .inline: return (rule.url, true, "Loaded from the CSS itself.")
+            case .samePage: return (rule.url, true, "Loaded from each page's own site.")
+            case .host(let h): return (rule.url, true, "Loaded on \(h)'s pages.")
+            case .refused(let r): return (rule.url, false, r.explanation)
+            }
+        }
+    }
+
     func stepSize(_ delta: Int) {
         change {
             let r = BoostFont.sizeSteps
@@ -117,6 +167,12 @@ final class BoostEditorModel: ObservableObject {
     }
 
     var sizeText: String { "\(Int((boost.font.scale * 100).rounded())) %" }
+
+    /// The page's zoom isn't the Boost's size: the person zoomed it themselves (BoostZoom leaves theirs).
+    var zoomedByPerson: Bool {
+        guard let page, boost.isLive else { return false }
+        return !BoostZoom.near(page.zoomFactor, boost.font.scale) && boost.font.step != 0
+    }
 
     // MARK: Zap
 
@@ -284,7 +340,26 @@ struct BoostEditorCard: View {
                 .frame(width: 32, height: 32)
                 .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(ui.accent.color))
             VStack(alignment: .leading, spacing: 1) {
-                Text("Boost").aircFont(AircFont.title3).foregroundStyle(ui.surfaceText.color)
+                if model.exists {
+                    Menu {
+                        Button("Rename This Boost…") { model.controller?.renameBoost(model) }
+                        Button("Reset All Edits") { model.resetAllEdits() }.disabled(model.boost.isEmpty)
+                        Divider()
+                        Button("Share Boost…") { model.controller?.shareBoost(model) }
+                        Button("Delete This Boost") { model.delete() }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(model.title).aircFont(AircFont.title3).foregroundStyle(ui.surfaceText.color).lineLimit(1)
+                            Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(ui.surfaceTextTertiary.color)
+                        }
+                    }
+                    .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+                    .help("Rename, reset, share or delete this Boost")
+                    .testAnchor("boost.menu")
+                } else {
+                    Text(model.title).aircFont(AircFont.title3).foregroundStyle(ui.surfaceText.color)
+                }
                 Text(model.domain).aircFont(AircFont.callout).foregroundStyle(ui.surfaceTextSecondary.color)
                     .lineLimit(1).truncationMode(.middle)
                     .testAnchor("boost.domain")
@@ -355,6 +430,9 @@ struct BoostEditorCard: View {
             labeled("Contrast", value: percent(model.boost.colors.contrast)) {
                 AircSlider(value: model.color(\.contrast), range: BoostColors.range).testAnchor("boost.contrast")
             }
+            labeled("Original Saturation", value: percent(model.boost.colors.saturation)) {
+                AircSlider(value: model.color(\.saturation), range: BoostColors.saturationRange).testAnchor("boost.saturation")
+            }
             HStack(spacing: 10) {
                 Image(systemName: "circle.lefthalf.filled").font(.system(size: 13, weight: .medium))
                     .foregroundStyle(ui.surfaceTextSecondary.color).frame(width: 18)
@@ -404,7 +482,9 @@ struct BoostEditorCard: View {
                     .foregroundStyle(ui.surfaceTextSecondary.color).frame(width: 18)
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Size").aircFont(AircFont.body).foregroundStyle(ui.surfaceText.color)
-                    Text("Text and pictures").aircFont(AircFont.callout).foregroundStyle(ui.surfaceTextTertiary.color)
+                    Text(model.zoomedByPerson ? "You zoomed this page yourself" : "The whole page, like ⌘+")
+                        .aircFont(AircFont.callout).foregroundStyle(ui.surfaceTextTertiary.color)
+                        .testAnchor("boost.sizeNote")
                 }
                 Spacer(minLength: 4)
                 HStack(spacing: 0) {
@@ -418,8 +498,36 @@ struct BoostEditorCard: View {
                 }
                 .background(Capsule(style: .continuous).fill(ui.fieldFill.color))
             }
+            HStack(spacing: 8) {
+                Image(systemName: "textformat").font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(ui.surfaceTextSecondary.color).frame(width: 18)
+                Text("Case").aircFont(AircFont.body).foregroundStyle(ui.surfaceText.color)
+                Spacer(minLength: 4)
+                HStack(spacing: 2) {
+                    caseChoice(nil)
+                    ForEach(BoostTextCase.allCases, id: \.self) { caseChoice($0) }
+                }
+                .padding(2)
+                .background(Capsule(style: .continuous).fill(ui.fieldFill.color))
+            }
         }
         .padding(.horizontal, inset)
+    }
+
+    /// Arc's case button, as a strip: the site's own, Title Case, CAPITALS, lowercase.
+    private func caseChoice(_ c: BoostTextCase?) -> some View {
+        let on = model.boost.font.knownCase == c
+        return Button { model.setCase(c) } label: {
+            Text(c?.sample ?? "—").aircFont(AircFont.callout.weight(on ? .semibold : .regular))
+                .foregroundStyle((on ? ui.onAccent : ui.surfaceText).color)
+                .frame(width: 34, height: 22)
+                .background(Capsule(style: .continuous).fill(on ? ui.accent.color : .clear))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(c?.title ?? "The site's own case")
+        .accessibilityLabel(c?.title ?? "The site's own case")
+        .testAnchor("boost.case.\(c?.rawValue ?? "site")")
     }
 
     private func fontChoice(_ family: BoostFontFamily?) -> some View {
@@ -493,7 +601,7 @@ struct BoostEditorCard: View {
             .buttonStyle(.plain)
             .disabled(!model.boost.enabled && model.exists)
             .testAnchor("boost.zap")
-            Text(model.zapping ? "Point at something on the page and click it to hide it."
+            Text(model.zapping ? "Point at something on the page and click it to hide it. Hold ⌥ to hide everything like it."
                                : "Hide parts of the page you never want to see. They stay hidden on every visit.")
                 .aircFont(AircFont.callout).foregroundStyle(ui.surfaceTextTertiary.color)
                 .fixedSize(horizontal: false, vertical: true)
@@ -518,7 +626,9 @@ struct BoostEditorCard: View {
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(z.label.isEmpty ? "Element" : z.label).aircFont(AircFont.body).foregroundStyle(ui.surfaceText.color).lineLimit(1)
-                Text(z.selector).aircFont(AircFont.mono).foregroundStyle(ui.surfaceTextTertiary.color).lineLimit(1).truncationMode(.middle)
+                // A zap made inside a frame of the page says so: it hides that element in the site's frames only.
+                Text((z.frame ? "In a frame · " : "") + z.selector).aircFont(AircFont.mono).foregroundStyle(ui.surfaceTextTertiary.color)
+                    .lineLimit(1).truncationMode(.middle)
             }
             Spacer(minLength: 4)
             Button { model.undoZap(z.id) } label: {
@@ -528,7 +638,7 @@ struct BoostEditorCard: View {
             .buttonStyle(BoostPlateStyle(ui: ui, radius: 7))
             .help("Show it again")
             .accessibilityLabel("Show \(z.label.isEmpty ? "element" : z.label) again")
-            .testAnchor("boost.undoZap.\(z.selector)")
+            .testAnchor("boost.undoZap.\(z.frame ? "frame." : "")\(z.selector)")
         }
         .padding(.horizontal, 10)
         .frame(height: 42)
@@ -558,9 +668,10 @@ struct BoostEditorCard: View {
             .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(ui.fieldFill.color))
             .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).inset(by: 0.25).stroke(ui.surfaceBorder.color, lineWidth: 0.5))
             .testAnchor("boost.code")
+            if model.codeKind == .css, !model.importLines.isEmpty { imports }
             if model.codeKind == .js, !model.isExactSite { scriptScope }
             Text(model.codeKind == .css ? "Added after the site's own styles, on every page of \(model.domain)."
-                                        : "\(model.scriptPlace), once each time a page loads. Only code you write here ever runs.")
+                                        : "\(model.scriptPlace), once each time a page loads. Only code you save or explicitly install runs.")
                 .aircFont(AircFont.callout).foregroundStyle(ui.surfaceTextTertiary.color)
                 .fixedSize(horizontal: false, vertical: true)
                 .testAnchor("boost.scriptPlace")
@@ -576,6 +687,25 @@ struct BoostEditorCard: View {
             }
         }
         .padding(.horizontal, inset)
+    }
+
+    /// The CSS's `@import`s: which load (from the CSS itself or the site) and which are skipped, and why.
+    private var imports: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(model.importLines.enumerated()), id: \.offset) { _, line in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: line.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(line.ok ? ui.surfaceTextTertiary.color : Color.orange)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(line.url).aircFont(AircFont.mono).foregroundStyle(ui.surfaceText.color).lineLimit(1).truncationMode(.middle)
+                        Text(line.note).aircFont(AircFont.callout).foregroundStyle(ui.surfaceTextTertiary.color)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+        .testAnchor("boost.imports")
     }
 
     /// "All of nytimes.com": the JavaScript on every page of the site, not just the host it was saved on; and, for
@@ -599,11 +729,15 @@ struct BoostEditorCard: View {
 
     private var footer: some View {
         HStack(spacing: 8) {
-            Image(systemName: "lock").font(.system(size: 10, weight: .semibold)).foregroundStyle(ui.surfaceTextTertiary.color)
-            Text("Saved on this Mac").aircFont(AircFont.callout).foregroundStyle(ui.surfaceTextTertiary.color)
-                .lineLimit(1)
+            Image(systemName: model.originLine == nil ? "lock" : "person.2").font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(ui.surfaceTextTertiary.color)
+            Text(model.originLine ?? "On this Mac").aircFont(AircFont.callout).foregroundStyle(ui.surfaceTextTertiary.color)
+                .lineLimit(1).truncationMode(.tail)
+                .testAnchor("boost.origin")
             Spacer(minLength: 4)
             if model.exists {
+                Button("Share…") { model.controller?.shareBoost(model) }
+                    .buttonStyle(.airc(.plain, size: .small)).testAnchor("boost.share")
                 Button("Delete") { model.delete() }.buttonStyle(.airc(.plain, size: .small))
                     .help("Delete this Boost").testAnchor("boost.delete")
             }
@@ -833,6 +967,12 @@ extension WindowController {
         guard boostsAvailable else { return showToast("Boosts need the Chromium engine") }
         guard let id = shownTabID, let page = engineTab(for: id), !page.isClosed else { return NSSound.beep() }
         guard let domain = BoostDomain.key(for: page.url) else { return showToast("Boosts work on websites") }
+        showBoostEditor(domain: domain, page: page, section: section)
+    }
+
+    func showBoostEditor(domain: String, page: EngineTab? = nil, section: BoostEditorModel.Section? = nil) {
+        let shown = shownTabID.flatMap { engineTab(for: $0) }
+        let page = page ?? (BoostDomain.key(for: shown?.url) == domain ? shown : nil)
         if let open = boostEditor, open.model.domain == domain, open.model.page === page {
             if let section { open.model.section = section }
             return
@@ -888,7 +1028,7 @@ extension WindowController {
 
     /// A URL field redrew: the editor closes once the page on screen isn't its page, or its page left the site.
     func boostEditorPageChanged() {
-        guard let panel = boostEditor, !panel.isClosing else { return }
+        guard let panel = boostEditor, !panel.isClosing, panel.model.page != nil else { return }
         let shown = shownTabID.flatMap { engineTab(for: $0) }
         guard let page = panel.model.page, page === shown, !page.isClosed,
               let url = page.url, URLRules.isNewTab(url.absoluteString) || BoostDomain.key(for: url) == panel.model.domain

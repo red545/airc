@@ -1,5 +1,6 @@
 # Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -43,6 +44,7 @@ class InfraTests(unittest.TestCase):
         lines = ['noise'] * 100 + [failure] + ['Executed 10 tests'] * 20
         self.assertEqual(list(summarize(lines)), [failure] + ['Executed 10 tests'] * 3)
 
+    @patch.dict(os.environ, {"AIRC_OWNER_MAC_HOST": "owner-test"})
     def test_cache_success_and_offline(self):
         with tempfile.TemporaryDirectory() as temp:
             with patch('owner_versions.subprocess.run', return_value=subprocess.CompletedProcess([], 0, '{"installed":"123","latest":"456"}')) as ssh:
@@ -54,6 +56,12 @@ class InfraTests(unittest.TestCase):
                 owner_versions(Path(temp))
                 owner_versions(Path(temp))
                 self.assertEqual(ssh.call_count, 1)
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_owner_host_must_be_explicit(self):
+        with tempfile.TemporaryDirectory() as temp, patch('owner_versions.subprocess.run') as ssh:
+            owner_versions(Path(temp))
+            ssh.assert_not_called()
 
     def test_page(self):
         with tempfile.TemporaryDirectory() as temp:

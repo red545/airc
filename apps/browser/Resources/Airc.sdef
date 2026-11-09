@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dictionary SYSTEM "file://localhost/System/Library/DTDs/sdef.dtd">
+<!--
+  K07: Airc's scripting dictionary. Arc's class, property and command names and their four-letter codes, so a script
+  written for Arc works with `tell application "Airc"` (docs/user/scripting.md). The Cocoa classes and keys are Airc's
+  own (apps/browser/Sources/Airc/Scripting). Additions: a space's `profile`, and `exists`.
+-->
+<dictionary title="Airc Terminology">
+  <suite name="Standard Suite" code="core" description="Common classes and commands for all applications.">
+
+    <command name="make" code="corecrel" description="Make a new window, or a tab in a window, a space or (for the application) a Little Arc.">
+      <cocoa class="AircScriptMakeCommand"/>
+      <access-group identifier="*"/>
+      <parameter name="new" code="kocl" description="The class of the new object." type="type">
+        <cocoa key="ObjectClass"/>
+      </parameter>
+      <parameter name="at" code="insh" type="location specifier" optional="yes" description="Where to make it.">
+        <cocoa key="Location"/>
+      </parameter>
+      <parameter name="with properties" code="prdt" type="record" optional="yes" description="The initial values for properties of the object.">
+        <cocoa key="KeyDictionary"/>
+      </parameter>
+      <result description="to the new object" type="specifier"/>
+    </command>
+
+    <command name="count" code="corecnte" description="Return the number of elements of a particular class within an object.">
+      <cocoa class="NSCountCommand"/>
+      <access-group identifier="*"/>
+      <direct-parameter description="the object whose elements are to be counted" type="specifier"/>
+      <parameter name="each" code="kocl" description="The class of objects to be counted." type="type" optional="yes">
+        <cocoa key="ObjectClass"/>
+      </parameter>
+      <result description="the number of elements" type="integer"/>
+    </command>
+
+    <command name="exists" code="coredoex" description="Verify that an object exists.">
+      <cocoa class="NSExistsCommand"/>
+      <access-group identifier="*"/>
+      <direct-parameter description="the object in question" type="any"/>
+      <result description="true if it exists, false if not" type="boolean"/>
+    </command>
+
+    <class name="application" code="capp" description="The application's top-level scripting object.">
+      <cocoa class="NSApplication"/>
+      <element description="The windows contained within this application, ordered front to back." type="window">
+        <cocoa key="aircScriptWindows"/>
+      </element>
+      <element description="Making a tab here opens it in a Little Arc window." type="tab" access="w">
+        <cocoa key="aircScriptLittleArcTabs"/>
+      </element>
+      <property name="name" code="pnam" description="The name of the application." type="text" access="r"/>
+      <property name="frontmost" code="pisf" description="Is this the frontmost (active) application?" type="boolean" access="r">
+        <cocoa key="isActive"/>
+      </property>
+      <property name="version" code="vers" description="The version of the application." type="text" access="r"/>
+      <responds-to command="quit">
+        <cocoa method="handleQuitScriptCommand:"/>
+      </responds-to>
+    </class>
+
+    <command name="close" code="coreclos" description="Close a window or a tab.">
+      <direct-parameter description="The object to close." type="specifier"/>
+    </command>
+
+    <class name="window" code="WiND" description="A browser window, or a private window." plural="windows">
+      <cocoa class="AircScriptWindow"/>
+      <element description="The tabs of every space in this window (a private window's own tabs)." type="tab" access="rw">
+        <cocoa key="scriptTabs"/>
+      </element>
+      <element description="The spaces this window shows." type="space">
+        <cocoa key="scriptSpaces"/>
+      </element>
+      <property name="id" code="ID  " type="text" access="r" description="The unique identifier of the window.">
+        <cocoa key="uniqueID"/>
+      </property>
+      <property name="name" code="pnam" type="text" access="r" description="The full title of the window.">
+        <cocoa key="title"/>
+      </property>
+      <property name="index" code="pidx" type="integer" description="The index of the window, ordered front to back.">
+        <cocoa key="orderedIndex"/>
+      </property>
+      <property name="closeable" code="hclb" description="Whether the window has a close box." type="boolean" access="r">
+        <cocoa key="hasCloseBox"/>
+      </property>
+      <property name="minimizable" code="ismn" description="Whether the window can be minimized." type="boolean" access="r">
+        <cocoa key="isMiniaturizable"/>
+      </property>
+      <property name="minimized" code="pmnd" description="Whether the window is currently minimized." type="boolean">
+        <cocoa key="isMiniaturized"/>
+      </property>
+      <property name="resizable" code="prsz" description="Whether the window can be resized." type="boolean" access="r">
+        <cocoa key="isResizable"/>
+      </property>
+      <property name="visible" code="pvis" description="Whether the window is currently visible." type="boolean">
+        <cocoa key="isVisible"/>
+      </property>
+      <property name="zoomable" code="iszm" description="Whether the window can be zoomed." type="boolean" access="r">
+        <cocoa key="isZoomable"/>
+      </property>
+      <property name="zoomed" code="pzum" description="Whether the window is currently zoomed." type="boolean">
+        <cocoa key="isZoomed"/>
+      </property>
+      <property name="active tab" code="acTa" description="The tab on screen (the focused pane in a split)." type="tab" access="r">
+        <cocoa key="activeTab"/>
+      </property>
+      <property name="active space" code="acSp" description="The space on screen. A private window has none." type="space" access="r">
+        <cocoa key="activeSpace"/>
+      </property>
+      <property name="incognito" code="inco" description="Whether the window is a private window. Set it when making a window." type="boolean">
+        <cocoa key="isIncognito"/>
+      </property>
+      <property name="mode" code="mode" description="'normal' or 'incognito' (a private window). Set it when making a window." type="text">
+        <cocoa key="mode"/>
+      </property>
+      <responds-to command="close">
+        <cocoa method="handleCloseScriptCommand:"/>
+      </responds-to>
+    </class>
+
+    <command name="select" code="CrSelect" description="Show the tab.">
+      <direct-parameter description="The tab to show." type="specifier"/>
+    </command>
+
+    <command name="go back" code="CrSuBack" description="Go back, if possible.">
+      <direct-parameter description="The tab." type="specifier"/>
+    </command>
+
+    <command name="go forward" code="CrSuFwd " description="Go forward, if possible.">
+      <direct-parameter description="The tab." type="specifier"/>
+    </command>
+
+    <command name="reload" code="CrSuRlod" description="Reload a tab.">
+      <direct-parameter description="The tab." type="specifier"/>
+    </command>
+
+    <command name="stop" code="CrSustop" description="Stop the tab from loading.">
+      <direct-parameter description="The tab." type="specifier"/>
+    </command>
+
+    <command name="execute" code="CrSuExJa" description="Run JavaScript in the tab's page. Needs View › Allow JavaScript from Apple Events; never in a private window.">
+      <direct-parameter description="The tab." type="specifier"/>
+      <parameter name="javascript" code="JvSc" description="The JavaScript to run." type="text">
+        <cocoa key="javascript"/>
+      </parameter>
+      <result type="text"/>
+    </command>
+
+    <class name="tab" code="tAbB" description="A Favorite, a pinned tab or a Today tab." plural="tabs">
+      <cocoa class="AircScriptTab"/>
+      <property name="id" code="ID  " type="text" access="r" description="The unique identifier of the tab.">
+        <cocoa key="uniqueID"/>
+      </property>
+      <property name="title" code="pnam" type="text" access="r" description="The full title of the tab.">
+        <cocoa key="title"/>
+      </property>
+      <property name="URL" code="URL " description="The tab's URL. Setting it loads it." type="text" access="rw">
+        <cocoa key="URL"/>
+      </property>
+      <property name="loading" code="ldng" description="Is the page loading?" type="boolean" access="r">
+        <cocoa key="loading"/>
+      </property>
+      <property name="location" code="loca" description="Where the tab is in the sidebar: 'topApp' (a Favorite), 'pinned' or 'unpinned' (Today)." type="text">
+        <cocoa key="location"/>
+      </property>
+      <responds-to command="select">
+        <cocoa method="handleSelectScriptCommand:"/>
+      </responds-to>
+      <responds-to command="go back">
+        <cocoa method="handleGoBackScriptCommand:"/>
+      </responds-to>
+      <responds-to command="go forward">
+        <cocoa method="handleGoForwardScriptCommand:"/>
+      </responds-to>
+      <responds-to command="reload">
+        <cocoa method="handleReloadScriptCommand:"/>
+      </responds-to>
+      <responds-to command="stop">
+        <cocoa method="handleStopScriptCommand:"/>
+      </responds-to>
+      <responds-to command="execute">
+        <cocoa method="handleExecuteScriptCommand:"/>
+      </responds-to>
+      <responds-to command="close">
+        <cocoa method="handleCloseScriptCommand:"/>
+      </responds-to>
+    </class>
+
+    <command name="focus" code="SpaFocus" description="Show a space in its window.">
+      <direct-parameter description="The space to show." type="specifier"/>
+    </command>
+
+    <class name="space" code="sPaC" description="A space" plural="spaces">
+      <cocoa class="AircScriptSpace"/>
+      <property name="id" code="ID  " type="text" access="r" description="The unique identifier of the space.">
+        <cocoa key="uniqueID"/>
+      </property>
+      <property name="title" code="pnam" type="text" access="r" description="The space's name.">
+        <cocoa key="title"/>
+      </property>
+      <property name="profile" code="sPrf" type="text" access="r" description="The name of the space's profile (Airc).">
+        <cocoa key="profileName"/>
+      </property>
+      <element description="The space's Favorites, pinned tabs and Today tabs, as its sidebar shows them." type="tab" access="rw">
+        <cocoa key="scriptTabs"/>
+      </element>
+      <responds-to command="focus">
+        <cocoa method="handleFocusScriptCommand:"/>
+      </responds-to>
+    </class>
+  </suite>
+</dictionary>

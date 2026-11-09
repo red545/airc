@@ -1,0 +1,219 @@
+# Coming soon (updated 2026-11-08, after Airc 0.1.3 shipped): features in the repo that no release has shipped yet.
+# Each image and post says so. What 0.1.3 shipped moved to its pack (2026-11-08-release-0.1.3); what's in 0.1.3's source
+# but not its notes is held (not here, not there) until the lead says.
+slug = "2026-11-07-coming-soon"
+title = "Coming soon: Portrait Mode, Developer Mode's Network, site previews, Ask on Page and link previews"
+kind = "teaser"
+# As apps/marketing/src/data/catalog.ts says it: in the repo for a release after 0.1.3.
+since = "next"
+tag = "Coming soon"
+note = "In development. Not in Airc 0.1.3."
+end_title = "Coming to Airc"
+end_line = "In development. Not in Airc 0.1.3 yet · aircbrowser.com"
+summary = """
+A teaser for features that are in the repo but in no release yet: Capture in Portrait Mode, Developer Mode's toolbar
+with Network, site previews (Notion, Linear, Figma, Confluence), and Ask on Page and link previews (both with Apple
+Intelligence, on the Mac). Every image carries a "Coming soon" tag and the line "In development. Not in Airc 0.1.3.";
+every post says it isn't in 0.1.3. Nothing here says when they ship.
+"""
+order = """
+Post these a few days after the 0.1.3 thread, not on the same day, so nobody reads them as part of 0.1.3.
+1. Post 1 (Ask on Page), then post 2 (link previews) as its reply.
+2. Posts 3 (Portrait Mode), 4 (Developer Mode's Network) and 5 (site previews) on their own days.
+When a release ships one of these, retire its teaser: the release pack replaces it.
+"""
+checked = """
+- 0.1.3's published notes (aircbrowser.com/changelog): none of these is in them. The website agent: Portrait Mode, the
+  Developer Mode toolbar (Network, Control-click to clear site data), Boosts off in private windows and the ⌘S and swipe
+  speed-ups come with 0.1.4.
+- Ask on Page and link previews: docs/user/ai.md (on the Mac with Apple Intelligence, off until turned on, nothing sent
+  to Apple or anyone else for them; a link preview loads the page like a visit, so the posts don't say "nothing leaves
+  the Mac").
+- Capture in Portrait Mode: the notes agent's shot (9bff2dc); never the desktop picture in our own frames (it's the
+  person's own).
+- Updates, app icon, sounds (P21b, f742f48, not in 0.1.3): docs/user/updates.md. update-playing as retaken in
+  58be020 (never 14e4ab1's, which showed apple.com's region banner), cropped to the sidebar; settings-app-icon is fine.
+- Site previews: docs/user/previews.md (5f38130; Notion, Confluence, Figma and Linear list the pages visited there in
+  this profile, from its own history: nothing fetched, nothing sent; "+" for a new page). Shot 10c6a8f from the notes
+  agent, demo content. Gmail, Outlook and calendar previews aren't in release builds: not posted.
+- Held, in 0.1.3's source but not its notes (work/held-0.1.3.toml outside the repo): Split View's icons and more, Live
+  Calendar's ⌃⌘J, Boost links, Arc's tab and folder menus, clean links and Markdown, menus in ⌘T and Essential Keyboard
+  Shortcuts, and the accessibility post.
+"""
+
+# ---------------------------------------------------------------- images
+
+[[image]]
+id = "capture-portrait"
+shot = "capture-portrait"
+title = "Capture in Portrait Mode."
+line = "Press P in Capture: the page framed on its own colour, any colour or your desktop picture."
+focus = [250, 40, 1180, 860]
+focus_16x9 = [244, 30, 1196, 860]
+focus_1x1 = [244, 30, 1196, 860]
+align = "left"
+area_16x9 = [700, 0, 1600, 900]
+area_1x1 = [88, 444, 1200, 1200]
+alt = "Coming soon: Capture in Portrait Mode in Airc. The trip page, Lisbon, four days, framed with rounded corners and a soft shadow on a cyan gradient with the Airc mark in a corner; under it a colour slider and the other background choices, then Copy, Save and Share."
+
+[[image]]
+id = "dev-toolbar"
+shot = "developer-mode"
+title = "Network, in Developer Mode."
+line = "Its toolbar adds Network, and ⌃-click on Reload clears the site’s data."
+focus = [0, 0, 760, 620]
+alt = "Coming soon: Developer Mode in Airc on a synthetic local app, Fieldwork, at localhost: under the address, a toolbar with Inspect, Network and Reload and a console badge."
+
+[[image]]
+id = "ask-on-page"
+shot = "ai-ask-page"
+title = "Ask on Page."
+line = "⌘F, then ask. The answer comes from the page, with the sentence it’s based on."
+focus = [440, 0, 1000, 520]
+alt = "Coming soon: Ask on Page in Airc. On a Lisbon travel guide, the find bar holds the question “When is the castle open, and what does it cost?”; the answer card says the castle opens at 9:00 and closes at 21:00 from March to October and tickets cost fifteen euros, and the sentence it comes from is highlighted on the page."
+
+[[image]]
+id = "link-previews"
+shot = "ai-link-preview"
+title = "Link previews."
+line = "Hold ⇧ over a link for a short summary of the page it opens."
+focus = [300, 100, 760, 500]
+area_1x1 = [88, 444, 1200, 1200]
+alt = "Coming soon: a link preview in Airc. Over a reading list, a card under the link “The old harbour is opening again” gives the article's summary and key points: a market hall with 20 food stalls, ferries every hour, concerts on opening weekend. It says it was summarized on this Mac."
+
+[[image]]
+id = "on-device"
+shot = "ai-settings"
+title = "On your Mac."
+line = "Apple Intelligence runs each AI feature on the Mac. No account, no API key."
+alt = "Coming soon: Airc's Settings, AI, which says the features run on this Mac and nothing is sent anywhere: Tidy tab titles, Ask on Page and Link previews, each with a switch."
+
+[[image]]
+id = "site-preview"
+shot = "site-preview"
+title = "Site previews."
+line = "Rest on a pinned Notion or Linear and jump back to the page you were just on."
+# Above the sidebar's Sign in to Google card (window points): the Favorites and the Recents card.
+clip = [0, 0, 760, 450]
+alt = "Coming soon: a site preview in Airc's Work Space, on demo data. Resting the pointer on the pinned Linear Favorite shows a card of Recents: the Linear pages visited there, newest first, with how long ago, and + for a new issue."
+
+[[image]]
+id = "update-ask"
+shot = "update-playing"
+title = "Updates that wait for you."
+line = "Music playing? Restart to Update asks first."
+# The sidebar only (window points): the retaken shot's page is apple.com's homepage, Apple's own artwork and models.
+clip = [0, 450, 215, 450]
+alt = "Coming soon: Airc's sidebar with the question Restart to update Airc? It says music or video is playing and restarting stops it, that your Spaces and tabs come back as they are, with See What's New, Restart and Not Now, above the New Version Available pill."
+
+[[image]]
+id = "app-icon"
+shot = "settings-app-icon"
+title = "Pick your icon."
+line = "Holographic or Outline, in the Dock while Airc runs."
+alt = "Coming soon: Airc's Settings, Appearance, with App Icon offering Holographic, the standard icon, and Outline, above the sidebar and window settings."
+
+[[post]]
+label = "Ask on Page"
+media = ["ask-on-page:16x9"]
+text = """
+Something we're working on: Ask on Page.
+
+Press ⌘F, ask a question, and Apple Intelligence answers from the page itself, on your Mac. It shows you the sentences it used, and clicking one takes you there.
+
+Not in 0.1.3 yet.
+"""
+
+[[post]]
+label = "Link previews (reply to post 1)"
+reply = true
+media = ["link-previews:16x9", "on-device:16x9"]
+text = """
+Also coming: hold ⇧ over a link for a short summary of the page behind it.
+
+Both run with Apple Intelligence on your Mac. No account, no API key, and they stay off until you switch them on.
+"""
+
+[[post]]
+label = "Capture in Portrait Mode (on its own day)"
+media = ["portrait-video:16x9"]
+text = """
+Coming soon: Portrait Mode in Capture. Press P and the page gets framed on its own colour, any colour you like, or your desktop picture.
+
+The saved file is just the picture. No date, no location, no names.
+
+Not in 0.1.3 yet.
+"""
+
+[[post]]
+label = "Developer Mode's new toolbar (on its own day)"
+media = ["dev-toolbar:16x9"]
+text = """
+Next for Developer Mode: a Network button beside Inspect and Reload, and Control-click on Reload to clear the site's data.
+
+Not in 0.1.3 yet.
+"""
+
+[[post]]
+label = "Site previews (on its own day)"
+media = ["sitepreview-video:16x9"]
+text = """
+Coming soon: rest your pointer on a pinned Notion, Linear, Figma or Confluence tab and see the pages you were just on. + starts a new one.
+
+It all comes from your own history on your Mac. Nothing gets fetched.
+
+Not in 0.1.3 yet.
+"""
+
+# Updates that never interrupt (P21b, f742f48; docs/user/updates.md). The card uses 58be020's retake of update-playing
+# (the first take showed apple.com's region banner), cropped to the sidebar.
+[[post]]
+label = "Updates that wait for you"
+media = ["update-ask:16x9"]
+text = """
+Coming next: updates that never get in your way.
+
+Music playing, a call on, a download running, something typed? Restart to Update asks first. And automatic updates only restart Airc after you've been away 30 minutes, with nothing to interrupt.
+
+Not in 0.1.3 yet.
+"""
+
+[[post]]
+label = "App icon and sounds (reply to the updates post)"
+reply = true
+media = ["app-icon:16x9"]
+text = """
+Also coming: pick Airc's icon, Holographic or Outline. And if you like it quiet, turn off Airc's own sounds and the trackpad taps when you drag tabs.
+"""
+
+[[video]]
+id = "portrait-video"
+motion = "portrait"
+web = "capture-portrait"
+tag = "Coming soon"
+title = "Capture in Portrait Mode."
+line = "Press P in Capture."
+captions = { page = "Any page.", portrait = "P frames it, ready to share.", colour = "Pick any colour.", website = "Or the site's own colour." }
+alt = "Coming soon. An animation rendered frame by frame by Airc: the trip page framed by Capture in Portrait Mode on a cyan gradient, the background sweeping through green to yellow as the colour slider moves, then switching to the site's own colour, with Copy, Save and Share below."
+
+[[video]]
+id = "devtoolbar-video"
+motion = "devtoolbar"
+web = "developer-mode-toolbar"
+tag = "Coming soon"
+title = "Network, in Developer Mode."
+line = "Developer Mode’s toolbar, after 0.1.3."
+captions = { local = "Inspect, Network, Reload and the console errors.", site = "Any other site…", ctrld = "…is one ⌃D away.", controls = "Site Controls has its switch too." }
+fade_frames = 10
+alt = "Coming soon. An animation rendered frame by frame by Airc: a made-up app's local preview, Fieldwork, at localhost in the Personal Space, in Developer Mode: under the address, Inspect, Network, Reload and a count of two console errors. Then Swift.org, a plain tab, until Control-D turns Developer Mode on for it, and Site Controls show its Developer Mode switch."
+
+[[video]]
+id = "sitepreview-video"
+motion = "sitepreview"
+web = "site-previews"
+tag = "Coming soon"
+title = "Site previews."
+line = "Rest on a pinned Linear, Figma or Notion and jump back in."
+captions = { page = "Your work tools, pinned.", linear = "Rest on Linear: the pages you were just on, newest first.", figma = "Figma’s files…", notion = "…and Notion’s pages, from your own history. Nothing fetched, no account." }
+fade_frames = 10
+alt = "Coming soon. An animation rendered frame by frame by Airc on demo data: the Work Space on the demo's shared folder of launch files; resting on the pinned Linear Favorite shows a card of the Linear pages visited there, newest first, with + for a new issue; then Figma's card with recent files, then the pinned Notion page's card with recent Notion pages."

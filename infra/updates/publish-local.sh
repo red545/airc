@@ -13,9 +13,19 @@ report_exit() {
 }
 trap report_exit EXIT
 echo "${0##*/}: starting"
+[[ ${AIRC_PUBLISH_HOLD:-0} != 1 && ${AIRC_PREPARATION:-0} != 1 ]] || {
+  echo 'local publication held; no feed or cache changed' >&2; exit 2;
+}
+source infra/updates/dev-paths.sh
 phase="installing and checking the loopback LaunchAgent"
-infra/updates/local-feed.sh
-feed="$HOME/arcfork/updates-local"
+if [[ -n ${AIRC_SCRATCH_PUBLISH_ROOT:-} ]]; then
+  # The caller owns a separately rooted scratch server. Never install/change the live LaunchAgent.
+  mkdir -p "$DEV_FEED_DIR"
+  python3 infra/updates/scratch_paths.py --probe "$DEV_FEED_DIR" "$AIRC_UPDATE_FEED"
+else
+  infra/updates/local-feed.sh
+fi
+feed="$DEV_FEED_DIR"
 phase="seeding transition history"
 if [[ ! -e "$feed/appcast.xml" && -f build/dev-seed.xml ]]; then
   cp build/dev-seed.xml "$feed/appcast.xml.tmp"
@@ -27,7 +37,7 @@ phase="verifying enclosures and atomically publishing the feed"
 python3 infra/updates/publish.py "$PWD" "$feed" "$PWD/build/dev-update" "$AIRC_UPDATE_FEED"
 phase="acknowledging delta cache"
 build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' build/dev-update/Info.plist)
-touch "$HOME/arcfork/updates-cache.noindex/dev/$build/published"
+touch "$DEV_CACHE_DIR/$build/published"
 phase="checking served appcast"
 curl --fail --silent --show-error --retry 3 "$AIRC_UPDATE_FEED" > build/dev-update/served-appcast.xml
 # Keep tiny evidence; enclosures are already durable in the feed.

@@ -2,7 +2,9 @@
 
 import Foundation
 
-public enum SyncRecordKind: String, Codable, Hashable, Sendable { case space, row }
+/// `profile` records carry only a name, an emoji and whether it's the default profile, so another Mac can map a Space's
+/// profile to one of its own (or create an empty one). Never logins, cookies, history or the engine folder.
+public enum SyncRecordKind: String, Codable, Hashable, Sendable { case space, row, profile }
 
 public struct SyncRecordID: Codable, Hashable, Sendable {
     public let kind: SyncRecordKind
@@ -36,15 +38,18 @@ public struct SyncOperation: Codable, Hashable, Sendable {
 
     func validate() throws {
         guard !record.id.isEmpty, !fields.isEmpty, stamp.milliseconds >= 0 else { throw SyncError.invalidOperation }
-        let allowed: Set<SyncField> = record.kind == .space
-            ? [.name, .icon, .theme, .profile, .order, .deleted]
-            : [.kind, .url, .title, .icon, .parent, .location, .order, .deleted]
+        let allowed: Set<SyncField> = switch record.kind {
+        case .space: [.name, .icon, .theme, .profile, .order, .deleted]
+        case .row: [.kind, .url, .title, .icon, .parent, .location, .order, .deleted]
+        case .profile: [.name, .icon, .kind, .deleted]
+        }
         for (field, value) in fields {
             guard allowed.contains(field) else { throw SyncError.invalidOperation }
             switch (field, value) {
             case (.name, .text), (.profile, .text), (.url, .text), (.title, .text), (.parent, .text),
                  (.icon, .text), (.icon, .icon), (.theme, .theme), (.location, .location): break
-            case (.kind, .text(let kind)) where kind == "tab" || kind == "folder": break
+            case (.kind, .text(let kind)) where record.kind == .row && (kind == "tab" || kind == "folder"): break
+            case (.kind, .text(let kind)) where record.kind == .profile && (kind == "default" || kind == "profile"): break
             case (.url, .null), (.title, .null), (.icon, .null), (.parent, .null): break
             case (.deleted, .flag): break
             case (.order, .order(let key)):

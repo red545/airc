@@ -27,5 +27,7 @@ let package = Package(
             path: "Sources/Airc",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // agentspike: the stdio MCP helper (a pipe to the running Airc's agent socket; Sources/AircMCP/main.swift).
+        .executableTarget(name: "AircMCP", path: "Sources/AircMCP", swiftSettings: [.swiftLanguageMode(.v5)]),
     ]
 )

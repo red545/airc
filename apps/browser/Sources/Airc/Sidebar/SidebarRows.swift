@@ -13,10 +13,15 @@ final class PlateLayer: CALayer {
     override init(layer: Any) { super.init(layer: layer) }
     required init?(coder: NSCoder) { fatalError() }
 
-    func style(palette: Palette, hovered: Bool, selected: Bool, pressed: Bool) {
+    /// `inSelection`: a row of the multi-selection that isn't the shown tab (SB-36): Arc's secondary selection fill, no
+    /// shadow. The shown tab keeps its own look when it's selected too.
+    func style(palette: Palette, hovered: Bool, selected: Bool, pressed: Bool, inSelection: Bool = false) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        if selected {
+        if inSelection, !selected {
+            backgroundColor = (pressed ? palette.pressed : hovered ? palette.multiSelectedHover : palette.multiSelected).cgColor
+            shadowOpacity = 0
+        } else if selected {
             backgroundColor = (hovered ? palette.selectedHover : palette.selected).cgColor
             if let s = palette.selectedShadow {
                 apply(s)
@@ -41,11 +46,95 @@ class SidebarRowView: NSView {
     var isHovered = false { didSet { if oldValue != isHovered { updateStyle() } } }
     var isPressed = false { didSet { if oldValue != isPressed { updateStyle() } } }
     var isSelected = false { didSet { if oldValue != isSelected { updateStyle() } } }
-    /// In the page's multi-selection (SB-36, ⌘/⇧-click): drawn like the selected row.
+    /// In the page's multi-selection (SB-36, ⌘/⇧-click): Arc's secondary selection fill (the shown row keeps its own).
     var isInSelection = false { didSet { if oldValue != isInSelection { updateStyle() } } }
     var showsPlate = true
     /// Where the plate sits inside the row.
     var plateInsets = NSEdgeInsets(top: 2, left: AircMetrics.Sidebar.inset, bottom: 2, right: AircMetrics.Sidebar.inset)
+
+    // MARK: Keyboard focus and VoiceOver (P03, Sidebar/SidebarKeyboard.swift)
+
+    /// The row's place in its page's keyboard order (SidebarNavItem.id); nil for what the keyboard skips (cards, the
+    /// divider), which then keep AppKit's own accessibility.
+    var navID: String?
+    /// The keyboard is on this row (it's the window's first responder): its plate shows as on hover, with the system
+    /// focus ring around it.
+    private(set) var isKeyboardFocused = false {
+        didSet {
+            guard oldValue != isKeyboardFocused else { return }
+            updateStyle()
+            needsLayout = true
+            noteFocusRingMaskChanged()
+        }
+    }
+    /// The row's name for VoiceOver; nil: the page's model has it (SidebarNavItem.title).
+    var spokenTitle: String? { nil }
+    /// Where the focus ring goes: the plate (a Favorite: the tile).
+    var focusRingRect: NSRect { plate.frame }
+    var focusRingRadius: CGFloat { AircMetrics.Row.plateHeight / 4 }
+    private lazy var disclosure = SidebarDisclosureElement(row: self)
+
+    override var acceptsFirstResponder: Bool {
+        navID != nil && (page?.isMovingKeyboardFocus == true || window?.firstResponder === self)
+    }
+    /// Tab doesn't walk the rows (it jumps between the sidebar's sections, SidebarNavigator).
+    override var canBecomeKeyView: Bool { false }
+    override func becomeFirstResponder() -> Bool {
+        isKeyboardFocused = true
+        page?.rowDidTakeKeyboardFocus(self)
+        return true
+    }
+    override func resignFirstResponder() -> Bool {
+        isKeyboardFocused = false
+        page?.rowDidLoseKeyboardFocus(self)
+        return true
+    }
+    override func keyDown(with event: NSEvent) {
+        if page?.sidebarKeyDown(event, row: self) != true { super.keyDown(with: event) }
+    }
+    override var focusRingMaskBounds: NSRect { navID == nil ? .zero : focusRingRect }
+    override func drawFocusRingMask() {
+        NSBezierPath(roundedRect: focusRingRect, xRadius: focusRingRadius, yRadius: focusRingRadius).fill()
+    }
+
+    private var navKind: SidebarNavItem.Kind? { page?.navItem(navID)?.kind }
+
+    override func isAccessibilityElement() -> Bool { navID != nil || super.isAccessibilityElement() }
+    override func accessibilityRole() -> NSAccessibility.Role? { navID != nil ? .row : super.accessibilityRole() }
+    override func accessibilitySubrole() -> NSAccessibility.Subrole? { navID != nil ? .outlineRow : super.accessibilitySubrole() }
+    override func accessibilityLabel() -> String? {
+        guard navID != nil else { return super.accessibilityLabel() }
+        return spokenTitle ?? page?.navItem(navID)?.title
+    }
+    override func accessibilityRoleDescription() -> String? {
+        page?.accessibilityRoleDescription(of: navID) ?? super.accessibilityRoleDescription()
+    }
+    override func accessibilityValue() -> Any? { navID != nil ? page?.accessibilityValue(of: navID) : super.accessibilityValue() }
+    /// The page on screen: its row (a Favorite's tile, a split's row) is the selected one.
+    override func isAccessibilitySelected() -> Bool { navID != nil ? isSelected && navKind != .newTab : super.isAccessibilitySelected() }
+    override func isAccessibilityExpanded() -> Bool { page?.navItem(navID)?.isExpanded ?? false }
+    override func isAccessibilityDisclosed() -> Bool { page?.navItem(navID)?.isExpanded ?? false }
+    override func accessibilityDisclosureLevel() -> Int { page?.accessibilityLevel(of: navID) ?? 0 }
+    override func accessibilityParent() -> Any? { navID != nil ? (page?.outline ?? super.accessibilityParent()) : super.accessibilityParent() }
+    override func isAccessibilityFocused() -> Bool { navID != nil ? window?.firstResponder === self : super.isAccessibilityFocused() }
+    /// A row reads as one element; a folder and the header add their disclosure triangle.
+    override func accessibilityChildren() -> [Any]? {
+        guard navID != nil else { return super.accessibilityChildren() }
+        return navKind == .folder || navKind == .header ? [disclosure] : []
+    }
+    override func accessibilityPerformPress() -> Bool {
+        guard navID != nil, let page else { return super.accessibilityPerformPress() }
+        return page.performPrimaryAction(self, keepKeyboard: window?.firstResponder === self)
+    }
+    /// VoiceOver's "show menu": the row's context menu, as a right-click opens it.
+    override func accessibilityPerformShowMenu() -> Bool {
+        guard navID != nil, let window, let event = NSEvent.mouseEvent(
+            with: .rightMouseDown, location: convert(NSPoint(x: bounds.midX, y: bounds.midY), to: nil), modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+            clickCount: 1, pressure: 1), let menu = menu(for: event) else { return super.accessibilityPerformShowMenu() }
+        menu.popUp(positioning: nil, at: NSPoint(x: bounds.minX + 24, y: bounds.maxY), in: self)
+        return true
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -72,7 +161,8 @@ class SidebarRowView: NSView {
     func updateStyle() {
         guard palette != nil else { return }
         plate.isHidden = !showsPlate
-        plate.style(palette: palette, hovered: isHovered, selected: isSelected || isInSelection, pressed: isPressed)
+        plate.style(palette: palette, hovered: isHovered || isKeyboardFocused, selected: isSelected, pressed: isPressed,
+                    inSelection: isInSelection)
     }
 
     override func layout() {
@@ -95,6 +185,7 @@ class SidebarRowView: NSView {
         isPressed = false
         isSelected = false
         isInSelection = false
+        navID = nil
         alphaValue = 1
         page = nil
         layer?.removeAllAnimations()
@@ -125,6 +216,8 @@ final class GlyphButton: NSView {
     /// ⌘-click, when it does something else (Back / Forward: open that page in a background tab, SB-1).
     var commandAction: (() -> Void)?
     var menuProvider: (() -> NSMenu?)?
+    /// The pointer came onto the button or left it (the Library button's recent files, LIB-1).
+    var onHover: ((Bool) -> Void)?
     /// The menu comes on a long press (or right-click) and a plain click acts (Back, Forward); otherwise a press shows
     /// the menu at once.
     var longPressMenu = false
@@ -181,8 +274,8 @@ final class GlyphButton: NSView {
                                        owner: self))
     }
 
-    override func mouseEntered(with event: NSEvent) { hovered = true }
-    override func mouseExited(with event: NSEvent) { hovered = false }
+    override func mouseEntered(with event: NSEvent) { hovered = true; onHover?(true) }
+    override func mouseExited(with event: NSEvent) { hovered = false; onHover?(false) }
 
     override func mouseDown(with event: NSEvent) {
         guard isEnabled else { return }
@@ -269,12 +362,18 @@ enum LayerImage {
 
 /// Favicon, or a calm placeholder square while there's none (the owner's screenshot shows one). The icon is a
 /// sublayer (`LayerImage`), not an NSImageView.
-final class FaviconView: NSView {
+///
+/// An icon FaviconCache couldn't get yet is never given up on: the view asks again when it comes on screen (moved into
+/// a window, unhidden, its window uncovered), when the network comes back, and when its page loads (the engine hands
+/// over the page's icon), within the cache's backoff. No timer of its own.
+final class FaviconView: NSView, FaviconWatcher {
     private let icon = CALayer()
     private let placeholder = CALayer()
     /// The icon asked for and not shown yet; `waiting` while FaviconCache hasn't answered.
     private var requested: String?
     private var waiting = false
+    /// The icon whose round failed, watched for the cache's triggers.
+    private var watching: String?
     private var image: NSImage?
 
     override init(frame: NSRect) {
@@ -296,6 +395,10 @@ final class FaviconView: NSView {
     #if AIRC_TESTING
     /// The image shown now (the checks compare it with what they handed in).
     var shownImage: NSImage? { placeholder.isHidden ? image : nil }
+    /// Whether the icon layer has contents (an icon shown without the window drawing: the screen locked).
+    var iconLayerHasContents: Bool { placeholder.isHidden && icon.contents != nil }
+    /// The icon this view waits for after a failed round (nil: none).
+    var watchedIcon: String? { watching }
     #endif
 
     /// The icon shown now, or nil while the placeholder square shows.
@@ -320,7 +423,7 @@ final class FaviconView: NSView {
         // Every path that shows something else forgets the icon asked for before, so a slow fetch for a reused row's
         // previous content can't land on it (cbsites: Spiegel's icon on Spotify's row).
         if let symbol {
-            requested = nil
+            forgetRequest()
             show(LayerImage.symbol(symbol, size: 14, weight: .semibold, color: palette.textSecondary), gravity: .center)
             return
         }
@@ -328,41 +431,96 @@ final class FaviconView: NSView {
         CATransaction.setDisableActions(true)
         placeholder.backgroundColor = palette.placeholderIcon.cgColor
         CATransaction.commit()
-        if let image { requested = nil; return show(image) }
+        if let image {
+            // The engine shows the page's icon: the page loaded. If the cache failed to get it, now is a good time
+            // (the row shows the cache's copy once the page is unloaded).
+            if let url, FaviconCache.shared.cached(url) == nil { FaviconCache.shared.pageLoaded(url, profile: profileID) }
+            forgetRequest()
+            return show(image)
+        }
+        // A file on disk with no icon of its own (P04's file tabs): its type's icon, a folder's for a directory.
+        if let file = FaviconCache.fileIcon(forPage: fallbackPage) { forgetRequest(); return show(file) }
         let key = url ?? fallbackPage.flatMap(FaviconCache.guess(for:))
-        if let cached = FaviconCache.shared.cached(key) { requested = nil; return show(cached) }
+        if let cached = FaviconCache.shared.cached(key) { forgetRequest(); return show(cached) }
         show(nil)
-        guard let key else { requested = nil; return }
+        guard let key else { forgetRequest(); return }
         // Asked for and still coming (FaviconCache retries a failed fetch); otherwise ask again: each configure is the
         // next page load or a refresh, and the cache decides whether that may reach the network yet.
         if requested == key, waiting { return }
-        request(key)
+        request(key, .shown)
     }
 
-    private func request(_ key: String) {
+    private func forgetRequest() {
+        requested = nil
+        stopWatching()
+    }
+
+    private func stopWatching() {
+        guard let w = watching else { return }
+        watching = nil
+        FaviconCache.shared.unwatch(self, w)
+    }
+
+    private func request(_ key: String, _ trigger: FaviconBackoff.Trigger) {
+        if watching != key { stopWatching() }
         requested = key
         waiting = true
-        FaviconCache.shared.load(key, retrying: true) { [weak self] img in
+        // A new row is configured before its page adds it: it asks a moment later, once placed, so its failures back
+        // off under its profile from the first one.
+        if profileID == nil { DispatchQueue.main.async { [weak self] in self?.ask(key, trigger) } } else { ask(key, trigger) }
+    }
+
+    private func ask(_ key: String, _ trigger: FaviconBackoff.Trigger) {
+        FaviconCache.shared.load(key, retrying: true, profile: profileID, trigger: trigger) { [weak self] img in
             guard let self, self.requested == key else { return }
             self.waiting = false
-            if let img { self.show(img) }
+            if let img {
+                self.stopWatching()
+                self.show(img)
+            } else if self.watching == nil {
+                // Not yet: the cache's next trigger (or this view's) asks again.
+                self.watching = key
+                FaviconCache.shared.watch(self, key)
+            }
         }
     }
 
-    /// Back on screen with no icon (a reused row, a Space page shown again): asks again.
-    private func retryIfBlank() {
+    /// The profile whose Space shows this view, for the cache's per-profile backoff (nil outside a Space's page).
+    private var profileID: String? {
+        var v = superview
+        while let s = v {
+            if let page = s as? SpacePageView { return page.controller?.store.profile(ofSpace: page.spaceID).id }
+            v = s.superview
+        }
+        return nil
+    }
+
+    /// Back on screen with no icon (a reused row, a Space page shown again), or another trigger: asks again.
+    private func retryIfBlank(_ trigger: FaviconBackoff.Trigger) {
         guard window != nil, !isHiddenOrHasHiddenAncestor, image == nil, let key = requested, !waiting else { return }
-        request(key)
+        request(key, trigger)
+    }
+
+    func faviconArrived(_ img: NSImage, for url: String) {
+        guard requested == url, image == nil else { return }
+        watching = nil
+        waiting = false
+        show(img)
+    }
+
+    func faviconRetry(_ trigger: FaviconBackoff.Trigger, in window: NSWindow?) {
+        if let window, window !== self.window { return }
+        retryIfBlank(trigger)
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        retryIfBlank()
+        retryIfBlank(.shown)
     }
 
     override func viewDidUnhide() {
         super.viewDidUnhide()
-        retryIfBlank()
+        retryIfBlank(.shown)
     }
 
     override func viewDidChangeBackingProperties() {
@@ -419,6 +577,8 @@ final class TabRowView: SidebarRowView {
     private var muted = false
     /// SB-44: AircDesign's ring takes the favicon's slot once a load has run for 150 ms (fast loads never flicker).
     private let loading = AircLoadingIndicator()
+    /// The item's emoji (Change Icon…), drawn instead of the favicon.
+    private var emoji: NSTextField?
     private var showsSpinner: Bool { loading.isShowing }
     private var isUnloaded = false
     private var drifted = false
@@ -435,6 +595,7 @@ final class TabRowView: SidebarRowView {
             NSAnimationContext.runAnimationGroup {
                 $0.duration = AircMetrics.Loading.fade
                 self.favicon.animator().alphaValue = on ? 0 : self.faviconAlpha
+                self.emoji?.animator().alphaValue = on ? 0 : self.faviconAlpha
             }
         }
     }
@@ -485,7 +646,8 @@ final class TabRowView: SidebarRowView {
         if case .pinned(_, let d, _) = entry { depth = d } else { depth = 0 }
         let engineTab = tab.flatMap { controller?.engineTab(for: $0.id) }
         // SB-15 / MEM-3: no page yet, or one the engine has freed (Chromium keeps a discarded page's object).
-        isUnloaded = tab == nil || controller?.isPageUnloaded(tab?.id) != false
+        // A note never loads a page (Notes/NoteCenter.swift): its row isn't dimmed.
+        isUnloaded = (tab == nil || controller?.isPageUnloaded(tab?.id) != false) && !NoteURL.isNote(tab?.url ?? item?.savedURL)
 
         // Title: the custom name, or the page's; a pinned tab away from its URL shows "/" (SB-31). Tidy Titles
         // (AI/AIFeatures.swift) may give a long page title a short name; the page's own then shows on hover.
@@ -511,9 +673,11 @@ final class TabRowView: SidebarRowView {
         }
         showTidyOriginal(tidied != nil, entry: entry, engineTab: engineTab)
 
-        // A grey host line under localhost pins (Arc's dev host line).
+        // A grey host line under localhost pins (Arc's dev host line), or a pinned mail or calendar's line from its
+        // preview ("1 Recent", "Event in 9m", Previews/ServicePreviewCenter.swift).
         let url = tab?.url ?? item?.savedURL ?? ""
-        let showHost = URLRules.isLocalDev(url) && item != nil
+        let status = item == nil ? nil : ServicePreviewCenter.shared.statusLine(for: entry, in: controller)
+        let showHost = (URLRules.isLocalDev(url) && item != nil) || status != nil
         if showHost, host == nil {
             let h = AircFadingLabel(style: AircFont.caption)
             h.font = AircFont.caption.appFont
@@ -523,15 +687,18 @@ final class TabRowView: SidebarRowView {
         }
         if let host {
             host.isHidden = !showHost
-            let text = showHost ? URLRules.displayHost(url) : ""
+            let text = showHost ? status ?? URLRules.displayHost(url) : ""
             if host.stringValue != text { host.stringValue = text }
             if host.textColor != palette.textMuted { host.textColor = palette.textMuted }
         }
 
         favicon.set(image: engineTab?.favicon, url: tab?.faviconURL ?? item?.faviconURL,
                     fallbackPage: url, palette: palette,
-                    symbol: (drifted && faviconHovered) ? "arrow.uturn.backward" : (item?.icon == nil ? nil : nil))
+                    symbol: NoteURL.isNote(url) ? "note.text" : (drifted && faviconHovered) ? "arrow.uturn.backward" : nil)
+        developerSite = DeveloperMode.shared.applies(url)
         if !showsSpinner { favicon.alphaValue = (item != nil && isUnloaded) ? 0.5 : 1 }
+        // A custom icon wins, except while the favicon is the "Back to pinned URL" arrow. A Today tab has its own (S03).
+        showCustomIcon(drifted && faviconHovered ? nil : item?.icon ?? tab?.icon)
 
         let audible = engineTab?.isAudible ?? false
         muted = tab?.isMuted ?? false
@@ -548,8 +715,37 @@ final class TabRowView: SidebarRowView {
         needsLayout = true
     }
 
+    /// The emoji drawn instead of the favicon (Change Icon…), nil while the favicon shows.
+    var customIcon: String? { emoji?.isHidden == false ? emoji?.stringValue : nil }
+
+    private func showCustomIcon(_ icon: String?) {
+        guard let icon, !icon.isEmpty else {
+            emoji?.isHidden = true
+            favicon.isHidden = false
+            return
+        }
+        let field = emoji ?? {
+            let f = NSTextField(labelWithString: "")
+            f.font = NSFont.systemFont(ofSize: AircMetrics.Footer.spaceEmoji)
+            f.alignment = .center
+            addSubview(f)
+            emoji = f
+            return f
+        }()
+        if field.stringValue != icon { field.stringValue = icon }
+        field.isHidden = false
+        if !showsSpinner { field.alphaValue = faviconAlpha }
+        favicon.isHidden = true
+    }
+
+    override var spokenTitle: String? { title.stringValue.isEmpty ? nil : title.stringValue }
+
+    /// DEV-1: the row's page is in Developer Mode (Arc's outline while selected).
+    private(set) var developerSite = false
+
     override func updateStyle() {
         super.updateStyle()
+        DeveloperMode.outline(plate, on: isSelected && developerSite, palette: palette)
         let showsClose = isHovered && tabID != nil
         if showsClose { makeClose() }
         close?.isHidden = !showsClose
@@ -561,6 +757,8 @@ final class TabRowView: SidebarRowView {
         super.resetForPool()
         faviconHovered = false
         favicon.alphaValue = 1
+        emoji?.isHidden = true
+        favicon.isHidden = false
         close?.isHidden = true
     }
 
@@ -580,6 +778,7 @@ final class TabRowView: SidebarRowView {
         let h = bounds.height
         let fs = AircMetrics.Row.favicon
         favicon.frame = NSRect(x: AircMetrics.Row.faviconX + indent, y: (h - fs) / 2, width: fs, height: fs)
+        emoji?.frame = NSRect(x: AircMetrics.Row.faviconX + indent - 2, y: (h - 20) / 2, width: 22, height: 20)
         var x = AircMetrics.Row.titleX + indent - DesignGaps.labelInset
         if let audio, !audio.isHidden {
             audio.frame = NSRect(x: x - 4, y: (h - 22) / 2, width: 22, height: 22)
@@ -657,6 +856,13 @@ final class TabRowView: SidebarRowView {
         if let entry, page?.selection.contains(entry.id) != true { page?.clearSelection() }
         isPressed = true
         pressAnimation()
+        // Arc: ⌥-click opens the tab in a split with the page on screen (an ⌥-drag still copies it, SB-35).
+        if event.modifierFlags.intersection([.command, .shift, .option, .control]) == .option, let entry, let c = controller,
+           c.optionClickSplits(entry) {
+            if page?.beginPossibleDrag(entry: entry, row: self, event: event) == false { c.optionClickSplit(entry) }
+            isPressed = false
+            return
+        }
         // The page on screen before the press shows the tab: a drag onto the page splits with it (SV-1).
         let before = controller?.shownTabID
         if let entry { controller?.activate(entry: entry) }
@@ -682,6 +888,9 @@ final class TabRowView: SidebarRowView {
 
     override var dragTitle: String { title.stringValue }
     override var dragFavicon: CGImage? { favicon.cgImage }
+    #if AIRC_TESTING
+    var faviconViewForTesting: FaviconView { favicon }
+    #endif
 }
 
 /// A folder row (SB-33): opens and closes on press, bold title.
@@ -800,6 +1009,8 @@ final class FolderRowView: SidebarRowView {
     }
 
     var titleField: NSTextField { title }
+
+    override var spokenTitle: String? { item?.displayTitle }
 
     override var dragTitle: String { item?.displayTitle ?? "" }
     override var dragFavicon: CGImage? {
@@ -949,7 +1160,11 @@ final class SignInCardView: SidebarRowView {
         showsPlate = false
         card.onSignIn = { [weak self] in
             guard let self else { return }
-            self.controller?.signInToGoogle(spaceID: self.spaceID)
+            if self.controller?.store.profile(ofSpace: self.spaceID).signInState == .offered {
+                self.controller?.addGoogleFavorites(spaceID: self.spaceID)
+            } else {
+                self.controller?.signInToGoogle(spaceID: self.spaceID)
+            }
         }
         card.onNotNow = { [weak self] in
             guard let self else { return }
@@ -967,6 +1182,8 @@ final class SignInCardView: SidebarRowView {
     func configure(spaceID: String, palette: Palette) {
         self.spaceID = spaceID
         self.palette = palette
+        let profile = controller?.store.profile(ofSpace: spaceID)
+        card.account = profile?.signInState == .offered ? profile?.googleAccount : nil
         card.theme = palette.resolved
     }
 

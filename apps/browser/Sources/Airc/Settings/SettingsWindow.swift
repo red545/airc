@@ -7,15 +7,18 @@ import SwiftUI
 
 /// Settings categories (SET-1, design §7 "Settings page").
 enum SettingsPage: String, CaseIterable, Identifiable {
-    case general, links, profiles, spaces, appearance, ai, shortcuts, importing = "import", privacy, about
+    case general, boosts, links, profiles, siteSearch = "sitesearch", spaces, sync, appearance, ai, shortcuts, importing = "import", privacy, about
     var id: String { rawValue }
 
     var title: String {
         switch self {
+        case .boosts: "Boosts"
         case .general: "General"
         case .links: "Links"
         case .profiles: "Profiles"
+        case .siteSearch: "Site Search"
         case .spaces: "Spaces"
+        case .sync: "Sync"
         case .appearance: "Appearance"
         case .ai: "AI"
         case .shortcuts: "Shortcuts"
@@ -27,10 +30,13 @@ enum SettingsPage: String, CaseIterable, Identifiable {
 
     var symbol: String {
         switch self {
+        case .boosts: "paintbrush.pointed"
         case .general: "gearshape"
         case .links: "link"
         case .profiles: "person.2"
+        case .siteSearch: "magnifyingglass"
         case .spaces: "square.stack"
+        case .sync: "icloud"
         case .appearance: "paintpalette"
         case .ai: "sparkles"
         case .shortcuts: "command"
@@ -43,10 +49,13 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     /// The tinted square behind the symbol (macOS Settings style).
     var tint: AircColor {
         switch self {
+        case .boosts: AircColor(0x8A5CF6)
         case .general: AircColor.Stone.s500
         case .links: AircColor(0x2F80ED)
         case .profiles: AircColor(0x3139FB)
+        case .siteSearch: AircColor(0x0FA5A5)
         case .spaces: AircColor(0x2F9E62)
+        case .sync: AircColor(0x3A8FE8)
         case .appearance: AircColor(0xE0559F)
         case .ai: AircColor(0x8A5CF6)
         case .shortcuts: AircColor.Stone.s700
@@ -178,10 +187,13 @@ private struct SettingsRoot: View {
 
     @ViewBuilder private var page: some View {
         switch model.page {
+        case .boosts: BoostsSettingsPage(model: model)
         case .general: GeneralPage(model: model)
         case .links: LinksPage(model: model)
         case .profiles: ProfilesPage(model: model)
+        case .siteSearch: SiteSearchSettingsPage(model: model)
         case .spaces: SpacesPage(model: model)
+        case .sync: SyncSettingsPage(model: model)
         case .appearance: AppearancePage(model: model)
         case .ai: AIPage(model: model)
         case .shortcuts: ShortcutsPage(model: model)
@@ -274,9 +286,18 @@ private struct GeneralPage: View {
                     }
                 }
             }
+            UpdateWhenIdleSection(model: model)   // E13 (Browser/UpdateButton.swift)
             #endif
+            SoundsAndHapticsSection(model: model)   // E15 (Settings/AppPersonalization.swift)
+            DeveloperSettingsSection(model: model)   // DEV-1 (Browser/DeveloperMode.swift)
             PictureInPictureSection(model: model)
+            SettingsSection(title: "Shared Quotes") {
+                // P01c (Browser/SelectionShare.swift): Arc's shareQuoteLinkEnabled, on by default.
+                AircToggleRow("Enable Shared Quotes when highlighting text", subtitle: "After ⌘C on text you selected in a page, Airc offers a link straight to that text.",
+                              isOn: Binding(get: { model.settings.values.sharedQuotes }, set: { model.settings.values.sharedQuotes = $0 }))
+            }
             CalendarSettingsSection(model: model)
+            NoteAppSettingsSection(model: model)   // Notes/NoteExport.swift
             SettingsSection(title: "Command Bar", help: "Suggestions come from each profile's own search engine, with no cookies, so profiles never mix.") {
                 AircToggleRow("Search suggestions", subtitle: "What you type goes to the search engine as you type.",
                               isOn: Binding(get: { model.settings.values.suggestionsEnabled }, set: { model.settings.values.suggestionsEnabled = $0 }))
@@ -311,7 +332,7 @@ private struct GeneralPage: View {
         }
     }
 
-    private var backupFolder: URL { model.settings.values.backupFolder.map { URL(fileURLWithPath: $0) } ?? AppPaths.backups }
+    private var backupFolder: URL { model.settings.backupDirectory }
 
     private func chooseFolder() {
         let panel = NSOpenPanel()
@@ -322,14 +343,10 @@ private struct GeneralPage: View {
     }
 
     private func backUpNow() {
-        let dir = backupFolder
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd-HHmmss"
-        let url = dir.appendingPathComponent("airc-backup-manual-\(f.string(from: Date())).json")
         do {
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            try model.store.exportJSON().write(to: url, options: .atomic)
-            lastBackup = "Saved " + url.lastPathComponent
+            if let url = try model.settings.backUp(model.store, purpose: .manual) {
+                lastBackup = "Saved " + url.lastPathComponent
+            }
         } catch {
             lastBackup = "Couldn't back up: \(error.localizedDescription)"
         }
@@ -366,10 +383,18 @@ private struct LinksPage: View {
                 }
                 SettingsRow(title: "When no rule matches, open them in",
                             subtitle: model.settings.values.externalLinks == .littleArc
-                                ? "A Little Arc window in your most recent Space's profile. ⌘O moves the page into the Space."
+                                ? "A Little Airc window in the profile remembered for the site, or your most recent Space’s profile. ⌘O moves it into the Space."
                                 : "A new tab in your most recent Space.") {
-                    AircPopUp(options: [("Little Arc", ExternalLinkTarget.littleArc), ("Most recent Space", .recentSpace)],
+                    AircPopUp(options: [("Little Airc", ExternalLinkTarget.littleArc), ("Most recent Space", .recentSpace)],
                               selection: model.settings.values.externalLinks, width: 170) { model.settings.values.externalLinks = $0 }
+                }
+            }
+            LittleArcGlobalSettingsSection(settings: model.settings)
+            SettingsSection(title: "Remembered profiles", help: "Little Airc remembers the profile you choose for each site. Air Traffic Control rules always win.") {
+                SettingsRow(title: "Little Airc", subtitle: "Sites remembered: \(model.settings.values.littleArcProfiles.domains.count)") {
+                    Button("Forget remembered profiles") { model.settings.values.littleArcProfiles = LittleArcProfiles() }
+                        .buttonStyle(.airc(.secondary))
+                        .disabled(model.settings.values.littleArcProfiles.domains.isEmpty)
                 }
             }
             SettingsSection(title: "Peek", help: "A card over the page. ⌘O makes it a tab; Esc or a click outside closes it.") {
@@ -377,7 +402,7 @@ private struct LinksPage: View {
                               isOn: Binding(get: { model.settings.values.peekEnabled }, set: { model.settings.values.peekEnabled = $0 }))
             }
             SettingsSection(title: "Air Traffic Control",
-                            help: "The first rule that matches wins. A link opens in the rule's Space, already signed in, because the Space carries its profile.") {
+                            help: "For links from other apps and links that would open in Peek, the first rule wins. A link opens in the rule's Space, already signed in, because the Space carries its profile.") {
                 ForEach(Array(rules.enumerated()), id: \.element.id) { i, rule in ruleRow(i, rule) }
                 SettingsRow(title: rules.isEmpty ? "No rules yet" : "Another rule", subtitle: rules.isEmpty ? "Like “URL contains figma.com → Design”." : nil) {
                     Button("Add Rule") {
@@ -536,9 +561,13 @@ private struct ProfilesPage: View {
                 Button("Cancel") { deleting = nil }.buttonStyle(.airc(.plain)).keyboardShortcut(.cancelAction)
                 Button("Delete Profile") {
                     let app = model.app
+                    // The AI features first, while the profile's pages and sessions can still be matched to it.
+                    AIFeatures.shared.forget(profileID: p.id)
                     app?.profiles.deleteProfile(p.id) { ok in
                         if ok {
                             app?.history.clear(profileID: p.id)
+                            ServicePreviewCenter.shared.forget(profileID: p.id)   // its tab pictures and site previews (P11a)
+                            app?.settings.values.siteSearch.forget(profileID: p.id)
                         } else {
                             app?.controller?.showToast("Airc couldn't delete \(p.name)'s data, so the profile is kept")
                         }
@@ -615,6 +644,7 @@ private struct ProfileSection: View {
                     Button(profile.googleAccount == nil ? "Sign In…" : "Switch…") { SettingsActions.signIn(profile: profile, model: model) }
                         .buttonStyle(.airc(.secondary))
                 }
+                if let center = BlockingCenter.shared { BlockingProfileRows(center: center, profile: profile.id) }
                 SettingsRow(title: "Browsing data", subtitle: "Cookies, cache and history of this profile.") {
                     Button("Clear…", action: onClear).buttonStyle(.airc(.secondary))
                 }
@@ -782,6 +812,12 @@ private struct AppearancePage: View {
                 AircToggleRow("Show tab previews", subtitle: "Rest the pointer on a tab to see the page, with pin, Favorites, split and Peek.",
                               isOn: Binding(get: { model.settings.values.tabPreviews }, set: { model.settings.values.tabPreviews = $0 }))
             }
+            AppIconSettingsSection(model: model)   // E15 (Settings/AppPersonalization.swift)
+            SettingsSection(title: "Window") {
+                // W07 (Browser/PageDrag.swift): Arc's setting, on by default.
+                AircToggleRow("Allow window dragging from the top of webpages", subtitle: "Drag the window from the top of a page, as from a title bar. Hold ⌘ to use the page there.",
+                              isOn: Binding(get: { model.settings.values.dragsWindowFromPageTop }, set: { model.settings.values.dragsWindowFromPageTop = $0 }))
+            }
         }
     }
 }
@@ -796,7 +832,7 @@ private struct ImportPage: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             SettingsSection(title: "Arc", help: "Importing again updates what came over before instead of duplicating it.") {
-                SettingsRow(title: "Import from Arc", subtitle: "Spaces, pinned tabs, folders, Favorites per profile, and logins.") {
+                SettingsRow(title: "Import from Arc", subtitle: "Spaces, pinned tabs, folders, Favorites, history and an extension reinstall checklist.") {
                     Button("Import…") { model.app?.startOnboarding(mode: .rerun, atImport: true) }.buttonStyle(.airc(.secondary))
                 }
                 SettingsRow(title: "Back up my Arc data", subtitle: "A zip of Arc's sidebar and profile list in Documents. Arc stops working on 22 December 2026.") {
@@ -815,6 +851,7 @@ private struct ImportPage: View {
                     }.buttonStyle(.airc(.secondary))
                 }
             }
+            ArcExtensionChecklistView(app: model.app).padding(.top, 20)
             if let o = CredentialImport.lastOutcome, !o.rows.isEmpty {
                 // Engine pass 8: what happened to each login and each site's cookies, problems first.
                 VStack(alignment: .leading, spacing: 8) {
@@ -829,6 +866,7 @@ private struct ImportPage: View {
                     Button("Start") { model.app?.startOnboarding(mode: .rerun) }.buttonStyle(.airc(.secondary))
                 }
             }
+            BackupRestoreSection(model: model)
             SettingsSection(title: "Airc data") {
                 SettingsRow(title: "Export", subtitle: "Profiles, Spaces, pinned tabs, Favorites and Today as JSON.") {
                     Button("Export…") { export() }.buttonStyle(.airc(.secondary))
@@ -937,9 +975,12 @@ enum SettingsActions {
     }
 
     static func clearData(of profileID: String, model: SettingsModel) {
+        // The AI features first (Ask on Page's sessions, previews, downloads), before the engine's data goes.
+        MainActor.assumeIsolated { AIFeatures.shared.forget(profileID: profileID) }
         model.app?.profiles.engineProfile(for: profileID)?.clearBrowsingData {}
         model.app?.history.clear(profileID: profileID)
         SuggestionService.shared.clear(profileID: profileID)
+        ServicePreviewCenter.shared.forget(profileID: profileID)   // its tab pictures and site previews (P11a)
     }
 
     static func signIn(profile: Profile, model: SettingsModel) {

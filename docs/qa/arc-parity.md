@@ -1,177 +1,187 @@
 # Arc parity review
 
-Reviewed 2026-11-05 against working-tree source at base `6a3a4c0`. Independent static QA; no app code changed. Concurrent implementation work may supersede individual findings.
+Reviewed 2026-11-07 against shared working-tree source, starting at `16fc057` (including explicitly marked concurrent work). Static source audit only: no Mac build, app launch, device access or fresh runtime certification. Historical queue Done labels and the latest 300 commits were used to locate implementations, not as proof of correctness.
 
-Evidence: `docs/spec.md` §2; `docs/research/arc_behavior_spec.md` (especially §2, §4, §6); `docs/design.md`; four supplied private Arc crops; existing app captures and design mockups. No private sidebar content is reproduced here. Artifact paths below are relative to the external project evidence root: `status/runs/2026-11-05_0115/snapshots/` is **N**, `artifacts/app/` is **A**, `artifacts/design/mockups/` is **D**. Source paths are repository-relative. These artifacts are not checked into this report.
+## Next up
 
-The basic silhouette is credible: 228 pt sidebar, 41 pt row pitch, 47 pt tiles, 14 pt titles, white 0.85 active plate, 10 pt page inset and 6 pt page corners. The mockup is not evidence that the corresponding interaction ships. The private crops confirm the layout, but are cropped and at a different scale from the app captures; do not derive fullscreen offsets or a colour regression from a raw pixel comparison.
+Ranked by recurring Arc-user impact, with effort S/M/L relative to the current code. All work below can be developed and checked with synthetic data; no accounts, secrets or personal fixtures required. Paths in this table are relative to `apps/browser/Sources/Airc/`, except `AircKit/`, which means `packages/AircKit/Sources/AircKit/`. Coordinate SB-36 with its active implementation before making another change.
 
-No fresh Mac build or interactive test was run; the busy build Mac was left alone. Existing nightly captures are generated through `Debug/SnapshotRunner.swift:386` under `apps/browser/Sources/Airc/`: the page is composited from an engine snapshot. They are useful layout evidence, not compositor/frame-rate evidence. In particular, N/06-command-bar.png and N/07-new-space-sheet.png contain a fractional sidebar position: treat that as a capture/settling question, not proof that normal interaction leaves the sidebar stuck.
+| Rank | ID | Effort | Missing work / frequency | Likely files to touch | Engine change? |
+|---|---|---|---|---|---|
+| 1 | CB-1, SP-10 | M | Meet first-frame Command Bar and new-Space budgets reliably on everyday actions, including tails. | CommandBar/CommandBar.swift; Spaces/NewSpacePanel.swift; Browser/WindowController.swift; Debug/FrameScenario.swift | No initially; measure before deciding |
+| 2 | PK-1, AT-1 | M | Correct registrable-domain comparison and apply routing rules to Peek links as well as external URLs. | Browser/Peek.swift; App/AppDelegate.swift; AircKit/PublicSuffixList.swift; Debug/PeekCheck.swift | No |
+| 3 | SB-61 | S | **Done** (81ef100): the dwell rechecks key window, hidden state, pointer, sheet/menu and mouse buttons when it ends. | Sidebar/SidebarReveal.swift; AircKit/SidebarGestures.swift; Debug/SidebarPolishCheck.swift | No |
+| 4 | SB-36 | M | **Done** (multiselect, 4abcd61..06fc76c): selection UI, ranges, bulk actions with undo, drags across Spaces and windows. | Sidebar/SpacePage.swift; Browser/SelectionActions.swift; Debug/MultiSelectCheck.swift | No |
+| 5 | SP-12, ON-3 | M | Finish ordinary new-profile sign-in feedback and suggested Favorites, using synthetic account responses. | Browser/WindowActions.swift; Onboarding/GoogleAccountProbe.swift; Sidebar/SpacePage.swift | No |
+| 6 | SB-33 | S | **Done** (e18710a): folder open on the 200 ms ease-out, close on the ω 25 spring, Reduce Motion cross-fade. | Sidebar/SpacePage.swift; UI/Animator.swift | No |
+| 7 | DEV-1 | S | Preserve console call-site attribution and omit development instrumentation entirely while disabled. | Browser/DeveloperMode.swift; Debug/DeveloperModeCheck.swift | No for ignore-list/source-map fix; optional native counts require engine |
+| 8 | SP-25 (proposed), SP-21 | S | **Done** (0df83bb): 22.7 pt pull on screen readies New Space past the last Space and the Library past the first. | Sidebar/SidebarChrome.swift; Library/LibraryPanel.swift; AircKit/SidebarGestures.swift | No |
+| 9 | CB-5 (proposed) | M | Add a user-invoked Capture command with copy/save of a page region. | App/Commands.swift; CommandBar/CommandBar.swift; Engine/TabPreviewSnapshots.swift | No for visible-page bitmap capture; full-page capture may need API work |
+| 10 | LIB-2 (proposed) | S | Add confirmed Clear Archive for recurring cleanup. | Library/LibraryPanel.swift; AircKit/StoreActions.swift; Debug/ArchiveCheck.swift | No |
+| 11 | WIN-4 | S | **Done** (4ab943b): hides as soon as a drag goes below the 164 pt minimum (research gives no extra distance). | Sidebar/SidebarReveal.swift; AircKit/SidebarGestures.swift | No |
+| 12 | SB-63 (proposed) | S | Expose existing Boost editor and file opening through the plus menu. | Browser/WindowActions.swift; Boosts/BoostEditor.swift; App/Commands.swift | No for files; recursive folder import needs app/model work |
+| 13 | SP-31 | S | Wire the existing Open Link in Space context-menu API into app routing. | App/AppDelegate.swift; Engine/ChromiumEngine.swift; Debug/LinkChecks.swift | No for Chromium; WebKit may need an adapter |
+| 14 | BST-2 (proposed) | M | Share/import local Boost files with an explicit review of executable code. | Boosts/BoostCenter.swift; Boosts/BoostEditor.swift; AircKit/Boosts.swift | No |
+| 15 | SET-3 | S | Honour the chosen backup folder on the archive-triggered path as well as launch/manual paths. | Browser/WindowController.swift; Settings/SettingsWindow.swift; Debug/ArchiveCheck.swift | No |
 
-## 1. Top 15, ranked by owner noticeability
+## Reading the evidence
 
-### 1. The owner's browser cannot be brought into the app through the UI
+“Done” means source implements the stated behavior and available evidence does not contradict it; it is **not** runtime certification. “Partial” identifies a missing sub-behavior, contradictory evidence, incomplete integration or a numeric/runtime claim that cannot be established here. “Missing” means no implementation of that surface was found; proposed non-goals are explicitly labelled. No can't-tell category remains.
 
-**ON-5, TH-4** (also ON-1, IM-1). Arc provides an import/setup journey; Airc's explicit owner requirement supersedes the older fullscreen prose: a **760 × 540 pt**, chromeless, draggable floating card expanding into the browser. `apps/browser/Sources/Airc/Stubs/Stubs.swift:40` returns false for onboarding; `:50` routes import to a stub. D/onboarding.png is a mockup, not that journey. Design-package window components do not make it reachable. **Fix:** connect first-run detection, importer and floating-window flow to AppDelegate; verify a synthetic multi-profile import and finish-to-browser transition. Keep the owner's data out of test fixtures.
+Before: {'done': 20, 'partial': 33, "can't-tell": 2, 'missing': 9}. After, original 64 rows only: {'done': 48, 'partial': 16}. Expanded inventory (113 rows): {'done': 70, 'partial': 30, 'missing': 13}. Counts include the explicitly excluded NG-1 inventory row; they are not a release score.
 
-### 2. Favorites do not reliably return to their saved destination
+Each source reference is repository-relative and anchored to the inspected implementation or, for missing features, the adjacent inventory/menu that lacks it. Tests are existing source coverage, **not claims of passing in this turn**. `--script` names are dispatched by `apps/browser/Sources/Airc/Debug/SnapshotRunner.swift:49`; a name after a comma shares that flag. Unit-test classes are under `packages/AircKit/Tests/AircKitTests/` unless another package is named. `showcase` captures visuals and is not an interaction assertion; rows say so. Where no focused test exists, that absence is explicit.
 
-**SB-12, SB-31, SB-32.** Arc's saved-URL semantics make a Favorite a dependable app entry point; no numeric timing was measured for resetting. `packages/AircKit/Sources/AircKit/StoreActions.swift:221` returns an existing live item unchanged, and `apps/browser/Sources/Airc/Browser/WindowController.swift:326` activates it without reloading the saved URL. Ordinary cross-site link navigation is allowed by `Engine/WebKitEngine.swift:314` (under the same app source root), so the specified Today-tab fallback for missing Peek is also absent. **Fix:** distinguish Favorite activation/reset from pin activation; expose link-navigation disposition to the controller and open cross-site links from saved items as Today tabs. Test drift, reactivation, reset and command-reset separately.
+## Requirement checklist
 
-### 3. Swipe and creation already miss the latency bar in the tiny fixture
+| ID | Status | Source evidence / remaining gap | Existing test coverage / limitation |
+|---|---|---|---|
+| WIN-1 | done | `apps/browser/Sources/Airc/UI/WindowViews.swift:93` — Themed frame and clipped page card; layout uses shared metrics. | `--script showcase`, `sidebarright` (geometry) |
+| WIN-2 | done | `apps/browser/Sources/Airc/Sidebar/SidebarChrome.swift:9` — Header owns navigation and address field; no horizontal tab strip. | `--script events` (header clicks) |
+| WIN-3 | partial | `apps/browser/Sources/Airc/Browser/FullScreen.swift:17` — Native fullscreen exists; traffic lights deliberately remain available, contrary to literal WIN-3. Notch and transition certification still needed. | `--script fullscreen`, `fullscreen-exit`; concurrent exit fixes |
+| WIN-4 | done | `apps/browser/Sources/Airc/Sidebar/SidebarReveal.swift:232` — Resize 164–500 and double-click reset; a drag below the minimum hides the sidebar at once, keeping its last width (`SidebarResize.hides`). Research §1 gives no hysteresis distance, so none is kept. | SidebarGestureTests.testResizeHidesJustPastTheMinimum; `--script sidebarpolish` (5 resize cases, both sides) and `sidebarright` on both engines |
+| WIN-5 | done | `apps/browser/Sources/Airc/Browser/SidebarSide.swift:15` — Mirrors main-window sidebar, reveal, cards and Library; private/Little Arc excluded. | `--script sidebarright` |
+| WIN-6 | partial | `engine/core/airc_main_delegate.cc:365` — Engine startup switches exist; no comprehensive per-app-feature rebase kill-switch registry found. | No comprehensive requirement test found; engine background-service checks cover subsets |
+| WIN-7 | done | `apps/browser/Sources/Airc/Browser/MultiWindow.swift:118` — Shared tabs, page ownership, blank windows, titles, drag-out and session restore implemented. | `--script windows`, `windows-write`, `windows-read` |
+| SB-1 | done | `apps/browser/Sources/Airc/Browser/WindowActions.swift:30` — Navigation history menus and background opening wired to long/right press and command click. | `--script events` (history; HistoryMenuCheck) |
+| SB-2 | done | `apps/browser/Sources/Airc/SiteControls/SiteControlsPanel.swift:21` — Host field and real Site Controls replace stub; hover/copy routes present. | `--script sitecontrols`, `followups3` |
+| SB-3 | partial | `apps/browser/Sources/Airc/Browser/PagePrompts.swift:115` — Real prompts, password picker and extension anchors exist; complete passkey/platform UI coverage is not established by static review. | `--script prompts`, `dialogs`, `password-bounds`, `extension` (subsets; device checks gated) |
+| SB-4 | done | `apps/browser/Sources/Airc/Browser/Extensions.swift:81` — Per-profile pinned buttons, menu and popup paths; WebKit pages explicitly dim unsupported extensions. | `--script extension`, `followups3` |
+| SB-10 | done | `packages/AircKit/Sources/AircKit/StoreActions.swift:618` — Profile-owned Favorites with cap. | StoreTests.testFavoritesBelongToTheProfile; TabRuleTests.testFavoritesCapAtTwelve |
+| SB-11 | done | `packages/AircKit/Sources/AircKit/SidebarLayout.swift:114` — Grid sizing/column rule implemented. | TabRuleTests.testFavoritesGridColumnRule |
+| SB-12 | done | `apps/browser/Sources/Airc/Browser/WindowActions.swift:79` — Favorite activation resets saved destination; edit/replace routes exist. | `--script events` (favorite reset) |
+| SB-13 | done | `packages/AircKit/Sources/AircKit/URLRules.swift:111` — Title-count badge parser and calendar favicon display present; real account content is not a requirement of this audit. | LogicTests.testUnreadCount; `--script calendar` (calendar subset) |
+| SB-14 | done | `apps/browser/Sources/Airc/Browser/WindowActions.swift:96` — Command, menu and drag destinations implemented. | `--script events` (drag); TabRuleTests.testTogglePinRoundTrip |
+| SB-15 | done | `apps/browser/Sources/Airc/Browser/TabUnloading.swift:184` — Unused saved pages unload while tiles persist; MEM-3 chat/mail exemptions take precedence. | `--script events` (unload), `keeploaded` |
+| SB-20 | done | `apps/browser/Sources/Airc/Sidebar/SpacePage.swift:363` — Hover menu and press-to-collapse implemented. | `--script showcase` (layout); TabRuleTests.testFoldersNestAndRejectCycles (tree model); no dedicated header assertion found |
+| SB-21 | done | `apps/browser/Sources/Airc/Spaces/ManageSpacesPanel.swift:12` — Manage Spaces now supports reorder, rename, icon/theme/profile editing and confirmed deletion. | `--script managespaces` |
+| SB-22 | done | `apps/browser/Sources/Airc/Sidebar/SpacePage.swift:303` — Avatar/name indicator and profile-coloured footer; visibility refined by SP-15 to multiple profiles in use. | `--script events` (profile card); `importux` (account metadata); no live sign-in certification |
+| SB-23 | done | `apps/browser/Sources/Airc/Browser/WindowActions.swift:525` — Confirmation, archive and undo retained. | `--script managespaces`; UndoProfileTests |
+| SB-30 | done | `packages/AircKit/Sources/AircKit/StoreActions.swift:382` — Closing a saved page preserves item; archive operates on Today. | TabRuleTests.testCommandWOnPinnedUnloadsAndKeepsTheRow |
+| SB-31 | done | `apps/browser/Sources/Airc/Browser/WindowActions.swift:79` — Drift marker and reset/command-reset preserve current destination as required. | TabRuleTests.testDriftAndReset |
+| SB-32 | done | `apps/browser/Sources/Airc/Browser/WindowActions.swift:53` — Editing saved-tab URL creates Today tab. | TabRuleTests.testTypingIntoAPinnedTabOpensATodayTab |
+| SB-33 | done | `apps/browser/Sources/Airc/Sidebar/SpacePage.swift:891` — Nested folders, rename/icon/copy; a fold moves the rows below on Arc's curves (open cubic-bezier(0,0,0.58,1) 200 ms, close critically damped ω 25), children fade in place under them; Reduce Motion cross-fades the list in 150 ms. | TabRuleTests.testFoldersNestAndRejectCycles; `--script sidebarpolish` (layer animation parameters, Reduce Motion stand-in, row-spring control) on both engines; `--script frames` AIRC_FRAMES_ONLY=folder |
+| SB-34 | done | `apps/browser/Sources/Airc/Sidebar/FolderPreview.swift:9` — Delayed searchable folder preview is implemented. | `--script showcase` (preview capture; no assertion of exact timing) |
+| SB-35 | done | `apps/browser/Sources/Airc/Sidebar/TabDragOut.swift:196` — Edge dwell, Option copy, cross-window destinations and single-tab tear-out now exist. Multi-selection tear-out excluded by WIN-7. | `--script events` (drag), `windows` (drag-out) |
+| SB-36 | done | `apps/browser/Sources/Airc/Browser/SelectionActions.swift:46` — Multi-selection (4abcd61..06fc76c): ⌘/⇧-click with section-bounded ranges, Esc and click-away, bulk actions from menu and keys as one undo step each, drags into folders, across Spaces and onto another window. | BulkActionTests; `--script multiselect` 50/0 on WebKit and Chromium |
+| SB-40 | done | `packages/AircKit/Sources/AircKit/StoreActions.swift:430` — Clear preserves visible tab and supports undo. | TabRuleTests.testClearKeepsTheVisibleTabAndUndoes |
+| SB-41 | done | `packages/AircKit/Sources/AircKit/StoreActions.swift:254` — New Tab opens bar; accepted foreground result inserts at top. | TabRuleTests.testNewTabsGoToTheTop; `--script events` |
+| SB-42 | done | `packages/AircKit/Sources/AircKit/StoreActions.swift:254` — Space-scoped ordering and background opener adjacency. | TabRuleTests.testBackgroundLinksLineUpAfterTheirOpener |
+| SB-43 | done | `apps/browser/Sources/Airc/Settings/SettingsWindow.swift:611` — Per-profile intervals configurable; due scheduler protects visible/audible tabs and honours beforeunload. | TabRuleTests.testAutoArchiveUsesEachProfilesInterval; `--script events` (archive) |
+| SB-44 | done | `apps/browser/Sources/Airc/Sidebar/SidebarRows.swift:483` — Measured geometry, loading/audio/close affordances and press activation in source. Frame budgets audited separately. | `--script events`, `medialib-media`; layout via `showcase` |
+| SB-45 | done | `apps/browser/Sources/Airc/Sidebar/TabPreview.swift:124` — Dwell cards, snapshots, bounded cache, quick actions, dismiss rules and preference present. | `--script previews` |
+| SB-50 | done | `apps/browser/Sources/Airc/Sidebar/SidebarChrome.swift:621` — Library, Space icons and plus footer. | `--script showcase`; `sidebarright` |
+| SB-51 | done | `packages/AircKit/Sources/AircKit/SidebarLayout.swift:153` — Squeezes icons with current-cell minimum. | TabRuleTests.testSpaceBarSqueeze |
+| SB-52 | done | `apps/browser/Sources/Airc/Sidebar/SidebarChrome.swift:548` — Footer drag now persists order; context menu retained. | `--script events` (footer reorder) |
+| SB-53 | done | `apps/browser/Sources/Airc/Browser/WindowActions.swift:396` — New Space, Folder, Tab and horizontal/vertical Split; Notes remain non-goal. Arc extras separately proposed below. | `--script events` (split); no exhaustive menu-order test found |
+| SB-54 | done | `apps/browser/Sources/Airc/Media/SidebarTray.swift:12` — Download progress and background media controls above footer; call window also exists. | `--script medialib-downloads`, `medialib-media`, `medialib-call` |
+| SB-55 | partial | `apps/browser/Sources/Airc/Browser/PictureInPicture.swift:9` — Auto-open, return, settings and call/video controls implemented. All named call providers and cross-app/fullscreen combinations remain unverified, rather than missing. | `--script pipcontrols`, `callspace`, `medialib-call`, `followups3` |
+| SB-60 | done | `apps/browser/Sources/Airc/Browser/SavePage.swift:128` — Save formats use engine API, unsupported pages offer PDF; sidebar toggle retained. | `--script private` (Save Page), `sidebarright` |
+| SB-61 | done | `apps/browser/Sources/Airc/Sidebar/SidebarReveal.swift:109` — Floating reveal; when the 100 ms dwell ends it reveals only if the window is still key, the sidebar hidden, the pointer in the strip, no sheet/modal or menu, no button down (`SidebarRevealGate`). | SidebarGestureTests.testRevealGateRechecksEveryCondition; `--script sidebarpolish` (7 dwell cases incl. key lost during the dwell; key/pointer stood in, strip's own mouseMoved) and `sidebarright` on both engines |
+| SB-62 | done | `apps/browser/Sources/Airc/Library/LibraryPanel.swift:32` — Searchable Archive, origin restore, Downloads and Spaces with anchored back button. Search filters before 400-result display cap. | `--script followups`, `managespaces`, `medialib-downloads`; TabRuleTests.testRestoreArchivedGoesBackToItsSpaceOrTheFallback |
+| SP-1 | done | `apps/browser/Sources/Airc/Browser/ProfileHost.swift:14` — Real Chromium profiles loaded separately; multi-window keeper prevents accidental destruction. | `--script windows` (second-profile keeper), `persist-write`, `persist-read`; StoreTests.testEachProfileGetsItsOwnEngineDirectory |
+| SP-2 | done | `packages/AircKit/Sources/AircKit/Model.swift:49` — Space owns profile binding and theme; many-to-one supported. | StoreTests.testFreshStoreHasDefaultProfileAndOneSpace |
+| SP-3 | done | `apps/browser/Sources/Airc/Browser/WindowController.swift:1511` — Popup adoption retains opener profile/Space; profile-owned Favorites are the explicit exception. | `--script events` (links), `dialogs`; no real account test run |
+| SP-4 | done | `packages/AircKit/Sources/AircKit/SpacesStore.swift:111` — Durable tab/Space mapping and lazy restore/discard supported. | StoreTests.testPersistsAcrossReopen; `--script persist-write`, `persist-read`, `keeploaded` |
+| SP-10 | partial | `apps/browser/Sources/Airc/Spaces/NewSpacePanel.swift:9` — Compact card/theme/profile flow implemented; strict one-frame Enter budget not established. | `--script events` (new space), `frames`; prior performance work still reports over-budget creates |
+| SP-11 | partial | `apps/browser/Sources/Airc/Spaces/CreateProfilePanel.swift:10` — Two-step card and warm spare exist; repeated cold/consecutive creation instant-readiness not proven. | `--script events` (profile), `persist-read` (spare reuse) |
+| SP-12 | partial | `apps/browser/Sources/Airc/Browser/WindowActions.swift:230` — Ordinary sidebar card only opens sign-in URL; onboarding account probing exists, but post-sidebar-sign-in avatar refresh and suggested Favorites completion are not wired here. | `--script importux` covers onboarding only; missing sidebar-completion test |
+| SP-13 | done | `apps/browser/Sources/Airc/Browser/WindowActions.swift:382` — Profile change confirms, preserves sidebar items and reloads pages. | `--script managespaces`; UndoProfileTests |
+| SP-14 | done | `apps/browser/Sources/Airc/Settings/SettingsWindow.swift:945` — Profile editor, archive/search settings, clear-data and guarded delete implemented. | `--script showcase` (Settings images); StoreTests.testDeleteRules; no comprehensive settings-action assertion found |
+| SP-15 | done | `apps/browser/Sources/Airc/Sidebar/SpacePage.swift:270` — Multiple-profile avatar/name chip and profile menu; management is outside New Space card. | `--script events` (profile flow), `managespaces` |
+| SP-20 | done | `apps/browser/Sources/Airc/Sidebar/SidebarChrome.swift:338` — Phased swipe, footer and keyboard/mouse/Command Bar routes present. | `--script events`; LogicTests.testSwipeTargetsAtMostOnePage |
+| SP-21 | done | `apps/browser/Sources/Airc/Sidebar/SidebarChrome.swift:416` — Paging, settle spring, rubber band; pull-to-create readies at Arc's 22.7 pt of pull on screen (≈ 51.5 pt of travel at 228 pt) with 3 pt hysteresis; acts only when lifted ready, only from the last page. | LogicTests.testSwipeTargetsAtMostOnePage; SidebarGestureTests; `--script sidebarpolish` (detent, hysteresis, lift/cancel, guard) on both engines; `--script frames` |
+| SP-22 | partial | `apps/browser/Sources/Airc/UI/WindowViews.swift:61` — Weighted blend/crossfade exists; exact presented-frame 30 ms equivalence remains unmeasured here. | LogicTests.testColorBlend; `--script frames` |
+| SP-23 | done | `apps/browser/Sources/Airc/Browser/MultiWindow.swift:419` — Last-active tab/view swap within same window, with intentional other-window ownership placeholders. Latency remains separate. | `--script windows`, `persist-read` |
+| SP-24 | done | `apps/browser/Sources/Airc/CommandBar/CommandBar.swift:63` — Profile-scoped history now joins profile-scoped tabs/items. | `--script cbperf`; HistoryPerfTests |
+| SP-30 | done | `apps/browser/Sources/Airc/App/URLEvents.swift:35` — External URL events enter routing rules; default most-recent/Little Arc selectable. | `--script events` (links), `littlearc`; LinkRuleTests |
+| SP-31 | partial | `apps/browser/Sources/Airc/Engine/ChromiumEngine.swift:90` — Engine delegate API exists, but contextMenuSpaces/openLinkInSpace closures have no app assignments; menu list falls back to empty. | No end-to-end context-menu test found; events links only tests external routing |
+| CB-1 | partial | `apps/browser/Sources/Airc/CommandBar/CommandBar.swift:63` — History, tabs, actions and suggestions implemented; strict first-frame and same-frame local search budgets remain open. | `--script cbperf`, `frames`, `events` |
+| CB-2 | done | `apps/browser/Sources/Airc/App/Commands.swift:89` — Shortcut destinations now real, including Markdown copy, Save, private/new windows and hold-to-quit. | `--script shortcuts`, `private`, `windows`; LogicTests.testMarkdown |
+| CB-3 | done | `apps/browser/Sources/Airc/App/ShortcutCenter.swift:9` — Central priority/second-press handling across window types. | `--script shortcuts`, `shortcutremap`, `events` (prefer website) |
+| CB-4 | done | `apps/browser/Sources/Airc/Settings/ShortcutsSettings.swift:24` — Record, swap/replace/reset, reserved keys and per-command priority persist. | `--script shortcutremap`; ShortcutMapTests |
+| TH-1 | done | `apps/browser/Sources/Airc/Spaces/ThemePickerPanel.swift:77` — Shared colour-disc picker replaces two-swatch stub; live 1–3 stops/intensity/grain/appearance. | `--script events` (theme picker opens); AircDesign Pass4Tests.presetPagesFitWithoutCuttingADisc; exact pointer paths not certified |
+| TH-2 | done | `apps/browser/Sources/Airc/UI/WindowViews.swift:18` — Runtime material preference feeds background tint/grain; mathematical rendering implemented in AircDesign. | AircDesign TranslucencyTests; `--script showcase` (visual only) |
+| TH-3 | partial | `apps/browser/Sources/Airc/Browser/WindowActions.swift:356` — Most custom surfaces use palette; standard NSMenu construction still uses native appearance rather than a full Space-derived menu palette. | `--script showcase` (custom surface images); no native-menu tint assertion |
+| TH-4 | partial | `packages/AircKit/Sources/AircKit/ArcTheme.swift:13` — Reachable import preserves stops/intensity/grain; exact Arc texture/render equivalence not demonstrated. | AircImport SidebarTests; `--script importux`, `onboarding-e2e` (structural import) |
+| MEM-1 | partial | `apps/browser/Sources/Airc/Debug/PerfScenario.swift:101` — App RSS ceiling has measurement tooling, not a source-level proof of meeting its numeric budget. | `--script perf`; external performance runs required, none repeated here |
+| MEM-2 | partial | `apps/browser/Sources/Airc/Debug/PerfScenario.swift:101` — Empty-profile incremental cost has measurement tooling, not a source-level proof of meeting its numeric budget. | `--script perf`; external performance runs required, none repeated here |
+| MEM-4 | partial | `apps/browser/Sources/Airc/Debug/PerfScenario.swift:101` — 30-tab total versus Chrome has measurement tooling, not a source-level proof of meeting its numeric budget. | `--script perf`; external performance runs required, none repeated here |
+| MEM-5 | partial | `apps/browser/Sources/Airc/Debug/PerfScenario.swift:101` — 100-tab open/close leak bound has measurement tooling, not a source-level proof of meeting its numeric budget. | `--script perf`; external performance runs required, none repeated here |
+| MEM-3 | done | `apps/browser/Sources/Airc/Browser/TabUnloading.swift:184` — Idle/pressure unloading, form/audio/visible guards, scroll recovery and chat/mail exemptions implemented on both engines. | `--script events` (unload), `keeploaded`; KeepLoadedSitesTests |
+| MEM-6 | partial | `apps/browser/Sources/Airc/Browser/WindowController.swift:172` — Repeating store/archive timers replaced by demand-driven wakes; less-than-1% CPU still a measured claim, not guaranteed by code. | `--script perf`, `frames`; prior paired runs reported 0.266% idle CPU |
+| ON-1 | done | `apps/browser/Sources/Airc/Onboarding/OnboardingController.swift:26` — Background discovery/import and progress reporting wired into actual first-run flow. | `--script onboarding-e2e`, `importux` |
+| ON-2 | done | `apps/browser/Sources/Airc/Onboarding/OnboardingViews.swift:10` — No account wall; quiet usage-data disclosure with Privacy access. | `--script onboarding-e2e`, `telemetry` |
+| ON-3 | partial | `apps/browser/Sources/Airc/Settings/SettingsWindow.swift:834` — Rerun works; dedicated 20-second post-create-profile colour/sign-in mini journey not fully wired (SP-12). | `--script importux`; no complete later-profile mini-flow test |
+| ON-4 | done | `apps/browser/Sources/Airc/App/AppDelegate.swift:236` — App controls first run and testing bypass. | `--script onboarding-e2e` |
+| ON-5 | done | `apps/browser/Sources/Airc/Onboarding/OnboardingController.swift:55` — Real floating card, drag/escape policy and finish expansion replace stub; supersedes older full-window prose. | `--script onboarding-e2e`, `importux` |
+| IM-1 | done | `apps/browser/Sources/Airc/Import/ImportAdapter.swift:30` — Arc IDs, per-profile Favorites, hierarchy and themes reach store; warnings identify unsupported constructs. | AircImport SidebarTests; AircKit ImportTests; `--script importux` |
+| IM-2 | partial | `apps/browser/Sources/Airc/Import/CredentialImport.swift:2` — Local credential bridge exists with synthetic encrypted-cookie/password checks; device-bound Google reauthentication completion not certified. | AircImport CredentialTests; `--script onboarding-e2e` (synthetic); no owner data used |
+| IM-3 | implemented; synthetic checks pass | `packages/AircImport/Sources/AircImport/ArcProfileData.swift`, `Import/ArcExtensionChecklist.swift`, `Onboarding/OnboardingController.swift`: history maps to the sidebar’s destination profiles; persistent checklist in onboarding and Settings, profile-correct Web Store buttons. Only checkpointed history; WAL warning and localized-name fallback are explicit. | `ArcProfileDataTests` (4 tests), `--script arcimport2` on WebKit and Chromium: 90-day/internal-URL filtering, locked copy, reimport, profile isolation, ⌘T result, checklist persistence/installed status and loopback Web Store button. Installed status uses synthetic engine inventory; no real Arc data or installation. |
+| IM-4 | done | `apps/browser/Sources/Airc/Import/BrowserImport.swift:2` — Other-browser bookmarks/history and explicitly selected CSV passwords supported; never reads their encrypted password stores. | `--script import-browsers`; AircImport BrowserTests |
+| IM-5 | done | `apps/browser/Sources/Airc/Settings/SettingsWindow.swift:856` — Arc backup action available outside onboarding. | `--script showcase` (Import settings only); no dedicated archive ZIP-content assertion found |
+| SET-1 | done | `apps/browser/Sources/Airc/Settings/SettingsWindow.swift:6` — Native Settings surfaces implement the accepted all-Swift D3 decision; older React wording is superseded. | `--script showcase` (Settings), `shortcutremap`, `managespaces` |
+| SET-2 | done | `packages/AircKit/Sources/AircKit/SpacesStore.swift:111` — Independent timestamped operation-log store. | StoreTests.testOperationLogRecordsEveryChangeWithDevice |
+| SET-3 | partial | `apps/browser/Sources/Airc/Browser/WindowController.swift:1290` — Daily/export/import support exists; archive-triggered backup ignores chosen folder although app lifecycle backup honours it. | StoreTests.testDailyBackupWritesOncePerDayAndPrunes; no chosen-folder integration test found |
+| SET-4 | done | `apps/browser/Sources/Airc/Telemetry/AppTelemetry.swift:2` — Typed usage allowlist and opt-in crash path implemented; privacy controls/readout present. | `--script telemetry`, `crashreports`; TelemetryEventTests, CrashReportTests |
+| SET-5 | done | `apps/browser/Sources/Airc/App/SafeStorageKey.swift:2` — Dedicated stable Safe Storage identity; release identity fixed in packaging. | `--script persist-write`, `persist-read` (indirect); credential synthetic tests; identity-transition release checks |
+| AT-1 | partial | `apps/browser/Sources/Airc/App/AppDelegate.swift:424` — External rules work, but page Peek routing directly calls openPeek without evaluating rules; SP-31 menu callbacks are unassigned. | LinkRuleTests; `--script events` (links), `littlearc` |
+| LA-1 | done | `apps/browser/Sources/Airc/Browser/LittleArc.swift:11` — Floating profile chip, choose Space, reparent without reload, six-hour archive and retained mini-player present. | `--script littlearc`, `events` (links, miniplayer) |
+| PW-1 | done | `apps/browser/Sources/Airc/Browser/PrivateWindow.swift:17` — Off-record sessions, own command bar/sidebar, no persisted archive/history and private downloads/find implemented. | `--script private` (including extras) |
+| SV-1 | done | `apps/browser/Sources/Airc/Browser/SplitActions.swift:10` — 2–4 panes (Arc's four, "Cannot Add New Pane"), axes, resizing, separate/close/focus, pane tear-out, ⌥-click, ⌃⇧[ ⌃⇧], Add Left/Right/Top/Bottom Split and each pane's Split View Controls (2026-11-08). | `--script events` (split), `split-write`, `split-read`, `splitparity` |
+| SV-2 | done | `apps/browser/Sources/Airc/Browser/ItemSplitActions.swift:22` — Saved split restoration, joining drops onto rows and tiles, "Leave site?" for every pane on close, delete and archive, Favorite split icons. | `--script events` (favsplit), `followups`, `splitparity` |
+| PK-1 | partial | `apps/browser/Sources/Airc/Browser/Peek.swift:131` — Overlay/promote/split/close/reopen exist; last-two-label comparison conflates different sites under multi-label public suffixes. Meeting-link exception from research also needs a dedicated test. | `--script events` (PeekCheck); no public-suffix or meeting-bypass assertion found |
+| BST-1 | done | `apps/browser/Sources/Airc/Boosts/BoostCenter.swift:18` — Local per-site no-code/CSS/JS Boosts with origin validation and WebKit support; sharing is separate later scope. | `--script boosts`, `followups3`; BoostTests, PublicSuffixListTests |
+| AI-1 | partial | `apps/browser/Sources/Airc/AI/AppleIntelligence.swift:99` — On-device adapter, opt-in settings, queue/cache and exclusions implemented; production model result unverified with Apple Intelligence unavailable in prior runs. | `--script aimax`, `aimax-write`, `aimax-read`; TidyTitlesTests (fake model) |
+| DEV-1 | done | `apps/browser/Sources/Airc/Browser/DeveloperMode.swift:36` — Opt-in dev-host display, inspect/reload and ephemeral console-call count implemented. Attribution/off-state instrumentation issues below do not erase core functionality. | `--script devmode`; DevelopmentHostTests |
+| LIB-1 | done | `apps/browser/Sources/Airc/Library/LibraryMediaView.swift`, `Library/LibraryFiles.swift`, `Library/RecentFilesHover.swift` — Library › Media grid (downloaded images/videos and saved Captures, QuickLookThumbnailing, Quick Look / open / reveal / drag / Trash with Undo) and the Library button's 0.5 s hover card with the five newest files; private windows excluded. Arc's right-click filter of the hover list and Easels & Notes are not built. Research §2.9, §5. | LibraryMediaTests; `--script library2` on WebKit and Chromium; marketing `library-media`, `library-recent` |
+| LIB-2 | missing | `apps/browser/Sources/Airc/Library/LibraryPanel.swift:96` — (proposed) Clear Archive with confirmation absent; search/restore already done under SB-62. Research §5. | None for clearing |
+| CB-5 | done | `apps/browser/Sources/Airc/Browser/Capture.swift` — region Capture (⇧⌘2, View menu, Command Bar): drag, handles, Space for the visible page, ⌘ element pick, Copy/Save/Share, Esc; engine pictures at the backing scale, never screen capture. Scrolling full-page capture absent. Research §7. | `--script capture` on both engines; CaptureGeometryTests |
+| CB-6 | done | `App/Commands.swift`, `Browser/WindowActions.swift`, `CommandBar/CommandBar.swift` — Markdown and Quote with selection/title fallback, backlinks and copy toasts; remappable copy shortcuts. ⇧⌫ removes only highlighted history suggestions with row feedback (requested key; research §7 lists ⌥⌘⌫). | `CopyLinkTests`; `--script arcbits` on WebKit and Chromium, using a private pasteboard; marketing `copy-quote` |
+| SB-63 | missing | `apps/browser/Sources/Airc/Browser/WindowActions.swift:396` — (proposed) New Boost and Add Files are absent from plus menu; Notes intentionally excluded. Research §2.9. | None for absent menu actions |
+| SP-25 | done | `apps/browser/Sources/Airc/Sidebar/SidebarChrome.swift:398` — (proposed) A pull past the first Space readies at the same 22.7 pt (no separate Arc distance measured) with the Library glyph and haptic; letting go opens the Library. Research §2.9. | SidebarGestureTests; `--script sidebarpolish` (detent, hysteresis, lift under detent, guard) on both engines |
+| WIN-8 | done | `Browser/PageToolbar.swift`, `Browser/WindowController.swift` — View → Show Toolbar (⇧⌘D), back/forward/reload and editable full URL above the page/Split View; off by default per window, no view while off. Research does not establish persistence scope. | `--script arcbits` on both engines: on/off frames, URL, right-sidebar and fullscreen layout states, Split View. Native fullscreen transition/notch visual check remains manual. Marketing `show-toolbar` |
+| BST-2 | done | `apps/browser/Sources/Airc/Boosts/BoostSharing.swift` — Files, links, review with Try It On, updates by id and revision, share sheet with screenshot; built-in gallery (BST-3). | `--script boostsplus`, `--script boosts2`; BoostFileTests, BoostShareTests |
+| BST-3 | done | `packages/AircKit/Sources/AircKit/BoostPageScript.swift` — Same-site frames, `@import` (same origin, data:), size as page zoom, saturation, case, rename/reset; no per-Space Boosts (Arc had none). | `--script boosts2`; BoostShareTests |
+| CAL-1 | done | `apps/browser/Sources/Airc/Calendar/CalendarCenter.swift:43` — Live Calendar countdown, hover card (big Join, "+", a meeting's day), Join under the Favorites at Arc's Show Meeting Link time, per-Favorite switches and ⌃⌘J any time in the calendar's Space (2026-11-08). Research §2.3. | `--script calendar`; MeetingCalendarTests |
+| MEDIA-1 | partial | `apps/browser/Sources/Airc/PictureInPicture/MiniPlayerPresentation.swift` — Mini Player has a spring-collapsed title/play pill, Space/Esc, Back to Tab, mute, native PiP, playback-stopping Close and per-site suppression. Call controls use outgoing page tracks and page Media Session handlers; unsupported controls show read-only state. Provider-specific chat and live-provider qualification remain open; WebKit video PiP keeps system controls. | MiniPlayerTests; `--script media2` (both engines), `pipcontrols-media2` (Chromium video/call overlay); full `pipcontrols` also covers Document PiP separately |
+| LA-2 | done | `Browser/LittleArc.swift`, `AircKit/LittleArcProfiles.swift` — profile chip choices persist per PSL site in settings; explicit ATC rules win, missing profiles fall back; Settings → Links can forget the memory. | `LittleArcProfilesTests` (PSL, persistence, ATC precedence, missing profiles); `--script arcbits` on both engines; marketing `remembered-profiles` |
+| SYNC-1 | partial | `apps/browser/Sources/Airc/App/AppSettings.swift:10` — (proposed, v1.x) Merge/transport groundwork exists in AircKit Sync, but no app Sync toggle/transport integration. Spec §2.16. | SyncReplicaTests, SyncStoreTests, SyncTransportTests; no app journey |
+| EXT-1 | missing | `apps/browser/Sources/Airc/Browser/Extensions.swift:110` — (proposed, v1.x) Install extension in all profiles absent; per-profile install implemented. Spec §2.9/After v1. | None for all-profiles install |
+| AI-2 | missing | `apps/browser/Sources/Airc/AI/AISettingsPage.swift:9` — (proposed, v1.x) Ask on Page, five-second AI link previews and Tidy Downloads absent; SB-45 screenshot cards are not AI previews. Spec AI-1 later list. | None |
+| NG-1 | missing | `apps/browser/Sources/Airc/Browser/WindowActions.swift:396` — (proposed inventory, NON-GOAL) Notes and Easels deliberately excluded by spec §2.17; not a recommended implementation gap. Research §2.9, §5. | Not applicable; intentionally excluded |
 
-**SP-10, SP-11, SP-21, SP-23; spec §2.12.** Arc's settle spring is **response 0.19 s, ζ 1**; Airc's input-to-first-frame target is **≤16 ms**, and new Space creation is **one frame** (8.33 ms at 120 Hz). N/log.txt reports **35.7 ms** for swipe release→page swap and **22.6 ms** for Enter→switched. Four click/key handlers report 3.3–5.7 ms, but these are synchronous code timings, not presentation timestamps. **Fix:** remove storage, full-page refreshes and theme rasterization from these handlers (risks below); measure input→presented frame with signposts and a 120 Hz trace. Do not label the current run “insanely smooth.”
+## Research inventory and scope
 
-### 4. Command Bar cannot find browsing history
+Research means `docs/research/arc_behavior_spec.md`, not a fresh web survey. The proposed IDs above are inventory labels only, not accepted spec changes. No spec text was edited.
 
-**CB-1, SP-24.** Arc opens its bar in **one frame**, approximately **765 pt wide / 64 pt input**, and searches history as well as sidebar items. `apps/browser/Sources/Airc/CommandBar/CommandBar.swift:337` builds tabs, saved items, Spaces and actions, but never history candidates. The `history` enum in AircKit is unused here. N/06-command-bar.png demonstrates rendering only. **Fix:** add an asynchronous, current-profile history provider with cached immediate results and stale-query cancellation; verify no cross-profile suggestions.
+- Notes/Easels are deliberate non-goals, not part of Next up. Their omission from Library and the plus menu is intentional.
+- Library, searchable Archive, Markdown copying, tab switching and Copy URL commands, ATC rules, Peek, profile chip, auto-archive settings, per-Space gradients, sidebar media controls and core Mini Player controls all now have source implementations. Their narrower limitations are identified above; do not recreate them as missing projects.
+- Research-only extras newly tracked: Library media/recent-file hover, Clear Archive, Capture, quote copying/suggestion removal, extra plus actions, left-end Library swipe, optional toolbar and Little Arc per-domain profile memory. Boost sharing was already in After v1 prose, but had no tracked row or ID.
+- Other research differences still worth a future scoped audit: Option-alone reveal (§2.10), configurable Favorites inclusion/last-item numeric shortcuts (§2.3), service-specific rich previews (generic SB-45 cards are not Gmail inbox previews), live folders/share Space (§2.4), Finder folder drops (§2.11), and Arc palette CSS variables (§4.2). These are not silently certified by the main checklist. Exact plus-menu ordering and profile-indicator measurements remain research unknowns.
+- v1.x: transport-neutral sync groundwork is not a shipped sync journey; no-account offline use remains the v1 contract. All-profile extension installation, Boost sharing/iframe support/per-Space settings/gallery, and remaining AI features are still later work. iPhone/shared Spaces remain v2; Notes/Easels and platform ports remain excluded.
+- Section 6 is a historical task plan, not an up-to-date completion ledger: store/profiles/sidebar, onboarding/import, multi-window, Library and keyboard surfaces now exist. Signing, security-rebase qualification, release promotion, performance acceptance and real-account tests are separate gates; this document does not certify them or reopen owner prerequisites.
 
-### 5. Essential browser controls are decorative or stubbed
+## Contradictions and qualification limits
 
-**SB-1, SB-2, SB-3, SB-4.** Arc has **32 × 32 pt** navigation plates, a **36 pt** host field, history on long/right press and profile-scoped extension/autofill UI. `apps/browser/Sources/Airc/Sidebar/SidebarChrome.swift:32` configures simple navigation actions; `Browser/WindowActions.swift:14` only goes back/forward. `Sidebar/SpacePage.swift:30` sends Site Controls to a stub; `Stubs/Stubs.swift:45` does the same for extensions. WebKit cannot stand in for Chrome extension/password/passkey parity. **Fix:** wire real site controls/history menus and command-click history actions; complete and exercise engine-hosted Chromium surfaces in the same window. Mark engine-dependent parts unavailable until tested.
+Paths below are relative to `apps/browser/Sources/Airc/` unless fully qualified.
 
-### 6. Dragging stops short of Arc's organizing workflow
+- **SP-31 / AT-1:** `Engine/ChromiumEngine.swift:90` declares optional context-menu closures with no app assignment; `:667` consequently supplies an empty Space list. `App/AppDelegate.swift:437` routes page links to Peek without consulting ATC rules. External-link tests do not cover these paths.
+- **IM-3 resolved:** Arc has its own history/extension reader and checklist integration, with `ArcProfileDataTests` and `--script arcimport2` on both engines. Its main-file-only policy intentionally omits WAL-only visits until Arc quits and checkpoints; the UI warns about this.
+- **WIN-4:** `Sidebar/SidebarReveal.swift:185` hides below `minWidth - 40`, not below the minimum. Preserve or change this deliberately.
+- **SB-61:** `Sidebar/SidebarReveal.swift:80` schedules `reveal()`; `:86` only checks controller/revealed state. Losing key-window status during dwell is not rechecked.
+- **PK-1:** `Browser/Peek.swift:131` uses the final two hostname labels, so different registrable sites under a suffix such as `co.uk` compare equal. The app already has a Public Suffix List implementation for Boosts.
+- **SP-21 / research §2.9:** `Sidebar/SidebarChrome.swift:97` uses a 0.32-page create threshold (about 73 pt at default width), versus the measured 22.7 pt. This is implemented, but not exact parity.
+- **SB-33 / §2.12:** `Sidebar/SpacePage.swift:793` uses generic `setFrameAnimated` for rows; the fold spring at `:691` applies to Favorites, not folder expansion/collapse.
+- **SP-12:** `Browser/WindowActions.swift:230` opens the Google sign-in URL without the onboarding probe/completion/Favorites-offer sequence. Onboarding support is not evidence that this later-profile path is complete.
+- **SET-3:** `Browser/WindowController.swift:1290` backs up to the default folder during auto-archive; `App/AppDelegate.swift:346` honours the selected folder. Store backup tests do not cover this integration mismatch.
+- **WIN-3:** `Debug/EventTests.swift:620` asserts three visible traffic-light buttons in fullscreen, whereas the spec says no traffic lights. This is an explicit tested behavior difference, not a fresh visual regression finding.
+- **SET-1 / architecture §3.1 and onboarding §2.13:** `Settings/SettingsWindow.swift:5` imports SwiftUI; `Onboarding/OnboardingController.swift:51` constructs a native floating window. React wording is superseded by accepted all-Swift decision D3; ON-5 is the newer floating-card contract. This is documentation drift, not an implementation gap.
+- **Scope contradictions:** spec §2.17 still excludes Split View, Peek, Little Arc, link previews, Live Calendar, AI and DRM despite §2.16b, SB-45, AI-1 and existing `Browser/SplitActions.swift`, `Browser/Peek.swift`, `Browser/LittleArc.swift`, `Calendar/CalendarCenter.swift`, and `Engine/HybridEngine.swift`. Section 6 After v1 still defers media/remapping/splits/Little Arc now implemented. Do not use those stale paragraphs to reopen completed work.
+- **Developer Mode quality:** `Browser/DeveloperMode.swift:41` installs the script even when disabled; `:85` wraps `console.error` in the page world, affecting call-site attribution. DEV-1 intentionally differs from Arc automatic/per-site dev styling; do not call that adaptation an accidental missing feature.
 
-**SB-35.** Arc uses **0.5 s edge dwell**, a **2 pt drop line**, stationary peers during dragging and roughly **115 ms** row motion after drop; Option duplicates and dragging out creates a window. `apps/browser/Sources/Airc/Sidebar/SpacePage.swift:550` handles only local destinations in a nested event loop; `Browser/WindowActions.swift:80` always moves. No edge-dwell, modifier duplication or tear-out path exists there. **Fix:** use a drag session/state machine with those destinations, cancellation and autoscroll; retain the existing drop-line behavior. Validate each rule independently, including crossing profiles.
+## Smoothness risks revisited
 
-### 7. Multi-selection is absent
+The old report's missing history, synchronous full refresh on every change, perpetual archive timer, absent Library/Manage Spaces, missing folder preview, missing remapping and absent lifecycle claims are superseded by current source. Do not reuse its old line numbers or nightly screenshots as evidence against this revision.
 
-**SB-36.** Arc supports command/shift selection, bulk operations and copying all selected URLs; no measured animation value applies beyond the **one-frame** row feedback target. `apps/browser/Sources/Airc/Sidebar/SidebarRows.swift:435` activates a single entry; command handling is confined to pinned reset, with no selection set/range anchor. **Fix:** add selection state distinct from the active page; route move/archive/folder/copy to the selection and preserve it during drag.
-
-### 8. Library is a short menu, not a workspace
-
-**SB-62, SB-54.** Arc pushes a **417 pt** Library in with **0.245 s / ζ 0.92**, including searchable Archive, Downloads and Spaces. `apps/browser/Sources/Airc/Stubs/Stubs.swift:9` offers only the last **15** archived entries in an NSMenu. No download-progress shelf exists in `Sidebar/SidebarChrome.swift`. **Fix:** implement a searchable panel, restore-to-origin behavior, download state and Spaces management; media tray may remain v1.x. Preserve the existing restore action while replacing its container.
-
-### 9. The app never enables the approved translucent window material
-
-**TH-2, WIN-1.** Arc uses **45° OKLab**, colour alpha **0.2 + 0.55 × intensity**, blur and grain; inactive grain drops to **¼**. `apps/browser/Sources/Airc/UI/WindowViews.swift:12` constructs both backgrounds without a translucency argument; `packages/AircDesign/Sources/AircDesign/AppKit/SpaceBackgroundView.swift:55` defaults to **off**. D/window-translucent-subtle.png therefore promises a material the app does not request. **Fix:** pass the persisted Subtle default to the base background, disable the overlay's second material, and wire Off/Subtle/More. Verify over a busy desktop. Respect the approved contrast-related colour deviations in docs/design.md rather than treating them as bugs.
-
-### 10. Profile setup does not finish the account workflow
-
-**SP-12, SP-14, SB-22.** The spec's avatar and one-click account setup are Airc additions; Arc has no measured avatar size here. New-profile creation must remain **one frame**. `apps/browser/Sources/Airc/Browser/WindowActions.swift:133` gates a sign-in card on an empty Space; `Sidebar/SpacePage.swift:165` uses a text profile pill. `Stubs/Stubs.swift:35` leaves Settings unavailable. There is no completed sign-in→avatar→suggested-Favorites flow in these UI paths. **Fix:** connect account metadata and successful sign-in, offer Favorites, and ship profile settings including archive timing, search engine and clear-data controls; retain typed-name deletion protection.
-
-### 11. Folder browsing lacks preview and uses the wrong motion path
-
-**SB-33, SB-34; §2.12.** Arc previews a closed folder after **450 ms** (**90 ms in / 80 ms out**), opens it over **200 ms ease-out**, closes with **ω≈25, critically damped (~240 ms visually)**. `apps/browser/Sources/Airc/Sidebar/SidebarRows.swift:487` has folder configure/click handling but no searchable hover preview. `Sidebar/SpacePage.swift:463` uses the generic row spring for rearrangement regardless of folder opening/closing. **Fix:** add a cancellable preview controller and pass a mutation-specific curve/spring into list layout. Preserve 16 pt nesting and press activation.
-
-### 12. Space gestures and footer rearrangement are incomplete
-
-**SP-21, SB-52.** Arc's end pull has a **60 ms** ready fill, **1.13× / 120 ms** detent pop and haptic; normal settling uses **0.19 s / ζ 1**. `apps/browser/Sources/Airc/Sidebar/SidebarChrome.swift:170` always chooses a page and settles, with no create detent. Footer cells at `:270` click or show menus, but cannot drag/reorder. **Fix:** add a terminal create state with threshold-only haptics and a footer reorder session that persists Space order; cancelled gestures must return to the original page.
-
-### 13. Theme editing is swatches, not Arc's colour instrument
-
-**TH-1, TH-4.** Arc offers **1–3 handles**, nine swatches, **0.81** default intensity, grain and appearance. `apps/browser/Sources/Airc/Spaces/Pickers.swift:50` explicitly implements only two colour rows, with no disc/third handle. `UI/DesignBridge.swift:27` also has no texture mapping; import UI is disconnected. **Fix:** implement the three-handle disc and preserve source theme fields through import/model/design conversion; verify with synthetic multi-stop/texture fixtures. Exact end-to-end theme import remains unproven.
-
-### 14. Shortcuts always beat the website
-
-**CB-3, CB-4.** Arc's website-preference policy gives the browser the second matching key within approximately **1 s**. `apps/browser/Sources/Airc/App/Commands.swift:192` intercepts matching shortcuts before the page and consumes them immediately. No preference or second-press policy exists; remapping is a v1.x gap. **Fix:** centralize shortcut arbitration, keep a timestamp per command, and let opted-in website actions receive the first press. Test with a page editor as well as browser text fields.
-
-### 15. Unused Favorites keep consuming resources indefinitely
-
-**SB-15** (and saved-item lifecycle). Arc freezes/discards unused pages while retaining the tile; its default unload interval was **not recovered**, so do not invent an Arc-exact timeout. `apps/browser/Sources/Airc/Browser/WindowController.swift:74` schedules flush and Today archive, not saved-item suspension; `Engine/WebKitEngine.swift:266` returns false for discard. **Fix:** implement a bounded lifecycle policy with audio/session-sensitive exemptions, retain the sidebar item and restore lazily. Measure memory and painted-frame latency after suspension; keep timeout configurable until reference measurements exist.
-
-## 2. Smoothness risks in code
-
-These are causal code risks, not claims of measured dropped frames. At 120 Hz the main-thread frame budget is 8.33 ms.
-
-| Risk and evidence | Concrete fix |
-|---|---|
-| **Synchronous SQLite on interaction.** `packages/AircKit/Sources/AircKit/SpacesStore.swift:273` flushes normal mutations before notifying observers; `:295` encodes JSON and writes entities plus op log in a SQLite transaction. `:398` also writes window state synchronously. `StoreActions.swift:244` activates through this path. | Apply in-memory mutations and render immediately; serialize immutable operation batches on a dedicated writer, retain ordering, retry failures and establish explicit durable flush barriers for shutdown. Do not simply discard pending operations on an I/O error. |
-| **Periodic I/O on main.** `apps/browser/Sources/Airc/Browser/WindowController.swift:74` flushes every 2 s; its archive callback invokes backup, whose implementation at `packages/AircKit/Sources/AircKit/SpacesStore.swift:461` encodes/writes/enumerates files. | Move persistence and backup I/O to the writer queue; snapshot state once and avoid overlapping backups. Instrument timer fire during swipe/typing. |
-| **All Spaces refresh after every store change.** `apps/browser/Sources/Airc/Browser/WindowController.swift:199` ignores change granularity and `:213` reloads every page; `show` also reloads the visible page immediately. `Sidebar/SpacePage.swift:356` configures every tile/row. | Use StoreChange refs, cache per-Space row models and update only affected rows; mark offscreen pages dirty. Refresh selection without recomputing the whole tree. |
-| **Rasterization at first theme switch and aspect changes.** `packages/AircDesign/Sources/AircDesign/AppKit/SpaceBackgroundView.swift:95` calls `render`, `:147` synchronously makes the colour image; `:130` repeats when aspect changes >0.02. | Pre-render/cache theme images by theme/appearance/aspect off-main; attach completed CGImages on main. Existing equality guards prevent per-frame regeneration of identical themes—retain them. |
-| **Theme slider multiplies work.** `apps/browser/Sources/Airc/Spaces/Pickers.swift:68` calls onChange for each slider event; `Browser/WindowActions.swift:498` (`editTheme`) writes each preview to the store. | Separate transient visual preview from persistence; coalesce render work to one display frame, persist final value on release/close. |
-| **Settling is main-thread frame/layout work.** `apps/browser/Sources/Airc/UI/Animator.swift:63` uses a main-runloop display link; `Sidebar/SidebarChrome.swift:109` moves pages and updates theme/footer each step. Sidebar hide invokes `layoutRoot` and resizes the embedded page each frame. | Keep direct finger tracking, but hand autonomous settle to CA transforms where possible; bound page reflow during hide/show, profile layout cost, and avoid updating offscreen page frames. A display link is not itself evidence of 120 Hz presentation. |
-| **Nested drag/resize event loops.** `apps/browser/Sources/Airc/Sidebar/SpacePage.swift:567` and `Sidebar/SidebarReveal.swift:157` wait for restricted events. Drag startup also rasterizes a row in `SpacePage.swift`'s `makeGhost`. | Use normal event delivery/NSDraggingSession and a cached ghost image; verify display-link and timer service while the pointer pauses mid-drag. |
-| **Command search ranks twice per keystroke.** `apps/browser/Sources/Airc/CommandBar/CommandBar.swift:390` and `:395` repeat ranking over rebuilt candidates; `packages/AircKit/Sources/AircKit/CommandSearch.swift:40` repeatedly folds/allocates strings. | Cache normalized candidates, rank once and reuse the top score; add history asynchronously. Keep the existing panel immediate. |
-| **Cold profile fallback is not guaranteed ready.** `apps/browser/Sources/Airc/Browser/ProfileHost.swift:72` returns a model even without a spare while loading asynchronously; `Browser/WindowController.swift`'s `ensurePage` returns nil if the engine profile is absent. | Reserve a ready spare, or resume activation through whenLoaded; test rapid consecutive profile creations and load failure. Never display a silently unusable Space. |
-| **Animation interruption can jump.** `apps/browser/Sources/Airc/UI/Animator.swift:118` derives a new spring's origin from the model layer position, not its presentation position. | Start interrupted row transitions from presentation position and preserve velocity where available; test rapid reorder/folder toggles. |
-
-Layer-backing is present on the root, rows, card, pager/background and command panel; no blanket missing-layer-backing defect was found. Favicon disk/network work is already dispatched off-main (`apps/browser/Sources/Airc/Engine/FaviconCache.swift:36`); lazy decode/upload on first display still needs profiling, not an unsupported claim of synchronous downloads.
-
-The named row, settle, reveal/conceal, fold and toast springs in `packages/AircDesign/Sources/AircDesign/Motion/AircSpring.swift:33` match the research parameters. The main mismatch is **which transitions use them** (folders above). Response is not total settling duration: do not “fix” the 0.19 s response by truncating the spring to 190 ms. The 90 ms colour transition approximates τ≈30 ms; measure its perceptual curve before calling it a 3× timing error.
-
-## 3. Full requirement checklist
-
-“Done” means source implements the stated behavior and available evidence does not contradict it; it is **not** a fresh runtime certification. Partial means a sub-requirement is missing or unverified. Can't-tell is used where this review cannot establish the requirement. Deferred v1.x requirements remain visible.
-
-| ID | Status | Evidence / remaining gap |
-|---|---|---|
-| WIN-1 | done | WindowController.layoutRoot and PageCardView use themed frame, 10 pt inset, 6 pt corners; N/01. |
-| WIN-2 | done | SidebarChrome header; no tab strip or horizontal toolbar in N/01. |
-| WIN-3 | partial | Fullscreen callbacks hide traffic lights; no fullscreen/notch capture or interactive verification. |
-| WIN-4 | partial | Width clamp/reset/drag exists; SidebarReveal:160 hides 40 pt below minimum, rather than directly past 164 pt. |
-| WIN-5 | done | Settings → Appearance → Sidebar position; WindowController.layoutRoot mirrors through Browser/SidebarSide.swift, live in every window; `--script sidebarright` on both engines. Private windows and Little Arc stay left. |
-| WIN-6 | can't-tell | No feature kill-switch wiring found in reviewed UI; engine-wide release behavior not verified. |
-| SB-1 | partial | 32 pt header buttons; history menus/long press/command-click missing (issue 5). |
-| SB-2 | partial | 36 pt host field/copy/bar work in source; Site Controls stub. |
-| SB-3 | partial | Engine boundary and WebKit dialogs exist; complete Chromium permission/autofill/passkey anchoring not demonstrated. |
-| SB-4 | missing | Extension menu stub, no hover extension icons in URL field. |
-| SB-10 | done | Model/store profile ownership and maxFavorites=12; tiles read profile Favorites. |
-| SB-11 | done | FavoritesGrid column rule, 47 pt tiles/8 pt gap; N/01 supports layout. |
-| SB-12 | partial | Live tiles and saved-URL menu exist; existing live Favorite does not reset (issue 2). |
-| SB-13 | partial | Title count and calendar-date icon implemented; real unread title variants not exercised. |
-| SB-14 | done | Local drag plus command/menu add/remove routes exist in WindowActions and SpacePage. |
-| SB-15 | missing | No idle Favorite lifecycle policy; issue 15. |
-| SB-20 | done | SpaceHeader hover menu and pinned-collapse press handling. |
-| SB-21 | partial | Menu order implemented in WindowActions:266; Manage Spaces is a stub. |
-| SB-22 | partial | Profile text pill and coloured footer ring; no signed-in account avatar. |
-| SB-23 | done | WindowActions delete confirmation, store archive/undo and toast route. |
-| SB-30 | done | Close removes live page while saved item persists; auto-archive targets Today. |
-| SB-31 | done | TabRow drift marker/hover reset; resetToSaved preserves current URL on command-reset. |
-| SB-32 | done | WindowActions.navigate opens Today for saved-item URL edits. |
-| SB-33 | partial | Nested rows/16 pt indent/rename/icon/copy links present; folder animation differs. |
-| SB-34 | missing | No delayed searchable folder preview. |
-| SB-35 | partial | Local drop destinations/line/row spring; no edge paging, Option duplicate or tear-out. |
-| SB-36 | missing | No multi-selection state or bulk action UI. |
-| SB-40 | done | Divider Clear and shortcut preserve visible tab; store undo supports batch clear. |
-| SB-41 | done | New Tab opens bar; store inserts foreground Today at top. |
-| SB-42 | done | StoreActions.openTab scopes Today and inserts background tabs after opener. |
-| SB-43 | partial | 12 h model default and protected audible/visible tabs; settings absent, audio detection needs engine validation. |
-| SB-44 | partial | Geometry/plate/press/loading/mute controls exist; actual 120 Hz feedback and all audio cases unverified. |
-| SB-50 | done | Footer Library/icons/plus and current/dimmed treatment; N/01. |
-| SB-51 | done | Footer uses squeeze layout in AircKit SidebarLayout; many-Space extreme still needs runtime check. |
-| SB-52 | partial | Footer context menu exists; no icon drag reordering. |
-| SB-53 | done | WindowActions.plusMenu includes New Space/New Folder; later entries appropriately omitted. |
-| SB-54 | missing | No download-progress shelf; media tray deferred v1.x. |
-| SB-60 | partial | 110/100 ms hide/show paths exist; Shift-Command-S Save Page is stubbed. |
-| SB-61 | partial | 100 ms dwell/0.175 s reveal/overlay present; reveal callback does not recheck key window after delay. |
-| SB-62 | partial | Fifteen-entry restore menu only; no searchable Library/Downloads/Spaces panel. |
-| SP-1 | partial | Store and Chromium adapter model real profiles; running WebKit build cannot certify full Chromium isolation. |
-| SP-2 | done | Space model includes required fields/profile binding; shared profile supported. |
-| SP-3 | partial | WebKit popup adoption carries opener/profile; actual Google sign-in popup journey untested; Favorites are profile-owned exceptions. |
-| SP-4 | partial | N persistence before/after and log agree; crash/discard recovery not exercised. |
-| SP-10 | partial | Inline form and Enter route exist; N reports 22.6 ms, not one frame. |
-| SP-11 | partial | Inline fields and spare profile implemented; cold/consecutive-create readiness gap. |
-| SP-12 | partial | Sign-in card opens account page; avatar and suggested-Favorites completion absent. |
-| SP-13 | done | WindowActions profile confirmation/suppression and page recreation retain sidebar items. |
-| SP-14 | partial | Model and creation-form deletion exist; Settings/profile editing and clear-data UI stubbed. |
-| SP-20 | done | Footer, keys, phased swipe, mouse buttons and Space search routes exist. |
-| SP-21 | partial | Critical spring, one-page clamp, rubber band; missing pull-to-create. |
-| SP-22 | partial | Weighted swipe blend/90 ms τ approximation present; presented-frame colour timing not measured. |
-| SP-23 | partial | Last tab and same-window view swap implemented; N swipe handler 35.7 ms, flash-free presentation unverified. |
-| SP-24 | partial | Tab/item suggestions filtered by profile; no history provider. |
-| SP-30 | missing | No routing-rule UI/evaluator in app paths; deferred v1.x. |
-| SP-31 | missing | No page-context Open in Space action; deferred v1.x. |
-| CB-1 | partial | Bar layout/open/edit/actions implemented; no history results. |
-| CB-2 | partial | Shortcut map broadly present; Library/Extensions destinations incomplete, live shortcut acceptance untested. |
-| CB-3 | missing | KeyMonitor consumes browser shortcuts first, no 1 s second-press arbitration. |
-| CB-4 | missing | Settings remapping absent; deferred v1.x. |
-| TH-1 | partial | Nine swatches/intensity/grain/appearance; no disc or third handle. |
-| TH-2 | partial | Shader math/grain exist; browser backgrounds default to opaque material. |
-| TH-3 | partial | Palette used by rows/bar/toast; native NSMenus not explicitly styled from Space palette. |
-| TH-4 | can't-tell | Import package preserves source theme data, but reachable import-to-render path and exact texture mapping unverified. |
-
-## 4. Quick wins (each estimated under 30 minutes)
-
-These estimates cover a small implementation plus focused verification, not completion of the larger features.
-
-- Pass `.subtle` to the main window background and disable material/window configuration on the overlay; check one active/inactive desktop capture (TH-2).
-- Reuse the first ranking result for the strong-match decision instead of ranking twice (`CommandBar.swift:390`, CB-1).
-- Recheck `window.isKeyWindow`, hidden state and pointer location when the delayed reveal actually fires (`SidebarReveal.swift:65`, SB-61).
-- Change the resize-hide threshold to the required minimum (or explicitly reconcile the 40 pt hysteresis with the spec); verify slow drag/reset (WIN-4).
-- Route folder close rearrangement through the existing fold spring; add the open curve as a separate follow-up rather than pretending one spring matches both (SB-33).
-- Remove the contradictory “full-window first-run” comment in the onboarding stub and point it to ON-5; prevents implementation of the wrong window contract.
-- Add signposts around activation, persistence, theme render and first drawable presentation; existing stopwatch logs must be labelled handler timings, not first-frame timings.
-
-Before closing parity work: run a synthetic large sidebar (many Spaces, nested folders and hundreds of items), rapid interrupted swipes, loaded-tab switching, resize/hide/reveal, profile creation twice in succession, audio auto-archive protection and fullscreen/notch checks on the build Mac. Record median and tail latency, missed frames and cold versus warm behavior. The current screenshot suite establishes neither these budgets nor crash safety.
+Remaining risks are narrower: `packages/AircKit/Sources/AircKit/SpacesStore.swift:476` still performs flush work synchronously when called; the demand-driven callback at `Browser/WindowController.swift:1350` runs on main. Drag/resize still contain nested event loops. Generic folder motion and delayed reveal checks are concrete issues above. Numeric first-frame, tail latency, RSS, leaks and multi-provider call behavior require fresh focused measurement when disk permits. The prior paired Command Bar work improved its median, but retained over-budget samples; a median is not proof of the strict budget. Nothing in this audit certifies 120 Hz or the 30-tab Chrome comparison.

@@ -33,6 +33,25 @@ final class PiPOverlays {
     /// MediaLibrary.attach: hand the engine our overlay (Chromium only; WebKit's picture in picture is the system's).
     func attach(_ library: MediaLibrary) {
         self.library = library
+        PageScripts.shared?.set("calltracks", source: CallTrackState.script) { [weak library] page, message in
+            guard message.isMainFrame, message.kind == "state" else { return }
+            library?.media?.trackStateChanged(page, json: message.json)
+        }
+        PageScripts.shared?.set("miniplayersource", source: """
+        function(post) {
+          document.addEventListener('loadedmetadata', function(e) {
+            if (e.target === document.pictureInPictureElement) post('source', JSON.stringify({width: e.target.videoWidth, height: e.target.videoHeight}));
+          }, true);
+        }
+        """) { page, message in
+            guard message.kind == "source" else { return }
+            if let size = try? JSONSerialization.jsonObject(with: Data(message.json.utf8)) as? [String: Double],
+               let width = size["width"], let height = size["height"] {
+                PiPOverlays.shared.controls(for: page)?.miniPlayer.videoSourceChanged(width: width, height: height)
+            }
+            HiddenMiniPlayers.show(page)
+        }
+        PageScripts.shared?.pushNow()
         #if canImport(AircCore)
         guard !installed, library.controller?.app?.engine is ChromiumEngine else { return }
         installed = PiPEngineOverlay.install { [weak self] tab, info in self?.provide(tab, info) }
@@ -74,6 +93,7 @@ final class PiPOverlays {
 
     func sessionChanged(_ page: EngineTab, _ s: EngineMediaSession) {
         guard let e = entries[ObjectIdentifier(page)], e.controls != nil else { return }
+        if e.session.title != s.title || (e.session.playback == .none && s.playback == .playing) { HiddenMiniPlayers.show(page) }
         e.session = s
         e.at = CACurrentMediaTime()
         refresh(e)
@@ -87,6 +107,9 @@ final class PiPOverlays {
 
     private func refresh(_ e: Entry) {
         guard let page = e.page, let v = e.controls else { return }
+        v.miniPlayer.playbackPage = page
+        v.mediaTitle = e.session.title.isEmpty ? page.title : e.session.title
+        v.canSuppressSite = WindowController.canPersistMiniPlayerSite(for: page) && page.url.flatMap { MiniPlayerSite.origin($0.absoluteString) } != nil
         v.update(Self.state(e.session, muted: page.isMuted, at: e.at))
     }
 
@@ -103,9 +126,11 @@ final class PiPOverlays {
                                          playing: st.playing && s.rate != 0, at: at)
         }
         st.muted = muted
-        st.hasMicrophone = s.actions.contains("togglemicrophone")
+        st.hasMicrophone = s.capture.microphone || s.microphoneActive != nil || s.actions.contains("togglemicrophone")
+        st.canToggleMicrophone = s.actions.contains("togglemicrophone")
         st.microphoneOn = s.microphoneOn
-        st.hasCamera = s.actions.contains("togglecamera")
+        st.hasCamera = s.capture.camera || s.cameraActive != nil || s.actions.contains("togglecamera")
+        st.canToggleCamera = s.actions.contains("togglecamera")
         st.cameraOn = s.cameraOn
         st.canLeave = s.actions.contains("hangup")
         return st
@@ -122,6 +147,7 @@ final class PiPOverlays {
     private func actions(for page: EngineTab) -> PiPControlsView.Actions {
         var a = PiPControlsView.Actions()
         let key = ObjectIdentifier(page)
+        a.stopPlayback = { [weak page] in page?.evaluate("document.querySelectorAll('audio,video').forEach(v => v.pause())", completion: nil) }
         a.close = { [weak self, weak page] in if let page { self?.close(page, pause: true) } }
         a.backToTab = { [weak self, weak page] in if let page { self?.backToTab(page) } }
         a.playPause = { [weak self, weak page] in
@@ -182,11 +208,19 @@ final class PiPOverlays {
         a.microphone = { [weak self, weak page] in if let page { self?.perform("togglemicrophone", on: page) } }
         a.camera = { [weak self, weak page] in if let page { self?.perform("togglecamera", on: page) } }
         a.leave = { [weak self, weak page] in if let page { self?.perform("hangup", on: page) } }
+        a.suppressSite = { [weak self, weak page] in
+            guard let self, let page else { return }
+            self.library?.controller?.suppressMiniPlayer(for: page)
+            self.close(page, pause: false)
+        }
+        // Already in the engine's native PiP; from the pill this restores its video surface.
+        a.pictureInPicture = { }
         return a
     }
 
     /// ✕: the picture in picture goes; a video pauses (as Arc's and Chrome's), a call goes on in its tab.
     func close(_ page: EngineTab, pause: Bool) {
+        HiddenMiniPlayers.forget(page)
         if pause, let e = entries[ObjectIdentifier(page)], e.session.playback == .playing, !e.session.isCall {
             perform("pause", on: page)
         }

@@ -5,5 +5,6 @@
 @class NSEvent;
 // remote_cocoa must not depend on //airc/core. Installed on the UI thread.
 inline bool (*g_airc_pip_window_event)(NSWindow*, NSEvent*) = nullptr;
+inline bool (*g_airc_pip_prevent_key)(NSWindow*) = nullptr;
 inline bool (*g_airc_pip_nonactivating)(NSWindow*) = nullptr;
 #endif

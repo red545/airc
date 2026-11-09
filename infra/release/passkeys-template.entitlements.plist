@@ -6,7 +6,7 @@
 	<true/>
 	<key>keychain-access-groups</key>
 	<array>
-		<string>TEAMID.org.airc.Airc</string>
+		<string>TEAMID.com.aircbrowser.Airc.webauthn</string>
 	</array>
 </dict>
 </plist>

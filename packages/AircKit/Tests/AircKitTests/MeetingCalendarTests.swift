@@ -111,6 +111,57 @@ final class MeetingCalendarTests: XCTestCase {
         XCTAssertNil(MeetingSchedule.promptEvent([event("quick", 0, 2, link: meet)], now: at(2)), "it ended")
     }
 
+    func testCalendarFavoritesPagesForANewEventAndADay() {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let day = Date(timeIntervalSince1970: 1_794_484_800)   // 2026-11-12 12:00 UTC
+        XCTAssertEqual(CalendarSites.newEventURL("https://calendar.google.com/calendar/u/2/r/week")?.absoluteString,
+                       "https://calendar.google.com/calendar/u/2/r/eventedit")
+        XCTAssertEqual(CalendarSites.newEventURL("https://calendar.google.com/calendar/r")?.absoluteString,
+                       "https://calendar.google.com/calendar/u/0/r/eventedit")
+        XCTAssertEqual(CalendarSites.newEventURL("https://outlook.office.com/calendar/view/week")?.absoluteString,
+                       "https://outlook.office.com/calendar/0/deeplink/compose")
+        XCTAssertNil(CalendarSites.newEventURL("https://calendar.proton.me/u/0"))
+        XCTAssertNil(CalendarSites.newEventURL("https://mail.google.com/mail/u/0/"))
+        XCTAssertEqual(CalendarSites.dayURL("https://calendar.google.com/calendar/u/1/r", day: day, calendar: utc)?.absoluteString,
+                       "https://calendar.google.com/calendar/u/1/r/day/2026/11/12")
+        XCTAssertEqual(CalendarSites.dayURL("https://outlook.live.com/calendar/0/view/month", day: day, calendar: utc)?.absoluteString,
+                       "https://outlook.live.com/calendar/0/view/day/2026/11/12")
+        XCTAssertNil(CalendarSites.dayURL("https://app.fastmail.com/calendar/", day: day, calendar: utc))
+    }
+
+    func testArcsJoinLinkTimes() {
+        let e = [event("call", 10, 40, link: meet)]
+        for lead in JoinLead.allCases {
+            let before = lead.seconds / 60
+            XCTAssertNil(MeetingSchedule.promptEvent(e, now: at(10 - before - 0.1), lead: lead.seconds), "\(lead): too early")
+            XCTAssertEqual(MeetingSchedule.promptEvent(e, now: at(10 - before), lead: lead.seconds)?.id, "call", "\(lead): from its time")
+            XCTAssertEqual(MeetingSchedule.promptEvent(e, now: at(14.9), lead: lead.seconds)?.id, "call", "\(lead): five late minutes")
+            XCTAssertNil(MeetingSchedule.promptEvent(e, now: at(15), lead: lead.seconds), "\(lead): then it goes")
+        }
+        XCTAssertEqual(MeetingSchedule.promptLabel(for: e[0], now: at(0.5)), "in 10 min")
+        XCTAssertEqual(JoinLead.allCases.map(\.title), ["Ten Minutes Before", "Five Minutes Before", "Two Minutes Before", "On Start"])
+        // A value a newer Airc wrote reads as the default.
+        let decoded = try? JSONDecoder().decode([JoinLead].self, from: Data(#"["fiveMinutesBefore","onStart"]"#.utf8))
+        XCTAssertEqual(decoded, [.twoMinutes, .onStart])
+    }
+
+    func testControlCommandJJoinsTheNextOrCurrentMeeting() {
+        let zoom = MeetingLink(url: URL(string: "https://example.zoom.us/j/123")!, service: .zoom)
+        let events = [event("allhands", -30, 30, link: meet), event("nolink", -5, 60), event("soon", 1, 30, link: zoom),
+                      event("later", 120, 150, link: meet), event("allday", -600, 840, link: meet, allDay: true)]
+        // The prompt's meeting first, even when its prompt was closed.
+        XCTAssertEqual(MeetingSchedule.joinTarget(events, now: at(0))?.id, "soon")
+        // No prompt: the one on now (not the one without a link, not the all-day one).
+        XCTAssertEqual(MeetingSchedule.joinTarget(events, now: at(-2))?.id, "allhands")
+        XCTAssertEqual(MeetingSchedule.joinTarget(events, now: at(-2), lead: JoinLead.tenMinutes.seconds)?.id, "soon")
+        // Nothing on: the next one, within a day.
+        XCTAssertEqual(MeetingSchedule.joinTarget(events, now: at(40))?.id, "later")
+        XCTAssertNil(MeetingSchedule.joinTarget([event("far", 25 * 60, 26 * 60, link: meet)], now: t0), "more than a day out")
+        XCTAssertNil(MeetingSchedule.joinTarget(events, now: at(151)))
+        XCTAssertNil(MeetingSchedule.joinTarget([event("nolink", 5, 30)], now: t0))
+    }
+
     func testTheCardListsTheNextDayInOrder() {
         let events = [event("tomorrow-late", 25 * 60, 26 * 60), event("b", 90, 120), event("now", -10, 20),
                       event("done", -60, -1), event("a", 30, 45), event("allday", 0, 1440, allDay: true)]
@@ -141,11 +192,14 @@ final class MeetingCalendarTests: XCTestCase {
                       event("d", 24 * 60 + 30, 24 * 60 + 60)]
         func state(_ now: Date) -> String {
             [MeetingSchedule.tileLabel(events, now: now) ?? "-",
-             MeetingSchedule.promptEvent(events, now: now).map { $0.id + MeetingSchedule.promptLabel(for: $0, now: now) } ?? "-",
-             MeetingSchedule.upcoming(events, now: now).map(\.id).joined()].joined(separator: "|")
+             MeetingSchedule.promptEvent(events, now: now, lead: lead).map { $0.id + MeetingSchedule.promptLabel(for: $0, now: now) } ?? "-",
+             MeetingSchedule.upcoming(events, now: now).map(\.id).joined(),
+             MeetingSchedule.upcoming(events, now: now).filter { $0.start.timeIntervalSince(now) <= MeetingSchedule.soonJoin }.map(\.id).joined()]
+                .joined(separator: "|")
         }
+        let lead = JoinLead.fiveMinutes.seconds
         var now = at(-1)
-        var boundary = MeetingSchedule.nextBoundary(events, now: now)
+        var boundary = MeetingSchedule.nextBoundary(events, now: now, promptLead: lead)
         var last = state(now)
         var changes = 0
         while now < at(80) {
@@ -157,7 +211,7 @@ final class MeetingCalendarTests: XCTestCase {
                 if let b = boundary { XCTAssertLessThanOrEqual(b, now, "changed at \(now.timeIntervalSince(t0)) s, before \(b.timeIntervalSince(t0)) s") }
                 last = s
             }
-            if let b = boundary, b <= now { boundary = MeetingSchedule.nextBoundary(events, now: now) }
+            if let b = boundary, b <= now { boundary = MeetingSchedule.nextBoundary(events, now: now, promptLead: lead) }
         }
         XCTAssertGreaterThan(changes, 60)
     }

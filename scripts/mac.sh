@@ -8,10 +8,10 @@
 #   scripts/mac.sh ssh 'CMD'                   run CMD on the Mac without syncing
 #
 # Each NAME gets its own copy at ~/arcfork/work/NAME on the Mac, so parallel agents don't share
-# build folders. Defaults: NAME=main, host = ssh alias "mac" (override with AIRC_MAC_HOST).
+# build folders. Defaults: NAME=main, host = ssh alias "buildmac" (override with AIRC_MAC_HOST).
 set -euo pipefail
 
-HOST="${AIRC_MAC_HOST:-mac}"
+HOST="${AIRC_MAC_HOST:-buildmac}"
 NAME="main"
 if [[ "${1:-}" == "-w" ]]; then NAME="$2"; shift 2; fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -19,7 +19,9 @@ REMOTE="arcfork/work/$NAME"
 
 sync() {
   ssh "$HOST" "mkdir -p $REMOTE"
+  # Vendored Rust crates are source: keep their build/, out/ and dist/ directories (thiserror's build/probe.rs).
   rsync -az --delete \
+    --include '/engine/core/blocking-rust/third_party/chromium_crates_io/vendor/**/' \
     --exclude .git/ --exclude .build/ --exclude build/ --exclude DerivedData/ \
     --exclude node_modules/ --exclude dist/ --exclude out/ --exclude /artifacts/ \
     "$ROOT/" "$HOST:$REMOTE/"

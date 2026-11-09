@@ -11,6 +11,12 @@ extension ResolvedTheme {
         isDark ? AircColor.inkDark.alpha(AircMetrics.Row.selectedHoverAlphaDark) : AircColor.white(0.92)
     }
 
+    /// A row of a sidebar multi-selection (SB-36) other than the shown tab: Arc's secondary selection, #FAFBFF 0.10 in
+    /// dark themes and black 0.10 in light ones (Arc 1.170 asset catalog), with no shadow, so the shown tab still
+    /// stands out. Under the pointer it takes the hover ink on top.
+    public var multiSelectFill: AircColor { isDark ? AircColor.inkDark.alpha(0.10) : AircColor.black(0.10) }
+    public var multiSelectHoverFill: AircColor { isDark ? AircColor.inkDark.alpha(0.16) : AircColor.black(0.14) }
+
     /// The 2 pt line (and its 8 pt ring) that marks where a dragged row will land. Arc: white 0.9 in dark
     /// themes; light themes use the theme's primary ink at 0.80, because white would vanish on them.
     public var dropLine: AircColor {

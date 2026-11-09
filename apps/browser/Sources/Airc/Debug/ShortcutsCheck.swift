@@ -209,7 +209,7 @@ extension SnapshotRunner {
                 keyCase(k, page: page, setup: "reset();prevent[\(Self.js(k.page))]=1;selectText(ed,0,5)", settle: KeyMonitor.pageAnswerTimeout + 0.15) { s, log in
                     let downs = log.filter { $0.hasPrefix("kd \(k.page)") }
                     var browser: [String] = []
-                    if NSPasteboard.general.changeCount != pasteboardBefore { browser.append("the pasteboard changed") }
+                    if NSPasteboard.general.changeCount != (self.uiAttempt?.pasteboardBefore ?? pasteboardBefore) { browser.append("the pasteboard changed") }
                     if (self.c.library != nil) != libraryBefore { browser.append("the Library toggled") }
                     if s["loadID"] as? String != Self.lastLoadID { browser.append("the page reloaded") }
                     if self.c.store.todayRowTabs(ofSpace: self.c.currentSpaceID).count != todayBefore { browser.append("Today was cleared") }
@@ -231,7 +231,7 @@ extension SnapshotRunner {
                            "shortcuts: ⇧⌘C again within a second copies the URL (pasteboard \(url), page log \(log.joined(separator: ", ")))")
             }
             wait(1.1)
-            run { NSPasteboard.general.clearContents() }
+            run { Self.putPlain("") }
             keyCase(copyURL, page: page, setup: "reset();selectText(ed,0,5)", settle: 0.3) { _, log in
                 let url = NSPasteboard.general.string(forType: .string) ?? ""
                 self.check(url.hasSuffix("/editor") && log.filter({ $0.hasPrefix("kd \(copyURL.page)") }) == ["kd \(copyURL.page)"],
@@ -289,7 +289,8 @@ extension SnapshotRunner {
                 (Key("⌦", 117, String(Character(UnicodeScalar(NSDeleteFunctionKey)!)), nil, .function), "reset();caret(ta,0)",
                  { ($0["ta"] as? String)?.hasPrefix("lpha") == true }, "deletes forward"),
             ]
-            for (k, setup, ok, what) in fieldKeys {
+            func fieldKey(_ item: (Key, String, ([String: Any]) -> Bool, String)) {
+                let (k, setup, ok, what) = item
                 keyCase(k, page: page, setup: setup) { s, log in
                     let moved = (s["href"] as? String)?.hasSuffix("/editor") != true || self.c.shownTabID != tabID || tabsBefore() != tabCount
                     self.check(ok(s) && log.filter({ $0.hasPrefix("kd \(k.page)") }).count == 1 && !moved,
@@ -297,6 +298,14 @@ extension SnapshotRunner {
                                + (moved ? "; the browser acted: \(s["href"] ?? "-"), tabs \(tabCount) → \(tabsBefore()) (shown \(self.c.shownTabID.flatMap { self.c.store.tab($0)?.url } ?? "-"))" : "") + ")")
                 }
             }
+
+            fieldKeys.prefix(2).forEach(fieldKey)
+            // Cut supplies the paste fixture; undo and redo depend on that exact paste. Replaying only paste
+            // duplicated its text and made the next undo/redo falsely fail under clipboard contention.
+            uiCase(window: { self.c.window }) {
+                fieldKeys[2...5].forEach(fieldKey)
+            }
+            fieldKeys.dropFirst(6).forEach(fieldKey)
 
             // ⌘Z on a page whose keyboard isn't in a field: a page that uses it keeps it (a canvas app's own undo); one
             // that doesn't leaves it to Reopen Closed Tab (SB-23, SB-40).
@@ -433,7 +442,7 @@ extension SnapshotRunner {
             // ⌥⌘V (Arc): the clipboard's URL in a new tab; a page that uses the key (Docs' Paste Formatting) keeps it.
             let pasteGo = Key("⌥⌘V", 9, "√", "v", [.command, .option])
             var tabsBeforePaste = 0
-            run { [self] in NSPasteboard.general.clearContents(); NSPasteboard.general.setString(base + "/editor2", forType: .string)
+            run { [self] in Self.putPlain(base + "/editor2")
                 tabsBeforePaste = c.store.todayRowTabs(ofSpace: c.currentSpaceID).count }
             keyCase(pasteGo, page: page, setup: "reset();prevent[\(Self.js(pasteGo.page))]=1;caret(inp,3)", settle: KeyMonitor.pageAnswerTimeout + 0.15) { _, log in
                 let n = self.c.store.todayRowTabs(ofSpace: self.c.currentSpaceID).count
@@ -441,10 +450,19 @@ extension SnapshotRunner {
                            "shortcuts: ⌥⌘V a page uses stays the page's (Today tabs \(tabsBeforePaste) → \(n), log \(log.joined(separator: ", ")))")
             }
             wait(1.05)
-            keyCase(pasteGo, page: page, setup: "reset();caret(inp,3)", settle: 0.6) { _, log in
-                let shown = self.c.shownTabID.flatMap { self.c.store.tab($0) }
-                self.check(self.c.shownTabID != tabID && shown?.url.hasSuffix("/editor2") == true,
-                           "shortcuts: ⌥⌘V opens the clipboard's URL in a new tab (shown \(shown?.url ?? "-"), log \(log.joined(separator: ", ")))")
+            uiCase(window: { self.c.window }) {
+                run { [self] in
+                    if uiAttempt?.retry == true, c.shownTabID != tabID {
+                        c.closeCurrentTab()
+                        c.show(tabID, focus: true)
+                    }
+                    Self.putPlain(base + "/editor2")
+                }
+                keyCase(pasteGo, page: page, setup: "reset();caret(inp,3)", settle: 0.6) { _, log in
+                    let shown = self.c.shownTabID.flatMap { self.c.store.tab($0) }
+                    self.check(self.c.shownTabID != tabID && shown?.url.hasSuffix("/editor2") == true,
+                               "shortcuts: ⌥⌘V opens the clipboard's URL in a new tab (shown \(shown?.url ?? "-"), log \(log.joined(separator: ", ")))")
+                }
             }
             waitForPage()
             // Tab switching: ⌘{ ⌘} (⇧⌘[ ⇧⌘]) and ⌃⇞ ⌃⇟ move through the sidebar's tabs, whoever has the keyboard.
@@ -542,7 +560,7 @@ extension SnapshotRunner {
             wait(0.3)
             let ownKeys: [(Key, (NSTextView) -> Void, (NSTextView) -> Bool, String)] = [
                 (.cmd("⌘A", 0, "a"), { $0.setSelectedRange(NSRange(location: 3, length: 0)) }, { $0.selectedRange() == NSRange(location: 0, length: 11) }, "selects all"),
-                (.cmd("⌘C", 8, "c"), { NSPasteboard.general.clearContents(); $0.setSelectedRange(NSRange(location: 0, length: 5)) },
+                (.cmd("⌘C", 8, "c"), { Self.putPlain(""); $0.setSelectedRange(NSRange(location: 0, length: 5)) },
                  { _ in NSPasteboard.general.string(forType: .string) == "qxqxq" }, "copies"),
                 (.cmd("⌘X", 7, "x"), { $0.setSelectedRange(NSRange(location: 0, length: 6)) }, { $0.string == "wvwvw" && NSPasteboard.general.string(forType: .string) == "qxqxq " }, "cuts"),
                 (.cmd("⌘V", 9, "v"), { tv in Self.putPlain("qxqxq "); tv.setSelectedRange(NSRange(location: 0, length: 0)) },
@@ -558,7 +576,20 @@ extension SnapshotRunner {
                 (Key("⌃K", 40, "\u{0b}", "k", .control), { $0.setSelectedRange(NSRange(location: 5, length: 0)) }, { $0.string == "qxqxq" }, "deletes to the end"),
                 (Key("⌘⌫", 51, "\u{7f}", nil, .command), { $0.string = "qxqxq wvwvw"; $0.setSelectedRange(NSRange(location: 6, length: 0)) }, { $0.string == "wvwvw" }, "deletes to the start"),
             ]
-            for (k, setup, ok, what) in ownKeys { fieldCase("the Command Bar", k, setup: setup, ok: ok, what: what) }
+            func ownKey(_ item: (Key, (NSTextView) -> Void, (NSTextView) -> Bool, String)) {
+                let (k, setup, ok, what) = item
+                fieldCase("the Command Bar", k, setup: setup, ok: ok, what: what)
+            }
+            ownKeys.prefix(2).forEach(ownKey)
+            uiCase(window: { self.c.window }) {
+                run { [self] in
+                    if uiAttempt?.retry == true { (c.window.firstResponder as? NSTextView)?.string = "qxqxq wvwvw" }
+                }
+                ownKeys[2...5].forEach(ownKey)
+            }
+            // Navigation has its own fixture even if the editing transaction was externally interrupted.
+            run { [self] in (c.window.firstResponder as? NSTextView)?.string = "qxqxq wvwvw" }
+            ownKeys.dropFirst(6).forEach(ownKey)
             run { Self.putRichText(html: "<b>Bold</b> and <i>rich</i>", plain: "Bold and rich") }
             fieldCase("the Command Bar", .cmdShift("⇧⌘V", 9, "V"), setup: { $0.string = ""; $0.setSelectedRange(NSRange(location: 0, length: 0)) },
                       ok: { $0.string == "Bold and rich" }, what: "pastes plain text")
@@ -586,12 +617,17 @@ extension SnapshotRunner {
             }
             fieldCase("the Boost code editor", .cmd("⌘A", 0, "a"), setup: { $0.setSelectedRange(NSRange(location: 1, length: 0)) },
                       ok: { $0.selectedRange() == NSRange(location: 0, length: 7) }, what: "selects all", needs: BoostCodeTextView.self)
-            fieldCase("the Boost code editor", .cmd("⌘X", 7, "x"), setup: { $0.setSelectedRange(NSRange(location: 0, length: 4)) },
-                      ok: { $0.string == "def" }, what: "cuts", needs: BoostCodeTextView.self)
-            fieldCase("the Boost code editor", .cmd("⌘Z", 6, "z"), setup: { tv in if tv.string != "def" { tv.string = "(⌘X didn't cut)" } },
-                      ok: { $0.string == "abc def" }, what: "undoes the cut", needs: BoostCodeTextView.self)
-            fieldCase("the Boost code editor", .cmd("⌘V", 9, "v"), setup: { tv in Self.putPlain("abc "); tv.setSelectedRange(NSRange(location: 7, length: 0)) },
-                      ok: { $0.string == "abc defabc " }, what: "pastes", needs: BoostCodeTextView.self)
+            uiCase(window: { self.c.window }) {
+                run { [self] in
+                    if uiAttempt?.retry == true { (c.window.firstResponder as? BoostCodeTextView)?.string = "abc def" }
+                }
+                fieldCase("the Boost code editor", .cmd("⌘X", 7, "x"), setup: { $0.setSelectedRange(NSRange(location: 0, length: 4)) },
+                          ok: { $0.string == "def" }, what: "cuts", needs: BoostCodeTextView.self)
+                fieldCase("the Boost code editor", .cmd("⌘Z", 6, "z"), setup: { tv in if tv.string != "def" { tv.string = "(⌘X didn't cut)" } },
+                          ok: { $0.string == "abc def" }, what: "undoes the cut", needs: BoostCodeTextView.self)
+                fieldCase("the Boost code editor", .cmd("⌘V", 9, "v"), setup: { tv in Self.putPlain("abc "); tv.setSelectedRange(NSRange(location: 7, length: 0)) },
+                          ok: { $0.string == "abc defabc " }, what: "pastes", needs: BoostCodeTextView.self)
+            }
             run { [self] in c.closeBoostEditor(animated: false) }
         }
 
@@ -652,8 +688,7 @@ extension SnapshotRunner {
             server?.stop()
             KeyMonitor.testKeyWindowDispatch = nil
             // The owner's clipboard back, unless they copied something of their own meanwhile.
-            let now = NSPasteboard.general.string(forType: .string)
-            if now == nil || Self.testClips.contains(now!) || now!.hasPrefix(base) { Self.restorePasteboard(savedPasteboard) }
+            if UICheckAttempt.mayRestorePasteboard { Self.restorePasteboard(savedPasteboard) }
             else { note("shortcuts: the pasteboard changed outside the check; left as it is") }
             note("shortcuts: done")
         }
@@ -666,34 +701,50 @@ extension SnapshotRunner {
     /// page's answer and `settle` seconds, then hands the page's state and event log to `verdict`.
     func keyCase(_ k: Key, page: @escaping () -> EngineTab?, setup: String, pause: Double = 0, settle: Double = 0.35, focusFirst: Bool = true,
                  verdict: @escaping ([String: Any], [String]) -> Void) {
-        if k.unavailable { return run { [self] in skip("shortcuts: \(k.name): this keyboard layout can't type it (\(Self.layoutName))") } }
-        if focusFirst { step { [self] done in refocus(page, done) } }
-        step { [self] done in
-            guard let p = page() else { check(false, "shortcuts: \(k.name): no page"); return done() }
-            p.evaluate("(function(){\(setup);return loadID})()") { v in
-                Self.lastLoadID = v as? String
-                DispatchQueue.main.asyncAfter(deadline: .now() + pause, execute: done)
+        uiCase(window: { self.c.window }) {
+            if k.unavailable { return run { [self] in skip("shortcuts: \(k.name): this keyboard layout can't type it (\(Self.layoutName))") } }
+            run { [self] in
+                uiAttempt?.monitorsPasteboard = ["c", "x", "v"].contains(k.ignoring.lowercased()) || setup.contains("prevent[")
+                uiAttempt?.pasteboardReadOnly = k.ignoring.lowercased() == "v"
             }
-        }
-        step { [self] done in
-            if ProcessInfo.processInfo.environment["AIRC_SHORTCUTS_TRACE"] == "1" {
-                let r = c.window.firstResponder as? NSView
-                note("trace: \(k.name): first responder \(Self.describe(r)), text input context \(r?.inputContext != nil), "
-                     + "editing per the app \(KeyMonitor.pageIsEditingText(c))")
-            }
-            postKey(k)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                self.waitUntil({ !KeyMonitor.isWaitingForPage }, timeout: 3) {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + settle, execute: done)
+            if focusFirst { step { [self] done in refocus(page, done) } }
+            step { [self] done in
+                guard uiAttempt?.retry == true, setup == "1", let p = page() else { return done() }
+                // Retry the double-press sequence, including its first, page-consumed press.
+                p.evaluate("reset();prevent[\(Self.js(k.page))]=1;selectText(ed,0,5)") { _ in
+                    self.postKey(k)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { p.evaluate("state()") { _ in done() } }
                 }
             }
-        }
-        step { [self] done in
-            guard let p = page() else { return done() }
-            p.evaluate("state()") { v in
-                let s = (v as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] } ?? [:]
-                verdict(s, s["log"] as? [String] ?? ["(no answer: \(String(describing: v)))"])
-                done()
+            step { [self] done in
+                guard let p = page() else { check(false, "shortcuts: \(k.name): no page"); return done() }
+                p.evaluate("(function(){\(setup);return loadID})()") { v in
+                    Self.lastLoadID = v as? String
+                    DispatchQueue.main.asyncAfter(deadline: .now() + pause, execute: done)
+                }
+            }
+            step { [self] done in
+                if ProcessInfo.processInfo.environment["AIRC_SHORTCUTS_TRACE"] == "1" {
+                    let r = c.window.firstResponder as? NSView
+                    note("trace: \(k.name): first responder \(Self.describe(r)), text input context \(r?.inputContext != nil), "
+                         + "editing per the app \(KeyMonitor.pageIsEditingText(c))")
+                }
+                postKey(k)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    self.waitUntil({ !KeyMonitor.isWaitingForPage }, timeout: 3) {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + settle, execute: done)
+                    }
+                }
+            }
+            step { [self] done in
+                guard let p = page() else { return done() }
+                p.evaluate("state()") { v in
+                    let s = (v as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] } ?? [:]
+                    self.uiAttempt?.recordInputDelivery(setup == "1" || (s["log"] as? [String] ?? []).contains { $0.hasPrefix("kd \(k.page)") })
+                    self.uiAttempt?.sample()
+                    verdict(s, s["log"] as? [String] ?? ["(no answer: \(String(describing: v)))"])
+                    done()
+                }
             }
         }
     }
@@ -701,21 +752,42 @@ extension SnapshotRunner {
     /// The same for one of our own fields (the first responder, an NSTextView).
     func fieldCase(_ field: String, _ k: Key, setup: @escaping (NSTextView) -> Void, ok: @escaping (NSTextView) -> Bool, what: String,
                    needs: NSTextView.Type = NSTextView.self) {
-        if k.unavailable { return run { [self] in skip("shortcuts: \(k.name) in \(field): this keyboard layout can't type it") } }
-        step { [self] done in
-            guard let tv = c.window.firstResponder as? NSTextView, type(of: tv) == needs || needs == NSTextView.self else {
-                skip("shortcuts: \(k.name) in \(field): not focused (\(Self.describe(c.window.firstResponder)))"); return done()
-            }
-            setup(tv)
-            if ProcessInfo.processInfo.environment["AIRC_SHORTCUTS_TRACE"] == "1" {
-                note("trace: \(k.name) in \(field): can undo \(tv.undoManager?.canUndo ?? false), can redo \(tv.undoManager?.canRedo ?? false)")
-            }
-            postKey(k)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                let now = self.c.window.firstResponder as? NSTextView
-                self.check(now === tv && ok(tv), "shortcuts: \(k.name) in \(field) \(what) (“\(tv.string)”, selection \(NSStringFromRange(tv.selectedRange()))"
-                           + (now === tv ? "" : ", the field lost the keyboard to \(Self.describe(self.c.window.firstResponder))") + ")")
-                done()
+        let standalone = !collectingUICase
+        var originalText: String?
+        uiCase(window: { self.c.window }) {
+            if k.unavailable { return run { [self] in skip("shortcuts: \(k.name) in \(field): this keyboard layout can't type it") } }
+            step { [self] done in
+                guard let tv = c.window.firstResponder as? NSTextView, type(of: tv) == needs || needs == NSTextView.self else {
+                    check(false, "shortcuts: \(k.name) in \(field): not focused (\(Self.describe(c.window.firstResponder)))"); return done()
+                }
+                if standalone, self.uiAttempt?.retry == true, let originalText { tv.string = originalText }
+                else { originalText = tv.string }
+                setup(tv)
+                // What the key finds: if neither the field nor the clipboard changes, it never reached the field.
+                let before = (tv.string, tv.selectedRange(), NSPasteboard.general.changeCount)
+                self.uiAttempt?.monitorsPasteboard = ["c", "x", "v"].contains(k.ignoring.lowercased())
+                self.uiAttempt?.pasteboardReadOnly = k.ignoring.lowercased() == "v"
+                if ProcessInfo.processInfo.environment["AIRC_SHORTCUTS_TRACE"] == "1" {
+                    note("trace: \(k.name) in \(field): can undo \(tv.undoManager?.canUndo ?? false), can redo \(tv.undoManager?.canRedo ?? false)")
+                }
+                postKey(k)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    let now = self.c.window.firstResponder as? NSTextView
+                    // Delivered: the field still has the keyboard and the key did something there, or nothing else could
+                    // have kept it. With another app's window over ours (someone working at the Mac), a key that changed
+                    // nothing never reached the field: environmental, as the page fields' cases are. Uncovered, a key
+                    // that does nothing stays a real failure.
+                    let changed = tv.string != before.0 || tv.selectedRange() != before.1 || NSPasteboard.general.changeCount != before.2
+                    let w = self.c.window
+                    let centre = w.convertPoint(toScreen: NSPoint(x: w.contentView?.bounds.midX ?? 0, y: w.contentView?.bounds.midY ?? 0))
+                    let top = NSWindow.windowNumber(at: centre, belowWindowWithWindowNumber: 0)
+                    let covered = top != 0 && top != w.windowNumber && SnapshotRunner.windowInfo(top).pid != getpid()
+                    self.uiAttempt?.recordInputDelivery(now === tv && (changed || !covered))
+                    self.uiAttempt?.sample()
+                    self.check(now === tv && ok(tv), "shortcuts: \(k.name) in \(field) \(what) (“\(tv.string)”, selection \(NSStringFromRange(tv.selectedRange()))"
+                               + (now === tv ? "" : ", the field lost the keyboard to \(Self.describe(self.c.window.firstResponder))") + ")")
+                    done()
+                }
             }
         }
     }
@@ -839,9 +911,6 @@ extension SnapshotRunner {
         return nil
     }
 
-    /// Everything this check puts on the pasteboard, itself or through ⌘C and ⌘X.
-    static let testClips: Set<String> = ["one", "one ", "qxqxq", "qxqxq ", "Bold and rich", "abc ", "abc def"]
-
     static func logged(_ s: [String: Any], _ prefix: String) -> Bool { (s["log"] as? [String])?.contains { $0.hasPrefix(prefix) } == true }
 
     static func js(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "\\'") + "'" }
@@ -854,6 +923,7 @@ extension SnapshotRunner {
     static func putPlain(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+        UICheckAttempt.markFixture()
     }
 
     static func putRichText(html: String, plain: String) {
@@ -861,6 +931,7 @@ extension SnapshotRunner {
         pb.clearContents()
         pb.setString(html, forType: .html)
         pb.setString(plain, forType: .string)
+        UICheckAttempt.markFixture()
     }
 
     static func pasteboardItems() -> [[NSPasteboard.PasteboardType: Data]] {

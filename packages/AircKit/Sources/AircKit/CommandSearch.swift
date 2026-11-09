@@ -42,7 +42,11 @@ public enum CommandSearch {
     /// Scores `text` against `query`: whole-word prefix > word prefix > substring > in-order
     /// characters. Returns nil when the query doesn't match. Case- and diacritic-insensitive.
     public static func score(_ query: String, in text: String) -> (score: Double, matches: [Int])? {
-        let q = folded(query), t = folded(text)
+        score(folded(query), in: folded(text))
+    }
+
+    /// The identical scorer for callers that own bounded, off-main prepared text.
+    static func score(_ q: Folded, in t: Folded) -> (score: Double, matches: [Int])? {
         guard q.count > 0 else { return (0, []) }
         guard t.count > 0 else { return nil }
         if let qu = q.units, let tu = t.units { return match(qu, in: tu, wordStart: t.wordStart) }
@@ -86,7 +90,7 @@ public enum CommandSearch {
     /// A folded string ready to match: its characters, their scalars when every character is a single one (nearly
     /// always), and where words start. The Command Bar scores the same titles, URLs and keywords on every keystroke;
     /// folding and splitting them again each time was most of a keystroke's main-thread work (§2.12).
-    struct Folded {
+    struct Folded: Sendable {
         let chars: [Character]
         let units: [UInt32]?
         let wordStart: [Bool]

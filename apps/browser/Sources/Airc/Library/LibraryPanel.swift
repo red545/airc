@@ -2,25 +2,66 @@
 import AircDesign
 import AircKit
 import AppKit
+import Quartz
 import SwiftUI
 
 /// The Library (SB-62, Arc ref §5): slides in from the left, 417 pt wide, pushing the page card on the `push` spring
-/// (0.245 s, ζ 0.92). Archived Tabs (searchable; restore returns a tab to its Space), Downloads, Spaces. It sits on
-/// the window's theme like the sidebar it covers.
+/// (0.245 s, ζ 0.92). Archived Tabs (searchable, filtered as Arc's by where the tab was and how it closed; restore returns
+/// a tab to its Space), Media (LIB-1, with folder sources), Downloads, Notes (every note, P10a), Spaces.
+/// It sits on the window's theme like the sidebar it covers.
 final class LibraryModel: ObservableObject {
     enum Section: String, CaseIterable, Identifiable {
-        case archive = "Archived Tabs", downloads = "Downloads", spaces = "Spaces"
+        case archive = "Archived Tabs", media = "Media", downloads = "Downloads", notes = "Notes", spaces = "Spaces"
         var id: String { rawValue }
     }
 
     @Published var section: Section = .archive
     @Published var query = ""
+    /// Arc's "Filter Archived Tabs" (P10a): where the tab was, how it closed.
+    @Published var archiveFilter = ArchiveFilter()
     @Published var downloadsQuery = ""
     @Published var revision = 0
     weak var controller: WindowController?
 
     init(controller: WindowController) {
         self.controller = controller
+    }
+
+    // The Library is global, just like its Downloads and Spaces sections. Freeze IDs when
+    // asking so an entry auto-archived while the question is open is not silently removed.
+    var archiveCount: Int { controller?.store.state.archive.count ?? 0 }
+    private(set) var archiveConfirmation: NSAlert?
+    private(set) var lastArchiveBackup: URL?
+
+    func requestClearArchive(entryID: String? = nil) {
+        guard let c = controller, let settings = c.app?.settings,
+              c.window.attachedSheet == nil else { return }
+        let ids = Set(c.store.archivedEntries.filter { entryID == nil || $0.id == entryID }.map(\.id))
+        guard !ids.isEmpty else { return }
+        let alert = NSAlert()
+        alert.messageText = "Remove \(ids.count) archived \(ids.count == 1 ? "tab" : "tabs")? This can't be undone."
+        alert.informativeText = "\(entryID == nil ? "All Spaces and profiles, including tabs hidden by search." : "Only this archived tab, in its original Space and profile.") A recovery backup will be saved first in your backup folder (\(settings.backupDirectory.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))). ⌘Z won't restore these tabs."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: entryID == nil ? "Clear Archive" : "Remove from Archive")
+        alert.buttons[1].hasDestructiveAction = true
+        archiveConfirmation = alert
+        alert.beginSheetModal(for: c.window) { [weak self, weak c] response in
+            guard let self, let c else { return }
+            self.archiveConfirmation = nil
+            guard response == .alertSecondButtonReturn else { return }
+            do {
+                try c.store.clearArchive(entryIDs: ids) {
+                    self.lastArchiveBackup = try settings.backUp(c.store, purpose: .archiveRemoval)
+                }
+                self.revision += 1
+            } catch {
+                let failure = NSAlert()
+                failure.messageText = "Couldn't remove archived tabs"
+                failure.informativeText = "The archive was kept. Check that your backup folder is available and try again. \(error.localizedDescription)"
+                failure.beginSheetModal(for: c.window)
+            }
+        }
     }
 
     struct Day: Identifiable {
@@ -32,8 +73,10 @@ final class LibraryModel: ObservableObject {
     var days: [Day] {
         guard let c = controller else { return [] }
         let q = query.trimmingCharacters(in: .whitespaces)
+        let filter = archiveFilter
         let entries = c.store.archivedEntries.filter { e in
-            q.isEmpty || CommandSearch.score(q, in: e.title) != nil || CommandSearch.score(q, in: URLRules.displayURL(e.url)) != nil
+            filter.matches(e)
+                && (q.isEmpty || CommandSearch.score(q, in: e.title) != nil || CommandSearch.score(q, in: URLRules.displayURL(e.url)) != nil)
         }
         let cal = Calendar.current
         var out: [Day] = []
@@ -82,7 +125,9 @@ struct LibraryView: View {
             .padding(.top, 14)
             switch model.section {
             case .archive: archive
+            case .media: LibraryMediaView(files: LibraryFiles.shared, theme: theme, host: model.controller?.library) { model.controller?.showToast($0) }
             case .downloads: downloads
+            case .notes: LibraryNotesView(controller: model.controller, theme: theme, revision: model.revision, onOpened: onClose)
             case .spaces: spaces
             }
         }
@@ -105,22 +150,94 @@ struct LibraryView: View {
             .background(RoundedRectangle(cornerRadius: AircRadius.row, style: .continuous).fill(theme.fieldFill.color))
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
+            HStack {
+                archiveFilterMenu
+                Spacer()
+                Button("Clear Archive…") { model.requestClearArchive() }
+                    .buttonStyle(.airc(.secondary, size: .small))
+                    .disabled(model.archiveCount == 0)
+                    .testAnchor("library.clearArchive")
+            }
+            .padding(.horizontal, 22)
+            .padding(.bottom, 8)
             let days = model.days
             if days.isEmpty {
-                empty("archivebox", model.query.isEmpty ? "Closed and auto-archived Today tabs show up here." : "Nothing archived matches.")
+                empty("archivebox", model.query.isEmpty && !model.archiveFilter.isActive
+                      ? "Closed and auto-archived Today tabs show up here." : "Nothing archived matches.")
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0, pinnedViews: []) {
                         ForEach(days) { day in
                             Text(day.title).aircFont(AircFont.caption).foregroundStyle(theme.textTertiary.color)
                                 .padding(.horizontal, 22).padding(.top, 10).padding(.bottom, 4)
-                            ForEach(day.entries) { e in ArchiveRow(entry: e, theme: theme, spaceName: spaceName(e)) { restore(e) } }
+                            ForEach(day.entries) { e in
+                                ArchiveRow(entry: e, theme: theme, spaceName: spaceName(e)) { restore(e) }
+                                    .contextMenu {
+                                        Button("Restore") { restore(e) }
+                                        Button("Remove from Archive…", role: .destructive) { model.requestClearArchive(entryID: e.id) }
+                                        Divider()
+                                        Button("Clear Archive…", role: .destructive) { model.requestClearArchive() }
+                                    }
+                            }
                         }
                     }
                     .padding(.bottom, 20)
                 }
             }
         }
+    }
+
+    /// Arc's "Filter Archived Tabs": "Where was the tab?" (a Space, or Little Arc) and "How was the tab closed?".
+    private var archiveFilterMenu: some View {
+        let f = model.archiveFilter
+        return Menu {
+            Section("Where was the tab?") {
+                Toggle("All Spaces", isOn: Binding(get: { f.place == .anywhere }, set: { if $0 { model.archiveFilter.place = .anywhere } }))
+                ForEach(model.controller?.store.orderedSpaces ?? []) { s in
+                    Toggle("\(s.iconLabel) \(s.name)".trimmingCharacters(in: .whitespaces),
+                           isOn: Binding(get: { f.place == .space(s.id) }, set: { if $0 { model.archiveFilter.place = .space(s.id) } }))
+                }
+                Toggle("Little Airc", isOn: Binding(get: { f.place == .littleArc }, set: { if $0 { model.archiveFilter.place = .littleArc } }))
+            }
+            Section("How was the tab closed?") {
+                Toggle("Any Way", isOn: Binding(get: { f.closing == .any }, set: { if $0 { model.archiveFilter.closing = .any } }))
+                Toggle("Auto-Closed", isOn: Binding(get: { f.closing == .automatic }, set: { if $0 { model.archiveFilter.closing = .automatic } }))
+                Toggle("Manually Closed", isOn: Binding(get: { f.closing == .manual }, set: { if $0 { model.archiveFilter.closing = .manual } }))
+            }
+            if f.isActive {
+                Divider()
+                Button("Clear Filter") { model.archiveFilter = ArchiveFilter() }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: f.isActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                    .font(.system(size: 12, weight: .medium))
+                Text(filterSummary).aircFont(AircFont.callout.weight(.medium))
+            }
+            .foregroundStyle((f.isActive ? theme.accent : theme.textSecondary).color)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Filter Archived Tabs")
+        .accessibilityLabel("Filter Archived Tabs")
+        .testAnchor("library.archive.filter")
+    }
+
+    private var filterSummary: String {
+        let f = model.archiveFilter
+        var parts: [String] = []
+        switch f.place {
+        case .anywhere: break
+        case .space(let id): parts.append(model.controller?.store.space(id)?.name ?? "Space")
+        case .littleArc: parts.append("Little Airc")
+        }
+        switch f.closing {
+        case .any: break
+        case .automatic: parts.append("Auto-Closed")
+        case .manual: parts.append("Manually Closed")
+        }
+        return parts.isEmpty ? "Filter" : parts.joined(separator: ", ")
     }
 
     /// Every profile's downloads (Downloads/DownloadViews.swift).
@@ -256,6 +373,12 @@ final class LibraryPanelHost: NSView {
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
 
+    // Library › Media's Quick Look panel (LibraryQuickLook): the host is first responder while it's up.
+    override var acceptsFirstResponder: Bool { true }
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
+    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) { LibraryQuickLook.shared.begin(panel) }
+    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) { LibraryQuickLook.shared.end(panel) }
+
     override func layout() {
         super.layout()
         back.frame = SpaceBarView.libraryButtonFrame(columnHeight: bounds.height)
@@ -284,9 +407,16 @@ final class LibraryPanelHost: NSView {
 }
 
 extension WindowController {
+    /// A swipe past the first Space (SP-25): opens the Library, never closes it.
+    func openLibrary() {
+        if library == nil { toggleLibrary() }
+    }
+
     /// ⇧⌘L and the footer's Library button (SB-62).
     func toggleLibrary() {
         let opening = library == nil
+        recentFiles.hide()
+        if !opening { LibraryQuickLook.shared.close() }
         if opening {
             closeCommandBar()
             let panel = LibraryPanelHost(controller: self)

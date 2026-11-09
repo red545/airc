@@ -143,6 +143,12 @@ public final class HistoryStore {
         try? db.run("DELETE FROM visits WHERE profile=?", [.text(profileID)])
     }
 
+    /// Warms only the bounded local tier off-main. Private callers pass no profile and do no work.
+    public func prepareLocalIndex(profileID: String?) {
+        guard let profileID else { return }
+        indexer.prepareLocal(profileID: profileID, now: now())
+    }
+
     /// Builds the profile's search index off the main thread (call when the Command Bar opens).
     public func prepareIndex(profileID: String) { indexer.prepare(profileID: profileID, now: now()) }
 
@@ -153,6 +159,13 @@ public final class HistoryStore {
         indexer.search(query, profileID: profileID, limit: limit, now: now(), completion: completion)
     }
 
+    /// The hot tier, prepared off-main. This never waits for the index queue or reads disk.
+    /// Private callers must pass no profile, as they do for the asynchronous search source.
+    public func localMatches(_ query: String, profileID: String?, limit: Int = 8) -> [HistoryMatch] {
+        guard let profileID else { return [] }
+        return indexer.localSnapshot(profileID)?.search(query, limit: limit) ?? []
+    }
+
     /// The latest built index, for inline completion on the main thread: a binary search, no scan. nil until the
     /// first build finishes.
     public func indexSnapshot(profileID: String) -> HistorySnapshot? { indexer.publishedSnapshot(profileID) }
@@ -161,7 +174,7 @@ public final class HistoryStore {
     public func indexSnapshotNow(profileID: String) -> HistorySnapshot { indexer.snapshotNow(profileID, now: now()) }
 
     /// The best matches for what was typed, ranked by match quality and frecency. Synchronous: it waits for the index
-    /// queue (tests); the Command Bar uses `search(_:profileID:limit:completion:)`.
+    /// queue (tests); the Command Bar uses `localMatches` and asynchronous refinement.
     public func search(_ query: String, profileID: String, limit: Int = 6) -> [(entry: HistoryEntry, score: Double, matches: [Int])] {
         indexer.searchNow(query, profileID: profileID, limit: limit, now: now()).map { ($0.entry, $0.score, $0.matches) }
     }
@@ -177,6 +190,13 @@ public final class HistoryStore {
             ON CONFLICT(profile, url) DO UPDATE SET title=excluded.title, visits=excluded.visits, typed=excluded.typed, last=excluded.last
             """, [.text(e.profileID), .text(e.url), .text(e.title), .int(Int64(e.visitCount)), .int(Int64(e.typedCount)),
                   .real(e.lastVisit.timeIntervalSince1970)])
+    }
+
+    /// Remove just this profile's suggestion, from disk and the completion index too.
+    public func remove(profileID: String, url: String) {
+        entries[profileID]?[url] = nil
+        indexer.remove(profileID: profileID, url: url)
+        try? db.run("DELETE FROM visits WHERE profile=? AND url=?", [.text(profileID), .text(url)])
     }
 
     private func prune(_ profileID: String) {

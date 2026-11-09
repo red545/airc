@@ -44,11 +44,18 @@ extension WindowController {
 
     /// "meet.google.com" or a URL → "https://meet.google.com"; nil when it isn't a web address.
     static func pictureInPictureOrigin(_ typed: String) -> String? {
-        var t = typed.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !t.isEmpty, !t.contains(" ") else { return nil }
-        if !t.contains("://") { t = "https://" + t }
-        guard let u = URL(string: t), let scheme = u.scheme, ["http", "https"].contains(scheme), let host = u.host, host.contains(".") || host == "localhost"
-        else { return nil }
-        return "\(scheme)://\(host)" + (u.port.map { ":\($0)" } ?? "")
+        MiniPlayerSite.origin(typed)
+    }
+
+    static func canPersistMiniPlayerSite(for page: EngineTab) -> Bool {
+        (NSApp.delegate as? AppDelegate)?.profiles.loadedProfiles.contains { $0 === page.profile } == true
+    }
+
+    func canPersistMiniPlayerSite(for page: EngineTab) -> Bool { Self.canPersistMiniPlayerSite(for: page) }
+
+    func suppressMiniPlayer(for page: EngineTab) {
+        guard canPersistMiniPlayerSite(for: page), let origin = page.url.flatMap({ MiniPlayerSite.origin($0.absoluteString) }) else { return }
+        app?.settings.values.pipSites[origin] = false
+        applyPictureInPictureSettings()
     }
 }

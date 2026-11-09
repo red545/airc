@@ -1,0 +1,155 @@
+# Copyright 2023 The Chromium Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+# @generated from third_party/rust/chromium_crates_io/BUILD.gn.hbs by
+# tools/crates/gnrt.
+# Do not edit!
+
+import("//build/rust/cargo_crate.gni")
+
+cargo_crate("airc_lib") {
+  crate_name = "serde_json"
+  epoch = "1"
+  crate_type = "rlib"
+  crate_root =
+      "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lib.rs"
+  sources = [
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/de.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/error.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/io/core.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/io/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/iter.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/algorithm.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/bhcomp.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/bignum.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/cached.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/cached_float80.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/digit.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/errors.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/exponent.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/float.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/large_powers.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/large_powers32.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/large_powers64.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/math.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/num.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/parse.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/rounding.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/shift.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/small_powers.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lib.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/macros.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/map.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/number.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/raw.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/read.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/ser.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/value/de.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/value/from.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/value/index.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/value/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/value/partial_eq.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/value/ser.rs",
+  ]
+  inputs = [
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/de.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/error.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/io/core.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/io/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/iter.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/algorithm.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/bhcomp.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/bignum.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/cached.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/cached_float80.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/digit.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/errors.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/exponent.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/float.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/large_powers.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/large_powers32.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/large_powers64.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/math.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/num.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/parse.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/rounding.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/shift.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lexical/small_powers.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/lib.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/macros.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/map.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/number.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/raw.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/read.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/ser.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/value/de.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/value/from.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/value/index.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/value/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/value/partial_eq.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/src/value/ser.rs",
+  ]
+
+  build_native_rust_unit_tests = false
+  edition = "2021"
+  cargo_pkg_authors = "Erick Tryzelaar <erick.tryzelaar@gmail.com>, David Tolnay <dtolnay@gmail.com>"
+  cargo_pkg_name = "serde_json"
+  cargo_pkg_description = "A JSON serialization file format"
+  cargo_pkg_repository = "https://github.com/serde-rs/json"
+  cargo_pkg_version = "1.0.149"
+  rustc_metadata = "airc-blocking-${crate_name}-${cargo_pkg_version}"
+
+  allow_unsafe = true
+
+  deps = [
+    "//airc/core/blocking-rust/third_party/itoa/v1:airc_lib",
+    "//airc/core/blocking-rust/third_party/memchr/v2:airc_lib",
+    "//airc/core/blocking-rust/third_party/serde_core/v1:airc_lib",
+    "//airc/core/blocking-rust/third_party/zmij/v1:airc_lib",
+  ]
+  features = [
+    "default",
+    "std",
+  ]
+  build_root =
+      "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/build.rs"
+  build_sources =
+      [ "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/build.rs" ]
+
+  visibility = []
+  visibility += [ "//build/rust/*" ]
+  visibility += [ "//airc/core/blocking-rust/*" ]
+
+  #####################################################################
+  # Tweaking which GN `config`s apply to this target.
+
+  # Config changes that apply to all `//third_party/rust` crates.
+  _configs_to_remove = [
+    # We don't need code coverage data for any `chromium_crates_io` crates.
+    "//build/config/coverage:default_coverage",
+
+    # This is third-party code, so remove `chromium_code` config.  We are not
+    # at the same time adding `//build/config/compiler:no_chromium_code`,
+    # because 1) we don't want to pull how warnings are handled by that config
+    # and 2) that config doesn't have any non-warnings-related stuff.
+    "//build/config/compiler:chromium_code",
+  ]
+  _configs_to_add = []
+
+  # Changing (if needed) which configs apply to this specific crate (based on
+  # `extra_kv.configs_to_remove` and `extra_kv.configs_to_add` from
+  # `gnrt_config.toml`).
+  _configs_to_remove += []
+  _configs_to_add += []
+
+  # Applying config changes.
+  library_configs -= _configs_to_remove
+  library_configs += _configs_to_add
+  executable_configs -= _configs_to_remove
+  executable_configs += _configs_to_add
+  proc_macro_configs -= _configs_to_remove
+  proc_macro_configs += _configs_to_add
+}

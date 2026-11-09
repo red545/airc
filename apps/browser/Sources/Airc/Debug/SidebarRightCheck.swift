@@ -181,7 +181,12 @@ extension SnapshotRunner {
         step { [self] done in waitUntil({ self.c.library == nil }, timeout: 3) { done() } }
 
         // 3. ⌘S on the right: the sidebar slides off to the right; the right edge reveals it, floating.
-        run { [self] in if !c.sidebarHidden { c.toggleSidebar() } }
+        run { [self] in
+            if !c.sidebarHidden { c.toggleSidebar() }
+            check([NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].allSatisfy {
+                c.window.standardWindowButton($0)?.isHidden == true
+            }, "sidebarright hiding: traffic lights hide at the start of the slide")
+        }
         step { [self] done in waitUntil({ self.c.sidebarFraction <= 0.001 }, timeout: 2) { done() } }
         run { [self] in
             c.root.layoutSubtreeIfNeeded()

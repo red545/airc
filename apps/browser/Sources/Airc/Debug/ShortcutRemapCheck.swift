@@ -25,6 +25,13 @@ extension SnapshotRunner {
         """
 
     func shortcutRemapScenario() {
+        run { [self] in
+            let symbols = ShortcutCenter.shiftedDigitSymbols()
+            _ = ShortcutCenter.shared.update { $0.assign(KeyCombo("l", .command), to: "view.capture", resolving: .clearOther) }
+            check(ShortcutCenter.hint("file.openLocation", "⌘L").isEmpty, "shortcutremap: displaced default does not advertise a shortcut")
+            _ = ShortcutCenter.shared.update { $0.resetAll(); return .done }
+            check(!symbols.isEmpty && symbols.values.contains("2"), "shortcutremap: active keyboard layout supplies digit migration")
+        }
         Key.strict = app?.engine.name.hasPrefix("Chromium") == true
         let center = ShortcutCenter.shared, editor = ShortcutsEditor.shared
         var server: LocalPageServer?

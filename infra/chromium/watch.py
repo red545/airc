@@ -3,6 +3,7 @@
 
 """Poll official Mac release feeds; never sync, build, or dispatch an agent."""
 import fcntl
+import hashlib
 import html
 import json
 import re
@@ -41,26 +42,50 @@ def atomic(path, text):
     tmp.replace(path)
 
 
-def security(versions):
+def security(versions, pinned=None):
     entries = {}
     errors = []
+    reviewed = []
+    try:
+        review_file = HERE / 'reviewed-posts.json'
+        if review_file.exists():
+            reviewed = json.loads(review_file.read_text())
+            if not isinstance(reviewed, list) or not all(isinstance(r, dict) for r in reviewed):
+                raise ValueError('expected a list of review records')
+    except Exception as error:
+        errors.append(f'reviewed-posts.json: {error}')
+        reviewed = []
     for v in versions:
         try:
             feed = fetch(BLOG + urllib.parse.quote('"' + v + '"'))
+            matched = False
             for entry in feed.get('feed', {}).get('entry', []):
-                body = html.unescape(re.sub('<[^>]+>', ' ', entry.get('content', {}).get('$t', '')))
+                content = entry.get('content', {}).get('$t', '')
+                digest = hashlib.sha256(content.encode('utf-8')).hexdigest()
+                body = html.unescape(re.sub('<[^>]+>', ' ', content))
                 body = re.sub(r'\s+', ' ', body).strip()
                 if v not in body:
                     continue
+                matched = True
                 url = next(x['href'] for x in entry['link'] if x.get('rel') == 'alternate')
                 entries[url] = {'url': url, 'title': entry['title']['$t'],
+                                'content_sha256': digest,
+                                'reviewed': any(r.get('url') == url and r.get('pinned') == pinned
+                                                and pinned is not None and r.get('content_sha256') == digest
+                                                for r in reviewed),
                                 'cves': sorted(set(re.findall(r'CVE-\d{4}-\d+', body))),
                                 'urgent': bool(re.search(r'in[ -]the[ -]wild|actively exploited', body, re.I)),
                                 'text': body}
+            if not matched:
+                errors.append(f'{v}: no matching release post')
         except Exception as error:
             errors.append(f'{v}: {error}')
+    urgency = 'reviewed' if entries and not errors and all(e['reviewed'] for e in entries.values()) else 'review-required'
+    # A review never hides evidence of active exploitation.
+    if any(e['urgent'] for e in entries.values()):
+        urgency = 'urgent'
     return {'entries': list(entries.values()), 'errors': errors,
-            'urgency': 'urgent' if any(e['urgent'] for e in entries.values()) else 'review-required',
+            'urgency': urgency,
             'coverage': 'Blog search covers only releases returned by the feed; missing CVEs do not mean no security fixes.'}
 
 
@@ -106,7 +131,7 @@ def main():
             except Exception as error:
                 state['stable_error'] = str(error)
             needed = [v for v in versions if version(v) > version(state['pinned'])]
-            state['security'] = security(needed or versions[:1])
+            state['security'] = security(needed or versions[:1], state['pinned'])
             if needed:
                 atomic(HERE / 'pending-update.md', brief(state))
             else:

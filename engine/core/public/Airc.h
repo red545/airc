@@ -166,6 +166,19 @@ AIRC_EXPORT
     completion:(void (^)(NSString* _Nullable extensionID, NSString* _Nullable error))completion;
 @end
 
+// P20d: Chromium's task manager model (Chrome's Task Manager window's data). Main thread. `handler` gets one
+// dictionary per task every `interval` s (≥ 0.5) while observed; nil stops sampling. Keys: taskID, rootTaskID (int64),
+// title, kind (browser/gpu/utility/renderer/extension/guest/worker/other), pid, tabId (AircTab.tabId; tabs only),
+// profileName, offTheRecord (on a private window's processes), cpu (% of one core; absent until sampled), memory
+// (footprint bytes), network (bytes/s), killable (also false when the TaskManagerEndProcessEnabled policy is off).
+@interface AircEngine (TaskManager)
++ (void)observeTasksEvery:(NSTimeInterval)interval
+                  handler:(nullable void (^)(NSArray<NSDictionary<NSString*, id>*>* tasks))handler
+    NS_SWIFT_NAME(observeTasks(every:handler:));
+// Chrome's End Process: ends the task's process (its pages show the crashed state). NO for an unknown or unkillable task.
++ (BOOL)endTask:(int64_t)taskID;
+@end
+
 @interface AircEngine (MemoryTesting)
 // Refused outside the existing unsigned, mock-keychain, scratch-profile test gate.
 + (BOOL)simulateMemoryPressureForTesting:(NSInteger)level;
@@ -396,6 +409,8 @@ AIRC_EXPORT
 // False protects from both idle-timeout and memory-pressure discards.
 - (void)setAutoDiscardable:(BOOL)autoDiscardable;
 // Refuses visible, audible, captured, loading or edited pages. Preserves navigation state.
+// YES accepts a request; history-state flushing is asynchronous. Showing/navigating
+// the page or a new safety veto can cancel it. Observe discarded for completion.
 - (BOOL)discard;
 @property(readonly) BOOL discarded;
 @property(nonatomic) BOOL frozen;
@@ -462,6 +477,29 @@ typedef NS_ENUM(NSInteger, AircSavePageFormat) {
 @property(nonatomic) double zoomFactor;
 - (void)zoomStep:(int)direction;
 @property(readonly) double pinchScale;
+@end
+
+// Developer commands operate on this tab's WebContents and off-the-record context.
+// A nil error means command delivery succeeded. Non-nil errors must be surfaced.
+@interface AircTab (DeveloperCommands)
+- (void)showDevToolsPanel:(NSString*)panel completion:(void (^)(NSString* _Nullable error))completion;
+// Top-left viewport DIPs, independent of backing scale; not screen or document coordinates.
+- (void)inspectElementAtPoint:(NSPoint)point completion:(void (^)(NSString* _Nullable error))completion
+    NS_SWIFT_NAME(inspectElement(at:completion:));
+// Registrable domain (including private registries), or host/IP. Nil for private/non-HTTP tabs.
+@property(readonly, nullable) NSString* siteDataDomain;
+// Clear this domain and subdomains: cookies, storage, HTTP/code caches in this profile only.
+// Private tabs are refused. Errors use unavailable:/partial: prefixes when applicable.
+// Reload is suppressed if the tab navigated or closed while clearing.
+- (void)clearSiteDataAndReload:(void (^)(NSString* _Nullable error))completion;
+// P20d. The site those clear: as siteDataDomain, and a private tab's own site too.
+@property(readonly, nullable) NSString* developerSiteDomain;
+// Arc's Clear Cookies and Refresh / Clear Cache and Refresh: only @"cookies" and/or @"cache" (HTTP + code caches) of
+// that site, in this tab's own storage partition (a private tab's off-the-record session, never its regular profile).
+// Scope, errors and the navigation guard as clearSiteDataAndReload; the reload bypasses the cache when @"cache" was
+// cleared.
+- (void)clearSiteData:(NSArray<NSString*>*)types reload:(BOOL)reload
+           completion:(void (^)(NSString* _Nullable error))completion;
 @end
 
 @interface AircTab (Commands)
@@ -569,6 +607,14 @@ AIRC_EXPORT
 // See PROFILE-SERVICES.md for keys, limits, and acknowledgement semantics.
 - (void)importLogins:(NSArray<NSDictionary*>*)logins completion:(void (^)(NSDictionary*))completion;
 - (void)importCookies:(NSArray<NSDictionary*>*)cookies completion:(void (^)(NSDictionary*))completion;
+// P22b. What the imports take beyond website passwords and unpartitioned cookies: "httpAuthLogins" (login rows with
+// scheme basic/digest/other), "federatedLogins" (federationOrigin, no password), "partitionedCookies" (metadata
+// top_frame_site_key) and "localStorage" (importLocalStorage). A class property, so the app can feature-detect it
+// before any profile loads; older engines don't have it.
+@property(class, readonly) NSArray<NSString*>* importKinds;
+// P22b. Sites' localStorage: rows {origin, items: [{key, value}]}, NSData as Chromium's localStorage database holds
+// them. A site that already has local storage keeps it. Results per site; see PROFILE-SERVICES.md.
+- (void)importLocalStorage:(NSArray<NSDictionary*>*)sites completion:(void (^)(NSDictionary*))completion;
 @end
 @interface AircTab (Hosting)
 // Multiple attached tabs remain visible independently of selected profile/tab.
@@ -635,4 +681,22 @@ AIRC_EXPORT
 - (BOOL)setSiteZoomFactor:(double)factor origin:(NSString*)origin;
 - (BOOL)resetSiteZoom:(NSString*)origin;
 @end
+// Blocking policy is per profile. Private profiles inherit current parent lists
+// and policy; their site overrides live only in the private BrowserContext.
+@interface AircEngine (Blocking)
+- (void)setBlockingLists:(NSString*)lists enabled:(BOOL)enabled profile:(AircProfile*)profile
+             completion:(void (^)(BOOL installed))completion;
+- (void)setBlockingEnabled:(BOOL)enabled profile:(AircProfile*)profile;
+- (BOOL)setBlockingException:(BOOL)excepted site:(NSString*)site profile:(AircProfile*)profile;
+- (NSDictionary*)blockingCosmeticsForURL:(NSString*)url profile:(AircProfile*)profile;
+- (NSArray<NSString*>*)blockingGenericCosmeticsForURL:(NSString*)url tokens:(NSString*)tokens
+                                             profile:(AircProfile*)profile;
+- (BOOL)setThirdPartyCookiesBlocked:(BOOL)blocked profile:(AircProfile*)profile;
+// Called only after the user explicitly chooses to disable these extensions.
+- (BOOL)disableBlockingExtension:(NSString*)extensionID profile:(AircProfile*)profile;
+@end
+@interface AircTab (Blocking)
+@property(readonly) NSUInteger blockedRequestCount;
+@end
+
 NS_ASSUME_NONNULL_END

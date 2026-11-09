@@ -40,7 +40,7 @@ const r = await getRelease();
   )}
   {!bare && (
   <p class="links">
-    <a href={r.notes} data-track="release_notes_clicked" data-track-from={from} data-track-leave>Release notes</a>
+    <a href="/changelog" data-track="changelog_clicked" data-track-from={from}>What's new</a>
     <span aria-hidden="true">·</span>
     <a href="/versions" data-track="versions_clicked" data-track-from={from}>All versions</a>
     <span aria-hidden="true">·</span>
@@ -221,4 +221,15 @@ const r = await getRelease();
   .dark .links { color: rgb(255 255 255 / 0.35); }
   .dark .links a { color: rgb(255 255 255 / 0.7); text-decoration-color: rgb(255 255 255 / 0.25); }
   .dark .links a:hover { color: #fff; }
+
+  /* Phones: one full-width Download, GitHub as a quiet link under it, and release links a thumb can hit. */
+  @media (max-width: 480px) {
+    .download { width: 100%; }
+    .row { flex-direction: column; width: 100%; max-width: 340px; gap: 2px; }
+    .holo { width: 100%; height: 52px; justify-content: center; }
+    .gh { height: 44px; padding: 0 12px; background: none; box-shadow: none; }
+    .links { gap: 0 16px; margin-top: 0; }
+    .links span[aria-hidden] { display: none; }
+    .links a { display: inline-flex; align-items: center; min-height: 44px; }
+  }
 </style>

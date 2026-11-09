@@ -21,7 +21,7 @@ import WebKit
 /// - `native`: five cycles, each left another way (Esc twice, View → Exit Full Screen, the green button,
 ///   `toggleFullScreen`, FullScreenController.exit); `native-rapid`: leave while entering, enter while leaving;
 /// - `native-esc`: one Esc in full screen stays (Arc); with the focus in a Chromium page, on the window, in a
-///   Safari's-engine page;
+///   Safari's-engine page; `webkit-esc`: the Safari's-engine part without a real full screen (daytime-safe);
 /// - `native-video`, `native-split`, `native-webkit` (a Safari's-engine page), `native-switch` (tab and Space switches
 ///   in full screen, then leave with the video in picture in picture);
 /// - `little-over-native`: a Little Arc window over the browser's full screen (it joins the active Space, as for the
@@ -31,7 +31,7 @@ import WebKit
 extension SnapshotRunner {
     /// Scratch identities that may activate themselves for a real full screen (scripts/tests/fullscreen-investigate.py).
     /// Never the owner's (`org.airc.Airc*`).
-    static let fullscreenInvestigatorIDs = ["org.airc.fscrash", "org.airc.fsexit"]
+    static let fullscreenInvestigatorIDs = ["org.airc.fscrash", "org.airc.fsexit", "org.airc.fsfollow"]
 
     func fullscreenExitCheck() {
         let activate = ProcessInfo.processInfo.environment["AIRC_FULLSCREEN_ACTIVATE"] == "1"
@@ -79,6 +79,7 @@ extension SnapshotRunner {
             check(!c.isFullscreen && atArc, "native failed enter: the windowed layout comes back (traffic lights \(centers))")
             if c.isFullscreen { c.fullScreen.didExit() }
             titlebarStackGuardCheck()
+            privateTitlebarOwnershipCheck()
         }
         guard permitted() else { return }
         // The external debugger runner watches HID even while SIGSTOP suspends our main thread.
@@ -150,6 +151,37 @@ extension SnapshotRunner {
         }
         wait(0.3)
         run { [self] in check(container.frame == placed, "titlebar guard: the next turn puts the traffic lights back (\(container.frame == placed))") }
+    }
+
+    /// Exercise the private window's actual layout helper without entering fullscreen or moving AppKit's views.
+    /// A stand-in window supplies buttons whose container can be loaned to a second, never-shown window.
+    private func privateTitlebarOwnershipCheck() {
+        let home = FullscreenTrafficLightWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                                               styleMask: [.titled], backing: .buffered, defer: false)
+        let away = NSWindow(contentRect: home.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        home.isReleasedWhenClosed = false
+        away.isReleasedWhenClosed = false
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 32))
+        let row = NSView(frame: container.bounds)
+        container.addSubview(row)
+        home.contentView?.addSubview(container)
+        home.testButtons = (0..<3).map { _ in NSButton(frame: NSRect(x: 5, y: 5, width: 14, height: 14)) }
+        home.testButtons.forEach { row.addSubview($0) }
+        let lights = TrafficLights(window: home)
+        let placed = container.frame
+        away.contentView?.addSubview(container)
+        container.frame = NSRect(x: placed.origin.x, y: 4, width: placed.width, height: 31)
+        let loaned = container.frame
+        lights.place()
+        check(container.frame == loaned, "private titlebar: leave the container alone in another window")
+        run { [self] in
+            check(container.frame == loaned, "private titlebar: queued frame observers do not fight the borrowed container")
+            home.contentView?.addSubview(container)
+            lights.place()
+            check(container.frame == placed, "private titlebar: restore windowed positions after the container returns")
+            home.close()
+            away.close()
+        }
     }
 
     /// How much of this thread's stack is in use (it grows down from its top).
@@ -378,6 +410,8 @@ extension SnapshotRunner {
         var originalTab = ""
         let originalSpace = c.currentSpaceID
         var otherSpace = ""
+        var emptySpace = ""
+        var webOtherTab = ""
         var otherTab = ""
         let littleJoined = LittleArcController.joinsActiveSpace
         let html = """
@@ -411,12 +445,14 @@ extension SnapshotRunner {
                         _ = try? self.c.store.createSplit([tab.id, second.id], inSpace: self.c.currentSpaceID, focused: tab.id)
                     }
                     originalTab = tab.id
-                    if mode == "switch" || mode == "native-switch" || mode == "webkit-switch" {
+                    if mode == "switch" || mode == "native-switch" || mode == "webkit-switch" || mode == "webkit-esc" {
                         otherTab = (try? self.c.store.openTab(url: "about:blank", inSpace: originalSpace, activate: false))?.id ?? ""
                         otherSpace = (try? self.c.store.createSpace(name: "Fullscreen other", icon: nil, theme: self.c.store.selectedSpace.theme,
                             profileID: self.c.store.defaultProfile.id, after: originalSpace))?.id ?? ""
-                        // A Space with a tab, as people have them. (Switching to an empty Space activates no tab, and a
-                        // page in HTML5 full screen stays so, hidden, until it is shown again: fsexit's report.)
+                        emptySpace = (try? self.c.store.createSpace(name: "Fullscreen empty", icon: nil, theme: self.c.store.selectedSpace.theme,
+                            profileID: self.c.store.defaultProfile.id, after: otherSpace))?.id ?? ""
+                        if webKit { webOtherTab = (try? self.c.store.openTab(url: url, inSpace: originalSpace, activate: false))?.id ?? "" }
+                        // Both populated and empty Spaces must end the outgoing page's element presentation.
                         if !otherSpace.isEmpty { _ = try? self.c.store.openTab(url: "about:blank", inSpace: otherSpace, activate: true) }
                     }
                     self.c.reloadAll(animated: false)
@@ -471,6 +507,42 @@ extension SnapshotRunner {
                 if let page { engine.closePictureInPicture(page) }
                 LittleArcController.joinsActiveSpace = littleJoined
                 server?.stop()
+            }
+        }
+
+        // The suite cannot activate its window. Check the real routing on an ordinary WebKit page as well:
+        // reselecting preserves it, but both engine destinations and both kinds of Space ask it to leave fullscreen.
+        if mode == "webkit-esc" || mode == "webkit-switch" {
+            run { [self] in
+                guard let wk = page as? WebKitTab else { return check(false, "WebKit hide contract: missing page") }
+                let before = wk.elementFullscreenExitRequests
+                c.show(originalTab, focus: false)
+                check(wk.elementFullscreenExitRequests == before, "WebKit hide contract: reselect keeps the presentation")
+            }
+            for destination in ["webkit", "chromium", "space", "empty"] {
+                var before = 0
+                var chromiumBefore = 0
+                run { [self] in
+                    before = (page as? WebKitTab)?.elementFullscreenExitRequests ?? -1
+                    chromiumBefore = HybridTesting.emptyFullscreenExits
+                    switch destination {
+                    case "webkit": c.show(webOtherTab, focus: false)
+                    case "chromium": c.show(otherTab, focus: false)
+                    case "space": c.switchToSpace(otherSpace, animated: false)
+                    default: c.switchToSpace(emptySpace, animated: false)
+                    }
+                }
+                wait(0.15) // showEmpty defers engine deactivation until the next frame.
+                run { [self] in
+                    check(((page as? WebKitTab)?.elementFullscreenExitRequests ?? -1) > before,
+                          "WebKit hide contract: \(destination) switch requests element exit")
+                    if destination == "empty" {
+                        check(HybridTesting.emptyFullscreenExits > chromiumBefore,
+                              "empty Space contract: Chromium also receives an explicit element exit")
+                    }
+                    c.switchToSpace(originalSpace, animated: false)
+                    c.show(originalTab, focus: false)
+                }
             }
         }
 
@@ -535,10 +607,25 @@ extension SnapshotRunner {
                     let responder = c.window.firstResponder.map { String(describing: type(of: $0)) } ?? "none"
                     evaluate("(window.__esc=0,true)", on: target) { _ in
                         let before = self.c.fullScreen.exitRequests
+                        // Who leaves on one Esc: the stack AppKit posts willExit from (it does so synchronously).
+                        var leaving: [String] = []
+                        let watcher = NotificationCenter.default.addObserver(forName: NSWindow.willExitFullScreenNotification,
+                                                                             object: self.c.window, queue: nil) { _ in
+                            leaving = Thread.callStackSymbols
+                        }
                         Self.postEscape(to: self.c.window)
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
                             evaluate("window.__esc===1", on: target) { seen in
+                                NotificationCenter.default.removeObserver(watcher)
                                 let stayed = self.c.window.styleMask.contains(.fullScreen) && self.c.isFullscreen
+                                if !stayed, !leaving.isEmpty {
+                                    // The frames between the event and AppKit's transition (symbols only, no paths).
+                                    let frames = leaving.compactMap { line -> String? in
+                                        let parts = line.split(separator: " ", omittingEmptySubsequences: true)
+                                        return parts.count > 3 ? parts[3...].joined(separator: " ") : nil
+                                    }
+                                    self.note("native-esc (\(places[cycle - 1])): left from: " + frames.prefix(40).joined(separator: " | "))
+                                }
                                 self.check(stayed, "native-esc (\(places[cycle - 1])): one Esc stays in full screen (the page saw it \(seen), "
                                            + "exit requests \(self.c.fullScreen.exitRequests - before), first responder \(responder), "
                                            + "WebKit page \(ProtectedMedia.isWebKitPage(target)))")
@@ -551,6 +638,42 @@ extension SnapshotRunner {
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+            }
+            cleanUp()
+            return
+        case "webkit-esc":
+            // No real full screen needed: in full screen's layout, one Esc that a Safari's-engine page sees but doesn't
+            // use comes back up the responder chain as cancelOperation: (WebPageProxy::executeSavedCommandBySelector),
+            // and the window's would leave full screen on it (native-esc's stack). It has to stop in RootView.
+            step { [self] done in
+                guard let page, let window = page.view.window else {
+                    check(false, "webkit-esc: the Safari's-engine page has no window")
+                    return done()
+                }
+                page.focus()
+                c.fullScreen.willEnter()
+                let stopped = RootView.cancelsStopped
+                evaluate("(window.__esc=0,true)") { _ in
+                    // A key goes to the key window; a run that isn't active has none (see "escape" below).
+                    let viaApp = NSApp.keyWindow === window
+                    for type in [NSEvent.EventType.keyDown, .keyUp] {
+                        if let e = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                    windowNumber: window.windowNumber, context: nil, characters: "\u{1b}",
+                                                    charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53) {
+                            if viaApp { NSApp.sendEvent(e) } else { window.sendEvent(e) }
+                        }
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                        evaluate("window.__esc===1") { seen in
+                            let n = RootView.cancelsStopped - stopped
+                            self.check(seen && n > 0, "webkit-esc: one Esc the Safari's-engine page saw (\(seen)) but didn't use stops in the "
+                                       + "browser window (its cancelOperation stopped \(n)×), so full screen stays")
+                            self.c.fullScreen.willExit()
+                            self.c.fullScreen.didExit()
+                            done()
                         }
                     }
                 }
@@ -583,20 +706,25 @@ extension SnapshotRunner {
 
         let webKitFullscreen = { (page as? WebKitTab)?.webView.fullscreenState }
         var escapeTo = ""
-        let exits = mode == "switch" || mode == "webkit-switch" ? ["tab", "space"] : ["api", "escape", "button"]
+        var presentationWindow: NSWindow?
+        let exits = mode == "switch" || mode == "webkit-switch" ? ["tab", "space", "empty"] : ["api", "escape", "button"]
         for target in ["box", "video"] {
             for exit in exits {
                 let name = "HTML5 \(mode)/\(target)/\(exit)"
                 step { [self] done in
                     guard permitted() else { entered = false; return done() }
                     if ProtectedMedia.isWebKitPage(page) {
+                        guard appIsActive(name) else { entered = false; return done() }
                         evaluate("video.play();window.__fs='asked';\(target).requestFullscreen().then(()=>{__fs='in'},e=>{__fs='refused: '+e.message});true") { _ in
                             poll("document.fullscreenElement===\(target)", timeout: 4) { ok in
                                 entered = ok
                                 page?.evaluate("window.__fs") { state in
                                     self.check(ok, "\(name): entered (\(state ?? "-"), WebKit full screen \(String(describing: webKitFullscreen().map { $0.rawValue })))")
                                     // WebKit's own window animates in; leave it once it is there.
-                                    self.waitUntil({ webKitFullscreen() == .inFullscreen }, timeout: 3) { done() }
+                                    self.waitUntil({ webKitFullscreen() == .inFullscreen }, timeout: 3) {
+                                        presentationWindow = page?.view.window
+                                        done()
+                                    }
                                 }
                             }
                         }
@@ -617,6 +745,9 @@ extension SnapshotRunner {
                         done()
                     case "space":
                         c.switchToSpace(otherSpace, animated: false)
+                        done()
+                    case "empty":
+                        c.switchToSpace(emptySpace, animated: false)
                         done()
                     case "escape":
                         // Chromium: DevTools Input would go straight to the renderer, past the browser's exclusive-access
@@ -653,18 +784,23 @@ extension SnapshotRunner {
                     func finished(_ ok: Bool) {
                         let home = page?.view.window === (little?.window ?? c.window)
                         let fs = webKitFullscreen().map { " WebKit full screen \($0.rawValue)," } ?? ""
-                        check(ok && (home || exit == "tab" || exit == "space"),
+                        check(ok && (home || exit == "tab" || exit == "space" || exit == "empty"),
                               "\(name): exited, video still playing, browser alive (\(fs) page in its window \(home))")
                         if !ok, let page {
                             page.evaluate("JSON.stringify({fullscreen:!!document.fullscreenElement,paused:video.paused,pip:!!document.pictureInPictureElement,hidden:document.hidden,escSeen:window.__esc|0})") { v in
                                 self.note("fullscreen exit state: \(v ?? "unavailable")" + (exit == "escape" ? ", Esc sent through \(escapeTo)" : ""))
                             }
                         }
+                        if ProtectedMedia.isWebKitPage(page) {
+                            let stray = presentationWindow !== (little?.window ?? c.window) && presentationWindow?.isVisible == true
+                            check(webKitFullscreen() == .notInFullscreen && !stray && home,
+                                  "\(name): WebKit returned the page and closed its fullscreen window (stray \(stray))")
+                        }
                         // Cleanup even on failed exit; the next request must start windowed.
                         let leave = ProtectedMedia.isWebKitPage(page) ? "(document.fullscreenElement&&document.exitFullscreen(),true)"
                             : "(async()=>{if(document.fullscreenElement)await document.exitFullscreen();return true})()"
                         evaluate(leave) { _ in
-                            if exit == "tab" || exit == "space" {
+                            if exit == "tab" || exit == "space" || exit == "empty" {
                                 self.c.switchToSpace(originalSpace, animated: false)
                                 self.c.show(originalTab, focus: false)
                             }
@@ -698,6 +834,15 @@ extension SnapshotRunner {
 }
 
 /// Main-loop guard; the external lldb harness independently enforces the same gate during debugger stops.
+private final class FullscreenTrafficLightWindow: NSWindow {
+    var testButtons: [NSButton] = []
+    override func standardWindowButton(_ type: NSWindow.ButtonType) -> NSButton? {
+        let types: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
+        guard let index = types.firstIndex(of: type), index < testButtons.count else { return nil }
+        return testButtons[index]
+    }
+}
+
 private final class FullscreenAttemptSafety {
     static var idle: Double {
         CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: CGEventType(rawValue: ~0)!)

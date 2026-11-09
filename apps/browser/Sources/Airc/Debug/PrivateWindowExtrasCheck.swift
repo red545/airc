@@ -193,8 +193,7 @@ extension SnapshotRunner {
         }
         run { [self] in
             KeyMonitor.testKeyWindowDispatch = nil
-            let now = NSPasteboard.general.string(forType: .string)
-            if now == nil || now == "Bold and rich" { Self.restorePasteboard(savedPasteboard) }
+            if UICheckAttempt.mayRestorePasteboard { Self.restorePasteboard(savedPasteboard) }
             else { note("private extras: the pasteboard changed outside the check; left as it is") }
         }
 
@@ -404,55 +403,64 @@ extension SnapshotRunner {
     /// ShortcutsCheck's keyCase for the private window's page.
     func privateKeyCase(_ k: Key, _ w: @escaping () -> PrivateWindowController?, setup: String, settle: Double = 0.35,
                         verdict: @escaping ([String: Any], [String]) -> Void) {
-        if k.unavailable { return run { [self] in skip("private extras: \(k.name): this keyboard layout can't type it (\(Self.layoutName))") } }
-        step { [self] done in
-            if w()?.focusedPage != nil { return done() }
-            clickIntoPrivatePage(w) { _ in done() }
-        }
-        step { done in
-            guard let p = w()?.shownPage else { return done() }
-            p.evaluate("(function(){\(setup);return loadID})()") { _ in done() }
-        }
-        // Right before the key, not only before the setup: the page has the keyboard (the case is about where its keys
-        // go, so it must have it), and the key monitor sends this window's keys through it. Otherwise the key goes
-        // straight to the window's command and the case fails for the setup, not for what it checks.
-        var unready: String?
-        step { [self] done in
-            guard let x = w() else { return done() }
-            func post() {
-                unready = nil
-                postKey(k, to: x.window)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    self.waitUntil({ !KeyMonitor.isWaitingForPage }, timeout: 3) {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + settle, execute: done)
+        uiCase(window: { w()?.window }) {
+            run { [self] in
+                uiAttempt?.monitorsPasteboard = ["c", "x", "v"].contains(k.ignoring.lowercased())
+                uiAttempt?.pasteboardReadOnly = k.ignoring.lowercased() == "v"
+                if uiAttempt?.retry == true { w()?.closeFind(refocusPage: true); w()?.closeCommandBar() }
+            }
+            if k.unavailable { return run { [self] in skip("private extras: \(k.name): this keyboard layout can't type it (\(Self.layoutName))") } }
+            step { [self] done in
+                if w()?.focusedPage != nil { return done() }
+                clickIntoPrivatePage(w) { _ in done() }
+            }
+            step { done in
+                guard let p = w()?.shownPage else { return done() }
+                p.evaluate("(function(){\(setup);return loadID})()") { _ in done() }
+            }
+            // Right before the key, not only before the setup: the page has the keyboard (the case is about where its keys
+            // go, so it must have it), and the key monitor sends this window's keys through it. Otherwise the key goes
+            // straight to the window's command and the case fails for the setup, not for what it checks.
+            var unready: String?
+            step { [self] done in
+                guard let x = w() else { return done() }
+                func post() {
+                    unready = nil
+                    postKey(k, to: x.window)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        self.waitUntil({ !KeyMonitor.isWaitingForPage }, timeout: 3) {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + settle, execute: done)
+                        }
                     }
                 }
-            }
-            let routed = PrivateBrowsing.shared.window(for: x.window) === x && KeyMonitor.testKeyWindowDispatch != nil
-            if x.focusedPage != nil, routed { return post() }
-            note("private extras: \(k.name): the page lost the keyboard after the setup (first responder "
-                 + "\(Self.describe(x.window.firstResponder)), keys routed \(routed)); back into it, and the setup again")
-            clickIntoPrivatePage(w) { ok in
-                guard ok, routed, let p = x.shownPage else {
-                    unready = "the page never had the keyboard (first responder \(Self.describe(x.window.firstResponder)), "
-                        + "this window's keys routed \(routed))"
-                    return done()
+                let routed = PrivateBrowsing.shared.window(for: x.window) === x && KeyMonitor.testKeyWindowDispatch != nil
+                if x.focusedPage != nil, routed { return post() }
+                note("private extras: \(k.name): the page lost the keyboard after the setup (first responder "
+                     + "\(Self.describe(x.window.firstResponder)), keys routed \(routed)); back into it, and the setup again")
+                clickIntoPrivatePage(w) { ok in
+                    guard ok, routed, let p = x.shownPage else {
+                        unready = "the page never had the keyboard (first responder \(Self.describe(x.window.firstResponder)), "
+                            + "this window's keys routed \(routed))"
+                        return done()
+                    }
+                    // The click moved the caret the setup put: the setup again, then the key.
+                    p.evaluate("(function(){\(setup);return loadID})()") { _ in post() }
                 }
-                // The click moved the caret the setup put: the setup again, then the key.
-                p.evaluate("(function(){\(setup);return loadID})()") { _ in post() }
             }
-        }
-        step { [self] done in
-            guard let p = w()?.shownPage else { check(false, "private extras: \(k.name): no page"); return done() }
-            p.evaluate("state()") { v in
-                let s = (v as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] } ?? [:]
-                // Not posted: the verdict fails, saying why.
-                if let unready {
-                    verdict(s, ["(not posted: \(unready))"])
-                    return done()
+            step { [self] done in
+                guard let p = w()?.shownPage else { check(false, "private extras: \(k.name): no page"); return done() }
+                p.evaluate("state()") { v in
+                    let s = (v as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] } ?? [:]
+                    // Not posted: the verdict fails, saying why.
+                    if let unready {
+                        verdict(s, ["(not posted: \(unready))"])
+                        return done()
+                    }
+                    self.uiAttempt?.recordInputDelivery((s["log"] as? [String] ?? []).contains { $0.hasPrefix("kd \(k.page)") })
+                    self.uiAttempt?.sample()
+                    verdict(s, s["log"] as? [String] ?? ["(no answer: \(String(describing: v)))"])
+                    done()
                 }
-                verdict(s, s["log"] as? [String] ?? ["(no answer: \(String(describing: v)))"])
-                done()
             }
         }
     }

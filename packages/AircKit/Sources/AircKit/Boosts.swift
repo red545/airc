@@ -12,6 +12,7 @@ import Foundation
 /// One site's Boost. Every field decodes with a default, so files from older and newer builds still load.
 public struct Boost: Codable, Equatable, Sendable {
     /// The registrable domain it applies to (BoostDomain.key), lowercased.
+    public var name: String? = nil
     public var domain: String
     public var enabled: Bool
     public var colors: BoostColors
@@ -28,12 +29,15 @@ public struct Boost: Codable, Equatable, Sendable {
     /// owners ("duckdns.org", "github.io"): it applies nowhere and its code never runs until the person picks, in the
     /// editor, the site it belongs to (BoostStore's migration, BoostDomain.isSharedLegacyKey).
     public var needsSite: Bool
+    /// Where a shared Boost came from (installed from a file, a link or the gallery) or, for one the person shared
+    /// themselves, the identity its files and links carry: what lets a newer version update it (BoostOrigin).
+    public var origin: BoostOrigin?
     public var created: Date
     public var modified: Date
 
     public init(domain: String, enabled: Bool = true, colors: BoostColors = BoostColors(), font: BoostFont = BoostFont(),
                 zaps: [BoostZap] = [], css: String = "", js: String = "", scriptHost: String? = nil, needsSite: Bool = false,
-                created: Date = Date(), modified: Date? = nil) {
+                origin: BoostOrigin? = nil, created: Date = Date(), modified: Date? = nil) {
         self.domain = domain
         self.enabled = enabled
         self.colors = colors
@@ -43,6 +47,7 @@ public struct Boost: Codable, Equatable, Sendable {
         self.js = js
         self.scriptHost = scriptHost
         self.needsSite = needsSite
+        self.origin = origin
         self.created = created
         self.modified = modified ?? created
     }
@@ -64,10 +69,15 @@ public struct Boost: Codable, Equatable, Sendable {
         return scriptHost.map { $0 == host.lowercased() } ?? true
     }
 
-    enum CodingKeys: String, CodingKey { case domain, enabled, colors, font, zaps, css, js, scriptHost, needsSite, created, modified }
+    /// What it does to pages, as a short fingerprint: the same settings, zaps and code give the same digest (its name,
+    /// switch and dates don't count). An installed Boost whose digest is no longer its origin's was edited since.
+    public var contentDigest: String { BoostOrigin.digest(of: self) }
+
+    enum CodingKeys: String, CodingKey { case name, domain, enabled, colors, font, zaps, css, js, scriptHost, needsSite, origin, created, modified }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decodeIfPresent(String.self, forKey: .name)
         domain = try c.decode(String.self, forKey: .domain)
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
         colors = (try? c.decodeIfPresent(BoostColors.self, forKey: .colors)) ?? BoostColors()
@@ -77,12 +87,14 @@ public struct Boost: Codable, Equatable, Sendable {
         js = try c.decodeIfPresent(String.self, forKey: .js) ?? ""
         scriptHost = try c.decodeIfPresent(String.self, forKey: .scriptHost)
         needsSite = try c.decodeIfPresent(Bool.self, forKey: .needsSite) ?? false
+        origin = try? c.decodeIfPresent(BoostOrigin.self, forKey: .origin)
         created = try c.decodeIfPresent(Date.self, forKey: .created) ?? Date(timeIntervalSince1970: 0)
         modified = try c.decodeIfPresent(Date.self, forKey: .modified) ?? created
     }
 }
 
-/// The Colours section: a tint over the page, brightness, contrast, and invert for an instant dark mode.
+/// The Colours section: a tint over the page, brightness, contrast, how much of the page's own colour stays (Arc's
+/// "Original Saturation"), and invert for an instant dark mode.
 public struct BoostColors: Codable, Equatable, Sendable {
     /// The tint's hue, 0…1 (red at 0, as HSL).
     public var hue: Double
@@ -91,24 +103,31 @@ public struct BoostColors: Codable, Equatable, Sendable {
     /// 1 is the page as it is; 0.5…1.5.
     public var brightness: Double
     public var contrast: Double
+    /// How much of the page's own colour stays: 1 is all of it, 0 a grey page (under the tint, if one is on).
+    public var saturation: Double
     /// Inverts the page's colours (pictures and video are inverted back).
     public var invert: Bool
 
     public static let range: ClosedRange<Double> = 0.5...1.5
+    public static let saturationRange: ClosedRange<Double> = 0...1
 
-    public init(hue: Double = 0.6, tint: Double = 0, brightness: Double = 1, contrast: Double = 1, invert: Bool = false) {
+    public init(hue: Double = 0.6, tint: Double = 0, brightness: Double = 1, contrast: Double = 1, saturation: Double = 1,
+                invert: Bool = false) {
         self.hue = hue
         self.tint = tint
         self.brightness = brightness
         self.contrast = contrast
+        self.saturation = saturation
         self.invert = invert
     }
 
     public var isDefault: Bool { !hasTint && !hasFilter }
     var hasTint: Bool { tint > 0.005 }
-    var hasFilter: Bool { invert || abs(brightness - 1) > 0.005 || abs(contrast - 1) > 0.005 }
+    var hasFilter: Bool { invert || hasLightFilter }
+    /// Brightness, contrast or saturation: the filters an iframe already gets from its page's.
+    var hasLightFilter: Bool { abs(brightness - 1) > 0.005 || abs(contrast - 1) > 0.005 || saturation < 0.995 }
 
-    enum CodingKeys: String, CodingKey { case hue, tint, brightness, contrast, invert }
+    enum CodingKeys: String, CodingKey { case hue, tint, brightness, contrast, saturation, invert }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -116,36 +135,67 @@ public struct BoostColors: Codable, Equatable, Sendable {
         tint = try c.decodeIfPresent(Double.self, forKey: .tint) ?? 0
         brightness = try c.decodeIfPresent(Double.self, forKey: .brightness) ?? 1
         contrast = try c.decodeIfPresent(Double.self, forKey: .contrast) ?? 1
+        saturation = try c.decodeIfPresent(Double.self, forKey: .saturation) ?? 1
         invert = try c.decodeIfPresent(Bool.self, forKey: .invert) ?? false
     }
 }
 
-/// The Font section: one of a few system fonts for the page's text, and a size step.
+/// The Font section: one of a few system fonts for the page's text, a size step, and a letter case (Arc's "Change text
+/// case").
 public struct BoostFont: Codable, Equatable, Sendable {
     /// A `BoostFontFamily` raw value; nil (or a family this build doesn't know) keeps the site's own.
     public var family: String?
     /// A step in `BoostFont.sizes` around 0 (100 %).
     public var size: Int
+    /// A `BoostTextCase` raw value; nil (or one this build doesn't know) keeps the site's own.
+    public var textCase: String?
 
-    /// Step → scale. The page grows or shrinks as a whole (CSS zoom on the body), so its layout keeps its proportions.
+    /// Step → scale. The page is zoomed as a whole, as ⌘+ zooms it (BoostZoom: the engine's page zoom, not CSS zoom,
+    /// which made every 100vh layout taller than the window), so its layout reflows to fit.
     public static let sizes: [Int: Double] = [-2: 0.8, -1: 0.9, 0: 1, 1: 1.1, 2: 1.25, 3: 1.5]
     public static let sizeSteps: ClosedRange<Int> = -2...3
 
-    public init(family: BoostFontFamily? = nil, size: Int = 0) {
+    public init(family: BoostFontFamily? = nil, size: Int = 0, textCase: BoostTextCase? = nil) {
         self.family = family?.rawValue
         self.size = size
+        self.textCase = textCase?.rawValue
     }
 
     public var knownFamily: BoostFontFamily? { family.flatMap(BoostFontFamily.init(rawValue:)) }
-    public var scale: Double { Self.sizes[min(max(size, Self.sizeSteps.lowerBound), Self.sizeSteps.upperBound)] ?? 1 }
-    public var isDefault: Bool { knownFamily == nil && size == 0 }
+    public var knownCase: BoostTextCase? { textCase.flatMap(BoostTextCase.init(rawValue:)) }
+    public var step: Int { min(max(size, Self.sizeSteps.lowerBound), Self.sizeSteps.upperBound) }
+    public var scale: Double { Self.sizes[step] ?? 1 }
+    public var isDefault: Bool { knownFamily == nil && size == 0 && knownCase == nil }
 
-    enum CodingKeys: String, CodingKey { case family, size }
+    enum CodingKeys: String, CodingKey { case family, size, textCase = "case" }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         family = try c.decodeIfPresent(String.self, forKey: .family)
         size = try c.decodeIfPresent(Int.self, forKey: .size) ?? 0
+        textCase = try c.decodeIfPresent(String.self, forKey: .textCase)
+    }
+}
+
+/// Arc's text case choices: every word capitalised, all capitals, all small letters.
+public enum BoostTextCase: String, CaseIterable, Sendable {
+    case capitalize, uppercase, lowercase
+
+    public var title: String {
+        switch self {
+        case .capitalize: "Title Case"
+        case .uppercase: "Capitals"
+        case .lowercase: "Lowercase"
+        }
+    }
+
+    /// The editor's sample of it.
+    public var sample: String {
+        switch self {
+        case .capitalize: "Aa"
+        case .uppercase: "AA"
+        case .lowercase: "aa"
+        }
     }
 }
 
@@ -183,12 +233,36 @@ public struct BoostZap: Codable, Equatable, Sendable, Identifiable {
     public var selector: String
     public var label: String
     public var created: Date
+    /// Zapped inside a frame of the page's own site (boosts3): its selector was made in the frame's document, so it
+    /// hides elements in the site's frame documents only, never in the page itself. Saved only when true.
+    public var frame: Bool
 
-    public init(id: String = UUID().uuidString, selector: String, label: String, created: Date = Date()) {
+    public init(id: String = UUID().uuidString, selector: String, label: String, created: Date = Date(), frame: Bool = false) {
         self.id = id
         self.selector = selector
         self.label = label
         self.created = created
+        self.frame = frame
+    }
+
+    enum CodingKeys: String, CodingKey { case id, selector, label, created, frame }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        selector = try c.decode(String.self, forKey: .selector)
+        label = try c.decode(String.self, forKey: .label)
+        created = try c.decode(Date.self, forKey: .created)
+        frame = try c.decodeIfPresent(Bool.self, forKey: .frame) ?? false
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(selector, forKey: .selector)
+        try c.encode(label, forKey: .label)
+        try c.encode(created, forKey: .created)
+        if frame { try c.encode(true, forKey: .frame) }
     }
 
     /// A selector the page sent: one selector, nothing that could end the rule it goes in or start another.
@@ -284,22 +358,32 @@ public enum BoostStyle {
     /// Pictures, video and frames are inverted back, so photos keep their colours in an inverted page.
     static let uninverted = "img, video, picture, canvas, svg image, embed, object, iframe, [style*=\"background-image\"]"
 
-    public static func generated(for boost: Boost) -> String {
+    /// Text keeps its own case in fields, code and the like.
+    static let caseExclusions = ":not(pre, pre *, code, code *, kbd, kbd *, samp, samp *, input, textarea, select, "
+        + "[contenteditable], [contenteditable] *)"
+
+    /// The CSS for a page of the site, or (`frame`) for a document in one of its frames whose page is on the same site.
+    /// A frame is drawn inside its page, under the page's filter and tint: it adds neither again, only the invert its
+    /// page took back for frames ("pictures and frames are inverted back"), with the font, the letter case and the zaps.
+    public static func generated(for boost: Boost, frame: Bool = false) -> String {
         var css: [String] = []
         let c = boost.colors
-        if c.hasFilter {
+        if c.invert || (!frame && c.hasLightFilter) {
             var f: [String] = []
             if c.invert { f.append("invert(1) hue-rotate(180deg)") }
-            if abs(c.brightness - 1) > 0.005 { f.append("brightness(\(fmt(clamp(c.brightness, BoostColors.range))))") }
-            if abs(c.contrast - 1) > 0.005 { f.append("contrast(\(fmt(clamp(c.contrast, BoostColors.range))))") }
+            if !frame {
+                if abs(c.brightness - 1) > 0.005 { f.append("brightness(\(fmt(clamp(c.brightness, BoostColors.range))))") }
+                if abs(c.contrast - 1) > 0.005 { f.append("contrast(\(fmt(clamp(c.contrast, BoostColors.range))))") }
+                if c.saturation < 0.995 { f.append("saturate(\(fmt(clamp(c.saturation, BoostColors.saturationRange))))") }
+            }
             css.append("html { filter: \(f.joined(separator: " ")) !important; }")
             // A filter on the root covers the root's background but not the page's backdrop: a page with no
             // background of its own needs one (white) so that it is filtered too. The page's own wins (lower
-            // specificity than any `html` rule).
-            css.append(":where(html) { background-color: #fff; }")
+            // specificity than any `html` rule). A frame shows its page through where it has none.
+            if !frame { css.append(":where(html) { background-color: #fff; }") }
             if c.invert { css.append("\(uninverted) { filter: invert(1) hue-rotate(180deg) !important; }") }
         }
-        if c.hasTint {
+        if c.hasTint, !frame {
             // A light wash of the hue multiplied over the page: whites take the colour, text stays dark.
             let hue = Int((c.hue.truncatingRemainder(dividingBy: 1) + (c.hue < 0 ? 1 : 0)) * 360) % 360
             let t = clamp(c.tint, 0...1)
@@ -310,11 +394,13 @@ public enum BoostStyle {
         if let family = boost.font.knownFamily {
             css.append("body, body \(fontExclusions) { font-family: \(family.stack) !important; }")
         }
-        if boost.font.size != 0 {
-            css.append("body { zoom: \(fmt(boost.font.scale)) !important; }")
+        if let textCase = boost.font.knownCase {
+            css.append("body, body \(caseExclusions) { text-transform: \(textCase.rawValue) !important; }")
         }
-        // One rule per zap: a selector this engine can't parse drops only its own rule.
-        for z in boost.zaps where BoostZap.isValidSelector(z.selector) {
+        // The size is the engine's page zoom (BoostZoom), never CSS.
+        // One rule per zap: a selector this engine can't parse drops only its own rule. A zap made in a frame is the
+        // frames' only.
+        for z in boost.zaps where BoostZap.isValidSelector(z.selector) && (frame || !z.frame) {
             css.append("\(z.selector) { display: none !important; }")
         }
         return css.joined(separator: "\n")
@@ -348,9 +434,15 @@ public final class BoostStore {
     /// Called after every change, with the domain that changed.
     public var onChange: ((String) -> Void)?
 
+    /// The zoom the app gave each host for a Boost's size (BoostZoom), so that it can take it back when the size or
+    /// the Boost goes, without touching a zoom the person chose themselves. Chromium keeps a host's zoom in its profile,
+    /// so this outlives the pages.
+    public private(set) var zoomedHosts: [String: Double] = [:]
+
     struct File: Codable {
         var version: Int
         var boosts: [Boost]
+        var zoomedHosts: [String: Double]?
     }
 
     /// `url` nil keeps everything in memory.
@@ -367,6 +459,7 @@ public final class BoostStore {
                 }
                 boosts[b.domain] = b
             }
+            zoomedHosts = (file.zoomedHosts ?? [:]).filter { $0.value > 0 && $0.value < 10 }
             if file.version < Self.version { isDirty = true }
         } catch {
             let stamp = Int(Date().timeIntervalSince1970)
@@ -424,6 +517,13 @@ public final class BoostStore {
         return b
     }
 
+    /// Notes (or, with nil, forgets) the zoom the app set on `host` for a Boost. Not a Boost change: no `onChange`.
+    public func noteZoom(_ scale: Double?, host: String) {
+        guard zoomedHosts[host] != scale else { return }
+        zoomedHosts[host] = scale
+        isDirty = true
+    }
+
     public func remove(domain: String) {
         guard boosts.removeValue(forKey: domain) != nil else { return }
         isDirty = true
@@ -436,7 +536,8 @@ public final class BoostStore {
         guard isDirty else { return true }
         guard let url else { isDirty = false; return true }
         do {
-            let data = try JSONEncoder.boosts.encode(File(version: Self.version, boosts: all))
+            let data = try JSONEncoder.boosts.encode(File(version: Self.version, boosts: all,
+                                                          zoomedHosts: zoomedHosts.isEmpty ? nil : zoomedHosts))
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.write(to: url, options: .atomic)
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
@@ -463,4 +564,31 @@ extension JSONDecoder {
         d.dateDecodingStrategy = .iso8601
         return d
     }
+}
+
+// MARK: - The size
+
+/// A Boost's size is the page's zoom, the one ⌘+ and ⌘− change (BST-3: the CSS `zoom` it used before scaled every
+/// `100vh` box with the text, so full-height layouts grew taller than the window). The app sets it when a page of the
+/// site is shown, and takes it back when the size or the Boost goes, but never fights the person: a page they zoomed
+/// themselves keeps their zoom. `ledger` is the zoom the app last set for this host (BoostStore.zoomedHosts) or, on an
+/// engine whose zoom belongs to the tab rather than the site, for this tab.
+public enum BoostZoom {
+    /// Chromium's and WebKit's preset zoom steps include every size, so ⌘0 then ⌘+/⌘− steps reach it exactly.
+    public static func steps(to scale: Double) -> Int? {
+        let order = BoostFont.sizes.sorted { $0.key < $1.key }
+        guard let i = order.firstIndex(where: { near($0.value, scale) }) else { return nil }
+        return order[i].key
+    }
+
+    /// The zoom to set now, or nil to leave the page as it is.
+    public static func plan(current: Double, target: Double?, ledger: [Double]) -> Double? {
+        if let target {
+            if near(current, target) { return nil }
+            return near(current, 1) || ledger.contains(where: { near(current, $0) }) ? target : nil
+        }
+        return !near(current, 1) && ledger.contains(where: { near(current, $0) }) ? 1 : nil
+    }
+
+    public static func near(_ a: Double, _ b: Double) -> Bool { abs(a - b) < 0.005 }
 }

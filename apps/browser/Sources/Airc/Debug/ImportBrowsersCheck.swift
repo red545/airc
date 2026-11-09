@@ -57,6 +57,7 @@ extension SnapshotRunner {
             check(m.sources.allSatisfy { TestAnchors.frames["onboarding.source.\($0.anchor)"] != nil }, "\(label): every source has its pill")
             fits(label, "Arc")
         }
+        checkArcScroll()
         shoot("ib-1-sources")
 
         // MARK: Chrome
@@ -393,12 +394,43 @@ extension SnapshotRunner {
         for key in TestAnchors.frames.keys where Self.stepRowPrefixes.contains(where: key.hasPrefix) { TestAnchors.frames[key] = nil }
     }
 
+    private func checkArcScroll() {
+        var scroll: NSScrollView?
+        run { [self] in
+            func find(_ view: NSView) -> NSScrollView? {
+                if let s = view as? NSScrollView, s.hasVerticalScroller { return s }
+                return view.subviews.lazy.compactMap { find($0) }.first
+            }
+            scroll = app?.onboarding?.window.contentView.flatMap(find)
+            guard let scroll, let document = scroll.documentView else {
+                return check(false, "import-browsers: Arc details have a scroll view")
+            }
+            document.scroll(NSPoint(x: 0, y: document.bounds.maxY))
+            scroll.reflectScrolledClipView(scroll.contentView)
+        }
+        wait(0.3)
+        run { [self] in
+            let viewport = TestAnchors.frames["onboarding.import.viewport"] ?? .null
+            let primary = TestAnchors.frames["onboarding.primary"] ?? .null
+            let keys = ["onboarding.import.logins", "onboarding.import.changes", "onboarding.import.details"]
+            let rows = keys.compactMap { TestAnchors.frames[$0] }
+            check(rows.count == keys.count && !viewport.isNull && viewport.maxY <= primary.minY - 20 + 0.5
+                  && rows.allSatisfy { $0.minY >= viewport.minY - 0.5 && $0.maxY <= viewport.maxY + 0.5 },
+                  "import-browsers: Arc's last login row and import details scroll fully into view above the buttons")
+            scroll?.documentView?.scroll(.zero)
+        }
+        wait(0.3)
+    }
+
     /// Everything on the import step fits above its buttons: no row clipped by the fixed card (IM-4's picker on top).
     private func fits(_ label: String, _ what: String) {
         let content = TestAnchors.frames["onboarding.content"] ?? .null
         let primary = TestAnchors.frames["onboarding.primary"] ?? .null
         let rows = TestAnchors.frames.filter { key, _ in Self.stepRowPrefixes.contains(where: key.hasPrefix) }
-        let bottom = rows.values.map(\.maxY).max() ?? content.minY
+        // Arc's details scroll within a bounded viewport. Check its clipping boundary here, then scroll to
+        // the bottom and verify the actual final controls below; a clipped, unreachable row is still a failure.
+        let viewport = app?.onboarding?.model.source == .arc ? TestAnchors.frames["onboarding.import.viewport"] : nil
+        let bottom = viewport?.maxY ?? rows.values.map(\.maxY).max() ?? content.minY
         // Top-left origin, y growing downwards; the buttons sit 20 pt under the content.
         check(!content.isNull && !primary.isNull && !rows.isEmpty && bottom <= primary.minY - 20 + 0.5,
               "\(label): \(what): the import step's \(rows.count) rows end above its buttons (rows to \(Int(bottom)), buttons at \(Int(primary.minY)))")

@@ -11,7 +11,8 @@ import ObjectiveC
 ///   is down, the sidebar's toggle steps right of them, to its windowed place, and back when it goes up.
 /// - **Esc** (Arc, arc_behavior_spec "Full screen"): a single Esc goes to the page (its dialog, its video); pressing it
 ///   twice within 0.5 s, or holding it for 0.6 s, leaves full screen. Esc that an Airc overlay or a text field uses
-///   (Command Bar, find, cards, renaming) never counts.
+///   (Command Bar, find, cards, renaming) never counts. AppKit's own default, leaving on one Esc that nothing used, is
+///   kept from happening: with no page focused here (escapeDown), from a WebKit page in RootView.cancelOperation.
 /// - Entering shows "To exit full screen, press ⎋ twice or ⌃⌘F." for 4.8 s; View → Exit Full Screen (⌃⌘F) leaves.
 final class FullScreenController {
     private unowned let c: WindowController
@@ -145,7 +146,8 @@ final class FullScreenController {
         }
         escapeHold = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.hold, execute: work)
-        return false
+        // With no page or field focused it would go straight to AppKit, which leaves full screen on it.
+        return c.window.firstResponder === c.window
     }
 
     func escapeUp() {

@@ -33,6 +33,14 @@ public struct ImportedCredentials: Sendable {
     public var failedCookies = 0
     /// Databases that couldn't be read at all ("Login Data", "Cookies"); the other one still comes over.
     public var failedDatabases: [String] = []
+    /// Why each of `failedDatabases` couldn't be read, in words (P22): Arc kept writing to it, it is damaged, macOS
+    /// didn't allow reading it. Never a value from it.
+    public var databaseReasons: [String: String] = [:]
+    /// Every encrypted value this read tried failed to decrypt (P22): the key from "Arc Safe Storage" isn't the one Arc
+    /// encrypted them with (the item was reset, or the data came from another Mac).
+    public var keyMismatch: Bool { encryptedRows > 0 && undecryptableRows == encryptedRows }
+    var encryptedRows = 0
+    var undecryptableRows = 0
     /// Why rows failed, with counts. Never contains a value.
     public var problems: [String: Int] = [:]
     /// The rows that didn't come over at read time, one each, for the per-row results (site and username only, never a
@@ -68,8 +76,11 @@ public struct ImportedCredentials: Sendable {
 }
 
 public enum ArcSafeStorage {
+    /// Keychain's lookup, replaceable so tests can give any status without the real Keychain (P22).
+    public typealias Lookup = (_ query: CFDictionary, _ result: UnsafeMutablePointer<CFTypeRef?>?) -> OSStatus
+
     /// Explicit opt-in only. This may display the system Keychain consent prompt.
-    public static func readPassword() throws -> Data {
+    public static func readPassword(lookup: Lookup = SecItemCopyMatching) throws -> Data {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "Arc Safe Storage",
@@ -78,10 +89,22 @@ public enum ArcSafeStorage {
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if [errSecAuthFailed, errSecUserCanceled, errSecInteractionNotAllowed].contains(status) { throw ImportError.keychainDeclined }
-        guard status == errSecSuccess, let data = result as? Data else { throw ImportError.keychainUnavailable }
+        let status = lookup(query as CFDictionary, &result)
+        if let error = error(for: status) { throw error }
+        guard let data = result as? Data, !data.isEmpty else { throw ImportError.keychainUnavailable }
         return data
+    }
+
+    /// What a Keychain status means for the import, nil for success. Denied or cancelled prompts and a wrong password
+    /// are the person's answer; a locked keychain (or no way to ask) and a missing item are said as such.
+    public static func error(for status: OSStatus) -> ImportError? {
+        switch status {
+        case errSecSuccess: nil
+        case errSecUserCanceled, errSecAuthFailed: .keychainDeclined
+        case errSecInteractionNotAllowed, errSecNotAvailable: .keychainLocked
+        case errSecItemNotFound, errSecNoSuchKeychain: .keychainNotFound
+        default: .keychainUnavailable
+        }
     }
     public static func deriveKey(password: Data) throws -> Data {
         var key = Data(count: 16)
@@ -140,15 +163,22 @@ public enum ArcSafeStorage {
 /// when the copy is released, and `ArcCredentialImporter.removeStaleCopies` removes any a crash left behind.
 final class DatabaseCopy {
     static let folderPrefix = "AircImport-"
+
+    /// Why a copy couldn't be made or opened (P22). Its description is `ImportError.databaseFailed`'s.
+    struct Problem: Error, LocalizedError, Equatable {
+        enum Kind: Equatable { case missing, busy, damaged }
+        var kind: Kind
+        var errorDescription: String? { ImportError.databaseFailed.errorDescription }
+    }
     private(set) var db: OpaquePointer?
     let folder: URL
 
-    init(_ source: URL, tempRoot: URL) throws {
+    init(_ source: URL, tempRoot: URL, immutableOnly: Bool = false) throws {
         let fm = FileManager.default
         folder = tempRoot.appendingPathComponent(Self.folderPrefix + UUID().uuidString)
         try fm.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         do {
-            let files = ["", "-wal", "-shm", "-journal"].map { URL(fileURLWithPath: source.path + $0) }
+            let files = (immutableOnly ? [""] : ["", "-wal", "-shm", "-journal"]).map { URL(fileURLWithPath: source.path + $0) }
             func stamp() -> [String] {
                 files.map { f in
                     guard let a = try? fm.attributesOfItem(atPath: f.path) else { return "-" }
@@ -161,17 +191,23 @@ final class DatabaseCopy {
                 if attempt > 0 { Thread.sleep(forTimeInterval: 0.05 * Double(attempt)) }
                 for f in files { try? fm.removeItem(atPath: copy.path + f.path.dropFirst(source.path.count)) }
                 let before = stamp()
-                guard before[0] != "-" else { throw ImportError.databaseFailed }
+                guard before[0] != "-" else { throw Problem(kind: .missing) }
                 for f in files where fm.fileExists(atPath: f.path) {
+                    // A file macOS won't let us read says so, rather than looking damaged (P22).
+                    guard fm.isReadableFile(atPath: f.path) else { throw ImportError.permissionDenied }
                     do { try fm.copyItem(at: f, to: URL(fileURLWithPath: copy.path + f.path.dropFirst(source.path.count))) }
                     catch let e as NSError where e.code == NSFileReadNoPermissionError { throw ImportError.permissionDenied }
                 }
                 consistent = stamp() == before
             }
-            guard consistent else { throw ImportError.databaseFailed }
-            guard sqlite3_open_v2(copy.path, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK,
+            // Arc wrote to it during every attempt.
+            guard consistent else { throw Problem(kind: .busy) }
+            // Arc history reads only a checkpointed main file. Never open the source in SQLite.
+            let path = immutableOnly ? copy.absoluteString + "?mode=ro&immutable=1" : copy.path
+            let flags = immutableOnly ? SQLITE_OPEN_READONLY | SQLITE_OPEN_URI : SQLITE_OPEN_READWRITE
+            guard sqlite3_open_v2(path, &db, flags, nil) == SQLITE_OK,
                   sqlite3_exec(db, "SELECT count(*) FROM sqlite_master", nil, nil, nil) == SQLITE_OK else {
-                throw ImportError.databaseFailed
+                throw Problem(kind: .damaged)
             }
         } catch {
             sqlite3_close(db); db = nil
@@ -221,14 +257,30 @@ public enum ArcCredentialImporter {
                 catch { if (error as NSError).code == NSFileReadNoSuchFileError { return false }; throw ImportError.permissionDenied }
             }
             func string(_ row: [String: Data], _ key: String) -> String { String(data: row[key] ?? Data(), encoding: .utf8) ?? "" }
-            func text(_ data: Data) throws -> String {
-                guard let s = String(data: data, encoding: .utf8) else { throw RowProblem("not UTF-8") }; return s
+            /// `decrypted`: the bytes came out of `decrypt`, so bytes that aren't text may mean another key.
+            func text(_ data: Data, decrypted: Bool = true) throws -> String {
+                guard let s = String(data: data, encoding: .utf8) else {
+                    guard decrypted else { throw RowProblem("damaged in Arc (not text)") }
+                    out.undecryptableRows += 1
+                    throw RowProblem("damaged in Arc, or encrypted with another key (not text once decrypted)")
+                }
+                return s
             }
             func decrypt(_ data: Data) throws -> Data {
-                if data.prefix(3) == Data("v11".utf8) { throw RowProblem("v11 encryption (not supported)") }
+                if data.prefix(3) == Data("v11".utf8) { throw RowProblem("encrypted in a way Airc can't read (Chromium's “v11”, not the Mac's “v10”)") }
+                guard data.prefix(3) == Data("v10".utf8) else { throw RowProblem("encrypted in a way Airc can't read (not Chromium's Mac “v10”)") }
+                out.encryptedRows += 1
                 do { return try ArcSafeStorage.decrypt(data, key: key) }
-                catch ImportError.unsupportedEncryption { throw RowProblem("unknown encryption version") }
-                catch { throw RowProblem("couldn't decrypt") }
+                catch { out.undecryptableRows += 1; throw RowProblem("couldn't be decrypted with Arc's key") }
+            }
+            /// A whole database that couldn't be read, in words (never a value from it).
+            func databaseReason(_ error: Error) -> String {
+                switch error {
+                case let p as DatabaseCopy.Problem where p.kind == .busy: "Arc kept writing to it while Airc copied it. Quit Arc and try again."
+                case let p as DatabaseCopy.Problem where p.kind == .missing: "It disappeared while Airc read it. Try again."
+                case let e as ImportError where e == .permissionDenied: "macOS didn't let Airc read it."
+                default: "It's damaged, or isn't the kind of database Arc writes."
+                }
             }
             try Task.checkCancellation()
             progress?(.init(stage: .logins, completed: 0, total: 2))
@@ -243,9 +295,22 @@ public enum ArcCredentialImporter {
                                                    reason: "Arc was set to never save passwords here"))
                             continue
                         }
+                        // Kinds of login Airc doesn't take, said precisely (P22) and never decrypted.
+                        if let why = Self.unsupportedLogin(r, string) {
+                            out.skippedLogins += 1
+                            out.notes.append(.init(kind: .login, site: string(r, "origin_url"), username: string(r, "username_value"),
+                                                   skipped: true, reason: why))
+                            continue
+                        }
                         do {
                             let encrypted = r["password_value"] ?? Data()
                             let password = encrypted.isEmpty ? "" : try text(decrypt(encrypted))
+                            guard !password.isEmpty else {
+                                out.skippedLogins += 1
+                                out.notes.append(.init(kind: .login, site: string(r, "origin_url"), username: string(r, "username_value"),
+                                                       skipped: true, reason: "Arc saved a username here but no password"))
+                                continue
+                            }
                             out.logins.append(.init(origin: string(r, "origin_url"), actionURL: string(r, "action_url"),
                                                     signonRealm: string(r, "signon_realm"), username: string(r, "username_value"),
                                                     password: password))
@@ -256,7 +321,10 @@ public enum ArcCredentialImporter {
                         }
                     }
                 } catch is CancellationError { throw CancellationError() }
-                catch { out.failedDatabases.append("Login Data"); out.fail("Login Data: \(error)") }
+                catch {
+                    out.failedDatabases.append("Login Data"); out.fail("Login Data: \(error)")
+                    out.databaseReasons["Login Data"] = databaseReason(error)
+                }
             }
             progress?(.init(stage: .cookies, completed: 1, total: 2))
             var cookieURL = profileDirectory.appendingPathComponent("Network/Cookies")
@@ -274,14 +342,15 @@ public enum ArcCredentialImporter {
                                 value = try decrypt(encrypted)
                                 if version >= 24 {
                                     guard value.count >= 32, value.prefix(32) == ArcSafeStorage.hash(host) else {
-                                        throw RowProblem("domain digest doesn't match")
+                                        out.undecryptableRows += 1
+                                        throw RowProblem("damaged in Arc, or encrypted with another key (its site check doesn't match)")
                                     }
                                     value = value.dropFirst(32)
                                 }
                             }
                             var metadata: [String: String] = [:]
                             for (k, v) in r where !["encrypted_value", "value"].contains(k) { metadata[k] = String(data: v, encoding: .utf8) }
-                            out.cookies.append(.init(host: host, name: string(r, "name"), path: string(r, "path"), value: try text(value),
+                            out.cookies.append(.init(host: host, name: string(r, "name"), path: string(r, "path"), value: try text(value, decrypted: !encrypted.isEmpty),
                                                      expiresUTC: Int64(string(r, "expires_utc")) ?? 0, secure: string(r, "is_secure") == "1",
                                                      httpOnly: string(r, "is_httponly") == "1", sameSite: Int(string(r, "samesite")) ?? -1,
                                                      metadata: metadata))
@@ -291,11 +360,32 @@ public enum ArcCredentialImporter {
                         }
                     }
                 } catch is CancellationError { throw CancellationError() }
-                catch { out.failedDatabases.append("Cookies"); out.fail("Cookies: \(error)") }
+                catch {
+                    out.failedDatabases.append("Cookies"); out.fail("Cookies: \(error)")
+                    out.databaseReasons["Cookies"] = databaseReason(error)
+                }
             }
             progress?(.init(stage: .complete, completed: 2, total: 2))
             return out
         }.value
+    }
+
+    /// Why a login is of a kind Airc doesn't import, from Chromium's `logins` columns, or nil for a website's
+    /// password. Android app logins, federated sign-ins (no password: "Sign in with Google"), and HTTP authentication
+    /// (the browser's own sign-in box, Chromium's schemes 1–3) or username-only entries (scheme 4).
+    static func unsupportedLogin(_ r: [String: Data], _ string: ([String: Data], String) -> String) -> String? {
+        let realm = string(r, "signon_realm"), origin = string(r, "origin_url")
+        if realm.hasPrefix("android://") || origin.hasPrefix("android://") {
+            return "An Android app's login: Airc takes website logins only"
+        }
+        if realm.hasPrefix("federation://") || !string(r, "federation_url").isEmpty {
+            return "Signs in through another account (such as Google), so Arc had no password for it: use that sign-in on the site"
+        }
+        switch Int(string(r, "scheme")) ?? 0 {
+        case 1, 2, 3: return "A password for the browser's own sign-in box (HTTP authentication): Airc can't import these yet"
+        case 4: return "Arc saved a username here but no password"
+        default: return nil
+        }
     }
 
     /// Removes private copies a crash left behind (only folders named like `DatabaseCopy`'s, in `tempRoot`).

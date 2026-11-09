@@ -264,10 +264,25 @@ struct MediaPlayerRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            TrayArtwork(artwork: s.artwork, pageURL: player.pageURL, capture: player.isCall ? s.capture : nil)
+            // Under the pointer the artwork becomes Close Player, as a Safari tab's icon becomes its ✕.
+            if hovered && !player.isCall {
+                TrayButton(symbol: "xmark", help: "Close Player", anchor: "tray.close.\(player.tabID)") { media?.closePlayer(player) }
+                    .frame(width: 26, height: 26)
+            } else {
+                TrayArtwork(artwork: s.artwork, pageURL: player.pageURL, capture: player.isCall ? s.capture : nil)
+            }
             VStack(alignment: .leading, spacing: 0) {
                 Text(player.title).aircFont(AircFont.callout.weight(.medium)).foregroundStyle(theme.text.color).lineLimit(1)
-                Text(player.subtitle).aircFont(AircFont.caption).foregroundStyle(theme.textSecondary.color).lineLimit(1)
+                if let duration = s.duration, s.actions.contains("seekto"), !player.isCall {
+                    TimelineView(.animation(minimumInterval: 1, paused: s.playback != .playing)) { _ in
+                        Slider(value: Binding(get: { player.playbackPosition },
+                            set: { media?.perform("seekto", player, value: $0) }), in: 0...duration)
+                            .controlSize(.mini).accessibilityLabel("Playback position")
+                            .testAnchor("tray.seek.\(player.tabID)")
+                    }
+                } else {
+                    Text(player.subtitle).aircFont(AircFont.caption).foregroundStyle(theme.textSecondary.color).lineLimit(1)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if !more.isEmpty { moreChip }
@@ -277,9 +292,30 @@ struct MediaPlayerRow: View {
         .padding(.trailing, 5)
         .modifier(TrayPlate(hovered: hovered))
         .onHover { hovered = $0 }
-        .onTapGesture { media?.goToTab(player) }
+        .onTapGesture { media?.activatePlayer(player) }
         .help(player.isCall ? "Go to the call" : "Go to the tab")
         .testAnchor("tray.player.\(player.tabID)")
+        .contextMenu {
+            Button("Back to Tab") { media?.goToTab(player) }
+            Button(s.playback == .playing ? "Pause" : "Play") { media?.togglePlayback(player) }
+            Button(player.muted ? "Unmute" : "Mute") { media?.toggleMute(player) }
+            if media?.hasSystemMiniPlayer(player) == true {
+                // The system window has no "–" of its own: Hide is Arc's, playback goes on.
+                if player.inSystemPictureInPicture {
+                    Button("Hide Mini Player") { media?.systemMiniPlayer("hide", player) }
+                } else {
+                    Button("Picture in Picture") { media?.systemMiniPlayer("pip", player) }
+                }
+                Button("Close Mini Player") { media?.systemMiniPlayer("close", player) }
+                if media?.canSuppressSystemMiniPlayer(player) == true {
+                    Button("Don’t Show for This Site") { media?.systemMiniPlayer("never", player) }
+                }
+            }
+            if !player.isCall {
+                Divider()
+                Button("Close Player") { media?.closePlayer(player) }
+            }
+        }
     }
 
     @ViewBuilder private var musicControls: some View {
@@ -287,6 +323,9 @@ struct MediaPlayerRow: View {
             if hovered {
                 TrayButton(symbol: player.muted ? "speaker.slash.fill" : "speaker.wave.2.fill", help: player.muted ? "Unmute Tab" : "Mute Tab",
                            anchor: "tray.mute.\(player.tabID)") { media?.toggleMute(player) }
+            }
+            if hovered && s.actions.contains("previoustrack") {
+                TrayButton(symbol: "backward.fill", help: "Previous", anchor: "tray.previous.\(player.tabID)") { media?.perform("previoustrack", player) }
             }
             if s.playback != .none {
                 TrayButton(symbol: s.playback == .playing ? "pause.fill" : "play.fill", help: s.playback == .playing ? "Pause" : "Play",

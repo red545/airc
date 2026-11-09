@@ -6,7 +6,9 @@ import AircKit
 /// at quit. Bounded: the `limit` most recently used pictures, each at most `maxPixels` (about 1 MB), so about 24 MB at
 /// most. A picture is kept under its tab and, for a pinned tab or Favorite, under its item too, so a Favorite whose
 /// page was freed (SB-15) or closed still shows how it looked. Under memory pressure it keeps the 8 most recent
-/// (a warning) or none (critical).
+/// (a warning) or none (critical). Each picture knows its profile: a profile deleted or its browsing data cleared takes
+/// its pictures with it (`forget(profileID:)`, ServicePreviewCenter.forget), and a picture is never shown for a tab of
+/// another profile. Private windows have no tab previews, so none of their pages is ever kept.
 final class TabPreviewCache {
     static let shared = TabPreviewCache()
     static let limit: Int = {
@@ -30,6 +32,8 @@ final class TabPreviewCache {
         let image: CGImage
         /// The page's address when it was taken: a picture of another site is never shown for this one.
         let url: String
+        /// The profile of the tab it was taken in.
+        let profileID: String
         let takenAt: CFTimeInterval
     }
 
@@ -40,12 +44,13 @@ final class TabPreviewCache {
     static func key(tab id: String) -> String { "t:" + id }
     static func key(item id: String) -> String { "i:" + id }
 
-    /// The picture of a tab (or, failing that, of its item) whose page shows `url`, if one is kept.
-    func shot(tab: String?, item: String?, url: String) -> Shot? {
+    /// The picture of a tab (or, failing that, of its item) whose page shows `url`, if one is kept (and, given
+    /// `profileID`, taken in that profile).
+    func shot(tab: String?, item: String?, url: String, profileID: String? = nil) -> Shot? {
         let keys = [tab.map(Self.key(tab:)), item.map(Self.key(item:))].compactMap { $0 }
         for k in keys {
             guard let s = shots[k] else { continue }
-            guard Self.sameSite(s.url, url) else { continue }
+            guard Self.sameSite(s.url, url), profileID.map({ $0 == s.profileID }) ?? true else { continue }
             touch(k)
             return s
         }
@@ -57,8 +62,10 @@ final class TabPreviewCache {
         shots[Self.key(tab: tab)].map { CACurrentMediaTime() - $0.takenAt }
     }
 
-    func store(_ image: CGImage, url: String, tab: String, item: String?) {
-        let s = Shot(image: image, url: url, takenAt: CACurrentMediaTime())
+    /// `profileID` is the tab's profile; only the checks' synthetic pictures go without one (and so go with the next
+    /// sweep, `retain(profiles:)`).
+    func store(_ image: CGImage, url: String, tab: String, item: String?, profileID: String = "") {
+        let s = Shot(image: image, url: url, profileID: profileID, takenAt: CACurrentMediaTime())
         for k in [Self.key(tab: tab)] + (item.map { [Self.key(item: $0)] } ?? []) {
             shots[k] = s
             touch(k)
@@ -70,6 +77,28 @@ final class TabPreviewCache {
         shots.removeAll()
         order.removeAll()
     }
+
+    /// A profile deleted or its browsing data cleared: its pictures go.
+    func forget(profileID: String) {
+        for (k, s) in shots where s.profileID == profileID { shots[k] = nil }
+        order.removeAll { shots[$0] == nil }
+    }
+
+    /// Pictures of profiles that no longer exist go (checked when a card shows, so a deleted profile's pictures never
+    /// outlive it for long even without `forget`).
+    func retain(profiles: Set<String>) {
+        guard shots.values.contains(where: { !profiles.contains($0.profileID) }) else { return }
+        for (k, s) in shots where !profiles.contains(s.profileID) { shots[k] = nil }
+        order.removeAll { shots[$0] == nil }
+    }
+
+    /// The profiles that have pictures kept (the checks).
+    var profiles: Set<String> { Set(shots.values.map(\.profileID)) }
+
+    #if AIRC_TESTING
+    /// The pages pictured (the checks: never a private window's).
+    var urlsForTesting: [String] { shots.values.map(\.url) }
+    #endif
 
     /// Keeps only the `n` most recently used pictures.
     func trim(to n: Int) {

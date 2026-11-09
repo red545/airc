@@ -7,8 +7,10 @@ import SwiftUI
 /// Settings → Shortcuts (CB-4, Arc's Settings › Shortcuts): every command by menu with its key. A click on a key
 /// records a new one (Esc cancels, Delete removes it); a key another command has offers a swap or taking it away; macOS's
 /// own keys are refused, and keys pages use themselves come with a note that the page still gets them first (CB-3).
-/// Each command a page could have first also says who goes first (Arc's "Prefer Websites" / "Prefer Arc"): Websites
-/// first, the default, or Airc first. Changes apply at once in every window (App/ShortcutCenter.swift).
+/// Each command a page could have first also says who goes first, with Arc's three choices: Use Both (the default: the
+/// page first, a second press runs Airc's command), Prefer Websites, Prefer Airc. Under the list, Arc's sidebar choices:
+/// Favorites in ⌘1–9, ⌘9 the ninth or the last item, and ⌥ for a hidden sidebar. Changes apply at once in every window
+/// (App/ShortcutCenter.swift).
 final class ShortcutsEditor: ObservableObject {
     static let shared = ShortcutsEditor()
 
@@ -123,7 +125,7 @@ final class ShortcutsEditor: ObservableObject {
         }
     }
 
-    /// Websites first or Airc first for one command.
+    /// Use Both, Prefer Websites or Prefer Airc for one command.
     func setPriority(_ p: KeyPriority, for id: String) {
         stop()
         conflict = nil
@@ -159,9 +161,12 @@ final class ShortcutsEditor: ObservableObject {
     /// Keys pages use too: the command has it, and the page still gets it first (CB-3), unless Airc goes first.
     private func noteAfterChange(_ id: String) {
         guard let key = center.map.key(id), let r = KeyReservation.of(key), r.kind == .pageCommon else { return }
-        if center.map.priority(id) == .airc {
-            notices[id] = Notice(kind: .warning, text: "Pages use \(key.display) too (\(r.what)). With Airc first, no page gets it.")
-        } else {
+        switch center.map.priority(id) {
+        case .airc:
+            notices[id] = Notice(kind: .warning, text: "Pages use \(key.display) too (\(r.what)). With Prefer Airc, no page gets it.")
+        case .websitesOnly:
+            notices[id] = Notice(kind: .warning, text: "Pages use \(key.display) too (\(r.what)). A page that uses it keeps it.")
+        case .websites:
             notices[id] = Notice(kind: .warning, text: "Pages use \(key.display) too (\(r.what)). A page that uses it keeps it; "
                                  + "press \(key.display) again within a second to run this.")
         }
@@ -177,8 +182,9 @@ struct ShortcutsPage: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: 16) {
-                Text("Click a shortcut to type a new one. Esc cancels, Delete removes it. With Websites first, a page that uses "
-                     + "a key keeps it: press it again within a second to run Airc’s command. Airc first always runs it.")
+                Text("Click a shortcut to type a new one. Esc cancels, Delete removes it. With Use Both, a page that uses a key "
+                     + "keeps it: press it again within a second to run Airc’s command. Prefer Websites leaves it to the page; "
+                     + "Prefer Airc always runs it.")
                     .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
@@ -195,6 +201,8 @@ struct ShortcutsPage: View {
                     }
                 }
             }
+            SidebarKeysSection(center: center)
+                .padding(.top, 8)
             Text("⌘Q (hold to quit), ⌘H, ⌘M, ⌘Tab, ⌘Space, the Edit menu's ⌘C ⌘V ⌘X ⌘A ⇧⌘Z and the screenshot keys stay macOS's.")
                 .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextTertiary.color)
                 .fixedSize(horizontal: false, vertical: true)
@@ -219,10 +227,13 @@ private struct ShortcutRow: View {
                         Text(n.text).aircFont(AircFont.callout)
                             .foregroundStyle((n.kind == .refused ? AircColor.destructive : theme.surfaceTextSecondary).color)
                             .fixedSize(horizontal: false, vertical: true)
+                    } else if let caption = center.caption(for: id) {
+                        Text(caption).aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextTertiary.color)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 Spacer(minLength: 12)
-                if center.map.isCustomized(id) || center.map.priority(id) == .airc {
+                if center.map.isCustomized(id) || center.map.priority(id) != .websites {
                     Button { editor.reset(id) } label: {
                         Image(systemName: "arrow.uturn.backward").font(.system(size: 11, weight: .semibold))
                     }
@@ -241,16 +252,14 @@ private struct ShortcutRow: View {
 
     private var recording: Bool { editor.recording == id }
 
-    /// Who gets the key first while a page has the keyboard.
+    /// Who gets the key first while a page has the keyboard: Arc's picker, in its order.
     private var priority: some View {
-        AircSegmented(selection: Binding(get: { center.map.priority(id) }, set: { editor.setPriority($0, for: id) }), segments: [
-            .init(value: KeyPriority.websites, title: "Websites first"),
-            .init(value: KeyPriority.airc, title: "Airc first"),
-        ], height: 24)
-        .frame(width: 196)
-        .help("Websites first: a page that uses the key keeps it (press it again within a second to run this). "
-              + "Airc first: this always runs, and pages never get the key.")
+        AircPopUp(options: KeyPriority.allCases.map { ($0.title, $0) }, selection: center.map.priority(id), width: 172) {
+            editor.setPriority($0, for: id)
+        }
+        .help(KeyPriority.allCases.map { "\($0.title): \($0.subtitle)" }.joined(separator: "\n"))
         .accessibilityLabel("Who gets \(ShortcutCenter.title(id))’s key first")
+        .accessibilityValue(center.map.priority(id).title)
     }
 
     /// A key that can't change (⌘Z outside text fields): shown, not recorded.
@@ -306,5 +315,28 @@ private struct ShortcutRow: View {
             Button("Swap") { editor.resolve(.swap) }.buttonStyle(.airc(.primary, size: .small)).fixedSize()
         }
         .padding(.leading, 2)
+    }
+}
+
+/// Arc's settings under its shortcut list (ShortcutsPane+AdditionalSettings): which items ⌘1–9 count, and what ⌘9 is;
+/// with Airc's ⌥ reveal beside them (Arc ref §2.10).
+private struct SidebarKeysSection: View {
+    @ObservedObject var center: ShortcutCenter
+
+    var body: some View {
+        SettingsSection(title: "Sidebar") {
+            AircToggleRow("Include Favorites in ordering",
+                          subtitle: "⌘1 is your first Favorite. Off: ⌘1 is the first item after your Favorites.",
+                          isOn: Binding(get: { center.navigation.includeFavoritesInOrdering },
+                                        set: { v in center.setNavigation { $0.includeFavoritesInOrdering = v } }))
+            AircToggleRow("Switch to ninth tab",
+                          subtitle: "⌘9 jumps to the ninth item. Off: to the last item at the bottom of your Sidebar.",
+                          isOn: Binding(get: { center.navigation.switchToNinthItem },
+                                        set: { v in center.setNavigation { $0.switchToNinthItem = v } }))
+            AircToggleRow("Hold ⌥ to show a hidden sidebar",
+                          subtitle: "While the sidebar is hidden, holding ⌥ on its own slides it out; let go and it slides away.",
+                          isOn: Binding(get: { center.navigation.optionRevealsSidebar },
+                                        set: { v in center.setNavigation { $0.optionRevealsSidebar = v } }))
+        }
     }
 }

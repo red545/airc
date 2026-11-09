@@ -63,6 +63,9 @@ const URL = "https://x.com/arcinternet/status/2113301454597640570";
     </p>
   </blockquote>
 
+  <!-- Phones show the opening (both marked sentences) and fold the rest behind this. -->
+  <button type="button" class="tw-more" data-tw-more aria-expanded="false">Read the whole post</button>
+
   <a class="when" href={URL} rel="noopener">
     <time datetime="2026-10-22T16:08:24Z">4:08 PM · Oct 22, 2026</time>
     <span aria-hidden="true">·</span>
@@ -82,6 +85,15 @@ const URL = "https://x.com/arcinternet/status/2113301454597640570";
     <svg viewBox="0 0 24 24"><path d="M12 15V3m0 0L7.500 7.500M12 3l4.500 4.500M5 12v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"></path></svg>
   </div>
 </figure>
+
+<script>
+  for (const more of document.querySelectorAll<HTMLButtonElement>("[data-tw-more]")) {
+    more.addEventListener("click", () => {
+      more.closest(".tweet")?.classList.add("open");
+      more.remove();
+    });
+  }
+</script>
 
 <style>
   .tweet {
@@ -103,18 +115,6 @@ const URL = "https://x.com/arcinternet/status/2113301454597640570";
     box-shadow:
       0 0 0 1px var(--tw-line),
       var(--shadow-shot);
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .tweet {
-      --tw-bg: #000;
-      --tw-text: #e7e9ea;
-      --tw-sub: #71767b;
-      --tw-line: #2f3336;
-      --tw-mark: rgb(255 90 80 / 0.34);
-      --tw-btn-bg: #eff3f4;
-      --tw-btn-text: #0f1419;
-    }
   }
 
   .head {
@@ -279,5 +279,29 @@ const URL = "https://x.com/arcinternet/status/2113301454597640570";
     stroke-width: 1.7;
     stroke-linecap: round;
     stroke-linejoin: round;
+  }
+
+  .tw-more { display: none; }
+
+  @media (max-width: 900px) {
+    .tweet:not(.open) blockquote > :nth-child(n + 4),
+    .tweet:not(.open) .counts,
+    .tweet:not(.open) .actions { display: none; }
+
+    .tw-more {
+      display: block;
+      width: 100%;
+      height: 44px;
+      margin-top: 4px;
+      padding: 0;
+      border: 0;
+      background: none;
+      font: inherit;
+      font-size: 15px;
+      font-weight: 600;
+      text-align: left;
+      color: var(--tw-link);
+      cursor: pointer;
+    }
   }
 </style>

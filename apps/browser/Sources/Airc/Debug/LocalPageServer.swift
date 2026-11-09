@@ -11,6 +11,8 @@ final class LocalPageServer {
         var status = "200 OK"
         var headers: [String: String] = [:]
         var body: String
+        /// Bytes to send instead of `body` (an image, a video).
+        var data: Data?
         /// Seconds before the answer goes out (a slow server).
         var delay: TimeInterval = 0
     }
@@ -95,10 +97,13 @@ final class LocalPageServer {
     }
 
     private func send(_ page: Page, on connection: NWConnection) {
-        let bytes = Data(page.body.utf8)
-        let extra = page.headers.map { "\($0.key): \($0.value)\r\n" }.sorted().joined()
-        let head = "HTTP/1.1 \(page.status)\r\nContent-Type: text/html; charset=utf-8\r\n\(extra)"
-            + "Content-Length: \(bytes.count)\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
+        let bytes = page.data ?? Data(page.body.utf8)
+        var headers = page.headers
+        if !headers.keys.contains(where: { $0.lowercased() == "cache-control" }) { headers["Cache-Control"] = "no-store" }
+        if !headers.keys.contains(where: { $0.lowercased() == "content-type" }) { headers["Content-Type"] = "text/html; charset=utf-8" }
+        let extra = headers.map { "\($0.key): \($0.value)\r\n" }.sorted().joined()
+        let head = "HTTP/1.1 \(page.status)\r\n\(extra)"
+            + "Content-Length: \(bytes.count)\r\nConnection: close\r\n\r\n"
         connection.send(content: Data(head.utf8) + bytes, completion: .contentProcessed { _ in connection.cancel() })
     }
 }

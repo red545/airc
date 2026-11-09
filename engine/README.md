@@ -432,3 +432,58 @@ timestamps are not proof of an interactive or presented native window.
 Peek, profile-safe live moves, Little Arc hosting and page/external link routing.
 The app additions are an unapplied [app-pass11.patch](app-pass11.patch). Read the
 qualification table before treating the engine state tests as native UI acceptance.
+
+## Test-gate startup and regression check
+
+The engine test gate retains canonical (symlink-resolved) scratch-directory
+matching, mock-keychain and non-distribution-signature requirements. Explicit
+`--airc-test`, `--airc-trace` and background launches decide in
+`BasicStartupComplete`, before profile-gate processing. Other browser launches
+cache the decision in `PreSandboxStartup`, after creating the data directory and
+before UI-thread blocking is disallowed. Early refusals remain final. Runtime
+queries only read the cache and fail closed before initialization.
+
+Build `airc/core:launch_switches_test` incrementally in the release output, then
+run each case in its own process (the decision is intentionally immutable):
+
+```sh
+for case in ordinary ordinary-new explicit early-missing missing-mock \
+    missing-scratch missing-user-data mismatch helper symlink-match symlink-mismatch; do
+  out/AircRelease/launch_switches_test --case="$case" --test-root=/path/to/test-scratch || exit
+done
+```
+
+The test scratch parent must exist. Cases wrap runtime queries in
+`base::ScopedDisallowBlocking` and count blocking calls with Chromium's blocking
+observer, so the I/O regression is detectable even in a release build. Tests
+also verify that moving the directory after startup does not revise the cache.
+
+## Startup network policy (engineidle)
+
+`quietModels` also disables `OptimizationGuideManifestBroker`. Patch 029 makes
+M156's eager global-state constructor honor that feature: it supplies upstream's
+non-null `OnDeviceCapability` stub before creating the manifest assets or scheduling
+performance evaluation. Global-state/model-provider lifetime is unchanged; ordinary
+omnibox and user-requested translation do not require on-device model execution.
+Turning `quietModels` off restores the upstream broker default.
+
+Airc appends `airc-disable-safe-browsing` at engine startup. Patch 030 maps this
+switch to `safebrowsing.enabled=false` and `safebrowsing.enhanced=false` in Chromium's
+command-line preference store. These effective values are present before profile
+services start and override saved user values without rewriting them. Chromium's
+existing preference gate leaves the database manager stopped and download
+protection sees the same off state. No platform/enterprise policy is supplied;
+Airc remains unmanaged. This supersedes the older background-services note that
+Safe Browsing prefs were untouched. It is not a claim of malware/phishing
+protection. The advanced protection selector cannot enable an unavailable service;
+the pref write is rejected as non-user-modifiable. The generated selector retains
+its enforced state without attributing command-line restrictions to an organization
+(or entering the upstream managed-only assertion). Restore a supported service and
+remove this switch before exposing protection as a working option.
+
+Neither change disables background networking or the component updater. CRLSet,
+Widevine, file-type policies, PKI metadata, identity and network-time paths remain.
+Validate with the strict apply suite and a fresh-profile NetLog lasting at least six
+minutes: no model manifest (`ceofaddefefcbblgcgnibnonglccbfja`) or Safe Browsing list
+update, with routine security/CDM checks still starting at the app's five-minute
+initial delay. Test from an exact source export and use the current release engine.

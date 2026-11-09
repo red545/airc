@@ -30,6 +30,8 @@ enum EngineHostingError: Error { case rejected(String) }
 protocol BrowserEngine: AnyObject {
     /// Main-thread policy; true consumes the link. Defer tab mutation to the next turn.
     var linkRouter: ((EngineLinkRequest) -> Bool)? { get set }
+    var contextMenuSpaces: ((EngineTab, String) -> [[String: String]])? { get set }
+    var openLinkInSpace: ((EngineTab, String, String) -> Void)? { get set }
     /// Call inside application(_:open:) while its Apple event is current.
     func routeExternalURL(_ url: URL) -> Bool
     /// "WebKit" or "Chromium <version>", for About and logs.
@@ -63,6 +65,8 @@ protocol BrowserEngine: AnyObject {
 }
 
 extension BrowserEngine {
+    var contextMenuSpaces: ((EngineTab, String) -> [[String: String]])? { get { nil } set {} }
+    var openLinkInSpace: ((EngineTab, String, String) -> Void)? { get { nil } set {} }
     var supportsProtectedContent: Bool { false }
     var protectedContentEnabled: Bool { get { false } set {} }
     var linkRouter: ((EngineLinkRequest) -> Bool)? { get { nil } set {} }
@@ -148,7 +152,7 @@ protocol EngineWindow: AnyObject {
     func load(_ url: URL, in tab: EngineTab)
 }
 
-protocol EngineTab: EnginePageCommands {
+protocol EngineTab: EnginePageCommands, EngineDeveloperCommands {
     var tabID: Int { get }
     var view: NSView { get }
     var profile: EngineProfile { get }
@@ -193,6 +197,7 @@ protocol EnginePageCommands: AnyObject {
     func zoom(step: Int)
     var zoomFactor: Double { get }
     /// ⌥⌘I / ⌥⌘J. Returns false when the engine can't open developer tools from a shortcut.
+    var isDevToolsOpen: Bool { get }
     func showDevTools(console: Bool) -> Bool
     /// ⌘P. Returns false when the engine can't print.
     func printPage(from window: NSWindow) -> Bool
@@ -218,6 +223,7 @@ extension EnginePageCommands where Self: EngineTab {
     func reloadIgnoringCache() { reload() }
     func zoom(step: Int) {}
     var zoomFactor: Double { 1 }
+    var isDevToolsOpen: Bool { false }
     func showDevTools(console: Bool) -> Bool { false }
     func printPage(from window: NSWindow) -> Bool { false }
     func find(_ text: String, forward: Bool, completion: @escaping (Bool, Int?) -> Void) { completion(false, nil) }

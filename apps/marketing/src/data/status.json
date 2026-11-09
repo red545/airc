@@ -1,23 +1,23 @@
 {
-  "checkedAt": "2026-11-06T17:10:00Z",
-  "rev": "a5f4780",
+  "checkedAt": "2026-11-08T08:35:00Z",
+  "rev": "bde185a",
   "chromium": "156.0.8078.88",
   "checks": {
-    "pass": 495,
-    "skip": 26,
+    "pass": 2530,
+    "skip": 33,
     "fail": 0
   },
   "features": {
     "spaces": {
       "status": "passing",
-      "pass": 15,
-      "skip": 1,
+      "pass": 16,
+      "skip": 0,
       "fail": 0
     },
     "profiles": {
       "status": "passing",
-      "pass": 6,
-      "skip": 1,
+      "pass": 7,
+      "skip": 0,
       "fail": 0
     },
     "import": {
@@ -28,31 +28,31 @@
     },
     "command": {
       "status": "passing",
-      "pass": 9,
+      "pass": 70,
       "skip": 4,
       "fail": 0
     },
     "pinned": {
       "status": "passing",
-      "pass": 6,
+      "pass": 74,
       "skip": 0,
       "fail": 0
     },
     "favorites": {
       "status": "passing",
-      "pass": 9,
+      "pass": 18,
       "skip": 0,
       "fail": 0
     },
     "split": {
       "status": "passing",
-      "pass": 31,
+      "pass": 44,
       "skip": 0,
       "fail": 0
     },
     "peek": {
       "status": "passing",
-      "pass": 7,
+      "pass": 8,
       "skip": 0,
       "fail": 0
     },
@@ -64,7 +64,7 @@
     },
     "archive": {
       "status": "passing",
-      "pass": 5,
+      "pass": 6,
       "skip": 0,
       "fail": 0
     },
@@ -95,7 +95,7 @@
     "prompts": {
       "status": "passing",
       "pass": 59,
-      "skip": 8,
+      "skip": 2,
       "fail": 0
     },
     "memory": {

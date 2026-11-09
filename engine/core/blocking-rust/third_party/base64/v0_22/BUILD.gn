@@ -1,0 +1,116 @@
+# Copyright 2023 The Chromium Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+# @generated from third_party/rust/chromium_crates_io/BUILD.gn.hbs by
+# tools/crates/gnrt.
+# Do not edit!
+
+import("//build/rust/cargo_crate.gni")
+
+cargo_crate("airc_lib") {
+  crate_name = "base64"
+  epoch = "0.22"
+  crate_type = "rlib"
+  crate_root = "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/lib.rs"
+  sources = [
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/alphabet.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/chunked_encoder.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/decode.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/display.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/encode.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/engine/general_purpose/decode.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/engine/general_purpose/decode_suffix.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/engine/general_purpose/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/engine/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/engine/naive.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/engine/tests.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/lib.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/prelude.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/read/decoder.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/read/decoder_tests.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/read/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/tests.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/write/encoder.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/write/encoder_string_writer.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/write/encoder_tests.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/write/mod.rs",
+  ]
+  inputs = [
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/alphabet.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/chunked_encoder.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/decode.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/display.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/encode.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/engine/general_purpose/decode.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/engine/general_purpose/decode_suffix.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/engine/general_purpose/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/engine/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/engine/naive.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/engine/tests.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/lib.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/prelude.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/read/decoder.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/read/decoder_tests.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/read/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/tests.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/write/encoder.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/write/encoder_string_writer.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/write/encoder_tests.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/src/write/mod.rs",
+  ]
+
+  build_native_rust_unit_tests = false
+  edition = "2018"
+  cargo_pkg_authors = "Marshall Pierce <marshall@mpierce.org>"
+  cargo_pkg_name = "base64"
+  cargo_pkg_description = "encodes and decodes base64 as bytes or utf8"
+  cargo_pkg_repository = "https://github.com/marshallpierce/rust-base64"
+  cargo_pkg_version = "0.22.1"
+  rustc_metadata = "airc-blocking-${crate_name}-${cargo_pkg_version}"
+
+  allow_unsafe = true
+
+  features = [
+    "alloc",
+    "default",
+    "std",
+  ]
+
+  # Only for usage from third-party crates. Add the crate to
+  # //airc/core/blocking-rust/third_party/chromium_crates_io/Cargo.toml to use
+  # it from first-party code.
+  visibility = [ "//airc/core/blocking-rust/third_party/*" ]
+  visibility += [ "//build/rust/*" ]
+  visibility += [ "//airc/core/blocking-rust/*" ]
+
+  #####################################################################
+  # Tweaking which GN `config`s apply to this target.
+
+  # Config changes that apply to all `//third_party/rust` crates.
+  _configs_to_remove = [
+    # We don't need code coverage data for any `chromium_crates_io` crates.
+    "//build/config/coverage:default_coverage",
+
+    # This is third-party code, so remove `chromium_code` config.  We are not
+    # at the same time adding `//build/config/compiler:no_chromium_code`,
+    # because 1) we don't want to pull how warnings are handled by that config
+    # and 2) that config doesn't have any non-warnings-related stuff.
+    "//build/config/compiler:chromium_code",
+  ]
+  _configs_to_add = []
+
+  # Changing (if needed) which configs apply to this specific crate (based on
+  # `extra_kv.configs_to_remove` and `extra_kv.configs_to_add` from
+  # `gnrt_config.toml`).
+  _configs_to_remove += []
+  _configs_to_add += []
+
+  # Applying config changes.
+  library_configs -= _configs_to_remove
+  library_configs += _configs_to_add
+  executable_configs -= _configs_to_remove
+  executable_configs += _configs_to_add
+  proc_macro_configs -= _configs_to_remove
+  proc_macro_configs += _configs_to_add
+}

@@ -16,11 +16,15 @@ extension SnapshotRunner {
     func autoArchiveLeaveCheck() {
         var plain = "", quiet = "", asks = "", keeper = ""
         var activated = false
+        var oldBackupFolder: String?
+        let custom = dir.appendingPathComponent("custom-backups", isDirectory: true)
         func page(_ title: String, _ script: String) -> String {
             let html = "<title>\(title)</title><body style='margin:0;height:600px'><p style='margin:40px'>\(title)</p><script>\(script)</script></body>"
             return "data:text/html," + (html.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")
         }
         run { [self] in
+            oldBackupFolder = app?.settings.values.backupFolder
+            app?.settings.values.backupFolder = custom.path
             let sid = c.currentSpaceID
             func open(_ t: String, _ js: String) -> String {
                 (try? c.store.openTab(url: page(t, js), inSpace: sid, activate: false, title: t))?.id ?? ""
@@ -97,6 +101,10 @@ extension SnapshotRunner {
                   "auto-archive: once it no longer asks, the retry archives it")
             check(c.store.tab(keeper) != nil, "auto-archive: the tab on screen stays")
             WindowController.autoArchiveRetry = 30 * 60
+            let files = (try? FileManager.default.contentsOfDirectory(at: custom, includingPropertiesForKeys: nil)) ?? []
+            check(files.contains { $0.lastPathComponent.hasPrefix("airc-backup-") && $0.pathExtension == "json" },
+                  "auto-archive: daily backup lands in the selected custom folder")
+            app?.settings.values.backupFolder = oldBackupFolder
         }
     }
 }

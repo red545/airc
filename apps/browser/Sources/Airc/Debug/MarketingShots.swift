@@ -202,6 +202,15 @@ extension SnapshotRunner {
         mkSettleShown()
         wait(0.6)
         mkWindowShot("favorite-split", dark: true)
+        // A Favorite split can have its own icon (Arc; Change Icon… in its menu): the tile whole, with the emoji.
+        run { [self] in
+            guard let x = c.store.favorites(ofProfile: d.work).first(where: { $0.kind == .split }) else {
+                return note("marketing: MISSING favorite-split-icon: no Favorite split")
+            }
+            try? c.store.setItemIcon(x.id, to: "🛠️")
+        }
+        wait(0.5)
+        mkWindowShot("favorite-split-icon", dark: true)
         run { NSApp.appearance = NSAppearance(named: .aqua) }
 
         // Little Arc: a link from another app opens in a small window of its own, over Personal.
@@ -228,11 +237,34 @@ extension SnapshotRunner {
                         MarketingStudio.Layer(image: big, frame: frame, dark: self.mkIsDark(), lights: []),
                         MarketingStudio.Layer(image: small, frame: lf, lights: self.mkLights(l.window)),
                     ])
-                    l.window.close()
-                    done()
+                    // The chip's chevron: Arc's Open In menu, the Spaces in their colours, the pointer on Travel.
+                    l.showOpenInMenu()
+                    guard let m = l.openInMenu else {
+                        self.note("marketing: MISSING little-arc-menu: no menu")
+                        l.window.close()
+                        return done()
+                    }
+                    if let travel = d.space["travel"] { m.highlight(.space(travel)) }
+                    m.content.layoutSubtreeIfNeeded()
+                    let menu = self.render(m.content)
+                    self.mkLittleArcImage(l) { open in
+                        defer { m.close(); l.window.close(); done() }
+                        guard let open, let menu else { return self.note("marketing: MISSING little-arc-menu: no capture") }
+                        // Under the chip, its right edge with the chip's (window points, origin bottom-left).
+                        let chip = l.chip.convert(l.chip.bounds, to: nil), ms = m.panel.frame.size
+                        let mf = NSRect(x: lf.minX + chip.maxX - ms.width, y: lf.minY + chip.minY - LittleArcOpenInMenu.Metrics.gap - ms.height,
+                                        width: ms.width, height: ms.height)
+                        self.mkWrite("little-arc-menu", canvas: canvas, dark: false, [
+                            MarketingStudio.Layer(image: big, frame: frame, dark: self.mkIsDark(), lights: []),
+                            MarketingStudio.Layer(image: open, frame: lf, lights: self.mkLights(l.window)),
+                            MarketingStudio.Layer(image: menu, frame: mf, radius: LittleArcOpenInMenu.Metrics.radius, dark: m.palette.isDark, shadow: .panel),
+                        ])
+                    }
                 }
             }
         }
+        // P04: a folder dropped on the sidebar (MarketingFiles.swift).
+        mkFilesShots(d)
     }
 
     /// A Little Arc window as the screen shows it: our views, and the page from the engine's snapshot.
@@ -250,7 +282,7 @@ extension SnapshotRunner {
             base?.draw(in: NSRect(origin: .zero, size: size))
             if let img {
                 let r = NSRect(x: cardFrame.minX, y: size.height - cardFrame.maxY, width: cardFrame.width, height: cardFrame.height)
-                NSBezierPath(roundedRect: r, xRadius: AircMetrics.Window.cardRadius, yRadius: AircMetrics.Window.cardRadius).addClip()
+                NSBezierPath(roundedRect: r, xRadius: l.card.cornerRadius, yRadius: l.card.cornerRadius).addClip()
                 img.draw(in: r)
             }
             NSGraphicsContext.restoreGraphicsState()
@@ -367,8 +399,19 @@ extension SnapshotRunner {
 
     // MARK: calls: picture in picture with Airc's controls, a call's PiP, Meet's Document PiP bar, the call window
 
+    func mkMedia2Shots(_ d: MarketingDemo) {
+        mkPiP(d, name: "mini-player-hidden", page: MarketingDemo.site("video", "/golden-hour"), title: "Golden Hour", space: "travel",
+              under: "lisbon", size: NSSize(width: 480, height: 270), kind: "video")
+        mkPiP(d, name: "mini-player-pill", page: MarketingDemo.site("video", "/golden-hour"), title: "Golden Hour", space: "travel",
+              under: "lisbon", size: NSSize(width: 480, height: 270), kind: "video")
+        mkPiP(d, name: "picture-in-picture-call", page: MarketingDemo.site("meet", "/weekly-sync"), title: "Weekly design sync", space: "work",
+              under: "linear", size: NSSize(width: 400, height: 225), kind: "video")
+    }
+
     func mkCallShots(_ d: MarketingDemo) {
         mkPiP(d, name: "picture-in-picture", page: MarketingDemo.site("video", "/golden-hour"), title: "Golden Hour", space: "travel",
+              under: "lisbon", size: NSSize(width: 480, height: 270), kind: "video")
+        mkPiP(d, name: "mini-player-pill", page: MarketingDemo.site("video", "/golden-hour"), title: "Golden Hour", space: "travel",
               under: "lisbon", size: NSSize(width: 480, height: 270), kind: "video")
         mkPiP(d, name: "picture-in-picture-call", page: MarketingDemo.site("meet", "/weekly-sync"), title: "Weekly design sync", space: "work",
               under: "linear", size: NSSize(width: 400, height: 225), kind: "video")
@@ -461,7 +504,13 @@ extension SnapshotRunner {
             guard let chromium = app?.engine as? ChromiumEngine, let p = page(), let w = pipWindow(chromium) else {
                 note("marketing: MISSING \(name): no PiP window"); return done()
             }
+            if name == "mini-player-hidden" {
+                PiPOverlays.shared.controls(for: p)?.hide.action?()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self.mkWindowShotNow(name, dark: self.mkIsDark(), done) }
+                return
+            }
             PiPOverlays.shared.controls(for: p)?.pointerMoved()
+            if name == "mini-player-pill" { PiPOverlays.shared.controls(for: p)?.miniPlayer.setMinimized(true) }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 guard let small = self.mkServerImage(w) else {
                     self.note("marketing: MISSING \(name): the window server gave no image (screen locked?)")

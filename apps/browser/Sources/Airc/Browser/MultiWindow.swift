@@ -204,6 +204,10 @@ extension AppDelegate {
         let m = NSMenu()
         m.addItem(DockMenuItem("New Window") { [weak self] in self?.openNewWindow(from: nil) })
         m.addItem(DockMenuItem("New Private Window") { [weak self] in if let self { PrivateBrowsing.shared.open(app: self) } })
+        LittleArcGlobalActions.shared.addDockItems(to: m)
+        #if AIRC_TESTING
+        AgentCenter.shared.addDockItems(to: m)   // agentspike: Agents (dev builds)
+        #endif
         return m
     }
 
@@ -213,7 +217,7 @@ extension AppDelegate {
         case "New Window", "New Tab", "Open Location…": openNewWindow(from: nil)
         case "New Blank Window": openBlankWindow(from: nil)
         case "New Private Window": PrivateBrowsing.shared.open(app: self)
-        case "New Little Arc Window": openLittleArc(url: nil)
+        case "New Little Airc Window": openLittleArc(url: nil)
         default: break
         }
     }
@@ -436,6 +440,7 @@ extension WindowController {
     func noteShown(_ tabID: String) {
         multiWindow.tabBySpace[currentSpaceID] = tabID
         app?.scheduleSessionSave()
+        linkPreviewShownChanged()   // every show path: a link preview card whose page isn't shown any more goes
     }
 
     /// `tabID`'s page from the window that has it, into this one, live (no reload). Nil: no other window has it, or the

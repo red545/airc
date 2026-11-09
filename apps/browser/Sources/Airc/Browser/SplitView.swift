@@ -14,13 +14,16 @@ import QuartzCore
 final class SplitContainerView: NSView {
     weak var controller: WindowController?
     private(set) var panes: [SplitPaneView] = []
-    private var dividers: [SplitDividerView] = []
+    private(set) var dividers: [SplitDividerView] = []
     private(set) var splitID: String?
     private(set) var axis: SplitAxis = .horizontal
     /// The shares shown now (they move during a drag or a spring).
     private(set) var fractions: [Double] = []
     private var palette: Palette?
     var tabIDs: [String] { panes.map(\.tabID) }
+    /// Arc's Expand Current Split (P06c, Browser/SplitExtras.swift): this pane fills the split's place and the others
+    /// wait behind it, live and at their sizes; the shares aren't touched, so restoring brings the split back as it was.
+    var expandedTabID: String?
 
     /// The window's margin (the card's inset) between panes.
     static let gap: CGFloat = AircMetrics.Window.cardInset
@@ -32,6 +35,8 @@ final class SplitContainerView: NSView {
     /// Checks only: each tick also commits its Core Animation transaction inside the measurement, so a tick's time is
     /// its whole main-thread frame cost (the commit otherwise runs at the end of the run-loop turn).
     static var measureCommit = false
+    /// Checks only: the pane whose controls a click on its handle opened last (scripted runs don't open the menu).
+    static var paneMenuShown: String?
 
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
@@ -48,6 +53,7 @@ final class SplitContainerView: NSView {
     /// Panes for `split`'s tabs, in order (existing pane views are reused by tab, so a page never moves to another
     /// host just because a pane came or went). `animated`: the panes spring from where they are to the split's sizes.
     func configure(_ split: Split, tabIDs ids: [String], palette: Palette, animated: Bool) {
+        let keepsExpanded = expansionSurvives(split, ids)
         let previous = Dictionary(uniqueKeysWithValues: panes.map { ($0.tabID, $0) })
         let oldFrames = Dictionary(uniqueKeysWithValues: panes.map { ($0.tabID, $0.frame) })
         let changed = ids != tabIDs || split.axis != axis
@@ -57,6 +63,10 @@ final class SplitContainerView: NSView {
             p.onHandlePress = { [weak self, weak p] e in
                 guard let self, let p else { return }
                 self.controller?.dragPaneOut(p.tabID, event: e)
+            }
+            p.onHandleMenu = { [weak self, weak p] in
+                guard let self, let p else { return nil }
+                return self.controller?.paneMenu(p.tabID)
             }
             p.tabID = id
             if p.superview !== self { addSubview(p) }
@@ -77,6 +87,10 @@ final class SplitContainerView: NSView {
         axis = split.axis
         setPalette(palette)
         controller?.animator.cancel("split")
+        if keepsExpanded {
+            fractions = target
+            return layoutExpanded()
+        }
         if animated, changed, bounds.width > 0, !oldFrames.isEmpty {
             // New panes grow from nothing where they land; the others glide from their old place.
             let start = panes.map { p -> NSRect in
@@ -98,7 +112,9 @@ final class SplitContainerView: NSView {
     }
 
     func setFocused(_ tabID: String?) {
-        for p in panes { p.focused = panes.count > 1 && p.tabID == tabID }
+        // Another pane takes the keyboard: the split comes back first.
+        if let e = expandedTabID, let tabID, tabID != e, tabIDs.contains(tabID) { setExpanded(nil, animated: true) }
+        for p in panes { p.focused = panes.count > 1 && expandedTabID == nil && p.tabID == tabID }
     }
 
     func pane(for tabID: String) -> SplitPaneView? { panes.first { $0.tabID == tabID } }
@@ -106,6 +122,7 @@ final class SplitContainerView: NSView {
     /// The pane under a window point.
     func paneTabID(at windowPoint: NSPoint) -> String? {
         let p = convert(windowPoint, from: nil)
+        if let e = expandedTabID { return bounds.contains(p) ? e : nil }
         return panes.first { $0.frame.contains(p) }?.tabID
     }
 
@@ -132,14 +149,21 @@ final class SplitContainerView: NSView {
 
     override func layout() {
         super.layout()
+        if expandedTabID != nil { return layoutExpanded() }
         apply(frames(for: fractions))
     }
 
-    private func apply(_ rects: [NSRect]) {
+    override var isHidden: Bool {
+        // The split leaves the screen: an expanded pane ends there.
+        didSet { if isHidden, expandedTabID != nil { dropExpansion() } }
+    }
+
+    func apply(_ rects: [NSRect]) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for (p, r) in zip(panes, rects) where p.frame != r { p.frame = r }
         for (i, d) in dividers.enumerated() where i + 1 < rects.count {
+            if d.isHidden != (expandedTabID != nil) { d.isHidden = expandedTabID != nil }
             let a = rects[i], g = Self.gap
             let r = axis == .horizontal ? NSRect(x: a.maxX - 2, y: 0, width: g + 4, height: bounds.height)
                                         : NSRect(x: 0, y: a.maxY - 2, width: bounds.width, height: g + 4)
@@ -162,7 +186,7 @@ final class SplitContainerView: NSView {
 
     /// A window nobody can see (behind others, or the screen locked) gets no display frames: it takes the end state
     /// at once instead of waiting for a spring that would never run.
-    private var canAnimate: Bool { window?.occlusionState.contains(.visible) == true && controller != nil }
+    var canAnimate: Bool { window?.occlusionState.contains(.visible) == true && controller != nil }
 
     /// The shares spring to `target` (layout changes, a snap after a drag, a double-click).
     func spring(to target: [Double], spring: Spring, velocity: Double = 0, completion: (() -> Void)? = nil) {
@@ -262,8 +286,11 @@ final class SplitPaneView: NSView {
     let host = PageHostView()
     /// The grab handle at the pane's top centre: shows while the pointer is near the top; drag it to take the pane out.
     let handle = PaneHandleView()
+    private(set) var dragStrip: PageTopDragStrip!
     /// The handle was pressed (WindowController.dragPaneOut).
     var onHandlePress: ((NSEvent) -> Void)?
+    /// Arc's Split View Controls for this pane (the handle's right-click).
+    var onHandleMenu: (() -> NSMenu?)?
     private let clip = NSView()
     private let shadowPlate = CALayer()
     private let hairline = CALayer()
@@ -289,6 +316,9 @@ final class SplitPaneView: NSView {
         host.autoresizesSubviews = true
         host.autoresizingMask = [.width, .height]
         clip.addSubview(host)
+        // W07: the top of the pane's page drags the window too (Browser/PageDrag.swift), beside the handle.
+        dragStrip = PageTopDragStrip.install(in: clip)
+        dragStrip.page = host
         hairline.actions = still
         hairline.borderWidth = 0.5
         hairline.cornerCurve = .circular
@@ -302,6 +332,7 @@ final class SplitPaneView: NSView {
         ring.actions = still
         layer?.addSublayer(ring)
         handle.onPress = { [weak self] e in self?.onHandlePress?(e) }
+        handle.onMenu = { [weak self] in self?.onHandleMenu?() }
         addSubview(handle)
         apply(theme)
     }
@@ -361,13 +392,14 @@ final class SplitPaneView: NSView {
 }
 
 /// A pane's grab handle (SV-1): a small capsule on a plate at the top centre of the page, in the theme's surface so it
-/// reads on light and dark pages. The view is the pane's top band: it shows the handle while the pointer is in the band
+/// reads on light and dark pages. A click opens Arc's Split View Controls for the pane (so does a right-click). The view is the pane's top band: it shows the handle while the pointer is in the band
 /// (a tracking area added once, `inVisibleRect`, so dividers' live resizes don't churn it: a pane-level tracking area
 /// rebuilt on every resize threw the divider drag off). Only the capsule takes clicks, and only while it shows, so the
 /// page keeps its top edge; the open-hand cursor over it; a drag lifts the pane out of the split.
 final class PaneHandleView: NSView {
     static let size = NSSize(width: 56, height: 16)
     var onPress: ((NSEvent) -> Void)?
+    var onMenu: (() -> NSMenu?)?
     private(set) var isShown = false
     var isDragging = false
     private let plate = CALayer()
@@ -449,6 +481,7 @@ final class PaneHandleView: NSView {
     }
     override func resetCursorRects() { if isShown { addCursorRect(grabRect, cursor: .openHand) } }
     override func mouseDown(with event: NSEvent) { onPress?(event) }
+    override func menu(for event: NSEvent) -> NSMenu? { onMenu?() }
 }
 
 /// The gap between two panes. Drag to resize (the cursor shows which way); double-click evens the panes out. A short

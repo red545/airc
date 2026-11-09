@@ -273,6 +273,16 @@ bool HostPasswordSuggestions(content::WebContents* contents,
   auto* view = contents->GetRenderWidgetHostView();
   if (!view || view->IsPointerLocked() || contents->GetVisibility() != content::Visibility::VISIBLE)
     return false;
+  // Conditional WebAuthn shares PasswordAutofillManager's suggestion list.
+  // Keep the whole mixed list in Chromium's native popup: the host password
+  // picker deliberately filters non-password rows and would swallow passkeys.
+  for (const auto& row : args.suggestions) {
+    if (row.type == autofill::SuggestionType::kWebauthnCredential ||
+        row.type == autofill::SuggestionType::kWebauthnSignInWithAnotherDevice) {
+      HideHostPasswordSuggestions(contents);
+      return false;
+    }
+  }
   // Remove a previous native popup before replacing it with host UI.
   if (auto* client = autofill::ContentAutofillClient::FromWebContents(contents))
     client->HideSuggestions(autofill::SuggestionHidingReason::kHiddenByCaller, std::nullopt);

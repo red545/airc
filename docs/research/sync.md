@@ -3,6 +3,11 @@
 2026-11-07. AircKit implementation spike; no CloudKit calls, account changes, app
 bundle build, signing changes or UI are enabled by this work.
 
+**Since built (icloudsync, 2026-11-07):** the CloudKit transport, the iCloud Keychain group key, Settings → Sync,
+the first-sync screen and release signing are in [../sync.md](../sync.md). Two changes to this design: profile
+records (name, emoji, default or not) sync so a second Mac can place Spaces; and with Today export off, closing a
+Today tab that was never synced sends no archive marker (one per closed tab would grow the log for nothing).
+
 ## Recommendation and feasibility
 
 Use **CloudKit's private database carrying encrypted sidebar operations**, behind

@@ -7,12 +7,45 @@ import Combine
 /// The root view: themed background, sidebar, page card and overlays. Layout is driven by the
 /// controller so the sidebar's hide/show can reflow the page every frame.
 final class RootView: NSView {
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { dropOperation(sender) }
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation { dropOperation(sender) }
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        if let url = BoostSharing.droppedURL(sender), let window { return BoostSharing.open(url, on: window) }
+        // P04: files, folders, links and text dropped on the sidebar (SidebarFileImport), into the current Space.
+        guard isOverSidebar(sender), let controller else { return false }
+        return controller.importIntoSidebar(sender.draggingPasteboard)
+    }
+    private func dropOperation(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if BoostSharing.droppedURL(sender) != nil { return .copy }
+        return isOverSidebar(sender) && controller?.canImportIntoSidebar(sender.draggingPasteboard) == true ? .copy : []
+    }
+    /// The drop is over the docked sidebar (the page card takes its own drops).
+    func isOverSidebar(_ sender: NSDraggingInfo) -> Bool {
+        guard let sidebar = controller?.sidebar, !sidebar.isHidden, sidebar.superview === self else { return false }
+        return sidebar.frame.contains(convert(sender.draggingLocation, from: nil))
+    }
     weak var controller: WindowController?
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { true }
     /// A press no view takes (the margins, the sidebar's empty areas, the background) drags the window (Arc). It comes
     /// here up the responder chain; the window itself isn't movable by its background (setUpWindow).
     override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
+    /// A WebKit page that doesn't use an Esc sends its `cancelOperation:` up the responder chain
+    /// (`WebPageProxy::executeSavedCommandBySelector`), and the window's leaves full screen on it. In full screen it
+    /// stops here: one Esc only goes to the page (Arc); twice or held leaves (FullScreenController).
+    override func cancelOperation(_ sender: Any?) {
+        guard controller?.isFullscreen != true else {
+            #if AIRC_TESTING
+            Self.cancelsStopped += 1
+            #endif
+            return
+        }
+        nextResponder?.tryToPerform(#selector(cancelOperation(_:)), with: sender)
+    }
+    #if AIRC_TESTING
+    /// How many `cancelOperation:` stopped here in full screen (FullscreenExitCheck, `webkit-esc`).
+    static var cancelsStopped = 0
+    #endif
     override func layout() {
         super.layout()
         controller?.layoutRoot()
@@ -25,6 +58,7 @@ final class RootView: NSView {
 final class WindowController: NSObject, NSWindowDelegate {
     weak var app: AppDelegate?
     let store: SpacesStore
+    var profileSignIn: ProfileSignInCoordinator { .shared }
     let profiles: ProfileHost
     let engineWindow: EngineWindow
     var window: NSWindow { engineWindow.window }
@@ -33,11 +67,15 @@ final class WindowController: NSObject, NSWindowDelegate {
     let background = ThemeBackgroundView(theme: DesignTheme.default.resolved(systemIsDark: false))
     let sidebar = SidebarView()
     let card = PageCardView()
+    /// WIN-8: per-window, opt-in. No toolbar view or layout work while off.
+    var pageToolbar: PageToolbarView?
     let toast = ToastView()
     let resizeHandle = SidebarResizeHandle()
     var commandBar: CommandBarView?
     /// The bar between openings (built at idle, reused: CommandBarView.reuse).
     var spareCommandBar: CommandBarView?
+    /// New Space shows its page before AppKit relays the hidden title into titlebar layout.
+    var defersNewSpaceTitle = false
     var newSpacePanel: NewSpacePanelHost?
     /// Coalesces the New Space card's spare-page prerenders.
     var prerenderToken = 0
@@ -76,6 +114,10 @@ final class WindowController: NSObject, NSWindowDelegate {
     /// asks ("Leave site?") the tab stays in the sidebar until the engine closes the page (`tabRequestedClose`), and if
     /// the person stays, nothing changes.
     private(set) var closingTabs: Set<String> = []
+    /// SB-36: the tab on screen when a multi-selection holding it was closed or archived; ⌘Z shows it again.
+    var bulkClosedShown: String?
+    /// SB-36: a multi-selection's ⌘W or Delete while its pages close (SelectionActions.closePagesThen).
+    var bulkClose: BulkClose?
     /// Clear Today / Archive Tabs Below in progress: the tab whose page is deciding ("Leave site?"), the tabs after it,
     /// how they're archived, and the tab to go back to.
     private(set) var archiveQueue: ArchiveQueue?
@@ -231,6 +273,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         w.minSize = NSSize(width: 640, height: 420)
         w.title = "Airc"
         w.delegate = self
+        root.registerForDraggedTypes(SidebarFileImport.draggedTypes)
         root.controller = self
         root.frame = NSRect(origin: .zero, size: frame.size)
         root.wantsLayer = true
@@ -268,7 +311,13 @@ final class WindowController: NSObject, NSWindowDelegate {
         // The sidebar gives way to the Library, which draws on the window's own theme like the sidebar does.
         let sidebarAlpha = 1 - min(1, libraryFraction * 1.6)
         if sidebar.alphaValue != sidebarAlpha { sidebar.alphaValue = sidebarAlpha }
-        card.frame = mirroredForSidebar(NSRect(x: x, y: i, width: max(0, b.width - x - i), height: max(0, b.height - 2 * i)))
+        var pageFrame = mirroredForSidebar(NSRect(x: x, y: i, width: max(0, b.width - x - i), height: max(0, b.height - 2 * i)))
+        if let toolbar = pageToolbar {
+            toolbar.frame = NSRect(x: pageFrame.minX, y: pageFrame.minY, width: pageFrame.width, height: PageToolbarView.height)
+            pageFrame.origin.y += PageToolbarView.height
+            pageFrame.size.height = max(0, pageFrame.height - PageToolbarView.height)
+        }
+        card.frame = pageFrame
         if shownSplitID != nil, splitContainer.frame != card.frame { splitContainer.frame = card.frame }
         resizeHandle.frame = NSRect(x: (sidebarOnRight ? sidebar.frame.minX : sidebar.frame.maxX) - 4, y: 0, width: 8, height: b.height)
         resizeHandle.isHidden = f < 1 || revealController?.isRevealed == true
@@ -309,7 +358,9 @@ final class WindowController: NSObject, NSWindowDelegate {
             }
         }
         // In full screen the buttons are in AppKit's titlebar window, which shows them only with the menu bar.
-        let visible = isFullscreen || (sidebarFraction >= 1 && revealController?.isRevealed != true)
+        // Hide as soon as hiding begins; the first animation frame still has fraction 1.
+        // Show only once docking finishes, so visibility never depends on the last display-link tick.
+        let visible = isFullscreen || (!sidebarHidden && sidebarFraction >= 1 && revealController?.isRevealed != true)
         buttons.forEach { $0.isHidden = !visible }
         guard !isFullscreen else { return }
         // Never lay out a titlebar AppKit keeps in its full-screen titlebar window (a transition, or one that failed):
@@ -366,6 +417,7 @@ final class WindowController: NSObject, NSWindowDelegate {
     /// The Command Bar's field edits in its own editor, without text checking (CommandBarView.fieldEditor).
     func windowWillReturnFieldEditor(_ sender: NSWindow, to client: Any?) -> Any? {
         for bar in [commandBar, spareCommandBar].compactMap({ $0 }) where bar.isInput(client) { return bar.fieldEditor }
+        if let toolbar = pageToolbar, (client as AnyObject?) === toolbar.address { return toolbar.fieldEditor }
         return nil
     }
     func windowDidBecomeKey(_ notification: Notification) {
@@ -462,9 +514,12 @@ final class WindowController: NSObject, NSWindowDelegate {
         schedulePrewarm()
     }
 
-    /// Something is moving (a live resize, a Space slide or its colour, a drag in the sidebar or of a pane): idle work
-    /// waits.
-    var isBusyForIdleWork: Bool { window.inLiveResize || sidebar.pager.isTrackingOrSettling || colorAnimating || dragsInProgress > 0 }
+    /// Something is moving (a live resize, a Space slide or its colour, the sidebar or the Library sliding, a drag in the
+    /// sidebar or of a pane): idle work waits.
+    var isBusyForIdleWork: Bool {
+        window.inLiveResize || sidebar.pager.isTrackingOrSettling || colorAnimating || dragsInProgress > 0
+            || animator.isRunning("sidebar") || animator.isRunning("library")
+    }
 
     /// Renders every Space's background at the window's size while nothing else is happening, so switching never
     /// renders one.
@@ -520,6 +575,7 @@ final class WindowController: NSObject, NSWindowDelegate {
     }
 
     func reloadAll(animated: Bool) {
+        profileSignIn.refresh()
         applyKeepLoadedPolicy()
         if store.space(currentSpaceID) == nil { currentSpaceID = store.selectedSpace.id }
         // WIN-7: another window closed, archived or moved what this one shows.
@@ -570,6 +626,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         guard let p = sparePage else { return nil }
         sparePage = nil
         if let pre = p.prerendered, pre.profileID == s.profileID, pre.theme == s.theme { prerenderedClaims.insert(ObjectIdentifier(p)) }
+        p.unparkNewSpace()
         p.claim(spaceID: s.id, palette: palette(for: s))
         return p
     }
@@ -578,7 +635,7 @@ final class WindowController: NSObject, NSWindowDelegate {
     private var prerenderedClaims: Set<ObjectIdentifier> = []
 
     /// Draws the spare page ahead as the Space the New Space card would create (its profile and theme; the name is
-    /// set at Create), just right of the last page, where nothing shows it. New Space then claims a drawn page.
+    /// set at Create). Keep its view in-window so AppKit draws the backing stores before Enter.
     func prerenderNewSpacePage(profileID: String, theme: AircKit.SpaceTheme, name: String = "", icon: String? = nil) {
         prepareSparePage()
         guard let p = sparePage else { return }
@@ -589,10 +646,10 @@ final class WindowController: NSObject, NSWindowDelegate {
             return
         }
         let pager = sidebar.pager
-        p.frame = NSRect(x: pager.pageWidth * CGFloat(pager.pages.count), y: 0, width: pager.pageWidth, height: pager.bounds.height)
         p.isHidden = false
-        // Drawn in the window (only attached layers draw), past the last page where the pager's clip hides it.
+        // Only the backing layer leaves the pager's clip; off-window view frames skip drawing.
         if p.superview !== pager.strip { pager.strip.addSubview(p) }
+        p.parkNewSpace(in: pager)
         p.prerender(space)
     }
 
@@ -638,7 +695,9 @@ final class WindowController: NSObject, NSWindowDelegate {
         commandBar?.palette = pal
         library?.setTheme(pal.resolved)
         mediaLibraryChromeChanged()
-        updateWindowTitle()
+        if !defersNewSpaceTitle { updateWindowTitle() }
+        pageToolbar?.refresh()
+        noteChromeChanged()
     }
 
     /// What the card shows while the current Space has no tab: its icon and name, and its profile while several are
@@ -689,6 +748,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         page.delegate = self
         pages[tabID] = page
         tabIDByPage[ObjectIdentifier(page)] = tabID
+        ThemePagePalette.shared?.adopted(page)
         applyKeepLoadedPolicy()
     }
 
@@ -702,7 +762,7 @@ final class WindowController: NSObject, NSWindowDelegate {
     }
 
     /// Frees a tab's page; the tab stays and loads again when shown (MEM-3 on the dev engine).
-    func unloadPage(_ tabID: String) { dropPage(tabID) }
+    func unloadPage(_ tabID: String) { unloadPagePreservingState(tabID) }
 
     func dropPage(_ tabID: String) {
         hiddenSince[tabID] = nil
@@ -743,7 +803,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         if wasElsewhere { hideElsewhere() }
         if shownSplitID != nil { leaveSplitPresentation() }
         if let profile = profiles.engineProfile(for: tab.profileID) { engineWindow.activeProfile = profile }
-        if defersNewPage, pages[tabID] == nil {
+        if defersNewPage, pages[tabID] == nil, !store.isNoteTab(tabID) {
             // A Space never shown since launch: its sidebar and colour arrive this frame, its page (a new web view,
             // tens of ms) right after it.
             engineWindow.deactivateAll()
@@ -761,11 +821,20 @@ final class WindowController: NSObject, NSWindowDelegate {
         }
         if findBar != nil, tabID != shownTabID { closeFind(refocusPage: false) }
         if peek != nil, tabID != shownTabID { closePeek() }
-        guard let page = Perf.time("show.ensurePage", { ensurePage(tabID) }) else { return }
+        // Notes (Notes/NoteCenter.swift): a note's tab has no engine page; its editor goes in the card.
+        let note = noteEditor(forTab: tabID)
+        let page = note == nil ? Perf.time("show.ensurePage", { ensurePage(tabID) }) : nil
+        guard note != nil || page != nil else { return }
         // SB-45: the page leaving is pictured while it's still drawn (Sidebar/TabPreview.swift).
         tabPreview.pageWillChange(hiding: shownTabID, showing: tabID)
-        Perf.time("show.activateTab") { engineWindow.activateTab(page) }
-        app?.engine.setPictureInPictureWindowActive(page, active: window.isKeyWindow)
+        if let page {
+            hideNote()
+            Perf.time("show.activateTab") { engineWindow.activateTab(page) }
+            app?.engine.setPictureInPictureWindowActive(page, active: window.isKeyWindow)
+        } else if let note {
+            engineWindow.deactivateAll()
+            present(note)
+        }
         card.showsEmptyState = false
         // Back from "Open in another window": the page is new to this card.
         let previous = wasElsewhere ? nil : shownTabID
@@ -776,7 +845,7 @@ final class WindowController: NSObject, NSWindowDelegate {
             scheduleSpareBarRefresh()   // ⌘T lists the other tabs, most recent first
         }
         Perf.time("show.storeActivate") { try? store.activate(tabID, inSpace: currentSpaceID) }
-        if focus { Perf.time("show.focus") { page.focus() } }
+        if focus { if let page { Perf.time("show.focus") { page.focus() } } else { note?.focus() } }
         if previous != tabID { prompts.refresh() }
         if previous != tabID, updatesRows {
             // Selection shows in the same frame as the press (Arc activates on press).
@@ -790,6 +859,7 @@ final class WindowController: NSObject, NSWindowDelegate {
 
     func showEmpty(updatesRows: Bool = true) {
         if shownSplitID != nil { leaveSplitPresentation() }
+        hideNote()
         hideElsewhere()
         multiWindow.tabBySpace[currentSpaceID] = nil
         app?.scheduleSessionSave()
@@ -828,6 +898,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         if shownSplitID != nil { leaveSplitPresentation() }
         if findBar != nil { closeFind(refocusPage: false) }
         if peek != nil { closePeek() }
+        hideNote()
         protectedMediaToast?.dismiss()
         protectedMediaToast = nil
         let previous = shownTabID
@@ -872,12 +943,14 @@ final class WindowController: NSObject, NSWindowDelegate {
         for id in ids { app?.window(showing: id, except: self)?.pageLeaving(id) }
         let wasElsewhere = multiWindow.elsewhereTabID != nil
         var panePages: [EngineTab] = []
-        for id in ids {
+        // A note's pane has its editor, no page (Notes/NoteSplit.swift); the engine shows the others.
+        let pageIDs = ids.filter { notePane(for: $0) == nil }
+        for id in pageIDs {
             bringBackFromCallWindow(id)
             guard let page = ensurePage(id) else { return false }
             panePages.append(page)
         }
-        guard let focused = pages[tabID] else { return false }
+        guard let focused = pages[tabID] ?? panePages.first else { return false }
         if findBar != nil, tabID != shownTabID { closeFind(refocusPage: false) }
         if peek != nil { closePeek() }
         let wasShowing = shownSplitID == x.id
@@ -889,7 +962,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         container.configure(x, tabIDs: ids, palette: currentPalette, animated: wasShowing)
         container.isHidden = false
         container.layoutSubtreeIfNeeded()
-        let hosts = ids.compactMap { container.pane(for: $0)?.host }
+        let hosts = pageIDs.compactMap { container.pane(for: $0)?.host }
         do {
             try Perf.time("split.presentPanes") { try engineWindow.presentPanes(Array(zip(panePages, hosts)).map { ($0.0, $0.1) }, focused: focused) }
         } catch {
@@ -899,6 +972,8 @@ final class WindowController: NSObject, NSWindowDelegate {
         }
         card.isHidden = true
         card.showsEmptyState = false
+        hideNote()
+        presentNotePanes(ids)
         shownSplitID = x.id
         shownTabID = tabID
         noteShown(tabID)
@@ -911,7 +986,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         for id in ids where id != tabID { try? store.activate(id, inSpace: currentSpaceID) }
         try? store.activate(tabID, inSpace: currentSpaceID)
         store.setSplitFocus(x.id, tabID)
-        if focusPage { engineWindow.focusPane(focused) }
+        if focusPage { if let note = notePane(for: tabID) { note.focus() } else { engineWindow.focusPane(focused) } }
         if previous != tabID || !wasShowing { prompts.refresh() }
         if updatesRows, previous != tabID || !wasShowing {
             pageView(for: currentSpaceID)?.reload(animated: false)
@@ -927,6 +1002,7 @@ final class WindowController: NSObject, NSWindowDelegate {
     private func leaveSplitPresentation() {
         guard shownSplitID != nil else { return }
         let before = visibleTabIDs
+        releaseNotePanes()
         shownSplitID = nil
         animator.cancel("split")
         splitContainer.isHidden = true
@@ -937,17 +1013,18 @@ final class WindowController: NSObject, NSWindowDelegate {
     /// A click into a pane, ⌘[ / ⌘], ⌃⇧1–4: the keyboard (⌘L, ⌘W, find, zoom, DevTools) moves to that pane; the split
     /// stays as it is.
     func focusSplitPane(_ tabID: String, focusPage: Bool = true) {
-        guard let x = store.split(shownSplitID), x.tabIDs.contains(tabID), let page = pages[tabID] else { return }
-        if focusPage { engineWindow.focusPane(page) }
+        let note = notePane(for: tabID), page = pages[tabID]
+        guard let x = store.split(shownSplitID), x.tabIDs.contains(tabID), note != nil || page != nil else { return }
+        if focusPage { if let note { note.focus() } else if let page { engineWindow.focusPane(page) } }
         guard tabID != shownTabID else { return }
         if findBar != nil { closeFind(refocusPage: false) }
         let previous = shownTabID
         shownTabID = tabID
-        if !focusPage { engineWindow.focusPane(page) }
+        if !focusPage, let page { engineWindow.focusPane(page) }
         store.setSplitFocus(x.id, tabID)
         try? store.activate(tabID, inSpace: currentSpaceID)
         splitContainer.setFocused(tabID)
-        app?.engine.setPictureInPictureWindowActive(page, active: window.isKeyWindow)
+        if let page { app?.engine.setPictureInPictureWindowActive(page, active: window.isKeyWindow) }
         prompts.refresh()
         let sidebarPage = pageView(for: currentSpaceID)
         sidebarPage?.refreshTab(tabID)
@@ -1068,7 +1145,27 @@ final class WindowController: NSObject, NSWindowDelegate {
 
     func closeCurrentTab() {
         if peek != nil { return closePeek() }
+        // SB-36: with rows selected in the sidebar, ⌘W closes all of them.
+        if let (page, ids) = sidebarSelection { return closeSelected(ids, spaceID: page.spaceID) }
         if let id = shownTabID { closeTab(id) }
+    }
+
+    /// SB-36: the pages of `ids` close, as ⌘W's do. Returns the tabs whose page has closed (or had none). A page with
+    /// unload handlers stays until the engine has run them; then its tab closes on its own (`finishClosing`), or stays
+    /// if the person stays on the page. A page in another window closes there (WIN-7).
+    func closePages(_ ids: [String]) -> Set<String> {
+        var closed = Set<String>()
+        for id in ids where store.tab(id) != nil {
+            if pages[id] == nil, let owner = app?.pageOwner(of: id, except: self) { owner.closeTab(id); continue }
+            if let page = pages[id], !page.isClosed {
+                closingTabs.insert(id)
+                page.close()
+                guard page.isClosed else { continue }
+                closingTabs.remove(id)
+            }
+            closed.insert(id)
+        }
+        return closed
     }
 
     /// LA-1 ⌘O: a live page from a Little Arc window (or one its page opened) becomes a new Today tab in `spaceID`
@@ -1200,9 +1297,16 @@ final class WindowController: NSObject, NSWindowDelegate {
         if label == "Close Tab", let id = restored.first {
             if let sid = store.tab(id)?.spaceID, sid != currentSpaceID { switchToSpace(sid, animated: true) }
             show(id)
+        } else if label == "Close Tabs" || label == "Archive", let id = bulkClosedShown, restored.contains(id) {
+            // SB-36: a selection's close or archive put back: the tab that was on screen shows again.
+            bulkClosedShown = nil
+            if let sid = store.tab(id)?.spaceID, sid != currentSpaceID { switchToSpace(sid, animated: true) }
+            show(id)
         } else if label == "Delete Space", let sid = store.windowState.selectedSpaceID {
             reloadAll(animated: false)
             switchToSpace(sid, animated: true)
+        } else if label == SpacesStore.resetTabLabel || label == SpacesStore.resetTabsLabel {
+            pagesFollowUndoneReset()   // Browser/WindowActions.swift
         }
     }
 
@@ -1244,7 +1348,7 @@ final class WindowController: NSObject, NSWindowDelegate {
             }
         }
         if let archived = try? store.autoArchive(ready, protected: archiveProtected) { archived.forEach(dropPage) }
-        _ = try? store.backupIfNeeded(to: AppPaths.backups)
+        _ = try? app?.settings.backUp(store)
     }
 
     /// A page auto-archiving asked to close has closed: its tab goes to the Archive.
@@ -1387,6 +1491,7 @@ final class WindowController: NSObject, NSWindowDelegate {
 
     private func applySpace(_ spaceID: String, refreshesChrome: Bool = true) {
         currentSpaceID = spaceID
+        MainActor.assumeIsolated { BlockingNotices.profileChanged(in: self) }
         store.selectSpace(spaceID, deferred: true)
         if let s = store.space(spaceID) {
             lastSpaceByProfile[s.profileID] = spaceID
@@ -1433,12 +1538,25 @@ final class WindowController: NSObject, NSWindowDelegate {
             return
         }
         sidebarHidden.toggle()
-        store.updateWindowState { $0.sidebarHidden = sidebarHidden }
+        // Saved with the store's next flush (armed before the run loop waits), not in the slide's first frame. Saved at
+        // once, it also told every store observer, and this window then re-rendered every row of every page inside the
+        // slide (P02b: ~10 ms, a late first frame and a ProMotion re-sync on every ⌘S).
+        store.updateWindowState(deferred: Self.defersSidebarState) { $0.sidebarHidden = sidebarHidden }
         app?.scheduleSessionSave()
         let from = sidebarFraction
         let to: CGFloat = sidebarHidden ? 0 : 1
         let duration = sidebarHidden ? AircCurve.sidebarHide.duration : AircCurve.sidebarShow.duration
         positionTrafficLights()
+        // Reduce Motion (the system's setting, or a check's AircMotion override): the sidebar doesn't slide. The window
+        // takes its new layout at once and cross-fades to it in 150 ms, as AircDesign's springs do.
+        if onMain({ AircMotion.prefersReducedMotion }) {
+            animator.cancel("sidebar")
+            sidebarFraction = to
+            layoutRoot()
+            root.layer?.add(AircMotion.crossfadeTransition(), forKey: kCATransition)
+            positionTrafficLights()
+            return
+        }
         animator.curve("sidebar", duration: duration, easing: Easing.sidebar, update: { [weak self] p in
             guard let self else { return }
             self.sidebarFraction = from + (to - from) * CGFloat(p)
@@ -1447,6 +1565,15 @@ final class WindowController: NSObject, NSWindowDelegate {
             self?.positionTrafficLights()
         })
     }
+
+    /// Test builds can save it the old way (`AIRC_SIDEBAR_BASELINE=1`), to compare both in one binary (P02b).
+    private static let defersSidebarState: Bool = {
+        #if AIRC_TESTING
+        return ProcessInfo.processInfo.environment["AIRC_SIDEBAR_BASELINE"] != "1"
+        #else
+        return true
+        #endif
+    }()
 
     func setSidebarWidth(_ w: CGFloat) {
         sidebarWidth = min(max(w, AircMetrics.Sidebar.minWidth), AircMetrics.Sidebar.maxWidth)
@@ -1516,6 +1643,8 @@ extension WindowController: EngineWindowDelegate {
         if paneCloseQueue?.current == id { return panePageClosed(id) }
         // Auto-archive asked it to close.
         if autoArchiveClosing.contains(id) { return autoArchivePageClosed(id) }
+        // SB-36: a selection's close waiting for its pages, to make one undo step of them.
+        if let b = bulkClose, b.pending.contains(id) { closingTabs.remove(id); return b.arrived(id) }
         // A close we asked for (⌘W) that the page let through after its unload handlers.
         if closingTabs.contains(id) { return finishClosing(id) }
         let wasShown = id == shownTabID
@@ -1602,18 +1731,24 @@ extension WindowController: EngineTabDelegate {
     }
     func tabDidChangeURL(_ tab: EngineTab) {
         pageChanged(tab, persist: true)
+        if !tab.isLoading, let id = tabID(for: tab) { profileSignIn.tabNavigated(id) }
         applyKeepLoadedPolicy()
         prompts.pageNavigated(tab)
         if let id = tabID(for: tab), id == shownTabID { protectedMediaPageShown(id) }
     }
-    func tabDidChangeLoading(_ tab: EngineTab) { pageChanged(tab, persist: false) }
+    func tabDidChangeLoading(_ tab: EngineTab) {
+        pageChanged(tab, persist: false)
+        // WebKit reports a provisional URL before its response/cookies arrive. Spend the one final
+        // sign-in probe only once that navigation finishes; same-document changes use the URL hook.
+        if !tab.isLoading, let id = tabID(for: tab) { profileSignIn.tabNavigated(id) }
+    }
     func tabDidChangeFavicon(_ tab: EngineTab) { pageChanged(tab, persist: true) }
     func tabDidChangeNavigationState(_ tab: EngineTab) { pageChanged(tab, persist: false) }
     func tabDidChangeAudio(_ tab: EngineTab) {
         pageChanged(tab, persist: false)
         queueArchiveReschedule()   // a tab playing audio is never archived (SB-43)
     }
-    func tabDidChangeThemeColor(_ tab: EngineTab) {}
+    func tabDidChangeThemeColor(_ tab: EngineTab) { if tabID(for: tab) == shownTabID { pageToolbar?.refresh() } }
     func tab(_ tab: EngineTab, didReceiveShortcut combo: String, pageUsedIt: Bool) {
         guard tabID(for: tab) == shownTabID else { return }
         KeyMonitor.pageReported(combo, pageUsedIt: pageUsedIt, in: self)

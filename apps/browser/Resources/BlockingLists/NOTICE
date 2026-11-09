@@ -1,0 +1,13 @@
+EasyList and EasyPrivacy
+Copyright The EasyList authors (https://easylist.to/).
+Distributed under Creative Commons Attribution-ShareAlike 3.0 or later.
+https://creativecommons.org/licenses/by-sa/3.0/
+
+Airc converts these lists with Brave's adblock-rust 0.13.5 (MPL-2.0).
+The source lists, conversion manifest and converted rulesets included in this
+folder are offered under the same CC BY-SA license. The converter is available
+in Airc's source under engine/core/blocking-rust. Conversion changes filter
+representation and omits unsupported WebKit rules; see the conversion report.
+
+The Rust library and Airc integration code retain their respective licenses;
+this notice applies to the lists and their converted rulesets.

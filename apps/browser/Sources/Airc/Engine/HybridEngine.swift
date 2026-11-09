@@ -207,7 +207,9 @@ final class HybridWebKitSide: NSObject, EngineWindowDelegate {
     func hide(except keep: WebKitTab? = nil) {
         guard let made else { return }
         let leaving = made.visibleTabs.filter { $0 !== keep }
-        made.deactivateAll()
+        // activateTab will hide the outgoing page when keeping a WebKit tab. Do not momentarily deactivate
+        // the kept page: reselecting a fullscreen tab must leave its presentation alone.
+        if keep == nil { made.deactivateAll() }
         leaving.forEach { owner?.autoPictureInPicture($0) }
     }
 
@@ -262,6 +264,14 @@ extension ChromiumWindow {
     }
 
     func deactivateAll() {
+        // An empty Space selects no replacement tab, so Chromium's OnTabDeactivated never runs. End
+        // element fullscreen explicitly before hiding the pages (including split panes in other profiles).
+        for profile in engine.profiles.values {
+            for tab in core.tabs(for: profile.core) { tab.exitFullscreen() }
+        }
+        #if AIRC_TESTING
+        HybridTesting.emptyFullscreenExits += 1
+        #endif
         webKit.hide()
         deactivateChromium()
     }
@@ -424,14 +434,23 @@ extension ChromiumWindow {
 
     /// SB-55 for a WebKit page: leaving its tab in the key window sends a playing video to the system's picture in
     /// picture (WebKit's own, AVKit's window: Airc's PiP controls draw over Chromium's PiP window only), when the profile
-    /// has automatic picture in picture on and the site isn't set to never (Settings → Picture in Picture).
+    /// has automatic picture in picture on and the site isn't set to never (Settings → Picture in Picture). Never a muted
+    /// video, as Chromium's own rule (engine/PIP.md).
     func autoPictureInPicture(_ page: WebKitTab) {
+        // Closing fullscreen also closes out-of-window media. Let that finish before opening automatic PiP,
+        // otherwise WebKit can immediately close the player we just requested.
+        if page.webView.fullscreenState != .notInFullscreen {
+            page.leaveElementFullscreen { [weak self, weak page] in
+                if let self, let page { self.autoPictureInPicture(page) }
+            }
+            return
+        }
         let refusal = autoPictureInPictureRefusal(page)
         #if AIRC_TESTING
         HybridTesting.autoPictureInPicture.append((page: ObjectIdentifier(page), result: refusal ?? "requested"))
         #endif
         guard refusal == nil else { return }
-        Self.requestPictureInPicture(page, completion: nil)
+        page.requestSystemPictureInPicture(automatic: true, completion: nil)
     }
 
     /// Why leaving `page` doesn't ask for picture in picture, or nil when it does.
@@ -448,19 +467,14 @@ extension ChromiumWindow {
 
     /// The page's playing video asks for WebKit's picture in picture: "requested", "already" (one is up) or "none".
     static func requestPictureInPicture(_ page: WebKitTab, completion: ((String) -> Void)?) {
-        page.evaluate("""
-        (function(){ if (document.pictureInPictureElement) return 'already';
-          var v = Array.prototype.find.call(document.querySelectorAll('video'), function(v){
-            return !v.paused && !v.ended && v.readyState > 2 && !v.disablePictureInPicture; });
-          if (!v || !v.requestPictureInPicture) return 'none';
-          v.requestPictureInPicture().catch(function(){}); return 'requested'; })()
-        """) { completion?($0 as? String ?? "none") }
+        page.requestSystemPictureInPicture(completion: completion)
     }
 }
 
 #if AIRC_TESTING
 /// What leaving each WebKit page decided (`--script followups3`).
 enum HybridTesting {
+    static var emptyFullscreenExits = 0
     static var autoPictureInPicture: [(page: ObjectIdentifier, result: String)] = []
 }
 #endif

@@ -237,10 +237,11 @@ enum ChromiumBookmarks {
 /// Chromium's `History` database: `urls(url, title, visit_count, typed_count, last_visit_time, hidden)`, times in
 /// microseconds since 1601.
 enum ChromiumHistory {
-    static func read(_ db: DatabaseCopy, limit: Int) throws -> [ImportedVisit] {
+    static func read(_ db: DatabaseCopy, limit: Int, since: Date? = nil) throws -> [ImportedVisit] {
         let rows = try db.rows("""
             SELECT url, title, visit_count, typed_count, last_visit_time FROM urls
             WHERE hidden = 0 AND (url LIKE 'http://%' OR url LIKE 'https://%')
+              AND last_visit_time >= \(since.map { Int64(($0.timeIntervalSince1970 + 11_644_473_600) * 1_000_000) } ?? 0)
             ORDER BY last_visit_time DESC LIMIT \(max(0, limit))
             """)
         return rows.compactMap { r in

@@ -46,7 +46,7 @@ final class CredentialTests: XCTestCase, @unchecked Sendable {
         let bad = try await ArcCredentialImporter.read(profileDirectory: folder, key: key)
         XCTAssertEqual(bad.cookies.count, 0)
         XCTAssertEqual(bad.failedCookies, 1)
-        XCTAssertEqual(bad.problems, ["cookie: domain digest doesn't match": 1])
+        XCTAssertEqual(bad.problems, ["cookie: damaged in Arc, or encrypted with another key (its site check doesn't match)": 1])
         XCTAssertEqual(bad.logins.count, 1, "the logins still come over")
     }
 
@@ -85,17 +85,19 @@ final class CredentialTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(result.logins.first?.password, "pass-1")
         XCTAssertEqual(result.skippedLogins, 1)
         XCTAssertEqual(result.failedLogins, 3)
-        XCTAssertEqual(result.problems, ["login: couldn't decrypt": 1, "login: v11 encryption (not supported)": 1,
-                                         "login: not UTF-8": 1])
+        XCTAssertEqual(result.problems, ["login: couldn't be decrypted with Arc's key": 1,
+                                         "login: encrypted in a way Airc can't read (Chromium's “v11”, not the Mac's “v10”)": 1,
+                                         "login: damaged in Arc, or encrypted with another key (not text once decrypted)": 1])
         // One note per row that didn't come over, with its site and why; never a password.
         XCTAssertEqual(result.notes.map { "\($0.site) \($0.username) \($0.skipped) \($0.reason)" }, [
             "https://never.test  true Arc was set to never save passwords here",
-            "https://b.test two false couldn't decrypt",
-            "https://c.test three false v11 encryption (not supported)",
-            "https://d.test four false not UTF-8",
+            "https://b.test two false couldn't be decrypted with Arc's key",
+            "https://c.test three false encrypted in a way Airc can't read (Chromium's “v11”, not the Mac's “v10”)",
+            "https://d.test four false damaged in Arc, or encrypted with another key (not text once decrypted)",
         ])
         XCTAssertTrue(result.cookies.isEmpty)
         XCTAssertTrue(result.failedDatabases.isEmpty, "a missing Cookies file isn't a failure")
+        XCTAssertFalse(result.keyMismatch, "one row decrypted, so the key is Arc's")
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: temp.path), [], "the private copy is deleted")
     }
 

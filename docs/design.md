@@ -403,7 +403,8 @@ Rules:
 - **Nothing reflows under a drag:** rows hold still, a 2 pt drop line (white 0.9, 8 pt ring at its start)
   shows the gap, and rows glide on `row` after the drop.
 - **Haptics** fire only at thresholds: the create-Space pull, the drag snap and the theme picker detents.
-- **Reduce Motion:** springs become 150 ms cross-fades; the Space pager cuts instead of sliding. In code:
+- **Reduce Motion:** springs become 150 ms cross-fades; the Space pager cuts instead of sliding, and the sidebar
+  hides and shows (⌘S) at once while the window cross-fades in 150 ms. In code:
   `View.aircAnimation(_:value:)` and `withAircAnimation(_:_:)` read the setting; `AircSpring.animate(_:keyPath:to:)`
   sets a layer's value and either springs it or fades the superlayer in 150 ms (`AircMotion.crossfadeTransition`);
   `AnyTransition.airc(_:)` and `.aircToast` become plain fades; buttons stop scaling on press. Code that builds

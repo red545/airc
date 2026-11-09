@@ -16,8 +16,15 @@ final class MediaCenter: ObservableObject {
         var subtitle: String
         var pageURL: String
         var muted: Bool
+        /// A Safari-engine page's video is in the system picture in picture window.
+        var inSystemPictureInPicture = false
         /// When it last started playing (the tray shows the latest first; calls come before music).
         var since: Date
+        var positionUpdatedAt = Date()
+        var playbackPosition: Double {
+            let elapsed = session.playback == .playing ? Date().timeIntervalSince(positionUpdatedAt) * session.rate : 0
+            return min(session.duration ?? .infinity, max(0, (session.position ?? 0) + elapsed))
+        }
         var id: String { tabID }
         var isCall: Bool { session.isCall }
     }
@@ -31,8 +38,29 @@ final class MediaCenter: ObservableObject {
     weak var library: MediaLibrary?
     private var profileTabs: [String: [EngineTab]] = [:]   // profile ID → its media tabs
     private var watched: [ObjectIdentifier: EngineTab] = [:]
+    // Unloading removes the window's page mapping before the engine ends its session.
+    // Retain the identity for the observer's lifetime so teardown can still clear Now Playing.
+    private var watchedTabIDs: [ObjectIdentifier: String] = [:]
     private var observedProfiles: [String: EngineProfile] = [:]
     private var visible: Set<String> = []
+    private var trackStates: [ObjectIdentifier: (Bool?, Bool?)] = [:]
+    var retainedTrackCount: Int { trackStates.count }
+    lazy var nowPlaying = MediaNowPlaying(center: self)
+    private var rawSessions: [ObjectIdentifier: EngineMediaSession] = [:]
+    /// Players closed from the tray (Arc's Close Mini Player): out of it until their tab plays again or is shown.
+    private var closed: Set<String> = []
+
+    func trackStateChanged(_ tab: EngineTab, json: String) {
+        guard !tab.isClosed else { return }
+        guard let d = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else { return }
+        let key = ObjectIdentifier(tab)
+        let mic = d["mic"] as? Bool, cam = d["cam"] as? Bool
+        // The script announces null/null on every page. Keep only pages with outgoing tracks; preserve an early
+        // track report arriving before the engine adds this call to its watched media tabs.
+        guard mic != nil || cam != nil || trackStates[key] != nil else { return }
+        trackStates[key] = (mic, cam)
+        sessionChanged(tab, rawSessions[key] ?? engine.mediaSession(of: tab))
+    }
 
     init(engine: EngineMedia) {
         self.engine = engine
@@ -54,6 +82,14 @@ final class MediaCenter: ObservableObject {
         for t in watched.values { engine.observeMediaSession(of: t, nil) }
         observedProfiles = [:]
         watched = [:]
+        watchedTabIDs = [:]
+        profileTabs = [:]
+        trackStates = [:]
+        rawSessions = [:]
+        sessions = [:]
+        closed = []
+        players = []
+        nowPlaying.update()
     }
 
     private func mediaTabsChanged(_ profileID: String, _ tabs: [EngineTab]) {
@@ -64,7 +100,9 @@ final class MediaCenter: ObservableObject {
         for (key, tab) in watched where !keep.contains(key) {
             engine.observeMediaSession(of: tab, nil)
             watched[key] = nil
-            if let id = library?.tabID(for: tab) { sessionEnded(id) }
+            trackStates[key] = nil
+            rawSessions[key] = nil
+            if let id = watchedTabIDs.removeValue(forKey: key) ?? library?.tabID(for: tab) { sessionEnded(id) }
         }
         for tab in all where watched[ObjectIdentifier(tab)] == nil {
             watched[ObjectIdentifier(tab)] = tab
@@ -76,14 +114,26 @@ final class MediaCenter: ObservableObject {
         refresh()
     }
 
-    private func sessionChanged(_ tab: EngineTab, _ s: EngineMediaSession) {
+    private func sessionChanged(_ tab: EngineTab, _ raw: EngineMediaSession) {
+        let key = ObjectIdentifier(tab)
+        rawSessions[key] = raw
+        var s = raw
+        if let (mic, cam) = trackStates[key] {
+            s.microphoneActive = mic ?? s.microphoneActive
+            s.cameraActive = cam ?? s.cameraActive
+        }
         PiPOverlays.shared.sessionChanged(tab, s)
-        guard let id = library?.tabID(for: tab) else { return }
+        guard let id = library?.tabID(for: tab) ?? watchedTabIDs[key] else { return }
+        if watched[key] != nil { watchedTabIDs[key] = id }
         guard s.isPresent, !tab.isClosed else { return sessionEnded(id) }
         let old = sessions[id]
         var p = old ?? Player(tabID: id, session: s, title: "", subtitle: "", pageURL: "", muted: tab.isMuted, since: Date())
-        if old == nil || (s.playback == .playing && old?.session.playback != .playing) { p.since = Date() }
+        if old == nil || (s.playback == .playing && old?.session.playback != .playing) {
+            p.since = Date()
+            closed.remove(id)
+        }
         p.session = s
+        p.positionUpdatedAt = Date()
         describe(&p, tab: tab)
         sessions[id] = p
         library?.calls.sessionChanged(id, s)
@@ -91,6 +141,7 @@ final class MediaCenter: ObservableObject {
     }
 
     private func sessionEnded(_ id: String) {
+        closed.remove(id)
         guard sessions.removeValue(forKey: id) != nil else { return }
         library?.calls.sessionChanged(id, EngineMediaSession())
         refresh()
@@ -102,6 +153,7 @@ final class MediaCenter: ObservableObject {
         let host = URLRules.displayHost(url)
         p.pageURL = url
         p.muted = tab.isMuted
+        p.inSystemPictureInPicture = (tab as? WebKitTab).map(SystemPictureInPicture.isOpen) ?? false
         p.title = !s.title.isEmpty ? s.title : (!tab.title.isEmpty ? tab.title : host)
         if s.isCall {
             // The buttons show the microphone and camera; the line says only what's off, and sharing.
@@ -118,6 +170,14 @@ final class MediaCenter: ObservableObject {
     /// The tabs on screen changed (WindowController.refreshChrome): the tray leaves out what you're looking at.
     func visibilityChanged(_ now: Set<String>) {
         guard now != visible else { return }
+        for id in now.subtracting(visible) {
+            closed.remove(id)
+            if let page = library?.page(for: id), HiddenMiniPlayers.isHidden(page) {
+                // Returning to the tab ends this hidden presentation; the next playback can open normally.
+                PiPOverlays.shared.close(page, pause: false)
+                HiddenMiniPlayers.forget(page)
+            }
+        }
         visible = now
         refresh()
     }
@@ -132,8 +192,14 @@ final class MediaCenter: ObservableObject {
         refresh()
     }
 
+    func miniPlayerVisibilityChanged() { refresh() }
+
     private func refresh() {
-        let shown = sessions.values.filter { !visible.contains($0.tabID) && library?.controller?.store.tab($0.tabID) != nil }
+        nowPlaying.update()
+        let shown = sessions.values.filter { p in
+            let hidden = library?.page(for: p.tabID).map { HiddenMiniPlayers.isHidden($0) } ?? false
+            return (!visible.contains(p.tabID) || hidden) && !closed.contains(p.tabID) && library?.controller?.store.tab(p.tabID) != nil
+        }
             .sorted { a, b in a.isCall != b.isCall ? a.isCall : a.since > b.since }
         if shown != players {
             players = shown
@@ -144,14 +210,27 @@ final class MediaCenter: ObservableObject {
     // MARK: Actions
 
     @discardableResult
-    func perform(_ action: String, _ p: Player) -> Bool {
+    func perform(_ action: String, _ p: Player, value: Double = 0) -> Bool {
         guard let page = library?.page(for: p.tabID), p.session.actions.contains(action)
             || (["play", "pause"].contains(action) && p.session.playback != .none) else { return false }
-        return engine.performMediaAction(action, value: 0, in: page)
+        return engine.performMediaAction(action, value: value, in: page)
     }
 
     func togglePlayback(_ p: Player) {
         perform(p.session.playback == .playing ? "pause" : "play", p)
+    }
+
+    /// Close Player (Arc's Close Mini Player): the media pauses, its picture in picture closes, and the row goes until
+    /// the tab plays again or you go back to it. Not for calls: their row is where the microphone shows.
+    func closePlayer(_ p: Player) {
+        guard !p.isCall, let page = library?.page(for: p.tabID) else { return }
+        if p.session.playback == .playing { perform("pause", p) }
+        if let webKit = page as? WebKitTab, SystemPictureInPicture.isOpen(webKit) { webKit.closeSystemPictureInPicture(pause: true) }
+        if PiPOverlays.shared.controls(for: page)?.window != nil || HiddenMiniPlayers.isHidden(page) {
+            PiPOverlays.shared.close(page, pause: true)
+        }
+        closed.insert(p.tabID)
+        refresh()
     }
 
     /// The tab's sound (playback only: a call's microphone is `togglemicrophone`).
@@ -161,7 +240,13 @@ final class MediaCenter: ObservableObject {
         pageChanged(p.tabID)
     }
 
-    /// A click on the player: its tab, in its Space.
+    /// A click on a hidden player's tray row brings back the same window without interrupting playback.
+    func activatePlayer(_ p: Player) {
+        if let page = library?.page(for: p.tabID), HiddenMiniPlayers.show(page) { return }
+        goToTab(p)
+    }
+
+    /// Back to Tab: its tab, in its Space.
     func goToTab(_ p: Player) {
         guard let c = library?.controller, let tab = c.store.tab(p.tabID) else { return }
         if let sid = tab.spaceID, sid != c.currentSpaceID { c.switchToSpace(sid, animated: true) }

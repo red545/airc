@@ -1,7 +1,8 @@
 # SB-55 automatic picture-in-picture
 
 Current native behavior is documented in “Native window policy (pipwindow)”
-below; it supersedes the original key-window trigger and placement-only policy.
+below, with the later “Document PiP keyboard policy” governing keyboard focus;
+these supersede the original key-window trigger and placement-only policy.
 
 Status (2026-11-05 retest): **framework and Swift adapter compile; engine-host
 video and Document PiP probes pass**. Native fullscreen, production app switching
@@ -293,7 +294,8 @@ visible area, and the nearest corner. Recent velocity above 650 points/s project
 250 ms toward the fling. Holding Command at any point in the gesture suppresses
 snapping. A CASpringAnimation (mass 1, stiffness 320, damping 30) drives the window
 frame animator. Edges and aspect ratio remain Chromium-owned. Move/resize
-notifications keep `browser.app_window_placement.airc_pip_frame` profile-local;
+notifications keep video and document placement profile-local (separate keys;
+see pipmeet below);
 the existing placement kill switch disables the new policy too. Little Arc's
 handoff uses the same engine PiP surfaces and needs no separate native window.
 
@@ -433,3 +435,109 @@ stays with it (2 drags, window still), the band drags the window with Command an
 swallows its click, Airc never active. The existing video, muted and audio runs
 pass unchanged. Call/Document PiP host runs need capture devices, so the Document
 PiP top bar is qualified by the app's device-free check (`--script pipcontrols`).
+
+## Document PiP keyboard policy
+
+Document PiP starts non-key, including when Airc is already foreground. The
+native-widget init callback sets `preventKeyWindow` before Chromium's first Show.
+Activation independence and the guarded WindowServer activation tag remain in
+place; the native Views bridge, resize edges, pointer routing and close remain
+Chromium-owned.
+
+A site-control press may grant keyboard focus only while Airc is the actual
+foreground process (`NSWorkspace.frontmostApplication`, not `NSApp.isActive`).
+This lets editable site controls receive typing on a deliberate foreground click.
+Background site controls still receive pointer events, but cannot take keyboard
+focus. Later site/native focus requests are rejected whenever Airc is background.
+
+The existing `026-pip-window.patch` also consults the PiP callback at the start of
+`canBecomeKeyWindow`. This independent guard survives Chromium's
+`orderFrontKeepWindowKeyState`, which clears `_preventKeyWindow` directly after
+an off-Space ordering operation. It does not alter the native class or swizzle
+methods. Video PiP and other windows are not subject to the Document key guard.
+The `pipPlacement` kill switch retains its existing all-native-policy fallback.
+
+Qualification uses `--script pipcontrols`, `AIRC_REAL_CLICKS=1`, with HID idle at
+least 120 seconds and the shared UI-check lock. `AIRC_PIP_DOCUMENT_ONLY=1` isolates
+Document PiP; `AIRC_PIP_FOREGROUND=1` adds a separate foreground click/typing test.
+The check watches background key notifications, entry/click/drag, site and native
+focus after a simulated Chromium flag reset, resize, site buttons and close.
+It does not change macOS Spaces or inject global input; an actual off-Space
+transition and physical keyboard interaction remain separate manual checks.
+
+## Meet sizing and call routing (pipmeet)
+
+A 360×240 window with the site's **full call page** and no persistent browser
+bar may be Airc's `CallPanel` fallback, not a Document PiP window. Its default
+size used to be 360×240, with video-style controls fading over the page. Check
+`pictureInPictureState.kind` and `CallWindowController.isShowing` before diagnosing
+Document PiP geometry from a screenshot. The fallback previously only waited for
+Chromium's automatic entry. If the site registers `enterpictureinpicture` but
+native auto-entry is ineligible, it now requests that Media Session action once,
+gives the site another grace interval, and only then falls back. Returning to the
+tab or opening native PiP cancels the pending fallback. No site DOM is modified.
+
+For sites without Document PiP, the full-page fallback now defaults to 800×600,
+with a 640×480 minimum (bounded by the display's available area). It remains
+user-resizable and remembers its settled frame per profile. Old small frames
+are enlarged, and offscreen/oversized frames are fitted to the current display.
+A permanent 48 pt Airc bar holds Close, Hide and Back to Tab **above** the page;
+the site's microphone/camera/leave controls are the only call-control row.
+There are no scrims or Airc call buttons over the page. The media tray retains
+its controls, and the existing hide, Esc-collapse and context-menu actions remain.
+This is a full page, not a browser-selected speaker tile: the site decides which
+participants it renders, and the user can enlarge the window for more space.
+
+Document PiP retains Chromium's requested/cached inner size, non-client bar and
+min/max rules. Airc no longer proportionally screen-fits Document PiP a second
+time. Its remembered corner uses `airc_document_pip_frame`; the existing
+`airc_pip_frame` and public profile frame API retain video size semantics (a reset
+clears both placements). Document resize
+cannot change a subsequent video's remembered area. Chromium's own Document PiP
+bounds cache remains authoritative (a site can request
+`preferInitialWindowPlacement` to bypass it). We do not force a Meet-specific
+minimum: Chromium 156 desktop clamps the inner size to at least 240×52 and adds
+its 34 pt non-client bar; pages requesting a larger grid keep that size, subject
+to Chromium's display limits.
+
+`pictureInPictureState` additionally reports `documentView` and `topBarHeight`.
+The device-free `--script pipcontrols` fixture requests 640×400, has a responsive
+six-participant grid and right-most Leave control, resizes, and requests 80×40 to
+exercise the minimum clamp. It compares JS inner dimensions, native visible
+bounds and the overlay's page boundary, and seeds a 300×169 video placement to
+check isolation. `AIRC_PIPMEET=1` also exercises tab-leave routing and captures
+owned-window PNGs. With `--airc-switches=autoPip=off`, native automatic entry is
+disabled deliberately so the registered-site-action path must succeed. Run with
+the UI lock, `AIRC_REAL_CLICKS=1`, and `--airc-test=parityp16a`; existing owner-idle
+and test-window safety guards apply. No camera, microphone or display stream is
+requested. The marketing `calls` part refreshes `picture-in-picture-meet` at
+640×400 with the fixture's full site controls below Airc's bar.
+
+`AIRC_PIPMEET_GEOMETRY=1` runs only routing and native/JS geometry checks, with no
+native pointer events, key requests or app activation. It can run while the owner
+is active; the normal input-driven suite still requires 120 seconds of HID idle.
+
+Historical comparison: [Chromium 134's window manager](https://chromium.googlesource.com/chromium/src/+/refs/tags/134.0.6998.35/chrome/browser/picture_in_picture/picture_in_picture_window_manager.cc)
+also used a 240×52 desktop minimum, added the excluded non-client margin to the
+site's requested inner dimensions and honored its document bounds cache unless
+`preferInitialWindowPlacement` was set. This is a source comparison, not a real
+Meet session measured in Chrome 134.
+
+Geometry-only reproduction (fresh scratch directories):
+
+```sh
+python3 scripts/ui-check-lock.py open -g -n -W \
+  --env AIRC_PIPMEET=1 --env AIRC_PIPMEET_GEOMETRY=1 --env AIRC_REAL_CLICKS=1 \
+  build/Airc-Chromium.app --args --engine=chromium --script pipcontrols \
+  --snapshot "$PWD/build/pipmeet-shots" --data-dir "$PWD/build/pipmeet-data" \
+  --airc-data-dir="$PWD/build/pipmeet-data" --airc-test=parityp16a \
+  --airc-switches=autoPip=off --autoplay-policy=no-user-gesture-required --use-mock-keychain
+```
+
+`fallback-large.png` explicitly exercises the full-page fallback, its permanent
+bar and absence of duplicate call controls. The check also resizes and reopens
+it to verify frame persistence. The privately retained `before-fallback.png`
+was captured before this change; neither image is an authenticated Meet call.
+`site-route.png` captures the site's native Document PiP reached through tab leave.
+`requested.png` and `resized.png` accompany the native/JS geometry assertions;
+`video.png` accompanies the video aspect/remembered-placement regression.

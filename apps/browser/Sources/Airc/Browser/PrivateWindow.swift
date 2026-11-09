@@ -61,7 +61,9 @@ final class PrivateBrowsing {
     }
 
     private func session(for profileID: String, app: AppDelegate, completion: @escaping (EngineProfile?) -> Void) {
-        if let p = sessions[profileID] { return completion(p) }
+        if let p = sessions[profileID] {
+            return MainActor.assumeIsolated { app.blocking.prepare(profile: p, id: profileID, isPrivate: true) { completion(p) } }
+        }
         if let old = ending[profileID] {
             return whenEnded(old, profileID: profileID, app: app, deadline: Date().addingTimeInterval(5)) { [weak self, weak app] in
                 guard let self, let app else { return completion(nil) }
@@ -74,7 +76,8 @@ final class PrivateBrowsing {
             chromium.offTheRecordProfile(for: parent) { [weak self] p in
                 guard let self else { return completion(nil) }
                 if let p, self.sessions[profileID] == nil { self.sessions[profileID] = p }
-                completion(self.sessions[profileID])
+                guard let session = self.sessions[profileID] else { return completion(nil) }
+                MainActor.assumeIsolated { app.blocking.prepare(profile: session, id: profileID, isPrivate: true) { completion(session) } }
             }
             return
         }
@@ -82,7 +85,7 @@ final class PrivateBrowsing {
         if let webKit = app.engine as? WebKitEngine {
             let p = webKit.makePrivateProfile()
             sessions[profileID] = p
-            return completion(p)
+            return MainActor.assumeIsolated { app.blocking.prepare(profile: p, id: profileID, isPrivate: true) { completion(p) } }
         }
         completion(nil)
     }
@@ -111,6 +114,7 @@ final class PrivateBrowsing {
         let pid = w.profileID
         guard !windows.contains(where: { $0.profileID == pid }), let p = sessions.removeValue(forKey: pid) else { return }
         sessionDownloads.removeValue(forKey: pid)?.stop()
+        MainActor.assumeIsolated { w.app?.blocking.release(profile: p) }
         // Its WebKit pages' icons were kept in memory only (WebKitProfile.icons): they go now, not with the last page.
         (p as? WebKitProfile)?.icons.forgetAll()
         #if canImport(AircCore)
@@ -195,6 +199,7 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
     }
     private(set) var pages: [Page] = []
     private(set) var shownID: String?
+    var blockingSiteControls: BlockingPrivateControls?
     private var nextID = 0
     /// Asked to close, waiting for the page's unload handlers (it may ask "Leave site?").
     private var closingIDs: Set<String> = []
@@ -404,6 +409,7 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
     /// The sidebar, the address field and the empty state from the pages.
     func refresh() {
         let shown = shownPage
+        MainActor.assumeIsolated { blockingSiteControls?.refresh(page: shown) }
         empty.isHidden = shown != nil
         sidebar.update(pages: pages, shownID: shownID, closing: closingIDs)
         sidebar.header(canGoBack: shown?.canGoBack ?? false, canGoForward: shown?.canGoForward ?? false,
@@ -553,6 +559,7 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
         var mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
         guard !mods.isEmpty, var key = event.charactersIgnoringModifiers?.lowercased() else { return nil }
         if key == "+", mods.contains(.command) { key = "="; mods.remove(.shift) }
+        if mods == [.command, .shift], let k = ShortcutCenter.digitKeys[Int(event.keyCode)] { key = k }
         return (key, mods)
     }
 
@@ -585,6 +592,7 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
         case ("p", .command): return { [weak self] in self?.printPage() }
         case ("s", [.command, .shift]): return { [weak self] in self?.savePage() }
         case ("c", [.command, .shift]): return { [weak self] in self?.copyURL() }
+        case ("2", [.command, .shift]): return { [weak self] in self?.startCapture() }
         case ("i", [.command, .option]): return { [weak self] in _ = self?.shownPage?.showDevTools(console: false) }
         case ("j", [.command, .option]): return { [weak self] in _ = self?.shownPage?.showDevTools(console: true) }
         case ("f", .command): return { [weak self] in self?.showFind() }
@@ -610,6 +618,7 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
         case "Save Page As…": savePage()
         case "Print…": printPage()
         case "Copy URL": copyURL()
+        case "Capture…": startCapture()
         case "Reload Page": reloadOrStop()
         case "Reload Ignoring Cache": shownPage?.reloadIgnoringCache()
         case "Back": shownPage?.goBack()
@@ -624,7 +633,7 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
         case "Find…": showFind()
         case "Find Next": findAgain(forward: true)
         case "Find Previous": findAgain(forward: false)
-        default: return false
+        default: return performDeveloperCommand(title)   // P20d (Browser/DeveloperModeCommands.swift)
         }
         return true
     }
@@ -797,10 +806,12 @@ extension PrivateWindowController: CommandBarHost {
         if q.isEmpty {
             return CommandSearch.rank("", candidates.filter { $0.kind == .openTab }, limit: 6).compactMap { rows[$0.candidate.id] }
         }
-        let engine = searchEngine
+        // P07d: the profile's default search, a site search included.
+        let builtIn = searchEngine
+        let engine = app?.store.profile(profileID)?.defaultSearch ?? .engine(builtIn)
         let search = { (text: String, subtitle: String) in
             CommandResult(title: text, subtitle: subtitle, badge: "Search", icon: .symbol("magnifyingglass"), matches: [],
-                          action: .open(engine.searchURL(for: text)))
+                          action: .open(engine.url(for: text) ?? builtIn.searchURL(for: text)))
         }
         var out: [CommandResult] = []
         if inline != nil, let site = inlineSite, let row = siteRow(site, matches: CommandSearch.score(q, in: site.name)?.matches ?? []) {
@@ -899,6 +910,7 @@ final class PrivateSidebarView: NSView {
         reload.action = { [weak self] in self?.controller?.reloadOrStop() }
         addSubview(urlField)
         urlField.onClick = { [weak self] in self?.controller?.openCommandBar(mode: .editURL) }
+        urlField.blockingButton.action = { [weak self] in self?.controller?.showBlockingControls() }
         addSubview(badge)
         wantsLayer = true
         layer?.addSublayer(divider)
@@ -1004,6 +1016,7 @@ final class PrivateSidebarView: NSView {
 /// The address field: the host only, 36 pt (SB-2); a click opens the Command Bar over it.
 final class PrivateURLField: NSView {
     private let label = AircAddressFieldLabel(theme: PrivateWindowController.privatePalette.resolved)
+    let blockingButton = GlyphButton(symbol: "slider.horizontal.3", size: 13)
     private let progress = CALayer()
     var onClick: (() -> Void)?
 
@@ -1014,6 +1027,8 @@ final class PrivateURLField: NSView {
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
         addSubview(label)
+        addSubview(blockingButton)
+        blockingButton.toolTip = "Site Controls — Block Ads & Trackers"
         layer?.addSublayer(progress)
         setAccessibilityRole(.button)
         setAccessibilityLabel("Address")
@@ -1029,6 +1044,8 @@ final class PrivateURLField: NSView {
 
     func configure(host: String, loading: Double?, palette: Palette) {
         layer?.backgroundColor = palette.urlFieldFill.cgColor
+        blockingButton.tint = palette.glyph; blockingButton.hoverFill = palette.hover
+        blockingButton.isHidden = host.isEmpty
         label.theme = palette.resolved
         label.host = host.isEmpty ? nil : host
         CATransaction.begin()
@@ -1046,7 +1063,8 @@ final class PrivateURLField: NSView {
 
     override func layout() {
         super.layout()
-        label.frame = AircAddressFieldLabel.frame(inField: bounds, trailingControlMinX: nil)
+        blockingButton.frame = NSRect(x: bounds.width - 32, y: 3, width: 30, height: 30)
+        label.frame = AircAddressFieldLabel.frame(inField: bounds, trailingControlMinX: blockingButton.isHidden ? nil : blockingButton.frame.minX)
     }
 }
 
@@ -1307,9 +1325,12 @@ final class TrafficLights {
     private weak var window: NSWindow?
     private var observers: [NSObjectProtocol] = []
     private var placing = false
+    private let centers: [CGPoint]
 
-    init(window: NSWindow) {
+    /// `centers`: the lights' centres from the window's top-left (Little Arc has its own, AircMetrics.LittleArc).
+    init(window: NSWindow, centers: [CGPoint] = AircMetrics.Window.trafficLightCenters) {
         self.window = window
+        self.centers = centers
         place()
     }
 
@@ -1320,7 +1341,9 @@ final class TrafficLights {
         let types: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
         let buttons = types.compactMap { window.standardWindowButton($0) }
         guard let first = buttons.first, let container = first.superview?.superview else { return }
-        guard !window.styleMask.contains(.fullScreen) else { return }
+        // AppKit owns the container while it is in its fullscreen titlebar window, including transitions.
+        // Resizing it there fights AppKit's tiling even after the main window's fullScreen bit clears.
+        guard container.window === window, !window.styleMask.contains(.fullScreen) else { return }
         placing = true
         defer { placing = false }
         if observers.isEmpty {
@@ -1333,13 +1356,13 @@ final class TrafficLights {
             }
         }
         let h = first.frame.height
-        let top = AircMetrics.Window.trafficLightCenters[0].y
+        let top = centers[0].y
         let containerHeight = top + h / 2 + 2
         var cf = container.frame
         cf.size.height = containerHeight
         cf.origin.y = window.frame.height - containerHeight
         if container.frame != cf { container.frame = cf }
-        for (b, c) in zip(buttons, AircMetrics.Window.trafficLightCenters) {
+        for (b, c) in zip(buttons, centers) {
             let o = NSPoint(x: c.x - b.frame.width / 2, y: containerHeight - c.y - h / 2)
             if b.frame.origin != o { b.setFrameOrigin(o) }
         }

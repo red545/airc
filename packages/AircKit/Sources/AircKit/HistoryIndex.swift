@@ -2,10 +2,10 @@
 
 import Foundation
 
-// The Command Bar's history index (code review H5). A keystroke never parses URLs, folds strings or scans history on
-// the main thread:
+// The Command Bar's history index (code review H5). Full-history preparation/search stays off-main;
+// the main thread can search a bounded, prebuilt hot tier:
 // - Each entry is folded once (case, accents and widths removed) into UTF-8 bytes, on the index's own queue.
-// - Search runs there on an immutable snapshot, with a generation counter: a newer keystroke cancels an older search.
+// - Full search runs there on an immutable snapshot, with a generation counter: a newer keystroke cancels an older search.
 //   A byte scan picks candidates with a cheap pre-score; only the best few hundred get the full CommandSearch score.
 // - Inline completion is a binary search in sorted host and address keys, cheap enough for the main thread.
 
@@ -41,12 +41,15 @@ public struct HistorySnapshot: Sendable {
     let hostKeys: [InlineCompletion.Key]
     let addressKeys: [InlineCompletion.Key]
     let now: Date
+    private let localScores: [(url: CommandSearch.Folded, title: CommandSearch.Folded)]?
 
     static let empty = HistorySnapshot(rows: [], now: Date())
 
-    init(rows: [HistoryRow], now: Date) {
+    init(rows: [HistoryRow], now: Date, completionKeys: Bool = true) {
         self.rows = rows
         self.now = now
+        localScores = completionKeys ? nil : rows.map { (CommandSearch.Folded($0.displayURL), CommandSearch.Folded($0.entry.title)) }
+        guard completionKeys else { hostKeys = []; addressKeys = []; return }
         var hosts: [String: InlineCompletion.Key] = [:]
         var addresses: [String: InlineCompletion.Key] = [:]
         for r in rows {
@@ -76,12 +79,22 @@ public struct HistorySnapshot: Sendable {
             candidates.sort { $0.key > $1.key }
             candidates.removeLast(candidates.count - HistoryIndex.scoredCandidates)
         }
+        let preparedQuery = localScores == nil ? nil : CommandSearch.Folded(query)
         var out: [HistoryMatch] = []
         for c in candidates {
             let r = rows[c.row]
             var best: (Double, [Int])?
-            if let m = CommandSearch.score(query, in: r.displayURL) { best = (m.score, []) }
-            if !r.entry.title.isEmpty, let m = CommandSearch.score(query, in: r.entry.title), m.score > (best?.0 ?? -1) {
+            let urlMatch: (score: Double, matches: [Int])?
+            let titleMatch: (score: Double, matches: [Int])?
+            if let preparedQuery, let localScores {
+                urlMatch = CommandSearch.score(preparedQuery, in: localScores[c.row].url)
+                titleMatch = CommandSearch.score(preparedQuery, in: localScores[c.row].title)
+            } else {
+                urlMatch = CommandSearch.score(query, in: r.displayURL)
+                titleMatch = r.entry.title.isEmpty ? nil : CommandSearch.score(query, in: r.entry.title)
+            }
+            if let m = urlMatch { best = (m.score, []) }
+            if let m = titleMatch, m.score > (best?.0 ?? -1) {
                 best = (m.score, m.matches)
             }
             guard let b = best else { continue }
@@ -106,6 +119,46 @@ public struct HistorySnapshot: Sendable {
     /// Inline completion from this history plus `extra` candidates (open tabs, pinned items: a handful).
     public func inlineCompletion(for typed: String, extra: [(url: String, weight: Double)] = []) -> InlineCompletion.Match? {
         InlineCompletion.complete(typed, hostKeys: hostKeys, addressKeys: addressKeys, extra: extra)
+    }
+}
+
+// The same matcher as the full snapshot, over a bounded hot tier. No new search semantics:
+// fuzzy, accent, URL and title matching/highlights stay identical for entries in the tier.
+extension HistorySnapshot {
+    public static let localEntryLimit = 128
+    public static let localTextByteLimit = 512
+
+    static func local<S: Sequence>(rows: S, now: Date) -> HistorySnapshot where S.Element == HistoryRow {
+        var recent: [HistoryRow] = [], frequent: [HistoryRow] = []
+        func insert(_ row: HistoryRow, into list: inout [HistoryRow], limit: Int,
+                    before: (HistoryRow, HistoryRow) -> Bool) {
+            if list.count == limit, !before(row, list[list.count - 1]) { return }
+            var lo = 0, hi = list.count
+            while lo < hi {
+                let mid = (lo + hi) / 2
+                if before(row, list[mid]) { hi = mid } else { lo = mid + 1 }
+            }
+            list.insert(row, at: lo)
+            if list.count > limit { list.removeLast() }
+        }
+        // Bound both source bytes and folded bytes (including Unicode expansion), hence also
+        // the prepared character/scalar arrays. Oversized pages stay in async full search.
+        for r in rows where r.entry.url.utf8.count + r.entry.title.utf8.count <= localTextByteLimit
+            && r.display.count + r.title.count <= localTextByteLimit {
+            insert(r, into: &recent, limit: localEntryLimit / 2) {
+                ($0.entry.lastVisit, $0.entry.url) > ($1.entry.lastVisit, $1.entry.url)
+            }
+            insert(r, into: &frequent, limit: localEntryLimit) {
+                ($0.weight, $0.entry.url) > ($1.weight, $1.entry.url)
+            }
+        }
+        var seen = Set<String>()
+        var selected: [HistoryRow] = []
+        for r in recent + frequent where seen.insert(r.entry.url).inserted {
+            selected.append(r)
+            if selected.count == localEntryLimit { break }
+        }
+        return HistorySnapshot(rows: selected, now: now, completionKeys: false)
     }
 }
 
@@ -167,6 +220,12 @@ final class HistoryIndexer: @unchecked Sendable {
     // Guarded by `lock`: read from any thread.
     private var generation = 0
     private var published: [String: HistorySnapshot] = [:]
+    private var local: [String: HistorySnapshot] = [:]
+    // A deletion invalidates publication immediately, including a build already in flight.
+    private var revisions: [String: Int] = [:]
+    private var queueRevisions: [String: Int] = [:] // owned by queue
+    private var localPending: Set<String> = [] // owned by queue
+    private var localPrepared: Set<String> = [] // owned by queue
     // Owned by `queue`.
     private var rows: [String: [String: HistoryRow]] = [:]
     private var built: Set<String> = []
@@ -184,25 +243,95 @@ final class HistoryIndexer: @unchecked Sendable {
             if self.built.contains(e.profileID) { self.rows[e.profileID, default: [:]][e.url] = HistoryRow(e, now: now) }
             else { self.source[e.profileID, default: [:]][e.url] = e }
             self.dirty.insert(e.profileID)
+            if self.localPrepared.contains(e.profileID) { self.scheduleLocal(e.profileID, now: now) }
+        }
+    }
+
+    private func invalidate(_ profileID: String) -> Int {
+        lock.withLock {
+            generation += 1
+            published[profileID] = nil
+            local[profileID] = nil
+            revisions[profileID, default: 0] += 1
+            return revisions[profileID]!
         }
     }
 
     func remove(profileID: String, url: String) {
+        let revision = invalidate(profileID)
         queue.async {
+            self.queueRevisions[profileID] = revision
             self.rows[profileID]?[url] = nil
             self.source[profileID]?[url] = nil
             self.dirty.insert(profileID)
+            if self.built.contains(profileID) { _ = self.snapshot(profileID, now: Date()) }
+            else if self.localPrepared.contains(profileID) { self.publishLocal(profileID, now: Date()) }
         }
     }
 
     func clear(profileID: String) {
+        let revision = invalidate(profileID)
         queue.async {
+            self.queueRevisions[profileID] = revision
             self.rows[profileID] = nil
             self.source[profileID] = nil
+            self.snapshots[profileID] = nil
             self.built.remove(profileID)
-            self.dirty.insert(profileID)
+            self.localPrepared.remove(profileID)
+            self.dirty.remove(profileID)
         }
-        lock.withLock { published[profileID] = nil }
+    }
+
+    /// Only a pointer copy under the lock; no queue wait, disk read or build on the caller.
+    func localSnapshot(_ profileID: String) -> HistorySnapshot? {
+        lock.withLock { local[profileID] }
+    }
+
+    private func scheduleLocal(_ profileID: String, now: Date) {
+        guard localPending.insert(profileID).inserted else { return }
+        queue.async {
+            self.localPending.remove(profileID)
+            guard self.localPrepared.contains(profileID) else { return }
+            self.publishLocal(profileID, now: now)
+        }
+    }
+
+    private static let localEnabled: Bool = {
+        #if AIRC_TESTING
+        return ProcessInfo.processInfo.environment["AIRC_LOCAL_HISTORY"] != "0"
+        #else
+        return true
+        #endif
+    }()
+
+    private func publishLocal(_ profileID: String, now: Date) {
+        guard Self.localEnabled else { return }
+        localPrepared.insert(profileID)
+        let s: HistorySnapshot
+        if built.contains(profileID) {
+            s = HistorySnapshot.local(rows: (rows[profileID] ?? [:]).values, now: now)
+        } else {
+            // Keep the full index lazy. The bounded selector retains only its top-k rows;
+            // folding the persisted source here never materializes a full row array or completion keys.
+            let entries = (source[profileID] ?? [:]).values.lazy.filter {
+                $0.url.utf8.count + $0.title.utf8.count <= HistorySnapshot.localTextByteLimit
+            }
+            s = HistorySnapshot.local(rows: entries.map { HistoryRow($0, now: now) }, now: now)
+        }
+        let retired = lock.withLock { () -> HistorySnapshot? in
+            guard revisions[profileID, default: 0] == queueRevisions[profileID, default: 0] else { return nil }
+            return local.updateValue(s, forKey: profileID)
+        }
+        // Release the old snapshot outside the lock; readers never wait for its array destruction.
+        withExtendedLifetime(retired) {}
+    }
+
+    /// Idle preparation adds only the bounded tier, leaving full-history storage lazy until opening.
+    func prepareLocal(profileID: String, now: Date) {
+        queue.async {
+            guard !self.localPrepared.contains(profileID) else { return }
+            self.publishLocal(profileID, now: now)
+        }
     }
 
     /// Builds the profile's snapshot ahead of the first keystroke (the Command Bar opening).
@@ -249,7 +378,12 @@ final class HistoryIndexer: @unchecked Sendable {
         let s = HistorySnapshot(rows: Array((rows[profileID] ?? [:]).values), now: t)
         snapshots[profileID] = s
         dirty.remove(profileID)
-        lock.withLock { published[profileID] = s }
+        publishLocal(profileID, now: t)
+        let retired = lock.withLock { () -> HistorySnapshot? in
+            guard revisions[profileID, default: 0] == queueRevisions[profileID, default: 0] else { return nil }
+            return published.updateValue(s, forKey: profileID)
+        }
+        withExtendedLifetime(retired) {}
         return s
     }
 }

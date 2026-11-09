@@ -165,6 +165,8 @@ final class OnboardingModel: ObservableObject {
     @Published var importedSource: ImportSource?
     /// History entries the last browser import brought.
     @Published var historyImported = 0
+    @Published var arcReadProgress = "Reading Arc’s sidebar"
+    weak var importApp: AppDelegate?
     @Published var passwords: PasswordsState = .idle
     /// The Airc profile a passwords file goes into.
     @Published var passwordsProfile: String?

@@ -11,3 +11,134 @@ packages/AircKit/Resources/public_suffix_list.dat	email	The unmodified Public Su
 packages/AircKit/Resources/public_suffix_list.dat	tailnet-domain	The Public Suffix List names Tailscale's public suffix (ts.net), not any particular tailnet
 packages/AircKit/Tests/AircKitTests/PublicSuffixListTests.swift	private-ip	Reserved private address literals in a host-parsing test
 packages/AircKit/Tests/AircKitTests/TelemetryEventTests.swift	home-path-other	Synthetic home-folder paths proving telemetry rejects and redacts paths
+apps/browser/Sources/Airc/Debug/ImportAcceptanceCheck.swift	email	Android credential realm (an android:// URI with user info) in synthetic Login Data fixtures, not a mailbox.
+packages/AircImport/Tests/AircImportTests/ArcImportAcceptanceTests.swift	email	Android credential realm (an android:// URI with user info) in synthetic Login Data fixtures, not a mailbox.
+apps/browser/Sources/Airc/Debug/DeveloperModeCheck.swift	private-ip	A reserved LAN address literal proving Developer Mode never turns on automatically for LAN hosts; no real machine.
+
+# P20c: pinned public filter-engine dependency attribution and fixtures.
+# Public upstream source and attribution only; exact file/kind entries.
+engine/core/blocking-rust/THIRD-PARTY-NOTICES.md	email	Public upstream crate author contacts, reproduced from checksum-verified manifests for dependency attribution.
+engine/core/blocking-rust/third_party/adblock/v0_13/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/addr/v0_15/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/aho_corasick/v1/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/base64/v0_22/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/adblock/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/addr/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/addr/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/addr/tests/integration.rs	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/addr/tests/integration.rs	private-ip	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/addr/tests/public_suffix_list.dat	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/aho-corasick/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/aho-corasick/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/base64/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/bitflags/CODE_OF_CONDUCT.md	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/displaydoc/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/displaydoc/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/flatbuffers/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/flatbuffers/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/itoa/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/itoa/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/memchr/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/memchr/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/proc-macro2/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/proc-macro2/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/psl-types/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/psl-types/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/psl/.github/workflows/update.yaml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/psl/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/psl/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/psl/data/rules.txt	tailnet-domain	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/quote/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/quote/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/regex-automata/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/regex-automata/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/regex-syntax/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/regex-syntax/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/regex/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/regex/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/regex/testdata/crazy.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/seahash/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/seahash/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/semver/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/semver/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/serde/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/serde/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_core/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_core/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_derive/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_derive/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/CONTRIBUTING.md	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/serde_json/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/stable_deref_trait/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/stable_deref_trait/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/syn-2.0.119/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/syn/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/syn/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/synstructure/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/synstructure/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/thiserror-impl/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/thiserror-impl/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/thiserror/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/thiserror/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/unicode-ident/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/unicode-ident/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/utf8_iter/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/utf8_iter/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/utf_types/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/utf_types/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/yoke-derive/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/yoke-derive/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/yoke/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/yoke/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/zerofrom-derive/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/zerofrom-derive/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec-derive/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/zerovec-derive/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/zmij/Cargo.toml	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/zmij/Cargo.toml.orig	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/displaydoc/v0_2/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/flatbuffers/v25/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/itoa/v1/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/memchr/v2/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/proc_macro2/v1/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/psl/v2/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/psl_types/v2/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/quote/v1/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/regex/v1/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/regex_automata/v0_4/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/regex_syntax/v0_8/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/seahash/v4/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/semver/v1/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/serde/v1/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/serde_core/v1/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/serde_derive/v1/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/serde_json/v1/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/stable_deref_trait/v1/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/syn/v2/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/syn/v3/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/synstructure/v0_14/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/thiserror/v1/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/thiserror_impl/v1/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/unicode_ident/v1/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/utf8_iter/v1/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/utf_types/v1/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/yoke/v0_8/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/yoke_derive/v0_8/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/zerofrom_derive/v0_1/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/zerovec_derive/v0_11/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/third_party/zmij/v1/BUILD.gn	email	Checksum-verified public upstream Rust source, metadata, documentation or test fixture; retained with its original license.
+engine/core/blocking-rust/licenses/psl-rules.txt	tailnet-domain	Public Mozilla Public Suffix List wildcard rule reproduced from the pinned PSL crate for MPL provenance; not a private host.
+
+apps/browser/Resources/BlockingLists/easylist.txt	email	Public EasyList authors’ contact in the original attribution header, preserved verbatim.
+apps/browser/Resources/BlockingLists/easyprivacy.txt	email	Public EasyList authors’ contact in the original attribution header, preserved verbatim.
+apps/browser/Resources/BlockingLists/easyprivacy.txt	private-ip	Public upstream filter rule in the checksum-verified seed list, not a build-host address.
+packages/AircKit/Tests/AircKitTests/DevelopmentHostTests.swift	private-ip	Reserved private/link-local/CGNAT address literals that prove Developer Mode's local-host detection and its lookalike rejections
+packages/AircKit/Tests/AircKitTests/LinkSiteTests.swift	email	A synthetic mailto: address on a made-up domain (b.co.uk) that proves mailto links stay in the engine
+engine/core/blocking-rust/third_party/chromium_crates_io/vendor/*/.cargo-checksum.json	gitleaks:generic-api-key	Cargo's per-file SHA-256 checksums of vendored crates (adblock-rust's dependencies), not keys
+packages/AircKit/Tests/AircKitTests/DeveloperSitePolicyTests.swift	private-ip	Reserved private address literals proving Developer Mode doesn't treat LAN hosts as localhost
+packages/AircKit/Tests/AircKitTests/FaviconGuessTests.swift	home-path-other	A synthetic file:// URL in a made-up home folder proving favicons skip local files
+packages/AircKit/Tests/AircKitTests/ParityP10Tests.swift	home-path-other	Synthetic Desktop paths in a made-up home folder for the Library's folder listing tests

@@ -36,3 +36,15 @@ docs/protected-media.md.
 packages/AircKit/Resources/public_suffix_list.dat: the Public Suffix List (https://publicsuffix.org/list/),
 Mozilla Public License 2.0 (https://mozilla.org/MPL/2.0/), as shipped with Chromium
 (net/base/registry_controlled_domains/effective_tld_names.dat), unmodified.
+
+Brave's adblock-rust 0.13.5 (https://github.com/brave/adblock-rust), MPL-2.0,
+and its pinned dependencies are used by the blocking engine. Complete dependency
+notices, licenses and corresponding source are in engine/core/blocking-rust;
+the app includes the notices under Contents/Resources/Licenses/Blocking.
+
+EasyList and EasyPrivacy, Copyright The EasyList authors (https://easylist.to/),
+are distributed under CC BY-SA 3.0 or later. Source lists, the license, converted
+rulesets and a conversion report are included in Contents/Resources/BlockingLists.
+Airc's converted representations are offered under the same CC BY-SA license.
+No GPL filter list or uBlock Origin Lite extension is bundled.
+

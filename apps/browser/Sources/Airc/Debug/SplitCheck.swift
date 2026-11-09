@@ -72,19 +72,65 @@ extension SnapshotRunner {
         }
         waitForPage()
 
-        // 1. Drag Left's row onto the right half of Right's row.
+        // 1. Drag Left's row onto the right half of Right's row, once the sidebar has settled: Right shown with its page
+        // loaded, no sidebar or split animation running, and both rows still for 0.15 s. A miss says what the press hit,
+        // whether the drag started (the row lifts), what the sidebar would drop on at the release, and which window was
+        // on top at the press and the release. Another app's window, or another window of ours that isn't part of this
+        // one (a check's panel), over the rows is FAIL-ENV (ship run 2026-11-08 07:52: another agent's call panels
+        // floated over the window); either way the split is then made directly, so the cases after it still run.
+        // AIRC_SPLIT_MISS=1 (by hand): the release aims at the page instead, to see a miss reported.
+        step { [self] done in
+            var last: [NSRect] = [], still = 0
+            waitUntil({
+                guard let p = self.c.pageView(for: sid), let a = self.todayRow(left, in: p), let b = self.todayRow(right, in: p) else { return false }
+                let now = [a.convert(a.bounds, to: nil), b.convert(b.bounds, to: nil)]
+                still = now == last ? still + 1 : 0
+                last = now
+                return still >= 3 && self.c.shownTabID == right && self.c.engineTab(for: right)?.isLoading == false
+                    && !self.c.animator.isRunning("sidebar") && !self.c.animator.isRunning("split")
+            }, timeout: 4) { done() }
+        }
         step { [self] done in
             guard let p = c.pageView(for: sid), let from = todayRow(left, in: p), let onto = todayRow(right, in: p) else {
                 check(false, "split (drag onto a tab): both rows are shown"); return done()
             }
+            let w: NSWindow = c.window
             let start = from.convert(NSPoint(x: 90, y: from.bounds.midY), to: nil)
-            let end = onto.convert(NSPoint(x: onto.bounds.width - 40, y: onto.bounds.midY), to: nil)
+            var end = onto.convert(NSPoint(x: onto.bounds.width - 40, y: onto.bounds.midY), to: nil)
+            if ProcessInfo.processInfo.environment["AIRC_SPLIT_MISS"] == "1" { end = c.card.convert(NSPoint(x: c.card.bounds.midX, y: c.card.bounds.midY), to: nil) }
+            let frame = w.contentView!.superview!
+            let pressHit = frame.hitTest(frame.convert(start, from: nil))
+            let pressOnRow = pressHit.map { $0 === from || $0.isDescendant(of: from) } ?? false
+            let releaseHit = frame.hitTest(frame.convert(end, from: nil))
+            let entry = from.entry
+            // Through the drag: the lifted row (the drag started), and any window over ours at the press or the release.
+            var lifted = false
+            var interference: String?
+            let sampler = Timer(timeInterval: 0.02, repeats: true) { _ in
+                if from.alphaValue < 0.9 { lifted = true }
+                for q in [start, end] where interference == nil { interference = Self.windowOverOurs(at: q, in: w) }
+            }
+            RunLoop.main.add(sampler, forMode: .common)
             drag(from: start, to: end) {
+                sampler.invalidate()
                 self.waitUntil({ self.c.shownSplitID != nil }, timeout: 3) {
                     let x = self.c.store.split(containing: left)
-                    self.check(x?.tabIDs == [right, left] && self.c.shownSplitID == x?.id && self.c.shownTabID == left,
-                               "split (drag onto a tab): Left on Right's right half makes Right | Left, shown with Left focused "
-                               + "(panes \(x?.tabIDs.map { self.c.store.tab($0)?.title ?? "?" } ?? []), focused \(self.c.store.tab(self.c.shownTabID)?.title ?? "-"))")
+                    let ok = x?.tabIDs == [right, left] && self.c.shownSplitID == x?.id && self.c.shownTabID == left
+                    let what = "split (drag onto a tab): Left on Right's right half makes Right | Left, shown with Left focused "
+                        + "(panes \(x?.tabIDs.map { self.c.store.tab($0)?.title ?? "?" } ?? []), focused \(self.c.store.tab(self.c.shownTabID)?.title ?? "-"))"
+                    guard !ok else {
+                        self.check(true, what)
+                        return done()
+                    }
+                    let target = entry.flatMap { p.dropDestination(at: p.convert(end, from: nil), source: .tab(left), entry: $0) }
+                    let why = "the press hit \(Self.describe(pressHit)) (Left's row \(pressOnRow)); the drag \(lifted ? "started (the row lifted)" : "never started"); "
+                        + "the release is over \(Self.describe(releaseHit)), where the sidebar would drop \(self.splitDropName(target)); "
+                        + "on top at the press: \(Self.windowOwner(at: w.convertPoint(toScreen: start))), "
+                        + "at the release: \(Self.windowOwner(at: w.convertPoint(toScreen: end)))"
+                    if let interference { self.failEnv(what, interference + "; " + why) } else { self.check(false, what + "; " + why) }
+                    // The rest of the cases run on the split the drop should have made.
+                    if let x { try? self.c.store.separateSplit(x.id) }
+                    if (try? self.c.store.createSplit([right, left], inSpace: sid, focused: left)) != nil { self.c.show(left, focus: false) }
                     done()
                 }
             }
@@ -295,17 +341,31 @@ extension SnapshotRunner {
             }
         }
         // The pick: "Third" typed, its Switch to Tab row chosen with ↓ and ↩.
+        // postKey queues events: the unfiltered list already contains Third, so await the text too.
         run { [self] in typeText("Third") }
         step { [self] done in
             func index() -> Int? {
                 c.commandBar?.results.firstIndex { r in if case .tab(let id) = r.action { return id == third }; return false }
             }
-            waitUntil({ index() != nil }, timeout: 3) {
-                guard let bar = self.c.commandBar, let i = index() else {
+            waitUntil({ self.c.commandBar?.typed == "Third" && index() != nil }, timeout: 3) {
+                guard let bar = self.c.commandBar, bar.typed == "Third", let i = index() else {
                     self.check(false, "split (⌃⇧+): the Command Bar lists Third's tab"); return done()
                 }
-                for _ in 0..<max(0, i - bar.selected) { self.postKey("\u{F701}", keyCode: 125) }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                self.note("split pick: query \(bar.typed), target \(i), selected \(bar.selected), rows \(bar.resultTitles)")
+                // A pointer hover can already have selected a row below the desired one.
+                let delta = i - bar.selected
+                for _ in 0..<abs(delta) {
+                    self.postKey(delta < 0 ? "\u{F700}" : "\u{F701}", keyCode: delta < 0 ? 126 : 125)
+                }
+                self.waitUntil({
+                    guard bar.results.indices.contains(bar.selected), case .tab(let id) = bar.results[bar.selected].action else { return false }
+                    return id == third
+                }, timeout: 3) {
+                    self.note("split pick before Return: selected \(bar.selected), rows \(bar.resultTitles)")
+                    self.check(bar.results.indices.contains(bar.selected) && {
+                        if case .tab(let id) = bar.results[bar.selected].action { return id == third }
+                        return false
+                    }(), "split (⌃⇧+): keyboard selection reaches Third before Return")
                     self.postKey("\r", keyCode: 36)
                     done()
                 }
@@ -490,6 +550,7 @@ extension SnapshotRunner {
         #if canImport(AircCore)
         peekSplitCheck(on: { left })
         #endif
+        lateCommandSelectionCheck()
     }
 
     /// A 120 Hz drag on a divider: press at `start`, `ticks` drag events one display frame apart, `by` points along the
@@ -633,6 +694,32 @@ extension SnapshotRunner {
             }
         }
         favSplitPersistRead()
+    }
+}
+
+extension SnapshotRunner {
+    /// Another app's window, or another window of ours that isn't `w` or one of its own (a check's panel), on top at
+    /// window point `p` of `w`: what it is (another app by its name only), else nil.
+    static func windowOverOurs(at p: NSPoint, in w: NSWindow) -> String? {
+        let n = NSWindow.windowNumber(at: w.convertPoint(toScreen: p), belowWindowWithWindowNumber: 0)
+        guard n > 0, n != w.windowNumber else { return nil }
+        if let ours = NSApp.windows.first(where: { $0.windowNumber == n }) {
+            var parent = ours.parent
+            while let up = parent, up !== w { parent = up.parent }
+            if parent === w { return nil }
+        }
+        return "a window over ours at the rows: " + windowOwner(at: w.convertPoint(toScreen: p))
+    }
+
+    /// What the sidebar would do with the drop, in words.
+    func splitDropName(_ d: DropDestination?) -> String {
+        switch d {
+        case .split(_, let target, let leading)?: "a split with \(c.store.tab(target)?.title ?? "?") (\(leading ? "first" : "last") pane)"
+        case .today(_, let i)?: "into Today at \(i) (a move, no split)"
+        case .pinned?: "into Pinned"
+        case .favorites?: "into Favorites"
+        case nil: "nothing"
+        }
     }
 }
 #endif

@@ -9,9 +9,11 @@ import Sparkle
 /// Dev builds (`AircDevChannel`, docs/release.md "Private dev channel") check at launch, hourly and when Airc becomes
 /// active after the Mac wakes, and download an update by themselves. Once Sparkle has downloaded and verified it, the
 /// sidebar shows "New Airc Version Available" above the footer (Browser/UpdateButton.swift), and a toast and an item
-/// under "Check for Updates…" say "A new version of Airc is ready. Restart to update". The button and the item restart
-/// into it (asking first during a call, a download or a page that would ask "Leave site?"); quitting installs it too.
-/// What happened is appended to `Updates.log` in the data folder.
+/// under "Check for Updates…" say "A new version of Airc is ready. Restart to update", with "See What's New" (the item's
+/// release notes) under it. The button and the item restart into it (asking first while music or video plays, during
+/// a call, a download or a page that would ask "Leave site?"); quitting installs it too, and so does, with Arc's
+/// "Automatically update my Arc" turned on (off by default), being away 30 minutes with nothing to interrupt (E13,
+/// UpdateCenter). What happened is appended to `Updates.log` in the data folder.
 final class AircUpdateDelegate: NSObject, SPUUpdaterDelegate {
     static let readyMessage = "A new version of Airc is ready. Restart to update"
 
@@ -21,6 +23,7 @@ final class AircUpdateDelegate: NSObject, SPUUpdaterDelegate {
         set { UserDefaults.standard.set(newValue == "nightly" ? "nightly" : "stable", forKey: "AircPublicUpdateChannel") }
     }
     private var readyItem: NSMenuItem?
+    private var whatsNewItem: NSMenuItem?
     private var observers: [NSObjectProtocol] = []
     private var wokeSinceActive = false
 
@@ -28,8 +31,13 @@ final class AircUpdateDelegate: NSObject, SPUUpdaterDelegate {
     /// again when the quit it starts is cancelled (a page's "Leave site?" → Stay).
     private final class SparkleUpdate: ReadyUpdate {
         let version: String
+        let releaseNotesURL: URL?
         let install: () -> Void
-        init(version: String, install: @escaping () -> Void) { self.version = version; self.install = install }
+        init(version: String, releaseNotesURL: URL?, install: @escaping () -> Void) {
+            self.version = version
+            self.releaseNotesURL = releaseNotesURL
+            self.install = install
+        }
         func installAndRelaunch() { install() }
     }
 
@@ -101,7 +109,9 @@ final class AircUpdateDelegate: NSObject, SPUUpdaterDelegate {
         log("ready \(item.versionString): installs on quit")
         let version = "\(item.displayVersionString) (\(item.versionString))"
         if UpdateCenter.shared.ready?.version != version {
-            UpdateCenter.shared.setReady(SparkleUpdate(version: version, install: immediateInstallHandler))
+            // A web page of notes only: the feed's inline or Markdown notes have no address to open.
+            let notes = [item.fullReleaseNotesURL, item.releaseNotesURL].compactMap { $0 }.first { $0.scheme == "https" }
+            UpdateCenter.shared.setReady(SparkleUpdate(version: version, releaseNotesURL: notes, install: immediateInstallHandler))
         }
         showReady()
         return true
@@ -112,6 +122,8 @@ final class AircUpdateDelegate: NSObject, SPUUpdaterDelegate {
         UpdateCenter.shared.restart(from: (NSApp.delegate as? AppDelegate)?.controller)
     }
 
+    @objc func showWhatsNew(_ sender: Any?) { UpdateCenter.shared.showWhatsNew(from: nil) }
+
     private func showReady() {
         let app = NSApp.delegate as? AppDelegate
         app?.controller?.showToast(Self.readyMessage)
@@ -121,6 +133,11 @@ final class AircUpdateDelegate: NSObject, SPUUpdaterDelegate {
         let after = menu.items.firstIndex { $0.action == NSSelectorFromString("checkForUpdates:") } ?? 0
         menu.insertItem(item, at: after + 1)
         readyItem = item
+        let notes = NSMenuItem(title: UpdateConfirmModel.whatsNewTitle, action: #selector(showWhatsNew(_:)), keyEquivalent: "")
+        notes.target = self
+        notes.indentationLevel = 1
+        menu.insertItem(notes, at: after + 2)
+        whatsNewItem = notes
         log("offered: \(Self.readyMessage)")
         #if AIRC_TESTING
         // An update proof (infra/updates, docs/release.md) chooses the item the way a person would.

@@ -21,12 +21,28 @@ done
 [[ $channel == stable || $channel == nightly ]] || exit 2
 config=${AIRC_RELEASE_CONFIG:-$(dirname "$ROOT")/airc.env}
 [[ ! -f $config ]] || source "$config"
+[[ ${AIRC_PUBLISH_HOLD:-0} != 1 && ${AIRC_PREPARATION:-0} != 1 ]] || {
+ echo 'Public release held; no staging or signing started' >&2; exit 2;
+}
+host=${AIRC_MAC_HOST:-buildmac}
+if [[ $host == buildmac ]]; then
+ # Validate on the signing host; no credential values are fetched to Linux.
+ ssh "$host" 'bash -s' <<'SIGNING'
+set -eu
+source "$HOME/arcfork/setup/signing/signing.env"
 : "${AIRC_SIGN_IDENTITY:?Configure Developer ID}"
 : "${AIRC_SIGN_KEYCHAIN:?Configure dedicated keychain}"
 : "${AIRC_SIGN_KEYCHAIN_PASSWORD_FILE:?Configure Mac password path}"
 : "${AIRC_NOTARY_PROFILE:?Configure notarization}"
-[[ $AIRC_SIGN_IDENTITY != - ]] || exit 2
-host=${AIRC_MAC_HOST:-mac}
+[[ $AIRC_SIGN_IDENTITY != - ]]
+SIGNING
+else
+ : "${AIRC_SIGN_IDENTITY:?Configure Developer ID}"
+ : "${AIRC_SIGN_KEYCHAIN:?Configure dedicated keychain}"
+ : "${AIRC_SIGN_KEYCHAIN_PASSWORD_FILE:?Configure Mac password path}"
+ : "${AIRC_NOTARY_PROFILE:?Configure notarization}"
+ [[ $AIRC_SIGN_IDENTITY != - ]] || exit 2
+fi
 artifacts=${AIRC_ARTIFACTS_DIR:-$(dirname "$ROOT")/artifacts}
 base="$artifacts/release/$channel"
 mkdir -p "$base"
@@ -80,9 +96,14 @@ fi
 AIRC_MAC_HOST="$host" "$scratch/scripts/mac.sh" -w launchprep sync > "$stage/sync.log" 2>&1
 # Only credential paths and the identity travel. Password and EdDSA seed remain on the Mac.
 (umask 077
- for name in AIRC_SIGN_IDENTITY AIRC_SIGN_KEYCHAIN AIRC_SIGN_KEYCHAIN_PASSWORD_FILE AIRC_NOTARY_PROFILE; do
-  printf 'export %s=%q\n' "$name" "${!name}"
- done
+ if [[ $host == buildmac ]]; then
+  printf '%s\n' 'source "$HOME/arcfork/setup/signing/signing.env"' \
+   'export AIRC_SIGN_IDENTITY AIRC_SIGN_KEYCHAIN AIRC_SIGN_KEYCHAIN_PASSWORD_FILE AIRC_NOTARY_PROFILE'
+ else
+  for name in AIRC_SIGN_IDENTITY AIRC_SIGN_KEYCHAIN AIRC_SIGN_KEYCHAIN_PASSWORD_FILE AIRC_NOTARY_PROFILE; do
+   printf 'export %s=%q\n' "$name" "${!name}"
+  done
+ fi
  printf 'export AIRC_SOURCE_REV=%q AIRC_RELEASE_VERSION=%q AIRC_RELEASE_BUILD=%q AIRC_RELEASE_CHANNEL=%q AIRC_RELEASE_QUALIFIED=%q AIRC_KEEP_RELEASE_APP=1\n' "$rev" "$version" "$build" "$channel" "$qualified"
 ) > "$scratch/release.env"
 ssh "$host" 'mkdir -p arcfork/work/launchprep/build; chmod 700 arcfork/work/launchprep/build; rm -f arcfork/work/launchprep/build/release-exit; rm -rf arcfork/work/launchprep/build/stable-stage arcfork/work/launchprep/build/launchprep-delta arcfork/work/launchprep/build/launchprep-full'

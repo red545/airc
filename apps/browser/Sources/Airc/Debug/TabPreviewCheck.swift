@@ -3,8 +3,11 @@
 import AppKit
 import AircKit
 
-/// `--script previews` (both engines): SB-45 tab previews on loopback pages (a red, a blue and a green page). Hover is
-/// posted mouse moves through the app's event queue (the rows' own tracking areas), never HID; clicks are posted too.
+/// `--script previews` (both engines): SB-45 tab previews on loopback pages (a red, a blue and a green page). Hover
+/// calls the rows' and the card's own enter and exit handlers, what their tracking areas call: posted mouse moves never
+/// reach tracking areas (the window server makes those events), so they can't drive hover in a background run. Clicks
+/// on rows are posted through the app's event queue (a row's press tracks its own release); the card's buttons take
+/// theirs through their own handlers, at the view the window hit-tests there. Never HID.
 ///   - the dwell (no card at 0.25 s, the card at about 0.4 s) and the card beside the sidebar, level with the row;
 ///   - a background tab shows its kept picture, the page on screen a live one, a tab never shown the placeholder, and
 ///     an unloaded (discarded) tab still its kept picture; row to row with the card up is instant;
@@ -20,9 +23,7 @@ extension SnapshotRunner {
         var base = ""
         var red = "", blue = "", green = "", otherSpace = ""
         var home = ""
-        /// How hover reaches the rows here: "posted" (a mouse move through NSApp.sendEvent), "queued" (NSApp.postEvent),
-        /// "window" (NSWindow.sendEvent) or "direct" (the rows' enter and exit handlers).
-        var mode = "posted"
+        /// The view the pointer is on (a row, the card; nil: elsewhere), whose exit handler runs when it moves on.
         var lastHovered: NSView?
         let page = { self.c.pageView(for: self.c.currentSpaceID) }
         func colored(_ name: String, _ hex: String) -> String {
@@ -47,17 +48,9 @@ extension SnapshotRunner {
                                windowNumber: c.window.windowNumber, context: nil, eventNumber: 0, clickCount: type == .mouseMoved ? 0 : 1,
                                pressure: type == .leftMouseDown ? 1 : 0)
         }
-        /// The pointer to `p` (window coordinates), over `target` (a row, the card, nil for elsewhere).
+        /// The pointer to `p` (window coordinates), over `target` (a row, the card, nil for elsewhere): the exit handler
+        /// of the view it leaves, then the enter handler of the one it reaches, with events at `p`.
         func movePointer(to p: NSPoint, over target: NSView?) {
-            if mode != "direct" {
-                guard let e = mouseEvent(.mouseMoved, p) else { return }
-                switch mode {
-                case "queued": NSApp.postEvent(e, atStart: false)
-                case "window": c.window.sendEvent(e)
-                default: NSApp.sendEvent(e)
-                }
-                return
-            }
             if lastHovered !== target {
                 if let prev = lastHovered, let e = NSEvent.enterExitEvent(with: .mouseExited, location: p, modifierFlags: [],
                     timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: c.window.windowNumber, context: nil,
@@ -142,48 +135,14 @@ extension SnapshotRunner {
                          "previews: the red page left the screen with a picture kept (\(r.count) taken)")
         }
 
-        // 1. How hover reaches the rows: the first way of posting a mouse move that the rows' tracking areas see.
-        var tried: [String] = []
-        for way in ["posted", "queued", "window"] {
-            run { [self] in
-                guard tried.last != "ok" else { return }
-                mode = way
-                hover(nil)
-            }
-            wait(0.1)
-            var before = 0
-            run { [self] in
-                guard tried.last != "ok" else { return }
-                before = tp().stats.enters
-                hover(row(red))
-            }
-            wait(0.15)
-            run { [self] in
-                guard tried.last != "ok" else { return }
-                let seen = tp().stats.enters > before
-                tried.append(way + (seen ? " seen" : " not seen"))
-                if seen { tried.append("ok") }
-            }
-        }
+        // 1. Hover: the pointer comes onto the red row from off the sidebar.
         run { [self] in
-            if tried.last != "ok" {
-                mode = "direct"
-                lastHovered = nil
-                hover(nil)
-                hover(row(red))
-            } else {
-                // Again from off the row, so the dwell below starts now. The way found above has already started this
-                // row's dwell, and its card can be up before the pointer leaves, which off and on again in one turn
-                // keeps ("a dwell of -268 ms", 2026-11-06): off the row until no card is up or due, then back, below.
-                hover(nil)
-            }
-            note("previews: hover by \(mode) (\(tried.filter { $0 != "ok" }.joined(separator: ", ")))")
+            lastHovered = nil
+            hover(nil)
+            note("previews: hover through the rows' and the card's own enter and exit handlers")
         }
-        step { [self] done in
-            guard tried.last == "ok" else { return done() }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.waitUntil({ !tp().isShowing }, timeout: 2) { done() } }
-        }
-        run { if tried.last == "ok" { hover(row(red)) } }
+        wait(0.3)
+        run { hover(row(red)) }
         // 2. The dwell, and the card beside the row.
         wait(0.25)
         run { [self] in check(!tp().isShowing, "previews: no card 0.25 s after the pointer rests on a row") }
@@ -378,18 +337,29 @@ extension SnapshotRunner {
                 movePointer(to: p, over: card)
             }
             wait(0.35)   // longer than the grace off the row
-            step { [self] done in
+            // The press and release go to the view under the button's centre (the window's own hit test), through its
+            // handlers, in one turn. Posted clicks are routed by the window, and in a never-key window that can't
+            // activate (the screen locked) it handed releases to the view an earlier press reached: Peek's release ran
+            // the split button, the pin and Favorites clicks did nothing (2026-11-07, both engines).
+            var hit = "-", actionsBefore = 0
+            run { [self] in
                 guard tp().isShowing, let card = tp().card, let p = card.windowPoint(of: b) else {
-                    check(false, "previews: \(name): the card stays while the pointer crosses to it")
-                    return done()
+                    return check(false, "previews: \(name): the card stays while the pointer crosses to it")
                 }
                 check(card.isEnabled(b), "previews: \(name): the button is enabled")
-                click(at: p, in: c.window) { done() }
+                actionsBefore = tp().stats.actions.count
+                guard let frame = c.window.contentView?.superview, let target = frame.hitTest(frame.convert(p, from: nil)),
+                      let down = mouseEvent(.leftMouseDown, p), let up = mouseEvent(.leftMouseUp, p) else { return }
+                hit = Self.describe(target) + String(format: " at x %.0f in the card", target.convert(target.bounds, to: card).minX)
+                target.mouseDown(with: down)
+                target.mouseUp(with: up)
             }
-            wait(0.4)
+            wait(0.3)
             run { [self] in
                 let (ok, detail) = verify()
-                check(ok && !tp().isShowing && tp().stats.actions.last != nil, "previews: \(name) (\(detail); event \(tp().stats.actions.last ?? "-"))")
+                let acted = tp().stats.actions.count == actionsBefore + 1
+                check(ok && !tp().isShowing && acted,
+                      "previews: \(name) (\(detail); event \(acted ? tp().stats.actions.last ?? "-" : "-"); the click reached \(hit))")
             }
         }
         useButton(.pin, on: { row(green) }, "pin a Today tab") { [self] in

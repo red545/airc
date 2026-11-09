@@ -1,0 +1,21 @@
+# Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
+--- a/chrome/browser/webauthn/chrome_web_authentication_delegate.cc
++++ b/chrome/browser/webauthn/chrome_web_authentication_delegate.cc
+@@ -82,6 +82,7 @@
+ 
+ #if BUILDFLAG(IS_MAC)
+ #include "device/fido/mac/credential_metadata.h"
++#include "airc/core/airc_passkeys.h"  // nogncheck
+ #endif
+ 
+ namespace {
+@@ -391,8 +392,7 @@
+ ChromeWebAuthenticationDelegate::TouchIdAuthenticatorConfig
+ ChromeWebAuthenticationDelegate::TouchIdAuthenticatorConfigForProfile(
+     Profile* profile) {
+-  constexpr char kKeychainAccessGroup[] =
+-      MAC_TEAM_IDENTIFIER_STRING "." MAC_BUNDLE_IDENTIFIER_STRING ".webauthn";
++  const std::string kKeychainAccessGroup = airc::PasskeyAccessGroup();
+ 
+   std::string metadata_secret = profile->GetPrefs()->GetString(
+       webauthn::pref_names::kWebAuthnTouchIdMetadataSecretPrefName);

@@ -1,0 +1,328 @@
+# Meet Airc (2026-11-08): the account's start. It was empty, so the owner asked for the general idea and the features
+# first, then the releases and what came after. Every feature here is released (0.1.0 to 0.1.3); the words are the
+# homepage catalog's (apps/marketing/src/data/catalog.ts) or the release notes'. No version tags: these are what Airc is.
+slug = "2026-11-08-meet-airc"
+title = "Meet Airc: the idea and the features"
+kind = "release"
+since = "0.1.3"
+shots_rev = "bde185a"
+tag = ""
+end_title = "Arc, kept going."
+end_line = "Free and open source, for Mac"
+summary = """
+The first posts on an empty account: a thread that says what Airc is and why (Arc shuts down on December 22), with the
+core features as pictures in its replies; then one feature a day, mostly short videos rendered by the app itself. The
+0.1.3 release and its features follow in their own pack, then what's coming.
+"""
+order = """
+1. Post 1 with posts 2–7 as replies: the thread (xpost.py posts it in one go).
+2. Then the single posts, one a slot, in this order. The intro is the one to pin (by hand: X's API can't pin).
+"""
+checked = """
+- Every claim is a released feature in the homepage catalog (since 0.1.0 to 0.1.3) or the published release notes.
+- Arc's import: "saved passwords", not "logins": partitioned cookies and Sign in with Google don't come over.
+- The videos named here come from released sources: 0.1.2's (Command Bar, Capture, Select tabs, Boosts) and 0.1.3's
+  (the intro, Spaces, Moving from Arc, Split View, the sidebar on the right, private windows), all on demo data.
+"""
+
+# ---------------------------------------------------------------- images
+
+[[image]]
+id = "hero"
+shot = "spaces"
+hero = true
+tag = "Meet Airc"
+title = "Arc, kept going."
+line = "A free, open-source Mac browser with Arc’s sidebar, Spaces and ⌘T."
+alt = "Airc, a Mac browser in the style of Arc: four of its windows side by side, each a Space in its own colour and profile, Personal, Travel, Studio and Work, each with its own sidebar of Favorites, pinned tabs and folders."
+
+[[image]]
+id = "command"
+shot = "command-bar-light"
+tag = "Command Bar"
+title = "⌘T."
+line = "Search, open a site, jump to a tab or a Space, or run an action."
+alt = "Airc's Command Bar in the Travel Space with “lisbon” typed: the top hit completed inline, then history, open and pinned tabs, and search suggestions."
+
+[[image]]
+id = "from-arc"
+shot = "onboarding-import"
+tag = "Moving from Arc"
+title = "Your Arc, in a minute."
+line = "Spaces, pinned tabs, folders and Favorites, read from Arc’s files on your Mac."
+alt = "Airc's import step on demo data, “Bring your Arc with you”: Arc found on the Mac with 4 Spaces, 3 profiles and 13 tabs; Spaces, pinned tabs and folders, Favorites per profile and browsing history ticked, with an Import everything button, beside a preview of the Personal Space's sidebar."
+
+[[image]]
+id = "split"
+shot = "split-view-3"
+tag = "Split View"
+title = "Split View."
+line = "Two to four pages side by side, as one row in the sidebar."
+alt = "Split View in Airc's Travel Space: a map of Lisbon, Wikipedia's Lisbon article and its article on Lisbon's trams, three panes side by side in one window, with the split as one row in the sidebar."
+
+[[image]]
+id = "little-arc"
+shot = "little-arc-menu"
+tag = "Little Airc"
+title = "Little Airc."
+line = "A link from Mail or Slack opens in a small window. ⌘O moves it into a Space."
+clip = [506, 218, 836, 322]
+target_16x9 = [700, 190, 900, 520]
+alt = "Little Airc: a small window showing Wikipedia's article on pastel de nata, with its menu open on the Spaces Personal, Travel, Studio and Work, each in its own colour, Personal with Command-O."
+
+[[image]]
+id = "boosts"
+shot = "boosts"
+tag = "Boosts"
+title = "Boosts."
+line = "Your own colours and font for any site, or zap what you never want to see."
+alt = "A Boost in Airc: Wikipedia's Typography article turned warm and bookish with an amber tint and the Charter font, the Boost editor open on Colors."
+
+[[image]]
+id = "profiles"
+shot = "profiles"
+tag = "Profiles"
+# The Create Profile sheet alone (window points): the page behind it is Apple's developer site.
+clip = [545, 225, 570, 410]
+target_16x9 = [700, 150, 860, 620]
+title = "A profile per Space."
+line = "Each Space can have its own logins, history and passwords. Two Gmail accounts, one window."
+alt = "Airc's Create Profile, step 2: choosing which Spaces move to the new profile, each Space shown in its own colour."
+
+[[image]]
+id = "peek"
+shot = "peek"
+tag = "Peek"
+title = "Peek."
+line = "Links from pinned tabs open in a card over your page. ⌘O makes it a tab, or a split."
+alt = "Peek in Airc: a link from Wikipedia's Lisbon article opened in a card over the page, showing a map of Belém."
+
+[[image]]
+id = "capture"
+shot = "capture"
+tag = "Capture"
+title = "Capture."
+line = "⇧⌘2: drag over part of a page, then copy, save or share."
+focus = [262, 140, 640, 660]
+align = "left"
+alt = "Capture in Airc: a trip-planning page dimmed around one selected card, with Copy, Save and Share under it."
+
+[[image]]
+id = "notes"
+shot = "notes"
+tag = "Notes"
+title = "Notes, in the sidebar."
+line = "⌃⇧N: a note pinned among your tabs, saved as you type."
+focus = [0, 40, 1200, 620]
+target_16x9 = [700, 100, 1000, 700]
+alt = "A note in Airc. The Travel Space's sidebar has a pinned note called Lisbon plan among its tabs; the note open beside it has a heading, a line of text, a checklist and a pasted Capture of a trip page."
+
+# ---------------------------------------------------------------- videos (0.1.2's frames, with feature tags)
+
+[[video]]
+id = "commandbar-video"
+motion = "commandbar"
+since = "0.1.0"
+tag = "Command Bar"
+title = "⌘T: tabs, history and search."
+line = "Results as you type."
+captions = { page = "Press ⌘T anywhere.", open = "Press ⌘T anywhere.", typed = "Open tabs, history and search, as you type." }
+alt = "An animation rendered frame by frame by Airc: in the Travel Space on Wikipedia's Lisbon article, the Command Bar opens and “lisbon” is typed a letter at a time, its results filling in: history, open tabs and search suggestions, the top hit completed inline."
+
+[[video]]
+id = "capture-video"
+motion = "capture"
+since = "0.1.2"
+tag = "Capture"
+title = "Capture part of a page."
+line = "Drag over it, then copy, save or share."
+captions = { page = "Press ⇧⌘2 on any page.", dimmed = "Drag over what you want.", confirmed = "Then copy, save or share it." }
+alt = "An animation rendered frame by frame by Airc: a trip-planning page, then Shift-Command-2 dims it, a selection is dragged open over the card “Alfama at golden hour”, and Copy, Save and Share appear under it."
+
+[[video]]
+id = "multiselect-video"
+motion = "multiselect"
+since = "0.1.2"
+tag = "Tabs"
+title = "Select several tabs."
+line = "⌘-click, or ⇧-click for a range."
+captions = { select = "⌘-click, or ⇧-click for a range.", menu = "Then act on all of them at once.", folder = "New Folder with 3 Tabs." }
+alt = "An animation rendered frame by frame by Airc: in the Personal Space, three Today tabs are selected one after another, their menu opens with Copy, Duplicate, Split View, Pin, New Folder with 3 Tabs, Add to Folder, Move to Space, Close and Archive, and New Folder with 3 Tabs puts them in a new folder."
+
+[[video]]
+id = "boosts-video"
+motion = "boosts"
+since = "0.1.2"
+clip = [430, 0, 1010, 900]
+tag = "Boosts"
+title = "Make a Boost."
+line = "Restyle any site, then share it."
+captions = { page = "Any site, as it comes.", colors = "Colors: a warm tint.", font = "Font: Charter.", zap = "Zap: click away what you don’t need." }
+alt = "An animation rendered frame by frame by Airc: Wikipedia's Typography article, then the Boost editor's tint slider rising as the page warms to amber, the font changing to Charter, and the page's Appearance column zapped away."
+
+# ---------------------------------------------------------------- posts
+
+[[post]]
+label = "Meet Airc (the account's first post)"
+media = ["hero:16x9"]
+text = """
+Arc is shutting down on December 22.
+
+Airc keeps it going: a free, open-source Mac browser with Arc's sidebar, Spaces and ⌘T. Your Arc comes over in about a minute.
+
+Built and maintained by AI agents. A person signs off every release.
+"""
+
+[[post]]
+label = "⌘T"
+reply = true
+media = ["command:16x9"]
+text = """
+⌘T: search, open a site, jump to a tab or a Space, or run an action. Results as you type.
+"""
+
+[[post]]
+label = "From Arc"
+reply = true
+media = ["from-arc:16x9"]
+text = """
+From Arc in about a minute: Spaces, pinned tabs, folders, Favorites and saved passwords, read from Arc's files on your Mac. Nothing is uploaded.
+"""
+
+[[post]]
+label = "Split View"
+reply = true
+media = ["split:16x9"]
+text = """
+Split View: two to four pages side by side, as one row in your sidebar.
+"""
+
+[[post]]
+label = "Little Arc"
+reply = true
+media = ["little-arc:16x9"]
+text = """
+Little Arc: a link from Mail or Slack opens in a small window. ⌘O moves the page into a Space.
+"""
+
+[[post]]
+label = "Boosts"
+reply = true
+media = ["boosts:16x9"]
+text = """
+Boosts: give any site your own colours and font, or zap the parts you never want to see. Share one with a friend.
+"""
+
+[[post]]
+label = "And more (four images)"
+reply = true
+media = ["profiles", "peek", "capture", "notes"]
+text = """
+And: a profile per Space (two Gmail accounts, one window), Peek for links from pinned tabs, Capture with ⇧⌘2, and Notes in your sidebar.
+
+Free, for Macs with Apple silicon.
+"""
+
+[[post]]
+label = "Intro video (pin it)"
+media = ["2026-11-08-release-0.1.3/intro-video:16x9"]
+text = """
+Arc is shutting down on December 22. We liked it too much to let it go, so we built Airc. Same sidebar, same Spaces, same ⌘T, and it's free and open source.
+
+It's built and maintained by AI agents.
+"""
+
+[[post]]
+label = "⌘T (video)"
+media = ["commandbar-video:16x9"]
+text = """
+Most things in Airc start with ⌘T. Type a few letters and it finds the open tab, the page from last week, or a search. No mouse needed.
+"""
+
+[[post]]
+label = "Moving from Arc"
+# The card, not the video: the build Mac was away when this was due (2026-11-09); the video goes out on its own below.
+media = ["from-arc:16x9"]
+text = """
+Leaving Arc before December 22? This is the part you'll care about.
+
+Airc reads Arc's files on your Mac and brings your Spaces, pinned tabs and folders over in about a minute. Each Arc profile stays its own profile.
+"""
+
+[[post]]
+label = "Capture (video)"
+media = ["capture-video:16x9"]
+text = """
+⇧⌘2, drag over the bit you want, done. Copy it, save it or share it.
+
+Airc doesn't need screen-recording permission for this.
+"""
+
+[[post]]
+label = "Spaces (video)"
+media = ["2026-11-08-release-0.1.3/spaces-video:16x9"]
+text = """
+One sidebar for work. One for the trip you're planning. One for everything else.
+
+Each Space keeps its own tabs and colour, and can have its own profile. Swipe with two fingers to switch.
+"""
+
+[[post]]
+label = "Boosts (video)"
+media = ["boosts-video:16x9"]
+text = """
+Wikipedia, but warm and bookish? That's a Boost. Give any site your own tint and font, and click away the parts you never read.
+"""
+
+[[post]]
+label = "Split View (video)"
+media = ["2026-11-08-release-0.1.3/split-video:16x9"]
+text = """
+Map on one side, the article on the other. Split View holds up to four tabs, and it stays one row in your sidebar.
+
+Drag the divider and the pages reflow as you go.
+"""
+
+[[post]]
+label = "Select several tabs (video)"
+media = ["multiselect-video:16x9"]
+text = """
+Too many tabs about the same thing? ⌘-click them, or ⇧-click a range, and put them in a folder in one go. Undo works if you change your mind.
+"""
+
+[[post]]
+label = "A profile per Space"
+media = ["profiles:16x9"]
+text = """
+Two Gmail accounts, one window. Give a Space its own profile and it keeps its own logins, history and passwords.
+"""
+
+[[post]]
+label = "Peek"
+media = ["peek:16x9"]
+text = """
+Click a link in a pinned tab and it opens in Peek, a card over the page, so you don't lose your place. ⌘O turns it into a real tab.
+"""
+
+[[post]]
+label = "Sidebar on the right (video)"
+media = ["2026-11-08-release-0.1.3/sidebarright-video:16x9"]
+text = """
+Rather have the sidebar on the right? Settings → Appearance → Sidebar position. Everything works the same over there, swipes included.
+"""
+
+[[post]]
+label = "Private windows (video)"
+media = ["2026-11-08-release-0.1.3/private-video:16x9"]
+text = """
+⇧⌘N opens a private window. Its history, cookies and site data are gone when you close it. Your downloads stay where you put them.
+"""
+
+[[post]]
+label = "Moving from Arc, the whole thing (video)"
+media = ["2026-11-08-release-0.1.3/import-video:16x9"]
+text = """
+Here's the whole move from Arc in one take. Open Airc, it finds Arc, you pick what comes over, done.
+
+About a minute, start to finish.
+"""

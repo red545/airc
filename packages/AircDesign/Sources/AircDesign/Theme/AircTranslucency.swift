@@ -31,8 +31,13 @@ public enum AircTranslucency: String, Hashable, Sendable, Codable, CaseIterable 
 
     /// Whether the user turned on System Settings › Accessibility › Display › Reduce transparency.
     @MainActor public static var systemReducesTransparency: Bool {
-        NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+        reduceTransparencyOverride ?? NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
     }
+
+    /// Scripted checks only (ThemeParityCheck): Reduce Transparency as if the system had it on, for every reader of
+    /// `systemReducesTransparency` (post `NSWorkspace.accessibilityDisplayOptionsDidChangeNotification` after setting it,
+    /// as the system does). nil follows the system.
+    @MainActor public static var reduceTransparencyOverride: Bool?
 
     public var title: String {
         switch self {

@@ -14,6 +14,9 @@ struct BrowserCommand {
     var modifiers: NSEvent.ModifierFlags
     let order: KeyOrder
     let run: (WindowController) -> Void
+    /// Whether the command would do something in the window now: its menu item's enabled state (a key still runs it,
+    /// and it beeps). nil: always.
+    var isEnabled: ((WindowController) -> Bool)?
 
     /// Who gets the key first when a page has the keyboard (CB-3).
     enum KeyOrder {
@@ -38,6 +41,12 @@ struct BrowserCommand {
         self.run = run
     }
 
+    func enabled(when f: @escaping (WindowController) -> Bool) -> BrowserCommand {
+        var c = self
+        c.isEnabled = f
+        return c
+    }
+
     static func arrow(_ k: Int) -> String { String(Character(UnicodeScalar(k)!)) }
     static let left = arrow(NSLeftArrowFunctionKey)
     static let right = arrow(NSRightArrowFunctionKey)
@@ -58,15 +67,22 @@ enum CommandMenus {
 
     static func file() -> [BrowserCommand?] {
         [
+            BrowserCommand("New Boost…", "b", [.control, .shift], id: "file.newBoost") { $0.newBoost() },
+            BrowserCommand("Open…", id: "file.openBoost") { $0.openBoostFile() },
+            BrowserCommand("Boost Gallery…", id: "file.boostGallery") { $0.showBoostGallery() },
             BrowserCommand("New Tab", "t", .command, id: "file.newTab") { $0.openCommandBar(mode: .newTab) },
             BrowserCommand("Open Location…", "l", .command, id: "file.openLocation") { $0.openCommandBar(mode: .editURL) },
+            // Arc's New Note (⌃⇧N since 2023; Notes/NoteCenter.swift). Private and Little Arc windows don't take it.
+            BrowserCommand("New Note", "n", [.control, .shift], id: "file.newNote") { $0.newNote(source: .shortcut) },
+            // Arc's New Note (in Split): beside the page on screen (Notes/NoteSplit.swift).
+            BrowserCommand("New Note in Split", id: "file.newNoteInSplit") { $0.newNoteInSplit(source: .shortcut) }.enabled { $0.canAddNoteInSplit },
             // WIN-7 (Browser/MultiWindow.swift): another window on this Space, with the Command Bar.
             BrowserCommand("New Window", "n", .command, id: "file.newWindow") { $0.app?.openNewWindow(from: $0) },
             // PW-1 (Browser/PrivateWindow.swift): in a private window, ⇧⌘N opens another one of the same profile.
             BrowserCommand("New Private Window", "n", [.command, .shift], id: "file.newPrivateWindow") { c in if let app = c.app { PrivateBrowsing.shared.open(app: app) } },
             // WIN-7: Arc's blank window, on a Space of its own: its Today tabs are its own (Browser/MultiWindow.swift).
             BrowserCommand("New Blank Window", "n", [.command, .control], id: "file.newBlankWindow") { $0.app?.openBlankWindow(from: $0) },
-            BrowserCommand("New Little Arc Window", "n", [.command, .option], id: "file.newLittleArc") { $0.app?.openLittleArc(url: nil) },
+            BrowserCommand("New Little Airc Window", "n", [.command, .option], id: "file.newLittleArc") { $0.app?.openLittleArc(url: nil) },
             nil,
             // LA-1: these act in a Little Arc window (LittleArcController.handleKey); the main window has nothing to move.
             BrowserCommand("Open in Space", "o", .command, id: "file.openInSpace") { c in if c.peek != nil { c.promotePeek() } else { NSSound.beep() } },
@@ -78,43 +94,77 @@ enum CommandMenus {
             BrowserCommand("Close Other Tabs", "w", [.command, .option], id: "file.closeOtherTabs") { $0.clearToday() },
             BrowserCommand("Reopen Closed Tab", "t", [.command, .shift], id: "file.reopenClosedTab") { $0.undo() },
             nil,
+            // H03, Arc's Share: the system's share picker for the page on screen (its Peek first) or the selected rows.
+            BrowserCommand("Share", id: "file.share") { $0.shareCurrent() }.enabled { !$0.shareLinks.isEmpty },
             BrowserCommand("Save Page As…", "s", [.command, .shift], id: "file.savePage") { $0.savePage() },
+            // Notes out and back in (Notes/NoteExport.swift); Export All is Arc's Help › Export Arc Notes.
+            BrowserCommand("Export Note…", id: "file.exportNote") { $0.exportNote() }.enabled { $0.store.isNoteTab($0.shownTabID) },
+            BrowserCommand("Export All Notes…", id: "file.exportAllNotes") { $0.exportAllNotes() },
+            BrowserCommand("Import Notes…", id: "file.importNotes") { $0.importNotes() },
             BrowserCommand("Print…", "p", .command, id: "file.print") { $0.printPage() },
+            nil,
+            // P04 (Import/SidebarExport.swift): every Space's tabs, folders and Favorites as one Markdown or HTML file.
+            BrowserCommand("Export All Spaces…", id: "file.exportSpaces") { $0.exportSpace(nil) },
         ]
     }
 
     static func editExtras() -> [BrowserCommand?] {
         [
-            BrowserCommand("Copy URL", "c", [.command, .shift], id: "edit.copyURL") { $0.copyURL() },
-            BrowserCommand("Copy URL as Markdown", "c", [.command, .shift, .option], id: "edit.copyURLMarkdown") { $0.copyURLMarkdown() },
+            // C05: the page on screen, its Peek first (WindowController.displayedLinkPage).
+            BrowserCommand("Copy URL", "c", [.command, .shift], id: "edit.copyURL") { $0.copyURL() }.enabled { $0.canCopyLink },
+            BrowserCommand("Copy URL as Markdown", "c", [.command, .shift, .option], id: "edit.copyURLMarkdown") { $0.copyURLMarkdown() }
+                .enabled { $0.canCopyLink },
+            BrowserCommand("Copy URL as Quote", "c", [.command, .shift, .control], id: "edit.copyURLQuote") { $0.copyURLQuote() }
+                .enabled { $0.canCopyLink },
             // Arc's ⌥⌘V. Docs uses the same key for Paste Formatting, so the page has it first.
             BrowserCommand("Paste URL in New Tab", "v", [.command, .option], id: "edit.pasteURL", order: .pageFirst) { $0.pasteInNewTab() },
             nil,
             BrowserCommand("Find…", "f", .command, id: "edit.find") { $0.showFind() },
+            // K05: Arc's Find and Replace (⌥⌘F), for the page's editable text (Browser/FindBar.swift).
+            BrowserCommand("Find and Replace", "f", [.command, .option], id: "edit.findAndReplace") { $0.showFindAndReplace() }
+                .enabled { $0.canFindInView },
             BrowserCommand("Find Next", "g", .command, id: "edit.findNext") { $0.findAgain(forward: true) },
             BrowserCommand("Find Previous", "g", [.command, .shift], id: "edit.findPrevious") { $0.findAgain(forward: false) },
-        ]
+        ] + findExtras()   // K05: Use Selection to Find, Jump to Selection (App/NativeEditingMenus.swift)
     }
 
     static func view() -> [BrowserCommand?] {
         [
+            BrowserCommand("Show Toolbar", "d", [.command, .shift], id: "view.showToolbar") { $0.togglePageToolbar() },
             BrowserCommand("Toggle Sidebar", "s", .command, id: "view.toggleSidebar") { $0.toggleSidebar() },
             BrowserCommand("Reload Page", "r", .command, id: "view.reload") { $0.reloadOrStop() },
             BrowserCommand("Reload Ignoring Cache", "r", [.command, .shift], id: "view.reloadIgnoringCache") { $0.reloadIgnoringCache() },
+            // P20d, Arc's: only the site's cookies, or only its cache, then a reload (Browser/DeveloperModeCommands.swift).
+            BrowserCommand("Clear Cookies and Refresh", id: "view.clearCookies") { $0.clearSiteDataAndRefresh([.cookies]) },
+            BrowserCommand("Clear Cache and Refresh", id: "view.clearCache") { $0.clearSiteDataAndRefresh([.cache]) },
             nil,
             BrowserCommand("Zoom In", "=", .command, id: "view.zoomIn") { $0.zoom(step: 1); $0.siteControlsDidZoom() },
             BrowserCommand("Zoom Out", "-", .command, id: "view.zoomOut") { $0.zoom(step: -1); $0.siteControlsDidZoom() },
             BrowserCommand("Actual Size", "0", .command, id: "view.actualSize") { $0.zoom(step: 0); $0.siteControlsDidZoom() },
             nil,
+            // CB-5 Arc's Capture (Browser/Capture.swift). Pages don't get ⇧⌘2 first: they report it as ⇧⌘@ (or the layout's
+            // shifted 2), which would only ever reach the browser after the page-answer timeout.
+            BrowserCommand("Capture…", "2", [.command, .shift], id: "view.capture", order: .browserFirst) { $0.startCapture() },
+            // Arc's Capture Full Page: the page's whole length (Browser/FullPageCapture.swift).
+            BrowserCommand("Capture Full Page", id: "view.captureFullPage", order: .browserFirst) { $0.startCapture(fullPage: true) },
+            // P08c: Arc's Capture in Portrait Mode (its capturePrettyScreenshot): the page framed (Browser/PortraitCapture.swift).
+            BrowserCommand("Capture in Portrait Mode", id: "view.capturePortrait", order: .browserFirst) { $0.startCapture(portrait: true) },
             BrowserCommand("Extensions", "e", .command, id: "view.extensions") { $0.showExtensions() },
             BrowserCommand("Site Controls", id: "view.siteControls") { $0.toggleSiteControls() },
             // BST-1. Arc had no shortcut for its Boost editor, so neither does this.
             BrowserCommand("Boost This Site…", id: "view.boost") { $0.showBoostEditor() },
             BrowserCommand("History", "y", .command, id: "view.history") { $0.showHistory() },
             nil,
+            // DEV-1, Arc's ⌃D: Developer Mode on or off for the site on screen (Browser/DeveloperMode.swift).
+            BrowserCommand("Developer Mode for This Site", "d", .control, id: "view.developerSite") { $0.toggleDeveloperModeForSite() },
             BrowserCommand("Developer Tools", "i", [.command, .option], id: "view.devTools") { $0.showDevTools(console: false) },
             BrowserCommand("JavaScript Console", "j", [.command, .option], id: "view.console") { $0.showDevTools(console: true) },
             BrowserCommand("View Source", "u", [.command, .option], id: "view.source") { $0.viewSource() },
+            // K07, Arc's and Chrome's switch for `execute … javascript` from AppleScript (Scripting/), off by default.
+            BrowserCommand("Allow JavaScript from Apple Events", id: "view.appleEventsJavaScript") { AppleEventsJavaScript.toggle($0.app) },
+            // P20d: Arc's View › Developer (MainMenu.build nests these, Browser/DeveloperModeCommands.swift).
+            BrowserCommand("Inspect Elements", "c", [.command, .option], id: "view.inspectElements") { $0.inspectElements() },
+            BrowserCommand("Network Inspector", id: "view.networkInspector") { $0.showNetworkInspector() },
         ]
     }
 
@@ -143,19 +193,47 @@ enum CommandMenus {
             BrowserCommand("Pin / Unpin Tab", "d", .command, id: "tabs.pin") { $0.togglePin() },
             BrowserCommand("Add to Favorites", id: "tabs.favorite") { $0.addCurrentToFavorites() },
             BrowserCommand("Clear Today", "k", [.command, .shift], id: "tabs.clearToday") { $0.clearToday() },
+            // P08, S11: Arc's Tabs menu (no default keys).
+            BrowserCommand("Reset all tabs in this Space", id: "tabs.resetSpace") { $0.resetAllTabsInSpace() }
+                .enabled { !$0.store.driftedPinnedTabs(inSpace: $0.currentSpaceID).isEmpty },
+            BrowserCommand("Expand All Folders", id: "tabs.expandFolders") { $0.setAllFolders(collapsed: false) }
+                .enabled { $0.store.folders(inSpace: $0.currentSpaceID).contains(where: \.isCollapsed) },
+            BrowserCommand("Collapse All Folders", id: "tabs.collapseFolders") { $0.setAllFolders(collapsed: true) }
+                .enabled { $0.store.folders(inSpace: $0.currentSpaceID).contains { !$0.isCollapsed } },
+            // K02 (Sidebar/SidebarKeyboard.swift): Arc's Expand / Collapse Pinned Section.
+            BrowserCommand("Expand Pinned Section", id: "tabs.expandPinned") { $0.setPinnedSectionCollapsed(false) }
+                .enabled { $0.store.space($0.currentSpaceID)?.pinnedCollapsed == true },
+            BrowserCommand("Collapse Pinned Section", id: "tabs.collapsePinned") { $0.setPinnedSectionCollapsed(true) }
+                .enabled { $0.store.space($0.currentSpaceID)?.pinnedCollapsed == false },
             nil,
             BrowserCommand("Next Tab", BrowserCommand.down, [.command, .option], id: "tabs.next") { $0.selectAdjacentTab(1) },
             BrowserCommand("Previous Tab", BrowserCommand.up, [.command, .option], id: "tabs.previous") { $0.selectAdjacentTab(-1) },
-            BrowserCommand("Last Used Tab", "\t", .control, id: "tabs.lastUsed") { $0.selectLastTab() },
+            // K06, Arc's tab switcher: ⌃Tab (⌃⇧Tab back) walks this Space's five most recent tabs while ⌃ is held; the
+            // one it stops on counts as used (Sidebar/SidebarKeyboard.swift). One press is the last used tab.
+            BrowserCommand("Last Used Tab", "\t", .control, id: "tabs.lastUsed") { $0.cycleRecentTab(1) },
+            BrowserCommand("Previous Recent Tab", "\t", [.control, .shift], id: "tabs.lastUsedBack") { $0.cycleRecentTab(-1) },
+            // P03b, Arc's Cycle Tab: every tab of the Space in the order last used (Sidebar/SidebarKeyboard.swift).
+            BrowserCommand("Cycle Tab Forward", BrowserCommand.right, [.control, .command], id: "tabs.cycleForward") { $0.cycleTab(1) },
+            BrowserCommand("Cycle Tab Backward", BrowserCommand.left, [.control, .command], id: "tabs.cycleBackward") { $0.cycleTab(-1) },
+            // K02 (Sidebar/SidebarKeyboard.swift): Arc 1.171's ⌃Space gives the sidebar the keyboard on the current tab's
+            // row; Reveal Tab in Sidebar only shows that row.
+            BrowserCommand("Reveal Current Tab", " ", .control, id: "tabs.revealCurrent") { $0.revealCurrentTab() },
+            BrowserCommand("Reveal Tab in Sidebar", id: "tabs.revealInSidebar") { $0.revealTabInSidebar() },
             nil,
             // SV-1 (spec §2.16b): in a split, ⌘[ / ⌘] move between the panes; elsewhere they're Back and Forward.
-            BrowserCommand("Back", "[", .command, id: "tabs.back") { if !$0.focusAdjacentPane(-1) { $0.goBack() } },
-            BrowserCommand("Forward", "]", .command, id: "tabs.forward") { if !$0.focusAdjacentPane(1) { $0.goForward() } },
+            // While a pane is expanded (P06c) they're its Back and Forward, as for one page.
+            BrowserCommand("Back", "[", .command, id: "tabs.back") { if $0.expandedPane != nil || !$0.focusAdjacentPane(-1) { $0.goBack() } },
+            BrowserCommand("Forward", "]", .command, id: "tabs.forward") { if $0.expandedPane != nil || !$0.focusAdjacentPane(1) { $0.goForward() } },
             nil,
-            // Arc's split keys: ⌃⇧+ adds a pane, ⌃⇧− closes the focused one, ⌃⇧1–4 focus a pane.
+            // Arc's split keys: ⌃⇧+ adds a pane, ⌃⇧− closes the focused one, ⌃⇧[ ⌃⇧] go round the panes, ⌃⇧1–4 focus one.
             BrowserCommand("New Split View", "=", [.control, .shift], id: "tabs.newSplit") { $0.newSplitView() },
             BrowserCommand("Close Pane", "-", [.control, .shift], id: "tabs.closePane") { $0.closeFocusedPane() },
+            BrowserCommand("Previous Pane", "[", [.control, .shift], id: "tabs.previousPane") { $0.focusPreviousOrNextPane(-1) },
+            BrowserCommand("Next Pane", "]", [.control, .shift], id: "tabs.nextPane") { $0.focusPreviousOrNextPane(1) },
             BrowserCommand("Separate All Tabs", id: "tabs.separate") { $0.separateShownSplit() },
+            // P06c (Browser/SplitExtras.swift): Arc's View › Separate Page from Split View and Expand Current Split.
+            BrowserCommand("Separate Page from Split View", id: "tabs.separatePage") { $0.separateFocusedPane() }.enabled { $0.showsSplit },
+            BrowserCommand(WindowController.expandSplitTitle, id: "tabs.expandSplit") { $0.toggleExpandedSplit() }.enabled { $0.showsSplit },
         ]
         for n in 1...4 {
             c.append(BrowserCommand("Focus Pane \(n)", "\(n)", [.control, .shift], id: "tabs.pane\(n)") { $0.focusPane(number: n) })
@@ -196,15 +274,45 @@ enum CommandMenus {
 
     /// The same with today's keys (CB-2), the defaults.
     static var defaults: [BrowserCommand] {
-        (file() + editExtras() + view() + spaces() + tabs()).compactMap { $0 } + hidden() + keysOnly()
+        (file() + editExtras() + view() + spaces() + tabs() + ParityCommandCatalog.help()).compactMap { $0 } + hidden() + keysOnly()
     }
 }
 
-final class CommandMenuItem: NSMenuItem {
+final class CommandMenuItem: NSMenuItem, NSMenuItemValidation {
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        // New Note says what it makes: "New Google Doc" when that's the app chosen (Notes/NoteExport.swift).
+        if command?.id == "file.newNote" { title = NoteApps.chosen(app).newTitle }
+        if command?.id == "tabs.expandSplit" { title = (app?.controller(for: NSApp.keyWindow) ?? app?.controller)?.expandSplitTitle ?? WindowController.expandSplitTitle }
+        if command?.id == "view.appleEventsJavaScript" { state = AppleEventsJavaScript.isAllowed ? .on : .off }
+        if command?.id == "view.showToolbar" {
+            return validateToolbar(in: NSApp.keyWindow)
+        }
+        // A private or Little Arc window runs its own commands (fire); the main window's state says nothing there.
+        if let isEnabled = command?.isEnabled {
+            let key = NSApp.keyWindow
+            guard PrivateBrowsing.shared.window(for: key) == nil, app?.littleArc(for: key) == nil,
+                  let c = app?.controller(for: key) ?? app?.controller else { return true }
+            return isEnabled(c)
+        }
+        return true
+    }
+    func validateToolbar(in window: NSWindow?) -> Bool {
+        // Private and Little Arc windows do not offer the classic page toolbar.
+        guard PrivateBrowsing.shared.window(for: window) == nil, app?.littleArc(for: window) == nil,
+              let controller = app?.controller(for: window) ?? app?.controller else {
+            state = .off
+            return false
+        }
+        state = controller.pageToolbar == nil ? .off : .on
+        return true
+    }
     var command: BrowserCommand?
     weak var app: AppDelegate?
     @objc func fire() {
         guard let app, let command else { return }
+        // The shortcuts overview is the app's, whichever window is in front (or none).
+        if command.id == "help.shortcuts" { return EssentialShortcutsWindow.show(over: NSApp.keyWindow) }
+        if command.id == "help.taskManager" { return TaskManagerWindow.show(from: NSApp.keyWindow, app: app) }   // P20d
         // WIN-7: the key browser window's command, else the one used last's; with none open, only the ones that open a
         // window run (AppDelegate.runWithoutWindow).
         let c = app.controller(for: NSApp.keyWindow) ?? app.controller
@@ -215,13 +323,13 @@ final class CommandMenuItem: NSMenuItem {
             KeyMonitor.cancelPending(command)
             if let e = NSApp.currentEvent, e.type == .keyDown, p.handleKey(e) { return }
             if p.perform(menuTitle: command.title) { return }
-            if ["New Window", "New Blank Window", "New Little Arc Window"].contains(command.title) { opensWindow() }
+            if ["New Window", "New Blank Window", "New Little Airc Window"].contains(command.title) { opensWindow() }
             return
         }
         // A Little Arc window takes its own shortcuts; the main window's commands don't reach into it.
         if let little = app.littleArc(for: NSApp.keyWindow) {
             if let e = NSApp.currentEvent, e.type == .keyDown, little.handleKey(e) { return }
-            if ["New Window", "New Blank Window", "New Little Arc Window"].contains(command.title) { opensWindow() }
+            if ["New Window", "New Blank Window", "New Little Airc Window"].contains(command.title) { opensWindow() }
             return
         }
         guard let c else { return app.runWithoutWindow(command) }
@@ -232,6 +340,8 @@ final class CommandMenuItem: NSMenuItem {
 enum MainMenu {
     static func build(app: AppDelegate) -> NSMenu {
         ShortcutCenter.shared.attach(settings: app.settings)
+        AppPersonalization.attach(settings: app.settings)   // P21b: the app icon, sounds and haptics
+        UpdateCenter.shared.noteLaunchedVersion()   // "Updated!" after an update's restart
         let main = NSMenu()
 
         let appMenu = NSMenu(title: "Airc")
@@ -242,6 +352,8 @@ enum MainMenu {
         #endif
         appMenu.addItem(.separator())
         for c in CommandMenus.app() { appMenu.addItem(item(c, app)) }
+        appMenu.addItem(.separator())
+        appMenu.addItem(NativeEditingMenus.servicesItem())   // K05: the Mac's Services (App/NativeEditingMenus.swift)
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Hide Airc", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         let others = appMenu.addItem(withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
@@ -268,10 +380,15 @@ enum MainMenu {
         let matchStyle = edit.addItem(withTitle: "Paste and Match Style", action: PasteAndMatchStyle.selector, keyEquivalent: "V")
         matchStyle.keyEquivalentModifierMask = [.command, .option]
         matchStyle.isAlternate = true
+        edit.addItem(withTitle: NativeEditingMenus.delete.title, action: NativeEditingMenus.delete.selector, keyEquivalent: "")
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         edit.addItem(.separator())
         for c in CommandMenus.editExtras() { edit.addItem(item(c, app)) }
+        // K05: Spelling and Grammar, Substitutions, Transformations, Speech (App/NativeEditingMenus.swift).
+        edit.addItem(.separator())
+        NativeEditingMenus.editSubmenuItems().forEach(edit.addItem)
         add(edit, to: main)
+        add(NativeEditingMenus.formatMenu(), to: main)
 
         let view = menu("View", CommandMenus.view(), app)
         view.addItem(.separator())
@@ -293,9 +410,16 @@ enum MainMenu {
         window.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         window.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
         window.addItem(.separator())
+        LittleArcGlobalActions.windowMenuItems().forEach(window.addItem)
+        window.addItem(.separator())
         window.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
         add(window, to: main)
         NSApp.windowsMenu = window
+        // E14: Getting Started, Essential Keyboard Shortcuts, Release Notes, Privacy Policy; macOS adds the search field.
+        let help = menu("Help", ParityCommandCatalog.help(), app)
+        DeveloperMenus.arrange(view: view, help: help)   // P20d: View › Developer, Help › Troubleshooting (as Arc's)
+        add(help, to: main)
+        NSApp.helpMenu = help
         return main
     }
 
@@ -324,18 +448,15 @@ enum MainMenu {
 }
 
 extension WindowController {
-    /// ⌥⌘V (Arc): the clipboard's URL, or a search for its text, in a new Today tab.
+    /// ⌥⌘V (Arc): the clipboard's URL, or a search for its text (the profile's default search, P07d), in a new Today tab.
     func pasteInNewTab() {
         guard let text = NSPasteboard.general.string(forType: .string),
-              let url = URLRules.resolve(text, engine: store.profile(ofSpace: currentSpaceID).searchEngine) else { return NSSound.beep() }
+              let url = URLRules.resolve(text, search: store.profile(ofSpace: currentSpaceID).defaultSearch) else { return NSSound.beep() }
         navigate(to: url, newTab: true, typed: true)
     }
 
     /// ⌃⌘J (Arc's Live Calendar): the meeting the sidebar offers to join.
-    func joinNextMeeting() {
-        guard let e = CalendarCenter.shared.promptEvent, e.link != nil else { return NSSound.beep() }
-        CalendarCenter.shared.join(e, spaceID: nil, controller: self)
-    }
+    func joinNextMeeting() { CalendarCenter.shared.joinNext(controller: self) }
 }
 
 /// Edit › Paste and Match Style sends Chrome's `pasteAndMatchStyle:`, which Chromium's page view implements. AppKit's
@@ -384,7 +505,7 @@ enum KeyMonitor {
     /// The page gets the key first: it can (`pageCanUse`) and the user left the command at "Websites first" (Settings →
     /// Shortcuts; "Airc first" runs the command at once, in every window, and the page never sees the key).
     static func pageMayUse(_ cmd: BrowserCommand) -> Bool {
-        pageCanUse(cmd) && ShortcutCenter.shared.map.priority(cmd.id) == .websites
+        pageCanUse(cmd) && ShortcutCenter.shared.pageMayHave(cmd.id)
     }
 
     /// Chrome's reserved shortcuts (pages never get them) and ⌥/⌃ combinations stay browser-first. Keys editors use
@@ -442,7 +563,7 @@ enum KeyMonitor {
         guard pageMayUse(cmd), engine?.reportsPageShortcuts == true, let page,
               let scheme = page.url?.scheme, ["http", "https", "file", "data"].contains(scheme) else { return false }
         let key = combo(cmd)
-        if let t = pageUsed.removeValue(forKey: key), CACurrentMediaTime() - t < secondPressWindow { return false }
+        if let t = pageUsed.removeValue(forKey: key), ShortcutCenter.shared.secondPressRuns(cmd.id), CACurrentMediaTime() - t < secondPressWindow { return false }
         pending[key]?.fallback.cancel()
         // No answer (a page the script couldn't reach, a hung renderer): the browser's command runs anyway.
         let fallback = DispatchWorkItem {
@@ -482,6 +603,8 @@ enum KeyMonitor {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: work)
                 return nil
             }
+            // CB-5: Capture's overlay has the keys while it's up (Esc, Return, Space, ⌘C, ⌘S; another ⌘ key ends it and runs).
+            if let capture = CaptureSession.active(in: event.window), capture.handleKey(event) { return nil }
             if let little = app.littleArc(for: event.window) { return little.handleKey(event) ? nil : event }
             if let p = PrivateBrowsing.shared.window(for: event.window) {
                 // WebKit handed back a key its page didn't use: the menus take it now (CommandMenuItem.fire).
@@ -490,6 +613,7 @@ enum KeyMonitor {
             }
             // WIN-7: the browser window the key is for.
             guard let c = app.controller(for: event.window) else { return event }
+            if let bar = c.commandBar, bar.handleSuggestionKey(event) { return nil }
             // Full screen (Arc): Esc goes to the page; a second press, or holding it, leaves full screen.
             // Peek: Esc closes it. So does Site Controls (first: it's above the page).
             if event.keyCode == 53, mods.isEmpty, c.closeSiteControls() { return nil }
@@ -497,12 +621,18 @@ enum KeyMonitor {
             if event.keyCode == 53, mods.isEmpty, c.boostEditorHandlesEscape() { return nil }
             if mods == .command, event.charactersIgnoringModifiers?.lowercased() == "s", c.boostEditorSavesCode() { return nil }
             if event.keyCode == 53, mods.isEmpty, c.peek != nil { c.closePeek(); return nil }
+            // SB-36: rows selected in the sidebar (which has the keyboard then): Esc clears them, Delete archives them.
+            if c.handleSelectionKey(event) { return nil }
             if event.keyCode == 53, mods.isEmpty, c.fullScreen.escapeDown(event) { return nil }
             guard !mods.isEmpty, var chars = event.charactersIgnoringModifiers?.lowercased() else { return event }
             // ⌘+ is ⇧⌘= on most layouts: the same command as ⌘=.
             if chars == "+", mods.contains(.command) { chars = "="; mods.remove(.shift) }
-            // ⌃⇧ with = − 1…4 (the split keys) arrive as + _ ! @ …: matched by the key itself.
-            if mods == [.control, .shift], let k = [24: "=", 27: "-", 18: "1", 19: "2", 20: "3", 21: "4"][Int(event.keyCode)] { chars = k }
+            // ⌃⇧Tab arrives as the back-tab character.
+            if chars == "\u{19}" { chars = "\t" }
+            // ⌃⇧ with = − [ ] 1…4 (the split keys) arrive as + _ { } ! @ …: matched by the key itself.
+            if mods == [.control, .shift], let k = [24: "=", 27: "-", 33: "[", 30: "]", 18: "1", 19: "2", 20: "3", 21: "4"][Int(event.keyCode)] { chars = k }
+            // ⇧⌘ digits (Capture's ⇧⌘2) arrive as @, " … by layout: matched by the key itself too.
+            if mods == [.command, .shift], let k = ShortcutCenter.digitKeys[Int(event.keyCode)] { chars = k }
             // WebKit hands a key back through NSApp.sendEvent when the page didn't use it. The menus take it now (a
             // command runs once, from its menu item); it isn't offered to the page a second time.
             if event === offered {
@@ -539,6 +669,8 @@ enum KeyMonitor {
                 cmd.run(c)
                 return nil
             }
+            // C06: ⌘C on a page's selected text (not in a field) offers a link straight to it (Browser/SelectionShare.swift).
+            if chars == "c", mods == .command, !editingText, c.focusedPage != nil, !pageIsEditingText(c) { c.watchCopyForQuoteLink() }
             return event
         }
         return NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in

@@ -7,6 +7,7 @@ import AircKit
 final class URLFieldView: NSView {
     weak var controller: WindowController?
     /// The host, or "Search or enter URL…" with no page; fades instead of "…" (visual review #17).
+    private(set) var displayedHost = ""
     private let label = AircAddressFieldLabel(theme: DesignTheme.default.resolved(systemIsDark: false))
     private let copyButton = GlyphButton(symbol: "link", size: 12)
     private let siteButton = GlyphButton(symbol: "slider.horizontal.3", size: 12)
@@ -56,6 +57,8 @@ final class URLFieldView: NSView {
         self.palette = palette
         layer?.backgroundColor = palette.urlFieldFill.cgColor
         label.theme = palette.resolved
+        displayedHost = host
+        toolTip = DeveloperMode.shared.applies(host) ? host : nil
         label.host = host.isEmpty ? nil : host
         copyButton.tint = palette.glyph
         siteButton.tint = palette.glyph
@@ -148,6 +151,10 @@ final class FavoriteTileView: SidebarRowView {
     private(set) var calendarFace: CalendarTileFace?
     /// The favicon's alpha as drawn (SB-15: half strength while the page is unloaded).
     var iconAlpha: CGFloat { favicon.alphaValue }
+    /// DEV-1: the Favorite's page is in Developer Mode (the outline while selected).
+    private(set) var developerSite = false
+    /// A custom icon (the item's emoji, Change Icon…) drawn instead of the favicon.
+    private var emoji: NSTextField?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -169,9 +176,11 @@ final class FavoriteTileView: SidebarRowView {
         favicon.isHidden = item.kind == .split
         calendarFace = CalendarTileFace.isCalendar(item) ? calendarFace ?? CalendarTileFace(tile: self) : nil
         if item.kind == .split {
+            emoji?.isHidden = true
             if splitFace == nil { splitFace = FavoriteSplitFace(tile: tile, in: self) }
             splitFace?.configure(item, controller: controller, palette: palette)
             dot.isHidden = true
+            developerSite = false
             toolTip = splitFace?.title
             isSelected = selected
             updateStyle()
@@ -189,26 +198,59 @@ final class FavoriteTileView: SidebarRowView {
                     palette: palette)
         // SB-15: a Favorite whose page is freed (or not loaded yet) draws as an unloaded row does (design §Sidebar row).
         favicon.alphaValue = controller?.isPageUnloaded(tab?.id) != false ? 0.5 : 1
+        showCustomIcon(item.icon, alpha: favicon.alphaValue)
         let title = engineTab?.title ?? tab?.title ?? item.pageTitle ?? ""
-        dot.isHidden = !(URLRules.showsUnreadBadge(saved) && (URLRules.unreadCount(fromTitle: title) ?? 0) > 0)
+        // The Favorite's own Show Unread Badge switch (its menu, P01a's SidebarItemPreferences).
+        dot.isHidden = !(URLRules.showsUnreadBadge(saved) && (URLRules.unreadCount(fromTitle: title) ?? 0) > 0
+                         && controller?.showsUnreadBadge(item) != false)
+        // DEV-1: Arc gives Favorites in Developer Mode its outline too.
+        developerSite = DeveloperMode.shared.applies(engineTab?.url?.absoluteString ?? tab?.url ?? saved)
         toolTip = item.displayTitle
         isSelected = selected
         calendarFace?.configure(palette: palette)
         updateStyle()
     }
 
+    /// The emoji in place of the favicon, or the favicon again.
+    private func showCustomIcon(_ icon: String?, alpha: CGFloat) {
+        guard let icon, !icon.isEmpty else {
+            emoji?.isHidden = true
+            favicon.isHidden = false
+            return
+        }
+        let field = emoji ?? {
+            let f = NSTextField(labelWithString: "")
+            f.font = NSFont.systemFont(ofSize: 18)
+            f.alignment = .center
+            addSubview(f)
+            emoji = f
+            return f
+        }()
+        if field.stringValue != icon { field.stringValue = icon }
+        field.isHidden = false
+        field.alphaValue = alpha
+        favicon.isHidden = true
+        needsLayout = true
+    }
+
+    override var spokenTitle: String? { splitFace?.title ?? item?.displayTitle }
+    override var focusRingRect: NSRect { bounds }
+    override var focusRingRadius: CGFloat { AircMetrics.Favorites.radius }
+
     override func updateStyle() {
         guard let palette else { return }
+        let hovered = isHovered || isKeyboardFocused
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if isSelected {
-            tile.backgroundColor = (isHovered ? palette.selectedHover : palette.selected).cgColor
+            tile.backgroundColor = (hovered ? palette.selectedHover : palette.selected).cgColor
             tile.apply(palette.selectedShadow ?? .none)
         } else {
-            tile.backgroundColor = (isHovered ? palette.tileHover : palette.tileFill).cgColor
+            tile.backgroundColor = (hovered ? palette.tileHover : palette.tileFill).cgColor
             tile.shadowOpacity = 0
         }
         splitFace?.applyStyle(of: tile)
+        DeveloperMode.outline(tile, on: isSelected && developerSite, palette: palette)
         CATransaction.commit()
     }
 
@@ -222,6 +264,7 @@ final class FavoriteTileView: SidebarRowView {
         CATransaction.commit()
         let s = AircMetrics.Favorites.favicon
         favicon.frame = NSRect(x: (bounds.width - s) / 2, y: (bounds.height - s) / 2, width: s, height: s)
+        emoji?.frame = NSRect(x: (bounds.width - 28) / 2, y: (bounds.height - 22) / 2, width: 28, height: 22)
         calendarFace?.layout(in: bounds, favicon: favicon)
         splitFace?.layout(in: bounds)
     }
@@ -248,6 +291,11 @@ final class FavoriteTileView: SidebarRowView {
         a.autoreverses = true
         tile.add(a, forKey: "press")
         let entry = SidebarEntry.favorite(item, controller?.store.liveTab(forItem: item.id))
+        // Arc: ⌥-click opens it in a split with the page on screen (an ⌥-drag still copies it).
+        if event.modifierFlags.intersection([.command, .shift, .option, .control]) == .option, let c = controller, c.optionClickSplits(entry) {
+            if page?.beginPossibleDrag(entry: entry, row: self, event: event) == false { c.optionClickSplit(entry) }
+            return
+        }
         controller?.activate(entry: entry)
         page?.beginPossibleDrag(entry: entry, row: self, event: event)
     }
@@ -370,6 +418,8 @@ final class SpaceHeaderView: SidebarRowView {
     private var collapsed = false
     private var showsProfile = false
     private var profileID = ""
+    /// P02: the pinned section is folded and the tab on screen is in it (SpaceHeaderPolicy): the name in full ink, bold.
+    var isEmphasized = false { didSet { if isEmphasized != oldValue, let palette { applyNameStyle(palette) } } }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -421,7 +471,7 @@ final class SpaceHeaderView: SidebarRowView {
         }
         let title = TextLimits.clip(space.name)
         if name.stringValue != title { name.stringValue = title }
-        if name.textColor != palette.spaceName { name.textColor = palette.spaceName }
+        applyNameStyle(palette)
         if showsProfile { makeIndicator() }
         indicator?.configure(profile: profile, palette: palette)
         more.tint = palette.glyph
@@ -430,15 +480,26 @@ final class SpaceHeaderView: SidebarRowView {
         needsLayout = true
     }
 
+    private func applyNameStyle(_ palette: Palette) {
+        let color = isEmphasized ? palette.textPrimary : palette.spaceName
+        if name.textColor != color { name.textColor = color }
+        let font = isEmphasized ? AircFont.spaceName.weight(.bold).appFont : AircFont.spaceName.appFont
+        if name.font != font { name.font = font }
+    }
+
+    override var spokenTitle: String? { name.stringValue }
+
     override func updateStyle() {
         super.updateStyle()
+        // The keyboard on the header shows its chevron, as the pointer does: whether the pinned section is open.
+        let shows = isHovered || isKeyboardFocused
         more.isHidden = !isHovered
         indicator?.isHidden = !showsProfile
         indicator?.hovered = isHovered
-        icon.isHidden = isHovered || !hasIcon
+        icon.isHidden = shows || !hasIcon
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        chevron.isHidden = !isHovered
+        chevron.isHidden = !shows
         CATransaction.commit()
         guard let palette else { return }
         let symbol = collapsed ? "chevron.right" : "chevron.down"
@@ -464,7 +525,7 @@ final class SpaceHeaderView: SidebarRowView {
         CATransaction.setDisableActions(true)
         chevron.frame = NSRect(x: AircMetrics.SpaceHeader.iconCenterX - 10, y: (h - 20) / 2, width: 20, height: 20)
         CATransaction.commit()
-        let x = ((hasIcon || isHovered) ? AircMetrics.SpaceHeader.nameX : AircMetrics.SpaceHeader.nameXWithoutIcon) - DesignGaps.labelInset
+        let x = ((hasIcon || isHovered || isKeyboardFocused) ? AircMetrics.SpaceHeader.nameX : AircMetrics.SpaceHeader.nameXWithoutIcon) - DesignGaps.labelInset
         let m = AircMetrics.SpaceHeader.moreButton
         more.frame = NSRect(x: bounds.width - AircMetrics.Sidebar.inset - 6 - m, y: (h - m) / 2, width: m, height: m)
         var right = isHovered ? more.frame.minX - 4 : bounds.width - 17
@@ -524,6 +585,16 @@ final class FlippedView: NSView {
     override var mouseDownCanMoveWindow: Bool { true }
 }
 
+/// The Favorites grid and the list: as FlippedView, but VoiceOver finds the keyboard rows in the page's outline
+/// (SidebarOutlineElement), not here; cards and the Join prompt stay where they are.
+final class SidebarAXContainer: NSView {
+    override var isFlipped: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { true }
+    override func accessibilityChildren() -> [Any]? {
+        super.accessibilityChildren()?.filter { ($0 as? SidebarRowView)?.navID == nil }
+    }
+}
+
 /// One Space's sidebar page: URL field, Favorites, Space name, then the scrolling list of pinned
 /// rows, the divider, "+ New Tab" and Today. Pages slide horizontally when switching Spaces.
 final class SpacePageView: NSView {
@@ -533,20 +604,54 @@ final class SpacePageView: NSView {
     private(set) var drawnShownTabID: String?
     private(set) var palette: Palette
     let urlField = URLFieldView()
-    let favorites = FlippedView()
+    let developerStrip = DeveloperStrip()
+    private var showsDeveloperStrip = false
+    let favorites = SidebarAXContainer()
     let header = SpaceHeaderView()
     let scrollView = SidebarScrollView()
-    let list = FlippedView()
+    let list = SidebarAXContainer()
     private(set) var rows: [String: SidebarRowView] = [:]
+    // Large restores keep model geometry for every row, but only build views near the viewport.
+    private var rowFrames: [String: NSRect] = [:]
+    private var renderingRows = false
+    @objc private func listViewportChanged(_ notification: Notification) {
+        if order.count > 500 && !renderingRows { reload(animated: false) }
+    }
     private var order: [(id: String, entry: RowModel)] = []
     /// SB-36: rows picked with ⌘/⇧-click, in display order (entry IDs), apart from the page being shown.
     private(set) var selection: [String] = []
     private var selectionAnchor: String?
+    /// What ⌘-clicks picked: a ⇧-click range goes on top of it (a new ⇧-click replaces the last range).
+    private var selectionBase: Set<String> = []
+    private var clickMonitor: Any?
     private var tiles: [String: FavoriteTileView] = [:]
     private var favoritesHeight: CGFloat = 0
     private let dropLine = CALayer()
     private let dropRing = CALayer()
     private var highlightedFolder: SidebarRowView?
+    // P03, the keyboard in the sidebar (Sidebar/SidebarKeyboard.swift).
+    /// The rows the keyboard walks, top to bottom, as the last render drew them.
+    private(set) var navItems: [SidebarNavItem] = [] {
+        didSet { navIndex = Dictionary(navItems.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { a, _ in a }) }
+    }
+    /// Where each keyboard row is in `navItems` (VoiceOver asks for every row's role and value).
+    private(set) var navIndex: [String: Int] = [:]
+    private(set) var favoriteColumns = 1
+    /// The row that has the keyboard, while `keyboardActive`.
+    var keyboardFocusID: String?
+    var keyboardActive = false
+    /// Rows take the keyboard only while the page hands it to one: a click on a row leaves it with the page.
+    var isMovingKeyboardFocus = false
+    var typeahead: (text: String, at: CFTimeInterval) = ("", 0)
+    /// VoiceOver's outline of the keyboard rows.
+    private(set) lazy var outline = SidebarOutlineElement(page: self)
+    func tileView(_ id: String) -> FavoriteTileView? { tiles[id] }
+    func rowFrame(_ id: String) -> NSRect? { rowFrames[id] }
+    var isRendering: Bool { renderingRows }
+    /// The list's sidebar entries in display order (pinned rows, folders, Today).
+    var orderedEntries: [(id: String, entry: SidebarEntry)] {
+        order.compactMap { m in if case .entry(let e) = m.entry { return (m.id, e) } else { return nil } }
+    }
     var sidebarHovered = false {
         didSet {
             urlField.sidebarHovered = sidebarHovered
@@ -557,6 +662,50 @@ final class SpacePageView: NSView {
 
     enum RowModel {
         case entry(SidebarEntry), divider, newTab, signIn, defaultBrowser
+    }
+
+    private(set) var isParkedForNewSpace = false
+    #if AIRC_TESTING
+    private static let parksNewSpaceLayer = ProcessInfo.processInfo.environment["AIRC_SPACE_PARK_BASELINE"] != "1"
+    #else
+    private static let parksNewSpaceLayer = true
+    #endif
+
+    /// AppKit clips off-window views before drawing their backing stores. Park only the layer,
+    /// leaving the view at the pager's visible position until the new Space claims it. AppKit
+    /// owns the backing layer's transform and resets it when synchronizing geometry; this
+    /// container draws through child layers, whose sublayer transform stays under our control.
+    func parkNewSpace(in pager: SpacePagerView) {
+        isParkedForNewSpace = true
+        frame = NSRect(x: pager.pageWidth * CGFloat(Self.parksNewSpaceLayer ? pager.position : Double(pager.pages.count)),
+                       y: 0, width: pager.pageWidth, height: pager.bounds.height)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.sublayerTransform = Self.parksNewSpaceLayer ? CATransform3DMakeTranslation(10000, 0, 0) : CATransform3DIdentity
+        CATransaction.commit()
+    }
+
+    func unparkNewSpace() {
+        guard isParkedForNewSpace else { return }
+        isParkedForNewSpace = false
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.sublayerTransform = CATransform3DIdentity
+        CATransaction.commit()
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        isParkedForNewSpace ? nil : super.hitTest(point)
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        guard !isParkedForNewSpace, controller.map({ $0.currentSpaceID == spaceID }) ?? true else { return [] }
+        // P03: the keyboard rows are one outline (SidebarOutlineElement) after the URL field; the rest (the field's
+        // buttons, the cards in the list) as they are.
+        var out = (super.accessibilityChildren() ?? []).filter { ($0 as? SidebarRowView)?.navID == nil }
+        let fieldEnd = out.lastIndex { ($0 as? NSView)?.isDescendant(of: urlField) == true }.map { $0 + 1 } ?? 0
+        out.insert(outline, at: min(fieldEnd, out.count))
+        return out
     }
 
     /// A spare page made at idle becomes a new Space's page (§2.12: New Space within one frame).
@@ -575,6 +724,7 @@ final class SpacePageView: NSView {
         header.controller = controller
         header.page = self
         addSubview(urlField)
+        addSubview(developerStrip)
         addSubview(favorites)
         addSubview(header)
         scrollView.drawsBackground = false
@@ -586,6 +736,9 @@ final class SpacePageView: NSView {
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = list
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(listViewportChanged(_:)),
+            name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
         addSubview(scrollView)
         for l in [dropLine, dropRing] {
             l.isHidden = true
@@ -596,6 +749,9 @@ final class SpacePageView: NSView {
         dropRing.cornerRadius = AircSpacing.s / 2
         dropRing.borderWidth = 2
         dropRing.backgroundColor = NSColor.clear.cgColor
+        OptionReveal.shared.install()
+        // P04's files, links and text from other apps, with this page's drop line.
+        registerForDraggedTypes(SidebarFileImport.draggedTypes)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -639,7 +795,11 @@ final class SpacePageView: NSView {
 
     private func render(_ space: Space, animated: Bool) {
         guard let c = controller else { return }
+        guard !renderingRows else { return }
+        renderingRows = true
+        defer { renderingRows = false }
         let store = c.store
+        let animated = animated && store.state.tabs.count <= 500
         palette = c.palette(for: space)
         let profile = store.profile(space.profileID) ?? store.defaultProfile
         let shownTab = c.displayedTabID(forSpace: spaceID)
@@ -652,15 +812,26 @@ final class SpacePageView: NSView {
         let shown = store.tab(shownTab)
         let engineTab = shown.flatMap { c.engineTab(for: $0.id) }
         let urlString = engineTab?.url?.absoluteString ?? shown?.url ?? ""
-        urlField.configure(host: URLRules.displayHost(urlString),
+        configureDeveloperMode(url: urlString, tab: engineTab)
+        urlField.configure(host: developerAddress(urlString),
                            loading: engineTab.map { $0.isLoading ? $0.progress : 1 }, palette: palette)
         header.configure(space: space, profile: profile, showsProfile: Set(store.state.spaces.values.map(\.profileID)).count > 1,
                          palette: palette)
+        header.navID = Self.headerNavID
+        // P02: bold while the pinned section is folded over the tab on screen.
+        header.isEmphasized = store.headerState(ofSpace: spaceID, shownTabID: shownTab).isEmphasized
+        // P01c (Arc): the only Space, unnamed and without an icon, has no name row unless Show Space Header is on.
+        let showsHeader = store.showsHeader(ofSpace: spaceID, showOnSingleUnnamed: c.app?.settings.values.showsSpaceHeaderOnSingleUnnamed == true)
+        if header.isHidden == showsHeader {
+            header.isHidden = !showsHeader
+            needsLayout = true
+        }
 
         // Favorites grid.
         let favs = store.favorites(ofProfile: profile.id)
         let width = bounds.width - 2 * AircMetrics.Sidebar.inset
         let layout = FavoritesGrid.layout(count: favs.count, width: Double(max(width, 60)))
+        favoriteColumns = max(1, layout.columns)
         favoritesHeight = CGFloat(layout.height)
         var seenTiles = Set<String>()
         for (i, f) in favs.enumerated() {
@@ -676,6 +847,7 @@ final class SpacePageView: NSView {
             let live = f.kind == .split ? store.liveTab(forSplitItem: f.id) : store.liveTab(forItem: f.id)
             tile.configure(f, tab: live, palette: palette,
                            selected: f.kind == .split ? shownSplit?.id == f.id : live != nil && live?.id == shownTab && shownSplit == nil)
+            tile.navID = f.id
             let r = FavoritesGrid.frame(index: i, layout: layout)
             let frame = NSRect(x: CGFloat(r.x), y: CGFloat(r.y), width: CGFloat(r.w), height: CGFloat(r.h))
             tile.setFrameAnimated(frame, animated: animated && tile.frame != .zero, spring: Spring(AircSpring.fold))
@@ -699,11 +871,49 @@ final class SpacePageView: NSView {
         if c.showsDefaultBrowserCard { models.append(("defaultbrowser", .defaultBrowser)) }
         models += today.map { ($0.id, .entry($0)) }
         order = models.map { (id: $0.0, entry: $0.1) }
+        // SB-36: rows that went (closed, archived, moved away, folded) leave the selection.
+        if !selection.isEmpty {
+            let present = Set(order.map(\.id))
+            if !selection.allSatisfy(present.contains) {
+                selectionBase.formIntersection(present)
+                if let a = selectionAnchor, !present.contains(a) { selectionAnchor = nil }
+                applySelection(selection.filter(present.contains))
+            }
+        }
+
+        // SB-33: a folder that opened or closed since the last render moves the rows on Arc's folder curves (open:
+        // 200 ms ease-out; close: critically damped, ω ≈ 25, about 240 ms), not the row spring. Its children fade in
+        // place, under the rows below as those slide over them. With Reduce Motion nothing slides: the list cross-fades.
+        var fold: (id: String, opening: Bool)?
+        if animated {
+            for (id, model) in models {
+                if case .entry(.folder(let item, _)) = model, let was = (rows[id] as? FolderRowView)?.item,
+                   was.id == item.id, was.isCollapsed != item.isCollapsed {
+                    fold = (id, !item.isCollapsed)
+                }
+            }
+        }
+        #if AIRC_TESTING
+        let reduceMotion = fold != nil && (Self.reduceMotionForTesting ?? AircMotion.prefersReducedMotion)
+        if let fold { lastFold = (fold.id, fold.opening, reduceMotion) }
+        #else
+        let reduceMotion = fold != nil && AircMotion.prefersReducedMotion
+        #endif
 
         var y: CGFloat = 0
         var seen = Set<String>()
         let w = scrollView.contentSize.width > 0 ? scrollView.contentSize.width : bounds.width
+        rowFrames = [:]
+        let viewport = scrollView.contentView.bounds.insetBy(dx: 0, dy: -300)
         for (id, model) in models {
+            if models.count > 500, model.isEntry {
+                let frame = NSRect(x: 0, y: y, width: w, height: AircMetrics.Row.height)
+                rowFrames[id] = frame
+                if !frame.intersects(viewport) {
+                    y += AircMetrics.Row.pitch
+                    continue
+                }
+            }
             seen.insert(id)
             let isNew = rows[id] == nil
             let view: SidebarRowView
@@ -763,23 +973,36 @@ final class SpacePageView: NSView {
                 height = DefaultBrowserCardView.height(width: w, theme: palette.resolved)
             }
             view.page = self
+            switch model {
+            case .entry: view.navID = id
+            case .newTab: view.navID = Self.newTabNavID
+            default: view.navID = nil
+            }
             view.isInSelection = selection.contains(id)
             if view.superview !== list { list.addSubview(view) }
             rows[id] = view
             let frame = NSRect(x: 0, y: y, width: w, height: model.isEntry ? AircMetrics.Row.height : height)
-            if isNew {
+            rowFrames[id] = frame
+            if let fold {
+                placeFolding(view, frame: frame, isNew: isNew, opening: fold.opening, reduceMotion: reduceMotion)
+            } else if isNew {
+                view.layer?.zPosition = 0
                 view.frame = frame
                 if animated { view.layer?.fade(from: 0, to: 1, duration: 0.12) }
             } else {
+                view.layer?.zPosition = 0
                 view.setFrameAnimated(frame, animated: animated)
             }
             y += height
         }
         for (id, v) in rows where !seen.contains(id) {
             rows[id] = nil
-            if animated {
-                v.layer?.fade(from: 1, to: 0, duration: 0.1)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak c] in
+            if animated, !reduceMotion {
+                // A closed folder's children fade under the rows sliding up over them.
+                let fade = fold == nil ? 0.1 : Self.foldFade
+                if fold != nil { v.layer?.zPosition = -1 }
+                v.layer?.fade(from: 1, to: 0, duration: fade)
+                DispatchQueue.main.asyncAfter(deadline: .now() + fade) { [weak c] in
                     // Unless a reload took it back meanwhile.
                     guard v.page?.rows[id] !== v else { return }
                     v.removeFromSuperview()
@@ -791,7 +1014,47 @@ final class SpacePageView: NSView {
             }
         }
         list.frame = NSRect(x: 0, y: 0, width: w, height: max(y + 12, scrollView.contentSize.height))
+        if reduceMotion { list.layer?.add(AircMotion.crossfadeTransition(), forKey: kCATransition) }
+        let previousItems = navItems
+        navItems = buildNavItems(favorites: favs, columns: favoriteColumns, space: space, entries: orderedEntries, hasNewTab: true)
+        keepKeyboardFocusAfterRender(previousItems: previousItems)
         needsLayout = true
+    }
+
+    /// How long a closed folder's children take to fade.
+    static let foldFade = 0.15
+    #if AIRC_TESTING
+    /// SidebarPolishCheck.swift: the last render that opened or closed a folder, and Reduce Motion without the system
+    /// setting.
+    private(set) var lastFold: (folderID: String, opening: Bool, reduceMotion: Bool)?
+    static var reduceMotionForTesting: Bool?
+    #endif
+
+    /// One row of a render that opened or closed a folder (SB-33).
+    private func placeFolding(_ view: SidebarRowView, frame: NSRect, isNew: Bool, opening: Bool, reduceMotion: Bool) {
+        guard let layer = view.layer else { view.frame = frame; return }
+        if isNew {
+            view.frame = frame
+            layer.zPosition = 0
+            guard !reduceMotion else { return }
+            // A child of the folder that opened fades in where it goes, under the rows below as they slide away.
+            let curve = AircCurve.folderOpen
+            layer.zPosition = -1
+            layer.fade(from: 0, to: 1, duration: curve.duration, timing: curve.timingFunction)
+            DispatchQueue.main.asyncAfter(deadline: .now() + curve.duration) { [weak view] in view?.layer?.zPosition = 0 }
+            return
+        }
+        layer.zPosition = 0
+        // From where it shows now, so a fold reversed mid-motion carries on from there.
+        let from = layer.presentation()?.position ?? layer.position
+        layer.removeAnimation(forKey: "springPosition")
+        view.frame = frame
+        guard !reduceMotion else { return }
+        if opening {
+            layer.curvePosition(from: from, curve: AircCurve.folderOpen)
+        } else {
+            layer.springPosition(from: from, spring: Spring(AircSpring.fold))
+        }
     }
 
     /// Engine state of one tab changed (title, favicon, loading): refresh just its row or tile.
@@ -834,7 +1097,8 @@ final class SpacePageView: NSView {
         if tabID == c.displayedTabID(forSpace: spaceID) {
             let engineTab = c.engineTab(for: tabID)
             let url = engineTab?.url?.absoluteString ?? c.store.tab(tabID)?.url ?? ""
-            urlField.configure(host: URLRules.displayHost(url),
+            configureDeveloperMode(url: url, tab: engineTab)
+            urlField.configure(host: developerAddress(url),
                                loading: engineTab.map { $0.isLoading ? $0.progress : 1 }, palette: palette)
         }
     }
@@ -843,7 +1107,8 @@ final class SpacePageView: NSView {
         super.layout()
         let w = bounds.width
         urlField.frame = NSRect(x: AircMetrics.Sidebar.inset, y: 0, width: w - 2 * AircMetrics.Sidebar.inset, height: AircMetrics.Sidebar.urlFieldHeight)
-        var y = DesignGaps.favoritesTop
+        developerStrip.frame = NSRect(x: AircMetrics.Sidebar.inset, y: AircMetrics.Sidebar.urlFieldHeight + 2, width: w - 2 * AircMetrics.Sidebar.inset, height: 26)
+        var y = DesignGaps.favoritesTop + (showsDeveloperStrip ? 30 : 0)
         if favoritesHeight > 0 {
             favorites.frame = NSRect(x: AircMetrics.Sidebar.inset, y: y, width: w - 2 * AircMetrics.Sidebar.inset, height: favoritesHeight)
             y += favoritesHeight + 6
@@ -851,12 +1116,26 @@ final class SpacePageView: NSView {
             favorites.frame = NSRect(x: AircMetrics.Sidebar.inset, y: y, width: w - 2 * AircMetrics.Sidebar.inset, height: 0)
         }
         header.frame = NSRect(x: 0, y: y, width: w, height: AircMetrics.Row.height)
-        y += AircMetrics.Row.height + 1
+        if !header.isHidden { y += AircMetrics.Row.height + 1 }
         scrollView.frame = NSRect(x: 0, y: y, width: w, height: max(0, bounds.height - y))
         if list.frame.width != scrollView.contentSize.width {
             list.frame.size.width = scrollView.contentSize.width
             for v in list.subviews { v.frame.size.width = scrollView.contentSize.width }
         }
+    }
+
+    func developerAddress(_ url: String) -> String {
+        DeveloperMode.shared.applies(url) ? DeveloperMode.displayURL(url) : URLRules.displayHost(url)
+    }
+    private func configureDeveloperMode(url: String, tab: EngineTab?) {
+        let show = DeveloperMode.shared.applies(url)
+        if showsDeveloperStrip != show { showsDeveloperStrip = show; needsLayout = true }
+        let wasShown = !developerStrip.isHidden
+        developerStrip.isHidden = !show
+        // Hidden, the strip is out of the page and left as it is (configured again when it shows): its SwiftUI buttons
+        // were rebuilt and laid out on every render, and followed every move of the pager (P02b: ~0.9 ms of Create Space).
+        if show, developerStrip.superview !== self { addSubview(developerStrip) } else if !show { developerStrip.removeFromSuperview() }
+        if show || wasShown { developerStrip.configure(tab: show ? tab : nil, palette: palette) }
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -879,36 +1158,196 @@ final class SpacePageView: NSView {
         order.compactMap { m in if case .entry = m.entry { return m.id } else { return nil } }
     }
 
-    /// ⌘-click toggles `id`; ⇧-click (`extending`) selects from the anchor to `id`. The first pick also takes the row
-    /// of the page you're on, as Arc does.
+    /// The part of the list a ⇧-click range stays in: Today, the pinned section's top level, or one folder's own rows.
+    private var sections: [String: String] {
+        var out: [String: String] = [:]
+        for m in order {
+            guard case .entry(let e) = m.entry else { continue }
+            switch e {
+            case .today, .split: out[m.id] = "today"
+            case .pinned(let i, _, _), .folder(let i, _): out[m.id] = "pinned/" + (i.parentID ?? "")
+            case .favorite: break
+            }
+        }
+        return out
+    }
+
+    /// The row of the page shown here, if this page lists it.
+    private var shownRowID: String? {
+        guard let shown = controller?.displayedTabID(forSpace: spaceID) else { return nil }
+        return order.first { m in if case .entry(let e) = m.entry { return e.shows(shown) } else { return false } }?.id
+    }
+
+    /// ⌘-click toggles `id`; ⇧-click (`extending`) selects from the anchor to `id`, within `id`'s section (from the
+    /// section's end nearest the anchor when the anchor is in another one), on top of what ⌘-clicks picked. The first
+    /// pick also takes the row of the page you're on, as Arc does; that page stays on screen. The sidebar takes the
+    /// keyboard: Esc clears, Delete archives, ⌘W closes, ⇧⌘C copies the links (KeyMonitor, WindowController).
     func select(_ id: String, extending: Bool) {
         let ids = selectableIDs
+        guard ids.contains(id) else { return }
         var set = Set(selection)
-        if set.isEmpty, let shown = controller?.displayedTabID(forSpace: spaceID),
-           let shownID = order.first(where: { m in if case .entry(let e) = m.entry { return e.shows(shown) } else { return false } })?.id {
-            set.insert(shownID)
-            selectionAnchor = shownID
+        let first = set.isEmpty
+        if first {
+            if let shown = shownRowID { set.insert(shown); selectionAnchor = shown } else { selectionAnchor = nil }
+            selectionBase = set
         }
-        if extending, let anchor = selectionAnchor ?? set.first, let a = ids.firstIndex(of: anchor), let b = ids.firstIndex(of: id) {
-            set.formUnion(ids[min(a, b)...max(a, b)])
-        } else if set.contains(id) {
-            set.remove(id)
+        if extending, let anchor = selectionAnchor {
+            set = selectionBase.union(range(from: anchor, to: id, in: ids))
         } else {
-            set.insert(id)
+            // ⌘-click on the shown row with nothing selected yet selects it (it's already in).
+            if set.contains(id), !(first && id == shownRowID) { set.remove(id) } else { set.insert(id) }
             selectionAnchor = id
+            selectionBase = set
         }
-        applySelection(ids.filter { set.contains($0) })
+        applySelection(ids.filter(set.contains))
+        if !selection.isEmpty, window?.firstResponder !== self { window?.makeFirstResponder(self) }
+    }
+
+    /// `anchor` through `id` in `id`'s section, in display order.
+    private func range(from anchor: String, to id: String, in ids: [String]) -> [String] {
+        let sec = sections
+        guard let home = sec[id] else { return [id] }
+        let rows = ids.filter { sec[$0] == home }
+        guard let b = rows.firstIndex(of: id) else { return [id] }
+        let a = rows.firstIndex(of: anchor)
+            ?? ((ids.firstIndex(of: anchor) ?? 0) < (ids.firstIndex(of: id) ?? 0) ? 0 : rows.count - 1)
+        return Array(rows[min(a, b)...max(a, b)])
+    }
+
+    /// The rows themselves, every one selectable (the check, and the menu's "Select All" in a section, if it comes).
+    func setSelection(_ ids: [String]) {
+        let set = Set(ids)
+        let list = selectableIDs.filter(set.contains)
+        selectionBase = Set(list)
+        selectionAnchor = list.last
+        applySelection(list)
+        if !list.isEmpty, window?.firstResponder !== self { window?.makeFirstResponder(self) }
     }
 
     func clearSelection() {
         guard !selection.isEmpty else { return }
         selectionAnchor = nil
+        selectionBase = []
         applySelection([])
     }
 
     private func applySelection(_ ids: [String]) {
         selection = ids
         for (id, v) in rows { v.isInSelection = ids.contains(id) }
+        if ids.isEmpty { selectionEnded() } else { watchClicksElsewhere() }
+    }
+
+    /// Nothing is selected any more: the keyboard goes back to the page if the sidebar had it.
+    private func selectionEnded() {
+        if let m = clickMonitor { NSEvent.removeMonitor(m) }
+        clickMonitor = nil
+        guard let window, window.firstResponder === self else { return }
+        if let c = controller, let id = c.shownTabID, let view = c.engineTab(for: id)?.view, view.window === window {
+            window.makeFirstResponder(view)
+        } else {
+            window.makeFirstResponder(nil)
+        }
+    }
+
+    deinit { NotificationCenter.default.removeObserver(self); if let m = clickMonitor { NSEvent.removeMonitor(m) } }
+
+    /// The sidebar has the keyboard while rows are selected, so Delete and Esc reach the selection, not the page.
+    override var acceptsFirstResponder: Bool { !selection.isEmpty }
+
+    /// P03: rows picked from the keyboard (⇧↑ ⇧↓ from a focused row): the end that moves.
+    private(set) var keyboardSelectionEnd: String?
+
+    /// P03: `anchor` through `id`, as a ⇧-click from `anchor` would select them (within `id`'s section), without the
+    /// page on screen that a first ⌘-click adds. The sidebar keeps the keyboard, so Delete, ⌘W, ⌘D and ⇧⌘C act on them.
+    func selectRange(from anchor: String, to id: String) {
+        let ids = selectableIDs
+        guard ids.contains(anchor), ids.contains(id) else { return NSSound.beep() }
+        selectionAnchor = anchor
+        selectionBase = []
+        let picked = Set(range(from: anchor, to: id, in: ids))
+        applySelection(ids.filter(picked.contains))
+        keyboardSelectionEnd = id
+        if window?.firstResponder !== self { window?.makeFirstResponder(self) }
+    }
+
+    /// Whether a keyboard row can be part of a multi-selection (pinned and Today rows, folders: not Favorites, the
+    /// header or New Tab).
+    func isSelectable(_ id: String) -> Bool { selectableIDs.contains(id) }
+
+    var keyboardSelectionAnchor: String? { selectionAnchor }
+
+    override func keyDown(with event: NSEvent) {
+        if !selection.isEmpty, selectionKeyDown(event) { return }
+        super.keyDown(with: event)
+    }
+
+    /// A plain click anywhere else in the window (the page, a Favorite, the URL field, the header, the empty list) clears
+    /// the selection. Rows of this page handle their own presses (a selected one may start dragging all of it).
+    private func watchClicksElsewhere() {
+        guard clickMonitor == nil else { return }
+        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] e in
+            self?.pressedSomewhere(e)
+            return e
+        }
+    }
+
+    func pressedSomewhere(_ e: NSEvent) {
+        guard let window, e.window === window, !selection.isEmpty else { return }
+        if e.type == .leftMouseDown, !e.modifierFlags.intersection([.command, .shift]).isEmpty { return }
+        var v = window.contentView?.hitTest(e.locationInWindow)
+        while let view = v {
+            if let r = view as? SidebarRowView, r.page === self, rows.values.contains(where: { $0 === r }) { return }
+            v = view.superview
+        }
+        clearSelection()
+    }
+
+    // MARK: Files, links and text from other apps (P04's SidebarFileImport)
+
+    /// Where the outside drag over this page would land now (nil: the import's default, the Space's Today).
+    private var externalDrop: SidebarFileDestination?
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { externalDragMoved(sender) }
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation { externalDragMoved(sender) }
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        externalDrop = nil
+        hideDropIndicator()
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let c = controller else { return false }
+        // A Boost link opens its install sheet (RootView), wherever it's dropped.
+        if BoostSharing.droppedURL(sender) != nil { hideDropIndicator(); return c.root.performDragOperation(sender) }
+        let destination = externalDrop ?? fileDestination(at: convert(sender.draggingLocation, from: nil))
+        externalDrop = nil
+        hideDropIndicator()
+        return c.importIntoSidebar(sender.draggingPasteboard, destination: destination)
+    }
+
+    private func externalDragMoved(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard let c = controller else { return [] }
+        if BoostSharing.droppedURL(sender) != nil { return c.root.draggingUpdated(sender) }
+        guard c.canImportIntoSidebar(sender.draggingPasteboard) else {
+            hideDropIndicator()
+            return []
+        }
+        externalDrop = fileDestination(at: convert(sender.draggingLocation, from: nil))
+        return .copy
+    }
+
+    /// The place under `p` (page coordinates) as a row drag would find it, with its drop line: a slot in Today or in the
+    /// pinned tree, or into a folder over its middle. Over the Favorites: the import's default (Today), no line.
+    func fileDestination(at p: NSPoint) -> SidebarFileDestination? {
+        guard let c = controller else { return nil }
+        // A stand-in for the dragged row: a Today tab no row is, so no split or Favorite-only slots come up.
+        let standIn = SidebarEntry.today(LiveTab(id: "", profileID: c.store.profile(ofSpace: spaceID).id, spaceID: spaceID, url: ""))
+        switch dropDestination(at: p, source: .tab(""), entry: standIn) {
+        case .today(_, let index)?: return SidebarFileDestination(spaceID: spaceID, section: .today(index: index))
+        case .pinned(_, let parentID, let index)?: return SidebarFileDestination(spaceID: spaceID, section: .pinned(parentID: parentID, index: index))
+        default:
+            hideDropIndicator()
+            return nil
+        }
     }
 
     // MARK: Drag and drop inside the sidebar (SB-35)
@@ -927,8 +1366,10 @@ final class SpacePageView: NSView {
 
     /// `shownBefore`: the tab on screen before the press showed this one; a drag over the page brings it back, and the
     /// drop splits it with the dragged tab (SV-1).
-    func beginPossibleDrag(entry: SidebarEntry, row: SidebarRowView, event: NSEvent, shownBefore: String? = nil) {
-        guard let window, let c = controller else { return }
+    /// Runs the press until its release; true when it became a drag (or was cancelled with Esc), false for a click.
+    @discardableResult
+    func beginPossibleDrag(entry: SidebarEntry, row: SidebarRowView, event: NSEvent, shownBefore: String? = nil) -> Bool {
+        guard let window, let c = controller else { return false }
         let start = convert(event.locationInWindow, from: nil)
         var dragging = false
         var ghost: CALayer?
@@ -963,8 +1404,8 @@ final class SpacePageView: NSView {
         }
         let groupRows = group.compactMap { rows[$0] }
         // SB-35: past the window's edge, the drag can leave it (Sidebar/TabDragOut.swift).
-        let out = TabDragOut(controller: c, source: source, entry: entry, group: sources.count, pressInWindow: event.locationInWindow,
-                             shownBefore: shownBefore)
+        let out = TabDragOut(controller: c, source: source, entry: entry, sources: sources, carriesFolder: groupHasFolder,
+                             pressInWindow: event.locationInWindow, shownBefore: shownBefore)
         var lastPoint = event.locationInWindow
         var cancelled = false
         func setCursor() { (copying ? NSCursor.dragCopy : NSCursor.arrow).set() }
@@ -1045,6 +1486,8 @@ final class SpacePageView: NSView {
                     destination = nil
                 } else {
                     destination = target.dropDestination(at: p, source: source, entry: entry, carriesFolder: groupHasFolder)
+                    // SB-36: a selection lands in a list, never in a split.
+                    if sources.count > 1, case .split? = destination { destination = nil; target.hideDropIndicator() }
                 }
                 // The edge of the sidebar as it shows in the window (not a page's, which may still be sliding in). The
                 // left edge pages to the previous Space and the right one to the next on either side (WIN-5); the
@@ -1080,7 +1523,10 @@ final class SpacePageView: NSView {
         hideDropIndicator()
         if target !== self { target.hideDropIndicator() }
         // Released (or Esc) outside the window: a new window, or another one (TabDragOut).
-        if dragging, out?.finish(drop: !cancelled, windowPoint: lastPoint) == true { return }
+        if dragging, out?.finish(drop: !cancelled, windowPoint: lastPoint) == true {
+            if sources.count > 1 { clearSelection() }
+            return true
+        }
         // A plain click (no drag) on a row of the multi-selection leaves just that row, as everywhere else.
         if !dragging, sources.count > 1 { clearSelection() }
         if dragging, let pageZone, case .tab(let id) = source {
@@ -1099,6 +1545,7 @@ final class SpacePageView: NSView {
                 c.performDrop(source, to: destination)
             }
         }
+        return dragging || cancelled
     }
 
     /// The dragged row, lifted (design.md §7 "Drag ghost"): AircDragGhostLayer, built from the row's data on an opaque
@@ -1234,14 +1681,14 @@ final class SpacePageView: NSView {
         var todayEntries: [(SidebarEntry, NSRect)] = []
         var dividerFrame = NSRect.zero
         for (id, model) in order {
-            guard let v = rows[id] else { continue }
+            guard let frame = rowFrames[id] else { continue }
             switch model {
             case .entry(let e):
                 switch e {
-                case .today, .split: todayFrames.append(v.frame); todayEntries.append((e, v.frame))
-                default: pinnedEntries.append((e, v.frame))
+                case .today, .split: todayFrames.append(frame); todayEntries.append((e, frame))
+                default: pinnedEntries.append((e, frame))
                 }
-            case .divider: dividerFrame = v.frame
+            case .divider: dividerFrame = frame
             default: break
             }
         }

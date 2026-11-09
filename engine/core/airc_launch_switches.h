@@ -43,6 +43,11 @@ bool ExperimentOn(std::string_view name);
 
 void PassSwitchesToGpuProcess(base::CommandLine* gpu_command_line);
 
+// Main startup thread only, while blocking is allowed. The decision is immutable
+// thereafter; TestInstance/TestValue/TestFlag/Traced only read it.
+void InitializeTestGateAtStartup();
+
+// Keep explicit test/trace/background decisions before profile-gate processing.
 void DecideTestGateAtStartup();
 
 }

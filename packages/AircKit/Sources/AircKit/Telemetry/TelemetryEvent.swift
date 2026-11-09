@@ -274,6 +274,18 @@ public enum TelemetryFeature: Sendable, Equatable {
     case shortcutRemap
     /// Settings → AI → "Tidy tab titles" turned on or off (docs/user/ai.md). Never a title, a page or a name.
     case aiTidyTitles(OnOff)
+    case developerMode(OnOff)
+    /// CB-5 Capture: a captured region copied, saved or shared. Never the page, its site, the picture or where it went.
+    case capture(CaptureAction)
+    /// Settings → AI → "Ask on Page", "Link previews" and "Tidy downloads" turned on or off, and each used: a question
+    /// asked, a link preview shown, a suggested file name applied (docs/user/ai.md). Never a question, an answer, a
+    /// page, an address or a file name.
+    case aiAskPage(AIUse)
+    case aiLinkPreview(AIUse)
+    case aiTidyDownloads(AIUse)
+    /// A note made (docs/user/notes.md), and from where: ⌃⇧N or the File menu, the Command Bar, the sidebar's "+".
+    /// Never what it says, its title, its pictures or where it is.
+    case noteCreate(NoteSource)
     /// The one manual smoke event that checks a new key end to end.
     case telemetrySmoke
 
@@ -303,6 +315,18 @@ public enum TelemetryFeature: Sendable, Equatable {
 
     public enum OnOff: String, Sendable, CaseIterable {
         case on, off
+    }
+
+    public enum CaptureAction: String, Sendable, CaseIterable {
+        case copy, save, share
+    }
+
+    public enum AIUse: String, Sendable, CaseIterable {
+        case on, off, used
+    }
+
+    public enum NoteSource: String, Sendable, CaseIterable {
+        case shortcut, commandBar = "command_bar", plusMenu = "plus_menu"
     }
 
     /// The `feature` property.
@@ -338,6 +362,12 @@ public enum TelemetryFeature: Sendable, Equatable {
         case .tabPreviewAction: "tab_preview.action"
         case .shortcutRemap: "shortcut.remap"
         case .aiTidyTitles: "ai.tidy_titles"
+        case .developerMode: "developer_mode.toggle"
+        case .capture: "capture"
+        case .aiAskPage: "ai.ask_page"
+        case .aiLinkPreview: "ai.link_preview"
+        case .aiTidyDownloads: "ai.tidy_downloads"
+        case .noteCreate: "note.create"
         case .telemetrySmoke: "telemetry.smoke"
         }
     }
@@ -353,6 +383,10 @@ public enum TelemetryFeature: Sendable, Equatable {
         case let .defaultBrowser(a): a.rawValue
         case let .tabPreviewAction(a): a.rawValue
         case let .aiTidyTitles(v): v.rawValue
+        case let .developerMode(v): v.rawValue
+        case let .capture(a): a.rawValue
+        case let .aiAskPage(v), let .aiLinkPreview(v), let .aiTidyDownloads(v): v.rawValue
+        case let .noteCreate(s): s.rawValue
         default: nil
         }
     }

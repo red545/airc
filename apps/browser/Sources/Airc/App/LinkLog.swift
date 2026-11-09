@@ -62,16 +62,28 @@ enum LinkLog {
     }
 
     /// One of the app's windows fills a whole screen on the active Space (a full-screen app: a zoomed window stops
-    /// at the menu bar).
+    /// at the menu bar). On a screen with a camera housing the full-screen window stops below it, where a zoomed one
+    /// stops too (the menu bar is as tall): there AppKit's transparent full-screen title bar window, as wide as the
+    /// screen at the same top, tells them apart (the build Mac, 2026-11-07: 1512×949 at y 33 and 1512×32 at alpha 0).
     static func isFullScreen(_ pid: pid_t) -> Bool {
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
         else { return false }
         let top = NSScreen.screens.first?.frame.maxY ?? 0
         let screens = NSScreen.screens.map { CGRect(x: $0.frame.minX, y: top - $0.frame.maxY, width: $0.frame.width, height: $0.frame.height) }
-        return list.contains { w in
+        let windows = list.compactMap { w -> (bounds: CGRect, alpha: Double)? in
             guard (w[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid, (w[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
-                  let d = w[kCGWindowBounds as String] as? NSDictionary, let b = CGRect(dictionaryRepresentation: d) else { return false }
-            return screens.contains(b)
+                  let d = w[kCGWindowBounds as String] as? NSDictionary, let b = CGRect(dictionaryRepresentation: d) else { return nil }
+            return (b, (w[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1)
+        }
+        return windows.contains { w in
+            screens.contains { s in
+                if w.bounds == s { return true }
+                // Below a camera housing: the screen's width down to its bottom, from at most 50 pt down, with the title
+                // bar window at the same top.
+                guard w.alpha > 0, w.bounds.minX == s.minX, w.bounds.width == s.width, w.bounds.maxY == s.maxY,
+                      w.bounds.minY > s.minY, w.bounds.minY - s.minY <= 50 else { return false }
+                return windows.contains { $0.alpha == 0 && $0.bounds.minY == w.bounds.minY && $0.bounds.width == w.bounds.width && $0.bounds.height < 60 }
+            }
         }
     }
 

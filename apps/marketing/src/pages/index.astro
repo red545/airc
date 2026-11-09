@@ -1,49 +1,31 @@
 ---
-// The homepage. Its system follows attio.com: Inter Display, two-tone headings (a dark lead, a grey continuation),
-// a hairline grid of cells, a sticky tab list beside the product, compact 10 px controls and one dark closing
-// section. Inside that, everything is Airc: real captures of the app, and demos you can touch.
 import { Image } from "astro:assets";
+import "@fontsource-variable/newsreader/opsz.css";
+import CommandDemo from "../components/CommandDemo.astro";
 import Countdown from "../components/Countdown.astro";
+import SpacesDemo from "../components/SpacesDemo.astro";
+import TintPicker from "../components/TintPicker.astro";
 import Tweet from "../components/Tweet.astro";
 import Download from "../components/Download.astro";
-import TintPicker from "../components/TintPicker.astro";
-import GitHubMark from "../components/GitHubMark.astro";
-import { GITHUB_URL } from "../lib/site";
 import Layout from "../layouts/Layout.astro";
 import featureList from "../data/features.json";
 import status from "../data/status.json";
 import { spaceOf } from "../lib/nav";
+import { CONTACT_EMAIL } from "../lib/site";
 import nikPhoto from "../assets/nik.webp";
-import icon from "../assets/icon.png";
 import claudeLogo from "../assets/logos/claude.svg";
 import codexLogo from "../assets/logos/codex.svg";
-// The marketing screenshots: the real app on a synthetic demo setup (assets/screenshots/, copied in by
-// scripts/sync-screenshots.mjs). Each is the window with its own shadow on a soft desktop, so the page adds no frame.
-import shotPersonal from "../assets/screens/media-controls.webp";
-import shotTravel from "../assets/screens/split-view-3.webp";
-import shotStudio from "../assets/screens/pinned-split.webp";
-import shotWork from "../assets/screens/hero-dark.webp";
-import shotSpaces from "../assets/screens/spaces.webp";
-import shotProfiles from "../assets/screens/profiles.webp";
-import shotCommand from "../assets/screens/command-bar-light.webp";
-import shotCommandDark from "../assets/screens/command-bar-dark.webp";
-import shotImport from "../assets/screens/onboarding-import.webp";
-import shotPeek from "../assets/screens/peek.webp";
-import shotSplit from "../assets/screens/split-view-2.webp";
-import shotPip from "../assets/screens/picture-in-picture.webp";
-import { getImage } from "astro:assets";
+import accountsCard from "../assets/shots/app-accounts-card.webp";
+// New in 0.1.2: real captures, cropped by scripts/sync-screenshots.mjs.
+import boostColours from "../assets/screens/boosts-card.webp";
+import boostFont from "../assets/screens/boosts-font-card.webp";
+import boostZap from "../assets/screens/boosts-zap-card.webp";
+import littleArc from "../assets/screens/little-arc-window.webp";
+import streamingCard from "../assets/screens/drm-site-controls-top.webp";
+import importCard from "../assets/shots/app-import-card.webp";
 
-// The Spaces demo: four Spaces of the same window, each in its own colour and profile.
-const demoSpaces = [
-  { key: "personal", name: "Personal", emoji: "🏡", colour: "#53ca9f", img: shotPersonal, page: "Kyoto on Wikivoyage, with a radio playing" },
-  { key: "travel", name: "Travel", emoji: "✈️", colour: "#86cdf5", img: shotTravel, page: "a map, Lisbon and its trams in a split" },
-  { key: "studio", name: "Studio", emoji: "🎨", colour: "#f7b184", img: shotStudio, page: "Bauhaus and Helvetica, pinned as one split" },
-  { key: "work", name: "Work", emoji: "💼", colour: "#7a4cf0", img: shotWork, page: "linear.app, in the dark Work profile" },
-];
-
-
-// What works: the manifest (src/data/features.json) joined with the nightly runs (src/data/status.json, written by
-// scripts/sync-status.mjs). A feature with a passing check gets a checkmark; one with no check yet says so.
+// What works: the manifest (src/data/features.json) joined with the latest nightly run (src/data/status.json, written by
+// scripts/sync-status.mjs). A feature with a passing check shows as passing; one with no check yet says so.
 const supported = featureList.map((f) => ({ ...f, ...status.features[f.id as keyof typeof status.features] }));
 const checkedAt = new Date(status.checkedAt);
 const checkedLabel =
@@ -51,52 +33,35 @@ const checkedLabel =
   ", " +
   checkedAt.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" }) +
   " UTC";
-const passingCount = supported.filter((f) => f.status === "passing").length;
+const chromiumMajor = status.chromium.split(".")[0];
 
 const facts = [
-  { value: `Chromium ${status.chromium.split(".")[0]}`, label: "Real Chrome underneath" },
-  { value: "Apache-2.0", label: "Open source, all of it" },
-  { value: `${passingCount} of ${supported.length}`, label: "Features pass the nightly checks", href: "#supported" },
-  { value: "Apple silicon", label: "macOS 14 or later" },
-  { value: "Free", label: "No account, no ads", href: "/privacy" },
-];
-
-const steps = [
-  { title: "Chrome ships", body: "Every new Chromium release, security respins included, is spotted within six hours." },
-  { title: "An agent ports it", body: "Airc's patches move onto the new version, strictly. No guessing, no skipped checks." },
-  { title: "A human signs off", body: "Build, tests and speed are checked before it ships. Then it reaches you as a normal update." },
+  { big: `Chromium ${chromiumMajor}`, small: "the real engine underneath" },
+  { big: `${status.checks.pass.toLocaleString("en-US")} checks`, small: "passed in the latest run" },
+  { big: "Apache-2.0", small: "all of it open source" },
+  { big: "Free", small: "no account, no ads" },
+  { big: "macOS 14+", small: "on Apple silicon" },
 ];
 
 const maintainers = [
   {
-    key: "claude",
     logo: claudeLogo,
     name: "Claude",
     role: "AI agent · Anthropic",
     body: "Writes the browser: the sidebar, Spaces, the command bar and the engine layer. Most commits carry its name.",
   },
   {
-    key: "codex",
     logo: codexLogo,
     name: "Codex",
     role: "AI agent · OpenAI",
-    body: "Works the same repo from the same playbook, in parallel with Claude. Two agents, one codebase, no meetings.",
+    body: "Works the same repo from the same playbook, in parallel. Two agents, one codebase, no meetings.",
   },
   {
-    key: "me",
+    photo: nikPhoto,
     name: "Nik",
     role: "Human",
-    body: "Reads every Chromium update before it ships, sets the bar and says no. Nothing reaches your Mac without a yes.",
+    body: "Started Airc when Arc got its end date, to keep the browser going.",
   },
-];
-
-const expect = [
-  { title: "Open source", body: "Apache-2.0, all of it. Read it, fork it, run it. If I ever stop, anyone can carry on." },
-  {
-    title: "Agents do the Chromium security updates",
-    body: "Claude and Codex port every Chromium security update into Airc. A human checks each one before it ships.",
-  },
-  { title: "Free", body: "No account, no ads, no subscription. Anonymous usage data is on by default, and one switch turns it off." },
 ];
 
 const faqs = [
@@ -105,19 +70,19 @@ const faqs = [
     a: "Dia is a different browser. I want Arc's: the sidebar, the Spaces, the command bar. Airc is that, and open source, so no company can take it away again.",
   },
   {
-    q: "What happens to my Chrome profiles?",
-    a: "Airc reads them from Arc and keeps them apart. Each one keeps its own logins, like in Arc. Two Gmail accounts, one window.",
+    q: "What happens to my Arc profiles?",
+    a: "Airc reads them from Arc and keeps them apart. Each one keeps its own logins, as in Arc. Two Gmail accounts, one window.",
   },
   {
     q: "How do you keep up with Chromium security updates?",
-    a: "Every six hours we check for a new Chromium release. An agent moves Airc's patches onto it, strictly, and a person checks the build, the tests and the speed before it ships.",
+    a: "Every six hours Airc checks for a new Chromium release. An agent moves Airc's patches onto it, strictly, and the build, the tests and the speed checks have to pass before it ships.",
   },
   { q: "Is it free?", a: "Yes. No account, no ads, no subscription." },
   { q: "Do Chrome extensions work?", a: "Yes. Airc is built on Chromium, so you install them from the Chrome Web Store." },
   { q: "What do I need?", a: "A Mac with Apple silicon and macOS 14 or later. Intel Macs aren't supported." },
   {
     q: "Do Spotify, Netflix and other streaming sites work?",
-    a: "Not yet. They need DRM (Widevine), which Airc doesn't have yet. Support is in progress.",
+    a: "Yes, since 0.1.2, with Safari's engine: Spotify, Netflix, Disney+ and other supported services open in the same tab. Sign in again there, since Chromium's logins don't carry over, and extensions don't run on those pages. Checked logged out; playback with a real subscription isn't tested yet.",
   },
   {
     q: "Is Safe Browsing on?",
@@ -129,172 +94,72 @@ const faqs = [
   },
   {
     q: "Does Chrome Sync work?",
-    a: "No. Signing in to Google websites works, but browser sync is Google's own and isn't available to other Chromium browsers.",
+    a: "No. Signing in to Google websites works, but Chrome's sync is Google's own. Airc has iCloud Sync instead: since 0.1.3, Settings → Sync keeps your Spaces, pinned tabs, folders and Favorites the same on your Macs, end-to-end encrypted, off until you turn it on.",
   },
   {
     q: "I already deleted Arc. Can I still import?",
     a: "If Arc's data is still on your Mac, yes. Airc reads Arc's files directly, so Arc doesn't need to run. A few logins Arc encrypted in a way Airc can't read are skipped, so some sites may ask you to sign in again.",
   },
 ];
-
-const commandDark = await getImage({ src: shotCommandDark, widths: [800, 1200, 1800, 2400], format: "webp", quality: 90 });
-
-const panes = [
-  { id: "spaces", tab: "Colours", sub: "Re-tint any Space" },
-  { id: "profiles", tab: "Profiles", sub: "Two Gmails, one window" },
-  { id: "command", tab: "Command bar", sub: "One box for everything" },
-  { id: "import", tab: "Import from Arc", sub: "Spaces, tabs, logins" },
-  { id: "links", tab: "Links", sub: "Peek, Air Traffic Control" },
-  { id: "split", tab: "Split View", sub: "Two or three panes" },
-  { id: "pip", tab: "Picture in picture", sub: "Films and calls float" },
-];
 ---
 
 <Layout>
-  <div class="grid">
-    <!-- ================================================================ hero -->
-    <section id="top" class="hero" data-space={spaceOf("top")}>
-      <div class="hero-glow" aria-hidden="true"></div>
-      <div class="hero-copy">
-        <Countdown />
-        <h1><span class="red">Arc shuts down on December&nbsp;22.</span><br />Airc keeps it going.</h1>
-        <p class="sub">
-          Airc is <strong>the <span class="nowrap">open-source</span> Arc</strong>: a free Mac browser on Chromium with the same
-          sidebar, Spaces and&nbsp;⌘T. No company can switch it&nbsp;off.
-        </p>
-        <div id="join" class="join"><Download from="hero" /></div>
-      </div>
+  <section id="top" class="field f-rainbow hero" data-space={spaceOf("top")}>
+    <div class="hero-copy">
+      <Countdown />
+      <h1><span class="red">Arc shuts down on December&nbsp;22.</span> Airc keeps it going.</h1>
+      <p class="sub">
+        Airc is <strong>the <span class="nowrap">open-source</span> Arc</strong>: a free Mac browser on Chromium with the same
+        sidebar, Spaces and&nbsp;⌘T. Nobody can shut it&nbsp;down.
+      </p>
+      <div id="join" class="join"><Download from="hero" /></div>
+    </div>
 
-      <a class="pointer" href="#tweet" aria-label="Jump to the announcement">
-        <span>The official announcement, from Arc's own company</span>
-        <svg viewBox="0 0 60 90" aria-hidden="true">
-          <path class="arrow-line" pathLength="1" d="M30 4 C 8 30, 52 52, 30 80" />
-          <path class="arrow-head" d="M16 66 L30 82 L44 66" />
-        </svg>
-      </a>
+    <a class="pointer" href="#tweet" aria-label="Jump to the announcement">
+      <span class="pointer-label">The official announcement, from Arc's own company.</span>
+      <svg class="arrow" viewBox="0 0 60 90" aria-hidden="true">
+        <path class="arrow-line" pathLength="1" d="M30 4 C 8 30, 52 52, 30 80" />
+        <path class="arrow-head" d="M16 66 L30 82 L44 66" />
+      </svg>
+    </a>
 
-      <div id="tweet" class="frame hero-frame">
-        <div class="frame-bar">
-          <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
-          <span class="frame-url">x.com/arcinternet/status/2113301454597640570</span>
-        </div>
-        <div class="frame-body post" data-post>
-          <Tweet />
-          <div class="post-more">
-            <button type="button" class="try" data-expand aria-expanded="false">Read the whole post</button>
-          </div>
-          <div class="post-less">
-            <button type="button" class="try" data-collapse>Collapse</button>
-            <a class="try" href="https://x.com/arcinternet/status/2113301454597640570" rel="noopener">View on X ↗</a>
-          </div>
-        </div>
-      </div>
+    <div id="tweet" class="hero-tweet">
+      <Tweet />
+    </div>
+  </section>
+
+  <div class="frame">
+    <ul class="facts" aria-label="Airc at a glance">
+      {facts.map((f) => (
+        <li>
+          <b>{f.big}</b>
+          <span>{f.small}</span>
+        </li>
+      ))}
+    </ul>
+
+    <!-- ---------------------------------------------------------------- the math: one statement -->
+    <section id="math" class="row statement" data-space={spaceOf("math")}>
+      <p class="tag" style="--c: var(--t-peach)">The math</p>
+      <h2 class="title title-lg">
+        Atlassian paid $610&nbsp;million for Arc's company. <span class="soft">It still got an end date. A Chromium browser
+        is never finished, and they looked at the work and&nbsp;stopped.</span>
+      </h2>
     </section>
 
-    <!-- ================================================================ facts -->
-    <section class="facts" aria-label="Airc in five facts">
-      {facts.map((f) =>
-        f.href ? (
-          <a class="fact" href={f.href}>
-            <b>{f.value}</b>
-            <span>{f.label} →</span>
-          </a>
-        ) : (
-          <div class="fact">
-            <b>{f.value}</b>
-            <span>{f.label}</span>
+    <!-- ---------------------------------------------------------------- the loop: three cells -->
+    <section id="loop" class="row" data-space={spaceOf("loop")}>
+      <header class="head">
+        <p class="tag" style="--c: var(--t-sky)">The loop</p>
+        <h2 class="title">AI doesn't get bored of maintenance. <span class="soft">That was the whole problem.</span></h2>
+      </header>
+      <ol class="cells cells-3">
+        <li class="cell">
+          <div class="copy">
+            <p class="num">01</p>
+            <h3>Chrome ships.</h3>
+            <p>Airc checks for a new Chromium release every six hours, security respins included.</p>
           </div>
-        ),
-      )}
-    </section>
-
-    <!-- ================================================================ Arc, reborn: the Spaces demo -->
-    <section id="reborn" class="sec" data-space={spaceOf("reborn")}>
-      <div class="sec-head">
-        <p class="tag" style="--c:#9b7cf0">Arc, reborn</p>
-        <h2 class="tt">Same sidebar. Same Spaces. <span>Swipe between them, as you did in Arc.</span></h2>
-      </div>
-      <div class="demo" data-spaces data-active="0" style={`--accent-space:${demoSpaces[0].colour}`}>
-        <div class="demo-bar">
-          <div class="seg" role="tablist" aria-label="Spaces">
-            {demoSpaces.map((sp, i) => (
-              <button
-                type="button"
-                role="tab"
-                class="seg-btn"
-                data-go={i}
-                aria-selected={i === 0 ? "true" : "false"}
-                style={`--c:${sp.colour}`}
-              >
-                <span class="seg-emoji" aria-hidden="true">{sp.emoji}</span>{sp.name}
-              </button>
-            ))}
-          </div>
-          <p class="demo-hint">Swipe with two fingers, drag, or use ← →</p>
-        </div>
-        <div class="demo-view" tabindex="0" aria-label="Airc's Spaces: drag or use the arrow keys to switch">
-          <div class="demo-track">
-            {demoSpaces.map((sp, i) => (
-              <div class="demo-slide" aria-hidden={i === 0 ? "false" : "true"}>
-                <Image
-                  src={sp.img}
-                  widths={[800, 1200, 1800, 2400]}
-                  sizes="(max-width: 900px) 100vw, 1040px"
-                  quality={92}
-                  draggable="false"
-                  alt={`The ${sp.name} Space in Airc, showing ${sp.page}.`}
-                />
-              </div>
-            ))}
-          </div>
-        </div>
-        <div class="demo-dots" aria-hidden="true">
-          {demoSpaces.map((sp, i) => <span class={i === 0 ? "on" : ""} style={`--c:${sp.colour}`}></span>)}
-        </div>
-      </div>
-    </section>
-
-    <!-- ================================================================ the math -->
-    <section id="math" class="sec" data-space={spaceOf("math")}>
-      <div class="sec-head">
-        <p class="tag" style="--c:#e8892b">The math</p>
-        <h2 class="tt">
-          Atlassian paid $610&nbsp;million for Arc's company. <span>Arc still got an end&nbsp;date.</span>
-        </h2>
-      </div>
-      <div class="cells cells-2">
-        <div class="cell">
-          <h3 class="ct">Security is the job that never ends. <span>A new Chromium release every few weeks, and each one has to be ported, patched, built and checked. Their own post says it: that work is only growing.</span></h3>
-          <p class="kicker">AI doesn't get bored of maintenance. That was the whole problem.</p>
-          <p class="source">
-            Sources: <a href="https://x.com/arcinternet/status/2113301454597640570" rel="noopener">Arc's announcement</a> ·{" "}
-            <a href="https://www.engadget.com/big-tech/atlassian-is-buying-arc-maker-the-browser-company-for-610-million-145236236.html" rel="noopener">Engadget on the $610M deal</a>.
-          </p>
-        </div>
-        <div class="cell orbit-cell" aria-hidden="true">
-          <div class="orbit">
-            <span class="ring r1"></span>
-            <span class="ring r2"></span>
-            <span class="core"><Image src={icon} alt="" width={56} height={56} densities={[1, 2]} format="webp" /></span>
-            <span class="chip chip-claude"><img src={claudeLogo.src} width="14" height="14" alt="" /><img src={codexLogo.src} width="14" height="14" alt="" />Claude and Codex port the patches</span>
-            <span class="chip chip-codex">{status.checks.pass} checks passed last night</span>
-            <span class="chip chip-chromium">Chromium {status.chromium}</span>
-            <span class="chip chip-nik"><Image src={nikPhoto} alt="" width={14} height={14} densities={[2, 3]} format="webp" />Nik signs off</span>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ================================================================ the loop -->
-    <section id="loop" class="sec" data-space={spaceOf("loop")}>
-      <div class="sec-head">
-        <p class="tag" style="--c:#5b7ee8">The loop</p>
-        <h2 class="tt">How a Chromium browser stays alive. <span>Every update, ported and checked.</span></h2>
-      </div>
-      <ol class="cells cells-3 steps">
-        <li class="cell step">
-          <span class="step-n">01</span>
-          <h3 class="ct">{steps[0].title}. <span>{steps[0].body}</span></h3>
           <div class="viz" data-in>
             <div class="card">
               <div class="card-head"><span>Watching Chromium</span><span class="muted">every 6 h</span></div>
@@ -304,9 +169,12 @@ const panes = [
             </div>
           </div>
         </li>
-        <li class="cell step">
-          <span class="step-n">02</span>
-          <h3 class="ct">{steps[1].title}. <span>{steps[1].body}</span></h3>
+        <li class="cell">
+          <div class="copy">
+            <p class="num">02</p>
+            <h3>An agent ports it.</h3>
+            <p>Claude or Codex moves Airc's patches onto the new version. Every hook must apply strictly, or the port stops.</p>
+          </div>
           <div class="viz" data-in>
             <div class="card term">
               <div class="card-head">
@@ -325,127 +193,206 @@ const panes = [
             </div>
           </div>
         </li>
-        <li class="cell step">
-          <span class="step-n">03</span>
-          <h3 class="ct">{steps[2].title}. <span>{steps[2].body}</span></h3>
+        <li class="cell">
+          <div class="copy">
+            <p class="num">03</p>
+            <h3>It ships when it passes.</h3>
+            <p>The build, the checks and the speed tests have to pass. Then it reaches you as a normal update.</p>
+          </div>
           <div class="viz" data-in>
             <div class="card">
               <div class="card-head"><span>Release gates</span><span class="muted mono">{status.rev}</span></div>
               <div class="line"><i class="tick"></i><span>Mac build</span></div>
-              <div class="line"><i class="tick"></i><span>{status.checks.pass} checks</span><em>{status.checks.fail} failed</em></div>
+              <div class="line"><i class="tick"></i><span>{status.checks.pass.toLocaleString("en-US")} checks</span><em>{status.checks.fail} failed</em></div>
               <div class="line"><i class="tick"></i><span>Speed</span></div>
-              <div class="line line-foot">
-                <Image class="face" src={nikPhoto} alt="" width={20} height={20} densities={[1, 2, 3]} format="webp" />
-                <span>Nik</span><em class="yes">Approved</em>
-              </div>
+              <div class="line line-foot"><span>Reaches you as</span><em class="yes">Restart to Update</em></div>
             </div>
           </div>
         </li>
       </ol>
     </section>
 
-    <!-- ================================================================ feature explorer (sticky tabs) -->
-    <section class="explorer" aria-label="Features">
-      <nav class="ex-tabs" aria-label="Features">
-        {panes.map((p, i) => (
-          <a href={`#${p.id}`} data-pane={p.id} class={i === 0 ? "on" : ""}>
-            <b>{p.tab}</b>
-            <span>{p.sub}</span>
-            <i class="prog" aria-hidden="true"></i>
-          </a>
-        ))}
-      </nav>
-      <div class="ex-panes">
-        <article id="spaces" class="pane" data-space={spaceOf("spaces")}>
-          <h3 class="pt">Every Space has its own colour. <span>Twelve presets, light or dark. Pick one: this page is an Airc window too.</span></h3>
-          <div class="pane-demo tint-demo">
+    <!-- ---------------------------------------------------------------- spaces: the live window -->
+    <section id="spaces" class="row" data-space={spaceOf("spaces")}>
+      <header class="head">
+        <p class="tag" style="--c: var(--t-mint)">Spaces</p>
+        <h2 class="title">
+          Swipe between Spaces. <span class="soft"><span class="wide">Each one keeps its own tabs, its own colour and its own&nbsp;logins.</span><span class="narrow">Their own tabs, colours and&nbsp;logins.</span></span>
+        </h2>
+      </header>
+      <SpacesDemo />
+    </section>
+
+    <!-- ---------------------------------------------------------------- the command bar -->
+    <section id="command" class="row split" data-space={spaceOf("command")}>
+      <div class="split-copy">
+        <p class="tag" style="--c: var(--t-sky)">Command bar</p>
+        <h2 class="title">Same <span class="glyph">⌘</span>T. <span class="soft">One box for tabs, sites, searches and&nbsp;actions.</span></h2>
+        <p class="lede">
+          A few letters jump to an open tab, open a site or search. A slash runs any command, with its shortcut beside it.
+        </p>
+        <button type="button" class="try" data-act="command">
+          <span class="wide">Try this page's <kbd>⌘K</kbd></span><span class="narrow">Search this page</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"></path></svg>
+        </button>
+      </div>
+      <div class="split-viz">
+        <CommandDemo />
+      </div>
+    </section>
+
+    <!-- ---------------------------------------------------------------- colour and profiles -->
+    <section id="colour" class="row" data-space={spaceOf("colour")}>
+      <div class="cells cells-2">
+        <article class="cell">
+          <div class="copy">
+            <h3>Every Space has its own colour.</h3>
+            <p>Twelve presets or your own, light or dark. The whole window re-tints, the way Arc's does. So does this one.</p>
+          </div>
+          <div class="viz viz-tall">
             <TintPicker />
           </div>
-          <button type="button" class="pane-demo shot shot-tall" data-zoom={shotSpaces.src} data-alt="Four Airc Spaces side by side, each in its own colour and profile: Personal in mint, Travel in sky, Studio in peach and Work in grape." aria-label="Enlarge screenshot">
-            <Image src={shotSpaces} widths={[800, 1200, 1800, 2400]} sizes="(max-width: 900px) 100vw, 760px" quality={90} alt="Four Airc Spaces side by side, each in its own colour and profile: Personal in mint, Travel in sky, Studio in peach and Work in grape." />
-          </button>
         </article>
-
-        <article id="profiles" class="pane" data-space={spaceOf("profiles")}>
-          <h3 class="pt">Work and personal, one swipe apart. <span>Separate profiles, each with its own logins, history and passwords. Two Gmail accounts, one window.</span></h3>
-          <button type="button" class="pane-demo shot" data-zoom={shotProfiles.src} data-alt="Create Profile in Airc: choosing which Spaces move to the new profile, each shown in its own colour." aria-label="Enlarge screenshot">
-            <Image src={shotProfiles} widths={[800, 1200, 1800, 2400]} sizes="(max-width: 900px) 100vw, 760px" quality={90} alt="Create Profile in Airc: choosing which Spaces move to the new profile, each shown in its own colour." />
-          </button>
-        </article>
-
-        <article id="command" class="pane" data-space={spaceOf("command")}>
-          <h3 class="pt">Same ⌘T. <span>Search, open a site, jump to a tab or run an action from one box.</span></h3>
-          <div class="pane-demo pane-cmd">
-            <button type="button" class="shot shot-flat" data-zoom={shotCommand.src} data-alt="Airc's command bar." aria-label="Enlarge screenshot">
-              <picture>
-                <source media="(prefers-color-scheme: dark)" srcset={commandDark.srcSet.attribute} sizes="(max-width: 900px) 100vw, 760px" />
-                <Image src={shotCommand} widths={[800, 1200, 1800, 2400]} sizes="(max-width: 900px) 100vw, 760px" quality={90} alt="Airc's command bar in the Travel Space: typing lisbon shows history, open and pinned tabs and search suggestions, with the top hit completed inline." />
-              </picture>
-            </button>
-            <button type="button" class="try" data-act="command">
-              Try it on this page <kbd>⌘K</kbd>
-            </button>
+        <article class="cell">
+          <div class="copy">
+            <h3>Two Gmail accounts. One window.</h3>
+            <p>Each Space can carry its own profile, with its own logins, cookies, history and passwords. Arc's come over as they are.</p>
           </div>
-        </article>
-
-        <article id="import" class="pane" data-space={spaceOf("import")}>
-          <h3 class="pt">Your whole Arc, moved over. <span>Spaces, pinned tabs, folders, Favorites and passwords, read from Arc's files on your Mac. Nothing is uploaded.</span></h3>
-          <button type="button" class="pane-demo shot" data-zoom={shotImport.src} data-alt="Airc's onboarding has found Arc on the Mac: its Spaces, pinned tabs, folders, Favorites and logins, ready to import." aria-label="Enlarge screenshot">
-            <Image src={shotImport} widths={[800, 1200, 1800, 2400]} sizes="(max-width: 900px) 100vw, 760px" quality={90} alt="Airc's onboarding has found Arc on the Mac: its Spaces, pinned tabs, folders, Favorites and logins, ready to import." />
-          </button>
-          {status.features.import.status !== "passing" && (
-            <a class="note" href="#supported"><i aria-hidden="true"></i>Built and in the app; its nightly check is pending. A few sites may ask you to sign in again.</a>
-          )}
-        </article>
-
-        <article id="links" class="pane" data-space={spaceOf("links")}>
-          <h3 class="pt">Links go where they belong. <span>Air Traffic Control sends each link to the right Space, already signed in. Peek opens it in a card over your page.</span></h3>
-          <button type="button" class="pane-demo shot" data-zoom={shotPeek.src} data-alt="Peek in Airc: a link from the Lisbon article opens in a card over the page, showing the map of Belém." aria-label="Enlarge screenshot">
-            <Image src={shotPeek} widths={[800, 1200, 1800, 2400]} sizes="(max-width: 900px) 100vw, 760px" quality={90} alt="Peek in Airc: a link from the Lisbon article opens in a card over the page, showing the map of Belém." />
-          </button>
-        </article>
-
-        <article id="split" class="pane" data-space={spaceOf("links")}>
-          <h3 class="pt">Split View. <span>Two or three pages side by side, as one row in the sidebar. Pin a split, or keep it as a Favorite.</span></h3>
-          <button type="button" class="pane-demo shot" data-zoom={shotSplit.src} data-alt="Split View in Airc's Studio Space: Apple's design pages beside Wikipedia's article on colour theory." aria-label="Enlarge screenshot">
-            <Image src={shotSplit} widths={[800, 1200, 1800, 2400]} sizes="(max-width: 900px) 100vw, 760px" quality={90} alt="Split View in Airc's Studio Space: Apple's design pages beside Wikipedia's article on colour theory." />
-          </button>
-        </article>
-
-        <article id="pip" class="pane" data-space={spaceOf("links")}>
-          <h3 class="pt">Picture in picture. <span>A film keeps playing in a small window over whatever you open next, with Airc's own controls. Calls too.</span></h3>
-          <button type="button" class="pane-demo shot" data-zoom={shotPip.src} data-alt="Picture in picture in Airc: a film floats over the Lisbon article, with Back to Tab, skip, play and a scrubber." aria-label="Enlarge screenshot">
-            <Image src={shotPip} widths={[800, 1200, 1800, 2400]} sizes="(max-width: 900px) 100vw, 760px" quality={90} alt="Picture in picture in Airc: a film floats over the Lisbon article, with Back to Tab, skip, play and a scrubber." />
-          </button>
+          <div class="viz viz-tall viz-shot">
+            <Image
+              class="shot"
+              src={accountsCard}
+              widths={[480, 956]}
+              sizes="(max-width: 900px) 90vw, 440px"
+              alt="Airc's onboarding: three profiles from Arc (Personal with the Personal and Studio Spaces, Acme with Work, Launch with Launch), each with its own Google sign-in."
+            />
+          </div>
         </article>
       </div>
     </section>
 
-    <!-- ================================================================ what works -->
-    <section id="supported" class="sec" data-space={spaceOf("supported")}>
-      <div class="sec-head">
-        <p class="tag" style="--c:#2f9e62">What works</p>
-        <h2 class="tt">What works today. <span>Checked every night on real Chromium.</span></h2>
+    <!-- ---------------------------------------------------------------- import and links -->
+    <section id="import" class="row" data-space={spaceOf("import")}>
+      <div class="cells cells-2">
+        <article class="cell">
+          <div class="copy">
+            <h3>Bring your Arc with you.</h3>
+            <p>Spaces, pinned tabs, folders, Favorites and logins, read straight from Arc's files on your Mac. Nothing is uploaded.</p>
+          </div>
+          <div class="viz viz-tall viz-shot">
+            <Image
+              class="shot"
+              src={importCard}
+              widths={[480, 956]}
+              sizes="(max-width: 900px) 90vw, 440px"
+              alt="Airc found Arc 1.171 with 4 Spaces, 3 profiles and 13 tabs, and will bring over Spaces, pinned tabs and folders, Favorites, and logins."
+            />
+          </div>
+        </article>
+        <article class="cell">
+          <div class="copy">
+            <h3>Links land in the right Space.</h3>
+            <p>Air Traffic Control sends a link from Mail or Slack to the Space it belongs in, already signed in. Peek opens it in a card over your page.</p>
+          </div>
+          <div class="viz viz-tall">
+            <div class="card atc" data-atc>
+              <div class="card-head"><span>Air Traffic Control</span><span class="muted">first match wins</span></div>
+              <div class="rule on"><span class="when">URL contains <b>figma.com</b></span><i aria-hidden="true">→</i><span class="to">🎨 Studio</span></div>
+              <div class="rule"><span class="when">URL contains <b>github.com</b></span><i aria-hidden="true">→</i><span class="to">💼 Work</span></div>
+              <div class="rule"><span class="when">Everything else</span><i aria-hidden="true">→</i><span class="to">Little Airc</span></div>
+            </div>
+          </div>
+        </article>
       </div>
+    </section>
+
+    <!-- ---------------------------------------------------------------- new in 0.1.2: boosts and capture -->
+    <section id="boosts" class="row" data-space={spaceOf("boosts")}>
+      <header class="head">
+        <p class="tag" style="--c: var(--t-pink)">Recently added</p>
+        <h2 class="title">More of Arc. <span class="soft">Boosts, Capture, a better Little Airc, and your streaming&nbsp;sites.</span></h2>
+      </header>
+      <div class="cells cells-2">
+        <article class="cell">
+          <div class="copy">
+            <h3>Make any site yours.</h3>
+            <p>Boosts change a site's colours and font, zap the parts you never want to see, or add your own CSS and code. Share one as a file.</p>
+          </div>
+          <div class="viz viz-tall viz-shot viz-boost" data-boost>
+            <div class="boost-tabs" role="group" aria-label="What this Boost changes">
+              <button type="button" data-b aria-pressed="true">Colours</button>
+              <button type="button" data-b aria-pressed="false">Font</button>
+              <button type="button" data-b aria-pressed="false">Zap</button>
+            </div>
+            <div class="boost-stack">
+              <Image class="shot on" src={boostColours} widths={[480, 925]} sizes="(max-width: 900px) 90vw, 440px" alt="A Boost on Wikipedia: the Colors tab, with a warm tint over the page and brightness and contrast sliders." />
+              <Image class="shot" src={boostFont} widths={[480, 925]} sizes="(max-width: 900px) 90vw, 440px" alt="The same Boost's Font tab: Charter picked for Wikipedia, at 110 %." />
+              <Image class="shot" src={boostZap} widths={[480, 925]} sizes="(max-width: 900px) 90vw, 440px" alt="The same Boost's Zap tab: one part of the page hidden on every visit, with Reset Zaps." />
+            </div>
+          </div>
+        </article>
+        <article class="cell">
+          <div class="copy">
+            <h3>Capture any part of a page.</h3>
+            <p>⇧⌘2, drag over what you want, then Copy, Save or Share. Space takes the visible page; ⌘-click picks one element.</p>
+          </div>
+          <div class="viz viz-tall viz-shot">
+            <!-- The real motion, rendered frame by frame from the app (scripts/make-motion.mjs); a still for reduced motion. -->
+            <picture>
+              <source media="(prefers-reduced-motion: reduce)" srcset="/motion/capture-still.webp" type="image/webp" />
+              <img class="shot" src="/motion/capture.webp" width="880" height="740" loading="lazy" decoding="async" alt="Capture in Airc: dragging over one card of a travel page, Capture, then Copy, Save and Share under it." />
+            </picture>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ---------------------------------------------------------------- Little Airc and streaming -->
+    <section id="little-arc" class="row" data-space={spaceOf("little-arc")}>
+      <div class="cells cells-2">
+        <article class="cell">
+          <div class="copy">
+            <h3>Links open small first.</h3>
+            <p>A link from Mail or Slack opens in Little Airc, even over an app in full screen. It remembers your profile for each site, and one click moves it into your browser.</p>
+          </div>
+          <div class="viz viz-tall">
+            <Image class="card-shot" src={littleArc} widths={[480, 960]} sizes="(max-width: 900px) 90vw, 440px" alt="Little Airc: a small window on Wikipedia's Pastel de nata page, with Open in Personal at the top." />
+          </div>
+        </article>
+        <article class="cell">
+          <div class="copy">
+            <h3>Spotify and Netflix open in Airc.</h3>
+            <p>Streaming sites switch to Safari's engine and Apple's FairPlay, in the same tab. Sign in once there. Checked logged out; playback with a subscription isn't tested yet.</p>
+          </div>
+          <div class="viz viz-tall">
+            <Image class="card-shot card-shot-sm" src={streamingCard} widths={[446]} alt="Site Controls on open.spotify.com: Safari's engine, with Apple's FairPlay, turned on, and why: Spotify's player needs DRM that Chromium can't offer." />
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ---------------------------------------------------------------- what works -->
+    <section id="supported" class="row" data-space={spaceOf("supported")}>
+      <header class="head">
+        <p class="tag" style="--c: var(--t-mint)">What works</p>
+        <h2 class="title">What works today. <span class="soft">Rebuilt from the latest nightly&nbsp;run.</span></h2>
+      </header>
       <div class="run">
         <span class="run-dot" aria-hidden="true"></span>
-        <span>
-          <b>{passingCount} of {supported.length} features</b> pass the nightly checks ({status.checks.pass} checks passed,{" "}
-          {status.checks.skip} skipped, {status.checks.fail} failed). <i class="pend-dot" aria-hidden="true"></i> Check pending: built, not covered by a check yet.
-        </span>
+        <span><b>{status.checks.pass.toLocaleString("en-US")} checks passed</b>, {status.checks.skip} skipped, {status.checks.fail} failed, on the real Chromium engine. It never claims more than the run proved.</span>
         <span class="run-meta">Last run {checkedLabel} · build <code>{status.rev}</code> · Chromium {status.chromium}</span>
       </div>
       <ul class="works">
         {supported.map((f) => (
           <li class="work">
             {f.status === "built" ? (
-              <span class="state pending" title="Built and in the app. No nightly check covers it yet."><i aria-hidden="true"></i></span>
+              <span class="state state-built" title="In the app. No nightly check covers it yet.">In the app</span>
             ) : (
               <span
                 class={`state mark mark-${f.status}`}
                 role="img"
                 aria-label={f.status === "passing" ? "Passing" : "Failing"}
-                title={`${f.pass} checks passed${f.skip ? `, ${f.skip} skipped` : ""}${f.fail ? `, ${f.fail} failed` : ""}.`}
+                title={`${f.pass} checks passed${f.skip ? `, ${f.skip} skipped` : ""}${f.fail ? `, ${f.fail} failed` : ""} in the latest run.`}
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   {f.status === "passing" ? <path d="M6 12.5l4 4 8-9" /> : <path d="M7 7l10 10M17 7L7 17" />}
@@ -453,84 +400,52 @@ const panes = [
               </span>
             )}
             <div>
-              <h3>
-                {f.title}
-                {f.status === "built" && <span class="pend-label">Check pending</span>}
-              </h3>
+              <h3>{f.title}</h3>
               <p>{f.body}</p>
             </div>
           </li>
         ))}
       </ul>
+      <p class="more">
+        <a class="try" href="/features" data-track="features_clicked" data-track-from="supported">
+          Every feature, with screenshots
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"></path></svg>
+        </a>
+      </p>
     </section>
 
-    <!-- ================================================================ why -->
-    <section id="why" class="sec why" data-space={spaceOf("why")}>
+    <!-- ---------------------------------------------------------------- people -->
+    <section id="team" class="row" data-space={spaceOf("team")}>
       <figure class="quote">
-        <p class="tag" style="--c:#e5484d">Why I'm building this</p>
         <blockquote>
           “I love Arc. I don't want to switch, and I don't want to relearn my browser because a company changed its&nbsp;mind.”
         </blockquote>
-        <p class="quote-sub">What I'd miss most is the profiles: work and personal, each with its own logins, in one window. Airc keeps that.</p>
         <figcaption>
-          <Image class="why-photo" src={nikPhoto} alt="" width={48} height={48} densities={[1, 2, 3]} format="webp" />
+          <Image class="face" src={nikPhoto} alt="" width={36} height={36} densities={[1, 2, 3]} format="webp" />
           <span><b>Nik</b>, who builds Airc</span>
         </figcaption>
       </figure>
-    </section>
-
-    <!-- ================================================================ what to expect -->
-    <section id="expect" class="sec" data-space={spaceOf("expect")}>
-      <div class="sec-head">
-        <p class="tag" style="--c:#2f9e62">What to expect</p>
-        <h2 class="tt">What to expect. <span>Free, open, and kept up to date.</span></h2>
-      </div>
-      <div class="cells cells-3">
-        {expect.map((e) => (
-          <div class="cell">
-            <h3 class="ct">{e.title}. <span>{e.body}</span></h3>
-          </div>
-        ))}
-      </div>
-    </section>
-
-    <!-- ================================================================ team -->
-    <section id="team" class="sec" data-space={spaceOf("team")}>
-      <div class="sec-head sec-head-center">
-        <p class="tag" style="--c:#d9673a">Who maintains it</p>
-        <h2 class="statement">Claude. Codex. And&nbsp;Nik.</h2>
-        <p class="statement-sub">Two AI agents write and maintain Airc. One human decides what ships.</p>
-      </div>
-      <div class="cells cells-3">
+      <div class="cells cells-3 people">
         {maintainers.map((m) => (
-          <div class={`cell who who-${m.key}`}>
+          <article class="cell">
             {m.logo ? (
-              <img class="who-icon" src={m.logo.src} width="40" height="40" alt="" />
+              <img class="who" src={m.logo.src} width="36" height="36" alt="" />
             ) : (
-              <Image class="who-icon who-photo" src={nikPhoto} alt="Nik" width={40} height={40} densities={[1, 2, 3]} format="webp" />
+              <Image class="who who-photo" src={m.photo!} alt="" width={36} height={36} densities={[1, 2, 3]} format="webp" />
             )}
-            <p class="who-name"><b>{m.name}</b> {m.role}</p>
-            <p class="who-body">{m.body}</p>
-          </div>
+            <h3>{m.name} <span>{m.role}</span></h3>
+            <p>{m.body}</p>
+          </article>
         ))}
       </div>
-      {GITHUB_URL && (
-      <a class="repo" href={GITHUB_URL} rel="noopener" data-gh data-track="github_clicked" data-track-from="team">
-        <span class="repo-mark"><GitHubMark size={22} /></span>
-        <span class="repo-copy">
-          <b>{GITHUB_URL.replace("https://github.com/", "")}</b>
-          <span>Every commit is public, Claude's and Codex's included. Apache-2.0.</span>
-        </span>
-        <span class="repo-stars"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.3l2 4.2 4.6.6-3.400 3.200.9 4.500L8 11.600 3.900 13.800l.9-4.500L1.400 6.100 6 5.500z" /></svg><b data-gh-stars></b> <span>Star</span></span>
-      </a>
-      )}
     </section>
 
-    <!-- ================================================================ questions -->
-    <section id="qa" class="sec qa-sec" data-space={spaceOf("qa")}>
-      <div class="qa-head">
-        <h2 class="tt">Questions. <span>And answers.</span></h2>
-        <p class="qa-note">Anything else? <a href="mailto:hello@aircbrowser.com">hello@aircbrowser.com</a></p>
+    <!-- ---------------------------------------------------------------- questions -->
+    <section id="qa" class="row split split-qa" data-space={spaceOf("qa")}>
+      <div class="split-copy">
+        <p class="tag" style="--c: var(--t-lilac)">Questions</p>
+        <h2 class="title">Before you ask. <span class="soft">The ones that come up most.</span></h2>
+        <p class="lede">Anything else? <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a></p>
       </div>
       <div class="qa">
         {faqs.map((f) => (
@@ -542,393 +457,187 @@ const panes = [
       </div>
     </section>
 
-    <!-- ================================================================ closing (dark) -->
-    <section id="closing" class="closing" data-space="pink">
-      <div class="arc-glow" aria-hidden="true"><i></i><i></i></div>
-      <div class="closing-count"><Countdown /></div>
-      <h2><span class="red">Arc stops on December&nbsp;22.</span><br />Your Arc doesn't have&nbsp;to.</h2>
-      <div class="join"><Download dark from="closing" /></div>
+    <!-- ---------------------------------------------------------------- closing -->
+    <section id="closing" class="row closing" data-space="pink">
+      <h2 class="title title-lg">Arc stops on December&nbsp;22. <span class="red">Be on Airc.</span></h2>
+      <div class="join"><Download from="closing" /></div>
     </section>
   </div>
 </Layout>
 
 <script>
-  import { track as send } from "../lib/analytics";
-  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-  // The loop's cards fill in row by row, once, when they come into view.
-  const reveal = new IntersectionObserver(
+  // Small things that settle in once, when they first come into view.
+  const io = new IntersectionObserver(
     (entries) => {
       for (const e of entries)
         if (e.isIntersecting) {
           e.target.classList.add("in");
-          reveal.unobserve(e.target);
+          io.unobserve(e.target);
         }
     },
     { threshold: 0.4 },
   );
-  document.querySelectorAll("[data-in]").forEach((el) => reveal.observe(el));
+  document.querySelectorAll("[data-in]").forEach((el) => io.observe(el));
 
-  // ------------------------------------------------------------------ Spaces demo: swipe, drag, keys, tabs, autoplay
-  const demo = document.querySelector<HTMLElement>("[data-spaces]");
-  if (demo) {
-    const view = demo.querySelector<HTMLElement>(".demo-view")!;
-    const track = demo.querySelector<HTMLElement>(".demo-track")!;
-    const tabs = [...demo.querySelectorAll<HTMLButtonElement>("[data-go]")];
-    const slides = [...demo.querySelectorAll<HTMLElement>(".demo-slide")];
-    const dots = [...demo.querySelectorAll<HTMLElement>(".demo-dots span")];
-    const colours = tabs.map((t) => t.style.getPropertyValue("--c"));
-    const n = slides.length;
-    let i = 0;
-    let auto: number | undefined;
-    let touched = false;
-
-    const show = (next: number, animate = true) => {
-      i = (next + n) % n;
-      track.style.transition = animate && !reduce ? "" : "none";
-      track.style.transform = `translateX(${-100 * i}%)`;
-      demo.dataset.active = String(i);
-      demo.style.setProperty("--accent-space", colours[i]);
-      tabs.forEach((t, k) => t.setAttribute("aria-selected", String(k === i)));
-      slides.forEach((s, k) => s.setAttribute("aria-hidden", String(k !== i)));
-      dots.forEach((d, k) => d.classList.toggle("on", k === i));
+  // Boosts: the tabs show each state; until one is picked, they take turns while the cell is in view.
+  for (const box of document.querySelectorAll<HTMLElement>("[data-boost]")) {
+    const tabs = [...box.querySelectorAll<HTMLButtonElement>("[data-b]")];
+    const shots = [...box.querySelectorAll<HTMLElement>(".boost-stack .shot")];
+    let at = 0;
+    let timer = 0;
+    let picked = false;
+    const show = (k: number) => {
+      at = k;
+      tabs.forEach((b, j) => b.setAttribute("aria-pressed", String(j === k)));
+      shots.forEach((s, j) => s.classList.toggle("on", j === k));
     };
-    const used = new Set<string>();
-    const usedBy = (method: string) => {
-      if (used.has(method)) return;
-      used.add(method);
-      send("spaces_demo_used", { method });
-    };
-    const stopAuto = () => {
-      touched = true;
-      if (auto) clearInterval(auto);
-      auto = undefined;
-    };
-
-    tabs.forEach((t) => t.addEventListener("click", () => { stopAuto(); usedBy("tab"); show(Number(t.dataset.go)); }));
-
-    view.addEventListener("keydown", (e) => {
-      if (e.key === "ArrowRight") { stopAuto(); usedBy("keys"); show(i + 1); e.preventDefault(); }
-      if (e.key === "ArrowLeft") { stopAuto(); usedBy("keys"); show(i - 1); e.preventDefault(); }
-    });
-
-    // Dragging: the track follows the pointer, and lets go with a spring.
-    let startX = 0;
-    let dx = 0;
-    let dragging = false;
-    view.addEventListener("pointerdown", (e) => {
-      if (e.button !== 0) return;
-      dragging = true;
-      startX = e.clientX;
-      dx = 0;
-      stopAuto();
-      track.style.transition = "none";
-      view.setPointerCapture(e.pointerId);
-      view.classList.add("dragging");
-    });
-    view.addEventListener("pointermove", (e) => {
-      if (!dragging) return;
-      dx = e.clientX - startX;
-      const edge = (i === 0 && dx > 0) || (i === n - 1 && dx < 0) ? 0.35 : 1; // rubber band at the ends
-      track.style.transform = `translateX(calc(${-100 * i}% + ${dx * edge}px))`;
-    });
-    const end = () => {
-      if (!dragging) return;
-      dragging = false;
-      view.classList.remove("dragging");
-      const w = view.clientWidth;
-      if (Math.abs(dx) > 8) usedBy("drag");
-      if (dx < -w * 0.15 && i < n - 1) show(i + 1);
-      else if (dx > w * 0.15 && i > 0) show(i - 1);
-      else show(i);
-    };
-    view.addEventListener("pointerup", end);
-    view.addEventListener("pointercancel", end);
-
-    // Two fingers on a trackpad: horizontal wheel events, the way Arc switches Spaces.
-    let acc = 0;
-    let locked = false;
-    view.addEventListener(
-      "wheel",
-      (e) => {
-        if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
-        e.preventDefault();
-        if (locked) return;
-        acc += e.deltaX;
-        if (Math.abs(acc) > 40) {
-          stopAuto();
-          usedBy("swipe");
-          show(i + (acc > 0 ? 1 : -1));
-          acc = 0;
-          locked = true;
-          setTimeout(() => (locked = false), 650);
-        }
-      },
-      { passive: false },
-    );
-
-    // A gentle demonstration while it's on screen, until someone touches it.
-    if (!reduce) {
-      new IntersectionObserver(
-        ([entry]) => {
-          if (touched) return;
-          if (entry.isIntersecting && !auto) auto = window.setInterval(() => show(i + 1), 3600);
-          if (!entry.isIntersecting && auto) { clearInterval(auto); auto = undefined; }
-        },
-        { threshold: 0.5 },
-      ).observe(view);
-    }
-    show(0, false);
-  }
-
-  // ------------------------------------------------------------------ the hero post expands
-  const post = document.querySelector<HTMLElement>("[data-post]");
-  const expand = document.querySelector<HTMLElement>("[data-expand]");
-  expand?.addEventListener("click", () => {
-    send("post_expanded");
-    post?.classList.add("open");
-    expand.setAttribute("aria-expanded", "true");
-  });
-  document.querySelector("[data-collapse]")?.addEventListener("click", () => {
-    post?.classList.remove("open");
-    expand?.setAttribute("aria-expanded", "false");
-    document.getElementById("tweet")?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
-  });
-
-  // ------------------------------------------------------------------ feature explorer: the tab list follows the panes
-  const exTabs = [...document.querySelectorAll<HTMLAnchorElement>("[data-pane]")];
-  const panes = [...document.querySelectorAll<HTMLElement>(".pane")];
-  if (exTabs.length) {
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) {
-          if (!e.isIntersecting) continue;
-          exTabs.forEach((t) => t.classList.toggle("on", t.dataset.pane === e.target.id));
-        }
-      },
-      { rootMargin: "-40% 0px -55% 0px" },
-    );
-    panes.forEach((p) => io.observe(p));
-
-    // How far through the active pane you've read fills its tab's bar.
-    const scroller = matchMedia("(min-width: 901px)").matches ? document.querySelector<HTMLElement>("#page") : null;
-    const progress = () => {
-      const mid = innerHeight * 0.45;
-      for (const p of panes) {
-        const r = p.getBoundingClientRect();
-        const f = Math.min(1, Math.max(0, (mid - r.top) / r.height));
-        exTabs.find((t) => t.dataset.pane === p.id)?.style.setProperty("--p", String(f));
-      }
-    };
-    (scroller ?? window).addEventListener("scroll", () => requestAnimationFrame(progress), { passive: true });
-    progress();
-    exTabs.forEach((t) =>
-      t.addEventListener("click", (e) => {
-        e.preventDefault();
-        document.getElementById(t.dataset.pane!)?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
-        history.pushState(null, "", `#${t.dataset.pane}`);
+    tabs.forEach((b, k) =>
+      b.addEventListener("click", () => {
+        picked = true;
+        clearInterval(timer);
+        show(k);
       }),
     );
+    if (!matchMedia("(prefers-reduced-motion: reduce)").matches)
+      new IntersectionObserver(([e]) => {
+        clearInterval(timer);
+        if (e.isIntersecting && !picked) timer = window.setInterval(() => show((at + 1) % tabs.length), 2600);
+      }).observe(box);
+  }
+
+  // Air Traffic Control: the rules light up in turn, the way a link finds its match.
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  for (const atc of document.querySelectorAll<HTMLElement>("[data-atc]")) {
+    const rules = [...atc.querySelectorAll<HTMLElement>(".rule")];
+    let i = 0;
+    let t = 0;
+    const tick = () => {
+      i = (i + 1) % rules.length;
+      rules.forEach((r, k) => r.classList.toggle("on", k === i));
+    };
+    if (!reduce)
+      new IntersectionObserver(([e]) => {
+        clearInterval(t);
+        if (e.isIntersecting) t = window.setInterval(tick, 2200);
+      }).observe(atc);
   }
 </script>
 
 <style>
-  /* ------------------------------------------------------------------ the grid: hairline columns, sections as rows */
+  /* ------------------------------------------------------------------ the hero (unchanged): a rainbow field */
 
-  .grid {
-    --pad: clamp(20px, 4vw, 56px);
-    max-width: 1120px;
-    margin: 0 auto;
-    box-shadow: 1px 0 0 var(--hl), -1px 0 0 var(--hl);
+  .field {
+    --vm: 100%;
+    --vb: #ffffff;
+    --pad: clamp(24px, 5vw, 72px);
+    --v-mint: color-mix(in srgb, #7ee8c0 var(--vm), var(--vb));
+    --v-sky: color-mix(in srgb, #8fd0ff var(--vm), var(--vb));
+    --v-lilac: color-mix(in srgb, #c9a2ff var(--vm), var(--vb));
+    --v-pink: color-mix(in srgb, #ff9ac8 var(--vm), var(--vb));
+    --v-peach: color-mix(in srgb, #ffc08a var(--vm), var(--vb));
+    position: relative;
+    overflow: hidden;
+    padding: clamp(56px, 7vw, 104px) var(--pad);
   }
 
-  .grid > section + section { box-shadow: 0 -1px 0 var(--hl); }
+  .f-rainbow {
+    background:
+      radial-gradient(60% 80% at 8% 10%, var(--v-mint), transparent 70%),
+      radial-gradient(50% 70% at 45% -10%, var(--v-sky), transparent 70%),
+      radial-gradient(55% 80% at 100% 15%, var(--v-lilac), transparent 70%),
+      radial-gradient(60% 70% at 85% 105%, var(--v-pink), transparent 70%),
+      radial-gradient(50% 60% at 0% 100%, var(--v-peach), transparent 70%),
+      color-mix(in srgb, #f4efff var(--vm), var(--vb));
+  }
+
+  h1 {
+    font-size: clamp(38px, 4.3vw, 66px);
+    line-height: 0.97;
+    font-weight: 800;
+    letter-spacing: -0.055em;
+    text-wrap: balance;
+  }
+
+  .hero p {
+    font-size: 18px;
+    line-height: 1.5;
+    font-weight: 500;
+    color: rgb(var(--ink) / 0.7);
+  }
 
   .red { color: var(--red); }
   .nowrap { white-space: nowrap; }
 
-  /* Two-tone type: the lead in ink, the rest in grey. */
-  .tt {
-    max-width: 820px;
-    font-size: clamp(30px, 3.4vw, 44px);
-    line-height: 1.1;
-    font-weight: 550;
-    letter-spacing: -0.022em;
-    color: var(--t1);
-    text-wrap: balance;
-  }
-
-  /* The continuation half of a two-tone heading: grey, but readable (Attio's #747d8b). */
-  .grid { --cont: #7a8190; }
-
-  @media (prefers-color-scheme: dark) {
-    .grid { --cont: #a0a6b2; }
-  }
-
-  .tt span,
-  .ct span,
-  .pt span { color: var(--cont); }
-
-  .ct {
-    font-size: 18px;
-    line-height: 1.4;
-    font-weight: 550;
-    letter-spacing: -0.012em;
-    color: var(--t1);
-    text-wrap: pretty;
-  }
-
-  /* Tags take the colour of their section's sidebar icon (Attio's tinted pills). */
-  .tag {
-    --c: var(--t3);
-    display: inline-flex;
-    align-items: center;
-    height: 24px;
-    margin-bottom: 18px;
-    padding: 0 9px;
-    border-radius: 7px;
-    font-size: 12.5px;
-    font-weight: 600;
-    color: color-mix(in srgb, var(--c) 78%, #000);
-    background: color-mix(in srgb, var(--c) 11%, var(--bg));
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 22%, transparent);
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .tag { color: color-mix(in srgb, var(--c) 70%, #fff); background: color-mix(in srgb, var(--c) 16%, var(--bg)); }
-  }
-
-  .sec { padding: clamp(56px, 7vw, 96px) 0 0; }
-  .sec-head { padding: 0 var(--pad) clamp(32px, 4vw, 48px); }
-
-  .sec-head-row {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 32px;
-  }
-
-  .sec-head-center { display: flex; flex-direction: column; align-items: center; text-align: center; }
-
-  .statement {
-    font-size: clamp(38px, 4.6vw, 60px);
-    line-height: 1.02;
-    font-weight: 600;
-    letter-spacing: -0.03em;
-    color: var(--t1);
-  }
-
-  .statement-sub { margin-top: 14px; max-width: 460px; font-size: 18px; line-height: 1.45; font-weight: 500; color: var(--cont); text-wrap: balance; }
-
-  .cells {
-    display: grid;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    box-shadow: 0 -1px 0 var(--hl);
-  }
-
-  .cells-2 { grid-template-columns: 1fr 1fr; }
-  .cells-3 { grid-template-columns: repeat(3, 1fr); }
-
-  .cell {
-    padding: clamp(28px, 3.2vw, 40px) var(--pad);
-    min-height: 100%;
-  }
-
-  .cell + .cell { box-shadow: -1px 0 0 var(--hl); }
-
-  .source { margin-top: 20px; font-size: 12.5px; font-weight: 500; color: var(--t3); }
-  .source a { color: var(--t2); text-decoration: underline; text-decoration-color: var(--hl-strong); text-underline-offset: 3px; }
-  .source a:hover { color: var(--t1); }
-  #math .cell:first-child { display: grid; align-content: center; }
-
-  .kicker {
-    margin-top: 28px;
-    font-size: 18px;
-    font-weight: 600;
-    letter-spacing: -0.012em;
-    color: var(--t1);
-  }
-
-  /* ------------------------------------------------------------------ hero */
-
   .hero {
-    position: relative;
-    isolation: isolate;
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: clamp(56px, 7vw, 96px) var(--pad) 0;
+    padding-top: clamp(40px, 5vw, 72px);
+    padding-bottom: clamp(56px, 7vw, 96px);
     text-align: center;
-    overflow: hidden;
   }
 
-  /* Attio's faint wash behind the product frame, in Arc's colours. */
-  /* Arc's aurora behind the story, at about a third of Arc's own strength, so Attio's restraint holds. */
-  .hero-glow {
-    position: absolute;
-    inset: 0 -10% 0;
-    z-index: -1;
-    --a: 34%;
-    background:
-      radial-gradient(42% 46% at 14% 10%, color-mix(in srgb, var(--mint) var(--a), transparent), transparent 72%),
-      radial-gradient(40% 44% at 50% -6%, color-mix(in srgb, var(--sky) var(--a), transparent), transparent 72%),
-      radial-gradient(42% 48% at 88% 12%, color-mix(in srgb, var(--lilac) var(--a), transparent), transparent 72%),
-      radial-gradient(50% 50% at 30% 72%, color-mix(in srgb, var(--mint) 18%, transparent), transparent 70%),
-      radial-gradient(50% 50% at 72% 70%, color-mix(in srgb, var(--pink) 20%, transparent), transparent 70%);
-    -webkit-mask-image: linear-gradient(#000 70%, transparent);
-    mask-image: linear-gradient(#000 70%, transparent);
+  .hero-copy {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
   }
 
-  @media (prefers-color-scheme: dark) {
-    .hero-glow { --a: 22%; opacity: 0.85; }
+  .hero h1 {
+    margin-top: 28px;
+    max-width: 1000px;
+    font-size: clamp(40px, 6vw, 96px);
+    line-height: 0.96;
+    letter-spacing: -0.05em;
   }
 
-  .hero-copy { display: flex; flex-direction: column; align-items: center; }
-
-  h1 {
+  .hero .sub {
+    max-width: 640px;
     margin-top: 24px;
-    max-width: 920px;
-    font-size: clamp(40px, 5.4vw, 72px);
-    line-height: 1.02;
+    text-wrap: balance;
+    font-size: clamp(18px, 1.7vw, 22px);
+    line-height: 1.42;
+  }
+
+  .sub strong { font-weight: 800; color: rgb(var(--ink) / 0.95); }
+
+  .join { display: flex; justify-content: center; width: 100%; margin-top: 32px; }
+
+  .hero .meta {
+    margin-top: 14px;
+    font-size: 13px;
+    color: rgb(var(--ink) / 0.6);
+  }
+
+  .meta a {
+    color: rgb(var(--ink) / 0.85);
     font-weight: 600;
-    letter-spacing: -0.03em;
-    color: var(--t1);
-    text-wrap: balance;
+    text-decoration: underline;
+    text-decoration-color: rgb(var(--ink) / 0.25);
+    text-underline-offset: 3px;
   }
 
-  .sub {
-    max-width: 560px;
-    margin-top: 22px;
-    font-size: clamp(17px, 1.4vw, 19px);
-    line-height: 1.45;
-    font-weight: 500;
-    letter-spacing: -0.01em;
-    color: var(--t2);
-    text-wrap: balance;
-  }
-
-  .sub strong { font-weight: 600; color: var(--t1); }
-
-  .join { display: flex; justify-content: center; width: 100%; margin-top: 28px; scroll-margin-top: 120px; }
-
-  .meta { margin-top: 12px; font-size: 13px; font-weight: 500; color: var(--t2); }
+  .meta a:hover { text-decoration-color: currentColor; }
 
   .pointer {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 2px;
-    margin-top: clamp(28px, 3vw, 40px);
-    font-size: 13px;
-    font-weight: 600;
+    gap: 6px;
+    margin-top: clamp(24px, 3vw, 36px);
     color: var(--red);
   }
 
-  .pointer svg {
-    width: 26px;
-    height: 38px;
+  .hero .pointer-label {
+    max-width: 360px;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.35;
+  }
+
+  .arrow {
+    width: 30px;
+    height: 42px;
     overflow: visible;
     fill: none;
     stroke: currentColor;
@@ -937,780 +646,279 @@ const panes = [
     stroke-linejoin: round;
   }
 
+  .hero-tweet {
+    width: 100%;
+    max-width: 640px;
+    margin-top: 12px;
+    text-align: left;
+    scroll-margin-top: 24px;
+  }
+
   @media (prefers-reduced-motion: no-preference) {
-    .arrow-line { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 0.9s var(--ease-out) 0.5s forwards; }
-    .arrow-head { opacity: 0; animation: fade 0.25s ease-out 1.25s forwards; }
+    .arrow-line {
+      stroke-dasharray: 1;
+      stroke-dashoffset: 1;
+      animation: draw 1s var(--ease-out) 0.5s forwards;
+    }
+    .arrow-head { opacity: 0; animation: fade 0.25s ease-out 1.35s forwards; }
   }
 
   @keyframes draw { to { stroke-dashoffset: 0; } }
   @keyframes fade { to { opacity: 1; } }
 
-  /* A window frame for the product (Attio's light chrome with traffic lights). */
+  /* ------------------------------------------------------------------ the frame: Attio's hairline grid, in the page card */
+
+  :global(main) { overflow-x: clip; }
+
   .frame {
-    width: 100%;
-    border-radius: 14px;
-    background: #f1f1f3;
-    box-shadow: inset 0 0 0 1px var(--hl-strong), 0 24px 48px -24px rgb(20 20 40 / 0.18);
-    text-align: left;
+    --t-mint: #2a9d73;
+    --t-sky: #3a72de;
+    --t-lilac: #7a58d6;
+    --t-peach: #d0603c;
+    --t-pink: #c9467a;
+    --line: rgb(var(--ink) / 0.075);
+    --soft: rgb(var(--ink) / 0.42);
+    --body: rgb(var(--ink) / 0.56);
+    --dots: radial-gradient(circle at 1px 1px, rgb(var(--ink) / 0.075) 1px, transparent 1.4px) 0 0 / 16px 16px;
+    --px: clamp(24px, 4vw, 48px);
+    width: min(1120px, calc(100% - 48px));
+    margin: 0 auto;
+    box-shadow: -1px 0 0 var(--line), 1px 0 0 var(--line);
+    font-family: "Inter Variable", var(--font);
+    font-feature-settings: "cv11", "ss01";
   }
 
-  @media (prefers-color-scheme: dark) {
-    .frame { background: #1b1b1e; box-shadow: inset 0 0 0 1px var(--hl-strong), 0 24px 48px -24px rgb(0 0 0 / 0.6); }
-  }
+  /* A row: a hairline across the whole card, the way Attio's run edge to edge. */
+  .row { position: relative; }
 
-  .frame-bar {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    height: 40px;
-    padding: 0 14px;
-  }
-
-  .lights { display: flex; gap: 7px; }
-  .lights i { width: 11px; height: 11px; border-radius: 50%; background: #ff5f57; }
-  .lights i:nth-child(2) { background: #febc2e; }
-  .lights i:nth-child(3) { background: #28c840; }
-
-  .frame-url {
-    flex: 1;
-    max-width: 380px;
-    overflow: hidden;
-    padding: 4px 10px;
-    border-radius: 7px;
-    font-size: 12px;
-    font-weight: 500;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--t2);
-    background: rgb(var(--ink) / 0.05);
-  }
-
-  .frame-body {
-    margin: 0 6px 6px;
-    padding: clamp(16px, 3vw, 36px);
-    border-radius: 10px;
-    background: var(--surface);
-    box-shadow: inset 0 0 0 1px var(--hl);
-  }
-
-  .hero-frame {
-    max-width: 760px;
-    margin-top: 10px;
-    margin-bottom: -2px;
-    border-radius: 14px 14px 0 0;
-    scroll-margin-top: 24px;
-  }
-
-  .hero-frame .frame-body { border-radius: 10px 10px 0 0; margin-bottom: 0; }
-  .hero-frame .frame-body > :global(figure) { max-width: 600px; margin: 0 auto; }
-
-  /* The post is long: it shows its top, and expands on request. */
-  .post { position: relative; max-height: 440px; overflow: hidden; transition: max-height 0.6s var(--spring-settle); }
-  .post.open { max-height: 1600px; }
-
-  .post-more {
+  .row::before,
+  .facts::before,
+  .facts::after {
+    content: "";
     position: absolute;
-    inset: auto 0 0;
-    display: flex;
-    justify-content: center;
-    align-items: flex-end;
-    height: 160px;
-    padding-bottom: 24px;
-    background: linear-gradient(to bottom, transparent, var(--surface) 70%);
-    transition: opacity 0.3s ease;
+    top: -1px;
+    left: -100vw;
+    right: -100vw;
+    height: 1px;
+    background: var(--line);
+    pointer-events: none;
   }
 
-  .post.open .post-more { opacity: 0; pointer-events: none; }
+  .frame h2,
+  .frame h3 { font-family: inherit; }
 
-  .post-less { display: none; justify-content: center; gap: 8px; margin-top: 8px; }
-  .post.open .post-less { display: flex; }
+  .title {
+    max-width: 800px;
+    font-size: clamp(28px, 2.9vw, 38px);
+    line-height: 1.14;
+    font-weight: 560;
+    letter-spacing: -0.03em;
+    color: rgb(var(--ink) / 0.94);
+    text-wrap: balance;
+  }
 
-  /* ------------------------------------------------------------------ facts (Attio's logo grid) */
+  .title-lg { font-size: clamp(30px, 3.2vw, 42px); line-height: 1.14; }
+  .glyph { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI Symbol", var(--font); font-weight: 500; }
+  .lede a { color: rgb(var(--ink) / 0.82); text-decoration: underline; text-decoration-color: rgb(var(--ink) / 0.2); text-underline-offset: 3px; }
+  .lede a:hover { text-decoration-color: currentColor; }
+  .soft { color: var(--soft); }
+  /* Desktop words; .narrow is the phone version. "contents" keeps the wrapper out of the layout (the ⌘K button is a
+     flex row, and its label must stay three items). */
+  .wide { display: contents; }
+  .narrow { display: none; }
+  .soft a { color: rgb(var(--ink) / 0.8); text-decoration: underline; text-decoration-color: rgb(var(--ink) / 0.2); text-underline-offset: 4px; }
+  .soft a:hover { text-decoration-color: currentColor; }
+
+  .tag {
+    display: inline-flex;
+    width: fit-content;
+    margin-bottom: 18px;
+    padding: 3px 9px;
+    border-radius: 7px;
+    font-size: 13px;
+    font-weight: 560;
+    letter-spacing: -0.005em;
+    color: var(--c);
+    background: color-mix(in srgb, var(--c) 11%, transparent);
+  }
+
+  .lede {
+    max-width: 440px;
+    margin-top: 18px;
+    font-size: 16px;
+    line-height: 1.55;
+    color: var(--body);
+  }
+
+  .head { padding: clamp(44px, 5.5vw, 72px) var(--px) clamp(28px, 3.5vw, 40px); }
+
+  /* ------------------------------------------------------------------ facts */
 
   .facts {
+    position: relative;
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    margin: 0;
+    padding: 0;
+    list-style: none;
   }
 
-  .fact {
+  .facts::after { top: auto; bottom: -1px; }
+
+  .facts li {
     display: grid;
-    gap: 4px;
-    padding: 26px 22px;
+    gap: 3px;
+    padding: 22px 24px 24px;
+  }
+
+  .facts li + li { box-shadow: -1px 0 0 var(--line); }
+
+  .facts b {
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: rgb(var(--ink) / 0.92);
+  }
+
+  .facts span { font-size: 13px; line-height: 1.4; color: var(--body); }
+
+  /* ------------------------------------------------------------------ the statement */
+
+  .statement {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: clamp(72px, 9vw, 120px) var(--px);
     text-align: center;
   }
 
-  .fact + .fact { box-shadow: -1px 0 0 var(--hl); }
-  .fact b { font-size: 17px; font-weight: 600; letter-spacing: -0.015em; color: var(--t1); font-variant-numeric: tabular-nums; }
-  .fact span { font-size: 13px; font-weight: 500; color: var(--t3); }
-  a.fact:hover span { color: var(--t1); }
+  .statement .title { max-width: 860px; }
 
-  /* ------------------------------------------------------------------ the math: orbit */
+  /* ------------------------------------------------------------------ cells */
 
-  .orbit-cell { display: grid; place-items: center; background: var(--panel); }
-
-  .orbit {
-    position: relative;
-    width: min(100%, 420px);
-    aspect-ratio: 1.25;
+  .cells {
+    display: grid;
+    margin: 0;
+    padding: 0;
+    list-style: none;
   }
 
-  .ring {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    border-radius: 50%;
-    transform: translate(-50%, -50%);
-    box-shadow: inset 0 0 0 1px var(--hl-strong);
+  .cells-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cells-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .cells > .cell + .cell { box-shadow: -1px 0 0 var(--line); }
+  #loop .cells,
+  .people { box-shadow: 0 -1px 0 var(--line); }
+
+  /* Each cell is copy over a visual; a subgrid lines the visuals up across the row. */
+  .cell {
+    display: grid;
+    grid-row: span 2;
+    grid-template-rows: subgrid;
+    min-width: 0;
   }
 
-  .r1 { width: 46%; aspect-ratio: 1; }
-  .r2 { width: 78%; aspect-ratio: 1; }
+  .people .cell { display: block; grid-row: auto; }
 
-  .core {
-    position: absolute;
-    left: 50%;
-    top: 50%;
+  .copy { padding: 32px var(--px) 28px; }
+  .cells-3 .copy { padding-inline: 28px; }
+
+  .num {
+    margin-bottom: 14px;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.02em;
+    color: rgb(var(--ink) / 0.4);
+  }
+
+  .cell h3 {
+    font-size: 16.5px;
+    line-height: 1.3;
+    font-weight: 600;
+    letter-spacing: -0.018em;
+    color: rgb(var(--ink) / 0.92);
+  }
+
+  .cell p:not(.num) {
+    max-width: 440px;
+    margin-top: 6px;
+    font-size: 15px;
+    line-height: 1.55;
+    color: var(--body);
+  }
+
+  /* The visual: the cell's grey half with its dot grid, running to the hairlines. */
+  .viz {
+    flex: 1;
     display: grid;
     place-items: center;
-    width: 84px;
-    height: 84px;
-    border-radius: 50%;
-    background: var(--surface);
-    transform: translate(-50%, -50%);
-    box-shadow: 0 0 0 1px var(--hl), 0 8px 24px -8px rgb(20 20 40 / 0.2);
+    min-height: 230px;
+    padding: 28px;
+    background: var(--dots), var(--bg-sunk);
+    box-shadow: 0 -1px 0 var(--line);
   }
 
-  .core :global(img) { width: 52px; height: 52px; }
+  .viz-tall { min-height: 320px; }
+  .viz-shot { align-items: end; padding-bottom: 0; overflow: hidden; }
 
-  .chip {
+  .viz-shot :global(.shot) {
+    width: min(100%, 440px);
+    height: auto;
+    margin-bottom: -1px;
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.1), 0 18px 40px -16px rgb(30 25 20 / 0.3);
+  }
+
+  /* The Capture motion's <picture> lends its <img> the cell's width, so the image reserves its height before it loads
+     (otherwise it starts at 0 and pushes the page down mid-scroll). */
+  .viz-shot picture { display: contents; }
+
+  /* Boosts: three real states of the same Boost, stacked; the tabs (or the cell itself, now and then) switch them. */
+  .viz-shot.viz-boost { position: relative; padding-top: 72px; }
+
+  .boost-tabs {
     position: absolute;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 9px;
-    border-radius: 8px;
-    font-size: 12.5px;
-    font-weight: 600;
-    white-space: nowrap;
-    background: var(--surface);
-    box-shadow: inset 0 0 0 1px var(--hl-strong), 0 2px 6px -2px rgb(20 20 40 / 0.12);
-  }
-
-  .chip img,
-  .chip :global(img) { width: 14px; height: 14px; border-radius: 50%; }
-
-  .chip-claude { left: 0; top: 12%; color: #b4532a; background: #fdf1ea; box-shadow: inset 0 0 0 1px #f3d6c6; }
-  .chip-codex { right: 0; top: 30%; color: #4447c9; background: #eef0ff; box-shadow: inset 0 0 0 1px #d6dbff; }
-  .chip-chromium { left: 6%; bottom: 18%; color: #1f7a4f; background: #eaf8f0; box-shadow: inset 0 0 0 1px #c9ecd8; font-variant-numeric: tabular-nums; }
-  .chip-nik { right: 8%; bottom: 8%; color: var(--t1); }
-
-  @media (prefers-color-scheme: dark) {
-    .chip-claude { color: #f0a27a; background: #2a1c15; box-shadow: inset 0 0 0 1px #4a2c1e; }
-    .chip-codex { color: #a9adff; background: #1b1c33; box-shadow: inset 0 0 0 1px #2e3160; }
-    .chip-chromium { color: #7fd7a6; background: #142a1f; box-shadow: inset 0 0 0 1px #224634; }
-  }
-
-  @media (prefers-reduced-motion: no-preference) {
-    .chip { animation: float 6s ease-in-out infinite; }
-    .chip-codex { animation-delay: -1.5s; }
-    .chip-chromium { animation-delay: -3s; }
-    .chip-nik { animation-delay: -4.5s; }
-  }
-
-  @keyframes float { 50% { transform: translateY(-5px); } }
-
-  /* ------------------------------------------------------------------ the loop */
-
-  .step { display: grid; align-content: start; gap: 18px; }
-
-  .step-n {
-    display: grid;
-    place-items: center;
-    width: 32px;
-    height: 32px;
-    border-radius: 9px;
-    font-size: 13px;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-    color: var(--t2);
-    background: var(--panel);
-    box-shadow: inset 0 0 0 1px var(--hl-strong);
-  }
-
-  /* ------------------------------------------------------------------ the Spaces demo */
-
-  .demo {
-    --accent-space: #53ca9f;
-    padding: 0 var(--pad) clamp(40px, 5vw, 64px);
-  }
-
-  .demo-bar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 16px;
-  }
-
-  .seg {
+    top: 22px;
+    left: 50%;
     display: inline-flex;
     gap: 2px;
     padding: 3px;
     border-radius: 11px;
-    background: var(--panel);
-    box-shadow: inset 0 0 0 1px var(--hl);
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px rgb(var(--ink) / 0.1), 0 1px 2px rgb(0 0 0 / 0.05);
+    transform: translateX(-50%);
   }
 
-  .seg-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    height: 30px;
-    padding: 0 12px;
+  .boost-tabs button {
+    height: 32px;
+    padding: 0 13px;
     border: 0;
     border-radius: 8px;
-    font: inherit;
-    font-size: 13.5px;
-    font-weight: 550;
-    color: var(--t2);
-    background: transparent;
-    cursor: pointer;
-    transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
-  }
-
-  .seg-btn i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
-  .seg-btn:hover { color: var(--t1); }
-
-  .seg-btn[aria-selected="true"] {
-    color: var(--t1);
-    background: var(--surface);
-    box-shadow: 0 0 0 1px var(--hl-strong), 0 1px 2px rgb(0 0 0 / 0.06);
-  }
-
-  .demo-hint { font-size: 13px; font-weight: 500; color: var(--t2); }
-
-  .demo-view {
-    position: relative;
-    overflow: hidden;
-    border-radius: 16px;
-    background: var(--panel);
-    box-shadow: 0 0 0 0.5px rgb(var(--ink) / 0.1), 0 24px 50px -30px rgb(30 25 50 / 0.4);
-    padding: 0;
-    cursor: grab;
-    touch-action: pan-y;
-    user-select: none;
-    transition: background-color 0.5s var(--spring-settle);
-  }
-
-  .demo-view.dragging { cursor: grabbing; }
-  .demo-view:focus-visible { outline: 2px solid var(--t1); outline-offset: 3px; }
-
-  .demo-track {
-    display: flex;
-    transition: transform 0.48s var(--spring-settle);
-    will-change: transform;
-  }
-
-  .demo-slide { flex: 0 0 100%; }
-
-  .demo-slide :global(img) {
-    display: block;
-    width: 100%;
-    height: auto;
-    pointer-events: none;
-  }
-
-  .demo-dots { display: flex; justify-content: center; gap: 8px; margin-top: 16px; }
-
-  .demo-dots span {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--hl-strong);
-    transition: background-color 0.3s ease, transform 0.3s var(--spring-settle);
-  }
-
-  .demo-dots span.on { background: var(--c); transform: scale(1.35); }
-
-  /* ------------------------------------------------------------------ feature explorer: sticky tabs beside the panes */
-
-  .explorer {
-    display: grid;
-    grid-template-columns: 228px minmax(0, 1fr);
-  }
-
-  .ex-tabs {
-    position: sticky;
-    top: 0;
-    align-self: start;
-    display: grid;
-    gap: 2px;
-    padding: 48px 0 48px var(--pad);
-  }
-
-  .ex-tabs a {
-    position: relative;
-    display: grid;
-    gap: 1px;
-    padding: 9px 0 9px 16px;
-    transition: color 0.2s ease;
-  }
-
-  .ex-tabs b { font-size: 14.5px; font-weight: 550; letter-spacing: -0.01em; color: var(--t3); transition: color 0.2s ease; }
-  .ex-tabs span { padding-right: 12px; font-size: 12.5px; line-height: 16px; font-weight: 500; color: var(--t3); opacity: 0; max-height: 0; overflow: hidden; transition: opacity 0.25s ease, max-height 0.3s var(--spring-settle); }
-
-  /* The rail: a hairline, and on the active tab a bar that fills as you read its pane (Attio's progress rail). */
-  .ex-tabs a::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 6px;
-    bottom: 6px;
-    width: 2px;
-    border-radius: 2px;
-    background: var(--hl);
-  }
-
-  .prog {
-    position: absolute;
-    left: 0;
-    top: 6px;
-    width: 2px;
-    height: 0;
-    border-radius: 2px;
-    background: #3b82f6;
-  }
-
-  .ex-tabs a:hover b { color: var(--t2); }
-  .ex-tabs a.on b { color: var(--t1); }
-  .ex-tabs a.on span { opacity: 1; max-height: 34px; color: var(--t2); }
-  .ex-tabs a.on .prog { height: calc((100% - 12px) * var(--p, 0)); }
-
-  .ex-panes { box-shadow: -1px 0 0 var(--hl); }
-
-  .pane {
-    padding: 48px clamp(20px, 3vw, 40px);
-    scroll-margin-top: 0;
-  }
-
-  .pane + .pane { box-shadow: 0 -1px 0 var(--hl); }
-
-  .pt {
-    max-width: 620px;
-    font-size: clamp(22px, 2vw, 26px);
-    line-height: 1.25;
-    font-weight: 550;
-    letter-spacing: -0.018em;
-    color: var(--t1);
-    text-wrap: pretty;
-  }
-
-  /* Screenshots sit on a soft desktop: no frame of their own, so the window's corners are the only corners. */
-  .pane-demo {
-    display: block;
-    width: 100%;
-    margin-top: 28px;
-    padding: clamp(20px, 3.4vw, 44px);
-    border: 0;
-    border-radius: 16px;
-    background:
-      radial-gradient(80% 90% at 0% 0%, color-mix(in srgb, var(--mint) 26%, transparent), transparent 70%),
-      radial-gradient(80% 90% at 100% 100%, color-mix(in srgb, var(--lilac) 28%, transparent), transparent 70%),
-      var(--panel);
-    font: inherit;
-    color: inherit;
-    text-align: left;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .pane-demo {
-      background:
-        radial-gradient(80% 90% at 0% 0%, color-mix(in srgb, var(--mint) 12%, transparent), transparent 70%),
-        radial-gradient(80% 90% at 100% 100%, color-mix(in srgb, var(--lilac) 14%, transparent), transparent 70%),
-        var(--panel);
-    }
-  }
-
-  /* The marketing shots are the window, its shadow and a soft desktop: shown as they are, just rounded. */
-  .pane-demo.shot,
-  .pane-demo .shot-flat { padding: 0; overflow: hidden; background: none; }
-
-  .shot :global(img) { border-radius: 14px; }
-
-  .pane-demo.shot :global(img),
-  .shot-flat :global(img) {
-    filter: none !important;
-    box-shadow: 0 0 0 0.5px rgb(var(--ink) / 0.1), 0 18px 40px -24px rgb(30 25 50 / 0.35);
-  }
-
-  .tint-demo { padding: 20px 20px 18px; margin-bottom: 14px; }
-  .pane-cmd { padding: 0; background: none; }
-  .pane-cmd .try { margin-top: 14px; }
-
-  /* (Older captures, for reference: they carried transparent window corners and a following shadow.) */
-  .grid { --window-shadow: drop-shadow(0 0 0.5px rgb(0 0 0 / 0.35)) drop-shadow(0 18px 28px rgb(30 25 50 / 0.2)); }
-
-  @media (prefers-color-scheme: dark) {
-    .grid { --window-shadow: drop-shadow(0 0 0.5px rgb(255 255 255 / 0.25)) drop-shadow(0 18px 30px rgb(0 0 0 / 0.55)); }
-  }
-
-  .shot { cursor: zoom-in; }
-
-  .shot :global(img) {
-    display: block;
-    width: 100%;
-    height: auto;
-    filter: var(--window-shadow);
-    transition: transform 0.35s var(--spring-settle);
-  }
-
-  .shot:hover :global(img) { transform: translateY(-2px); }
-
-  .shot-flat {
-    display: block;
-    width: 100%;
-    padding: 0;
-    border: 0;
     background: none;
-  }
-
-  .try {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    height: 34px;
-    margin-top: 16px;
-    padding: 0 8px 0 12px;
-    border: 0;
-    border-radius: 9px;
     font: inherit;
     font-size: 13.5px;
     font-weight: 550;
-    color: var(--t1);
-    background: var(--surface);
-    box-shadow: inset 0 0 0 1px var(--hl-strong), 0 1px 2px rgb(0 0 0 / 0.04);
+    color: rgb(var(--ink) / 0.58);
     cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease;
   }
 
-  .note {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 14px;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--t2);
+  .boost-tabs button:hover { color: rgb(var(--ink) / 0.85); }
+  .boost-tabs button[aria-pressed="true"] { background: rgb(var(--ink) / 0.07); color: rgb(var(--ink) / 0.92); }
+
+  .boost-stack { display: grid; width: min(100%, 440px); }
+  .boost-stack :global(.shot) { grid-area: 1 / 1; width: 100%; transition: opacity 0.35s var(--ease-out); }
+  .boost-stack :global(.shot:not(.on)) { opacity: 0; }
+
+  /* A card with its own rounded corners (Little Airc's window, a Site Controls panel), floating in the cell. */
+  .viz :global(.card-shot) {
+    width: min(100%, 440px);
+    height: auto;
+    filter: drop-shadow(0 0 0.5px rgb(0 0 0 / 0.35)) drop-shadow(0 18px 28px rgb(30 25 20 / 0.2));
   }
 
-  .note i { width: 6px; height: 6px; border-radius: 50%; background: #e0a030; }
-  .note:hover { color: var(--t1); }
+  .viz :global(.card-shot-sm) { width: min(100%, 300px); }
 
-  .try:hover { box-shadow: inset 0 0 0 1px var(--t3), 0 1px 2px rgb(0 0 0 / 0.06); }
-  .try kbd { margin: 0; }
-
-
-
-
-
-  /* ------------------------------------------------------------------ what works: a table */
-
-  .run {
-    display: flex;
-    gap: 10px;
-    flex: none;
-    font-size: 13px;
-    line-height: 1.5;
-    font-weight: 500;
-    color: var(--t2);
-  }
-
-  .run b { color: var(--t1); }
-  .run code { font-family: var(--mono); font-size: 12px; }
-
-  .run-dot {
-    flex: none;
-    width: 7px;
-    height: 7px;
-    margin-top: 6px;
-    border-radius: 50%;
-    background: #2f9e62;
-    box-shadow: 0 0 0 3px rgb(47 158 98 / 0.2);
-  }
-
-  .table { box-shadow: 0 -1px 0 var(--hl); }
-
-  .tr {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 160px;
-    align-items: center;
-    gap: 24px;
-    padding: 14px var(--pad);
-  }
-
-  .tr + .tr { box-shadow: 0 -1px 0 var(--hl); }
-  .tr:not(.th):hover { background: var(--panel); }
-
-  .th {
-    padding-block: 10px;
-    font-size: 12.5px;
-    font-weight: 550;
-    color: var(--t3);
-    background: var(--panel);
-  }
-
-  .th span:last-child,
-  .td-s { justify-self: end; }
-
-  .td-f { display: grid; gap: 2px; }
-  .td-f b { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--t1); }
-  .td-f span { font-size: 14px; font-weight: 500; color: var(--t2); }
-
-  .mark {
-    display: grid;
-    place-items: center;
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    color: #fff;
-  }
-
-  .mark svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
-  .mark-passing { background: #2f9e62; }
-  .mark-failing { background: #e5484d; }
-
-  .pending {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    height: 24px;
-    padding: 0 9px;
-    border-radius: 7px;
-    font-size: 12.5px;
-    font-weight: 550;
-    color: #93610f;
-    background: #fdf6e6;
-    box-shadow: inset 0 0 0 1px #f3e2b8;
-  }
-
-  .pending i { width: 6px; height: 6px; border-radius: 50%; background: #e0a030; }
-
-  @media (prefers-color-scheme: dark) {
-    .pending { color: #f0c26b; background: #2b2213; box-shadow: inset 0 0 0 1px #4a3a1c; }
-  }
-
-  /* ------------------------------------------------------------------ why */
-
-  .why { padding: clamp(56px, 7vw, 96px) var(--pad); }
-
-
-
-
-  /* ------------------------------------------------------------------ team */
-
-  .who { display: grid; align-content: start; gap: 12px; }
-  .who-icon { width: 40px; height: 40px; }
-  .who :global(.who-photo) { border-radius: 50%; box-shadow: 0 0 0 1px var(--hl-strong); }
-  .who-name { margin-top: 6px; font-size: 14px; font-weight: 500; color: var(--t3); }
-  .who-name b { margin-right: 6px; font-size: 17px; font-weight: 600; letter-spacing: -0.015em; color: var(--t1); }
-  .who-body { font-size: 15px; line-height: 1.5; font-weight: 500; color: var(--t2); }
-
-  /* ------------------------------------------------------------------ questions */
-
-  .qa-sec {
-    display: grid;
-    grid-template-columns: minmax(0, 4fr) minmax(0, 7fr);
-    gap: 40px;
-    padding: clamp(56px, 7vw, 96px) var(--pad);
-  }
-
-  .qa-head { position: sticky; top: 24px; align-self: start; }
-  .qa-note { margin-top: 14px; font-size: 15px; font-weight: 500; color: var(--t2); }
-  .qa-note a { color: var(--t1); text-decoration: underline; text-decoration-color: var(--hl-strong); text-underline-offset: 3px; }
-
-  .qa { box-shadow: 0 1px 0 var(--hl); }
-  .qa details { box-shadow: 0 -1px 0 var(--hl); }
-
-  .qa summary {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 20px;
-    padding: 18px 0;
-    font-size: 16px;
-    font-weight: 550;
-    letter-spacing: -0.01em;
-    color: var(--t1);
-    cursor: pointer;
-    list-style: none;
-  }
-
-  .qa summary::-webkit-details-marker { display: none; }
-
-  .qa summary::after {
-    content: "";
-    flex: none;
-    width: 12px;
-    height: 12px;
-    background:
-      linear-gradient(var(--t3), var(--t3)) center / 100% 1.5px no-repeat,
-      linear-gradient(var(--t3), var(--t3)) center / 1.5px 100% no-repeat;
-    transition: transform 0.25s var(--ease-out);
-  }
-
-  .qa details[open] summary::after { transform: rotate(45deg); }
-  .qa details p { margin: -4px 0 20px; max-width: 560px; font-size: 15px; line-height: 1.55; font-weight: 500; color: var(--t2); }
-
-  /* ------------------------------------------------------------------ closing: Attio's dark section, with an Arc of light */
-
-  .closing {
-    position: relative;
-    isolation: isolate;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: clamp(80px, 10vw, 140px) var(--pad) clamp(180px, 20vw, 260px);
-    text-align: center;
-    color: #fff;
-    background: #0c0c0e;
-  }
-
-  .closing h2 {
-    max-width: 760px;
-    font-size: clamp(36px, 4.6vw, 64px);
-    line-height: 1.04;
-    font-weight: 600;
-    letter-spacing: -0.03em;
-    color: #fff;
-    text-wrap: balance;
-  }
-
-  .closing .red { color: #ff6b6f; }
-  .closing-count { margin-bottom: 24px; }
-  .closing-count :global(.countdown) {
-    --surface: rgb(255 255 255 / 0.06);
-    --hl: rgb(255 255 255 / 0.12);
-    --hl-strong: rgb(255 255 255 / 0.2);
-    --t1: #fff;
-    --t2: rgb(255 255 255 / 0.7);
-    --t3: rgb(255 255 255 / 0.45);
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .closing {
-      background: #060607;
-      box-shadow: 0 -1px 0 rgb(255 255 255 / 0.08), inset 0 80px 120px -80px rgb(109 140 240 / 0.14);
-    }
-  }
-  .closing .join { position: relative; }
-  .tag-dark { color: rgb(255 255 255 / 0.7); background: rgb(255 255 255 / 0.06); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.1); }
-  .meta-dark { color: rgb(255 255 255 / 0.45); }
-
-  .closing .join :global(input[type="email"]) {
-    color: #fff;
-    background: rgb(255 255 255 / 0.06);
-    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.14);
-  }
-
-  .closing .join :global(input[type="email"]::placeholder) { color: rgb(255 255 255 / 0.4); }
-
-  .closing .join :global(.btn-primary) { color: #0c0c0e; background: #fff; box-shadow: none; }
-
-  /* An arc of light rising over the horizon, in Arc's colours (Attio's dark "Universal Context" horizon). */
-  .arc-glow {
-    position: absolute;
-    left: 50%;
-    top: 64%;
-    z-index: -1;
-    width: max(140%, 1100px);
-    aspect-ratio: 1;
-    transform: translateX(-50%);
-    pointer-events: none;
-    -webkit-mask-image: linear-gradient(90deg, transparent 8%, #000 30%, #000 70%, transparent 92%);
-    mask-image: linear-gradient(90deg, transparent 8%, #000 30%, #000 70%, transparent 92%);
-  }
-
-  .arc-glow i {
-    position: absolute;
-    inset: 0;
-    border-radius: 50%;
-    background: conic-gradient(from 270deg, transparent 0deg, #53ca9f 30deg, #6d8cf0 75deg, #b9a2f2 105deg, #efa3c4 140deg, #f7b184 165deg, transparent 180deg, transparent 360deg);
-    -webkit-mask: radial-gradient(closest-side, transparent calc(100% - 3px), #000 calc(100% - 2px), #000 100%, transparent 100%);
-    mask: radial-gradient(closest-side, transparent calc(100% - 3px), #000 calc(100% - 2px), #000 100%, transparent 100%);
-  }
-
-  .arc-glow i + i {
-    filter: blur(28px);
-    opacity: 0.75;
-    -webkit-mask: radial-gradient(closest-side, transparent calc(100% - 60px), #000 calc(100% - 10px), #000 100%, transparent 100%);
-    mask: radial-gradient(closest-side, transparent calc(100% - 60px), #000 calc(100% - 10px), #000 100%, transparent 100%);
-  }
-
-  /* ------------------------------------------------------------------ small screens */
-
-  @media (max-width: 980px) {
-    .facts { grid-template-columns: repeat(2, 1fr); }
-    .fact:nth-child(odd) { box-shadow: none; }
-    .fact:nth-child(n + 3) { box-shadow: 0 -1px 0 var(--hl); }
-    .fact:nth-child(even):nth-child(n + 3) { box-shadow: 0 -1px 0 var(--hl), -1px 0 0 var(--hl); }
-    .fact:last-child { grid-column: 1 / -1; }
-
-    .cells-2,
-    .cells-3 { grid-template-columns: 1fr; }
-    .cell + .cell { box-shadow: 0 -1px 0 var(--hl); }
-
-    .explorer { grid-template-columns: 1fr; }
-    .ex-tabs { display: none; }
-    .ex-panes { box-shadow: none; }
-
-    .qa-sec { grid-template-columns: 1fr; }
-    .qa-head { position: static; }
-    .sec-head-row { flex-direction: column; align-items: flex-start; }
-  }
-
-  @media (max-width: 600px) {
-    .tr { grid-template-columns: 24px minmax(0, 1fr); gap: 12px; align-items: start; }
-    .tr .td-s { grid-column: 1; grid-row: 1; justify-self: start; padding-top: 1px; }
-    .tr .td-f { grid-column: 2; }
-    .th { display: none; }
-    .tr .pending { padding: 0; width: 22px; height: 22px; justify-content: center; border-radius: 50%; font-size: 0; }
-    .tr .pending i { width: 8px; height: 8px; }
-    .tr:has(.pending) .td-f b::after {
-      content: "Check pending";
-      margin-left: 8px;
-      padding: 1px 6px;
-      border-radius: 5px;
-      font-size: 11px;
-      font-weight: 600;
-      vertical-align: 2px;
-      color: #93610f;
-      background: #fdf6e6;
-    }
-
-    /* The command bar reads on a phone: only the field and its first rows. */
-    .tr:first-of-type + .tr { box-shadow: none; }
-  }
-
-  @media (max-width: 900px) {
-    .grid { box-shadow: none; }
-    .demo-hint { display: none; }
-  }
-
-  /* ------------------------------------------------------------------ the loop's cards */
-
-  .steps .step { grid-template-rows: auto auto 1fr; padding-bottom: 0; }
-
-  .viz {
-    display: grid;
-    place-items: center;
-    min-height: 230px;
-    margin: 24px calc(-1 * var(--pad)) 0;
-    padding: 28px;
-    background: radial-gradient(rgb(var(--ink) / 0.09) 1px, transparent 1.2px) 0 0 / 12px 12px, var(--panel);
-    box-shadow: 0 -1px 0 var(--hl);
-  }
-
+  /* Small UI cards in the cells. */
   .card {
     width: 100%;
     max-width: 300px;
@@ -1736,12 +944,32 @@ const panes = [
   .muted { font-weight: 500; color: rgb(var(--ink) / 0.42); }
   .mono { font-family: var(--mono); font-size: 11px; }
 
-  .line { display: flex; align-items: center; gap: 9px; height: 34px; padding: 0 8px; border-radius: 8px; }
+  .line {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    height: 34px;
+    padding: 0 8px;
+    border-radius: 8px;
+  }
+
   .line em { margin-left: auto; font-style: normal; font-size: 12px; color: rgb(var(--ink) / 0.45); }
-  .line-foot { margin-top: 4px; background: rgb(var(--ink) / 0.035); }
+
+  .line-foot {
+    margin-top: 4px;
+    background: rgb(var(--ink) / 0.035);
+  }
+
   .line-foot code { margin-left: auto; font-family: var(--mono); font-size: 11.5px; color: rgb(var(--ink) / 0.8); }
 
-  .led { flex: none; width: 7px; height: 7px; border-radius: 50%; background: rgb(var(--ink) / 0.2); }
+  .led {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: rgb(var(--ink) / 0.2);
+  }
+
   .led-on { background: #2f9e62; box-shadow: 0 0 0 3px rgb(47 158 98 / 0.18); }
 
   .tick {
@@ -1755,7 +983,14 @@ const panes = [
   .line :global(.face) { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
   .yes { color: #23824f !important; font-weight: 600; }
 
-  .term { padding: 6px 6px 12px; background: #1d1b1a; box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.4), 0 14px 30px -14px rgb(0 0 0 / 0.45); color: #e9e5e0; }
+  /* The port, as a terminal. */
+  .term {
+    padding: 6px 6px 12px;
+    background: #1d1b1a;
+    box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.4), 0 14px 30px -14px rgb(0 0 0 / 0.45);
+    color: #e9e5e0;
+  }
+
   .term .card-head { padding-bottom: 10px; }
   .term-dots { display: flex; gap: 5px; }
   .term-dots i { width: 8px; height: 8px; border-radius: 50%; background: rgb(255 255 255 / 0.18); }
@@ -1775,12 +1010,29 @@ const panes = [
 
   .term .cmd::before { content: "$ "; color: rgb(255 255 255 / 0.4); }
   .term .ok { color: #7fd8a6; }
-  .term .ok::before { content: "✓ "; }
+  .term .ok::before {
+    content: "";
+    display: inline-block;
+    width: 11px;
+    height: 11px;
+    margin-right: 6px;
+    vertical-align: -1px;
+    background: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center / contain no-repeat;
+  }
   .term .ok + .cmd { margin-top: 6px; }
 
+  /* They settle in once, row by row. */
   @media (prefers-reduced-motion: no-preference) {
-    .viz[data-in] :is(.line, code) { opacity: 0; transform: translateY(6px); transition: opacity 0.5s var(--ease-out), transform 0.6s var(--spring-settle); }
+    .viz[data-in] :is(.line, code) {
+      opacity: 0;
+      transform: translateY(6px);
+      transition: opacity 0.5s var(--ease-out), transform 0.6s var(--spring-settle);
+    }
+
     .viz[data-in].in :is(.line, code) { opacity: 1; transform: none; }
+
     .viz[data-in].in :is(.line, code):nth-child(2) { transition-delay: 0.08s; }
     .viz[data-in].in :is(.line, code):nth-child(3) { transition-delay: 0.18s; }
     .viz[data-in].in :is(.line, code):nth-child(4) { transition-delay: 0.3s; }
@@ -1789,153 +1041,377 @@ const panes = [
     .viz[data-in].in :is(.line, code):nth-child(7) { transition-delay: 0.66s; }
   }
 
-  /* ------------------------------------------------------------------ what works: two columns */
+  /* Air Traffic Control. */
+  .atc { max-width: 380px; }
+
+  .rule {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 10px;
+    height: 40px;
+    padding: 0 8px 0 10px;
+    border-radius: 9px;
+    transition: background-color 0.35s ease;
+  }
+
+  .rule .when { overflow: hidden; color: rgb(var(--ink) / 0.6); white-space: nowrap; text-overflow: ellipsis; }
+  .rule .when b { font-weight: 600; color: rgb(var(--ink) / 0.88); }
+  .rule i { font-style: normal; color: rgb(var(--ink) / 0.3); transition: color 0.35s ease, transform 0.45s var(--spring-settle); }
+
+  .rule .to {
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: rgb(var(--ink) / 0.05);
+    font-size: 12.5px;
+    font-weight: 550;
+    white-space: nowrap;
+    transition: background-color 0.35s ease, box-shadow 0.35s ease;
+  }
+
+  .rule.on { background: rgb(var(--ink) / 0.04); }
+  .rule.on i { color: rgb(var(--ink) / 0.7); transform: translateX(2px); }
+  .rule.on .to { background: var(--surface); box-shadow: 0 0 0 0.5px rgb(var(--ink) / 0.14), 0 2px 6px -2px rgb(0 0 0 / 0.15); }
+
+  /* ------------------------------------------------------------------ split rows: copy left, a live visual right */
+
+  .split {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  }
+
+  .split-copy { padding: clamp(48px, 6vw, 80px) var(--px); }
+  .split-copy .title { font-size: clamp(26px, 2.5vw, 32px); }
+  .split-copy .title .soft { display: block; }
+
+  .split-viz {
+    display: grid;
+    place-items: center;
+    padding: clamp(28px, 4vw, 56px);
+    background: var(--dots), var(--bg-sunk);
+    box-shadow: -1px 0 0 var(--line);
+  }
+
+  .try {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 34px;
+    margin-top: 28px;
+    padding: 0 12px 0 14px;
+    border: 0;
+    border-radius: 9px;
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px rgb(var(--ink) / 0.12), 0 1px 2px rgb(0 0 0 / 0.05);
+    font: inherit;
+    font-size: 13.5px;
+    font-weight: 550;
+    color: rgb(var(--ink) / 0.86);
+    cursor: pointer;
+    transition: box-shadow 0.15s ease, transform 0.12s var(--spring-settle);
+  }
+
+  .try:hover { box-shadow: inset 0 0 0 1px rgb(var(--ink) / 0.22), 0 1px 2px rgb(0 0 0 / 0.06); }
+  .try:active { transform: scale(0.97); }
+  .try kbd { margin: 0; font-size: 11px; }
+  .try svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.25s var(--spring-settle); }
+  .try:hover svg { transform: translateX(2px); }
+
+  .more { display: flex; justify-content: center; padding: 4px var(--px) 36px; }
+  .more .try { margin-top: 28px; }
+
+  /* ------------------------------------------------------------------ what works */
 
   .run {
+    position: relative;
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: start;
     gap: 6px 10px;
-    padding: 14px var(--pad);
+    padding: 14px var(--px);
     font-size: 13.5px;
-    line-height: 1.5;
-    font-weight: 500;
-    color: var(--t2);
-    background: var(--panel);
-    box-shadow: 0 -1px 0 var(--hl), 0 1px 0 var(--hl);
+    color: var(--body);
+    background: var(--bg-sunk);
+    box-shadow: 0 -1px 0 var(--line), 0 1px 0 var(--line);
   }
 
-  .run b { color: var(--t1); font-weight: 600; }
-  .run-meta { align-self: center; font-size: 12.5px; color: var(--t3); white-space: nowrap; }
+  .run b { font-weight: 600; color: rgb(var(--ink) / 0.88); }
+  .run-dot { margin-top: 6px; width: 8px; height: 8px; border-radius: 50%; background: #2f9e62; box-shadow: 0 0 0 3px rgb(47 158 98 / 0.2); }
+  .run-meta { align-self: center; font-size: 12.5px; color: rgb(var(--ink) / 0.46); white-space: nowrap; }
   .run-meta code { font-family: var(--mono); font-size: 11.5px; }
-  .pend-dot { display: inline-block; width: 7px; height: 7px; margin: 0 2px 1px 4px; border-radius: 50%; background: #e0a030; }
 
-  .works { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; padding: 0; list-style: none; }
+  .works {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
 
   .work {
     display: grid;
     grid-template-columns: 22px minmax(0, 1fr);
     gap: 14px;
     align-items: start;
-    padding: 18px var(--pad) 20px;
-    box-shadow: 0 1px 0 var(--hl);
+    padding: 18px var(--px) 20px;
+    box-shadow: 0 1px 0 var(--line);
   }
 
-  .work:nth-child(even) { box-shadow: 0 1px 0 var(--hl), -1px 0 0 var(--hl); }
-  .work h3 { font-size: 15px; line-height: 1.35; font-weight: 600; letter-spacing: -0.012em; color: var(--t1); }
-  .work p { margin-top: 3px; font-size: 13.5px; line-height: 1.5; font-weight: 500; color: var(--t2); }
+  .work:nth-child(even) { box-shadow: 0 1px 0 var(--line), -1px 0 0 var(--line); }
+  .work:nth-last-child(-n + 2) { box-shadow: none; }
+  .work:nth-last-child(1):nth-child(even) { box-shadow: -1px 0 0 var(--line); }
+
+  .work h3 { font-size: 15px; line-height: 1.35; font-weight: 600; letter-spacing: -0.012em; color: rgb(var(--ink) / 0.9); }
+  .work p { margin-top: 3px; font-size: 13.5px; line-height: 1.5; color: var(--body); }
+
   .state { margin-top: 1px; }
-  .work .mark { width: 20px; height: 20px; }
-  .work .mark svg { width: 12px; height: 12px; }
 
-  .work .pending { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border-radius: 50%; }
-  .work .pending i { width: 8px; height: 8px; }
+  .mark {
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    color: #fff;
+  }
 
-  .pend-label {
+  .mark svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+  .mark-passing { background: #2f9e62; }
+  .mark-failing { background: #e5484d; }
+
+  /* Built, no nightly check yet: a quiet ring, explained on hover and in the legend line above. */
+  .state-built {
+    width: 20px;
+    height: 20px;
+    overflow: hidden;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1.5px rgb(var(--ink) / 0.28);
+    font-size: 0;
+  }
+
+  .work:has(.state-built) h3::after {
+    content: "In the app, no nightly check yet";
     margin-left: 8px;
-    padding: 1px 7px;
+    padding: 2px 7px;
     border-radius: 6px;
+    background: rgb(var(--ink) / 0.06);
     font-size: 11.5px;
-    font-weight: 600;
+    font-weight: 500;
+    color: rgb(var(--ink) / 0.55);
     vertical-align: 1px;
-    color: #93610f;
-    background: #fdf6e6;
   }
 
-  @media (prefers-color-scheme: dark) {
-    .pend-label { color: #f0c26b; background: #2b2213; }
+  /* ------------------------------------------------------------------ people */
+
+  .quote {
+    margin: 0;
+    padding: clamp(72px, 9vw, 120px) var(--px) clamp(56px, 7vw, 88px);
+    text-align: center;
+    background: var(--dots);
   }
-
-  /* ------------------------------------------------------------------ why: a short, centred quote */
-
-  .why { padding: clamp(56px, 7vw, 88px) var(--pad); }
-
-  .quote { margin: 0 auto; max-width: 760px; display: flex; flex-direction: column; align-items: center; text-align: center; }
 
   .quote blockquote {
-    margin: 0;
+    max-width: 780px;
+    margin: 0 auto;
+    font-family: "Newsreader Variable", "New York", ui-serif, Georgia, serif;
     font-size: clamp(26px, 3vw, 38px);
+    font-weight: 420;
     line-height: 1.22;
-    font-weight: 550;
-    letter-spacing: -0.024em;
-    color: var(--t1);
+    letter-spacing: -0.012em;
+    color: rgb(var(--ink) / 0.92);
     text-wrap: balance;
   }
 
-  .quote-sub { max-width: 560px; margin-top: 18px; font-size: 17px; line-height: 1.5; font-weight: 500; color: var(--cont); text-wrap: balance; }
-
-  .quote figcaption { display: flex; align-items: center; gap: 12px; margin-top: 28px; font-size: 14px; color: var(--t2); }
-  .quote figcaption b { font-weight: 600; color: var(--t1); }
-  .quote :global(.why-photo) { width: 48px; height: 48px; border-radius: 50%; box-shadow: 0 0 0 1px var(--hl-strong); }
-
-  .seg-emoji { font-size: 14px; line-height: 1; }
-
-  @media (max-width: 600px) {
-    .seg { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
-    .seg-btn { justify-content: center; }
-  }
-
-  @media (max-width: 760px) {
-    .works { grid-template-columns: 1fr; }
-    .work:nth-child(even) { box-shadow: 0 1px 0 var(--hl); }
-    .run { grid-template-columns: auto minmax(0, 1fr); }
-    .run-meta { grid-column: 2; white-space: normal; }
-  }
-
-  /* ------------------------------------------------------------------ the repo, under the maintainers */
-
-  .repo {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 16px;
-    padding: 20px var(--pad);
-    box-shadow: 0 -1px 0 var(--hl);
-    transition: background-color 0.15s ease;
-  }
-
-  .repo[hidden] { display: none; }
-  .repo:hover { background: var(--panel); }
-
-  .repo-mark {
-    display: grid;
-    place-items: center;
-    width: 44px;
-    height: 44px;
-    border-radius: 12px;
-    color: #fff;
-    background: #1c1d1f;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .repo-mark { color: #111113; background: #f2f2f4; }
-  }
-
-  .repo-copy { display: grid; gap: 2px; }
-  .repo-copy b { font-family: var(--mono); font-size: 14.5px; font-weight: 600; color: var(--t1); }
-  .repo-copy span { font-size: 14px; font-weight: 500; color: var(--t2); }
-
-  .repo-stars {
+  .quote figcaption {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    height: 36px;
-    padding: 0 14px;
-    border-radius: 10px;
+    gap: 10px;
+    margin-top: 32px;
     font-size: 14px;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-    color: var(--t1);
-    background: var(--surface);
-    box-shadow: inset 0 0 0 1px var(--hl-strong);
+    color: var(--body);
   }
 
-  .repo-stars svg { width: 14px; height: 14px; fill: #e8a32b; }
-  .repo-stars b:empty + span::before { content: ""; }
-  .repo-stars b:not(:empty)::after { content: " ·"; font-weight: 500; color: var(--t3); }
+  .quote figcaption b { font-weight: 600; color: rgb(var(--ink) / 0.88); }
+  .quote :global(.face) { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 0.5px rgb(var(--ink) / 0.15); }
 
-  @media (max-width: 600px) {
-    .repo { grid-template-columns: auto minmax(0, 1fr); }
-    .repo-stars { grid-column: 1 / -1; justify-self: start; }
+  .people .cell { padding: 28px var(--px) 36px; }
+  .people .cell + .cell { padding-inline: 28px; }
+  .who { width: 36px; height: 36px; margin-bottom: 18px; }
+  .people :global(.who-photo) { border-radius: 50%; object-fit: cover; }
+  .people h3 span { margin-left: 6px; font-size: 13px; font-weight: 500; color: rgb(var(--ink) / 0.45); letter-spacing: -0.005em; }
+
+  /* ------------------------------------------------------------------ questions */
+
+  .split-qa { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
+  .split-qa .split-copy { position: sticky; top: 0; align-self: start; }
+
+  .qa {
+    padding: clamp(28px, 4vw, 56px) var(--px);
+    box-shadow: -1px 0 0 var(--line);
+  }
+
+  .qa details { box-shadow: 0 1px 0 var(--line); }
+
+  .qa summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 18px 0;
+    font-size: 16px;
+    font-weight: 560;
+    letter-spacing: -0.015em;
+    color: rgb(var(--ink) / 0.9);
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .qa summary::-webkit-details-marker { display: none; }
+
+  .qa summary::after {
+    content: "";
+    flex: none;
+    width: 12px;
+    height: 12px;
+    background:
+      linear-gradient(currentColor, currentColor) center / 100% 1.5px no-repeat,
+      linear-gradient(currentColor, currentColor) center / 1.5px 100% no-repeat;
+    opacity: 0.5;
+    transition: transform 0.3s var(--spring-settle);
+  }
+
+  .qa details[open] summary::after { transform: rotate(45deg); }
+
+  .qa details p {
+    max-width: 540px;
+    margin: -4px 0 20px;
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--body);
+  }
+
+  /* ------------------------------------------------------------------ closing */
+
+  .closing {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: clamp(80px, 10vw, 136px) var(--px);
+    text-align: center;
+    background:
+      radial-gradient(40% 90% at 15% 120%, color-mix(in srgb, #7ee8c0 45%, transparent), transparent 70%),
+      radial-gradient(40% 90% at 50% 130%, color-mix(in srgb, #8fd0ff 40%, transparent), transparent 70%),
+      radial-gradient(40% 90% at 85% 120%, color-mix(in srgb, #ff9ac8 40%, transparent), transparent 70%);
+  }
+
+  .closing .join { margin-top: 32px; }
+
+  .closing .meta {
+    margin-top: 14px;
+    font-size: 13px;
+    color: var(--body);
+  }
+
+  /* ------------------------------------------------------------------ small screens */
+
+  @media (max-width: 1100px) {
+    .facts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .facts li:nth-child(4) { box-shadow: 0 -1px 0 var(--line); }
+    .facts li:nth-child(5) { box-shadow: 0 -1px 0 var(--line), -1px 0 0 var(--line); }
+  }
+
+  @media (max-width: 900px) {
+    .frame { width: 100%; box-shadow: none; --px: 20px; }
+
+    .facts { grid-template-columns: 1fr 1fr; }
+    .facts li { padding: 16px 20px 18px; }
+    .facts li:nth-child(n) { box-shadow: 0 -1px 0 var(--line); }
+    .facts li:nth-child(even) { box-shadow: 0 -1px 0 var(--line), -1px 0 0 var(--line); }
+    .facts li:first-child,
+    .facts li:nth-child(2) { box-shadow: none; }
+    .facts li:nth-child(2) { box-shadow: -1px 0 0 var(--line); }
+    .facts li:last-child { grid-column: 1 / -1; }
+
+    .cells-2,
+    .cells-3,
+    .split,
+    .split-qa,
+    .works { grid-template-columns: 1fr; }
+
+    .cells > .cell + .cell { box-shadow: 0 -1px 0 var(--line); }
+    .cells-3 .copy { padding-inline: var(--px); }
+    .people .cell + .cell { padding-inline: var(--px); }
+    .split-viz,
+    .qa { box-shadow: 0 -1px 0 var(--line); }
+    .split-qa .split-copy { position: static; padding-bottom: 28px; }
+    .qa { padding-top: 8px; }
+    .split-viz { padding: 20px 14px; }
+
+    .work,
+    .work:nth-child(even) { box-shadow: 0 1px 0 var(--line); }
+    .work:nth-last-child(-n + 2) { box-shadow: 0 1px 0 var(--line); }
+    .work:last-child { box-shadow: none; }
+
+    .run { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
+    .run-meta { grid-column: 2; white-space: normal; }
+    .statement .title { font-size: 26px; }
+    .viz-tall { min-height: 260px; }
+
+    /* Phone-only words: shorter copy where the desktop line runs four lines on a phone. */
+    .wide { display: none; }
+    .narrow { display: inline; }
+
+    /* Hero: one Download, no release links (the closing and the footer have them). */
+    .hero :global(.links) { display: none; }
+    .hero .pointer-label { max-width: 300px; text-wrap: balance; }
+
+    .facts li { align-content: start; }
+
+    /* The loop: three steps you swipe through, the next one peeking in. */
+    #loop .cells {
+      grid-template-columns: none;
+      grid-template-rows: auto 1fr;
+      grid-auto-flow: column;
+      grid-auto-columns: 84%;
+      overflow-x: auto;
+      overscroll-behavior-x: contain;
+      scroll-snap-type: x mandatory;
+      scrollbar-width: none;
+    }
+
+    #loop .cells::-webkit-scrollbar { display: none; }
+    #loop .cell { scroll-snap-align: start; }
+    #loop .cells > .cell + .cell { box-shadow: -1px 0 0 var(--line); }
+    #loop .head { padding-bottom: 24px; }
+    #loop .copy { padding: 22px 20px 20px; }
+    #loop .num { margin-bottom: 6px; }
+    #loop .viz { min-height: 0; padding: 20px 16px 24px; }
+
+    .mono,
+    .line-foot code,
+    .term code { font-size: 12px; }
+
+    /* Shadows stay inside their cell instead of greying the hairline below. */
+    .split-viz { overflow: clip; }
+    .viz-shot { min-height: 0; padding-top: 32px; }
+
+    /* What works: the check and the name. The details are one tap away on /features. */
+    .work { align-items: center; padding: 13px var(--px); }
+    .work p { display: none; }
+    .work h3 { font-size: 15.5px; }
+
+    .work:has(.state-built) h3::after {
+      display: block;
+      width: fit-content;
+      margin: 4px 0 0;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .more { padding-bottom: 28px; }
+    .try { height: 44px; }
+
+    .qa details p { margin-bottom: 0; padding-bottom: 20px; }
+    .lede a { display: inline-block; padding: 10px 0; }
   }
 </style>

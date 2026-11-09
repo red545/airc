@@ -4,29 +4,72 @@ import AircDesign
 import AircKit
 
 // SV-1 Split View, the ways in and out (spec §2.16b, Arc ref §2.11 and §5): a tab dragged onto a tab (SpacePage) or
-// onto the page, ⌃⇧+ and the "+" menu (the Command Bar's pick opens as the new pane), Peek's Split button, the Today
-// tab menu's Add Split View; Separate All Tabs, ⌘W / ⌃⇧− on the focused pane, ⌘[ / ⌘] and ⌃⇧1–4 between panes.
+// onto the page, ⌥-click on a tab (Arc), ⌃⇧+ and the "+" menu (the Command Bar's pick opens as the new pane), the
+// Command Bar's Add Left/Right/Top/Bottom Split, Peek's Split button, the Today tab menu's Add Split View; Separate All
+// Tabs, ⌘W / ⌃⇧− on the focused pane, ⌘[ / ⌘], ⌃⇧[ / ⌃⇧] (Arc's, wrapping) and ⌃⇧1–4 between panes, and each pane's
+// handle: a click opens Arc's Split View Controls (move, add beside, arrange, separate, close), a drag takes it out.
 
 extension WindowController {
     /// ⌃⇧+ / "+" → New Split View: the Command Bar opens, and what's picked there becomes a new pane next to `anchor`.
     struct PendingSplit {
         var anchor: String
         var axis: SplitAxis
+        /// Before the anchor (Arc's Add Left / Add Top Split), else after it.
+        var leading = false
         var token = UUID()
     }
 
-    static let splitFullMessage = "A split holds up to 4 tabs"
+    /// Arc's toast when a split has its four panes ("Cannot Add New Pane").
+    static let splitFullMessage = "Cannot Add New Pane: a split holds 4 tabs"
+
+    /// Where Arc's Add Left / Right / Top / Bottom Split puts the new pane.
+    enum SplitEdge: CaseIterable {
+        case left, right, top, bottom
+
+        var axis: SplitAxis { self == .left || self == .right ? .horizontal : .vertical }
+        var leading: Bool { self == .left || self == .top }
+        /// Arc's titles.
+        var title: String {
+            switch self {
+            case .left: "Add Left Split"
+            case .right: "Add Right Split"
+            case .top: "Add Top Split"
+            case .bottom: "Add Bottom Split"
+            }
+        }
+        var symbol: String {
+            switch self {
+            case .left: "rectangle.lefthalf.inset.filled"
+            case .right: "rectangle.righthalf.inset.filled"
+            case .top: "rectangle.tophalf.inset.filled"
+            case .bottom: "rectangle.bottomhalf.inset.filled"
+            }
+        }
+    }
 
     // MARK: Ways in
 
-    /// ⌃⇧+, "+" → New Split View / New Bottom Split, the Today tab menu's Add Split View.
-    func newSplitView(axis: SplitAxis = .horizontal, anchor: String? = nil) {
+    /// ⌃⇧+, "+" → New Split View / New Bottom Split, the Today tab menu's Add Split View; Arc's Add Left / Right / Top /
+    /// Bottom Split (`leading`: before the anchor).
+    func newSplitView(axis: SplitAxis = .horizontal, anchor: String? = nil, leading: Bool = false) {
         guard let anchor = anchor ?? shownTabID, store.tab(anchor) != nil else { return openCommandBar(mode: .newTab) }
         if let x = store.split(containing: anchor), x.tabIDs.count >= Split.maxPanes { return showToast(Self.splitFullMessage) }
         if anchor != shownTabID { show(anchor, focus: false) }
         closeCommandBar()
-        pendingSplit = PendingSplit(anchor: anchor, axis: store.split(containing: anchor)?.axis ?? axis)
+        pendingSplit = PendingSplit(anchor: anchor, axis: store.split(containing: anchor)?.axis ?? axis, leading: leading)
         openCommandBar(mode: .newTab)
+    }
+
+    /// Arc's Add Left / Right / Top / Bottom Split, beside `anchor` (default: the focused pane or the page on screen).
+    /// In a split, only the two along its axis are offered (`splitEdges`).
+    func addSplit(_ edge: SplitEdge, anchor: String? = nil) {
+        newSplitView(axis: edge.axis, anchor: anchor, leading: edge.leading)
+    }
+
+    /// The edges a new pane can take beside `tabID`: the two along its split's axis, or all four for a page alone.
+    func splitEdges(for tabID: String?) -> [SplitEdge] {
+        guard let x = store.split(containing: tabID) else { return SplitEdge.allCases }
+        return SplitEdge.allCases.filter { $0.axis == x.axis }
     }
 
     /// The Command Bar's pick while a New Split View waits for it. True when it went into the split.
@@ -51,7 +94,7 @@ extension WindowController {
             return false
         }
         guard let id else { return false }
-        addPane(id, nextTo: p.anchor, axis: p.axis)
+        addPane(id, nextTo: p.anchor, axis: p.axis, leading: p.leading)
         return true
     }
 
@@ -154,7 +197,132 @@ extension WindowController {
         scheduleReload()
     }
 
+    /// Arc: ⌥-click a tab in the sidebar to open it in a split with the page on screen, next to the focused pane (the tab
+    /// on screen itself: a copy of it). A pinned tab or Favorite opens its page for it. A full split says so. On a split
+    /// (its row or Favorite tile) it separates the split into tabs, as Arc's has since 1.17.2 (SplitExtras.swift).
+    func optionClickSplit(_ entry: SidebarEntry) {
+        switch entry {
+        case .split(let x, _): return separateSplit(x.id)
+        case .pinned(let item, _, _) where item.kind == .split, .favorite(let item, _) where item.kind == .split:
+            return separateItemSplit(item.id)
+        default: break
+        }
+        guard let shown = shownTabID, store.tab(shown) != nil else { return activate(entry: entry) }
+        let x = store.split(containing: shown)
+        var id: String?
+        switch entry {
+        case .today(let t):
+            if t.id != shown, x?.tabIDs.contains(t.id) == true { return focusSplitPane(t.id) }
+            if let x, x.tabIDs.count >= Split.maxPanes { return showToast(Self.splitFullMessage) }
+            id = t.id == shown ? (try? store.duplicateTab(t.id))?.id : t.id
+        case .pinned(let item, _, _), .favorite(let item, _):
+            guard item.kind == .tab, !NoteURL.isNote(item.savedURL) else { return activate(entry: entry) }
+            if let t = store.liveTab(forItem: item.id), x?.tabIDs.contains(t.id) == true { return focusSplitPane(t.id) }
+            if let x, x.tabIDs.count >= Split.maxPanes { return showToast(Self.splitFullMessage) }
+            id = (try? store.openItem(item.id, inSpace: currentSpaceID, activate: false))?.id
+        default:
+            return activate(entry: entry)
+        }
+        guard let id, id != shown else { return NSSound.beep() }
+        addPane(id, nextTo: x?.focusedTabID ?? shown, axis: x?.axis ?? .horizontal)
+    }
+
+    /// Whether ⌥-click on `entry` is Arc's: a tab, pinned tab or Favorite opens in a split; a split separates. Not a note or
+    /// folder.
+    func optionClickSplits(_ entry: SidebarEntry) -> Bool {
+        switch entry {
+        case .today(let t): return !NoteURL.isNote(t.url)
+        case .split: return true
+        case .pinned(let item, _, _), .favorite(let item, _):
+            return item.kind == .split || (item.kind == .tab && !NoteURL.isNote(item.savedURL))
+        default: return false
+        }
+    }
+
+    /// Arc's split entries in the Command Bar: Add Left / Right / Top / Bottom Split (the two along a split's axis in
+    /// one), and in a split Separate Tab from Split and Close Split View Pane for the focused pane.
+    func splitCommandActions() -> [CommandAction] {
+        guard let shown = shownTabID, store.tab(shown) != nil else { return [] }
+        var a: [CommandAction] = []
+        let full = (store.split(containing: shown)?.tabIDs.count ?? 1) >= Split.maxPanes
+        if !full {
+            for e in splitEdges(for: shown) {
+                a.append(.init(title: e.title, symbol: e.symbol, hint: "", keywords: ["split", "pane", "side"]) { [weak self] in
+                    self?.addSplit(e)
+                })
+            }
+        }
+        if shownSplitID != nil {
+            a.append(.init(title: "Separate Tab from Split", symbol: "rectangle.split.2x1.slash", hint: "", keywords: ["split", "unsplit", "pane"]) {
+                [weak self] in self?.separatePane(shown)
+            })
+            // P06c: Arc's Expand Current Split, and back (SplitExtras.swift).
+            a.append(.init(title: expandSplitTitle, symbol: expandedPane == nil ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left",
+                           hint: ShortcutCenter.hint("tabs.expandSplit", ""), keywords: ["split", "pane", "expand", "maximize", "full", "zoom", "restore"]) {
+                [weak self] in self?.toggleExpandedSplit()
+            })
+            a.append(.init(title: "Close Split View Pane", symbol: "xmark.square", hint: ShortcutCenter.hint("tabs.closePane", "⌃⇧−"),
+                           keywords: ["split", "pane", "close"]) { [weak self] in self?.closeFocusedPane() })
+        }
+        return a
+    }
+
+    /// "Separate Tab from Split": the pane becomes a tab of its own (just below the split, or a pinned tab or Favorite
+    /// beside a pinned or Favorite one); it stays on screen.
+    func separatePane(_ tabID: String) {
+        if store.splitItem(ofPane: store.tab(tabID)?.itemID) != nil { return separatePinnedPane(tabID) }
+        guard (try? store.removeFromSplit(tabID)) != nil else { return NSSound.beep() }
+        if store.tab(tabID) != nil { show(tabID) }
+    }
+
     // MARK: In a split
+
+    /// ⌃⇧[ / ⌃⇧] (Arc's "Switch to previous / next Split View", wrapping round).
+    func focusPreviousOrNextPane(_ offset: Int) {
+        if !focusAdjacentPane(offset) { NSSound.beep() }
+    }
+
+    /// Moves `tabID`'s pane one place along the split (Arc's Move Left / Right / Up / Down); it keeps its size.
+    func movePane(_ tabID: String, by offset: Int) {
+        guard let x = store.split(containing: tabID), let i = x.tabIDs.firstIndex(of: tabID),
+              x.tabIDs.indices.contains(i + offset) else { return NSSound.beep() }
+        try? store.movePane(x.id, from: i, to: i + offset)
+    }
+
+    /// Arc's Split View Controls for one pane (its handle's click or right-click): move it, add a pane beside it,
+    /// arrange the split, separate or close it.
+    func paneMenu(_ tabID: String) -> NSMenu {
+        let m = NSMenu()
+        guard let x = store.split(containing: tabID), let i = x.tabIDs.firstIndex(of: tabID) else { return m }
+        let n = x.tabIDs.count
+        let across = x.axis == .horizontal
+        m.add(across ? "Move Left" : "Move Up") { [weak self] in self?.movePane(tabID, by: -1) }.isEnabled = i > 0
+        m.add(across ? "Move Right" : "Move Down") { [weak self] in self?.movePane(tabID, by: 1) }.isEnabled = i < n - 1
+        m.addItem(.separator())
+        for e in splitEdges(for: tabID) {
+            m.add(e.title) { [weak self] in self?.addSplit(e, anchor: tabID) }.isEnabled = n < Split.maxPanes
+        }
+        m.add(across ? "Arrange Top to Bottom" : "Arrange Side by Side") { [weak self] in
+            try? self?.store.setSplitAxis(x.id, across ? .vertical : .horizontal)
+        }
+        m.add("Make Panes the Same Size") { [weak self] in
+            guard let self else { return }
+            if self.shownSplitID == x.id { self.splitContainer.equalize() } else { self.store.setSplitFractions(x.id, Array(repeating: 1, count: n)) }
+        }
+        if shownSplitID == x.id {
+            // P06c: Arc's Expand Current Split for this pane, and back (SplitExtras.swift).
+            m.add(expandedPane == tabID ? Self.restoreSplitTitle : Self.expandSplitTitle) { [weak self] in
+                guard let self else { return }
+                if self.expandedPane == tabID { return self.toggleExpandedSplit() }
+                if self.shownTabID != tabID { self.focusSplitPane(tabID) }
+                self.splitContainer.setExpanded(tabID, animated: true)
+            }
+        }
+        m.addItem(.separator())
+        m.add("Separate Tab from Split") { [weak self] in self?.separatePane(tabID) }
+        m.add("Close Split View Pane", "⌃⇧−") { [weak self] in self?.closeTab(tabID) }
+        return m
+    }
 
     /// ⌃⇧1–4.
     func focusPane(number n: Int) {
@@ -180,6 +348,7 @@ extension WindowController {
         var ghost: AircDragGhostLayer?
         var overlay: NSView?
         var destination: DropDestination?
+        var cancelled = false
         pane.handle.isDragging = true
         dragsInProgress += 1
         defer { dragsInProgress -= 1 }
@@ -189,6 +358,7 @@ extension WindowController {
             switch e.type {
             case .keyDown where e.keyCode == 53:
                 destination = nil
+                cancelled = true
                 break tracking
             case .leftMouseUp:
                 break tracking
@@ -229,6 +399,8 @@ extension WindowController {
         overlay?.removeFromSuperview()
         pane.alphaValue = 1
         NSCursor.arrow.set()
+        // A click (no drag): Arc's Split View Controls, under the handle.
+        if !dragging, !cancelled { return showPaneMenu(tabID) }
         guard dragging, let destination else { return }
         // The rest of the split stays on screen (or, down to one, that tab alone).
         let rest = x.tabIDs.filter { $0 != tabID }
@@ -236,6 +408,17 @@ extension WindowController {
         performDrop(.tab(tabID), to: destination)
         if case .split = destination { return }
         if let keep, store.tab(keep) != nil { show(keep, focus: false) }
+    }
+
+    /// The pane's controls under its handle.
+    func showPaneMenu(_ tabID: String) {
+        guard let pane = splitContainer.pane(for: tabID) else { return }
+        #if AIRC_TESTING
+        // A scripted run never opens the menu (its tracking would hold the run); the checks read what it would show.
+        if LaunchOptions.current.isAutomated { SplitContainerView.paneMenuShown = tabID; return }
+        #endif
+        let h = pane.handle, r = h.grabRect
+        paneMenu(tabID).popUp(positioning: nil, at: NSPoint(x: r.minX, y: r.maxY + 4), in: h)
     }
 
     /// "Separate All Tabs": the panes become tabs of their own where the split's row was; the focused one stays shown.
@@ -257,12 +440,8 @@ extension WindowController {
         let m = NSMenu()
         if let pane, let t = tabs.first(where: { $0.id == pane }) {
             let name = "“" + TextLimits.clip(engineTab(for: t.id)?.title.isEmpty == false ? engineTab(for: t.id)!.title : t.displayTitle) + "”"
-            m.add("Copy Link") { [weak self] in
-                guard let self else { return }
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(self.engineTab(for: t.id)?.url?.absoluteString ?? t.url, forType: .string)
-                self.showToast("Copied Link")
-            }
+            m.add("Copy Link") { [weak self] in self?.copyLink(of: t.id) }   // without trackers, Arc's toast (WindowActions)
+            addPaneLinkItems(to: m, tabID: t.id)   // ⌥ Markdown, Share › (P01a: Browser/SelectionShare.swift)
             m.add("Separate \(name)") { [weak self] in
                 guard let self else { return }
                 let focused = self.shownTabID
@@ -282,7 +461,8 @@ extension WindowController {
         }
         if tabs.count == 2 { m.add("Swap Panes") { [weak self] in try? self?.store.movePane(x.id, from: 0, to: 1) } }
         if tabs.count < Split.maxPanes {
-            m.add("Add Split View", "⌃⇧+") { [weak self] in
+            // Arc's "Add Tab to Split View".
+            m.add("Add Tab to Split View", "⌃⇧+") { [weak self] in
                 guard let self else { return }
                 self.newSplitView(axis: x.axis, anchor: tabs.last(where: { $0.id == x.focusedTabID })?.id ?? tabs.last?.id)
             }
@@ -293,8 +473,29 @@ extension WindowController {
             guard let self else { return }
             let today = tabs.filter(\.isToday).map(\.id)
             tabs.filter { !$0.isToday }.forEach { self.closeTab($0.id) }
-            self.closeThenArchive(today, reason: .manual, label: "Close Split")
+            self.closeTodaySplit(today)
         }
         return m
+    }
+
+    /// "Close Split" on a Today split: its pages close in turn and go to the Archive (`closeThenArchive`), the ones that
+    /// would ask "Leave site?" first, so Stay on the first that asks keeps the rest of the split as it was.
+    func closeTodaySplit(_ ids: [String]) {
+        var asks: Set<String> = [], left = ids.count, started = false
+        let go = { [weak self] in
+            guard let self, !started else { return }
+            started = true
+            self.closeThenArchive(ids.filter(asks.contains) + ids.filter { !asks.contains($0) }, reason: .manual, label: "Close Split")
+        }
+        for id in ids {
+            guard let page = engineTab(for: id), !page.isClosed else { left -= 1; continue }
+            page.evaluate(Self.wouldAskBeforeUnload) { answer in
+                if (answer as? Bool) == true { asks.insert(id) }
+                left -= 1
+                if left == 0 { go() }
+            }
+        }
+        if left == 0 { go() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { go() }
     }
 }

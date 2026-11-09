@@ -1,0 +1,336 @@
+---
+// Where a share link (https://aircbrowser.com/s#v1.<payload>, docs/dev/share-links.md) opens in a browser: the shared
+// Space, folder or Boost, read from the fragment in the browser (src/lib/share-link.ts), all or nothing, as Airc reads
+// it. The fragment never leaves the browser: this page stands alone, without the site's layout and its analytics, makes
+// no requests to other sites (no fonts, scripts or favicons from elsewhere: a favicon would tell its site someone looked
+// at the list), and nothing from the link goes into the title, meta tags or any log. Every string is inserted as text.
+import "@fontsource-variable/inter/wght.css";
+import "@fontsource-variable/figtree/wght.css";
+import "../styles/global.css";
+import { Image } from "astro:assets";
+import icon from "../assets/icon.png";
+import iconSmall from "../assets/icon-small.png";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light only" />
+    <meta name="theme-color" content="#FCFBFA" />
+    <meta name="robots" content="noindex" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Shared from Airc</title>
+    <meta name="description" content="A Space, folder or Boost shared from Airc. Open it in Airc to add it." />
+    <link rel="icon" type="image/png" href={iconSmall.src} />
+  </head>
+  <body>
+    <main class="wrap">
+      <article class="card" data-share>
+        <a class="mark" href="/" aria-label="Airc"><Image src={icon} alt="" width={40} height={40} densities={[1, 2, 3]} format="png" /></a>
+        <p class="tag" data-tag>Shared from Airc</p>
+        <h1 data-title>Reading the link…</h1>
+        <noscript><p class="lede">This page reads the shared list in your browser, with JavaScript. Turn it on, or open the link in Airc.</p></noscript>
+        <div data-body></div>
+        <p class="actions" data-actions hidden>
+          <a class="btn-open" data-open href="#">Open in Airc</a>
+          <button type="button" class="btn-quiet" data-copy hidden>Copy all links</button>
+          <a class="btn-quiet" href="/">Get Airc</a>
+        </p>
+        <p class="snap" data-snap hidden>
+          A snapshot from when it was shared: it won't change, and this link can't be taken back, because the list is in the
+          link itself. This page reads it in your browser and sends it nowhere.
+        </p>
+        <ul class="tree" data-tree></ul>
+        <p class="foot">Share links open in Airc releases after 0.1.3. <a href="/">What's Airc?</a></p>
+      </article>
+    </main>
+
+    <script>
+      import { addresses, hostOf, messages, read, type Node, type Snapshot } from "../lib/share-link";
+
+      const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
+      const el = (tag: string, cls?: string, text?: string) => {
+        const e = document.createElement(tag);
+        if (cls) e.className = cls;
+        if (text !== undefined) e.textContent = text;
+        return e;
+      };
+      const plural = (n: number, one: string, many: string) => `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
+
+      function tabLink(url: string, title?: string) {
+        const a = el("a", "t") as HTMLAnchorElement;
+        a.href = url;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer nofollow";
+        a.title = url;
+        const host = hostOf(url);
+        a.append(el("span", "t-mark", (host.replace(/^www\./, "")[0] ?? "·").toUpperCase()), el("span", "t-title", title ?? host));
+        if (title) a.append(el("span", "t-host", host));
+        return a;
+      }
+
+      function tree(nodes: Node[]): HTMLElement[] {
+        return nodes.map((n) => {
+          const li = el("li", n.type);
+          if (n.type === "tab") li.append(tabLink(n.url, n.title));
+          else if (n.type === "folder") {
+            li.append(el("div", "f-name", n.name));
+            const ul = el("ul");
+            if (n.items.length) ul.append(...tree(n.items));
+            else ul.append(el("li", "empty", "Empty"));
+            li.append(ul);
+          } else {
+            li.classList.add(n.axis);
+            li.append(el("span", "s-label", n.axis === "vertical" ? "Split, stacked" : "Split"));
+            const row = el("div", "s-row");
+            row.append(...n.items.map((t) => tabLink(t.url, t.title)));
+            li.append(row);
+          }
+          return li;
+        });
+      }
+
+      function show(fragment: string, s: Snapshot) {
+        $("[data-actions]").hidden = false;
+        $<HTMLAnchorElement>("[data-open]").href = `airc://share#${fragment}`;
+        const title = $("[data-title]");
+        const body = $("[data-body]");
+        title.textContent = "";
+        body.textContent = "";
+        if (s.kind === "boost") {
+          $("[data-tag]").textContent = "Shared Boost";
+          title.append(document.createTextNode(`${s.name} `), el("span", "", `A Boost for ${s.site}.`));
+          if (s.about) body.append(el("p", "lede", s.about));
+          if (s.author) body.append(el("p", "byline", `Shared by ${s.author} (not verified: anyone can type any name).`));
+          body.append(
+            el("p", "lede", s.code
+              ? "It includes code. Airc shows what it changes and all of its code before anything is added, and asks before the code runs."
+              : "It changes how the site looks. Airc shows what it changes before anything is added."),
+          );
+          $("[data-open]").textContent = "Open in Airc to review it";
+          $("[data-snap]").hidden = true;
+          return;
+        }
+        $("[data-tag]").textContent = s.kind === "space" ? "Shared Space" : "Shared folder";
+        title.append(document.createTextNode(`${s.icon ? `${s.icon} ` : ""}${s.name} `));
+        title.append(el("span", "", `${plural(s.tabs, "tab", "tabs")}${s.folders ? ` in ${plural(s.folders, "folder", "folders")}` : ""}.`));
+        $("[data-snap]").hidden = false;
+        const copy = $<HTMLButtonElement>("[data-copy]");
+        copy.hidden = false;
+        const links = addresses(s.items);
+        copy.onclick = async () => {
+          const text = links.join("\n");
+          try {
+            await navigator.clipboard.writeText(text);
+          } catch {
+            const t = Object.assign(document.createElement("textarea"), { value: text });
+            document.body.append(t);
+            t.select();
+            document.execCommand("copy");
+            t.remove();
+          }
+          copy.textContent = `Copied ${plural(links.length, "link", "links")}`;
+          setTimeout(() => (copy.textContent = "Copy all links"), 2200);
+        };
+        $("[data-tree]").replaceChildren(...tree(s.items));
+      }
+
+      function refuse(message: string, hasLink: boolean) {
+        $("[data-tag]").textContent = hasLink ? "Share link" : "Shared from Airc";
+        $("[data-title]").textContent = message;
+        $("[data-body]").replaceChildren(
+          el("p", "lede", hasLink ? "Ask whoever shared it for the link again, or open it in Airc." : "Links to Spaces and folders shared from Airc open here."),
+        );
+        $("[data-actions]").hidden = !hasLink;
+        $("[data-copy]").hidden = true;
+        $("[data-snap]").hidden = true;
+        $("[data-tree]").replaceChildren();
+      }
+
+      async function render() {
+        const fragment = location.hash.slice(1);
+        if (!fragment) return refuse("This is where Airc's share links open.", false);
+        $<HTMLAnchorElement>("[data-open]").href = `airc://share#${fragment}`;
+        const r = await read(fragment);
+        if (r.ok) show(fragment, r.snapshot);
+        else refuse(messages[r.why], true);
+      }
+
+      addEventListener("hashchange", () => void render());
+      void render();
+    </script>
+  </body>
+</html>
+
+<style is:global>
+  html, body { min-height: 100%; }
+
+  body {
+    margin: 0;
+    background:
+      radial-gradient(60% 50% at 15% 0%, color-mix(in srgb, #53ca9f 22%, transparent), transparent 70%),
+      radial-gradient(50% 50% at 90% 10%, color-mix(in srgb, #86cdf5 24%, transparent), transparent 70%),
+      var(--win, #ebe8e4);
+  }
+
+  .wrap { display: grid; justify-items: center; min-height: 100vh; padding: clamp(16px, 5vw, 56px) 16px; box-sizing: border-box; }
+
+  .card {
+    width: min(100%, 720px);
+    align-self: start;
+    padding: clamp(24px, 5vw, 44px);
+    border-radius: 18px;
+    background: var(--bg);
+    box-shadow: 0 0 0 0.5px rgb(var(--ink) / 0.1), 0 24px 60px -24px rgb(30 25 20 / 0.35);
+    box-sizing: border-box;
+  }
+
+  .mark { display: block; width: fit-content; margin-bottom: 18px; }
+  .mark img { display: block; width: 40px; height: 40px; }
+
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    height: 24px;
+    margin: 0 0 12px;
+    padding: 0 9px;
+    border-radius: 7px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #2a6fd1;
+    background: rgb(58 114 222 / 0.1);
+  }
+
+  .card h1 {
+    margin: 0;
+    font-size: clamp(26px, 4vw, 34px);
+    line-height: 1.12;
+    font-weight: 560;
+    letter-spacing: -0.024em;
+    color: var(--t1);
+    overflow-wrap: anywhere;
+    text-wrap: balance;
+  }
+
+  .card h1 span { color: var(--t3); }
+
+  .lede { margin: 14px 0 0; font-size: 15.5px; line-height: 1.6; color: var(--t2); overflow-wrap: anywhere; }
+  .byline { margin: 10px 0 0; font-size: 13.5px; color: var(--t3); overflow-wrap: anywhere; }
+
+  .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 22px 0 0; }
+  .actions[hidden], [hidden] { display: none !important; }
+
+  .btn-open {
+    display: inline-flex;
+    align-items: center;
+    height: 42px;
+    padding: 0 16px;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: 600;
+    color: #fff;
+    background: #18181b;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
+  }
+
+  .btn-open:hover { background: #2a2a2e; }
+
+  .btn-quiet {
+    display: inline-flex;
+    align-items: center;
+    height: 42px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 12px;
+    font: inherit;
+    font-size: 14.5px;
+    font-weight: 550;
+    color: var(--t1);
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--hl-strong);
+    cursor: pointer;
+  }
+
+  .btn-quiet:hover { box-shadow: inset 0 0 0 1px var(--t3); }
+
+  .snap { margin: 16px 0 0; font-size: 13px; line-height: 1.55; color: var(--t3); }
+
+  /* The tree: tabs as rows, folders open with their rows indented, a split as one row of its tabs. No favicons: a
+     letter of the host instead, so viewing the list asks nothing of the sites in it. */
+  .tree { margin: 24px 0 0; padding: 0; list-style: none; box-shadow: 0 -1px 0 var(--hl); }
+  .tree:empty { display: none; }
+  .tree ul { margin: 0 0 0 9px; padding: 0 0 0 14px; list-style: none; box-shadow: inset 1px 0 0 var(--hl); }
+  .tree li { margin: 0; }
+
+  .tree .t {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 40px;
+    padding: 0 8px;
+    border-radius: 9px;
+    color: var(--t1);
+    font-size: 14.5px;
+    font-weight: 500;
+  }
+
+  .tree .t:hover { background: var(--panel); }
+
+  .t-mark {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 650;
+    color: var(--t2);
+    background: rgb(var(--ink) / 0.06);
+  }
+
+  .t-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .t-host { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--t3); }
+
+  .f-name {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 40px;
+    padding: 0 8px;
+    font-size: 14.5px;
+    font-weight: 600;
+    color: var(--t1);
+    overflow-wrap: anywhere;
+  }
+
+  .f-name::before {
+    content: "";
+    flex: none;
+    width: 20px;
+    height: 16px;
+    border-radius: 4px;
+    background:
+      linear-gradient(#7aa5f0, #7aa5f0) 0 0 / 9px 4px no-repeat,
+      linear-gradient(#8fb3f3, #6d97ea) 0 3px / 20px 13px no-repeat;
+    border-top-left-radius: 3px;
+  }
+
+  .empty { padding: 8px 8px 10px; font-size: 13px; color: var(--t3); }
+
+  .split { padding: 6px 0; }
+  .s-label { display: block; padding: 0 8px 4px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--t3); }
+  .s-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 4px; padding: 4px; border-radius: 11px; box-shadow: inset 0 0 0 1px var(--hl); }
+  .split.vertical .s-row { grid-template-columns: 1fr; }
+  .s-row .t { background: var(--bg-sunk); }
+
+  .foot { margin: 28px 0 0; padding-top: 18px; font-size: 13px; color: var(--t3); box-shadow: 0 -1px 0 var(--hl); }
+  .foot a { color: var(--t2); text-decoration: underline; text-decoration-color: var(--hl-strong); text-underline-offset: 3px; }
+
+  @media (max-width: 520px) {
+    .t-host { display: none; }
+    .actions > * { flex: 1 1 auto; justify-content: center; }
+  }
+</style>

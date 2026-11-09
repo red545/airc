@@ -115,3 +115,15 @@ export async function getVersions(): Promise<{ all: Version[]; nightly?: Nightly
   }
   return { all, nightly };
 }
+
+declare const process: { env: Record<string, string | undefined> };
+
+// Unreleased work (a staged release's notes, the features it brings) shows on preview deployments and in `astro dev`
+// only. In production a release appears once the stable feed lists it, at the next deploy.
+export const SHOW_UNRELEASED = import.meta.env.DEV || process.env.VERCEL_ENV === "preview";
+
+// The published stable versions, newest first, from the Sparkle feed.
+export async function getPublished(): Promise<Map<string, Version>> {
+  const { all } = await getVersions();
+  return new Map(all.filter((v) => v.channel === "stable").map((v) => [v.version, v]));
+}

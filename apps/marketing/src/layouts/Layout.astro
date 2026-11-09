@@ -1,6 +1,7 @@
 ---
 import { getImage, Image } from "astro:assets";
-import "@fontsource-variable/inter/opsz.css";
+import "@fontsource-variable/inter/wght.css";
+import "@fontsource-variable/figtree/wght.css";
 import "../styles/global.css";
 import iconSmall from "../assets/icon-small.png";
 import icon from "../assets/icon.png";
@@ -8,7 +9,6 @@ import socialCard from "../assets/social-card.png"; // assets/brand/kit/airc-soc
 import NavIcon from "../components/NavIcon.astro";
 import GitHubMark from "../components/GitHubMark.astro";
 import { compact, getStars } from "../lib/github";
-import { getRelease } from "../lib/release";
 import { groups } from "../lib/nav";
 import { CONTACT_EMAIL, GITHUB_URL } from "../lib/site";
 
@@ -29,7 +29,6 @@ const socialUrl = new URL(social.src, Astro.site);
 const canonical = new URL(Astro.url.pathname, Astro.site);
 const year = new Date().getFullYear();
 const stars = await getStars();
-const release = await getRelease();
 ---
 
 <!doctype html>
@@ -37,9 +36,9 @@ const release = await getRelease();
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="light dark" />
-    <meta name="theme-color" content="#FCFBFA" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#110F0E" media="(prefers-color-scheme: dark)" />
+    <!-- Light only, whatever the Mac or phone is set to. -->
+    <meta name="color-scheme" content="light only" />
+    <meta name="theme-color" content="#FCFBFA" />
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
@@ -174,7 +173,8 @@ const release = await getRelease();
         <footer class="footer">
           <nav class="footer-links" aria-label="Footer">
             <a href="/download" data-track="download_clicked" data-track-from="footer" data-track-leave>Download</a>
-            <a href={release.notes}>Release notes</a>
+            <a href="/features">Features</a>
+            <a href="/changelog">Changelog</a>
             <a href="/versions">Versions</a>
             <a href="/privacy">Privacy</a>
             {GITHUB_URL && <a href={GITHUB_URL} rel="noopener" data-track="github_clicked" data-track-from="footer">Open source (Apache-2.0) on GitHub</a>}
@@ -193,6 +193,7 @@ const release = await getRelease();
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="M20 20l-4.4-4.4"></path></svg>
           <input id="cmd-input" type="text" placeholder="Search or jump to a section" autocomplete="off" spellcheck="false" />
           <kbd>esc</kbd>
+          <button type="button" class="cmd-close" data-cmd-close>Cancel</button>
         </label>
         <ul class="cmd-list" id="cmd-list" role="listbox"></ul>
       </div>
@@ -205,8 +206,8 @@ const release = await getRelease();
       <img id="zoom-img" alt="" />
     </dialog>
 
-    <script define:vars={{ items: groups.flatMap((g) => g.items.map((s) => ({ id: s.id, label: s.label, group: g.title }))), github: GITHUB_URL, notes: release.notes }}>
-      window.__aircNav = { items, github, notes };
+    <script define:vars={{ items: groups.flatMap((g) => g.items.map((s) => ({ id: s.id, label: s.label, group: g.title }))), github: GITHUB_URL }}>
+      window.__aircNav = { items, github };
     </script>
 
     <script>
@@ -235,10 +236,9 @@ const release = await getRelease();
       const tabs = [...document.querySelectorAll<HTMLAnchorElement>("[data-nav]")];
       const sections = [...document.querySelectorAll<HTMLElement>("[data-space][id]")];
       const urlText = document.querySelector<HTMLElement>("[data-url]");
-      const { items, github, notes } = (window as any).__aircNav as {
+      const { items, github } = (window as any).__aircNav as {
         items: { id: string; label: string; group: string }[];
         github: string;
-        notes: string;
       };
       const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -339,7 +339,8 @@ const release = await getRelease();
       const rows: Row[] = [
         ...items.map((s) => ({ label: s.label, hint: s.group, icon: iconOf(s.id), run: () => go(s.id) })),
         { label: "Download Airc for Mac", hint: "Action", run: () => { location.href = "/download"; } },
-        { label: "Release notes", hint: "Link", run: () => { location.href = notes; } },
+        { label: "Every feature", hint: "Link", run: () => { location.href = "/features"; } },
+        { label: "Changelog: what's new", hint: "Link", run: () => { location.href = "/changelog"; } },
         { label: "All versions", hint: "Link", run: () => { location.href = "/versions"; } },
         { label: "Nightly builds", hint: "Link", run: () => { location.href = "/versions#nightly"; } },
         { label: "Privacy", hint: "Link", run: () => { location.href = "/privacy"; } },
@@ -406,6 +407,7 @@ const release = await getRelease();
 
       input.addEventListener("input", () => { sel = 0; render(); });
       cmd.addEventListener("mousedown", (e) => { if (e.target === cmd) closeCmd(); });
+      cmd.querySelector("[data-cmd-close]")?.addEventListener("click", closeCmd);
 
       addEventListener("keydown", (e) => {
         const typing = e.target instanceof HTMLElement && /^(INPUT|TEXTAREA)$/.test(e.target.tagName);
@@ -453,6 +455,7 @@ const release = await getRelease();
       const button = document.querySelector<HTMLButtonElement>(".menu");
       function setMenu(open: boolean) {
         win.classList.toggle("menu-open", open);
+        document.documentElement.classList.toggle("menu-lock", open);
         button?.setAttribute("aria-expanded", String(open));
         if (button) button.textContent = open ? "Close" : "Menu";
       }
@@ -471,16 +474,19 @@ const release = await getRelease();
     transition: background-color 0.6s var(--spring-settle);
   }
 
-  @media (prefers-color-scheme: dark) {
-    .window { --win: #1c1c1f; }
-  }
-
   /* The page's colour picker (TintPicker) re-tints this window, the way a Space does in Airc: a layer fades in over the
      last one, since gradients can't transition, and the sidebar's ink follows the colour. */
   .tints { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; border-radius: inherit; }
   .tints :global(.tint) { position: absolute; inset: 0; opacity: 0; transition: opacity 0.55s var(--ease-out); }
   .tints :global(.tint.in) { opacity: 1; }
   .tints :global(.tint-paper) { background: var(--win); }
+
+  /* While a picked colour fades in, the sidebar's ink fades with it instead of flipping first (white text on the old
+     light colour, for half a second, read as a flicker). */
+  .window.tinting .side,
+  .window.tinting .side :global(*) {
+    transition: color 0.55s var(--ease-out), background-color 0.55s var(--ease-out), box-shadow 0.55s var(--ease-out);
+  }
   .side, .page, .mobilebar, .reveal-side { position: relative; z-index: 1; }
 
   .window[data-tone="light"] .side {
@@ -505,14 +511,6 @@ const release = await getRelease();
   .window[data-tint="lilac"] { --win: #d4c6f4; }
   .window[data-tint="peach"] { --win: #f6cdb1; }
   .window[data-tint="pink"] { --win: #f3c4d7; }
-
-  @media (prefers-color-scheme: dark) {
-    .window[data-tint="mint"] { --win: #1d463a; }
-    .window[data-tint="sky"] { --win: #1d3656; }
-    .window[data-tint="lilac"] { --win: #352b56; }
-    .window[data-tint="peach"] { --win: #523524; }
-    .window[data-tint="pink"] { --win: #50253a; }
-  }
 
   @media (prefers-reduced-motion: reduce) {
     .window { transition: none; }
@@ -727,10 +725,6 @@ const release = await getRelease();
     box-shadow: 0 0 0 0.5px rgb(var(--ink) / 0.06), 0 1px 2px rgb(0 0 0 / 0.08);
   }
 
-  @media (prefers-color-scheme: dark) {
-    .tab[aria-current="true"] { background: #34343a; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08); }
-  }
-
   .foot {
     display: grid;
     gap: 12px;
@@ -765,10 +759,6 @@ const release = await getRelease();
   }
 
   @keyframes holo-turn-sm { to { --holo-a: 570deg; } }
-
-  @media (prefers-color-scheme: dark) {
-    .holo-sm { color: #fff; }
-  }
 
   /* The Space bar at the bottom of Arc's sidebar: archive, one dot per group, new tab. */
   .bar {
@@ -907,6 +897,8 @@ const release = await getRelease();
 
   .cmd-field kbd { margin: 0; font-size: 11px; }
 
+  .cmd-close { display: none; }
+
   .cmd-list { margin: 0; padding: 8px; list-style: none; }
 
   .cmd-list { max-height: min(460px, 60vh); overflow-y: auto; }
@@ -1039,12 +1031,20 @@ const release = await getRelease();
       gap: 10px;
       height: 56px;
       padding: 0 16px;
-      background: var(--win);
+      /* A colour picked on the page (TintPicker) tints the bar, as the sidebar does on a desktop. */
+      background: var(--bar-tint, var(--win));
     }
+
+    .window[data-tone="dark"] .brand { color: #fff; }
+
+    /* Phones show the colour on the bar (and the menu sheet) only. The window's fade layers would be as tall as the
+       whole page here, and iOS flickers animating a layer that size. */
+    .tints { display: none; }
 
     .brand {
       display: inline-flex;
       align-items: center;
+      min-height: 44px;
       gap: 8px;
       font-weight: 700;
       font-size: 17px;
@@ -1052,7 +1052,7 @@ const release = await getRelease();
     }
 
     .menu {
-      height: 34px;
+      height: 38px;
       padding: 0 14px;
       border: 0;
       border-radius: 10px;
@@ -1069,8 +1069,44 @@ const release = await getRelease();
       padding-bottom: 24px;
     }
 
-    /* The menu opens in the flow under the bar and pushes the page down. */
-    .window.menu-open .side { display: flex; }
+    /* The menu is a sheet under the bar, over the page, wherever you are on it. */
+    .window.menu-open .side {
+      position: fixed;
+      top: 56px;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 29;
+      display: flex;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding-bottom: calc(24px + env(safe-area-inset-bottom));
+      background: var(--bar-tint, var(--win));
+    }
+
+    :global(html.menu-lock) { overflow: hidden; }
+
+    .window.menu-open .side .tab { min-height: 44px; }
+
+    /* A thumb has no Esc key: the palette closes with Cancel. */
+    .cmd-field kbd { display: none; }
+
+    .cmd-close {
+      display: inline-flex;
+      align-items: center;
+      height: 44px;
+      margin-right: -6px;
+      padding: 0 6px;
+      border: 0;
+      background: none;
+      font: inherit;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--accent-text);
+    }
+
+    .footer-links { gap: 0 20px; }
+    .footer-links a { padding: 12px 0; }
 
     .side > .toolbar,
     .side > .url,

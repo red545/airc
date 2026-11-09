@@ -114,12 +114,24 @@ extension CALayer {
         add(a, forKey: "springPosition")
     }
 
-    func fade(from: Float, to: Float, duration: Double) {
+    /// Moves the layer along a fixed curve (folder open: 200 ms ease-out), in the render server. Shares the spring's
+    /// key, so either replaces the other.
+    func curvePosition(from old: CGPoint, curve: AircCurve) {
+        guard old != position else { return }
+        let a = CABasicAnimation(keyPath: "position")
+        a.fromValue = NSValue(point: old)
+        a.toValue = NSValue(point: position)
+        a.duration = curve.duration
+        a.timingFunction = curve.timingFunction
+        add(a, forKey: "springPosition")
+    }
+
+    func fade(from: Float, to: Float, duration: Double, timing: CAMediaTimingFunction = CAMediaTimingFunction(name: .easeOut)) {
         let a = CABasicAnimation(keyPath: "opacity")
         a.fromValue = from
         a.toValue = to
         a.duration = duration
-        a.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        a.timingFunction = timing
         opacity = to
         add(a, forKey: "fade")
     }

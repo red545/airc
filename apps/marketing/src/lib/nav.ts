@@ -1,5 +1,4 @@
-// The page's sections, as the window's sidebar lists them. Each section also names the Space it sits in (the sidebar's
-// group dots use it).
+// The page's sections, as the window's sidebar lists them. Each section also names the Space (window tint) it sits in.
 export type Space = "mint" | "sky" | "lilac" | "peach" | "pink";
 
 export interface Section {
@@ -14,28 +13,26 @@ export const groups: { title: string; items: Section[] }[] = [
     title: "Story",
     items: [
       { id: "top", label: "Arc shuts down", icon: "top", space: "mint" },
-      { id: "reborn", label: "Arc, reborn", icon: "reborn", space: "lilac" },
       { id: "math", label: "The math", icon: "math", space: "peach" },
       { id: "loop", label: "The loop", icon: "loop", space: "sky" },
     ],
   },
   {
-    title: "Features",
+    title: "Airc",
     items: [
-      { id: "spaces", label: "Colours", icon: "spaces", space: "peach" },
-      { id: "profiles", label: "Profiles", icon: "profiles", space: "mint" },
+      { id: "spaces", label: "Spaces", icon: "swipe", space: "mint" },
       { id: "command", label: "Command bar", icon: "command", space: "sky" },
-      { id: "import", label: "Import from Arc", icon: "import", space: "lilac" },
-      { id: "links", label: "Links", icon: "links", space: "sky" },
+      { id: "colour", label: "Colours and profiles", icon: "spaces", space: "lilac" },
+      { id: "import", label: "Import and links", icon: "import", space: "peach" },
+      { id: "boosts", label: "Boosts and Capture", icon: "boosts", space: "pink" },
+      { id: "little-arc", label: "Little Airc and streaming", icon: "little", space: "sky" },
       { id: "supported", label: "What works", icon: "works", space: "mint" },
     ],
   },
   {
     title: "People",
     items: [
-      { id: "why", label: "Why I'm building this", icon: "why", space: "peach" },
-      { id: "expect", label: "What to expect", icon: "expect", space: "mint" },
-      { id: "team", label: "Who maintains it", icon: "team", space: "lilac" },
+      { id: "team", label: "Who builds it", icon: "team", space: "lilac" },
       { id: "qa", label: "Questions", icon: "qa", space: "sky" },
     ],
   },

@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+import time
 import urllib.request
 import urllib.error
 import xml.etree.ElementTree as ET
@@ -69,6 +70,17 @@ def verify(stage):
         if 'PASS installed and relaunched 0.0.2' not in log or 'PASS installed Developer ID signature' not in log:
             raise ValueError('Sparkle proof incomplete')
     return m, item
+
+def read_back(url, tries=12, wait=5):
+    """A new Blob object can read as 404 for a few seconds after its put, and the CDN may serve that 404 again;
+    read it back under a fresh query string until it appears."""
+    for attempt in range(tries):
+        try:
+            with urllib.request.urlopen(f'{url}?readback={attempt}', timeout=120) as r:
+                return hashlib.file_digest(r,'sha256').hexdigest()
+        except urllib.error.HTTPError as e:
+            if e.code != 404 or attempt == tries-1: raise
+            time.sleep(wait)
 
 def main():
     parser=argparse.ArgumentParser()
@@ -143,7 +155,7 @@ def main():
             except urllib.error.HTTPError as e:
                 if e.code != 404: raise
                 put(stage/name,prefix+name)
-                with urllib.request.urlopen(url, timeout=120) as r: digest=hashlib.file_digest(r,'sha256').hexdigest()
+                digest=read_back(url)
             if digest != v['sha256']: raise ValueError('Remote checksum mismatch: '+name)
             print(url)
         if not same: channel.insert(1,item)

@@ -88,13 +88,25 @@ final class SpacePagerView: NSView {
     private var samples: [(t: CFTimeInterval, p: Double)] = []
     private var ignoringGesture = false
     lazy var animator = FrameAnimator(view: self)
-    /// Pull-to-create (Arc, SP-21): a swipe past the last Space reveals a "+"; held past the detent it fills, pops
-    /// 1.13× over 120 ms with a haptic, and letting go opens Create a Space.
+    /// Pull-to-create (Arc, SP-21): a swipe past the last Space reveals a "+"; pulled 22.7 pt out (`SwipeOverscroll`)
+    /// it fills, pops 1.13× over 120 ms with a haptic, and letting go opens Create a Space.
     private let createIndicator = CALayer()
     private let createPlus = CAShapeLayer()
     private var createReady = false
-    /// Raw overscroll (in pages) that arms the create state.
-    static let createDetent = 0.32
+    /// SP-25, the mirror image (Arc: "swipe past the first Space opens the Library"): the Library's glyph past the
+    /// first Space, ready at the same pull; letting go opens the Library.
+    private let libraryIndicator = CALayer()
+    private let libraryGlyph = CALayer()
+    private var libraryReady = false
+    #if AIRC_TESTING
+    /// SidebarPolishCheck.swift: the pull on screen past an end after the last tracked event, and what's ready.
+    var pullState: (end: SwipeOverscroll.End?, points: Double, createReady: Bool, libraryReady: Bool) {
+        let pull = SwipeOverscroll.pull(position: rawPosition, pageCount: pages.count, pageWidth: Double(pageWidth))
+        return (pull?.end, pull?.points ?? 0, createReady, libraryReady)
+    }
+    /// The detent haptics a scripted run skips (it never touches the owner's trackpad), counted instead.
+    private(set) var detentHaptics = 0
+    #endif
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -115,6 +127,29 @@ final class SpacePagerView: NSView {
         createPlus.actions = ["strokeColor": NSNull()]
         createIndicator.addSublayer(createPlus)
         layer?.addSublayer(createIndicator)
+        libraryIndicator.bounds = createIndicator.bounds
+        libraryIndicator.cornerRadius = 16
+        libraryIndicator.opacity = 0
+        libraryIndicator.actions = createIndicator.actions
+        libraryGlyph.frame = libraryIndicator.bounds
+        libraryGlyph.actions = ["backgroundColor": NSNull()]
+        // The footer's Library glyph, tinted through a mask like the "+" stroke.
+        let mask = CALayer()
+        mask.frame = libraryGlyph.bounds
+        mask.contentsGravity = .center
+        if let symbol = NSImage(systemSymbolName: "archivebox", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 14, weight: .medium)) {
+            mask.contents = symbol
+            mask.contentsScale = 2
+        }
+        libraryGlyph.mask = mask
+        libraryIndicator.addSublayer(libraryGlyph)
+        layer?.addSublayer(libraryIndicator)
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        libraryGlyph.mask?.contentsScale = window?.backingScaleFactor ?? 2
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -199,6 +234,10 @@ final class SpacePagerView: NSView {
         // Nor during the window's own animations (⌘S hide/show, the Library): a 3 ms attach would drop their frame.
         let windowAnimating = controller.map { $0.animator.isRunning("sidebar") || $0.animator.isRunning("library") } ?? false
         if isTrackingOrSettling || !held.isEmpty || windowAnimating { return queueTreeSettle() }
+        // Nor right after a slide: queued as a swipe began, this came due as its spring ended and attached a page (~3–5
+        // ms) in the spring's last frame (P02b: a late frame 34 frames after release). Pages wait until the pager has
+        // been still for a moment.
+        if Self.waitsForStillness, CACurrentMediaTime() - settledAt < 0.3 { return queueTreeSettle() }
         // Not while the person is doing something: a change to the view tree makes AppKit redo the window's tracking
         // areas, which can end a press in progress (a click whose mouse-up hasn't arrived yet) or a hover.
         let sinceInput = ProcessInfo.processInfo.systemUptime - (NSApp.currentEvent?.timestamp ?? 0)
@@ -237,8 +276,21 @@ final class SpacePagerView: NSView {
     private func release() {
         guard !held.isEmpty else { return }
         held = []
+        settledAt = CACurrentMediaTime()
         queueTreeSettle()
     }
+
+    /// When the last slide or swipe let go of its pages (`release`).
+    private var settledAt: CFTimeInterval = 0
+
+    /// Test builds can settle the tree as soon as nothing moves, as before (`AIRC_SWIPE_BASELINE=1`, P02b).
+    private static let waitsForStillness: Bool = {
+        #if AIRC_TESTING
+        return ProcessInfo.processInfo.environment["AIRC_SWIPE_BASELINE"] != "1"
+        #else
+        return true
+        #endif
+    }()
 
     /// The page views attached now (`--script frames` census and tests).
     var attachedPages: [SpacePageView] { pages.filter { $0.superview === strip } }
@@ -275,6 +327,15 @@ final class SpacePagerView: NSView {
             return
         }
         stopCoreSettle()
+        // Reduce Motion (Q02): a longer jump or a released swipe doesn't slide either; the pages cross-fade.
+        if reduceMotion {
+            animator.cancel("settle")
+            held = []
+            apply(target)
+            strip.layer?.superlayer?.add(AircMotion.crossfadeTransition(), forKey: kCATransition)
+            completion?()
+            return
+        }
         // A longer jump or a released swipe: every page it passes is attached once, up front, not mid-flight.
         let lo = Int(min(position, target).rounded(.down)), hi = Int(max(position, target).rounded(.up))
         hold(Array(lo...hi))
@@ -339,19 +400,28 @@ final class SpacePagerView: NSView {
             // Never more than one page away from where the swipe started.
             rawPosition = min(max(rawPosition, Double(startPage) - 1), Double(startPage) + 1)
             apply(displayed(rawPosition))
-            updateCreateIndicator()
+            updatePullIndicators()
             samples.append((CACurrentMediaTime(), rawPosition))
             if samples.count > 8 { samples.removeFirst(samples.count - 8) }
         }
         if phase == .ended || phase == .cancelled {
             tracking = false
+            // Only a finger lifted while the pull is still out acts: a cancelled gesture, or one pulled back under the
+            // detent, just springs back. The pull can only start from the end page (a swipe moves one page at most).
             let create = createReady && phase == .ended
+            let library = libraryReady && phase == .ended
             createReady = false
-            hideCreateIndicator()
+            libraryReady = false
+            hidePullIndicators()
             if create {
                 let last = max(pages.count - 1, 0)
                 go(to: last, animated: true) { [weak self] in self?.release(); self?.controller?.pagerDidSettle(on: last) }
                 controller?.openNewSpacePanel()
+                return
+            }
+            if library {
+                go(to: 0, animated: true) { [weak self] in self?.release(); self?.controller?.pagerDidSettle(on: 0) }
+                controller?.openLibrary()
                 return
             }
             let now = CACurrentMediaTime()
@@ -369,38 +439,46 @@ final class SpacePagerView: NSView {
         }
     }
 
-    private func updateCreateIndicator() {
-        let last = Double(max(pages.count - 1, 0))
-        let over = rawPosition - last
-        guard over > 0, let theme = controller?.currentPalette.resolved else { return hideCreateIndicator() }
-        let revealed = (displayed(rawPosition) - last) * Double(pageWidth)
+    private func updatePullIndicators() {
+        let pull = SwipeOverscroll.pull(position: rawPosition, pageCount: pages.count, pageWidth: Double(pageWidth))
+        guard let pull, pull.points > 0, let theme = controller?.currentPalette.resolved else { return hidePullIndicators() }
+        let onLast = pull.end == .last
+        let indicator = onLast ? createIndicator : libraryIndicator
+        let revealed = CGFloat(pull.points)
+        let ready = SwipeOverscroll.isReady(points: pull.points, wasReady: onLast ? createReady : libraryReady)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        createIndicator.position = CGPoint(x: pageWidth - CGFloat(revealed) / 2, y: bounds.height * 0.42)
-        createIndicator.opacity = Float(min(1, revealed / 24))
-        let ready = over >= Self.createDetent
-        createIndicator.backgroundColor = (ready ? theme.text : theme.hoverFill).cgColor
-        createPlus.strokeColor = (ready ? theme.background : theme.textSecondary).cgColor
-        CATransaction.commit()
-        if ready != createReady {
-            createReady = ready
-            if ready {
-                // The ready fill lands in 60 ms (the colour above), then the detent pops: 1.13× over 120 ms.
-                let pop = CAKeyframeAnimation(keyPath: "transform.scale")
-                pop.values = [1, 1.13, 1]
-                pop.keyTimes = [0, 0.5, 1]
-                pop.duration = 0.12
-                pop.beginTime = CACurrentMediaTime() + 0.06
-                createIndicator.add(pop, forKey: "pop")
-                NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
-            }
+        (onLast ? libraryIndicator : createIndicator).opacity = 0
+        indicator.position = CGPoint(x: onLast ? pageWidth - revealed / 2 : revealed / 2, y: bounds.height * 0.42)
+        indicator.opacity = Float(min(1, revealed / 24))
+        indicator.backgroundColor = (ready ? theme.text : theme.hoverFill).cgColor
+        if onLast {
+            createPlus.strokeColor = (ready ? theme.background : theme.textSecondary).cgColor
+        } else {
+            libraryGlyph.backgroundColor = (ready ? theme.background : theme.textSecondary).cgColor
         }
+        CATransaction.commit()
+        let was = onLast ? createReady : libraryReady
+        if onLast { createReady = ready; libraryReady = false } else { libraryReady = ready; createReady = false }
+        guard ready, !was else { return }
+        // The ready fill lands in 60 ms (the colour above), then the detent pops: 1.13× over 120 ms.
+        let pop = CAKeyframeAnimation(keyPath: "transform.scale")
+        pop.values = [1, 1.13, 1]
+        pop.keyTimes = [0, 0.5, 1]
+        pop.duration = 0.12
+        pop.beginTime = CACurrentMediaTime() + 0.06
+        indicator.add(pop, forKey: "pop")
+        #if AIRC_TESTING
+        if LaunchOptions.current.isScripted { detentHaptics += 1; return }
+        #endif
+        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
     }
 
-    private func hideCreateIndicator() {
+    private func hidePullIndicators() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         createIndicator.opacity = 0
+        libraryIndicator.opacity = 0
         CATransaction.commit()
     }
 
@@ -618,9 +696,10 @@ final class SpaceBarView: NSView {
         super.init(frame: frame)
         addSubview(library)
         addSubview(plus)
-        library.toolTip = "View Library ⇧⌘L"
+        library.toolTip = Self.libraryToolTip
         plus.toolTip = "New…"
         library.action = { [weak self] in self?.controller?.showLibrary() }
+        library.onHover = { [weak self] inside in self?.controller?.recentFiles.buttonHover(inside) }
         plus.menuProvider = { [weak self] in self?.controller?.plusMenu() }
     }
 

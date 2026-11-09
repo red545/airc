@@ -119,10 +119,12 @@ Status: **works** (already there, checked), **added** (this pass), **different**
 | Space N | ⌃1–9 | Space n | works | |
 | Previous / next Space | ⌥⌘← / ⌥⌘→ | Previous/Next Space | works | |
 | Previous / next tab | ⌥⌘↑ / ⌥⌘↓, ⌘{ ⌘} | Previous/Next Tab | works / added | ⌘{ ⌘} and Chrome's ⌃⇞ ⌃⇟ added (hidden menu items). On a QWERTZ layout ⌘{ ⌘} need ⌥, as in Arc and Chrome |
-| Sidebar item N / last | ⌘1–8 / ⌘9 | Sidebar Tab n | works | Page first |
-| Recent tab | ⌃Tab | Last Used Tab | works | |
-| Focus sidebar | ⌘. | — | missing | Unconfirmed in Arc (2021); ⌘. is Stop on macOS |
-| Reveal current tab | ⌃Space | — | different | macOS input-source switch owns ⌃Space |
+| Sidebar item N / last | ⌘1–8 / ⌘9 | Sidebar Tab n | works | Page first. Arc's two choices in Settings → Shortcuts → Sidebar: Include Favorites in ordering, Switch to ninth tab (kept across relaunches, `--script parityp03`) |
+| Recent tab | ⌃Tab, ⌃⇧Tab | Last Used Tab, Previous Recent Tab | works | Arc's Tab Switcher (forward/backward): ⌃ held walks the Space's five most recent tabs; only the stop counts as used (`--script parityp03`). Arc's Cycle Tab (⌃⌘← ⌃⌘→): every tab of the Space in last-used order (`--script parityp03b`, P03b). Cross-Space order open |
+| Focus sidebar | ⌘. (2021) | Reveal Current Tab | works | Arc 1.171's menu has no ⌘.: its "Reveal Current Tab" (action focusSidebar, ⌃Space) is the sidebar focus. ⌘. stays Stop |
+| Reveal current tab | ⌃Space | Tabs › Reveal Current Tab | works | Arc's key. With two input sources macOS takes ⌃Space first; Settings says so on the row. Arrows, Tab, type-to-select, Space/Return/Esc in the sidebar (`--script parityp03`) |
+| Reveal tab in sidebar | — | Tabs › Reveal Tab in Sidebar | added | Arc's, no key: the row shows, the keyboard stays on the page |
+| Key priority | — | Settings → Shortcuts | works | Arc's three: Use Both (default; a second press within a second runs Airc's), Prefer Websites, Prefer Airc |
 | Library | ⇧⌘L | Library | works | Page first (Docs' left align) |
 | Little Arc / open in Space / move | ⌥⌘N / ⌘O / ⌥⌘O | Little Arc | works | Little Arc's own keys |
 | Split add / close / focus | ⌃⇧= / ⌃⇧− / ⌃⇧1–4 | New Split View, Close Pane, Focus Pane n | works | |
@@ -130,7 +132,7 @@ Status: **works** (already there, checked), **added** (this pass), **different**
 | Developer Mode | ⌃D | — | missing | No Developer Mode. ⌃D is also delete-forward in text fields |
 | Join meeting | ⌃⌘J | Tabs › Join Next Meeting | added | The meeting the sidebar offers to join (Live Calendar). Beeps without one |
 | Capture | ⇧⌘2 | — | missing | No Capture feature |
-| New note | ⌃⇧N | — | missing | No Notes |
+| New note | ⌃⇧N | File › New Note | works | Notes (docs/user/notes.md). Not in private or Little Arc windows |
 | Remove a Command Bar suggestion | ⌥⌘⌫ | — | missing | Needs history removal in the bar |
 | Extensions | ⌘E | Extensions | works | Page first |
 | History | ⌘Y | History | works | Chromium: chrome://history. WebKit: the Command Bar |

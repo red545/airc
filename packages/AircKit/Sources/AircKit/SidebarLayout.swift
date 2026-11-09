@@ -85,14 +85,21 @@ extension SpacesStore {
         return out
     }
 
-    /// ⌘1–⌘8 open the Nth sidebar tab (Favorites first); ⌘9 the last one (CB-2).
-    public func commandNumberTarget(_ n: Int, inSpace spaceID: String) -> SidebarEntry? {
+    /// ⌘1–⌘8 open the Nth sidebar tab, ⌘9 the last one (CB-2), with Arc's two choices (K02): Favorites count first
+    /// unless "Include Favorites in ordering" is off, and ⌘9 is the ninth item with "Switch to ninth tab" on. Folders
+    /// don't count; a folded pinned section and closed folders' tabs are skipped, as the keyboard skips them in Arc; an
+    /// unloaded pinned tab or Favorite counts (the key loads it); a split is one item.
+    public func commandNumberTarget(_ n: Int, inSpace spaceID: String,
+                                    preferences: SidebarNavigationPreferences = SidebarNavigation.preferences) -> SidebarEntry? {
         let tabs = sidebarEntries(ofSpace: spaceID).filter {
-            if case .folder = $0 { return false }
-            return true
+            switch $0 {
+            case .folder: return false
+            case .favorite: return preferences.includeFavoritesInOrdering
+            default: return true
+            }
         }
         guard n >= 1, !tabs.isEmpty else { return nil }
-        if n >= 9 { return tabs.last }
+        if n >= 9, !preferences.switchToNinthItem { return tabs.last }
         return n <= tabs.count ? tabs[n - 1] : nil
     }
 

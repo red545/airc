@@ -62,6 +62,9 @@ struct Palette: Equatable {
     var selected: NSColor { resolved.selectedFill.nsColor }
     var selectedHover: NSColor { resolved.selectedFill.nsColor }
     var selectedShadow: AircShadow? { resolved.selectedHasShadow ? .rowSelected : nil }
+    /// SB-36: rows of a multi-selection other than the shown tab (Arc's secondary selection).
+    var multiSelected: NSColor { resolved.multiSelectFill.nsColor }
+    var multiSelectedHover: NSColor { resolved.multiSelectHoverFill.nsColor }
     var separator: NSColor { resolved.separator.nsColor }
     var urlFieldFill: NSColor { resolved.fieldFill.nsColor }
     var tileFill: NSColor { resolved.tileFill.nsColor }

@@ -1,0 +1,634 @@
+# Airc 0.1.3 on Stable (2026-11-08, build 202611081442, source bde185a). Every claim is from its published release
+# notes (apps/marketing/src/content/changelog/0.1.3.md, aircbrowser.com/changelog).
+slug = "2026-11-08-release-0.1.3"
+title = "Airc 0.1.3 release pack"
+kind = "release"
+since = "0.1.3"
+# 0.1.3's own source: its shots as they were then (developer-mode was retaken after it, with 0.1.4's Network button), and
+# its videos built from it (tools/social/mac-frames.sh --rev bde185a; notes and sitesearch were drawn from commits
+# inside it, e9abd05 and 7244420).
+shots_rev = "bde185a"
+tag = "New in Airc 0.1.3"
+end_title = "Airc 0.1.3"
+end_line = "Free for Mac · aircbrowser.com"
+summary = """
+Airc 0.1.3 shipped on Stable on 2026-11-08. This pack covers it: an announcement image, cards for its headline items,
+a four-image set for the rest, videos rendered frame by frame by the app from 0.1.3's own source (Notes, Site Search,
+Capture Full Page, Space colours, Developer Mode), a seven-post launch thread, and standalone posts. It also carries the
+evergreen videos, now drawn from 0.1.3: the intro, Spaces, moving from Arc, Split View, the sidebar on the right and
+private windows (each says the release it came in).
+"""
+order = """
+1. Post 1 (the announcement) on its own, then posts 2–7 as replies under it, a few minutes apart: that's the thread
+   (`reply = true`; tools/social/xpost.py posts them that way). No post has a link: X charges a link post far more, and
+   the profile links the site. The videos' end cards show it.
+2. Pin the intro (post 8) for the week; it says why Airc exists (Arc shuts down on December 22).
+3. Then three standalone posts a day, about six hours apart (09:00, 15:00, 21:00 UTC; the owner's ceiling is ten a day,
+   replies not counted), in this order: Moving from Arc, Spaces, Space colours, Developer Mode, Split
+   View, the sidebar on the right, private windows; then the "also new in 0.1.3" posts (Live Calendar's ⌃⌘J, more
+   Split View, Arc's menus, then clean links the next day, Boost links, menus in ⌘T); Reduce Motion any day.
+Use the 16:9 images and videos in the thread (X shows them uncropped); the 1:1 versions are for standalone posts and
+other networks.
+"""
+checked = """
+- 0.1.3's published notes: every feature named here is in "New since 0.1.2"; nothing else is claimed.
+- iCloud Sync: "tested with iCloud on one Mac; syncing between two Macs through iCloud Keychain hasn't been tested
+  yet". Its cards carry that line, and post 3 says it.
+- Developer Mode: 0.1.3's strip is Inspect, Hard Reload and the console error count. Its shot and video are 0.1.3's own
+  (the Network button and ⌃-click to clear site data are 0.1.4's).
+- Not claimed (0.1.4, or in no notes yet): Portrait Mode, Boosts off in private windows, the ⌘S and swipe speed-ups,
+  site previews, Ask on Page, link previews.
+- Live Calendar's ⌃⌘J shipped in 0.1.2 (3f6cce0 has it; the website, 2026-11-08): what's new in 0.1.3 is the calendar
+  Favorite's right-click options, and that's what its post says. Boost updates from the author, every menu command in
+  ⌘T, ⌥-click to split, Split View Controls, dropping a tab on a saved split and pages following the Space live are
+  0.1.3 too (the website's check of its catalog, f283eb2).
+- Also new in 0.1.3, not in its notes (the lead's rule, 16:25: in bde185a, passed in the 08:35 run, there for anyone,
+  changed since 0.1.2): Arc's menus, clean links and folder Markdown
+  (ff27478, e07858f; parityp01), menus in ⌘T and Essential Keyboard Shortcuts (678c7f2; parityp01b), Boost links
+  (e527849; boosts2, aircbrowser.com/boost answers), a saved split's icon (splitparity). Split View's post keeps to the
+  notes' words (⌥-click separates a split). Still held: Reduce Transparency and the 4.5:1 title contrast (unsure), and
+  Developer Mode's Site Controls card (its shot is newer than 0.1.3).
+- The Spaces and intro takes use Wikipedia's articles and the demo's own shared folder: no product logo up front, nobody's
+  face or name (the website held the earlier swift.org and GitHub take for that).
+"""
+
+# ---------------------------------------------------------------- images
+
+[[image]]
+id = "announce"
+shot = "notes"
+hero = true
+title = "Airc 0.1.3"
+line = "Notes, iCloud Sync, Capture Full Page and Little Airc from any app, in the Arc-style browser for Mac."
+focus = [0, 40, 1200, 620]
+target_16x9 = [690, 150, 1120, 700]
+target_1x1 = [88, 500, 1180, 737]
+text_16x9 = [96, 150, 500]
+text_1x1 = [88, 150, 1000]
+alt = "Airc 0.1.3. An Airc window with the Travel Space's sidebar, where a pinned note called Lisbon plan sits among the tabs; the note open beside it has a heading, a line of text, a checklist with one item ticked, and a pasted Capture of a trip page."
+
+[[image]]
+id = "notes"
+shot = "notes"
+title = "Notes, in the sidebar."
+line = "⌃⇧N: a note pinned among your tabs, saved as you type. Captures paste straight in."
+focus = [0, 40, 1200, 620]
+target_16x9 = [700, 100, 1000, 700]
+alt = "A note in Airc. The Travel Space's sidebar has a pinned note called Lisbon plan among its tabs; the note open beside it has a heading, a line of text, a checklist with one item ticked, and a pasted Capture of a trip page showing a sunset over rooftops."
+
+[[image]]
+id = "notes-split"
+shot = "notes-split"
+title = "A note beside the page."
+line = "New Note in Split puts one next to what you’re reading."
+focus = [0, 0, 1300, 660]
+target_16x9 = [690, 110, 1000, 640]
+alt = "New Note in Split in Airc. A trip-planning page, Lisbon, four days, on the left, and on the right a note, Packing for Lisbon, with two items ticked in a checklist and a short list from the guide."
+
+[[image]]
+id = "icloud-sync"
+shot = "settings-sync"
+title = "iCloud Sync."
+line = "Spaces, pinned tabs, folders and Favorites, the same on your Macs. Off until you turn it on."
+note = "New: tested with iCloud on one Mac so far."
+alt = "Airc's Settings, Sync. A switch to sync Spaces, pinned tabs and Favorites with iCloud between Macs signed in to the same Apple Account, a note that it's end-to-end encrypted with the key in iCloud Keychain, the status Up to date, and two Macs listed."
+
+[[image]]
+id = "icloud-merge"
+shot = "settings-sync-first"
+sizes = ["16x9"]
+title = "Merge or replace."
+line = "On another Mac, Airc shows both sidebars and asks, after a backup."
+note = "New: tested with iCloud on one Mac so far."
+alt = "Airc asking how to start syncing on a second Mac. This Mac has 4 Spaces and 14 pinned tabs, iCloud has 3 Spaces and 5 pinned tabs; a Work profile is matched to this Mac's Work profile; the choices are Merge with this Mac's sidebar or Replace it with iCloud's."
+
+[[image]]
+id = "little-arc"
+shot = "little-arc-menu"
+title = "Little Airc, from any app."
+line = "⌥⌘N, even in full screen. Its chevron lists your Spaces: pick one and the page moves there."
+keys = "⇧⌘O"
+clip = [506, 218, 836, 322]
+target_16x9 = [700, 190, 900, 520]
+alt = "Little Airc's Spaces menu. A small Airc window showing Wikipedia's article on pastel de nata, with its menu open: the Spaces Personal, Travel, Studio and Work, each tinted in its own colour, then Search Spaces, Profile and Copy Link."
+
+[[image]]
+id = "capture-full-page"
+shot = "capture-full-page"
+title = "Capture Full Page."
+line = "In Capture, press F for the whole length of the page."
+keys = "⇧⌘2"
+focus = [300, 0, 900, 900]
+focus_16x9 = [244, 0, 960, 900]
+align = "left"
+area_16x9 = [700, 0, 1600, 900]
+alt = "Capture Full Page in Airc. Over a dimmed trip page, Lisbon, day by day, the whole page is shown as one tall picture, from its title down through Thursday, Friday, Saturday and Sunday, its size above it and Copy, Save and Share under it."
+
+[[image]]
+id = "site-search-hint"
+shot = "command-bar-site-search-hint"
+title = "Site Search, in ⌘T."
+line = "Type a site’s shortcut, like yt, and press Tab to search that site."
+focus = [330, 290, 810, 360]
+target_16x9 = [690, 140, 1000, 640]
+alt = "Airc's Command Bar over Wikipedia's Lisbon article, with “wiki” typed: the second row says Search Wikipedia, Press Tab, above other Wikipedia pages and suggestions."
+
+[[image]]
+id = "site-search"
+shot = "command-bar-site-search"
+title = "Then just type."
+line = "The search goes to that site."
+focus = [330, 290, 810, 200]
+target_16x9 = [690, 260, 1040, 300]
+alt = "Airc's Command Bar searching Wikipedia: a Wikipedia pill leads the field, “Belém Tower” is typed after it, and the rows offer Search Wikipedia and the Belém Tower article."
+
+[[image]]
+id = "site-search-settings"
+shot = "settings-site-search"
+title = "Your own sites."
+line = "Edit them in Settings → Site Search."
+alt = "Airc's Settings, Site Search: the Personal profile's sites, Google Drive, Gmail, Google Maps, Google Calendar, Google Docs, Dropbox and Amazon, each with its shortcut, its search address with %s, and Edit."
+
+[[image]]
+id = "dev-mode"
+shot = "developer-mode"
+title = "Developer Mode, per site."
+line = "On by itself for localhost; ⌃D for any other site. Inspect, Hard Reload and console errors."
+focus = [0, 0, 760, 620]
+alt = "Developer Mode in Airc on a synthetic local app, Fieldwork, at localhost: under the address, a strip with Inspect, Reload with ⇧⌘R and a count of 2 console errors."
+
+[[image]]
+id = "toolbar-extensions"
+shot = "toolbar-extensions"
+title = "Extensions in the toolbar."
+line = "Show the toolbar, and your pinned extensions move to its top right."
+keys = "⇧⌘D"
+clip = [700, 0, 740, 290]
+target_16x9 = [700, 200, 860, 400]
+alt = "The top right of Airc's toolbar in the Work Space, with two pinned extensions, Reading List and Focus Timer, and the extensions list open under them: each extension with its pin switch, then Manage Extensions and Chrome Web Store."
+
+[[image]]
+id = "boost-gallery"
+shot = "boosts-gallery"
+title = "The Boost gallery."
+line = "Browse Boosts, and add the ones you like."
+alt = "Airc's Boost gallery. Six Boosts, each with a preview: Bookish Wikipedia, Night Wikipedia, Comfortable Hacker News, Focus YouTube, Wide GitHub and MDN Reader, each with a Get button."
+
+[[image]]
+id = "boost-try-on"
+shot = "boosts-review"
+target_16x9 = [700, 100, 1060, 680]
+title = "Try It On."
+line = "See a Boost on the real site before you add it."
+alt = "A shared Boost under review in Airc. Wikipedia is shown dark behind the review card, Add this Boost to Airc, Night Wikipedia, which lists what it changes and says it has no JavaScript, with Try It On switched on and an Add Boost button."
+
+[[image]]
+id = "theme-palette"
+shot = "theme-palette"
+target_16x9 = [700, 90, 1100, 690]
+title = "Pages in your Space’s colours."
+line = "Pages that use Arc’s page colours get your Space’s theme."
+alt = "Wikipedia's Typography article in Airc's Personal Space with a light peach theme, the page's background, text and links all in the Space's own colours, set by a Boost that uses only Arc's page colours."
+
+[[image]]
+id = "arc-logins"
+shot = "arc-import-logins"
+title = "Arc import results."
+line = "Logins that didn’t come over, grouped by reason. Try Again imports only what failed."
+alt = "Airc's Logins from Arc report: 2 logins and 2 cookies imported, 4 skipped, and one profile's saved passwords couldn't be read. Each skipped item says why in plain words, such as an Android app's login or a sign-in through another account, with a Try Again button."
+
+[[image]]
+id = "sidebar-files"
+shot = "sidebar-files"
+sizes = ["16x9"]
+title = "Drop files on the sidebar."
+line = "Files, folders, links and text."
+focus = [0, 0, 980, 660]
+target_16x9 = [690, 100, 896, 690]
+alt = "A Finder folder dropped on Airc's sidebar in the Travel Space: a pinned folder, Lisbon trip, holds its files as tabs (Lisbon three days, Packing list, Restaurants) and a nested Tickets folder; the first file is open, a three-day itinerary, and a message says Added 5 tabs and 2 folders to Travel."
+
+[[image]]
+id = "quote-link"
+shot = "quote-link"
+sizes = ["16x9"]
+title = "A link to what you copied."
+line = "Copy text on a page, and Airc offers a link straight to that text."
+focus = [440, 20, 640, 600]
+alt = "Wikipedia's Typography article in Airc with a paragraph selected and copied; a bar at the top asks Share a link directly to this text instead?, with a Copy Link button."
+
+# Moving from Arc and Split View: older features (0.1.0), each with its video below; not tagged new.
+
+[[image]]
+id = "arc-import"
+shot = "onboarding-import"
+tag = "Moving from Arc"
+title = "Bring your Arc with you."
+line = "Spaces, pinned tabs, folders and profiles, in about a minute."
+alt = "Airc's import step on demo data, “Bring your Arc with you”: Arc found on the Mac with 4 Spaces, 3 profiles and 13 tabs; Spaces, pinned tabs and folders, Favorites per profile and browsing history ticked, with an Import everything button, beside a preview of the Personal Space's sidebar."
+
+[[image]]
+id = "split-view"
+shot = "split-view-3"
+tag = "Split View"
+title = "Split View."
+line = "Up to four tabs side by side, in one window."
+alt = "Split View in Airc's Travel Space: a map of Lisbon, Wikipedia's Lisbon article and its article on Lisbon's trams, three panes side by side in one window, with the split as one row in the sidebar."
+
+# Also new in 0.1.3, though its notes don't name them: in bde185a, passed in the 08:35 run on it, there for anyone (the
+# lead, 16:25). Each changed since 0.1.2 (3f6cce0..bde185a), so their posts say "also new in Airc 0.1.3".
+
+[[image]]
+id = "split-extras"
+shot = "favorite-split-icon"
+# Above the sidebar's Sign in to Google card (window points): the Favorites with the split's tile, and the panes' tops.
+clip = [0, 0, 1000, 450]
+title = "More Split View."
+line = "Expand one pane, separate a page, and give a saved split its own icon."
+alt = "Split View in Airc's Work Space, in dark mode: Linear's site beside Apple's SwiftUI documentation in one window, the split saved as a Favorite with its own icon."
+
+[[image]]
+id = "live-calendar"
+shot = "calendar"
+title = "Your next meeting, Arc’s way."
+line = "Right-click the calendar Favorite to choose when the link shows and what you see."
+clip = [0, 30, 520, 300]
+alt = "Live Calendar in Airc: the calendar Favorite's card over the Personal Space, listing upcoming meetings with times and a Join button on the next one."
+
+[[image]]
+id = "boost-link"
+shot = "boosts-share"
+title = "Share a Boost as a link."
+line = "The whole Boost is in the link, so no server sees it."
+focus = [440, 180, 580, 540]
+alt = "Share Boost in Airc, over Wikipedia's Typography article in a warm Boost: a preview of the page, an option to include the screenshot, a name, Bookish Wikipedia, and the buttons Save File and Copy Link."
+
+[[image]]
+id = "tab-menu"
+shot = "tab-menu"
+title = "Arc’s right-click menus."
+line = "Every tab, Favorite, folder and selection gets Arc’s actions. Each is in ⌘T too."
+clip = [0, 380, 380, 470]
+alt = "a Today tab's menu in Airc's sidebar, with Copy Link, Share (highlighted), Change Icon, Rename, Mute, Customize Page, Add Split View, Duplicate, Move to, Move to New Window, Pin Tab, Add to Favorites, Archive Tab and Archive Tabs Below."
+
+[[image]]
+id = "folder-markdown"
+shot = "folder-markdown"
+title = "A folder, as Markdown."
+line = "Copy All Links as Markdown: each tab’s name and link, nested as in the sidebar."
+clip = [0, 60, 390, 420]
+alt = "a folder's menu in Airc's sidebar, with Rename, Change Icon, Copy All Links, Copy All Links as Markdown (highlighted), Duplicate, New Nested Folder and Delete Folder."
+
+[[image]]
+id = "essential-shortcuts"
+shot = "essential-shortcuts"
+title = "Your keys, on one page."
+line = "Help › Essential Keyboard Shortcuts, as you’ve set them."
+alt = "Airc's Essential Keyboard Shortcuts window, listing keys for tabs, pages, Spaces and windows, Split View, notes and meetings, and numbers, such as New Tab ⌘T, Capture ⇧⌘2, Next Space ⌥⌘→, New Note ⌃⇧N and Join Next Meeting ⌃⌘J, with a line saying any of them can be changed in Settings, Shortcuts."
+
+# ---------------------------------------------------------------- videos (frames: tools/social/mac-frames.sh --rev bde185a)
+
+[[video]]
+id = "notes-video"
+motion = "notes"
+web = "notes"
+# The sidebar and the note, down to the pasted Capture (its right edge is at about 1180 pt).
+clip = [0, 0, 1200, 620]
+scale_16x9 = 0.95
+scale_1x1 = 0.78
+title = "Notes, in the sidebar."
+line = "A page of your own among your tabs."
+captions = { new = "⌃⇧N makes a note, pinned in the sidebar.", title = "Its first line is its name.", text = "It saves as you type.", heading = "## makes a heading as you type.", checklist = "[] makes a checklist.", paste = "A Capture pastes straight in." }
+alt = "An animation rendered frame by frame by Airc: a new note pinned in the Travel Space's sidebar is typed into: its name, Lisbon plan, a line of text, a heading made with ##, a checklist made with [], then a Capture of a trip page pasted in. Captions: Control-Shift-N makes a note. Its first line is its name. ## makes a heading as you type. [] makes a checklist. A Capture pastes straight in."
+
+[[video]]
+id = "sitesearch-video"
+motion = "sitesearch"
+web = "site-search"
+title = "Site Search, in ⌘T."
+line = "Search a site straight from the Command Bar."
+captions = { page = "Press ⌘T.", shortcut = "Type a site’s shortcut: wiki.", tab = "Press Tab: now it searches Wikipedia.", query = "Type, then Return." }
+alt = "An animation rendered frame by frame by Airc: on Wikipedia's Lisbon article, the Command Bar opens, “wiki” is typed and a row offers Search Wikipedia, Press Tab; then a Wikipedia pill leads the field and “Belém Tower” is typed, with Search Wikipedia and the Belém Tower article as results. Captions: Press Command-T. Type a site's shortcut. Press Tab. Type, then Return."
+
+[[video]]
+id = "fullpage-video"
+motion = "fullpage"
+web = "capture-full-page"
+title = "Capture Full Page."
+line = "The whole page, top to bottom."
+captions = { page = "A long page.", capture = "⇧⌘2, then F.", progress = "Capture in progress…", done = "The whole page, ready to copy, save or share." }
+alt = "An animation rendered frame by frame by Airc: a long trip itinerary, Lisbon day by day; Capture opens with Shift-Command-2, F starts Capture Full Page, and the whole page appears as one tall picture with Copy, Save and Share."
+
+[[video]]
+id = "themes-video"
+motion = "themes"
+web = "space-colours"
+title = "Pages in your Space’s colours."
+line = "Pages that use Arc’s page colours get your Space’s theme."
+fade_frames = 14
+alt = "An animation rendered frame by frame by Airc: Wikipedia's Typography article with a Boost that uses only Arc's page colours, as the Space's theme changes from mint to peach, sky, lilac, a dark grape and forest; the sidebar and the page change colour together each time."
+
+[[video]]
+id = "devtabs-video"
+motion = "devtabs"
+web = "developer-mode"
+title = "Developer Mode, per site."
+line = "On by itself for localhost. ⌃D for any other site."
+captions = { local = "On by itself for localhost: Inspect, Hard Reload and its console errors.", site = "Any other site…", ctrld = "…is one ⌃D away.", controls = "Or switch it in Site Controls." }
+fade_frames = 10
+alt = "An animation rendered frame by frame by Airc: a made-up app's local preview, Fieldwork, at localhost in the Personal Space, already in Developer Mode: under the address, Inspect, Reload and a count of two console errors. Then Swift.org, a plain tab, until Control-D turns Developer Mode on for it, and Site Controls show its Developer Mode switch."
+
+[[video]]
+id = "intro-video"
+motion = "intro"
+web = "intro"
+since = "0.1.0"
+title = "Arc, kept going."
+line = "The same sidebar."
+cards_before = [
+  { title = "Arc shuts down on December 22.", accent = true, lockup = false, seconds = 2.2 },
+  { title = "Airc keeps it going.", line = "A free, open-source Mac browser.", seconds = 1.9 },
+]
+captions = { sidebar = "The same sidebar.", spaces = "The same Spaces, a swipe apart.", commandbar = "The same ⌘T.", profiles = "Work and personal, each in its own profile." }
+end_title = "Nobody can shut it down."
+end_line = "Free and open source · aircbrowser.com"
+end_note = "Built and maintained by AI agents."
+alt = "Airc's intro, rendered frame by frame by the app. Arc shuts down on December 22. Airc keeps it going: a free, open-source Mac browser. Then one take in Airc: the Personal Space's sidebar on Wikipedia's Kyoto article, a two-finger swipe to Travel, the Command Bar finding Lisbon as it's typed, and swipes to Studio and to Work, in its own profile, on a shared folder of launch files. Captions: the same sidebar, the same Spaces, the same Command-T. It ends: Nobody can shut it down. Free and open source, aircbrowser.com. Built and maintained by AI agents."
+
+[[video]]
+id = "spaces-video"
+motion = "swipe"
+web = "sidebar"
+since = "0.1.0"
+tag = "Spaces"
+title = "A sidebar for each part of your day."
+line = "Swipe with two fingers to move between them."
+steps = ["🏡 Personal", "✈️ Travel", "🎨 Studio", "💼 Work"]
+alt = "An animation rendered by Airc: two-finger swipes move the sidebar from the Personal Space in mint, on Wikipedia's Kyoto article, to Travel in sky blue on Lisbon, Studio in peach on colour theory, and Work in purple on a shared folder of launch files. The window's colour follows each swipe."
+
+[[video]]
+id = "import-video"
+motion = "import"
+web = "import"
+since = "0.1.0"
+tag = "Moving from Arc"
+title = "Bring your Arc with you."
+line = "Spaces, pinned tabs and folders, as they are."
+cards_before = [
+  { title = "Arc shuts down on December 22.", accent = true, lockup = false, seconds = 2.0 },
+  { title = "Bring it all to Airc.", line = "In about a minute.", seconds = 1.6 },
+]
+captions = { welcome = "Open Airc.", arc = "It finds Arc: every Space, pinned tab and folder.", browsers = "Chrome, Firefox and Zen bookmarks too.", profiles = "Each Arc profile becomes an Airc profile.", colours = "Pick a colour for each Space.", done = "Done." }
+fade_frames = 10
+alt = "An animation rendered frame by frame by Airc, on demo data. Arc shuts down on December 22; bring it all to Airc, in about a minute. Airc's welcome screen, then its import step: Bring your Arc with you, with Arc's Spaces shown one by one in a preview sidebar. Chrome's profiles are shown next, then Import everything: each Arc profile becomes an Airc profile. A Space's colour is picked from a palette, and the setup ends."
+
+[[video]]
+id = "split-video"
+motion = "split"
+web = "split-view"
+since = "0.1.0"
+tag = "Split View"
+title = "Split View."
+line = "Up to four tabs side by side."
+captions = { page = "One tab.", two = "Add the map beside it.", three = "And another on the other side.", resize = "Drag a divider: the pages reflow as you go." }
+fade_frames = 12
+alt = "An animation rendered frame by frame by Airc: the Travel Space on Wikipedia's Lisbon article; a map of Lisbon opens beside it, then the article on Lisbon's trams on the other side, three panes in one window; the divider between the map and the article is dragged and the pages reflow."
+
+[[video]]
+id = "sidebarright-video"
+motion = "sidebarright"
+web = "sidebar-right"
+since = "0.1.2"
+tag = "Sidebar"
+title = "Sidebar on the right."
+line = "Settings → Appearance → Sidebar position."
+captions = { left = "Left, like Arc.", right = "Or on the right.", swipe = "Everything works there: swipe between Spaces." }
+fade_frames = 12
+alt = "An animation rendered frame by frame by Airc: the Travel Space in sky blue on Wikipedia's Lisbon article with the sidebar on the left; the sidebar moves to the right-hand side, then a two-finger swipe there moves to the Studio Space in peach, on colour theory."
+
+[[video]]
+id = "private-video"
+motion = "private"
+web = "private-windows"
+since = "0.1.2"
+tag = "Private windows"
+title = "Private windows."
+line = "⇧⌘N. A private session of its own."
+captions = { start = "⇧⌘N opens one.", page = "Its own private session.", find = "Find and downloads work there too." }
+alt = "An animation rendered frame by frame by Airc: a new private window in dark grey opens, two Wikipedia articles open in it, on cookies and on private browsing, then Find is opened and “cookie” is typed one letter at a time, its matches lighting up on the page."
+
+# ---------------------------------------------------------------- posts
+
+[[post]]
+label = "Announcement (the thread's first post)"
+media = ["announce:16x9"]
+text = """
+Airc 0.1.3 is out.
+
+The big ones: Notes in your sidebar, iCloud Sync, Capture Full Page, and Little Airc from any app. Plus Site Search in ⌘T and a long list of small Arc details.
+
+Free, for Macs with Apple silicon. The download is on our profile.
+"""
+
+[[post]]
+label = "Notes"
+reply = true
+media = ["notes-video:16x9"]
+text = """
+Notes are here. ⌃⇧N drops a note into your sidebar, right next to your tabs. Headings, checklists and pasted Captures all work, and it saves as you type.
+
+Export to Markdown, RTF, PDF or HTML, or bring your Arc notes over. Notes stay on your Mac.
+"""
+
+[[post]]
+label = "iCloud Sync"
+reply = true
+media = ["icloud-sync:16x9", "icloud-merge:16x9"]
+text = """
+iCloud Sync keeps your Spaces, pinned tabs, folders and Favorites the same on your Macs. It's off until you turn it on, end-to-end encrypted, and it backs up your sidebar first.
+
+Honest note: so far we've tested it with iCloud on one Mac, not between two yet.
+"""
+
+[[post]]
+label = "Capture Full Page"
+reply = true
+media = ["capture-full-page:16x9"]
+text = """
+Need the whole page, not just what's on screen? Press ⇧⌘2, then F.
+"""
+
+[[post]]
+label = "Little Airc from any app"
+reply = true
+media = ["little-arc:16x9"]
+text = """
+Little Airc opens from any app now. Turn it on in Settings → Links, then press ⌥⌘N, even over a full-screen app.
+
+Its chevron (⇧⌘O) lists your Spaces. Pick one and the page moves there.
+"""
+
+[[post]]
+label = "Site Search"
+reply = true
+media = ["sitesearch-video:16x9"]
+text = """
+In ⌘T, type yt or wiki, press Tab, and you're searching that site. Add your own in Settings → Site Search.
+"""
+
+[[post]]
+label = "Also in 0.1.3 (four images)"
+reply = true
+media = ["dev-mode", "toolbar-extensions", "boost-gallery", "theme-palette"]
+text = """
+And a pile of smaller things: Developer Mode per site with ⌃D, extensions in the toolbar, a Boost gallery you can try on first, pages in your Space's colours, clearer Arc import results, ⌃Tab back to recent tabs, files you drop on the sidebar, and a link to text you copy.
+"""
+
+[[post]]
+label = "Intro (pin it)"
+# Posted from the Meet Airc pack, among the features (the account starts there).
+queue = false
+media = ["intro-video:16x9"]
+text = """
+Arc is shutting down on December 22. We liked it too much to let it go, so we built Airc. Same sidebar, same Spaces, same ⌘T, and it's free and open source.
+
+It's built and maintained by AI agents.
+"""
+
+[[post]]
+label = "Moving from Arc (video)"
+# Posted from the Meet Airc pack, among the features (the account starts there).
+queue = false
+media = ["import-video:16x9"]
+text = """
+Leaving Arc before December 22? This is the part you'll care about.
+
+Airc reads Arc's files on your Mac and brings your Spaces, pinned tabs and folders over in about a minute. Each Arc profile stays its own profile.
+"""
+
+[[post]]
+label = "Spaces (video)"
+# Posted from the Meet Airc pack, among the features (the account starts there).
+queue = false
+media = ["spaces-video:16x9"]
+text = """
+One sidebar for work. One for the trip you're planning. One for everything else.
+
+Each Space keeps its own tabs and colour, and can have its own profile. Swipe with two fingers to switch.
+"""
+
+[[post]]
+label = "Space colours on pages (video)"
+media = ["themes-video:16x9"]
+text = """
+New in 0.1.3: pages built for Arc's colour variables pick up your Space's theme, and follow it when you change it.
+"""
+
+[[post]]
+label = "Developer Mode (video)"
+media = ["devtabs-video:16x9"]
+text = """
+Developer Mode switches itself on for localhost. For any other site, press ⌃D.
+
+You get Inspect, Hard Reload and a count of console errors right under the address.
+"""
+
+[[post]]
+label = "Split View (video)"
+# Posted from the Meet Airc pack, among the features (the account starts there).
+queue = false
+media = ["split-video:16x9"]
+text = """
+Map on one side, the article on the other. Split View holds up to four tabs, and it stays one row in your sidebar.
+
+Drag the divider and the pages reflow as you go.
+"""
+
+[[post]]
+label = "Sidebar on the right (video)"
+# Posted from the Meet Airc pack, among the features (the account starts there).
+queue = false
+media = ["sidebarright-video:16x9"]
+text = """
+Rather have the sidebar on the right? Settings → Appearance → Sidebar position. Everything works the same over there, swipes included.
+"""
+
+[[post]]
+label = "Private windows (video)"
+# Posted from the Meet Airc pack, among the features (the account starts there).
+queue = false
+media = ["private-video:16x9"]
+text = """
+⇧⌘N opens a private window. Its history, cookies and site data are gone when you close it. Your downloads stay where you put them.
+"""
+
+[[post]]
+label = "Capture Full Page (video)"
+media = ["fullpage-video:16x9"]
+text = """
+The whole page as one picture. ⇧⌘2, then F.
+"""
+
+[[post]]
+label = "Live Calendar's options (also new in 0.1.3; on its own day)"
+media = ["live-calendar:16x9"]
+text = """
+New in 0.1.3: right-click your calendar Favorite and you get Arc's options for it.
+
+Choose when the meeting link shows up (ten, five or two minutes before, or right at the start), show the time to your next meeting, or turn the hover preview on.
+"""
+
+[[post]]
+label = "Split View (also new in 0.1.3; on its own day)"
+media = ["split-extras:16x9"]
+text = """
+Split View got a lot more Arc in 0.1.3. ⌥-click a tab to open it beside the page. Each pane's handle has Arc's controls. Drop a tab onto a saved split to add it.
+
+Expand Current Split shows one pane alone, and saved splits can have their own icon.
+"""
+
+[[post]]
+label = "Arc's menus (also new in 0.1.3; on its own day)"
+media = ["tab-menu:16x9"]
+text = """
+Right-click anything in the sidebar and you get Arc's menu for it: tabs, Favorites, folders, split panes, a selection. New in 0.1.3.
+
+Share sends only the links you picked.
+"""
+
+[[post]]
+label = "Clean links and Markdown (the next day)"
+media = ["folder-markdown:16x9"]
+text = """
+Copy Link and Share now strip tracking junk like utm_, fbclid and gclid, and tell you when they did.
+
+Copy a folder and you get a Markdown list, nested the way your sidebar is.
+"""
+
+[[post]]
+label = "Boost links (also new in 0.1.3; on its own day)"
+media = ["boost-link:16x9"]
+text = """
+You can share a Boost as a link now. The whole Boost lives after the # in the link, and browsers never send that part anywhere. No server involved.
+
+Change it later and everyone who added it gets offered the update.
+"""
+
+[[post]]
+label = "Menus in ⌘T and Essential Keyboard Shortcuts (another day)"
+media = ["essential-shortcuts:16x9"]
+text = """
+Can't find something in the menu bar? Type it in ⌘T. "read aloud" finds Start Speaking.
+
+And if you forget a shortcut, Help → Essential Keyboard Shortcuts shows the ones that matter most, the way you've set them. Both new in 0.1.3.
+"""
+
+[[post]]
+label = "Reduce Motion (text only, any day)"
+text = """
+If you have Reduce Motion on, Airc 0.1.3 cross-fades the sidebar and long Space switches instead of sliding them.
+"""
+
+[[set]]
+title = "The four-image set"
+about = "Post 7's images, in this order (X fills its 2 × 2 grid left to right, top to bottom)."
+media = ["dev-mode", "toolbar-extensions", "boost-gallery", "theme-palette"]

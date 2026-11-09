@@ -1,0 +1,205 @@
+# Copyright 2023 The Chromium Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+# @generated from third_party/rust/chromium_crates_io/BUILD.gn.hbs by
+# tools/crates/gnrt.
+# Do not edit!
+
+import("//build/rust/cargo_crate.gni")
+
+cargo_crate("airc_lib") {
+  crate_name = "icu_locale_core"
+  epoch = "2"
+  crate_type = "rlib"
+  crate_root =
+      "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/lib.rs"
+  sources = [
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/data.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/databake.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/other/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/private/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/private/other.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/transform/fields.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/transform/key.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/transform/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/transform/value.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/unicode/attribute.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/unicode/attributes.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/unicode/key.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/unicode/keywords.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/unicode/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/unicode/subdivision.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/unicode/value.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/helpers.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/langid.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/lib.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/locale.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/macros.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/parser/errors.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/parser/langid.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/parser/locale.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/parser/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/errors.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/calendar.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/collation.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/currency.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/currency_format.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/dictionary_break.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/emoji.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/first_day.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/hour_cycle.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/line_break.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/line_break_word.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/measurement_system.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/measurement_unit_override.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/numbering_system.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/region_override.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/regional_subdivision.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/sentence_supression.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/timezone.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/variant.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/macros/enum_keyword.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/macros/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/macros/struct_keyword.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/locale.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/serde.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/shortvec/litemap.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/shortvec/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/subtags/language.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/subtags/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/subtags/region.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/subtags/script.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/subtags/variant.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/subtags/variants.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/zerovec.rs",
+  ]
+  inputs = [
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/data.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/databake.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/other/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/private/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/private/other.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/transform/fields.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/transform/key.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/transform/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/transform/value.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/unicode/attribute.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/unicode/attributes.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/unicode/key.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/unicode/keywords.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/unicode/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/unicode/subdivision.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/extensions/unicode/value.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/helpers.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/langid.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/lib.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/locale.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/macros.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/parser/errors.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/parser/langid.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/parser/locale.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/parser/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/errors.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/calendar.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/collation.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/currency.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/currency_format.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/dictionary_break.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/emoji.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/first_day.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/hour_cycle.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/line_break.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/line_break_word.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/measurement_system.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/measurement_unit_override.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/numbering_system.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/region_override.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/regional_subdivision.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/sentence_supression.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/timezone.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/keywords/variant.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/macros/enum_keyword.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/macros/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/macros/struct_keyword.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/extensions/unicode/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/locale.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/preferences/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/serde.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/shortvec/litemap.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/shortvec/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/subtags/language.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/subtags/mod.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/subtags/region.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/subtags/script.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/subtags/variant.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/subtags/variants.rs",
+    "//airc/core/blocking-rust/third_party/chromium_crates_io/vendor/icu_locale_core/src/zerovec.rs",
+  ]
+
+  build_native_rust_unit_tests = false
+  edition = "2024"
+  cargo_pkg_authors = "The ICU4X Project Developers"
+  cargo_pkg_name = "icu_locale_core"
+  cargo_pkg_description =
+      "API for managing Unicode Language and Locale Identifiers"
+  cargo_pkg_repository = "https://github.com/unicode-org/icu4x"
+  cargo_pkg_version = "2.4.0"
+  rustc_metadata = "airc-blocking-${crate_name}-${cargo_pkg_version}"
+
+  allow_unsafe = true
+
+  deps = [
+    "//airc/core/blocking-rust/third_party/displaydoc/v0_2:airc_lib",
+    "//airc/core/blocking-rust/third_party/litemap/v0_8:airc_lib",
+    "//airc/core/blocking-rust/third_party/tinystr/v0_8:airc_lib",
+    "//airc/core/blocking-rust/third_party/writeable/v0_6:airc_lib",
+    "//airc/core/blocking-rust/third_party/zerovec/v0_11:airc_lib",
+  ]
+  features = [ "zerovec" ]
+
+  # Only for usage from third-party crates. Add the crate to
+  # //airc/core/blocking-rust/third_party/chromium_crates_io/Cargo.toml to use
+  # it from first-party code.
+  visibility = [ "//airc/core/blocking-rust/third_party/*" ]
+  visibility += [ "//build/rust/*" ]
+  visibility += [ "//airc/core/blocking-rust/*" ]
+
+  #####################################################################
+  # Tweaking which GN `config`s apply to this target.
+
+  # Config changes that apply to all `//third_party/rust` crates.
+  _configs_to_remove = [
+    # We don't need code coverage data for any `chromium_crates_io` crates.
+    "//build/config/coverage:default_coverage",
+
+    # This is third-party code, so remove `chromium_code` config.  We are not
+    # at the same time adding `//build/config/compiler:no_chromium_code`,
+    # because 1) we don't want to pull how warnings are handled by that config
+    # and 2) that config doesn't have any non-warnings-related stuff.
+    "//build/config/compiler:chromium_code",
+  ]
+  _configs_to_add = []
+
+  # Changing (if needed) which configs apply to this specific crate (based on
+  # `extra_kv.configs_to_remove` and `extra_kv.configs_to_add` from
+  # `gnrt_config.toml`).
+  _configs_to_remove += []
+  _configs_to_add += []
+
+  # Applying config changes.
+  library_configs -= _configs_to_remove
+  library_configs += _configs_to_add
+  executable_configs -= _configs_to_remove
+  executable_configs += _configs_to_add
+  proc_macro_configs -= _configs_to_remove
+  proc_macro_configs += _configs_to_add
+}

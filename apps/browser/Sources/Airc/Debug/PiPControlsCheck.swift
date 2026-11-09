@@ -10,7 +10,9 @@ import AircCore
 /// overlay"), device-free. A loopback video page with a full Media Session (metadata, position state, play, pause,
 /// seek, skip and track handlers) and a Meet-like call page (a canvas `captureStream()` and silent WebAudio over two
 /// local peer connections; never getUserMedia). Presses are native mouse events sent to the PiP window itself, through
-/// the engine's pointer handling, never to the screen. Screenshots capture only our own PiP window.
+/// the engine's pointer handling, never to the screen. No screen or window capture.
+/// Document PiP checks exercise the engine pre-show key policy. Native input requires AIRC_REAL_CLICKS=1.
+/// AIRC_PIP_FOREGROUND=1 separately qualifies deliberate foreground editing, only on an idle display.
 extension SnapshotRunner {
     func pipControlsScenario() {
         #if canImport(AircCore)
@@ -18,7 +20,32 @@ extension SnapshotRunner {
             note("SKIP pipcontrols: the engine's picture in picture is Chromium's (WebKit uses the system's)")
             return
         }
+        if PiPCheckContext.geometryOnly,
+           !(c.window.responds(to: NSSelectorFromString("aircProductionPiPConfiguration"))
+             && ProcessInfo.processInfo.arguments.contains("--airc-test=parityp16a")) {
+            note("SKIP pipmeet: geometry mode requires the guarded test framework and --airc-test=parityp16a")
+            return
+        }
+        guard PiPCheckContext.geometryOnly || PiPCheckContext.ownerIdle >= 120 else {
+            note("SKIP pipcontrols: owner HID idle must be at least 120 seconds")
+            return
+        }
         let x = PiPCheckContext()
+        run { [self] in
+            note("pipfocus: start active=\(NSApp.isActive), foregroundSelf=\(NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier)")
+            x.safetyTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] timer in
+                guard !PiPCheckContext.geometryOnly && PiPCheckContext.ownerIdle < 120 else { return }
+                timer.invalidate()
+                self?.note("SKIP pipcontrols: stopped because owner HID activity resumed")
+                self?.finish()
+            }
+            x.foregroundPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+            x.keyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { _ in
+                if NSWorkspace.shared.frontmostApplication?.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+                    x.backgroundKeyEvents += 1
+                }
+            }
+        }
         step { [self] done in
             x.server = LocalPageServer(pages: ["/video": PiPCheckPages.video, "/call": PiPCheckPages.call])
             x.server?.start { port in
@@ -39,13 +66,27 @@ extension SnapshotRunner {
                 c.show(x.video, focus: false)
             } catch { check(false, "pipcontrols: setup (\(error))") }
         }
-        pipVideo(x, chromium)
-        pipCallVideo(x, chromium)
-        pipDocument(x, chromium)
+        if !PiPCheckContext.geometryOnly && ProcessInfo.processInfo.environment["AIRC_PIP_DOCUMENT_ONLY"] != "1" {
+            pipVideo(x, chromium)
+            pipCallVideo(x, chromium)
+        }
+        if script != "pipcontrols-media2" {
+            let env = ProcessInfo.processInfo.environment
+            let guarded = c.window.responds(to: NSSelectorFromString("aircProductionPiPConfiguration"))
+                && ProcessInfo.processInfo.arguments.contains("--airc-test=parityp16a")
+            if guarded || (env["AIRC_REAL_CLICKS"] == "1" && env["AIRC_SHIP_GATE"] != "1") {
+                pipDocument(x, chromium)
+            } else {
+                note("SKIP pipcontrols: Document PiP requires the guarded test framework and --airc-test=parityp16a, or an attended run")
+            }
+        }
+        if PiPCheckContext.geometryOnly { pipVideoGeometry(x, chromium) }
         run { [self] in
             NSApp.appearance = nil
             note("pipcontrols: done")
             x.server?.stop()
+            x.safetyTimer?.invalidate()
+            if let observer = x.keyObserver { NotificationCenter.default.removeObserver(observer) }
         }
         #else
         note("SKIP pipcontrols: Chromium only")
@@ -58,7 +99,14 @@ final class PiPCheckContext {
     var server: LocalPageServer?
     var base = ""
     var video = "", call = "", meet = "", other = ""
-    var activeBefore = false
+    var foregroundPID: pid_t?
+    var safetyTimer: Timer?
+    var keyObserver: NSObjectProtocol?
+    var backgroundKeyEvents = 0
+    static var geometryOnly: Bool { ProcessInfo.processInfo.environment["AIRC_PIPMEET_GEOMETRY"] == "1" }
+    static var ownerIdle: TimeInterval {
+        CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: CGEventType(rawValue: ~0)!)
+    }
 }
 
 extension SnapshotRunner {
@@ -91,6 +139,7 @@ extension SnapshotRunner {
     }
 
     private func event(_ type: NSEvent.EventType, _ w: NSWindow, _ p: NSPoint, _ t: TimeInterval, _ flags: NSEvent.ModifierFlags = []) {
+        guard PiPCheckContext.ownerIdle >= 120 else { return }
         // Timestamps in the past: Chromium's DCHECK build checks input latency against them.
         guard let e = NSEvent.mouseEvent(with: type, location: p, modifierFlags: flags, timestamp: t, windowNumber: w.windowNumber,
                                          context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1) else { return }
@@ -134,7 +183,7 @@ extension SnapshotRunner {
                         // Not dragged: the top-left corner stays (Chromium may still fit the size to the video's).
                         let held = abs(before.minX - w.frame.minX) < 1 && abs(before.maxY - w.frame.maxY) < 1
                         let log = (s["log"] as? [String] ?? []).suffix(3).joined(separator: ", ")
-                        self.check(expect(s) && held && NSApp.isActive == x.activeBefore,
+                        self.check(expect(s) && held && !NSApp.isActive,
                                    "pipcontrols: \(name) (a native click on the PiP) reaches the page without moving the window or activating Airc "
                                    + "(log …\(log), frame \(NSStringFromRect(before)) → \(NSStringFromRect(w.frame)), active \(NSApp.isActive))")
                         done()
@@ -169,17 +218,6 @@ extension SnapshotRunner {
         (s["log"] as? [String] ?? []).contains { $0.hasPrefix(prefix) }
     }
 
-    private func screenshotPiP(_ tab: @escaping () -> String, _ chromium: ChromiumEngine, _ name: String, dark: Bool) {
-        step { [self] done in
-            let id = tab()
-            NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-            controls(id)?.pointerMoved()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                if let w = self.pipWindow(id, chromium) { self.captureOwnWindow(w, name: name + (dark ? "-dark" : "-light")) }
-                done()
-            }
-        }
-    }
 
     /// Sizes the PiP window (keeps its top-left) and lets it lay out.
     private func resizePiP(_ tab: @escaping () -> String, _ chromium: ChromiumEngine, to size: NSSize) {
@@ -239,6 +277,34 @@ extension SnapshotRunner {
         }
     }
 
+    /// Programmatic video placement/aspect regression, without native input.
+    private func pipVideoGeometry(_ x: PiPCheckContext, _ chromium: ChromiumEngine) {
+        let id = { x.video }
+        // End the call fixture first: hiding a live call would correctly ask
+        // its handler for another Document PiP and replace the video under test.
+        run { [self] in c.closeTab(x.meet); c.show(x.video, focus: false) }
+        step { [self] done in waitUntil({ self.page(x.video)?.title.contains("ready") == true }, timeout: 12) { done() } }
+        step { [self] done in gesture(x.video, "start()", chromium, done) }
+        wait(0.6)
+        openPiP(id, chromium, kind: "video")
+        run { [self] in
+            guard let w = pipWindow(x.video, chromium) else { return check(false, "pipmeet: video window missing") }
+            check(abs(w.frame.width / w.frame.height - 16 / 9) < 0.02 && abs(w.frame.width - 300) < 2,
+                  "pipmeet: video keeps natural aspect and remembered video size after Document PiP")
+            if let area = w.screen?.visibleFrame { w.setFrameOrigin(NSPoint(x: area.minX + 60, y: area.minY + 60)) }
+            captureOwnWindow(w, name: "video")
+        }
+        wait(0.3)
+        closePiP(id, chromium)
+        openPiP(id, chromium, kind: "video")
+        run { [self] in
+            guard let w = pipWindow(x.video, chromium), let area = w.screen?.visibleFrame else { return }
+            check(abs(w.frame.minX - area.minX - 60) < 2 && abs(w.frame.minY - area.minY - 60) < 2,
+                  "pipmeet: video remembers its moved corner on reentry")
+        }
+        closePiP(id, chromium)
+    }
+
     // MARK: Video
 
     private func pipVideo(_ x: PiPCheckContext, _ chromium: ChromiumEngine) {
@@ -252,8 +318,7 @@ extension SnapshotRunner {
             let s = MediaLibrary.shared.media?.sessions[id()]?.session
             check(s?.playback == .playing && s?.duration == 600 && ["play", "pause", "seekto", "previoustrack", "nexttrack"].allSatisfy { s?.actions.contains($0) == true },
                   "pipcontrols: the video page's Media Session reaches the app (\(s.map { "\($0.playback) \($0.duration ?? -1) \($0.actions.sorted())" } ?? "none"))")
-            x.activeBefore = NSApp.isActive
-            note("pipcontrols: Airc active before the PiP checks: \(x.activeBefore)")
+            check(!NSApp.isActive, "pipcontrols: Airc is inactive before the PiP checks")
         }
         openPiP(id, chromium, kind: "video")
         run { [self] in
@@ -265,7 +330,31 @@ extension SnapshotRunner {
             check(v?.controlsVisible == true, "pipcontrols: the controls show as the PiP arrives")
             check(v?.state.clock?.duration == 600 && v?.state.playing == true && v?.state.hasNext == true && v?.state.hasPrevious == true,
                   "pipcontrols: the controls follow the session (playing, 10:00, previous and next)")
-            check(NSApp.isActive == x.activeBefore, "pipcontrols: opening the PiP doesn't activate Airc")
+            check(!NSApp.isActive, "pipcontrols: opening the PiP doesn't activate Airc")
+        }
+        run { [self] in controls(id())?.hide.action?() }
+        step { [self] done in
+            pageState(id()) { s in
+                self.check(self.pipWindow(id(), chromium)?.isVisible == false && s["paused"] as? Bool == false,
+                           "pipcontrols: minus hides the window while video playback continues")
+                self.check(MediaLibrary.shared.media?.players.contains { $0.tabID == id() } == true,
+                           "pipcontrols: hidden player stays reachable in the tray even while its tab is selected")
+                if let media = MediaLibrary.shared.media, let player = media.sessions[id()] { media.activatePlayer(player) }
+                self.check(self.pipWindow(id(), chromium)?.isVisible == true && !NSApp.isActive,
+                           "pipcontrols: tray row restores the same player without activation")
+                done()
+            }
+        }
+        run { [self] in
+            controls(id())?.hide.action?()
+            page(id())?.evaluate("navigator.mediaSession.metadata = new MediaMetadata({title:'Another video'}); true", completion: nil)
+        }
+        step { [self] done in
+            waitUntil({ self.pipWindow(id(), chromium)?.isVisible == true }, timeout: 3) {
+                self.check(self.pipWindow(id(), chromium)?.isVisible == true, "pipcontrols: a new playback resets hidden state")
+                self.page(id())?.evaluate("meta(); true", completion: nil)
+                done()
+            }
         }
         // Shown on arrival, gone after about 2 s of no movement; back on hover; gone again.
         wait(PiPLayout.introHold + 0.8)
@@ -278,7 +367,7 @@ extension SnapshotRunner {
         wait(PiPLayout.hideAfter + 0.6)
         run { [self] in check(controls(id())?.controlsVisible == false, "pipcontrols: and they go again \(PiPLayout.hideAfter) s after the pointer stops") }
 
-        // Regular size: every control, then screenshots.
+        // Regular size: every control.
         resizePiP(id, chromium, to: NSSize(width: 480, height: 270))
         run { [self] in
             let v = controls(id())
@@ -286,9 +375,31 @@ extension SnapshotRunner {
                   "pipcontrols: a 480 × 270 PiP is regular: skip buttons, the Back to Tab pill, times (\(v?.sizeClass.rawValue ?? "-"))")
             check(v.map { pipLayoutOK($0) } == true, "pipcontrols: regular layout keeps every control inside the window, clear of the 8 pt resize edge, none overlapping")
         }
-        screenshotPiP(id, chromium, "pipcontrols-video-regular", dark: false)
-        screenshotPiP(id, chromium, "pipcontrols-video-regular", dark: true)
 
+        run { [self] in
+            guard let v = controls(id()), let w = v.window else { return }
+            w.makeFirstResponder(v)
+            if let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                            windowNumber: w.windowNumber, context: nil, characters: " ", charactersIgnoringModifiers: " ", isARepeat: false, keyCode: 49) {
+                v.keyDown(with: event)
+            }
+        }
+        wait(0.3)
+        step { [self] done in pageState(id()) { s in self.check(s["paused"] as? Bool == true, "media2: Space pauses focused Mini Player"); done() } }
+        run { [self] in controls(id())?.actions.playPause() }
+        wait(0.3)
+        run { [self] in controls(id())?.minimize.action?() }
+        wait(0.8)
+        run { [self] in
+            check(controls(id())?.miniPlayer.state.isMinimized == true && (pipWindow(id(), chromium)?.frame.height ?? 999) < 60,
+                  "media2: engine PiP collapses to pill")
+            if let mini = controls(id())?.miniPlayer { mini.performMenu(mini.contextMenu().item(at: 2)!) }
+        }
+        wait(0.8)
+        run { [self] in
+            check(controls(id())?.miniPlayer.state.isMinimized == false && (pipWindow(id(), chromium)?.frame.height ?? 0) > 100,
+                  "media2: Picture in Picture menu restores native surface")
+        }
         clickControl(x, id, chromium, "Pause", { $0.play }, expect: { self.logged($0, "pause") && ($0["paused"] as? Bool) == true })
         step { [self] done in waitUntil({ self.controls(id())?.state.playing == false }, timeout: 2) { done() } }
         run { [self] in check(controls(id())?.play.symbol == "play.fill", "pipcontrols: the button turns into Play") }
@@ -346,7 +457,7 @@ extension SnapshotRunner {
             let target = NSPoint(x: area.minX + area.width * 0.2, y: area.minY + area.height * 0.7)
             self.press(w, start, to: w.convertPoint(fromScreen: NSPoint(x: screenStart.x + target.x - w.frame.minX, y: screenStart.y + target.y - w.frame.minY)))
             self.waitUntil({ abs(w.frame.minX - area.minX) < 2 && abs(w.frame.maxY - area.maxY) < 2 }, timeout: 2) {
-                self.check(abs(w.frame.minX - area.minX) < 2 && abs(w.frame.maxY - area.maxY) < 2 && NSApp.isActive == x.activeBefore,
+                self.check(abs(w.frame.minX - area.minX) < 2 && abs(w.frame.maxY - area.maxY) < 2 && !NSApp.isActive,
                            "pipcontrols: a background drag over the controls moves the PiP and it springs to the nearest corner (\(w.frame))")
                 let free = NSPoint(x: area.minX + 160, y: area.maxY - w.frame.height - 140)
                 let s0 = w.convertPoint(toScreen: start)
@@ -366,8 +477,6 @@ extension SnapshotRunner {
                   "pipcontrols: a 300 × 169 PiP is compact: no skips, Back to Tab as a glyph, no times (\(v?.sizeClass.rawValue ?? "-"))")
             check(v.map { pipLayoutOK($0) } == true, "pipcontrols: compact layout keeps every control inside the window, clear of the edge, none overlapping")
         }
-        screenshotPiP(id, chromium, "pipcontrols-video-compact", dark: false)
-        screenshotPiP(id, chromium, "pipcontrols-video-compact", dark: true)
         resizePiP(id, chromium, to: NSSize(width: 400, height: 225))
 
         // Back to Tab: the tab comes forward and the PiP goes; the video plays on.
@@ -376,7 +485,7 @@ extension SnapshotRunner {
             guard let v = controls(id()), let w = v.window else { return done() }
             v.pointerMoved()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                self.press(w, self.centre(v.back))
+                v.miniPlayer.performMenu(v.miniPlayer.contextMenu().item(at: 0)!)
                 self.waitUntil({ self.pipState(id(), chromium) == nil && self.c.shownTabID == id() }, timeout: 3) {
                     self.pageState(id()) { s in
                         self.check(self.pipState(id(), chromium) == nil && self.c.shownTabID == id() && (s["paused"] as? Bool) == false,
@@ -392,7 +501,7 @@ extension SnapshotRunner {
             guard let v = controls(id()), let w = v.window else { check(false, "pipcontrols: no PiP for ✕"); return done() }
             v.pointerMoved()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                self.press(w, self.centre(v.close))
+                v.miniPlayer.performMenu(v.miniPlayer.contextMenu().item(at: 3)!)
                 self.waitUntil({ self.pipState(id(), chromium) == nil }, timeout: 3) {
                     self.pageState(id()) { s in
                         self.check(self.pipState(id(), chromium) == nil && (s["paused"] as? Bool) == true,
@@ -407,7 +516,7 @@ extension SnapshotRunner {
     /// Every visible control lies inside the window, 8 pt clear of its edge (the engine's resize band), and no two
     /// overlap.
     private func pipLayoutOK(_ v: PiPControlsView) -> Bool {
-        let shown: [NSView] = [v.close, v.back, v.mute, v.previous, v.skipBack, v.play, v.skipAhead, v.next, v.mic, v.camera, v.leave]
+        let shown: [NSView] = [v.hide, v.minimize, v.close, v.back, v.mute, v.previous, v.skipBack, v.play, v.skipAhead, v.next, v.mic, v.camera, v.leave]
             .filter { !$0.isHidden }
         let frames = shown.map { $0.convert($0.bounds, to: v) }
         let inside = v.bounds.insetBy(dx: 7.5, dy: 7.5)
@@ -434,12 +543,9 @@ extension SnapshotRunner {
                   "pipcontrols: a call's PiP has the meeting controls (microphone, camera, leave), no playback ones")
         }
         resizePiP(id, chromium, to: NSSize(width: 400, height: 225))
-        screenshotPiP(id, chromium, "pipcontrols-call", dark: false)
-        screenshotPiP(id, chromium, "pipcontrols-call", dark: true)
         clickControl(x, id, chromium, "Microphone", { $0.mic }, expect: { self.logged($0, "mic:false") })
         step { [self] done in waitUntil({ self.controls(id())?.state.microphoneOn == false }, timeout: 2) { done() } }
         run { [self] in check(controls(id())?.mic.symbol == "mic.slash.fill", "pipcontrols: the microphone shows muted") }
-        screenshotPiP(id, chromium, "pipcontrols-call-muted", dark: true)
         clickControl(x, id, chromium, "Camera", { $0.camera }, expect: { self.logged($0, "cam:false") })
         clickControl(x, id, chromium, "Leave", { $0.leave }, expect: { self.logged($0, "hangup") })
         closePiP(id, chromium)
@@ -453,9 +559,94 @@ extension SnapshotRunner {
         run { [self] in c.show(x.meet, focus: false) }
         step { [self] done in waitUntil({ self.page(id())?.title.contains("live") == true }, timeout: 10) { done() } }
         waitForPlaying(id)
+        if ProcessInfo.processInfo.environment["AIRC_PIPMEET"] == "1" {
+            // Reproduce the old full-page route explicitly before checking the
+            // registered-site route. Also qualify full-page fallback sizing.
+            run { [self] in MediaLibrary.shared.calls.open(x.meet, .left) }
+            wait(1.5)
+            run { [self] in
+                if let w = MediaLibrary.shared.calls.window {
+                    note("pipmeet: full-page fallback frame=\(w.frame), page=\(page(x.meet)?.view.frame ?? .zero)")
+                    captureOwnWindow(w, name: "fallback-large")
+                    check(w.frame.size == CallPanel.defaultSize, "pipmeet: full-page fallback defaults to 800×600")
+                    if let panel = w as? CallPanel, let web = page(x.meet)?.view {
+                        let frame = web.convert(web.bounds, to: panel.view)
+                        check(frame.minY >= PiPControlsView.fullPageBarHeight && frame.maxY <= panel.view.bounds.maxY,
+                              "pipmeet: fallback page lies entirely below permanent bar")
+                        check(panel.view.mic.isHidden && panel.view.camera.isHidden && panel.view.leave.isHidden,
+                              "pipmeet: site owns the only call controls")
+                    }
+                    w.setFrame(NSRect(origin: w.frame.origin, size: NSSize(width: 720, height: 520)), display: true)
+                    MediaLibrary.shared.calls.windowDidEndLiveResize(Notification(name: NSWindow.didEndLiveResizeNotification, object: w))
+                }
+                MediaLibrary.shared.calls.returnPage(showing: true)
+                c.show(x.meet, focus: false)
+            }
+            wait(0.5)
+            run { [self] in MediaLibrary.shared.calls.open(x.meet, .left) }
+            wait(0.5)
+            run { [self] in
+                check(MediaLibrary.shared.calls.window?.frame.size == NSSize(width: 720, height: 520), "pipmeet: fallback remembers user resize")
+                if let panel = MediaLibrary.shared.calls.window as? CallPanel {
+                    captureOwnWindow(panel, name: "fallback-resized")
+                    panel.savedFrame = NSRect(origin: panel.frame.origin, size: NSSize(width: 360, height: 240))
+                    panel.present(near: c.window)
+                    check(panel.frame.width >= 640 && panel.frame.height >= 480,
+                          "pipmeet: legacy video-sized fallback is enlarged")
+                    if let area = panel.screen?.visibleFrame {
+                        check(area.contains(panel.frame), "pipmeet: migrated fallback fits available display")
+                    }
+                }
+                MediaLibrary.shared.calls.returnPage(showing: true)
+                c.show(x.meet, focus: false)
+            }
+            wait(0.5)
+            run { [self] in c.show(x.other, focus: false) }
+            wait(3.5)
+            run { [self] in
+                check(pipState(x.meet, chromium)?["kind"] as? String == "document" && !MediaLibrary.shared.calls.isShowing,
+                      "pipmeet: registered site action wins over the full-page fallback when native auto-entry is gated")
+                if let w = pipWindow(x.meet, chromium) {
+                    captureOwnWindow(w, name: "site-route")
+                } else if let w = MediaLibrary.shared.calls.window {
+                    note("pipmeet: fallback frame=\(w.frame), page=\(page(x.meet)?.view.frame ?? .zero)")
+                    captureOwnWindow(w, name: "fallback")
+                }
+                if let p = page(x.meet) { chromium.closePictureInPicture(p) }
+                MediaLibrary.shared.calls.returnPage(showing: true)
+                c.show(x.meet, focus: false)
+            }
+            wait(0.5)
+        }
+        run { [self] in
+            if let p = page(x.meet) {
+                chromium.setPictureInPictureFrame(p.profile, frame: NSRect(x: 40, y: 40, width: 300, height: 169))
+            }
+        }
         openPiP(id, chromium, kind: "document")
+        documentGeometry(x, chromium, name: "requested", requested: true)
+        // Geometry-only evidence is safe while the owner is active: no native
+        // input, key-window requests or app activation. Normal-level test windows.
+        if PiPCheckContext.geometryOnly {
+            resizePiP(id, chromium, to: NSSize(width: 460, height: 320))
+            documentGeometry(x, chromium, name: "resized", requested: false)
+            run { [self] in
+                if let p = page(x.meet) {
+                    check(chromium.pictureInPictureFrame(p.profile).size == NSSize(width: 300, height: 169),
+                          "pipmeet: Document PiP resize leaves video placement untouched")
+                }
+            }
+            closePiP(id, chromium)
+            documentClamp(id, chromium)
+            return
+        }
         run { [self] in
             let st = pipState(id(), chromium)
+            if let w = pipWindow(id(), chromium) {
+                check(!NSApp.isActive && !w.isKeyWindow && x.backgroundKeyEvents == 0 && NSWorkspace.shared.frontmostApplication?.processIdentifier == x.foregroundPID,
+                      "pipcontrols: opening Document PiP preserves inactive app and keyboard focus")
+                note("pipfocus: Document window class=\(w.classForCoder), active=\(NSApp.isActive), key=\(w.isKeyWindow), canKey=\(w.canBecomeKey), foregroundSelf=\(NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier), independence=\(w.responds(to: NSSelectorFromString("activationIndependence")) ? String(describing: w.value(forKey: "activationIndependence") ?? "missing") : "unsupported")")
+            }
             check(st?["appOverlay"] is PiPTopBarView, "pipcontrols: Meet's own Document PiP gets Airc's top bar")
             check(bar()?.barHeight == 34, "pipcontrols: the bar covers Chromium's 34 pt bar exactly (\(bar()?.barHeight ?? -1))")
         }
@@ -465,8 +656,11 @@ extension SnapshotRunner {
                 done()
             }
         }
-        screenshotPiP(id, chromium, "pipcontrols-meet", dark: false)
-        screenshotPiP(id, chromium, "pipcontrols-meet", dark: true)
+        run {
+            if let w = bar()?.window, let area = w.screen?.visibleFrame {
+                w.setFrameOrigin(NSPoint(x: area.minX + 140, y: area.minY + 140))
+            }
+        }
         // The bar drags the window (⌘: where it's dropped); its background click reaches nothing.
         step { [self] done in
             guard let b = bar(), let w = b.window else { check(false, "pipcontrols: no top bar"); return done() }
@@ -474,19 +668,63 @@ extension SnapshotRunner {
             let p = b.convert(NSPoint(x: b.bounds.midX - 30, y: b.barHeight / 2), to: nil)
             let before = w.frame
             self.press(w, p)
+            check(!NSApp.isActive && !w.isKeyWindow && NSEqualRects(before, w.frame)
+                  && NSWorkspace.shared.frontmostApplication?.processIdentifier == x.foregroundPID,
+                  "pipcontrols: top-bar background click leaves focus and frame unchanged")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 let s0 = w.convertPoint(toScreen: p)
                 self.press(w, p, to: w.convertPoint(fromScreen: NSPoint(x: s0.x - 60, y: s0.y - 40)), flags: .command)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                     self.pageState(id()) { s in
                         self.check(abs(w.frame.minX - (before.minX - 60)) < 2 && abs(w.frame.minY - (before.minY - 40)) < 2 && (s["doc"] as? Bool) == true
-                                   && NSApp.isActive == x.activeBefore,
+                                   && !NSApp.isActive && !w.isKeyWindow && NSWorkspace.shared.frontmostApplication?.processIdentifier == x.foregroundPID,
                                    "pipcontrols: the top bar drags the Document PiP; its click closes nothing (\(NSStringFromRect(before)) → "
                                    + "\(NSStringFromRect(w.frame)), doc \(s["doc"] ?? "-"), active \(NSApp.isActive), log \(s["events"] ?? "-"))")
                         done()
                     }
                 }
             }
+            }
+        }
+        // Exercise the off-Space path without moving the owner's Space. Chromium
+        // directly clears this ivar on Space change; simulate that reset, then
+        // demand key through both the native ordering and website paths.
+        run { [self] in
+            guard let w = pipWindow(id(), chromium) else { return }
+            w.setValue(false, forKey: "preventKeyWindow")
+            _ = w.perform(NSSelectorFromString("orderFrontKeepWindowKeyState"))
+            w.makeKeyAndOrderFront(nil)
+            check(!w.canBecomeKey && !w.isKeyWindow, "pipcontrols: background key guard survives Chromium's temporary flag reset and native ordering")
+        }
+        step { [self] done in
+            gesture(id(), "pipWin.focus(); pipWin.document.getElementById('edit').focus()", chromium, done)
+        }
+        wait(0.4)
+        run { [self] in
+            check(pipWindow(id(), chromium)?.isKeyWindow == false && !NSApp.isActive && x.backgroundKeyEvents == 0
+                  && NSWorkspace.shared.frontmostApplication?.processIdentifier == x.foregroundPID,
+                  "pipcontrols: later site focus requests preserve foreground and never acquire background key")
+        }
+        resizePiP(id, chromium, to: NSSize(width: 460, height: 320))
+        run { [self] in
+            check(pipWindow(id(), chromium)?.frame.size == NSSize(width: 460, height: 320)
+                  && pipWindow(id(), chromium)?.isKeyWindow == false && !NSApp.isActive,
+                  "pipcontrols: Document PiP resizes while remaining non-key")
+        }
+        documentGeometry(x, chromium, name: "resized", requested: false)
+        run { [self] in
+            if let p = page(x.meet) {
+                check(chromium.pictureInPictureFrame(p.profile).size == NSSize(width: 300, height: 169),
+                      "pipmeet: Document PiP resize does not overwrite saved video size")
+            }
+        }
+        documentControlPress(x, chromium, element: "mute")
+        wait(0.5)
+        step { [self] done in
+            pageState(id()) { s in
+                self.check(self.logged(s, "page-mute") && !NSApp.isActive && self.pipWindow(id(), chromium)?.isKeyWindow == false,
+                           "pipcontrols: native site button works without acquiring keyboard focus")
+                done()
             }
         }
         // Back to Tab: the call's tab, the PiP closes and the call goes on.
@@ -508,10 +746,106 @@ extension SnapshotRunner {
             self.press(w, self.centre(b.close))
             self.waitUntil({ self.pipState(id(), chromium) == nil }, timeout: 3) {
                 self.pageState(id()) { s in
-                    self.check(self.pipState(id(), chromium) == nil && (s["ended"] as? Bool) == false && NSApp.isActive == x.activeBefore,
+                    self.check(self.pipState(id(), chromium) == nil && (s["ended"] as? Bool) == false && !NSApp.isActive,
                                "pipcontrols: ✕ in the top bar closes the PiP; the call goes on in its tab, Airc stays inactive")
                     done()
                 }
+            }
+        }
+        documentClamp(id, chromium)
+        if ProcessInfo.processInfo.environment["AIRC_PIP_FOREGROUND"] == "1" {
+            openPiP(id, chromium, kind: "document")
+            run {
+                guard PiPCheckContext.ownerIdle >= 120 else { return }
+                NSApp.activate(ignoringOtherApps: true)
+            }
+            wait(0.5)
+            documentControlPress(x, chromium, element: "edit")
+            wait(0.5)
+            run { [self] in
+                guard let w = pipWindow(id(), chromium) else { check(false, "pipcontrols: no foreground PiP"); return }
+                check(NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier && w.isKeyWindow,
+                      "pipcontrols: deliberate foreground site press grants key")
+                guard PiPCheckContext.ownerIdle >= 120 else { return }
+                if let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: w.windowNumber, context: nil, characters: "k", charactersIgnoringModifiers: "k", isARepeat: false, keyCode: 40) {
+                    w.sendEvent(e)
+                }
+            }
+            wait(0.4)
+            step { [self] done in
+                pageState(id()) { s in
+                    self.check(s["edit"] as? String == "k", "pipcontrols: foreground editable site control receives native keyboard input")
+                    done()
+                }
+            }
+            closePiP(id, chromium)
+        }
+    }
+
+    private func documentClamp(_ id: @escaping () -> String, _ chromium: ChromiumEngine) {
+        step { [self] done in gesture(id(), "pipWidth=80;pipHeight=40", chromium, done) }
+        openPiP(id, chromium, kind: "document")
+        step { [self] done in
+            page(id())?.evaluate("JSON.stringify(pipGeometry())") { value in
+                self.note("pipmeet: minimum clamp \(value ?? "missing")")
+                if let json = value as? String, let g = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Double] {
+                    self.check(g["width"] == 240 && g["height"] == 52, "pipmeet: Chromium clamps tiny requested viewport to 240×52")
+                } else { self.check(false, "pipmeet: no clamped geometry") }
+                done()
+            }
+        }
+        closePiP(id, chromium)
+        step { [self] done in gesture(id(), "pipWidth=640;pipHeight=400", chromium, done) }
+    }
+
+    private func documentGeometry(_ x: PiPCheckContext, _ chromium: ChromiumEngine, name: String, requested: Bool) {
+        step { [self] done in
+            guard let w = pipWindow(x.meet, chromium), let p = page(x.meet) else { return done() }
+            p.evaluate("JSON.stringify(pipGeometry())") { result in
+                self.note("pipmeet: \(name) window=\(w.frame) content=\(w.contentView?.bounds ?? .zero) geometry=\(result ?? "missing")")
+                func tree(_ v: NSView, _ depth: Int) {
+                    self.note("pipmeet: \(String(repeating: " ", count: depth))\(v.classForCoder) frame=\(v.frame) hidden=\(v.isHidden)")
+                    for child in v.subviews { tree(child, depth + 1) }
+                }
+                if let root = w.contentView { tree(root, 0) }
+                if let json = result as? String, let g = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Double],
+                   let iw = g["width"], let ih = g["height"] {
+                    self.check(abs(iw - w.frame.width) < 2 && abs(ih + 34 - w.frame.height) < 2,
+                               "pipmeet: viewport equals visible content below top bar")
+                    if requested {
+                        self.check(iw == 640 && ih == 400, "pipmeet: requested 640×400 viewport survives video placement")
+                    }
+                    self.check((g["right"] ?? .infinity) <= iw && (g["bottom"] ?? .infinity) <= ih,
+                               "pipmeet: right-most page control entirely visible")
+                    self.check((g["tiles"] ?? 0) >= (requested ? 6 : 2), "pipmeet: responsive participant grid")
+                } else { self.check(false, "pipmeet: missing document geometry") }
+                if let web = self.pipState(x.meet, chromium)?["documentView"] as? NSView,
+                   let b = PiPOverlays.shared.topBar(for: p) {
+                    let content = web.convert(web.bounds, to: b)
+                    self.note("pipmeet: native web bounds=\(web.bounds) visible=\(web.visibleRect) in overlay=\(content)")
+                    self.check(web.visibleRect.contains(web.bounds) && abs(content.minY - b.barHeight) < 1 && abs(content.width - b.bounds.width) < 1 && content.maxY <= b.bounds.maxY,
+                               "pipmeet: entire native viewport visible, begins below top bar")
+                } else { self.check(false, "pipmeet: native document view diagnostic unavailable") }
+                if let b = PiPOverlays.shared.topBar(for: p) {
+                    self.check(!b.isHiddenOrHasHiddenAncestor && b.alphaValue == 1 && b.window === w && b.superview?.subviews.last === b && b.bounds.size == w.contentView?.bounds.size,
+                               "pipmeet: top bar present above native content")
+                }
+                self.captureOwnWindow(w, name: name)
+                done()
+            }
+        }
+    }
+
+    private func documentControlPress(_ x: PiPCheckContext, _ chromium: ChromiumEngine, element: String) {
+        step { [self] done in
+            guard let p = page(x.meet), let w = pipWindow(x.meet, chromium) else { return done() }
+            p.evaluate("JSON.stringify((()=>{let r=pipWin.document.getElementById('\(element)').getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]})())") { result in
+                if let json = result as? String, let xy = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [Double], xy.count == 2 {
+                    // The web viewport begins below Chromium's 34 pt top bar.
+                    self.press(w, NSPoint(x: xy[0], y: w.frame.height - 34 - xy[1]))
+                } else { self.check(false, "pipcontrols: missing site control geometry") }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: done)
             }
         }
     }
@@ -563,7 +897,7 @@ enum PiPCheckPages {
     <style>body{margin:0;background:#193349;color:#fff;font:14px system-ui}#tiles{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:6px}
     video{width:100%;border-radius:8px;background:#000}#bar{display:flex;gap:8px;padding:8px}button{font:inherit}</style>
     <div id="tiles"><video id="v" autoplay playsinline></video><video id="me" autoplay muted playsinline></video>
-    <div id="bar"><button id="mute">Mute</button><button id="leave">Leave</button></div></div><audio id="r" loop></audio>
+    <div id="bar"><button id="mute">Mute</button><button id="leave">Leave</button><input id="edit" aria-label="Message" style="width:80px"></div></div><audio id="r" loop></audio>
     <script>
     var log = [], events = log, stream, a, b, mic = true, cam = true, ended = false, pipWin = null;
     var documentPiP = new URLSearchParams(location.search).get('pip') === 'document', tiles = document.getElementById('tiles');
@@ -585,10 +919,21 @@ enum PiPCheckPages {
     function report(){ try { navigator.mediaSession.setMicrophoneActive(mic); navigator.mediaSession.setCameraActive(cam); } catch (e) {} }
     // Held from the start: the tiles move into the Document PiP, out of this document.
     var remote = document.getElementById('v'), local = document.getElementById('me');
+    var documentPiPStyle = 'video{max-height:90px}#tiles{height:100vh;box-sizing:border-box;grid-template-columns:repeat(3,1fr);grid-template-rows:44px 1fr 1fr 44px}#heading{grid-column:1/-1;display:flex;justify-content:space-between}#bar{grid-column:1/-1;display:flex;justify-content:space-between;margin:0;padding:4px;gap:4px}#bar input{min-width:0}#leave{order:9;background:#d43b32;color:white;border:0;border-radius:16px;padding:8px 16px}.participant{background:#325367;border-radius:10px;display:grid;place-items:center}@media(max-width:500px){#tiles{grid-template-columns:repeat(2,1fr)}.participant:nth-of-type(n+4){display:none}}';
+    if (documentPiP) {
+      var responsive = document.createElement("style"); responsive.textContent = documentPiPStyle; document.head.append(responsive);
+      var heading = document.createElement('div'); heading.id = 'heading'; heading.innerHTML = '<span>Team call</span><span>Hand raised</span><span>6 people</span>'; tiles.prepend(heading);
+      for (var i = 3; i <= 6; i++) { var tile = document.createElement('div'); tile.className = 'participant'; tile.textContent = 'Participant ' + i; tiles.insertBefore(tile, document.getElementById('bar')); }
+    }
+    function pipGeometry(){
+      var r = pipWin.document.getElementById('leave').getBoundingClientRect();
+      return {width:pipWin.innerWidth,height:pipWin.innerHeight,right:r.right,bottom:r.bottom,
+        tiles:[...tiles.querySelectorAll('video,.participant')].filter(t=>t.getBoundingClientRect().height>0).length};
+    }
     function state(){ var v = remote, me = local;
       return {log: log, events: log.slice(-6), mic: mic, cam: cam, ended: ended, doc: !!pipWin && !pipWin.closed,
       playing: !v.paused && v.readyState > 2 && !me.paused && me.readyState > 2,
-      peers: [a && a.connectionState, b && b.connectionState]}; }
+      edit: tiles.querySelector('#edit').value, peers: [a && a.connectionState, b && b.connectionState]}; }
     async function start(){
       stream = synthetic();
       a = new RTCPeerConnection(); b = new RTCPeerConnection();
@@ -609,10 +954,12 @@ enum PiPCheckPages {
       if (documentPiP) ms.setActionHandler('enterpictureinpicture', async function(){
         log.push('enterpictureinpicture');
         try {
-          pipWin = await documentPictureInPicture.requestWindow({width: 420, height: 300});
+          pipWin = await documentPictureInPicture.requestWindow({width: window.pipWidth || 640, height: window.pipHeight || 400, preferInitialWindowPlacement: true});
           pipWin.document.head.append(document.querySelector('style').cloneNode(true));
           pipWin.document.body.style.cssText = 'margin:0;background:#193349;color:#fff;font:14px system-ui';
-          pipWin.document.body.append(tiles); log.push('document-enter');
+          pipWin.document.body.append(tiles);
+          var style = pipWin.document.createElement('style'); style.textContent = documentPiPStyle;
+          pipWin.document.head.append(style); log.push('document-enter');
           pipWin.addEventListener('pagehide', function(){ document.body.prepend(tiles); log.push('document-exit'); }, {once: true});
         } catch (e) { log.push('pip-error:' + e.name); }
       });

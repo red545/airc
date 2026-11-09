@@ -6,8 +6,13 @@
 
 #import <AppKit/AppKit.h>
 
+#include <map>
+
+#include "base/auto_reset.h"
 #include "base/functional/bind.h"
+#include "base/no_destructor.h"
 #include "base/task/single_thread_task_runner.h"
+#include "base/time/time.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface_iterator.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -19,6 +24,41 @@
 #include "ui/gfx/mac/coordinate_conversion.h"
 
 namespace airc {
+
+namespace {
+
+// P02b: set while NotifyPositionRequiresUpdate re-anchors the modal parent after a frame change. With no dialog
+// showing, the parent then follows the page lazily, once the page has kept its frame for kLazyAnchorDelay: every
+// SetBounds makes its bridge wait in the next CA commit for this invisible widget's compositor
+// (CATransactionCoordinator), and the page's frame changes on every frame of a sidebar slide.
+bool g_lazy_modal_parent_bounds = false;
+constexpr base::TimeDelta kLazyAnchorDelay = base::Milliseconds(150);
+
+// The latest lazy re-anchor asked for, per host (a newer request supersedes older ones).
+std::map<const WindowHost*, uint64_t>& LazyAnchorGenerations() {
+  static base::NoDestructor<std::map<const WindowHost*, uint64_t>> generations;
+  return *generations;
+}
+
+// A dialog (or any child window) shows over the modal parent: it must follow the page on every frame.
+bool ModalParentShowsChild(views::Widget* parent) {
+  NSWindow* window = parent->GetNativeWindow().GetNativeNSWindow();
+  for (NSWindow* child in window.childWindows) {
+    if (child.visible) {
+      return true;
+    }
+  }
+  if (auto* host = views::NativeWidgetMacNSWindowHost::GetFromNativeView(parent->GetNativeView())) {
+    for (auto* child : host->children()) {
+      if (views::Widget* widget = child->GetWidget(); widget && widget->IsVisible()) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+}  // namespace
 
 gfx::NativeView WindowHost::GetHostView() const {
   if (!externally_hosted()) return gfx::NativeView(host_view_);
@@ -78,7 +118,33 @@ void WindowHost::UpdateModalParent() {
     modal_parent_->Hide();
     return;
   }
-  modal_parent_->SetBounds(gfx::ScreenRectFromNSRect(rect));
+  const gfx::Rect bounds = gfx::ScreenRectFromNSRect(rect);
+  const gfx::Rect current = modal_parent_->GetWindowBoundsInScreen();
+  if (g_lazy_modal_parent_bounds && current != bounds && current.width() > 1 &&
+      current.height() > 1 && !ModalParentShowsChild(modal_parent_.get())) {
+    // A frame change with no dialog: anchor once the page is at rest. A dialog about to show re-anchors at once
+    // (GetHostView), and one showing follows every frame (the branch below).
+    const uint64_t generation = ++LazyAnchorGenerations()[this];
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+        FROM_HERE,
+        base::BindOnce(
+            [](base::WeakPtr<WindowHost> host, uint64_t generation) {
+              if (!host) {
+                return;
+              }
+              auto it = LazyAnchorGenerations().find(host.get());
+              if (it == LazyAnchorGenerations().end() || it->second != generation) {
+                return;
+              }
+              LazyAnchorGenerations().erase(it);
+              host->UpdateModalParent();
+            },
+            GetWeakPtr(), generation),
+        kLazyAnchorDelay);
+  } else {
+    LazyAnchorGenerations().erase(this);
+    modal_parent_->SetBounds(bounds);
+  }
   // Match NativeWidgetNSWindowBridge::OrderChildren: adding a Cocoa child
   // to an off-Space window can switch Spaces. Our external NSWindow has no
   // Chromium bridge, so we must enforce this guard for the extra parent too.
@@ -143,7 +209,10 @@ void WindowHost::RemoveObserver(web_modal::ModalDialogHostObserver* observer) {
 
 void WindowHost::NotifyPositionRequiresUpdate() {
   dialog_position_update_scheduled_ = false;
-  if (modal_parent_) UpdateModalParent();
+  if (modal_parent_) {
+    base::AutoReset<bool> lazy(&g_lazy_modal_parent_bounds, true);
+    UpdateModalParent();
+  }
   modal_observers_.Notify(
       &web_modal::ModalDialogHostObserver::OnPositionRequiresUpdate);
   for (Browser* browser : browsers()) {

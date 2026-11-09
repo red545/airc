@@ -5,6 +5,9 @@ import AircKit
 import AppKit
 import Darwin
 import QuartzCore
+#if canImport(AircCore)
+import AircCore
+#endif
 
 /// Launch timestamps for `--script perf`: process start (from the kernel), the window, and the first time the main
 /// thread was free to take input after it.
@@ -437,10 +440,11 @@ final class PerfRun {
     func reportPages() {
         runner.step { [self] done in
             let script = """
-            new Promise(resolve => { let frames = 0; const tick = () => { frames++; requestAnimationFrame(tick) };
-              requestAnimationFrame(tick);
-              setTimeout(() => resolve({visibility: document.visibilityState, frames,
-                animations: document.getAnimations().filter(a => a.playState === 'running').length}), 1000) })
+            new Promise(resolve => { let frames = 0, pending;
+              const tick = () => { frames++; pending = requestAnimationFrame(tick) };
+              pending = requestAnimationFrame(tick);
+              setTimeout(() => { cancelAnimationFrame(pending); resolve({visibility: document.visibilityState, frames,
+                animations: document.getAnimations().filter(a => a.playState === 'running').length}) }, 1000) })
             """
             var pages: [[String: Any]] = []
             let group = DispatchGroup()
@@ -535,6 +539,12 @@ final class PerfRun {
     private func readControl() {
         guard let control, let data = try? Data(contentsOf: control),
               let cmd = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+        if cmd["action"] as? String == "census" {
+            emit(["event": "timer_census", "runloop": CFCopyDescription(CFRunLoopGetMain()) as String,
+                  "archive_repeating": c.repeatingTimerCount,
+                  "scope": "main CFRunLoop, all described modes; excludes dispatch and engine worker timers"])
+            return
+        }
         if cmd["action"] as? String == "measure", !measureRequested {
             measureRequested = true
             onMeasure?()
@@ -593,4 +603,223 @@ final class PerfRun {
     private func round2(_ v: Double) -> Double { (v * 100).rounded() / 100 }
     private func median(_ a: [Double]) -> Double { a.isEmpty ? 0 : a.sorted()[a.count / 2] }
 }
+
+/// Redirect only suggestion requests in this test process; normal service debounce,
+/// parsing and row application still run. No canned answers and no public network.
+final class GapSuggestionProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) static var requests = 0
+    // Ephemeral URLSession configurations do not consult globally registered
+    // protocols on every OS release. Install explicitly, only in this test process.
+    nonisolated(unsafe) private static var originalConfiguration: IMP?
+    private static let configurationSelector = NSSelectorFromString("ephemeralSessionConfiguration")
+    static func install() -> Bool {
+        guard let method = class_getClassMethod(URLSessionConfiguration.self, configurationSelector) else { return false }
+        let original = method_getImplementation(method)
+        originalConfiguration = original
+        typealias Getter = @convention(c) (AnyObject, Selector) -> URLSessionConfiguration
+        let get = unsafeBitCast(original, to: Getter.self)
+        let block: @convention(block) (AnyObject) -> URLSessionConfiguration = { cls in
+            let config = get(cls, configurationSelector)
+            config.protocolClasses = [GapSuggestionProtocol.self] + (config.protocolClasses ?? [])
+            return config
+        }
+        method_setImplementation(method, imp_implementationWithBlock(block))
+        return true
+    }
+    static func uninstall() {
+        if let originalConfiguration, let method = class_getClassMethod(URLSessionConfiguration.self, configurationSelector) {
+            let replacement = method_setImplementation(method, originalConfiguration)
+            imp_removeBlock(replacement)
+        }
+        originalConfiguration = nil
+    }
+    private var forwardingTask: URLSessionDataTask?
+    override class func canInit(with request: URLRequest) -> Bool {
+        request.url?.host?.contains("google") == true
+    }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let endpoint = ProcessInfo.processInfo.environment["AIRC_SUGGESTION_LOOPBACK"],
+              var url = URLComponents(string: endpoint) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL)); return
+        }
+        url.query = request.url?.query
+        DispatchQueue.main.async { Self.requests += 1 }
+        forwardingTask = URLSession.shared.dataTask(with: url.url!) { [weak self] data, _, error in
+            guard let self else { return }
+            if let error { self.client?.urlProtocol(self, didFailWithError: error); return }
+            let response = HTTPURLResponse(url: self.request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
+            self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            self.client?.urlProtocol(self, didLoad: data ?? Data())
+            self.client?.urlProtocolDidFinishLoading(self)
+        }
+        forwardingTask?.resume()
+    }
+    override func stopLoading() { forwardingTask?.cancel() }
+}
+
+extension SnapshotRunner {
+    // A bounded 1 ms probe, only while an action is being measured. Never idle.
+    func gapPoll(_ condition: @escaping () -> Bool, timeout: Double, then: @escaping () -> Void) {
+        let end = CACurrentMediaTime() + timeout
+        func poll() {
+            if condition() || CACurrentMediaTime() >= end { then() }
+            else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.001, execute: poll) }
+        }
+        poll()
+    }
+    /// The keep-loaded fixtures, extended with trusted dirty input, timeout,
+    /// engine pressure and scroll-state restoration. One round per fresh process.
+    func gapMemoryScenario() {
+        var server: LocalPageServer?
+        var port: UInt16 = 0
+        var ids: [String: String] = [:]
+        var result: [String: Any] = [:]
+        let kinds = ["plain", "newer", "chat", "mail", "dirty", "audio", "shown"]
+        var unloadStart = 0.0
+        var iconURL: String?
+        func unloaded(_ name: String) -> Bool { ids[name].map { c.isPageUnloaded($0) } ?? false }
+        step { done in
+            let body = "<!doctype html><title>fixture</title><link rel='icon' href='/favicon.svg'><input id='input'><div style='height:5000px'>fixture</div>"
+            var pages = Dictionary(uniqueKeysWithValues: kinds.map { ("/" + $0, LocalPageServer.Page(body: body.replacingOccurrences(of: "<title>fixture", with: "<title>" + $0))) })
+            pages["/favicon.svg"] = LocalPageServer.Page(headers: ["Content-Type": "image/svg+xml"], body: "<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><rect width='16' height='16' fill='blue'/></svg>")
+            server = LocalPageServer(responses: pages)
+            server?.start { p in port = p ?? 0; done() }
+            if server == nil { done() }
+        }
+        run { [self] in
+            WindowController.unloadOverride = 86400
+            WindowController.keepLoadedTestSites = ["localhost"]
+            app?.settings.values.keepChatSitesLoaded = true
+            app?.settings.values.pipAutomatic = false
+            c.applyPictureInPictureSettings()
+            for kind in kinds {
+                let host = ["chat", "mail"].contains(kind) ? "localhost" : "127.0.0.1"
+                if let tab = try? c.store.openTab(url: "http://\(host):\(port)/\(kind)", inSpace: c.currentSpaceID, activate: false, title: kind) {
+                    ids[kind] = tab.id
+                    if kind == "chat" { try? c.store.togglePin(tab.id, inSpace: c.currentSpaceID) }
+                    if kind == "mail" { try? c.store.move(.tab(tab.id), to: .favorites(profileID: c.store.profile(ofSpace: c.currentSpaceID).id, index: 0)) }
+                }
+            }
+            c.reloadAll(animated: false); c.applyUnloadSetting()
+        }
+        for kind in kinds {
+            step { [self] done in
+                guard let id = ids[kind] else { return done() }
+                c.show(id, focus: false)
+                waitUntil({ self.c.engineTab(for: id)?.title == kind && self.c.engineTab(for: id)?.isLoading == false }, timeout: 8) { done() }
+            }
+            step { [self] done in
+                guard let page = ids[kind].flatMap({ c.engineTab(for: $0) }) else { return done() }
+                if kind == "plain" {
+                    page.evaluate("scrollTo(0,700);scrollY") { value in
+                        result["initial_scroll"] = value
+                        self.scrollRestoreSample(page) { sample in
+                            result["initial_document"] = sample
+                            result["window_visible_initial"] = self.c.window.isVisible
+                            result["window_occlusion_visible_initial"] = self.c.window.occlusionState.contains(.visible)
+                            done()
+                        }
+                    }; return
+                }
+                #if canImport(AircCore)
+                if let engine = app?.engine as? ChromiumEngine, let page = page as? ChromiumTab {
+                    if kind == "dirty" {
+                        engine.devToolsCall("Runtime.evaluate", params: ["expression": "document.getElementById('input').focus()", "userGesture": true], in: page) { _, _ in
+                            engine.devToolsCall("Input.insertText", params: ["text": "unsaved fixture"], in: page) { _, _ in
+                                page.hasUnsavedInput { result["dirty_verified"] = $0; done() }
+                            }
+                        }; return
+                    }
+                    if kind == "audio" {
+                        engine.devToolsCall("Runtime.evaluate", params: ["expression": "window.ctx=new AudioContext();window.osc=ctx.createOscillator();window.gain=ctx.createGain();gain.gain.value=0.00001;osc.connect(gain).connect(ctx.destination);osc.start();ctx.resume();", "userGesture": true], in: page) { _, _ in done() }; return
+                    }
+                }
+                #endif
+                done()
+            }
+            wait(0.3)
+        }
+        step { [self] done in
+            guard let page = ids["audio"].flatMap({ c.engineTab(for: $0) }) else { return done() }
+            page.evaluate("({state:window.ctx?.state,time:window.ctx?.currentTime})") { value in
+                let state = value as? [String: Any]
+                result["audio_state"] = state ?? [:]
+                result["audio_verified"] = state?["state"] as? String == "running" && (state?["time"] as? Double ?? 0) > 0
+                done()
+            }
+        }
+        run { [self] in
+            iconURL = ids["plain"].flatMap { c.store.tab($0)?.faviconURL }
+            result["icon_initial"] = iconURL ?? NSNull()
+            result["loaded"] = kinds.filter { ids[$0].flatMap { c.engineTab(for: $0) }?.title == $0 }.count
+            WindowController.unloadOverride = 2; unloadStart = CACurrentMediaTime(); c.applyUnloadSetting()
+        }
+        step { [self] done in
+            waitUntil({ unloaded("plain") && unloaded("newer") }, timeout: 10) {
+                result["timeout_ms"] = (CACurrentMediaTime() - unloadStart) * 1000
+                result["timeout_unloaded"] = unloaded("plain") && unloaded("newer")
+                for k in ["shown", "audio", "dirty", "chat", "mail"] { result["timeout_protect_" + k] = !unloaded(k) }
+                result["icon_retained"] = iconURL != nil && ids["plain"].flatMap { self.c.store.tab($0)?.faviconURL } == iconURL
+                result["title_retained"] = ids["plain"].flatMap { self.c.store.tab($0) }?.title == "plain"
+                done()
+            }
+        }
+        run { [self] in WindowController.unloadOverride = 0; c.applyUnloadSetting(); if let id = ids["plain"] { c.show(id, focus: false) } }
+        step { [self] done in
+            waitUntil({ !unloaded("plain") && ids["plain"].flatMap { self.c.engineTab(for: $0) }?.isLoading == false }, timeout: 8) { done() }
+        }
+        wait(0.5)
+        step { [self] done in
+            guard let page = ids["plain"].flatMap({ c.engineTab(for: $0) }) else { return done() }
+            scrollRestoreSample(page) { sample in
+                result["restored_scroll"] = sample["y"]
+                result["restored_document_early"] = sample
+                result["restored_title"] = page.title == "plain"
+                result["window_visible_restored"] = self.c.window.isVisible
+                result["window_occlusion_visible_restored"] = self.c.window.occlusionState.contains(.visible)
+                done()
+            }
+        }
+        wait(5.5)
+        step { [self] done in
+            guard let page = ids["plain"].flatMap({ c.engineTab(for: $0) }) else { return done() }
+            scrollRestoreSample(page) { sample in result["restored_document_late"] = sample; done() }
+        }
+        run { [self] in
+            result["icon_restored"] = iconURL != nil && ids["plain"].flatMap { c.store.tab($0)?.faviconURL } == iconURL
+            if let id = ids["newer"] { c.show(id, focus: false) }
+        }
+        step { [self] done in
+            waitUntil({ !unloaded("newer") && ids["newer"].flatMap { self.c.engineTab(for: $0) }?.isLoading == false }, timeout: 8) { done() }
+        }
+        wait(0.5)
+        run { [self] in if let id = ids["shown"] { c.show(id, focus: false) } }
+        wait(0.5)
+        run {
+            unloadStart = CACurrentMediaTime()
+            #if canImport(AircCore)
+            result["pressure_hook"] = AircEngine.simulateMemoryPressure(forTesting: 2)
+            #endif
+        }
+        step { [self] done in
+            waitUntil({ unloaded("plain") }, timeout: 5) {
+                result["pressure_ms"] = (CACurrentMediaTime() - unloadStart) * 1000
+                result["pressure_unloaded"] = unloaded("plain")
+                for k in ["shown", "audio", "dirty", "chat", "mail"] { result["pressure_protect_" + k] = !unloaded(k) }
+                result["lru_verified"] = unloaded("plain") && !unloaded("newer")
+                done()
+            }
+        }
+        run { [self] in
+            WindowController.unloadOverride = nil; WindowController.keepLoadedTestSites = []
+            server?.stop()
+            let report: [String: Any] = ["engine": app?.engine.name ?? "?", "mem3": result]
+            if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) {
+                try? data.write(to: dir.appendingPathComponent("frames.json"))
+            }
+        }
+    }
+}
+
 #endif

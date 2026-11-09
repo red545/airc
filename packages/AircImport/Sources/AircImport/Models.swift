@@ -88,7 +88,10 @@ public struct ImportWarning: Codable, Sendable, Equatable {
         case splitView, unsupportedItem, easel, note, liveFolder, missingItem, invalidTab, cycle, depthLimit, emptySpaces, emptyItems, newerVersion, missingProfile
         /// Other browsers (Browsers.swift): a `javascript:` bookmarklet, a Firefox smart folder (`place:` query), more
         /// bookmarks than one import takes, a profile whose bookmarks or history couldn't be read.
-        case bookmarklet, smartBookmark, tooManyBookmarks, unreadableBookmarks, unreadableHistory
+        case bookmarklet, smartBookmark, tooManyBookmarks, unreadableBookmarks, unreadableHistory, unreadableExtensions, historyNeedsCheckpoint
+        /// P22: Arc's profile list (`Local State`) is damaged, so profile names come from the folders; a profile folder that
+        /// is a link to somewhere outside Arc's folder, whose history and extensions aren't read.
+        case unreadableProfileList, profileOutsideArc
     }
     public var code: Code
     /// Deliberately excludes source titles, URLs and identifiers.
@@ -103,6 +106,9 @@ public struct ImportWarning: Codable, Sendable, Equatable {
     }
 }
 public struct ImportPlan: Codable, Sendable, Equatable {
+    /// Arc profile ID → checkpointed history and reinstall checklist (IM-3).
+    public var history: [String: [ImportedVisit]]? = nil
+    public var extensions: [String: [ImportedExtension]]? = nil
     public var profiles: [ImportedProfile]
     public var spaces: [ImportedSpace]
     /// Every Favorite tab, flat (a Favorite split's tabs one after another).
@@ -114,6 +120,8 @@ public struct ImportPlan: Codable, Sendable, Equatable {
 public enum ImportError: Error, LocalizedError, Sendable, Equatable {
     case arcNotInstalled, noData, permissionDenied, invalidSidebar, invalidLocalState
     case keychainDeclined, keychainUnavailable, unsupportedEncryption, decryptionFailed, databaseFailed, invalidProfile
+    /// P22: the Keychain has no "Arc Safe Storage" item; the login keychain is locked or macOS can't ask right now.
+    case keychainNotFound, keychainLocked
     /// Other browsers' files (Browsers.swift, BookmarksFile.swift, PasswordCSV.swift).
     case invalidBookmarks, invalidPasswordFile, fileTooLarge
     public var errorDescription: String? {
@@ -123,8 +131,10 @@ public enum ImportError: Error, LocalizedError, Sendable, Equatable {
         case .permissionDenied: "Allow access in System Settings → Privacy & Security → Files & Folders."
         case .invalidSidebar: "Could not read Arc's sidebar. Choose StorableSidebar.json."
         case .invalidLocalState: "Arc's profile list could not be read."
-        case .keychainDeclined: "Keychain access was declined."
-        case .keychainUnavailable: "Arc Safe Storage could not be read from Keychain."
+        case .keychainDeclined: "macOS didn't unlock Arc's key (“Arc Safe Storage”): the request was denied or cancelled. Try again and choose Allow."
+        case .keychainUnavailable: "Arc's key (“Arc Safe Storage”) couldn't be read from Keychain."
+        case .keychainNotFound: "Arc's key (“Arc Safe Storage”) isn't in this Mac's Keychain, so Arc's logins and cookies can't be unlocked here. Arc may never have saved any on this Mac."
+        case .keychainLocked: "Your login keychain is locked, so macOS couldn't ask for Arc's key. Unlock it and try again."
         case .unsupportedEncryption: "This Arc encryption version isn't supported."
         case .decryptionFailed: "An encrypted Arc value could not be decrypted."
         case .databaseFailed: "Arc's database could not be read. Try closing Arc and importing again."
@@ -136,7 +146,7 @@ public enum ImportError: Error, LocalizedError, Sendable, Equatable {
     }
 }
 public struct ImportProgress: Sendable {
-    public enum Stage: String, Sendable { case discovering, sidebar, profiles, logins, cookies, bookmarks, history, complete }
+    public enum Stage: String, Sendable { case discovering, sidebar, profiles, logins, cookies, bookmarks, history, extensions, complete }
     public var stage: Stage
     public var completed: Int
     public var total: Int

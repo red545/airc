@@ -23,7 +23,13 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 CONFIG=${AIRC_UPDATES_CONFIG:-$(dirname "$ROOT")/airc.env}
 phase="reading operator configuration"
 [[ ! -f "$CONFIG" ]] || source "$CONFIG"
-HOST=${AIRC_MAC_HOST:-mac}
+[[ ${AIRC_PREPARATION:-0} != 1 && ${AIRC_PUBLISH_HOLD:-0} != 1 ]] || {
+  echo 'publication held; no feed or metadata changed' >&2; exit 2;
+}
+[[ -z ${AIRC_SCRATCH_PUBLISH_ROOT:-} ]] || {
+  echo 'scratch publication uses publish-local.sh in the isolated Mac checkout, not the live Linux coordinator' >&2; exit 2;
+}
+HOST=${AIRC_MAC_HOST:-buildmac}
 REMOTE=${1:-arcfork/nightly}
 NOTES_FILE=${2:-}
 [[ $# -le 2 ]] || { echo "publish.sh: expected REMOTE and optional NOTES_FILE" >&2; exit 2; }
@@ -36,7 +42,8 @@ mkdir -p "$DIR/dev" "$EVIDENCE"
 exec 8>"$DIR/.publish.lock"
 flock -n 8 || { echo 'another publish is running' >&2; exit 1; }
 STAGE=$(mktemp -d "$EVIDENCE/publish.XXXXXX")
-LOCAL_FEED=http://127.0.0.1:3483/appcast.xml
+LOCAL_FEED=${LOCAL_FEED:-http://127.0.0.1:3483/appcast.xml}
+printf -v feed_assignment 'AIRC_UPDATE_FEED=%q' "$LOCAL_FEED"
 # Read the built revision: HEAD may have advanced while the Mac was testing.
 phase="reading built revision from the Mac"
 revision=$(timeout 30s ssh -o BatchMode=yes -o ConnectTimeout=15 "$HOST" \
@@ -62,10 +69,15 @@ if [[ -f "$DIR/dev/appcast.xml" ]]; then
 fi
 printf -v signing 'AIRC_SIGN_IDENTITY=%q AIRC_SIGN_KEYCHAIN=%q AIRC_SIGN_KEYCHAIN_PASSWORD_FILE=%q' \
   "${AIRC_SIGN_IDENTITY:--}" "${AIRC_SIGN_KEYCHAIN:-}" "${AIRC_SIGN_KEYCHAIN_PASSWORD_FILE:-}"
+if [[ $HOST == buildmac ]]; then
+  signing='source "$HOME/arcfork/setup/signing/signing.env" && export AIRC_SIGN_IDENTITY AIRC_SIGN_KEYCHAIN AIRC_SIGN_KEYCHAIN_PASSWORD_FILE AIRC_SPARKLE_KEY_FILE &&'
+else
+  signing="export $signing &&"
+fi
 phase="Mac local publication"
 echo "publish.sh: preparing and publishing on the Mac; details: $STAGE/prepare.log"
 timeout --kill-after=15s 15m ssh -o BatchMode=yes -o ConnectTimeout=15 "$HOST" \
- "cd $REMOTE && AIRC_UPDATE_FEED=$LOCAL_FEED $signing caffeinate -i -s bash infra/updates/publish-local.sh" 2>&1 | tee "$STAGE/prepare.log"
+ "cd $REMOTE && $signing $feed_assignment caffeinate -i -s bash infra/updates/publish-local.sh" 2>&1 | tee "$STAGE/prepare.log"
 # No archives, dSYMs, smoke images or snapshot trees on the synchronous path.
 for name in Info.plist signature.txt sha256.txt published-sha256.txt deltas.json; do
   phase="copying metadata: $name"

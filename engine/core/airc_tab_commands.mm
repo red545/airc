@@ -65,6 +65,7 @@
 #include "ui/views/widget/widget_delegate.h"
 #include "ui/views/window/dialog_delegate.h"
 #include "airc/core/airc_devtools_call.h"
+#include "airc/core/airc_developer_commands.h"
 #import "airc/core/airc_internal.h"
 #import "airc/core/airc_tab_internal.h"
 
@@ -347,13 +348,7 @@ std::optional<bool> RunPageCommand(content::WebContents* contents, int command) 
 }
 
 - (void)closeDevTools {
-  if (!_contents) {
-    return;
-  }
-  if (content::WebContents* devtools =
-          DevToolsWindow::GetInTabWebContents(_contents, nullptr)) {
-    devtools->ClosePage();
-  }
+  airc::CloseDeveloperTools(_contents);
 }
 
 - (void)attachDevToolsToView:(NSView*)host {

@@ -1,3 +1,7 @@
+#include "airc/core/airc_blocking.h"
+#include "services/network/public/mojom/websocket.mojom.h"
+#include "mojo/public/cpp/bindings/remote.h"
+#include "net/base/net_errors.h"
 // Copyright 2026 Mantra Patel
 // SPDX-License-Identifier: Apache-2.0
 // Modified by The Airc Authors
@@ -248,6 +252,42 @@ class HostURLHandlerRegistration final : public content::BrowserURLHandler {
 
 class AircContentBrowserClient : public ChromeContentBrowserClient {
  public:
+  void OnWebContentsCreated(content::WebContents* contents) override {
+    ChromeContentBrowserClient::OnWebContentsCreated(contents);
+    ObserveBlockingPage(contents);
+  }
+  void WillCreateURLLoaderFactory(content::BrowserContext* context,
+      content::RenderFrameHost* frame, int process_id, URLLoaderFactoryType type,
+      const url::Origin& initiator, const net::IsolationInfo& isolation,
+      std::optional<int64_t> navigation_id, ukm::SourceIdObj source_id,
+      network::URLLoaderFactoryBuilder& builder,
+      mojo::PendingRemote<network::mojom::TrustedURLLoaderHeaderClient>* headers,
+      bool* bypass_redirect_checks, bool* disable_secure_dns,
+      network::mojom::URLLoaderFactoryOverridePtr* factory_override,
+      scoped_refptr<base::SequencedTaskRunner> navigation_runner,
+      bool for_network_service) override {
+    ChromeContentBrowserClient::WillCreateURLLoaderFactory(context,frame,process_id,
+        type,initiator,isolation,navigation_id,source_id,builder,headers,
+        bypass_redirect_checks,disable_secure_dns,factory_override,
+        std::move(navigation_runner),for_network_service);
+    AppendBlockingFactory(context,frame,type,initiator,isolation,builder);
+  }
+  bool WillInterceptWebSocket(content::RenderFrameHost* frame) override {
+    return frame || ChromeContentBrowserClient::WillInterceptWebSocket(frame);
+  }
+  void CreateWebSocket(content::RenderFrameHost* frame, WebSocketFactory factory,
+      const GURL& url, const net::SiteForCookies& cookies,
+      const std::optional<std::string>& user_agent,
+      mojo::PendingRemote<network::mojom::WebSocketHandshakeClient> client,
+      WebSocketOptions options) override {
+    if (BlockWebSocket(frame,url)) {
+      mojo::Remote<network::mojom::WebSocketHandshakeClient> remote(std::move(client));
+      remote->OnFailure("Blocked by Airc",net::ERR_BLOCKED_BY_CLIENT,-1);
+      return;
+    }
+    ChromeContentBrowserClient::CreateWebSocket(frame,std::move(factory),url,cookies,
+        user_agent,std::move(client),std::move(options));
+  }
   void BrowserURLHandlerCreated(content::BrowserURLHandler* handler) override {
     HostURLHandlerRegistration registration(handler, &HandleWebUI);
     ChromeContentBrowserClient::BrowserURLHandlerCreated(&registration);
@@ -363,15 +403,20 @@ void MergeFeatures(base::CommandLine* command_line, const char* list, std::strin
 // Startup-only kill switches, engine-owned. Off restores the pre-pass defaults;
 // no persisted user prefs are rewritten. See engine/BACKGROUND-SERVICES.md.
 void ConfigureBackgroundServices(base::CommandLine* command_line) {
+  // No Safe Browsing service in this build. Command-line prefs cover all profiles
+  // before services start, without reporting enterprise/browser management.
+  command_line->AppendSwitch("airc-disable-safe-browsing");
   // Actor's navigation list is not Safe Browsing/CRLSet. Omit it only while
   // Glic/AI actions are disabled; restore before exposing any actor surface.
   g_airc_skip_actor_safety_lists = SwitchOn("quietModels") && SwitchOn("quietActorLists");
   if (SwitchOn("quietModels")) {
     // Airc has no Google AI UI. In M156 OptimizationHints also gates the
-    // shared model-delivery holder; avoid its downloads and startup evaluation.
+    // shared model-delivery holder. The separate manifest broker must also
+    // be disabled; keep its unavailable capability stub for existing consumers.
     MergeFeatures(command_line, switches::kDisableFeatures,
         "OptimizationHints,OptimizationTargetPrediction,"
-        "OptimizationGuideModelExecution,OnDeviceModelBackgroundDownload,"
+        "OptimizationGuideModelExecution,OptimizationGuideManifestBroker,"
+        "OnDeviceModelBackgroundDownload,"
         "LogOnDeviceMetricsOnStartup,OnDeviceModelFetchPerformanceClassEveryStartup,"
         "Glic,GlicWarming");
   }
@@ -524,6 +569,11 @@ void AircMainDelegate::PreSandboxStartup() {
                                             chrome::DIR_USER_DATA);
   }
   if (process_type.empty()) {
+    // Ordinary launches skip the early explicit-test decision. Warm their cache
+    // after creating the data directory, while startup still permits blocking,
+    // before a UI-thread API (e.g. memory-pressure testing) can query it. An
+    // early refusal remains final even if the directory has since been created.
+    InitializeTestGateAtStartup();
     InstallAppOverrides();
     InstallChromeHooks();
   }

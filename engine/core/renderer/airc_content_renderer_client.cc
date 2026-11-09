@@ -170,11 +170,15 @@ class AircPageObserver : public content::RenderFrameObserver,
       return;
     }
     v8::Local<v8::Value> post = PostFunction(isolate, context, std::nullopt);
+    // The tab's page data (AircTab.pageColor, sent before every commit): the
+    // app's per-tab key for parts that must be right at document start (P07's
+    // page palette). Empty in frames below the top one.
+    v8::Local<v8::Value> args[] = {post, gin::StringToV8(isolate, page_color_)};
     v8::Local<v8::Value> receive;
     const bool ran = frame
                          ->CallFunctionEvenIfScriptDisabled(
                              install.As<v8::Function>(), v8::Undefined(isolate),
-                             1, &post)
+                             2, args)
                          .ToLocal(&receive);
     if (!alive || !ran || !receive->IsFunction() ||
         frame->MainWorldScriptContext() != context) {

@@ -1,0 +1,222 @@
+---
+// What's new in each release, newest first. The notes are the release notes themselves: src/content/changelog/<version>.md,
+// the one being prepared copied from docs/release-notes-beta.md before each build (scripts/sync-changelog.mjs). A release
+// shows once the stable feed lists it; preview deployments also show the one being prepared, marked. A version that was
+// staged and never published (0.1.1) has no entry: the release after it says it includes its changes.
+import Layout from "../layouts/Layout.astro";
+import Download from "../components/Download.astro";
+import { getPublished, SHOW_UNRELEASED } from "../lib/release";
+
+const published = await getPublished();
+
+const files = import.meta.glob<{ compiledContent: () => Promise<string> }>("../content/changelog/*.md", { eager: true });
+const semver = (v: string) => v.split(".").map(Number);
+const newer = (a: string, b: string) => {
+  const [x, y] = [semver(a), semver(b)];
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return y[i] - x[i];
+  return 0;
+};
+
+// The notes without what every release repeats: the title, the "Airc is…" line, the install and update list before
+// the first section, and the manifest and source lines. The Chromium version goes in the release's heading instead.
+async function notes(md: { compiledContent: () => Promise<string> }) {
+  const html = await md.compiledContent();
+  const first = html.search(/<h2[\s>]/);
+  const intro = first > 0 ? html.slice(0, first) : "";
+  const body = first > 0 ? html.slice(first) : html;
+  const chromium = html.match(/Chromium (\d+\.\d+\.\d+\.\d+)/)?.[1];
+  const summary = [...intro.matchAll(/<p>([\s\S]*?)<\/p>/g)]
+    .map(([, p]) =>
+      p
+        .split(/(?<=\.)\s+/)
+        .filter((s) => !/Arc-style browser|staged manifest|release notes\.|Public beta release notes/i.test(s))
+        .join(" ")
+        .trim(),
+    )
+    .filter(Boolean);
+  return { chromium, summary, body: body.replace(/<p>Source: [\s\S]*?<\/p>\s*$/, "") };
+}
+
+const releases = await Promise.all(
+  Object.entries(files)
+    .map(([path, md]) => ({ version: path.match(/(\d+\.\d+\.\d+)\.md$/)![1], md }))
+    .filter((r) => published.has(r.version) || SHOW_UNRELEASED)
+    .sort((a, b) => newer(a.version, b.version))
+    .map(async (r) => ({ version: r.version, published: published.get(r.version), ...(await notes(r.md)) })),
+);
+
+const day = (iso: string) =>
+  new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
+---
+
+<Layout title="Changelog · Airc" description="What's new in each Airc release, newest first: new features, fixes, and what to know.">
+  <article class="changelog">
+    <p class="tag" style="--c:#5b7ee8">Changelog</p>
+    <h1>What's new in Airc. <span>Every release, newest first, from its release notes.</span></h1>
+
+    {releases.map((r) => (
+        <section class="release" id={`v${r.version}`}>
+          <header class="r-head">
+            <h2><a href={`#v${r.version}`}>Airc {r.version}</a></h2>
+            {r.published ? (
+              <p class="r-meta"><time datetime={r.published.date}>{day(r.published.date)}</time></p>
+            ) : (
+              <p class="r-meta"><span class="chip chip-draft">Not published yet</span></p>
+            )}
+            {r.chromium && <p class="r-meta">Chromium {r.chromium}</p>}
+          </header>
+          <div class="r-body">
+            {r.summary.map((s) => <p class="r-summary">{s}</p>)}
+            <div class="md" set:html={r.body} />
+          </div>
+        </section>
+    ))}
+
+    <footer class="end">
+      <p>Every version, with its download and checksum, is on <a href="/versions">Versions</a>. Airc updates itself; this page follows.</p>
+      <Download from="changelog" />
+    </footer>
+  </article>
+</Layout>
+
+<style>
+  .changelog {
+    --cont: #7a8190;
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: clamp(48px, 7vw, 96px) clamp(20px, 4vw, 56px) 0;
+  }
+
+  .tag {
+    --c: var(--t3);
+    display: inline-flex;
+    align-items: center;
+    height: 24px;
+    margin-bottom: 18px;
+    padding: 0 9px;
+    border-radius: 7px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--c) 78%, #000);
+    background: color-mix(in srgb, var(--c) 11%, var(--bg));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 22%, transparent);
+  }
+
+  h1 {
+    max-width: 760px;
+    font-size: clamp(32px, 4vw, 52px);
+    line-height: 1.06;
+    font-weight: 550;
+    letter-spacing: -0.026em;
+    color: var(--t1);
+    text-wrap: balance;
+  }
+
+  h1 span { color: var(--cont); }
+
+  /* One release: its version and date on the left, sticky, its notes on the right. */
+  .release {
+    display: grid;
+    grid-template-columns: minmax(0, 220px) minmax(0, 1fr);
+    gap: 24px clamp(24px, 4vw, 56px);
+    margin-top: clamp(48px, 6vw, 72px);
+    padding-top: clamp(32px, 4vw, 44px);
+    box-shadow: 0 -1px 0 var(--hl);
+    scroll-margin-top: 24px;
+  }
+
+  .r-head { position: sticky; top: 24px; align-self: start; display: grid; gap: 6px; }
+
+  .r-head h2 { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; color: var(--t1); }
+  .r-head h2 a { color: inherit; }
+  .r-head h2 a:hover { text-decoration: underline; text-decoration-color: var(--hl-strong); text-underline-offset: 4px; }
+
+  .r-meta { font-size: 13.5px; font-weight: 500; color: var(--t3); font-variant-numeric: tabular-nums; }
+  .r-meta a { color: var(--t2); text-decoration: underline; text-decoration-color: var(--hl-strong); text-underline-offset: 3px; }
+  .r-meta a:hover { color: var(--t1); }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    height: 22px;
+    padding: 0 8px;
+    border-radius: 7px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .chip-draft { color: #8a5a00; background: rgb(232 163 43 / 0.16); }
+
+  .r-summary { font-size: 18px; line-height: 1.55; font-weight: 450; color: var(--t1); text-wrap: pretty; }
+  .r-summary + .r-summary { margin-top: 10px; }
+
+
+  .md :global(h2) {
+    margin: 32px 0 12px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--t3);
+  }
+
+  .r-summary + .md :global(h2:first-child) { margin-top: 28px; }
+  .md :global(h2:first-child) { margin-top: 4px; }
+
+  .md :global(ul) { margin: 0; padding: 0; list-style: none; }
+
+  .md :global(li) {
+    position: relative;
+    padding: 12px 0 12px 20px;
+    font-size: 15.5px;
+    line-height: 1.6;
+    font-weight: 450;
+    color: var(--t2);
+    box-shadow: 0 1px 0 var(--hl);
+  }
+
+  .md :global(li::before) {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 21px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--hl-strong);
+  }
+
+  .md :global(li strong:first-child) { color: var(--t1); }
+  .md :global(strong) { font-weight: 600; color: var(--t1); }
+  .md :global(p) { font-size: 15.5px; line-height: 1.6; color: var(--t2); }
+
+  .md :global(code) {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    padding: 1px 5px;
+    border-radius: 5px;
+    background: var(--panel);
+    box-shadow: inset 0 0 0 1px var(--hl);
+  }
+
+  .md :global(a) { color: var(--t1); text-decoration: underline; text-decoration-color: var(--hl-strong); text-underline-offset: 3px; }
+
+  @media (max-width: 760px) {
+    .release { grid-template-columns: 1fr; }
+    .r-head { position: static; }
+  }
+
+  .end {
+    display: grid;
+    justify-items: center;
+    gap: 28px;
+    margin-top: clamp(64px, 8vw, 112px);
+    padding: clamp(40px, 5vw, 64px) 0;
+    text-align: center;
+    box-shadow: 0 -1px 0 var(--hl);
+  }
+
+  .end p { max-width: 520px; font-size: 15px; line-height: 1.6; font-weight: 450; color: var(--t2); text-wrap: balance; }
+  .end a { color: var(--t1); text-decoration: underline; text-decoration-color: var(--hl-strong); text-underline-offset: 3px; }
+
+</style>

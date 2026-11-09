@@ -152,7 +152,7 @@ struct NewSpaceForm: View {
         CardRow(label: "Profile", ui: ui, action: { model.onProfileMenu?() }) {
             HStack(spacing: 5) {
                 if let p = model.profile {
-                    AircProfileAvatar(emoji: p.emoji, name: p.name, color: p.color.aircColor, size: 16)
+                    AircProfileAvatar(AircProfileIdentity(name: p.name, emoji: p.emoji, color: p.color.aircColor, account: p.googleAccount), size: 16)
                     Text(p.name).aircFont(AircTextStyle(size: 12, weight: .medium, lineHeight: 15)).foregroundStyle(ui.text.color).lineLimit(1)
                 }
                 Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).foregroundStyle(ui.textSecondary.color)
@@ -163,6 +163,7 @@ struct NewSpaceForm: View {
             .background(Capsule().fill(ui.tileHoverFill.color))
             .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.space)) }) { model.pillFrame = $0 }
         }
+        .help(model.profile?.googleAccount ?? "Choose a profile")
         .testAnchor("new.profile")
     }
 
@@ -479,10 +480,22 @@ extension WindowController {
             model.error = "Couldn’t create the Space: \(error.localizedDescription)"
             return
         }
+        #if AIRC_TESTING
+        defersNewSpaceTitle = ProcessInfo.processInfo.environment["AIRC_SPACE_TITLE_BASELINE"] != "1"
+        #else
+        defersNewSpaceTitle = true
+        #endif
+        defer { defersNewSpaceTitle = false }
         Telemetry.shared.record(.featureUsed(.spaceCreate))
         Perf.time("new.closePanel") { closeNewSpacePanel(created: true) }
         Perf.time("new.addPage") { addPage(for: created.id) }
         Perf.time("new.switch") { switchToSpace(created.id, animated: false) }
         Perf.time("new.background") { background.show(palette(for: created).resolved) }
+        if defersNewSpaceTitle {
+            // The window's title is hidden. Updating its menu/Mission Control metadata forces
+            // AppKit to retile the titlebar; let the visible new Space commit first. Read the
+            // current state when this fires so a quick subsequent switch cannot leave a stale title.
+            afterCreateFrame { [weak self] in self?.updateWindowTitle() }
+        }
     }
 }

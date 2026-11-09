@@ -152,6 +152,8 @@ public struct Profile: Codable, Hashable, Sendable, Identifiable {
     public var searchEngine: SearchEngine
     /// Signed-in Google account, for display only (SB-22).
     public var googleAccount: String?
+    /// SP-12: local, per-profile setup progress; nil for profiles saved by older versions.
+    public var googleSignIn: ProfileSignInState?
     /// The one profile that always exists and can't be deleted.
     public var isDefault: Bool
     public var createdAt: Date
@@ -326,6 +328,9 @@ public struct LiveTab: Codable, Hashable, Sendable, Identifiable {
     public var lastActiveAt: Date
     /// An imported Today tab's source ID ("arc-item:<id>").
     public var sourceID: String?
+    /// A Today tab's own icon (an emoji, Arc's "Change Icon…" on a Today tab); a pinned tab's is its item's. Older files
+    /// have none, and a tab without one encodes as before.
+    public var icon: String?
 
     public init(id: String = newID(), profileID: String, spaceID: String?, itemID: String? = nil, url: String,
                 title: String = "", faviconURL: String? = nil, order: Double = 0, openerID: String? = nil,
@@ -368,8 +373,13 @@ public struct ArchiveEntry: Codable, Hashable, Sendable, Identifiable {
     public var profileID: String
     public var archivedAt: Date
     public var reason: ArchiveReason
+    /// Where the tab was besides its Space (P10a): `littleArcOrigin` for a Little Arc page. Older files have none.
+    public var origin: String?
     /// The tab as it was, so a restore puts it back exactly.
     public var tab: LiveTab
+
+    /// `origin` of a page archived from Little Arc (the Library's "Where was the tab?" filter).
+    public static let littleArcOrigin = "littleArc"
 
     public init(tab: LiveTab, reason: ArchiveReason, at date: Date) {
         id = newID()

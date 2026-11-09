@@ -46,7 +46,8 @@ final class CalendarTileFace {
 
     func refresh() {
         let center = CalendarCenter.shared
-        let text = center.tileLabel
+        // Arc's "Show Time to Next Meeting", per Favorite.
+        let text = center.shows(.countdown, for: tile?.item?.id) ? center.tileLabel : nil
         if label.isHidden != (text == nil) || label.stringValue != (text ?? "") {
             label.stringValue = text ?? ""
             label.isHidden = text == nil
@@ -65,7 +66,8 @@ final class CalendarTileFace {
             self.promptCheckQueued = false
             guard let tile = self.tile, let grid = tile.superview else { return }
             let shown = grid.subviews.contains { $0 is CalendarPromptView }
-            if (CalendarCenter.shared.promptEvent != nil) != shown { tile.page?.reload(animated: true) }
+            let favorites = grid.subviews.compactMap { ($0 as? FavoriteTileView)?.item }
+            if (CalendarPromptView.event(for: favorites) != nil) != shown { tile.page?.reload(animated: true) }
         }
     }
 
@@ -88,6 +90,8 @@ final class CalendarTileFace {
 
     func hover(_ inside: Bool) {
         guard let tile else { return }
+        // Arc's "Show Hover Preview", per Favorite.
+        if inside, !CalendarCenter.shared.shows(.preview, for: tile.item?.id) { return }
         if inside { CalendarCard.shared.hoverBegan(tile: tile) } else { CalendarCard.shared.hoverEnded() }
     }
 }
@@ -99,8 +103,14 @@ final class CalendarCardModel: ObservableObject {
     @Published var state: CalendarCenter.CardState = .events
     @Published var events: [CalendarEvent] = []
     @Published var labels: [String: String] = [:]
+    /// Meetings moments away (or on now): their Join is the big one, as in Arc's preview.
+    @Published var soon: Set<String> = []
+    /// The Calendar Favorite has a new-event page (Arc's "+").
+    @Published var canCreate = false
     var theme = DesignTheme.default.resolved(systemIsDark: false)
     var onJoin: (CalendarEvent) -> Void = { _ in }
+    var onOpen: (CalendarEvent) -> Void = { _ in }
+    var onNewEvent: () -> Void = {}
     var onHover: (Bool) -> Void = { _ in }
 
     func update() {
@@ -110,6 +120,8 @@ final class CalendarCardModel: ObservableObject {
         if e != events { events = e }
         let l = Dictionary(uniqueKeysWithValues: e.compactMap { ev in c.label(for: ev).map { (ev.id, $0) } })
         if l != labels { labels = l }
+        let n = Set(e.filter(c.isSoon).map(\.id))
+        if n != soon { soon = n }
     }
 }
 
@@ -126,6 +138,8 @@ final class CalendarCard {
     private weak var controller: WindowController?
     /// The Space whose Calendar Favorite opened the card: Join opens there.
     private(set) var spaceID: String?
+    /// That Calendar Favorite: "+" and a picked meeting open in it.
+    private(set) var itemID: String?
     private weak var tile: NSView?
     private var pending: DispatchWorkItem?
     private var hideWork: DispatchWorkItem?
@@ -136,6 +150,16 @@ final class CalendarCard {
         model.onJoin = { [weak self] e in
             guard let self, let c = self.controller else { return }
             CalendarCenter.shared.join(e, spaceID: self.spaceID, controller: c)
+        }
+        model.onOpen = { [weak self] e in
+            guard let self, let c = self.controller, let id = self.itemID, let saved = c.store.item(id)?.savedURL else { return }
+            guard let url = CalendarSites.dayURL(saved, day: e.start) ?? URL(string: saved) else { return }
+            CalendarCenter.shared.open(url, inFavorite: id, spaceID: self.spaceID, controller: c)
+        }
+        model.onNewEvent = { [weak self] in
+            guard let self, let c = self.controller, let id = self.itemID, let saved = c.store.item(id)?.savedURL,
+                  let url = CalendarSites.newEventURL(saved) else { return }
+            CalendarCenter.shared.open(url, inFavorite: id, spaceID: self.spaceID, controller: c)
         }
         model.onHover = { [weak self] inside in
             self?.insidePanel = inside
@@ -181,6 +205,7 @@ final class CalendarCard {
         guard let p = panel else { return }
         panel = nil
         tile = nil
+        itemID = nil
         insidePanel = false
         p.removeFromSuperview()
     }
@@ -188,10 +213,14 @@ final class CalendarCard {
     /// Shows the card beside `tile` now (scripted runs call this instead of hovering).
     func show(beside tile: FavoriteTileView) {
         guard let c = tile.controller, CalendarCenter.shared.cardState != nil else { return }
+        // A hover that ended just before mustn't take the card down again.
+        hideWork?.cancel()
         hide()
         controller = c
         spaceID = tile.page?.spaceID
+        itemID = tile.item?.id
         self.tile = tile
+        model.canCreate = tile.item?.savedURL.flatMap(CalendarSites.newEventURL) != nil
         model.theme = c.currentPalette.resolved
         model.update()
         let host = AircFirstClickHostingView(rootView: CalendarCardView(model: model))
@@ -311,8 +340,20 @@ private struct CalendarCardView: View {
 
     private var events: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Upcoming").aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextTertiary.color)
-                .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 4)
+            HStack(spacing: 0) {
+                Text("Upcoming").aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextTertiary.color)
+                Spacer(minLength: 0)
+                // Arc's "+": the calendar's own page for a new event, in the Calendar Favorite.
+                if model.canCreate {
+                    Button(action: model.onNewEvent) {
+                        Image(systemName: "plus").font(.system(size: 11, weight: .semibold)).frame(width: 22, height: 22)
+                    }
+                    .buttonStyle(.airc(.plain, size: .small))
+                    .accessibilityLabel("New Event")
+                    .testAnchor("calendar.newEvent")
+                }
+            }
+            .padding(.leading, 14).padding(.trailing, 8).padding(.top, model.canCreate ? 7 : 12).padding(.bottom, model.canCreate ? 0 : 4)
             if model.events.isEmpty {
                 Text("No meetings in the next 24 hours").aircFont(AircFont.body).foregroundStyle(theme.surfaceTextSecondary.color)
                     .padding(.horizontal, 14).padding(.vertical, 10)
@@ -337,8 +378,9 @@ private struct CalendarCardView: View {
             }
             Spacer(minLength: 0)
             if e.link != nil {
+                // Arc: a big Join for a meeting moments away, a quiet one for later ones.
                 Button("Join") { model.onJoin(e) }
-                    .buttonStyle(.airc(label != nil ? .primary : .secondary, size: .small))
+                    .buttonStyle(.airc(model.soon.contains(e.id) ? .primary : .secondary, size: .small))
                     .fixedSize()
                     .testAnchor("calendar.join.\(index)")
             }
@@ -350,6 +392,9 @@ private struct CalendarCardView: View {
         .padding(.horizontal, 6)
         .contentShape(Rectangle())
         .onHover { hovered = $0 ? e.id : (hovered == e.id ? nil : hovered) }
+        // The rest of the row: that day in the calendar (Arc's preview opens the event in its calendar).
+        .onTapGesture { model.onOpen(e) }
+        .testAnchor("calendar.row.\(index)")
     }
 }
 
@@ -376,11 +421,19 @@ final class CalendarPromptView: NSView {
     private var hovered = false { didSet { if hovered != oldValue { style(); needsLayout = true } } }
     private var observer: NSObjectProtocol?
 
+    /// The meeting the prompt shows under these Favorites, if any: there's one now, and a Calendar Favorite among them
+    /// keeps Arc's "Show Next Meeting Link" on.
+    static func event(for favorites: [Item]) -> CalendarEvent? {
+        let center = CalendarCenter.shared
+        guard favorites.contains(where: { CalendarTileFace.isCalendar($0) && center.shows(.joinLink, for: $0.id) }) else { return nil }
+        return center.promptEvent
+    }
+
     /// SpacePageView.render: adds, updates or removes the prompt below the grid; returns the height it adds.
     static func place(in grid: NSView, below gridHeight: CGFloat, width: CGFloat, favorites: [Item], spaceID: String,
                       palette: Palette, controller: WindowController) -> CGFloat {
         let existing = grid.subviews.first { $0 is CalendarPromptView } as? CalendarPromptView
-        guard favorites.contains(where: CalendarTileFace.isCalendar), let e = CalendarCenter.shared.promptEvent else {
+        guard let e = event(for: favorites) else {
             existing?.removeFromSuperview()
             return 0
         }
@@ -517,6 +570,16 @@ struct CalendarSettingsSection: View {
             AircToggleRow("Show upcoming meetings",
                           subtitle: "A countdown on the calendar Favorite, your next meetings when you point at it, and Join when one starts.",
                           isOn: Binding(get: { model.settings.values.calendar.enabled }, set: { center.setEnabled($0) }))
+            if model.settings.values.calendar.enabled {
+                // Arc's "Show Meeting Link" times. Each calendar Favorite's menu has them too, with its own switches.
+                SettingsRow(title: "Show the Join link", subtitle: "Under your Favorites, before each meeting with a call. ⌃⌘J joins any time.") {
+                    AircPopUp(options: JoinLead.allCases.map { ($0.title, $0) }, selection: model.settings.values.calendar.joinLead,
+                              width: 190) { lead in
+                        center.setJoinLead(lead)
+                        model.objectWillChange.send()
+                    }
+                }
+            }
             if model.settings.values.calendar.enabled && center.access == .denied {
                 SettingsRow(title: "Calendar access is off", subtitle: "Allow Airc in System Settings → Privacy & Security → Calendars.") {
                     Button("Open System Settings") { CalendarCard.openPrivacySettings() }.buttonStyle(.airc(.secondary))

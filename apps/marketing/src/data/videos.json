@@ -1,0 +1,112 @@
+{
+  "capture": {
+    "title": "Capture part of a page.",
+    "line": "Drag over it, then copy, save or share.",
+    "alt": "An animation rendered frame by frame by Airc: a trip-planning page in Airc, then Shift-Command-2 dims it and shows how to capture, a selection is dragged open over the card “Alfama at golden hour”, and Copy, Save and Share appear under it. Captions: Press Shift-Command-2 on any page. Drag over what you want. Then copy, save or share it.",
+    "since": "0.1.2",
+    "released": true,
+    "width": 1440,
+    "height": 900,
+    "seconds": 5.13
+  },
+  "boosts": {
+    "title": "Make a Boost.",
+    "line": "Restyle any site, then share it.",
+    "alt": "An animation rendered frame by frame by Airc: Wikipedia's Typography article, then the Boost editor's tint slider rising as the page warms to amber, the font changing to Charter, and the page's Appearance column zapped away. Captions: Colors, a warm tint. Font, Charter. Zap, click away what you don't need.",
+    "since": "0.1.2",
+    "released": true,
+    "width": 1440,
+    "height": 900,
+    "seconds": 6.87
+  },
+  "command": {
+    "title": "⌘T: tabs, history and search.",
+    "line": "Results as you type.",
+    "alt": "An animation rendered frame by frame by Airc: in the Travel Space on Wikipedia's Lisbon article, the Command Bar opens and “lisbon” is typed a letter at a time, its results filling in: history, open tabs and search suggestions, the top hit completed inline.",
+    "since": "0.1.0",
+    "released": true,
+    "width": 1440,
+    "height": 900,
+    "seconds": 4.17
+  },
+  "select-tabs": {
+    "title": "Select several tabs.",
+    "line": "⌘-click, or ⇧-click for a range.",
+    "alt": "An animation rendered frame by frame by Airc: in the Personal Space, three Today tabs are selected one after another, their menu opens with Copy, Duplicate, Split View, Pin, New Folder with 3 Tabs, Add to Folder, Move to Space, Close and Archive, and New Folder with 3 Tabs puts them in a new folder. Captions: Command-click, or Shift-click for a range. Then act on all of them at once.",
+    "since": "0.1.2",
+    "released": true,
+    "width": 1440,
+    "height": 900,
+    "seconds": 6,
+    "group": "sidebar",
+    "feature": "Select several tabs"
+  },
+  "site-search": {
+    "title": "Site Search, in ⌘T.",
+    "line": "Search a site straight from the Command Bar.",
+    "alt": "An animation rendered frame by frame by Airc: on Wikipedia's Lisbon article, the Command Bar opens, “wiki” is typed and a row offers Search Wikipedia, Press Tab; then a Wikipedia pill leads the field and “Belém Tower” is typed, with Search Wikipedia and the Belém Tower article as results. Captions: Press Command-T. Type a site's shortcut. Press Tab. Type, then Return.",
+    "since": "0.1.3",
+    "released": true,
+    "width": 1440,
+    "height": 900,
+    "seconds": 6.73,
+    "group": "command",
+    "feature": "Site Search"
+  },
+  "notes": {
+    "title": "Notes, in the sidebar.",
+    "line": "A page of your own among your tabs.",
+    "alt": "An animation rendered frame by frame by Airc: a new note pinned in the Travel Space's sidebar is typed into: its name, Lisbon plan, a line of text, a heading made with ##, a checklist made with [], then a Capture of a trip page pasted in. Captions: Control-Shift-N makes a note. Its first line is its name. ## makes a heading as you type. [] makes a checklist. A Capture pastes straight in.",
+    "since": "0.1.3",
+    "released": true,
+    "width": 1440,
+    "height": 900,
+    "seconds": 14.15
+  },
+  "capture-portrait": {
+    "title": "Capture in Portrait Mode.",
+    "line": "Press P in Capture.",
+    "alt": "Coming soon. An animation rendered frame by frame by Airc: the trip page framed by Capture in Portrait Mode on a cyan gradient, the background sweeping through green to yellow as the colour slider moves, then switching to the site's own colour, with Copy, Save and Share below.",
+    "since": "next",
+    "released": false,
+    "width": 1440,
+    "height": 900,
+    "seconds": 6.47,
+    "group": "capture",
+    "feature": "Portrait Mode"
+  },
+  "sidebar": {
+    "title": "A sidebar for each part of your day.",
+    "line": "Swipe with two fingers to move between them.",
+    "alt": "An animation rendered by Airc: two-finger swipes move the sidebar from the Personal Space in mint, on Wikipedia's Kyoto article, to Travel in sky blue on Lisbon, Studio in peach on colour theory, and Work in purple on a shared folder of launch files. The window's colour follows each swipe.",
+    "since": "0.1.0",
+    "released": true,
+    "width": 1440,
+    "height": 900,
+    "seconds": 6.45
+  },
+  "site-previews": {
+    "title": "Site previews.",
+    "line": "Rest on a pinned Linear, Figma or Notion and jump back in.",
+    "alt": "Coming soon. An animation rendered frame by frame by Airc on demo data: the Work Space on the demo's shared folder of launch files; resting on the pinned Linear Favorite shows a card of the Linear pages visited there, newest first, with + for a new issue; then Figma's card with recent files, then the pinned Notion page's card with recent Notion pages.",
+    "since": "next",
+    "released": false,
+    "width": 1440,
+    "height": 900,
+    "seconds": 7.9,
+    "group": "sidebar",
+    "feature": "Site previews"
+  },
+  "developer-mode-toolbar": {
+    "title": "Network, in Developer Mode.",
+    "line": "Developer Mode’s toolbar, after 0.1.3.",
+    "alt": "Coming soon. An animation rendered frame by frame by Airc: a made-up app's local preview, Fieldwork, at localhost in the Personal Space, in Developer Mode: under the address, Inspect, Network, Reload and a count of two console errors. Then Swift.org, a plain tab, until Control-D turns Developer Mode on for it, and Site Controls show its Developer Mode switch.",
+    "since": "next",
+    "released": false,
+    "width": 1440,
+    "height": 900,
+    "seconds": 7,
+    "group": "developer",
+    "feature": "Network and clearing data"
+  }
+}

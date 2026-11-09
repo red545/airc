@@ -28,10 +28,13 @@ struct ExtensionAction: Identifiable, Equatable {
 }
 
 /// Extension toolbar actions (engine/PASS7.md "Extension UI request"). Pinned, enabled actions draw in the URL field
-/// while the sidebar is hovered, with their badge; a click presents the action's popup anchored on its button (the core
-/// performs the action itself, so it is never executed first). ⌘E and the puzzle button list every extension of this
-/// Space's profile with a pin toggle, then Manage Extensions… and Chrome Web Store…. Pins are per profile, on this Mac.
-/// Everything is queried when it's about to show (hover, the list opening, after a click); nothing polls.
+/// while the sidebar is hovered, with their badge, or, while the toolbar shows (⇧⌘D, Arc's way to move them to the
+/// top right), at the toolbar's trailing end, always visible; the same buttons in the same order either way. A click
+/// presents the action's popup under its button (the core performs the action itself, so it is never executed first),
+/// lined up as Chrome's: trailing edges together for a button in the window's right half (the toolbar, a sidebar on the
+/// right), leading edges otherwise. ⌘E and the puzzle button list every extension of this Space's profile with a pin
+/// toggle, then Manage Extensions… and Chrome Web Store…. Pins are per profile, on this Mac. Everything is queried when
+/// it's about to show (hover, the list opening, after a click, a moment after the toolbar's page changes); nothing polls.
 extension WindowController {
     var currentProfileID: String { store.profile(ofSpace: currentSpaceID).id }
 
@@ -77,12 +80,50 @@ extension WindowController {
         refreshExtensionButtons()
     }
 
-    /// The URL field's pinned actions, fresh from the engine.
+    /// The pinned actions, fresh from the engine, in pin order: in the toolbar while it shows (the URL field then has
+    /// none), else in the URL field.
     func refreshExtensionButtons() {
-        guard let field = pageView(for: currentSpaceID)?.urlField else { return }
         let pinned = pinnedExtensionIDs
         let all = extensionActions()
-        field.setExtensions(pinned.compactMap { id in all.first { $0.id == id && $0.isEnabled } })
+        let actions = pinned.compactMap { id in all.first { $0.id == id && $0.isEnabled } }
+        let field = pageView(for: currentSpaceID)?.urlField
+        if let toolbar = pageToolbar {
+            toolbar.setExtensions(actions)
+            field?.setExtensions([])
+        } else {
+            field?.setExtensions(actions)
+        }
+    }
+
+    /// The toolbar's actions again a moment after its page or Space changed (badges, greyed out), once for a burst.
+    func scheduleToolbarExtensionsRefresh() {
+        let key = ObjectIdentifier(self)
+        guard pageToolbar != nil, !ToolbarExtensions.pending.contains(key) else { return }
+        ToolbarExtensions.pending.insert(key)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            ToolbarExtensions.pending.remove(key)
+            guard let self, self.pageToolbar != nil else { return }
+            self.refreshExtensionButtons()
+        }
+    }
+
+    /// Where ⌘E's list and an unpinned action's popup anchor: the toolbar's puzzle while the toolbar shows.
+    var extensionsListAnchor: (view: NSView, rect: NSRect)? {
+        if let toolbar = pageToolbar, toolbar.window != nil {
+            // Laid out now: right after ⇧⌘D its buttons have no frames until the next pass, and a popover won't
+            // show from an empty rect.
+            toolbar.layoutSubtreeIfNeeded()
+            return (toolbar.puzzle, toolbar.puzzle.bounds)
+        }
+        guard let field = pageView(for: currentSpaceID)?.urlField, field.window != nil, !sidebarHidden else { return nil }
+        return (field, field.bounds)
+    }
+
+    /// An action's anchor: its pinned button (toolbar or URL field), else where the list opens.
+    func extensionAnchor(for id: String) -> (view: NSView, rect: NSRect)? {
+        if let toolbar = pageToolbar, toolbar.window != nil { return toolbar.extensionAnchor(for: id) }
+        guard let field = pageView(for: currentSpaceID)?.urlField, field.window != nil else { return nil }
+        return (field, field.extensionAnchor(for: id))
     }
 
     /// Runs an action: its popup opens anchored on `rect` of `view` (inside this window). False: no popup (an action
@@ -98,7 +139,12 @@ extension WindowController {
             showToast(why)
             return false
         }
-        let shown = engine.presentExtensionAction(id, for: page, anchorRect: rect.intersection(view.bounds), in: view)
+        let before = Set((window.childWindows ?? []).map(ObjectIdentifier.init))
+        let anchor = rect.intersection(view.bounds)
+        let shown = engine.presentExtensionAction(id, for: page, anchorRect: anchor, in: view)
+        if shown, let panel = (window.childWindows ?? []).last(where: { $0 is NSPanel && !before.contains(ObjectIdentifier($0)) }) {
+            alignExtensionPopup(panel, under: window.convertToScreen(view.convert(anchor, to: nil)))
+        }
         // The action may change its badge.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.refreshExtensionButtons() }
         return shown
@@ -106,11 +152,26 @@ extension WindowController {
 
     func closeExtensionPopup() { app?.engine.closeExtensionPopup(in: engineWindow) }
 
-    /// ⌘E and the puzzle button: every extension of this profile, with pin toggles, under the URL field.
-    func showExtensions() {
-        guard let field = pageView(for: currentSpaceID)?.urlField, field.window != nil, !sidebarHidden else {
-            return showExtensionsMenu()
+    /// The popup under its button as Chrome places it: its content's top at the button's bottom; its trailing edge on
+    /// the button's when the button is in the window's right half (the toolbar's top right, a sidebar on the right, full
+    /// screen), else its leading edge on the button's; kept on the window's screen. (The engine puts the leading edge
+    /// on the button's always, which leaves a toolbar popup hanging past the window.)
+    func alignExtensionPopup(_ panel: NSWindow, under anchor: NSRect) {
+        let content = panel.contentRect(forFrameRect: panel.frame).size
+        let trailing = anchor.midX > window.frame.midX
+        let x = trailing ? anchor.maxX - content.width : anchor.minX
+        var frame = panel.frameRect(forContentRect: NSRect(x: x, y: anchor.minY - content.height, width: content.width, height: content.height))
+        if let screen = (window.screen ?? NSScreen.main)?.visibleFrame {
+            frame.origin.x = max(screen.minX, min(frame.origin.x, screen.maxX - frame.width))
+            frame.origin.y = max(screen.minY, min(frame.origin.y, screen.maxY - frame.height))
         }
+        panel.setFrame(frame, display: false)
+    }
+
+    /// ⌘E and the puzzle button: every extension of this profile, with pin toggles, under the toolbar's puzzle while
+    /// the toolbar shows, else under the URL field.
+    func showExtensions() {
+        guard let anchor = extensionsListAnchor else { return showExtensionsMenu() }
         extensionsPopover?.close()
         let ui = currentPalette.resolved
         let actions = extensionActions()
@@ -120,12 +181,17 @@ extension WindowController {
         p.appearance = NSAppearance(named: ui.isDark ? .darkAqua : .aqua)
         let list = ExtensionsList(actions: actions, pinned: Set(pinnedExtensionIDs),
                                   note: extensionsListNote(),
+                                  pinPlace: pageToolbar != nil ? "Show in the toolbar" : "Show in the URL field",
                                   onRun: { [weak self, weak p] id in
                                       p?.close()
-                                      guard let self, let field = self.pageView(for: self.currentSpaceID)?.urlField else { return }
-                                      self.runExtension(id, anchor: field, rect: field.extensionAnchor(for: id))
+                                      guard let self, let a = self.extensionAnchor(for: id) else { return }
+                                      self.runExtension(id, anchor: a.view, rect: a.rect)
                                   },
                                   onPin: { [weak self] id, on in self?.setExtension(id, pinned: on) },
+                                  onInstallAll: { [weak self, weak p] id in
+                                      p?.close()
+                                      self?.offerExtensionInAllProfiles(id, name: actions.first { $0.id == id }?.name ?? id)
+                                  },
                                   onManage: { [weak self, weak p] in p?.close(); self?.openExtensionsPage() },
                                   onStore: { [weak self, weak p] in
                                       p?.close()
@@ -134,7 +200,8 @@ extension WindowController {
         let host = NSHostingController(rootView: list.aircTheme(DesignTheme.default.resolved(systemIsDark: ui.isDark)))
         p.contentViewController = host
         p.contentSize = host.view.fittingSize
-        p.show(relativeTo: field.bounds, of: field, preferredEdge: .maxY)
+        // Both anchors are flipped views: maxY is their bottom edge.
+        p.show(relativeTo: anchor.rect, of: anchor.view, preferredEdge: anchor.view.isFlipped ? .maxY : .minY)
         extensionsPopover = p
     }
 
@@ -155,9 +222,13 @@ extension WindowController {
             }
             item.image = a.icon.map { img in NSImage(size: NSSize(width: 16, height: 16), flipped: false) { r in img.draw(in: r); return true } }
             item.isEnabled = a.isEnabled
-            let pin = menu.add(pinned.contains(a.id) ? "Unpin \(a.name)" : "Pin \(a.name) to the URL field") { [weak self] in
+            let pin = menu.add(pinned.contains(a.id) ? "Unpin \(a.name)" : "Pin \(a.name) to the \(pageToolbar != nil ? "toolbar" : "URL field")") { [weak self] in
                 self?.setExtension(a.id, pinned: !pinned.contains(a.id))
             }
+            let all = menu.add("Install \(a.name) in all profiles…") { [weak self] in
+                self?.offerExtensionInAllProfiles(a.id, name: a.name)
+            }
+            all.isEnabled = Self.extensionStoreURL(a.id) != nil
             pin.isAlternate = true
             pin.keyEquivalentModifierMask = .option
         }
@@ -207,8 +278,11 @@ private struct ExtensionsList: View {
     @State var pinned: Set<String>
     /// Why the shown page runs none of them (Safari's engine).
     let note: String?
+    /// The pin switch's help: where a pinned action shows now.
+    let pinPlace: String
     let onRun: (String) -> Void
     let onPin: (String, Bool) -> Void
+    let onInstallAll: (String) -> Void
     let onManage: () -> Void
     let onStore: () -> Void
     @Environment(\.aircTheme) private var ui
@@ -263,11 +337,15 @@ private struct ExtensionsList: View {
                         if on { pinned.insert(a.id) } else { pinned.remove(a.id) }
                         onPin(a.id, on)
                     }))
-                    .help("Show in the URL field")
+                    .help(pinPlace)
                     .accessibilityLabel("Pin \(a.name)")
                 }
                 .frame(height: 32)
                 .padding(.horizontal, 8)
+                .contextMenu {
+                    Button("Install in all profiles…") { onInstallAll(a.id) }
+                        .disabled(WindowController.extensionStoreURL(a.id) == nil)
+                }
             }
             Rectangle().fill(ui.surfaceBorder.color).frame(height: 0.5).padding(.vertical, 6)
             footerRow("Manage Extensions…", symbol: "gearshape", action: onManage)
@@ -314,7 +392,14 @@ final class ExtensionButton: NSView {
     private let badge = CATextLayer()
     private let badgePlate = CALayer()
     private var hovered = false { didSet { layer?.backgroundColor = hovered ? hoverFill.cgColor : nil } }
-    var hoverFill: NSColor = .clear
+    var hoverFill: NSColor = .clear { didSet { if hovered { layer?.backgroundColor = hoverFill.cgColor } } }
+    private var hasIcon = false
+
+    /// Colours only (the toolbar's page colour changed).
+    func restyle(glyph: NSColor, hover: NSColor) {
+        image.contentTintColor = hasIcon ? nil : glyph
+        hoverFill = hover
+    }
 
     init(id: String) {
         self.id = id
@@ -338,11 +423,16 @@ final class ExtensionButton: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     func configure(_ a: ExtensionAction, palette: Palette) {
+        configure(a, glyph: palette.glyph, hover: palette.hover)
+    }
+
+    /// The toolbar's: its ink on the page's colour instead of the Space's palette.
+    func configure(_ a: ExtensionAction, glyph: NSColor, hover: NSColor) {
+        hasIcon = a.icon != nil
         image.image = a.icon ?? Symbols.image("puzzlepiece.extension", size: 13, weight: .medium)
-        image.contentTintColor = a.icon == nil ? palette.glyph : nil
         toolTip = a.unavailable ?? a.title
         setAccessibilityLabel(a.unavailable.map { "\(a.title): \($0)" } ?? a.title)
-        hoverFill = palette.hover
+        restyle(glyph: glyph, hover: hover)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         badgePlate.isHidden = a.badge.isEmpty
@@ -377,4 +467,9 @@ final class ExtensionButton: NSView {
     override func mouseEntered(with event: NSEvent) { hovered = true }
     override func mouseExited(with event: NSEvent) { hovered = false }
     override func mouseDown(with event: NSEvent) { action?(self) }
+}
+
+/// The toolbar's pending refreshes, one per window.
+enum ToolbarExtensions {
+    static var pending = Set<ObjectIdentifier>()
 }

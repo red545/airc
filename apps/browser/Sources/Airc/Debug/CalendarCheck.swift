@@ -41,8 +41,18 @@ final class SyntheticCalendarSource: CalendarEventSource {
 ///   - a minute before, the sidebar shows "Standup · in 1 min" and Join; a click shows the open call tab, no second one;
 ///   - after the five late minutes the prompt goes and the tile counts down to the next meeting;
 ///   - one one-shot timer at the next minute boundary, a calendar change shows at once, and turning it off stops it;
+///   - Arc's per-Favorite menu (2026-11-07): "Show Meeting Link" times (Two Minutes Before by default; Ten Minutes Before
+///     brings the Join earlier), "Show Next Meeting Link", "Show Time to Next Meeting" and "Show Hover Preview" each turn
+///     their part off and on for that Favorite;
+///   - the card: the big Join only for meetings moments away, "+" opens the calendar's new-event page and a meeting row
+///     its day, in the Calendar Favorite (read through a hook: no real calendar site loads);
+///   - ⌃⌘J joins the next meeting outside the prompt's time, shows the open call the second time, and from a Space of
+///     another profile opens it in the calendar's Space;
 ///   - `calendar.enable` and `calendar.join` are recorded, with nothing but their names.
-/// Writes calendar-invite.png, calendar-tile.png, calendar-card.png and calendar-prompt.png.
+/// Posted clicks and keys in the new parts wait for the owner to be away (no hardware input for 120 s, our window on
+/// the active Space); otherwise those checks are FAIL-ENV with the evidence, and the same actions run directly.
+/// Writes calendar-invite.png, calendar-tile.png, calendar-card.png, calendar-prompt.png, calendar-menu-lead.png and
+/// calendar-card-soon.png.
 extension SnapshotRunner {
     func calendarScenario() {
         let center = CalendarCenter.shared
@@ -217,8 +227,10 @@ extension SnapshotRunner {
         step { done in self.waitUntil({ tile()?.calendarFace?.text == "in 2m" }, timeout: 2, then: done) }
         run { [self] in
             check(tile()?.calendarFace?.text == "in 2m", "calendar: a calendar change shows at once (\(tile()?.calendarFace?.text ?? "-"))")
-            center.setEnabled(false)
         }
+        calendarArcParity(center: center, base: { base }, spaceID: { spaceID }, calendarItem: { calendarItem }, events: { events },
+                          tile: tile, prompt: prompt, todayURLs: todayURLs, setNow: setNow)
+        run { center.setEnabled(false) }
         wait(0.2)
         run { [self] in
             check(tile()?.calendarFace?.text == nil && prompt() == nil && center.timer == nil,
@@ -236,6 +248,199 @@ extension SnapshotRunner {
             Telemetry.shared.removeObserver(telemetryToken)
             center.now = Date.init
             server?.stop()
+        }
+    }
+
+    /// The Calendar Favorite's menu, its per-Favorite switches and Join time, the card's "+", rows and big Join, and
+    /// ⌃⌘J (calendarScenario's second half; "review" is the next meeting with a call, 45 minutes after the start).
+    private func calendarArcParity(center: CalendarCenter, base: @escaping () -> String, spaceID: @escaping () -> String,
+                                   calendarItem: @escaping () -> String, events: @escaping () -> [CalendarEvent],
+                                   tile: @escaping () -> FavoriteTileView?, prompt: @escaping () -> CalendarPromptView?,
+                                   todayURLs: @escaping () -> [String], setNow: @escaping (Date) -> Void) {
+        var review: CalendarEvent { events().first { $0.id == "review" }! }
+        func menu() -> NSMenu? {
+            guard let item = c.store.item(calendarItem()) else { return nil }
+            return c.menu(for: .favorite(item, c.store.liveTab(forItem: item.id)))
+        }
+        /// Runs the menu item titled `title` (in `path`'s submenu) as a click on it would.
+        func pick(_ title: String, in path: String? = nil) -> Bool {
+            guard var m = menu() else { return false }
+            if let path { guard let sub = m.item(withTitle: path)?.submenu else { return false }; m = sub }
+            guard let i = m.items.firstIndex(where: { $0.title == title }), m.items[i].isEnabled else { return false }
+            m.performActionForItem(at: i)
+            return true
+        }
+        func state(_ title: String, in path: String? = nil) -> NSControl.StateValue? {
+            let m = path.flatMap { menu()?.item(withTitle: $0)?.submenu } ?? menu()
+            return m?.item(withTitle: title)?.state
+        }
+        var opened: [(url: String, item: String)] = []
+        center.openedForTesting = { url, item in opened.append((url.absoluteString, item)) }
+
+        // The menu, and Arc's Join times.
+        run { [self] in
+            let titles = menu()?.items.map(\.title) ?? []
+            let times = menu()?.item(withTitle: "Show Meeting Link")?.submenu?.items.map(\.title) ?? []
+            let switches = ["Show Time to Next Meeting", "Show Next Meeting Link", "Show Hover Preview"]
+            check(switches.allSatisfy { titles.contains($0) && state($0) == .on } && titles.contains("Turn Off Live Calendar")
+                  && times == ["Ten Minutes Before", "Five Minutes Before", "Two Minutes Before", "On Start"]
+                  && state("Two Minutes Before", in: "Show Meeting Link") == .on,
+                  "calendar menu: Arc's per-Favorite switches (on), Show Meeting Link › \(times) with Two Minutes Before ticked")
+            setNow(review.start.addingTimeInterval(-9.5 * 60))
+        }
+        wait(0.3)
+        run { [self] in
+            check(prompt() == nil, "calendar menu: 9½ minutes before, no Join yet with Two Minutes Before (\(prompt()?.text ?? "none"))")
+            check(pick("Ten Minutes Before", in: "Show Meeting Link"), "calendar menu: Ten Minutes Before can be picked")
+        }
+        wait(0.4)
+        run { [self] in
+            check(prompt()?.text == "Design review · in 10 min" && state("Ten Minutes Before", in: "Show Meeting Link") == .on
+                  && app?.settings.values.calendar.joinLead == .tenMinutes,
+                  "calendar menu: Ten Minutes Before brings the Join now (\(prompt()?.text ?? "none")), saved and ticked")
+            check(pick("Show Next Meeting Link"), "calendar menu: Show Next Meeting Link can be turned off")
+        }
+        wait(0.4)
+        run { [self] in
+            check(prompt() == nil && state("Show Next Meeting Link") == .off && menu()?.item(withTitle: "Show Meeting Link")?.isEnabled == false,
+                  "calendar menu: Show Next Meeting Link off hides this Favorite's Join (\(prompt()?.text ?? "none")) and greys its times")
+            _ = pick("Show Next Meeting Link")
+            check(pick("Show Time to Next Meeting"), "calendar menu: Show Time to Next Meeting can be turned off")
+        }
+        wait(0.4)
+        run { [self] in
+            check(prompt()?.text == "Design review · in 10 min", "calendar menu: on again, the Join is back (\(prompt()?.text ?? "none"))")
+            check(tile()?.calendarFace?.text == nil, "calendar menu: Show Time to Next Meeting off hides the countdown (\(tile()?.calendarFace?.text ?? "none"))")
+            _ = pick("Show Time to Next Meeting")
+        }
+        wait(0.3)
+        run { [self] in
+            check(tile()?.calendarFace?.text == "in 10m", "calendar menu: on again, the countdown is back (\(tile()?.calendarFace?.text ?? "none"))")
+            check(pick("Show Hover Preview"), "calendar menu: Show Hover Preview can be turned off")
+            CalendarCard.shared.hide()
+            if let t = tile() { t.calendarFace?.hover(true) }
+        }
+        capture("calendar-menu-lead")
+        wait(0.8)
+        run { [self] in
+            check(CalendarCard.shared.panel == nil, "calendar menu: Show Hover Preview off, resting on the tile shows no card")
+            tile()?.calendarFace?.hover(false)
+            _ = pick("Show Hover Preview")
+            if let t = tile() { t.calendarFace?.hover(true) }
+        }
+        wait(0.8)
+        run { [self] in
+            let m = CalendarCard.shared.model
+            check(CalendarCard.shared.panel != nil, "calendar menu: on again, resting on the tile shows the card")
+            tile()?.calendarFace?.hover(false)
+            // Upcoming: the coffee chat (on now, no call), the review (9½ minutes away), lunch (later, no call).
+            check(m.events.map(\.id) == ["coffee", "review", "lunch"] && m.soon.contains("review") && !m.soon.contains("lunch")
+                  && TestAnchors.frames["calendar.join.1"] != nil && m.canCreate && TestAnchors.frames["calendar.newEvent"] != nil,
+                  "calendar card: the big Join only for meetings moments away (\(m.soon.sorted())), and the calendar's “+” (\(m.events.map(\.id)))")
+        }
+        capture("calendar-card-soon")
+        // "+" and a row, by real clicks while the owner is away (the card comes back: the hover ended above).
+        run { [self] in if let t = tile() { CalendarCard.shared.show(beside: t) } }
+        wait(0.4)
+        step { [self] done in
+            whenOwnerAway { why in
+                let want = "https://calendar.google.com/calendar/u/0/r/eventedit"
+                if let why {
+                    self.failEnv("calendar card: a real click on “+”", why)
+                    CalendarCard.shared.model.onNewEvent()
+                    self.check(opened.last?.url == want && opened.last?.item == calendarItem(),
+                               "calendar card: “+” (run directly) opens the new-event page in the Calendar Favorite (\(opened.last?.url ?? "-"))")
+                    return done()
+                }
+                self.clickAnchor("calendar.newEvent", in: CalendarCard.shared.panel ?? self.c.root) {
+                    self.check(opened.last?.url == want && opened.last?.item == calendarItem() && CalendarCard.shared.panel == nil,
+                               "calendar card: a click on “+” opens the new-event page in the Calendar Favorite and closes the card "
+                               + "(\(opened.last?.url ?? "-"), \(TestAnchors.lastHit["calendar.newEvent"] ?? "-"))")
+                    done()
+                }
+            }
+        }
+        run { [self] in if let t = tile() { CalendarCard.shared.show(beside: t) } }
+        wait(0.4)
+        step { [self] done in
+            let d = Calendar.current.dateComponents([.year, .month, .day], from: review.start)
+            let want = "https://calendar.google.com/calendar/u/0/r/day/\(d.year!)/\(d.month!)/\(d.day!)"
+            let count = opened.count
+            whenOwnerAway { why in
+                if let why {
+                    self.failEnv("calendar card: a real click on a meeting row", why)
+                    CalendarCard.shared.model.onOpen(review)
+                    self.check(opened.count == count + 1 && opened.last?.url == want,
+                               "calendar card: a meeting row (run directly) opens its day in the Calendar Favorite (\(opened.last?.url ?? "-"))")
+                    return done()
+                }
+                self.clickAnchor("calendar.row.1", in: CalendarCard.shared.panel ?? self.c.root) {
+                    self.check(opened.count == count + 1 && opened.last?.url == want,
+                               "calendar card: a click on a meeting row opens its day in the Calendar Favorite (\(opened.last?.url ?? "-"), "
+                               + "\(TestAnchors.lastHit["calendar.row.1"] ?? "-"))")
+                    done()
+                }
+            }
+        }
+        run {
+            CalendarCard.shared.hide()
+            center.openedForTesting = nil
+        }
+
+        // ⌃⌘J: the next meeting, outside the prompt's time; again, the open call; from another profile's Space, in the
+        // calendar's Space.
+        run { [self] in
+            setNow(review.start.addingTimeInterval(-25 * 60))
+            let bound = CommandMenus.all.first { $0.id == "tabs.joinMeeting" }
+            check(bound?.key == "j" && bound?.modifiers == [.command, .control], "⌃⌘J: Join Next Meeting is bound to ⌃⌘J")
+            check(c.commandActions().contains { $0.title == "Join Next Meeting" }, "⌃⌘J: the Command Bar lists Join Next Meeting")
+        }
+        wait(0.3)
+        func joinKey(_ label: String) {
+            step { [self] done in
+                whenOwnerAway { why in
+                    if let why {
+                        self.failEnv("⌃⌘J (\(label)): the posted key", why)
+                        CommandMenus.all.first { $0.id == "tabs.joinMeeting" }?.run(self.c)
+                        return done()
+                    }
+                    self.postKey("j", keyCode: 38, modifiers: [.command, .control])
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: done)
+                }
+            }
+        }
+        var before = 0
+        run { before = todayURLs().filter { $0 == base() + "/review" }.count }
+        joinKey("first")
+        step { [self] done in
+            waitUntil({ self.c.store.tab(self.c.shownTabID)?.url == base() + "/review" }, timeout: 3) {
+                let shown = self.c.store.tab(self.c.shownTabID)
+                self.check(shown?.url == base() + "/review" && self.c.currentSpaceID == spaceID() && todayURLs().filter { $0 == base() + "/review" }.count == before + 1,
+                           "⌃⌘J: 25 minutes before, it joins the next meeting with a call, in this Space (\(shown?.url ?? "-"))")
+                done()
+            }
+        }
+        var other = ""
+        run { [self] in
+            guard let p = try? c.store.createProfile(name: "Calendar elsewhere"),
+                  let s = try? c.store.createSpace(name: "No calendar", profileID: p.id, after: spaceID()) else {
+                return check(false, "⌃⌘J: a Space of another profile")
+            }
+            other = s.id
+            c.switchToSpace(other, animated: false)
+            check(center.joinSpace(c) == spaceID(), "⌃⌘J: from a Space whose profile has no calendar, the call's Space is the calendar's")
+        }
+        wait(0.5)
+        joinKey("another profile's Space")
+        step { [self] done in
+            waitUntil({ self.c.currentSpaceID == spaceID() && self.c.store.tab(self.c.shownTabID)?.url == base() + "/review" }, timeout: 3) {
+                self.check(self.c.currentSpaceID == spaceID() && self.c.store.tab(self.c.shownTabID)?.url == base() + "/review"
+                           && todayURLs().filter { $0 == base() + "/review" }.count == before + 1,
+                           "⌃⌘J: from another profile's Space it goes to the calendar's Space and shows the open call, no second tab "
+                           + "(Space \(self.c.currentSpaceID == spaceID() ? "the calendar's" : "another"))")
+                if !other.isEmpty { try? self.c.store.deleteSpace(other) }
+                done()
+            }
         }
     }
 }

@@ -111,6 +111,18 @@ extension SnapshotRunner {
         wait(0.5)
         clickLink("b", shift: false)
         expectPeek("a pinned tab's link to another site", title: "target2")
+        // A Peek opened over another (a tab preview card's Peek): the first one's page closes, not left loaded unseen.
+        step { [self] done in
+            let first = c.peek?.page
+            guard let opener = page(), let url = URL(string: base + "/target") else { return done() }
+            c.openPeek(url, from: opener)
+            waitUntil({ first?.isClosed == true && self.c.peek?.page.title == "target" }, timeout: 6) {
+                self.check(first?.isClosed == true && self.c.peek?.page !== first && self.c.peek?.page.title == "target",
+                           "peek: a Peek over another closes the first one's page (closed \(first?.isClosed ?? false), "
+                           + "on top \(self.c.peek?.page.title ?? "none"))")
+                done()
+            }
+        }
         step { [self] done in
             guard let v = c.peek?.view else { return done() }
             // In the scrim, left of the card.

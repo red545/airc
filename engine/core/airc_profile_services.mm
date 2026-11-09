@@ -6,6 +6,8 @@
 #include <set>
 #include <deque>
 #include <map>
+#include <optional>
+#include <vector>
 #include "components/download/public/common/download_url_parameters.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "base/no_destructor.h"
@@ -15,6 +17,7 @@
 #include "content/public/browser/download_manager.h"
 #include "components/download/public/common/download_item.h"
 #include "base/functional/bind.h"
+#include "base/strings/strcat.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/supports_user_data.h"
 #include "base/task/cancelable_task_tracker.h"
@@ -32,8 +35,17 @@
 #include "components/signin/public/identity_manager/accounts_in_cookie_jar_info.h"
 #include "content/public/browser/storage_partition.h"
 #include "net/cookies/canonical_cookie.h"
+#include "net/cookies/cookie_partition_key.h"
 #include "net/cookies/cookie_access_result.h"
 #include "services/network/public/mojom/cookie_manager.mojom.h"
+#include "components/services/storage/public/mojom/local_storage_control.mojom.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "mojo/public/cpp/bindings/remote.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
+#include "third_party/blink/public/mojom/dom_storage/storage_area.mojom.h"
+#include "url/origin.h"
+#include "url/scheme_host_port.h"
+#include "url/url_constants.h"
 
 namespace {
 NSString* String(NSDictionary* row, NSString* key) {
@@ -83,14 +95,39 @@ class LoginImport : public password_manager::PasswordStoreConsumer {
     }
     NSDictionary* row = rows_[index_];
     GURL url(base::SysNSStringToUTF8(String(row, @"origin")));
-    GURL realm(base::SysNSStringToUTF8(String(row, @"signonRealm")));
-    if (!url.SchemeIsHTTPOrHTTPS() || !realm.SchemeIsHTTPOrHTTPS() ||
-        url.DeprecatedGetOriginAsURL() != realm ||
-        ![row[@"password"] isKindOfClass:NSString.class]) {
+    std::string realm = base::SysNSStringToUTF8(String(row, @"signonRealm"));
+    using Scheme = password_manager::PasswordForm::Scheme;
+    // P22b: HTTP authentication (the browser's sign-in box) keeps Chromium's realm, origin + "/" + the server's
+    // realm name (LoginHandler::GetSignonRealm); proxies' host:port realms are refused. A federated sign-in has no
+    // password and the realm "federation://<host>/<provider host>" (credential_manager_utils.cc).
+    NSString* schemeName = String(row, @"scheme");
+    std::optional<Scheme> scheme;
+    if (!schemeName.length || [schemeName isEqual:@"html"]) scheme = Scheme::kHtml;
+    else if ([schemeName isEqual:@"basic"]) scheme = Scheme::kBasic;
+    else if ([schemeName isEqual:@"digest"]) scheme = Scheme::kDigest;
+    else if ([schemeName isEqual:@"other"]) scheme = Scheme::kOther;
+    NSString* federationName = String(row, @"federationOrigin");
+    GURL federation(base::SysNSStringToUTF8(federationName));
+    if (!scheme) { Record(@"rejected", @"unsupported login scheme"); return; }
+    const bool web = url.SchemeIsHTTPOrHTTPS() && [row[@"password"] isKindOfClass:NSString.class];
+    const std::string origin = web ? url.DeprecatedGetOriginAsURL().spec() : std::string();
+    if (federationName.length) {
+      if (!web || *scheme != Scheme::kHtml || [row[@"password"] length] || !federation.SchemeIs(url::kHttpsScheme) ||
+          federation.path() != "/" || federation.has_query() || federation.has_username() ||
+          realm != base::StrCat({"federation://", url.host(), "/", federation.host()})) {
+        Record(@"rejected", @"invalid federated login"); return;
+      }
+    } else if (*scheme != Scheme::kHtml) {
+      if (!web || realm.size() <= origin.size() || !realm.starts_with(origin)) {
+        Record(@"rejected", @"invalid HTTP authentication realm"); return;
+      }
+    } else if (!web || GURL(realm) != GURL(origin)) {
       Record(@"rejected", @"invalid HTTP(S) origin, realm or password"); return;
     }
     form_ = std::make_unique<Credential>();
-    form_->url = url; form_->signon_realm = realm.spec();
+    form_->url = url; form_->signon_realm = federationName.length || *scheme != Scheme::kHtml ? realm : GURL(realm).spec();
+    form_->scheme = *scheme;
+    if (federationName.length) form_->federation_origin = url::SchemeHostPort(federation);
     form_->action = GURL(base::SysNSStringToUTF8(String(row, @"actionURL")));
     form_->username_value = base::SysNSStringToUTF16(String(row, @"username"));
     form_->password_value = password_manager::PasswordString(base::SysNSStringToUTF16(row[@"password"]));
@@ -114,7 +151,8 @@ class LoginImport : public password_manager::PasswordStoreConsumer {
     for (const auto& row : rows.value()) {
       if (!password_manager::AreStoredCredentialUniqueKeysEqual(row, *form_)) continue;
       if (!verifying_) { Record(@"skipped-duplicate", @"existing login key preserved"); return; }
-      bool matches = !row.blocked_by_user && row.password_value == form_->password_value;
+      bool matches = !row.blocked_by_user && row.password_value == form_->password_value &&
+                     row.scheme == form_->scheme && row.federation_origin == form_->federation_origin;
       Record(matches ? @"saved" : @"rejected", matches ? @"" : @"password store readback mismatch");
       return;
     }
@@ -134,6 +172,118 @@ class LoginImport : public password_manager::PasswordStoreConsumer {
   bool verifying_ = false;
   std::unique_ptr<Credential> form_;
   base::WeakPtrFactory<LoginImport> weak_{this};
+};
+// P22b: sites' localStorage from another Chromium (Arc), through the storage service as a page's own writes would go.
+// One site at a time. A site that already has local storage in this profile keeps it ("skipped-existing"); otherwise
+// every item is Put (the bytes as Chromium's own localStorage database holds them, format prefix included) and the
+// area read back, so "imported" means it now holds exactly what was sent. A failed Put empties the site again rather
+// than leaving it half imported.
+class LocalStorageImport {
+ public:
+  static void Run(AircProfile* profile, NSArray* sites, void (^done)(NSDictionary*)) {
+    (new LocalStorageImport(profile, sites, done))->Next();
+  }
+ private:
+  using Bytes = std::vector<uint8_t>;
+  // Chromium's per-site localStorage quota (dom_storage_constants.h).
+  static constexpr size_t kQuota = 10 * 1024 * 1024;
+  LocalStorageImport(AircProfile* profile, NSArray* sites, void (^done)(NSDictionary*))
+      : profile_(profile), sites_([sites copy]), done_([done copy]), results_([NSMutableArray array]) {}
+  static Bytes Copy(NSData* data) {
+    const auto* bytes = static_cast<const uint8_t*>(data.bytes);
+    return Bytes(bytes, bytes + data.length);
+  }
+  storage::mojom::LocalStorageControl* Control() {
+    AircProfile* profile = profile_;
+    return profile.chromeProfile && !profile.offTheRecord
+        ? profile.chromeProfile->GetDefaultStoragePartition()->GetLocalStorageControl() : nullptr;
+  }
+  void Next() {
+    if (index_ == sites_.count) {
+      if (auto* control = Control()) control->Flush();
+      NSUInteger imported = 0, skipped = 0;
+      for (NSDictionary* row in results_) {
+        imported += [row[@"status"] isEqual:@"imported"];
+        skipped += [row[@"status"] isEqual:@"skipped-existing"];
+      }
+      auto done = done_;
+      NSDictionary* result = @{@"imported": @(imported), @"skipped": @(skipped),
+          @"rejected": @(sites_.count - imported - skipped), @"results": results_};
+      delete this;
+      done(result);
+      return;
+    }
+    NSDictionary* site = [sites_[index_] isKindOfClass:NSDictionary.class] ? sites_[index_] : @{};
+    GURL url(base::SysNSStringToUTF8(String(site, @"origin")));
+    url::Origin origin = url::Origin::Create(url);
+    NSArray* items = [site[@"items"] isKindOfClass:NSArray.class] ? site[@"items"] : @[];
+    items_.clear();
+    size_t bytes = 0;
+    bool valid = url.SchemeIsHTTPOrHTTPS() && !origin.opaque() && url == origin.GetURL() && items.count;
+    for (NSDictionary* item in items) {
+      NSData* key = [item isKindOfClass:NSDictionary.class] ? item[@"key"] : nil;
+      NSData* value = [item isKindOfClass:NSDictionary.class] ? item[@"value"] : nil;
+      if (![key isKindOfClass:NSData.class] || ![value isKindOfClass:NSData.class] || !key.length) { valid = false; break; }
+      items_[Copy(key)] = Copy(value);
+      bytes += key.length + value.length;
+    }
+    if (!valid) { Record(@"rejected", @"invalid site or items"); return; }
+    if (bytes > kQuota) { Record(@"rejected", @"over the site's storage quota"); return; }
+    auto* control = Control();
+    if (!control) { Record(@"rejected", @"store unavailable"); return; }
+    control->BindStorageArea(blink::StorageKey::CreateFirstParty(origin), area_.BindNewPipeAndPassReceiver());
+    area_.set_disconnect_handler(base::BindOnce([](base::WeakPtr<LocalStorageImport> self) {
+      if (self) self->Record(@"rejected", @"store unavailable");
+    }, weak_.GetWeakPtr()));
+    area_->GetAll(mojo::NullRemote(), base::BindOnce(&LocalStorageImport::OnRead, weak_.GetWeakPtr()));
+  }
+  void OnRead(std::vector<blink::mojom::KeyValuePtr> data) {
+    if (verifying_) {
+      std::map<Bytes, Bytes> stored;
+      for (const auto& row : data) stored[row->key] = row->value;
+      Record(stored == items_ ? @"imported" : @"rejected", stored == items_ ? @"" : @"local storage readback mismatch");
+      return;
+    }
+    if (!data.empty()) { Record(@"skipped-existing", @"site already has local storage"); return; }
+    pending_ = items_.size();
+    failed_ = false;
+    for (const auto& [key, value] : items_) {
+      area_->Put(key, value, std::nullopt, nullptr, base::BindOnce(&LocalStorageImport::OnPut, weak_.GetWeakPtr()));
+    }
+  }
+  void OnPut(bool success) {
+    failed_ |= !success;
+    if (--pending_) return;
+    if (failed_) {
+      area_->DeleteAll(nullptr, mojo::NullRemote(), base::BindOnce([](base::WeakPtr<LocalStorageImport> self) {
+        if (self) self->Record(@"rejected", @"local storage did not keep it");
+      }, weak_.GetWeakPtr()));
+      return;
+    }
+    verifying_ = true;
+    area_->GetAll(mojo::NullRemote(), base::BindOnce(&LocalStorageImport::OnRead, weak_.GetWeakPtr()));
+  }
+  void Record(NSString* status, NSString* reason) {
+    [results_ addObject:@{@"index": @(index_++), @"status": status, @"reason": reason, @"items": @(items_.size())}];
+    verifying_ = false;
+    // This site's outstanding callbacks (a late disconnect) end here; the next site starts from a posted task so a
+    // large batch doesn't recurse.
+    weak_.InvalidateWeakPtrs();
+    area_.reset();
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(FROM_HERE,
+        base::BindOnce([](base::WeakPtr<LocalStorageImport> self) { if (self) self->Next(); }, weak_.GetWeakPtr()));
+  }
+  __weak AircProfile* profile_;
+  NSArray* __strong sites_;
+  void (^done_)(NSDictionary*);
+  NSMutableArray* __strong results_;
+  NSUInteger index_ = 0;
+  std::map<Bytes, Bytes> items_;
+  size_t pending_ = 0;
+  bool failed_ = false;
+  bool verifying_ = false;
+  mojo::Remote<blink::mojom::StorageArea> area_;
+  base::WeakPtrFactory<LocalStorageImport> weak_{this};
 };
 NSDictionary* HistoryRow(const history::URLRow& row) {
   return @{@"url": base::SysUTF8ToNSString(row.url().spec()),
@@ -324,8 +474,18 @@ class Services : public base::SupportsUserData::Data,
       done(index, @"invalid domain"); continue;
     }
     NSDictionary* metadata = [row[@"metadata"] isKindOfClass:NSDictionary.class] ? row[@"metadata"] : @{};
-    if ([String(metadata, @"top_frame_site_key") length] || [String(metadata, @"partition_key") length]) {
-      done(index, @"partitioned cookie unsupported"); continue;
+    // P22b: a partitioned (CHIPS) cookie goes into its top-level site's partition, as Chromium's own cookie database
+    // stores it: top_frame_site_key (a schemeful site) and has_cross_site_ancestor. Partitioned cookies must be Secure.
+    std::optional<net::CookiePartitionKey> partition;
+    NSString* site = String(metadata, @"top_frame_site_key");
+    if (site.length) {
+      auto key = net::CookiePartitionKey::FromUntrustedInput(base::SysNSStringToUTF8(site),
+          [String(metadata, @"has_cross_site_ancestor") isEqual:@"1"]);
+      if (!key.has_value()) { done(index, @"invalid partition key"); continue; }
+      if (![row[@"secure"] boolValue]) { done(index, @"partitioned cookie without Secure"); continue; }
+      partition = std::move(key.value());
+    } else if ([String(metadata, @"partition_key") length]) {
+      done(index, @"invalid partition key"); continue;
     }
     int sameSite = [row[@"sameSite"] intValue];
     int64_t expiry = [row[@"expiresUTC"] longLongValue];
@@ -337,13 +497,20 @@ class Services : public base::SupportsUserData::Data,
         base::SysNSStringToUTF8(String(row, @"name")), base::SysNSStringToUTF8(String(row, @"value")),
         base::SysNSStringToUTF8(domain), base::SysNSStringToUTF8(String(row, @"path")),
         base::Time::Now(), expires, base::Time::Now(), [row[@"secure"] boolValue], [row[@"httpOnly"] boolValue],
-        static_cast<net::CookieSameSite>(sameSite), net::COOKIE_PRIORITY_MEDIUM, std::nullopt, &status);
+        static_cast<net::CookieSameSite>(sameSite), net::COOKIE_PRIORITY_MEDIUM, partition, &status);
     if (!cookie) { done(index, base::SysUTF8ToNSString(status.GetDebugString())); continue; }
     manager->SetCanonicalCookie(*cookie, source, net::CookieOptions::MakeAllInclusive(),
         base::BindOnce([](void (^done)(NSUInteger, NSString*), NSUInteger index, net::CookieAccessResult result) {
           done(index, result.status.IsInclude() ? @"" : base::SysUTF8ToNSString(result.status.GetDebugString()));
         }, [done copy], index));
   }
+}
++ (NSArray<NSString*>*)importKinds {
+  return @[@"httpAuthLogins", @"federatedLogins", @"partitionedCookies", @"localStorage"];
+}
+- (void)importLocalStorage:(NSArray<NSDictionary*>*)sites
+                completion:(void (^)(NSDictionary*))completion {
+  LocalStorageImport::Run(self, sites, completion);
 }
 @end
 

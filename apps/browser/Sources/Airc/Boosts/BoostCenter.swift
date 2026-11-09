@@ -1,6 +1,9 @@
 // Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
 import AppKit
 import AircKit
+#if canImport(AircCore)
+import AircCore
+#endif
 
 /// Boosts for the whole app (BST-1; AircKit/Boosts.swift): the store, the Boosts part of the engine's page script, and
 /// the pages that run it.
@@ -14,6 +17,20 @@ import AircKit
 ///   - Custom JavaScript: that site's code, if it has some for this host, is run in that frame, once per page load,
 ///     and only while the document still has the origin the engine reported.
 ///   - Zap: one tab at a time is in Zap mode; its `zap` messages become the Boost's zaps.
+///   - Frames (BST-3): a document in a frame of a page on the same site says ready too and gets the site's style for
+///     frames (BoostStyle's `frame`); never code. Its record goes with the next document of its tab's page.
+///   - Zap in frames (boosts3): Zap mode is on in the zapping tab's frame documents too (those there and those that say
+///     ready while it lasts); what's zapped in one is a frame zap (`BoostZap.frame`, the frames' only). A frame's
+///     messages are matched to its record by its token: WebKit gives a frame a new ID with each message.
+///   - Private windows (boosts3): the engine tells the page script a document is private; it takes nothing and its top
+///     frame says only `ready {private}`, with no token, so no style, code or Zap ever reaches it. Chromium's private
+///     profile copies the regular one's zoom per host, so a private tab showing a size a Boost set goes back to 100 %,
+///     when its document comes and whenever a Boost's size changes (the regular profile's zoom and ledger untouched).
+///   - Size: the Boost's size is the page's zoom (BoostZoom), set as a page of the site is shown and taken back when the
+///     size or the Boost goes, unless the person zoomed the page themselves.
+///   - Try it on: a Boost under review can be shown on its site's pages for a while (`preview`): style and size only,
+///     never its code; Cancel puts the stored Boost back.
+///   - Links: a page that is a Boost link (BoostLink) opens the review in its window.
 /// Boosts apply to every Space and profile (as in Arc), and nothing here leaves the Mac.
 final class BoostCenter {
     /// Posted on the main thread when a Boost or the zap state changes. userInfo: `domain` (String), if one changed.
@@ -27,10 +44,26 @@ final class BoostCenter {
     private var version = 1
     private var saveScheduled = false
     private var documents: [ObjectIdentifier: Document] = [:]
+    /// Documents in frames of each tab's page, by the engine's frame ID.
+    private var frameDocuments: [ObjectIdentifier: [String: Document]] = [:]
+    /// The zoom the app last gave each tab for a Boost's size, for engines whose zoom is the tab's (WebKit, a split's
+    /// panes): the next site's page takes it back.
+    private var zoomedTabs: [ObjectIdentifier: Double] = [:]
+    private weak var siteControls: EngineSiteControls?
+    /// Boosts under review shown on their site for now (Try It On), by site.
+    private(set) var previews: [String: Boost] = [:]
+    /// `@import`s the pages of each site couldn't load lately (the editor shows them): URL → the page's reason.
+    private(set) var importFailures: [String: [String: String]] = [:]
+    /// The Boost link each tab's page showed last, so a reload doesn't ask again.
+    private var shownLinks: [ObjectIdentifier: String] = [:]
+    /// A tab's page is a Boost link (BoostSharing opens the review).
+    var linkOpened: ((EngineTab, URL) -> Void)?
     /// The top-frame document a tab shows now, as it said ready.
     struct Document {
         weak var tab: EngineTab?
         var frame: String
+        /// A frame below the top one.
+        var isFrame = false
         /// The engine's committed origin of the frame ("https://www.example.com"), its host and its site.
         var origin: String
         var host: String
@@ -44,6 +77,9 @@ final class BoostCenter {
     /// The tab in Zap mode, and the site whose Boost its zaps go to.
     private(set) weak var zapTab: EngineTab?
     private(set) var zapDomain: String?
+    /// Private windows' pages on a website, by tab (boosts3).
+    private struct PrivatePage { weak var tab: EngineTab?; var host: String }
+    private var privatePages: [ObjectIdentifier: PrivatePage] = [:]
     /// The editor's hooks for Zap (BoostEditor.swift).
     var zapFailed: (() -> Void)?
 
@@ -62,6 +98,8 @@ final class BoostCenter {
         DispatchQueue.global(qos: .userInitiated).async { _ = PublicSuffixList.shared }
         let store = BoostStore(url: AppPaths.dataDirectory.appendingPathComponent("Boosts.json"))
         let center = BoostCenter(store: store, scripts: PageScripts.start(engine: pageScripts, existing: pageScripts.existingPageScript))
+        center.siteControls = engine as? EngineSiteControls
+        center.linkOpened = { tab, url in BoostSharing.openLink(url, from: tab) }
         shared = center
         center.scripts.pushNow()
         if store.isDirty { center.scheduleSave() }
@@ -80,6 +118,15 @@ final class BoostCenter {
     // MARK: Boosts
 
     func boost(for url: URL?) -> Boost? { BoostDomain.key(for: url).flatMap { store.boost(domain: $0) } }
+
+    /// What a site's pages show: a Boost being tried on, or the stored one.
+    func shownBoost(domain: String) -> Boost? { previews[domain] ?? store.boost(domain: domain) }
+
+    /// Try It On: `boost` (style and size, never code) on its site's pages until it's set again with nil.
+    func setPreview(_ boost: Boost?, domain: String) {
+        if let boost { var b = boost; b.domain = domain; b.js = ""; previews[domain] = b } else { previews[domain] = nil }
+        changed(domain)
+    }
 
     /// The Boost that changes the page now: on, not waiting for its site, and not empty.
     func activeBoost(for url: URL?) -> Boost? {
@@ -124,19 +171,85 @@ final class BoostCenter {
     private func installPart() {
         var trust = false
         #if AIRC_TESTING
-        trust = LaunchOptions.current.snapshotDir != nil && LaunchOptions.current.script == "boosts"
+        trust = LaunchOptions.current.snapshotDir != nil && ["boosts", "boosts2", "boosts3"].contains(LaunchOptions.current.script ?? "")
         #endif
-        let source = BoostPageScript.source(boosts: store.all, version: version, trustSynthetic: trust)
-        scripts.set("boost", source: source) { [weak self] tab, message in self?.received(tab, message) }
+        var shown = store.boosts
+        for (d, b) in previews { shown[d] = b }
+        let source = BoostPageScript.source(boosts: shown.values.sorted { $0.domain < $1.domain }, version: version, trustSynthetic: trust)
+        scripts.set("boost", source: source, frames: true) { [weak self] tab, message in self?.received(tab, message) }
     }
 
-    /// The site's open pages take the change at once; an enabled Boost's code runs where it hasn't yet. A deleted or
-    /// switched-off Boost sends the empty style, which puts the page back.
+    /// The site's open pages take the change at once, and their frames of the same site; an enabled Boost's code runs
+    /// where it hasn't yet. A deleted or switched-off Boost sends the empty style, which puts the page back.
     private func applyLive(_ domain: String) {
-        let boost = store.boost(domain: domain)
+        let boost = shownBoost(domain: domain)
         for (key, doc) in documents where doc.domain == domain {
             let message = BoostPageScript.applyMessage(for: boost, domain: domain, token: doc.token, version: version)
             if send("apply", message, to: key) { runScriptIfNeeded(key) }
+            if let tab = doc.tab { applyZoom(tab, host: doc.host, domain: domain) }
+        }
+        for (key, frames) in frameDocuments {
+            for (id, doc) in frames where doc.domain == domain {
+                let message = BoostPageScript.applyMessage(for: boost, domain: domain, token: doc.token, version: version, frame: true)
+                sendToFrame("apply", message, tab: key, frame: id)
+            }
+        }
+    }
+
+    // MARK: Size
+
+    /// The page's zoom for its Boost's size (BoostZoom): set if the page is at 100 % or at a zoom the app gave it, taken
+    /// back to 100 % when the size or the Boost went, and left alone when the person zoomed it themselves.
+    private func applyZoom(_ tab: EngineTab, host: String, domain: String?) {
+        let key = ObjectIdentifier(tab)
+        let target = domain.flatMap { shownBoost(domain: $0) }.flatMap { $0.isLive && $0.font.step != 0 ? $0.font.scale : nil }
+        let tabScoped = siteControls?.zoomScope(of: tab) == .tab
+        var ledger: [Double] = []
+        if let z = store.zoomedHosts[host] { ledger.append(z) }
+        if tabScoped, let z = zoomedTabs[key] { ledger.append(z) }
+        let current = tab.zoomFactor
+        guard let next = BoostZoom.plan(current: current, target: target, ledger: ledger) else {
+            // The person's own zoom now: the app forgets it set one here.
+            if let z = store.zoomedHosts[host], !BoostZoom.near(current, z) { store.noteZoom(nil, host: host); scheduleSave() }
+            if target == nil, let z = zoomedTabs[key], !BoostZoom.near(current, z) || !tabScoped { zoomedTabs[key] = nil }
+            return
+        }
+        guard let steps = BoostZoom.steps(to: next) else { return }
+        tab.zoom(step: 0)
+        for _ in 0..<abs(steps) { tab.zoom(step: steps.signum()) }
+        let set = next == 1 ? nil : next
+        store.noteZoom(set, host: host)
+        zoomedTabs[key] = set
+        scheduleSave()
+        // Chromium's private profile follows the regular one's zoom for the host: its pages go back to 100 %.
+        if set != nil, privatePages.values.contains(where: { $0.host == host }) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in self?.resetPrivateZoom(host: host) }
+        }
+    }
+
+    /// Whether `tab` is a private window's (Chromium's off-the-record profile, WebKit's private session).
+    static func isPrivate(_ tab: EngineTab) -> Bool {
+        #if canImport(AircCore)
+        if let p = tab.profile as? ChromiumProfile { return p.core.offTheRecord }
+        #endif
+        return (tab.profile as? WebKitProfile)?.privateSession == true
+    }
+
+    /// A private window's page said it's there: remembered by its host, and put back to 100 % if it shows a size a
+    /// Boost set (the person's own zoom, any other value, is left alone).
+    private func privateReady(_ tab: EngineTab, host: String?) {
+        let key = ObjectIdentifier(tab)
+        privatePages = privatePages.filter { $0.value.tab?.isClosed == false }
+        guard let host else { privatePages[key] = nil; return }
+        privatePages[key] = PrivatePage(tab: tab, host: host)
+        resetPrivateZoom(host: host)
+    }
+
+    private func resetPrivateZoom(host: String) {
+        guard let z = store.zoomedHosts[host] else { return }
+        for p in privatePages.values where p.host == host {
+            guard let tab = p.tab, !tab.isClosed, BoostZoom.near(tab.zoomFactor, z) else { continue }
+            tab.zoom(step: 0)
         }
     }
 
@@ -154,6 +267,8 @@ final class BoostCenter {
     /// `scriptHost` names, or on every page of the site when it's nil.
     func saveCode(domain: String, css: String, js: String, scriptHost: String?, page: EngineTab?) {
         let before = store.boost(domain: domain)
+        // New CSS: its pages say again what its imports did.
+        if (before?.css ?? "") != css { importFailures[domain] = nil }
         store.update(domain: domain) {
             $0.css = css
             $0.js = js
@@ -194,6 +309,16 @@ final class BoostCenter {
         let key = ObjectIdentifier(tab)
         guard let doc = documents[key], doc.tab === tab else { return }
         send("zap", BoostPageScript.zapMessage(on, token: doc.token), to: key)
+        // The page's frames of its own site zap inside themselves.
+        for (id, f) in frameDocuments[key] ?? [:] where f.domain == doc.domain {
+            sendToFrame("zap", BoostPageScript.zapMessage(on, token: f.token), tab: key, frame: id)
+        }
+    }
+
+    /// The frame document of `tab` whose token is `token` (WebKit's frame IDs change with each message).
+    private func frameDocument(of tab: EngineTab, token: Any?) -> Document? {
+        guard let token = token as? String, !token.isEmpty else { return nil }
+        return frameDocuments[ObjectIdentifier(tab)]?.values.first { $0.token == token && $0.tab === tab }
     }
 
     func isZapping(_ tab: EngineTab?) -> Bool { tab != nil && zapTab === tab }
@@ -224,18 +349,95 @@ final class BoostCenter {
         return delivered
     }
 
+    /// `send` for a frame's document: while its tab's page is still on the frame's site and the frame is still there.
+    @discardableResult
+    private func sendToFrame(_ kind: String, _ json: String, tab key: ObjectIdentifier, frame id: String) -> Bool {
+        guard let doc = frameDocuments[key]?[id] else { return false }
+        var delivered = false
+        if let tab = doc.tab, !tab.isClosed, BoostDomain.key(for: tab.url) == doc.domain {
+            delivered = scripts.callFrameDocument(tab, frame: doc.frame, origin: doc.origin, part: "boost", kind: kind, json: json)
+        }
+        if !delivered { frameDocuments[key]?[id] = nil }
+        #if AIRC_TESTING
+        if recording { sent.append(("frame." + kind, doc.origin, doc.tab?.tabID ?? -1, delivered)) }
+        #endif
+        return delivered
+    }
+
+    /// A document in a frame below the top one: `ready` (on the tab page's own site), and Zap's messages while its tab
+    /// zaps (boosts3).
+    private func receivedFromFrame(_ tab: EngineTab, _ m: EnginePageMessage, host: String?, domain: String?, body: [String: Any]) {
+        let key = ObjectIdentifier(tab)
+        if m.kind != "ready" { return receivedZapFromFrame(tab, m, domain: domain, body: body) }
+        frameDocuments[key]?[m.frame] = nil
+        // The frame's site (the engine's origin of it) must be its page's: a frame of another site gets nothing.
+        guard let host, let domain, domain == BoostDomain.key(for: tab.url), let token = body["t"] as? String, !token.isEmpty
+        else { return }
+        frameDocuments[key, default: [:]][m.frame] = Document(tab: tab, frame: m.frame, isFrame: true, origin: m.origin, host: host,
+                                                              domain: domain, token: token, scriptToken: nil)
+        let boost = shownBoost(domain: domain)
+        let carried = BoostPageScript.carries(boost) ? domain : nil
+        if (body["v"] as? Int) != version || (body["d"] as? String) != carried {
+            sendToFrame("apply", BoostPageScript.applyMessage(for: boost, domain: domain, token: token, version: version, frame: true),
+                        tab: key, frame: m.frame)
+        }
+        // A frame that comes while its tab zaps (one loading late, or after a navigation inside it) zaps too.
+        if zapTab === tab, zapDomain == domain {
+            sendToFrame("zap", BoostPageScript.zapMessage(true, token: token), tab: key, frame: m.frame)
+        }
+    }
+
+    /// Zap's messages from a frame document of the zapping tab, on the site its zaps go to.
+    private func receivedZapFromFrame(_ tab: EngineTab, _ m: EnginePageMessage, domain: String?, body: [String: Any]) {
+        guard zapTab === tab, let zapDomain, domain == zapDomain, let doc = frameDocument(of: tab, token: body["t"]),
+              doc.domain == zapDomain else { return }
+        switch m.kind {
+        case "zap":
+            guard let selector = body["s"] as? String, BoostZap.isValidSelector(selector) else { return }
+            let label = String((body["l"] as? String ?? "").prefix(80))
+            store.update(domain: zapDomain) { b in
+                guard !b.zaps.contains(where: { $0.selector == selector && $0.frame }) else { return }
+                b.zaps.append(BoostZap(selector: selector, label: label, frame: true))
+            }
+        case "zapEnd":
+            setZapping(false, tab: tab, domain: zapDomain)
+        case "zapFailed":
+            zapFailed?()
+        default:
+            break
+        }
+    }
+
+    #if AIRC_TESTING
+    /// Scripted checks: the frame documents a tab has (BoostsTwoCheck).
+    func frameDocumentCount(_ tab: EngineTab) -> Int { frameDocuments[ObjectIdentifier(tab)]?.count ?? 0 }
+    #endif
+
     private func received(_ tab: EngineTab, _ m: EnginePageMessage) {
-        // v1 is the top frame only; the site always comes from the engine's origin of the frame.
-        guard m.isMainFrame, !tab.isClosed else { return }
+        // The site always comes from the engine's origin of the frame.
+        guard !tab.isClosed else { return }
         let body = (try? JSONSerialization.jsonObject(with: Data(m.json.utf8))) as? [String: Any] ?? [:]
         let key = ObjectIdentifier(tab)
         let host = URL(string: m.origin).flatMap { BoostDomain.webHost(of: $0) }
         let domain = host.flatMap { BoostDomain.key(forHost: $0) }
+        guard m.isMainFrame else { return receivedFromFrame(tab, m, host: host, domain: domain, body: body) }
+        if m.kind == "ready", body["private"] as? Bool == true {
+            guard Self.isPrivate(tab) else { return }
+            return privateReady(tab, host: host)
+        }
         switch m.kind {
         case "ready":
             documents = documents.filter { $0.value.tab != nil && $0.value.tab?.isClosed == false }
-            // A new document in this tab: the one before it is forgotten, whatever this one is.
+            frameDocuments = frameDocuments.filter { documents[$0.key] != nil || $0.key == key }
+            zoomedTabs = zoomedTabs.filter { documents[$0.key] != nil || $0.key == key }
+            // A new document in this tab: the one before it is forgotten, whatever this one is, and so are its frames
+            // (a frame of the same site is in the page's process, so its ready never comes before its page's).
             documents[key] = nil
+            frameDocuments[key] = nil
+            if let host { applyZoom(tab, host: host, domain: domain) }
+            if let url = tab.url, BoostLink.isLink(url) {
+                if shownLinks[key] != url.absoluteString { shownLinks[key] = url.absoluteString; linkOpened?(tab, url) }
+            } else { shownLinks[key] = nil }
             guard let host, let domain, let token = body["t"] as? String, !token.isEmpty else {
                 if zapTab === tab { setZapping(false, tab: tab, domain: zapDomain ?? "") }
                 return
@@ -247,7 +449,7 @@ final class BoostCenter {
             // The page shows the style of another version, or of another site, than the app's: it gets the app's now.
             // That clears a Boost deleted or switched off since (a page from the back-forward cache, or one made from
             // the old script in the moment before the engine had the new one).
-            let boost = store.boost(domain: domain)
+            let boost = shownBoost(domain: domain)
             let carried = BoostPageScript.carries(boost) ? domain : nil
             if (body["v"] as? Int) != version || (body["d"] as? String) != carried {
                 send("apply", BoostPageScript.applyMessage(for: boost, domain: domain, token: token, version: version), to: key)
@@ -263,7 +465,7 @@ final class BoostCenter {
                   BoostZap.isValidSelector(selector) else { return }
             let label = String((body["l"] as? String ?? "").prefix(80))
             store.update(domain: domain) { b in
-                guard !b.zaps.contains(where: { $0.selector == selector }) else { return }
+                guard !b.zaps.contains(where: { $0.selector == selector && !$0.frame }) else { return }
                 b.zaps.append(BoostZap(selector: selector, label: label))
             }
         case "zapEnd":
@@ -272,6 +474,15 @@ final class BoostCenter {
         case "zapFailed":
             guard zapTab === tab else { return }
             zapFailed?()
+        case "importFailed":
+            guard let domain, documents[key]?.domain == domain, let url = body["u"] as? String, let why = body["w"] as? String,
+                  url.count <= 300, why.count <= 20 else { return }
+            if importFailures[domain]?[url] == why { return }
+            var list = importFailures[domain] ?? [:]
+            if list.count >= 24 { return }
+            list[url] = why
+            importFailures[domain] = list
+            NotificationCenter.default.post(name: Self.didChange, object: nil, userInfo: ["domain": domain])
         default:
             break
         }

@@ -32,7 +32,10 @@ accepted, declined), an extension installed (never which), an update installed, 
 or clicked, a theme change, Live Calendar turned on or a meeting joined from it (never the meeting, its link or
 its time), a Boost changed in its editor (never the site, its style or its code), a private window opened
 (nothing about its pages, ever), and a tab preview's quick action (pin, unpin, add to or remove from Favorites,
-split, Peek; never the tab, its site or its title).
+split, Peek; never the tab, its site or its title), a shortcut changed in Settings → Shortcuts (never which
+command or key), Tidy tab titles turned on or off in Settings → AI (never a title, a page or a name;
+[ai.md](ai.md)), and a Capture copied, saved or shared (feature `capture`, variant `copy`, `save` or `share`; never
+the page, its site, the picture or where it went, and nothing from a private window; [capture.md](capture.md)).
 
 Numbers are only ever sent as ranges: "6-10 Spaces", "250-500 ms", never the exact value.
 
@@ -137,3 +140,7 @@ one of Airc's signal records (written by `apps/browser/Sources/AircCrashLog/Cras
 build) and recorded with `Telemetry.shared.record(report)`. A new field goes through a format check there and into the
 allowlist in `CrashReportTests.swift`. A published build keeps its dSYMs in `build/dSYMs` on the build Mac
 (`scripts/build-app.sh`), and `infra/updates/upload-symbols.sh` sends new ones to PostHog after each publish.
+
+Developer Mode records only its setting toggle: `feature.used`, feature `developer_mode.toggle`, closed variant
+`on` or `off`. Inspect, Hard Reload and the console badge add no events. No host, URL, message text or error count
+is collected. See [Developer Mode](devmode.md).

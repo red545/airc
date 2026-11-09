@@ -1,0 +1,244 @@
+# Airc 0.1.2 on Stable (2026-11-07). Every claim is from the release notes (0.1.2's notes.md, build 202611071736).
+slug = "2026-11-07-release-0.1.2"
+title = "Airc 0.1.2 release pack"
+kind = "release"
+since = "0.1.2"
+# 0.1.2's own source: its shots as they were then (some were retaken later, showing newer UI), and its videos built from it.
+shots_rev = "3f6cce0"
+tag = "New in Airc 0.1.2"
+summary = """
+Airc 0.1.2 shipped on Stable on 2026-11-07. This pack covers its headline items: an announcement image, six feature
+cards, a four-image set for the rest, short videos (Capture, Select several tabs, Boosts and the Command Bar, rendered
+frame by frame by the app) and a six-post launch thread.
+"""
+order = """
+1. Post 1 (the announcement) on its own, then posts 2–6 as replies under it, a few minutes apart: that's the thread.
+2. Pin post 1 for the week.
+3. The Spaces and intro videos moved to the 0.1.3 pack (drawn from 0.1.3's source, on new pages).
+4. Over the following days: single feature cards as standalone posts, one a day, in this order: Capture, Select several
+   tabs, Boosts, Developer Mode, Private windows, Streaming sites. Each uses its card's post text below, shortened.
+Use the 16:9 images in the thread (X shows them uncropped). The 1:1 versions are for standalone posts and other
+networks.
+"""
+checked = """
+- The 0.1.2 release notes (stable/0.1.2-202611071736/notes.md): every feature named here is in "New since 0.1.0".
+- Streaming: the notes say checks were logged out only and subscription playback is untested; post 4 says so.
+- Capture: visible page only (not scrolling), as the notes say; post 3 doesn't promise more.
+- Not mentioned anywhere: iCloud Sync, Ask on Page, link previews, Tidy Downloads, Notes (not in 0.1.2).
+"""
+
+# ---------------------------------------------------------------- images
+
+[[image]]
+id = "announce"
+shot = "capture"
+hero = true
+title = "Airc 0.1.2"
+line = "Select several tabs, capture part of a page, and more, in the Arc-style browser for Mac."
+target_16x9 = [690, 150, 1120, 700]
+target_1x1 = [88, 500, 1180, 737]
+text_16x9 = [96, 150, 500]
+text_1x1 = [88, 150, 1000]
+alt = "Airc 0.1.2. An Airc window on a Mac: the mint Personal Space's sidebar on the left, with Favorites, pinned folders and tabs, and a trip-planning page called “Lisbon, four days” with one card selected by Capture: the page is dimmed around it and Copy, Save and Share sit under it."
+
+[[image]]
+id = "multi-select"
+shot = "multi-select"
+title = "Select several tabs."
+line = "⌘-click, or ⇧-click for a range, then move, pin or archive them together."
+clip = [0, 0, 400, 900]
+focus = [0, 160, 400, 640]
+alt = "Airc's sidebar with three tabs selected together and their menu open: Copy 3 Links, Duplicate 3 Tabs, Open in Split View, Pin 3 Tabs, New Folder with 3 Tabs, Add to Folder, Move to Space, Close 3 Tabs and Archive 3 Tabs."
+
+[[image]]
+id = "capture"
+shot = "capture"
+title = "Capture part of a page."
+line = "Drag over it, then copy, save or share."
+keys = "⇧⌘2"
+focus = [262, 140, 640, 660]
+align = "left"
+area_16x9 = [700, 0, 1600, 900]
+area_1x1 = [88, 444, 1200, 1200]
+alt = "Capture in Airc: a trip-planning page dimmed except for one card, “Alfama at golden hour”, outlined as the selection, with Copy, Save and Share buttons under it."
+
+[[image]]
+id = "streaming"
+shot = "drm-site-controls"
+title = "Streaming sites, in a tab."
+line = "Spotify, Netflix and Disney+ open with Safari’s engine and FairPlay."
+clip = [0, 0, 560, 900]
+focus = [0, 40, 560, 520]
+alt = "Site Controls for open.spotify.com in Airc's sidebar: a switch called Safari's engine, With Apple's FairPlay, turned on, with a note on why the site plays in Safari's engine, and the site's permissions, zoom and site data below."
+
+[[image]]
+id = "boosts"
+shot = "boosts"
+title = "Make a Boost. Share it."
+line = "Restyle a site, then share it as a file."
+focus = [505, 20, 935, 560]
+align = "left"
+area_16x9 = [700, 0, 1600, 900]
+area_1x1 = [88, 444, 1200, 1200]
+alt = "A Wikipedia article on typography, restyled by a Boost into a warm amber page in the Charter font, with the Boost editor open on Colors: tint, brightness, contrast and invert."
+
+[[image]]
+id = "developer-mode"
+shot = "developer-mode"
+title = "Developer Mode."
+line = "The port, Inspect, Hard Reload and console errors, in the sidebar."
+focus = [0, 0, 760, 620]
+alt = "Developer Mode in Airc: the sidebar shows the address http://localhost with its port, Inspect and Reload buttons and an error count, beside a local web app called Fieldwork."
+
+[[image]]
+id = "private"
+shot = "private-window"
+title = "Private windows."
+line = "A private session of their own, with Find and downloads."
+keys = "⇧⌘N"
+focus = [0, 0, 760, 640]
+alt = "A private Airc window in dark grey: its own sidebar with three tabs and New Tab, on Wikipedia's article about private browsing."
+
+# The four-image set ("Also in 0.1.2"): X shows four images as a 2 × 2 grid of 16:9 cells.
+
+[[image]]
+id = "more-sidebar-right"
+shot = "sidebar-right"
+sizes = ["16x9"]
+title = "Sidebar on the right."
+line = "Settings → Appearance → Sidebar position."
+target_16x9 = [690, 110, 880, 690]
+alt = "An Airc window with its sidebar on the right-hand side, the Travel Space in sky blue, beside Wikipedia's article on Lisbon."
+
+[[image]]
+id = "more-windows"
+shot = "multiple-windows"
+mode = "plate"
+sizes = ["16x9"]
+target_16x9 = [700, 70, 860, 760]
+title = "More than one window."
+line = "⌘N. Your Spaces and tabs stay shared."
+alt = "Two Airc windows on different Spaces: Travel, in light blue on Wikipedia's Lisbon article, in front of Work, in purple on linear.app."
+
+[[image]]
+id = "more-shortcuts"
+shot = "settings-shortcuts"
+sizes = ["16x9"]
+title = "Shortcuts you can change."
+line = "Record, swap and reset them."
+focus = [200, 0, 580, 600]
+alt = "Airc's Settings, Shortcuts: commands listed by menu with their keys, Open Location set to Airc first, and a prompt offering to swap ⇧⌘N between New Window and New Private Window."
+
+[[image]]
+id = "more-import"
+shot = "onboarding-import-browsers"
+sizes = ["16x9"]
+title = "Bring your bookmarks."
+line = "From Chrome, other Chromium browsers, Firefox and Zen."
+alt = "Airc's import step, “Bring your Chrome with you”: a Chrome profile with 26 bookmarks, 6 folders and 300 history entries, each profile ticked to become an Airc profile, and an Import from Chrome button."
+
+# ---------------------------------------------------------------- videos (frames: tools/social/mac-frames.sh)
+
+[[video]]
+id = "capture-video"
+motion = "capture"
+web = "capture"
+tag = "New in Airc 0.1.2"
+title = "Capture part of a page."
+line = "Drag over it, then copy, save or share."
+captions = { page = "Press ⇧⌘2 on any page.", dimmed = "Drag over what you want.", confirmed = "Then copy, save or share it." }
+alt = "An animation rendered frame by frame by Airc: a trip-planning page in Airc, then Shift-Command-2 dims it and shows how to capture, a selection is dragged open over the card “Alfama at golden hour”, and Copy, Save and Share appear under it. Captions: Press Shift-Command-2 on any page. Drag over what you want. Then copy, save or share it."
+
+[[video]]
+id = "multiselect-video"
+motion = "multiselect"
+web = "select-tabs"
+tag = "New in Airc 0.1.2"
+title = "Select several tabs."
+line = "⌘-click, or ⇧-click for a range."
+captions = { select = "⌘-click, or ⇧-click for a range.", menu = "Then act on all of them at once.", folder = "New Folder with 3 Tabs." }
+alt = "An animation rendered frame by frame by Airc: in the Personal Space, three Today tabs are selected one after another, their menu opens with Copy, Duplicate, Split View, Pin, New Folder with 3 Tabs, Add to Folder, Move to Space, Close and Archive, and New Folder with 3 Tabs puts them in a new folder. Captions: Command-click, or Shift-click for a range. Then act on all of them at once."
+
+[[video]]
+id = "boosts-video"
+motion = "boosts"
+web = "boosts"
+clip = [430, 0, 1010, 900]
+tag = "New in Airc 0.1.2"
+title = "Make a Boost."
+line = "Restyle any site, then share it."
+captions = { page = "Any site, as it comes.", colors = "Colors: a warm tint.", font = "Font: Charter.", zap = "Zap: click away what you don’t need." }
+alt = "An animation rendered frame by frame by Airc: Wikipedia's Typography article, then the Boost editor's tint slider rising as the page warms to amber, the font changing to Charter, and the page's Appearance column zapped away. Captions: Colors, a warm tint. Font, Charter. Zap, click away what you don't need."
+
+[[video]]
+id = "commandbar-video"
+motion = "commandbar"
+web = "command"
+since = "0.1.0"
+tag = "Command Bar"
+title = "⌘T: tabs, history and search."
+line = "Results as you type."
+captions = { page = "Press ⌘T anywhere.", open = "Press ⌘T anywhere.", typed = "Open tabs, history and search, as you type." }
+alt = "An animation rendered frame by frame by Airc: in the Travel Space on Wikipedia's Lisbon article, the Command Bar opens and “lisbon” is typed a letter at a time, its results filling in: history, open tabs and search suggestions, the top hit completed inline."
+
+# The intro: one take of the app (0.1.2's own source), the homepage's hook before it. For a pinned post and the homepage.
+[[post]]
+label = "Announcement (the thread's first post)"
+media = ["announce:16x9"]
+text = """
+Airc 0.1.2 is out.
+
+Select several tabs at once, capture part of a page with ⇧⌘2, open streaming sites in a tab, and bring your bookmarks over from Chrome, Firefox or Zen.
+
+Free, for Macs with Apple silicon: aircbrowser.com
+"""
+
+[[post]]
+label = "Select several tabs"
+media = ["multi-select:16x9"]
+text = """
+⌘-click tabs to select them, or ⇧-click for a range. Then move, pin, archive or duplicate them together, or drag them to another Space or window.
+
+Undo covers all of it. Esc clears the selection.
+"""
+
+[[post]]
+label = "Capture"
+media = ["capture-video:16x9"]
+text = """
+Capture: press ⇧⌘2, drag over part of the page, then copy, save or share the image.
+
+Space takes the whole visible page; ⌘-click picks a single element. It works in private windows too.
+"""
+
+[[post]]
+label = "Streaming sites"
+media = ["streaming:16x9"]
+text = """
+Spotify, Netflix, Disney+ and other supported services now open with Safari's engine (WebKit and FairPlay), in the same tab, a split or Little Arc.
+
+We've checked them logged out; playback with a real subscription is still untested.
+"""
+
+[[post]]
+label = "Boosts and Developer Mode"
+media = ["boosts:16x9", "developer-mode:16x9"]
+text = """
+Boosts: make one from Site Controls, share it as a file, and review someone else's before you install it. Shared JavaScript needs your OK.
+
+Developer Mode (Settings → General) shows a dev page's host and port, Inspect, Hard Reload and a count of console errors.
+"""
+
+[[post]]
+label = "Also in 0.1.2 (four images)"
+media = ["more-sidebar-right", "more-windows", "more-shortcuts", "more-import"]
+text = """
+Also in 0.1.2: private windows, more than one window, tab previews, shortcuts you can change, the sidebar on the right, and imports from Chrome, Firefox and Zen.
+
+All the notes: aircbrowser.com/changelog
+"""
+
+[[set]]
+title = "The four-image set"
+about = "Post 6's images, in this order (X fills its 2 × 2 grid left to right, top to bottom)."
+media = ["more-sidebar-right", "more-windows", "more-shortcuts", "more-import"]

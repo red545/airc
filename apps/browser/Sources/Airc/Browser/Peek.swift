@@ -124,22 +124,19 @@ extension WindowController {
         if request.disposition == "window" { return true }
         // A pinned tab or Favorite opening another site in a new tab.
         let pinned = store.tab(openerID)?.itemID != nil
-        return pinned && (request.disposition == "current_tab" || (request.disposition == "foreground_tab" && Self.crossSite(opener.url, request.url)))
+        return pinned && ["current_tab", "foreground_tab"].contains(request.disposition) && Self.crossSite(opener.url, request.url)
     }
 
-    /// Different sites: the last two labels of the host (or the whole host for an IP address or a one-label host).
-    static func crossSite(_ a: URL?, _ b: URL) -> Bool {
-        func site(_ u: URL?) -> String {
-            guard let h = u?.host?.lowercased() else { return "" }
-            if h.allSatisfy({ $0.isNumber || $0 == "." || $0 == ":" }) { return h }
-            return h.split(separator: ".").suffix(2).joined(separator: ".")
-        }
-        return site(a) != site(b)
-    }
+    static func crossSite(_ a: URL?, _ b: URL) -> Bool { !LinkRouting.sameSite(a, b) }
 
     func openPeek(_ url: URL, from opener: EngineTab) {
         Telemetry.shared.record(.featureUsed(.peekOpen))
-        if let p = peek { finishPeek(p) }
+        // A Peek on screen (a tab preview card's Peek opens over it) goes with its page, which would otherwise stay
+        // loaded, unseen and still playing, until the window closes.
+        if let p = peek {
+            if !p.closing, !p.page.isClosed { p.page.close() }
+            finishPeek(p)
+        }
         let view = PeekOverlayView(palette: currentPalette)
         root.addSubview(view, positioned: .below, relativeTo: toast)
         view.layoutIn(page: card.frame)

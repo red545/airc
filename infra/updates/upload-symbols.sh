@@ -14,7 +14,7 @@ set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 DRY=""
 if [[ ${1:-} == --dry-run ]]; then DRY=--dry-run; shift; fi
-HOST=${AIRC_MAC_HOST:-mac}
+HOST=${AIRC_MAC_HOST:-buildmac}
 REMOTE=${1:-arcfork/nightly}
 [[ "$REMOTE" =~ ^arcfork/[a-zA-Z0-9/_-]+$ ]] || { echo "bad REMOTE $REMOTE" >&2; exit 2; }
 CLI=${POSTHOG_CLI:-$HOME/.local/bin/posthog-cli}

@@ -1,7 +1,8 @@
-# Airc 0.1.1 public beta
+# Airc 0.1.3 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.88.
-This update adds more ways to browse, brings streaming sites into Airc, and improves everyday reliability.
+This update adds Notes, iCloud Sync, Capture Full Page, Little Arc from any app and many Arc details.
+These notes cover changes since 0.1.2.
 The staged manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
@@ -9,65 +10,64 @@ The staged manifest records the exact build, source and checksums.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Restart to Update appears when a verified update is ready. Switching back never downgrades your data.
 
-## New in 0.1.1
+## New since 0.1.2
 
-- **Streaming sites inside Airc.** Spotify, Netflix, Disney+ and other supported services now open with
-  Safari's engine (WebKit and FairPlay) in the same tab, split pane or Little Arc window. A one-time note
-  explains the switch. **Checks were logged out only; playback with a real subscription is untested.**
-  The public FairPlay test stream played successfully. Extensions don't run on these pages, and you
-  need to sign in again because Chromium's logins don't carry over. Control this in Settings → Privacy →
-  Play DRM sites with Safari's engine, or per site in Site Controls.
-- **Private windows.** Open one with ⇧⌘N, with its own private browsing session, Find and downloads.
-  Files you download remain on disk.
-- **Multiple windows.** Open another with ⌘N, move a tab to a new window or drag it out of the sidebar.
-  Your Spaces and tabs stay shared; showing a tab in another window moves its live page without reloading.
-  ⌃⌘N opens a blank window with separate tabs. Window titles show the Space and page.
-- **Tab previews.** Hover over a sidebar tab for a preview and quick actions. Turn previews off in
-  Settings → Appearance → Show tab previews.
-- **Shortcuts you can change.** Settings → Shortcuts lets you record, swap and reset shortcuts.
-  More familiar navigation, window and editing shortcuts work throughout Airc, including in page fields.
-- **Save Page As.** Use ⇧⌘S to save a page with Chromium's formats; on Safari's-engine pages, use Print → Save as PDF.
-- **Manage Spaces.** Reorder, rename and customize your Spaces together, including their icons, themes and profiles.
-- **Sidebar on the right.** Choose Left or Right in Settings → Appearance → Sidebar position.
-- **Import from other browsers.** Bring bookmarks and history from Chromium browsers, Firefox and Zen,
-  or a bookmarks file. Import passwords from a CSV file you export yourself. Find these options during
-  onboarding, in Settings → Import, or under Airc → Import from Another Browser.
-- **Boosts.** Customize a site's colors, font and appearance, hide elements, or add your own CSS and code
-  from Site Controls.
-- **Chat and mail stay ready.** Pinned tabs and Favorites for supported chat and mail sites stay loaded
-  when you switch away. Active call tabs also stay loaded.
+- **Ads and trackers are blocked by default; turn it off per profile in Settings.**
+- **Notes.** Press ⌃⇧N for a note pinned in your sidebar, with headings, lists, checkboxes, links and pasted
+  Captures, saved as you type. New Note in Split puts one beside the page. Export Note… and Export All Notes…
+  write Markdown, RTF, PDF or HTML; Import Notes… reads Markdown, text, RTF or HTML, including Arc's exported notes.
+  Notes stay on this Mac.
+- **iCloud Sync.** Settings → Sync keeps your Spaces, pinned tabs, folders and Favorites the same on your Macs.
+  It's off until you turn it on, end-to-end encrypted with a key in your iCloud Keychain, and backs up your sidebar
+  before the first sync. Today tabs, history, logins, Boosts and notes don't sync.
+- **Little Arc from any app.** Turn on Settings → Links → Little Arc → Open Little Arc from any app, then press ⌥⌘N
+  in any app, even one in full screen. Little Arc's chevron (⇧⌘O) lists your Spaces; pick one or type to search,
+  and the page moves there. Choose when Little Arc windows go to the Archive in Settings → Links.
+- **Capture Full Page.** In Capture (⇧⌘2), press F for the whole length of the page, or choose View › Capture
+  Full Page.
+- **Developer Mode per site.** It turns on by itself for localhost; ⌃D turns it on for any other site. Its strip
+  under the address has Inspect, Hard Reload and a console error count. Private windows never use it.
+- **Split View extras.** Expand Current Split shows one pane alone and Restore Current Split brings the others back.
+  Separate Page from Split View makes the pane a tab of its own. ⌥-click a split in the sidebar to separate it.
+- **Site Search in the Command Bar.** Type a site's shortcut or name, such as "yt", and press Tab to search that
+  site. Edit the sites in Settings → Site Search. ⌥⌘⌫ removes the highlighted history suggestion.
+- **Extensions in the toolbar.** With View › Show Toolbar (⇧⌘D), your pinned extensions move to its top right, and
+  their popups open under their buttons.
+- **Boosts.** Browse the Boost gallery, share a Boost with its own share sheet, or Try It On before adding it.
+  Boosts now apply in a page's same-site frames, and a Boost's size uses page zoom.
+- **Your Space's colours on pages.** Pages that use Arc's page colours (`--arc-palette-*`) get your Space's theme
+  from their first paint.
+- **Media and picture in picture.** Spotify and other pages that play with Safari's engine show the song's real
+  length and position in the sidebar player. For their videos, the return button in macOS picture in picture brings
+  you back to the tab. The Mini Player has Arc's ✕ and – corner: “–” hides it while playback continues, and it takes
+  a new video's shape. Close a sidebar player from its artwork.
+- **Arc import results.** Logins that didn't come over are grouped by reason, and Try Again imports only what failed.
+  The extension checklist shows which extensions are still to install.
+- **Drag the window from the top of a page**, as from a title bar. Hold ⌘ to use the page there instead.
+- **More from Arc.** ⌃Tab goes back to your recent tabs. Drop files, folders, links and text on the sidebar, and
+  export a Space as Markdown or bookmarks. After copying text on a page, Airc offers a link straight to that text.
 
 ## Fixes and improvements
 
-- Little Arc takes the first click, stays in front, opens over fullscreen apps and moves a page into
-  your browser window with one click.
-- Fixed a crash when leaving fullscreen caused by titlebar layout during the transition.
-- After the initial macOS Keychain approval, Airc adopts its encryption key so later launches and
-  signed updates stop asking repeatedly.
-- Onboarding and Arc import have steadier layouts, clearer account choices and warnings, and imports
-  merge existing data instead of duplicating it. Repeated bookmark identifiers no longer collapse entries.
-- Crash reporting now records browser crashes and unexpected page, GPU and utility process exits,
-  making failures easier to diagnose when anonymous reporting is enabled.
-- Improved page-save error handling, password suggestion placement, and the isolation of Boosts between
-  sites and documents. Opening the Command Bar no longer requests site icons while you type.
-- Site Controls shows blocked pop-ups and explains when macOS is blocking a permission. Split tabs,
-  the downloads card, favicons and the update button have reliability and layout fixes.
+- Tabs that unload to save memory come back at the same scroll position.
+- With Reduce Motion on, the sidebar and long Space switches cross-fade instead of sliding.
+- ⌘B, ⌘I and ⌘U in a page's own editor apply once. Failed site icons are fetched again later.
+- Fixes to Little Arc, Split View, the media tray, onboarding, Arc import and the sidebar.
 
 ## Please know
 
 - **Safe Browsing remains off. Do not rely on Chrome-equivalent phishing or download protection.**
-- **No Chrome Sync.** Signing in to Google websites is separate from browser sync, which Airc doesn't have.
+- **iCloud Sync is new.** It was tested with iCloud on one Mac; syncing between two Macs through iCloud Keychain
+  hasn't been tested yet. Your changes upload right away; another Mac picks them up when you switch to Airc there,
+  or within 10 minutes. A Space you have on both Macs shows twice after Merge; Replace avoids that on a new Mac.
+- **Capture Full Page** stops at 32,000 pixels or 48 megapixels on very long pages and says so. Protected video may
+  appear black.
+- **Boosts** still apply to pages in private windows.
+- **Dragging from the top of a page** can't be turned off yet; hold ⌘ there to select text or drag a link.
 - **Protected content:** Widevine can install automatically; disable it in Settings → Privacy → Play protected
-  content, then reload existing tabs. Public encrypted playback passed in a disposable signed qualification app;
-  Widevine certification and licensing clearance remain pending. Subscription playback is not qualified.
+  content. Widevine certification and licensing clearance remain pending. Subscription playback is not qualified.
 - **Anonymous usage data and crash reports:** on by default, never browsing content. Turn them off, or see what
   is sent, in Settings → Privacy.
-- **Split View:** mixed-direction nesting is not supported.
-- **Picture in picture:** it must be allowed for the site. Calls were tested with simulated media, not a real
-  Meet call with screen sharing. Covering a window alone does not start picture in picture; other call sites
-  do not yet have a generic fallback.
-- **Passkeys:** phone/QR-code sign-in is not qualified; delayed Bluetooth permission may require a retry.
-  Passkeys saved in iCloud Keychain need Apple's approval for Airc first.
+- **No Chrome Sync.** Signing in to Google websites is separate from browser sync.
 - **Arc import:** unreadable encrypted logins and cookies, and partitioned cookies, are skipped.
-  Google may ask you to sign in again.
 - **Smoothness:** 120 Hz animation and zero idle work remain goals, not measured promises.

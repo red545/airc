@@ -1,0 +1,29 @@
+# Copyright 2026 The Airc Authors; Apache-2.0.
+--- a/chrome/browser/prefs/chrome_command_line_pref_store.cc
++++ b/chrome/browser/prefs/chrome_command_line_pref_store.cc
+@@ -99,6 +99,8 @@
+          prefs::kPrintPreviewUseSystemDefaultPrinter, true},
+ #endif
+         {switches::kSitePerProcess, prefs::kSitePerProcess, true},
++        {"airc-disable-safe-browsing", prefs::kSafeBrowsingEnabled, false},
++        {"airc-disable-safe-browsing", prefs::kSafeBrowsingEnhanced, false},
+ };
+ 
+ const CommandLinePrefStore::SwitchToPreferenceMapEntry
+--- a/chrome/browser/safe_browsing/generated_safe_browsing_pref.cc
++++ b/chrome/browser/safe_browsing/generated_safe_browsing_pref.cc
+@@ -158,8 +158,12 @@
+   if (enabled_enforced) {
+     // Preference is fully controlled.
+     pref_object.enforcement = settings_api::Enforcement::kEnforced;
+-    extensions::settings_private::GeneratedPref::ApplyControlledByFromPref(
+-        &pref_object, enabled_pref);
++    // Command-line restrictions are enforced, but have no enterprise controller.
++    if (enabled_pref->IsManaged() || enabled_pref->IsExtensionControlled() ||
++        enabled_pref->IsManagedByCustodian()) {
++      extensions::settings_private::GeneratedPref::ApplyControlledByFromPref(
++          &pref_object, enabled_pref);
++    }
+     return;
+   }
+ 

@@ -7,8 +7,8 @@ import SwiftUI
 /// The call window (SB-55, §2.16b's call fallback): when a call's page leaves the screen (a tab or Space switch, or the
 /// window minimized, hidden, ordered out or covered by another app's window) and the site shows no picture in picture
 /// of its own, the call's page moves, live,
-/// into a small floating window styled like Arc's picture in picture: Back to Tab, the microphone, camera and leave
-/// buttons, and ✕ (the call goes on in its tab). Going back to the tab puts the same page back. Engine pass 13 moves
+/// into a resizable floating window with its own call controls, and a separate Airc bar: Back to Tab
+/// and ✕ (the call goes on in its tab). Going back to the tab puts the same page back. Engine pass 13 moves
 /// pages between windows without touching the call (engine/PASS13.md "Full call window"); nothing reloads.
 ///
 /// Settings → Picture in Picture applies: off, or a site set to never, means no call window. A site's own picture in
@@ -126,7 +126,9 @@ final class CallWindowController: NSObject {
     func pictureInPictureChanged(_ page: EngineTab, active: Bool, kind: String? = nil) {
         let key = ObjectIdentifier(page)
         if active, engineActive.insert(key).inserted {
-            Telemetry.shared.record(.featureUsed(.pictureInPicture(kind == "document" ? .document : .video)))
+            if WindowController.canPersistMiniPlayerSite(for: page) {
+                Telemetry.shared.record(.featureUsed(.pictureInPicture(kind == "document" ? .document : .video)))
+            }
         } else if !active {
             engineActive.remove(key)
         }
@@ -141,7 +143,7 @@ final class CallWindowController: NSObject {
         }
     }
 
-    private func consider(_ id: String, _ why: Reason) {
+    private func consider(_ id: String, _ why: Reason, triedSite: Bool = false) {
         guard tabID == nil, pending[id] == nil, mayOpen(id) else { return }
         let waits = siteMayOpenItsOwn(id)
         let work = DispatchWorkItem { [weak self] in
@@ -151,6 +153,15 @@ final class CallWindowController: NSObject {
             switch why {
             case .left: if self.visible.contains(id) { return }
             case .hidden: if self.windowOnScreen || !self.visible.contains(id) { return }
+            }
+            // Native auto-PiP has additional eligibility gates. A registered site
+            // handler still deserves an explicit Media Session request before we
+            // move its entire call page into the fallback panel.
+            if waits && !triedSite, let page = self.controller?.engineTab(for: id),
+               let media = self.controller?.app?.engine as? EngineMedia,
+               media.performMediaAction("enterpictureinpicture", value: 0, in: page) {
+                self.consider(id, why, triedSite: true)
+                return
             }
             self.open(id, why)
         }
@@ -168,9 +179,9 @@ final class CallWindowController: NSObject {
         return c.callWindowAllowed(for: page.url)
     }
 
-    /// Chromium opens a site's own picture in picture by itself for an HTTPS page that handles enterpictureinpicture.
+    /// A registered site handler can provide its own PiP, including on trustworthy loopback origins.
     private func siteMayOpenItsOwn(_ id: String) -> Bool {
-        guard let page = controller?.engineTab(for: id), page.url?.scheme == "https",
+        guard controller?.engineTab(for: id) != nil,
               library?.media?.sessions[id]?.session.actions.contains("enterpictureinpicture") == true else { return false }
         #if canImport(AircCore)
         return controller?.app?.engine is ChromiumEngine
@@ -220,8 +231,10 @@ final class CallWindowController: NSObject {
         } catch {
             NSLog("Airc: the call page couldn't go back to its tab (\(error))")
         }
+        HiddenMiniPlayers.forget(page)
         tabID = nil
         self.page = nil
+        panel?.view.controls.miniPlayer.setMinimized(false, animated: false)
         panel?.dismiss()
         c.showCallAway(false)
         if !showing { c.reshowCurrentPage() }
@@ -250,6 +263,33 @@ final class CallWindowController: NSObject {
         library?.media?.perform(action, p)
     }
 
+    func mutePlayback() {
+        guard let page else { return }
+        page.isMuted.toggle()
+        if let id = tabID, let s = library?.media?.sessions[id]?.session { panel?.view.update(s) }
+    }
+
+    func suppressSite() {
+        if let page { controller?.suppressMiniPlayer(for: page) }
+        dismiss()
+    }
+
+    func systemPictureInPicture() {
+        guard let page else { return }
+        #if canImport(AircCore)
+        if let chromium = controller?.app?.engine as? ChromiumEngine {
+            chromium.enterPictureInPictureForHost(page) { _, _ in }
+            return
+        }
+        #endif
+        page.evaluate("""
+        (function(){ const v = document.querySelector('video');
+          if (v && v.requestPictureInPicture) v.requestPictureInPicture().catch(function(){});
+          else if (v && v.webkitSupportsPresentationMode && v.webkitSupportsPresentationMode('picture-in-picture'))
+            v.webkitSetPresentationMode('picture-in-picture'); })()
+        """, completion: nil)
+    }
+
     private func ensureWindow(_ hosting: EngineCallHosting, _ c: WindowController) -> (CallPanel, EngineWindow) {
         if let panel, let engineWindow { return (panel, engineWindow) }
         let p = CallPanel()
@@ -270,7 +310,7 @@ extension CallWindowController: NSWindowDelegate {
 
     /// Once a drag (or its snap) has settled, not on every frame of it.
     fileprivate func saveFrame() {
-        guard let f = panel?.frame, panel?.isVisible == true, let pid = frameProfile else { return }
+        guard let f = panel?.frame, panel?.isVisible == true, panel?.view.controls.miniPlayer.state.isMinimized != true, let pid = frameProfile else { return }
         panel?.savedFrame = f
         controller?.store.setLocalValue(Self.frameKey + "." + pid, "\(f.minX) \(f.minY) \(f.width) \(f.height)")
     }
@@ -312,6 +352,7 @@ extension CallWindowController: EngineWindowDelegate {
         guard tab === page, let c = controller else { return }
         tabID = nil
         page = nil
+        panel?.view.controls.miniPlayer.setMinimized(false, animated: false)
         panel?.dismiss()
         c.showCallAway(false)
         c.engineWindow(c.engineWindow, tabRequestedClose: tab)
@@ -338,7 +379,8 @@ final class CallPanel: NSPanel {
     var savedFrame: NSRect?
     /// After a drag or snap settled (to remember the place).
     var moved: (() -> Void)?
-    static let defaultSize = NSSize(width: 360, height: 240)
+    static let defaultSize = NSSize(width: 800, height: 600)
+    static let minimumSize = NSSize(width: 640, height: 480)
     static let cornerInset: CGFloat = 20
     /// Points the pointer moves before a press becomes a drag; how long a still press waits before the page gets it;
     /// the band at the edge that resizes (engine/PIP.md's values).
@@ -372,6 +414,13 @@ final class CallPanel: NSPanel {
         level = .floating
         // engine/PIP.md's floating panel: every Space and other apps' full-screen Spaces, out of the window cycle.
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle, .canJoinAllApplications]
+        #if AIRC_TESTING
+        if (NSApp.delegate as? AppDelegate)?.options.isAutomated == true {
+            // Automated checks must stay on their own desktop, below the owner's work.
+            level = .normal
+            collectionBehavior = [.stationary, .ignoresCycle]
+        }
+        #endif
         hidesOnDeactivate = false
         isOpaque = false
         backgroundColor = .clear
@@ -379,7 +428,7 @@ final class CallPanel: NSPanel {
         isMovableByWindowBackground = false
         isReleasedWhenClosed = false
         animationBehavior = .utilityWindow
-        minSize = NSSize(width: 240, height: 150)
+        minSize = Self.minimumSize
         title = "Call"
         contentView = view
     }
@@ -390,6 +439,11 @@ final class CallPanel: NSPanel {
     override func sendEvent(_ event: NSEvent) {
         switch event.type {
         case .leftMouseDown where held == nil && !dragging && !nearEdge(event.locationInWindow) && !onControl(event.locationInWindow):
+            // Holding the down event for drag arbitration also delays AppKit's
+            // ordinary key-window transition. Establish it now so the web view
+            // receives the first click, rather than consuming it just for focus.
+            // NSPanel's nonactivating style keeps the main browser in the background.
+            if !isKeyWindow { makeKey() }
             springs.cancel("snap")
             held = event
             commandHeld = event.modifierFlags.contains(.command)
@@ -496,9 +550,26 @@ final class CallPanel: NSPanel {
             let v = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
             f = NSRect(x: v.maxX - Self.defaultSize.width - 20, y: v.minY + 20, width: Self.defaultSize.width, height: Self.defaultSize.height)
         }
+        // Migrate old video-sized frames, and keep remembered windows usable on
+        // smaller or disconnected displays. Preserve the nearest corner.
+        let area = (NSScreen.screens.first { $0.visibleFrame.contains(NSPoint(x: f.midX, y: f.midY)) }
+                    ?? screen)?.visibleFrame.insetBy(dx: Self.cornerInset, dy: Self.cornerInset)
+                    ?? NSRect(x: 20, y: 20, width: 1400, height: 860)
+        let right = f.midX >= area.midX, top = f.midY >= area.midY
+        let old = f
+        if f.width < Self.minimumSize.width || f.height < Self.minimumSize.height {
+            f.size = Self.defaultSize
+        }
+        minSize = NSSize(width: min(Self.minimumSize.width, area.width), height: min(Self.minimumSize.height, area.height))
+        f.size = NSSize(width: min(area.width, max(minSize.width, f.width)), height: min(area.height, max(minSize.height, f.height)))
+        if right { f.origin.x = old.maxX - f.width }
+        if top { f.origin.y = old.maxY - f.height }
+        f.origin.x = max(area.minX, min(f.minX, area.maxX - f.width))
+        f.origin.y = max(area.minY, min(f.minY, area.maxY - f.height))
         setFrame(f, display: false)
         alphaValue = 0
-        orderFrontRegardless()
+        if (NSApp.delegate as? AppDelegate)?.options.isAutomated == true { orderFront(nil) }
+        else { orderFrontRegardless() }
         invalidateShadow()
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = AircCurve.previewIn.duration * 2
@@ -518,8 +589,8 @@ final class CallPanel: NSPanel {
     }
 }
 
-/// The page, and over it (on hover) the same controls as the video picture in picture (PiPControlsView): ✕ and Back
-/// to Tab in the top corners, the call's microphone, camera and leave at the bottom, on a soft scrim.
+/// The full call page below a permanent window bar. The site supplies the only
+/// microphone/camera/leave row; Airc never draws controls over the page.
 final class CallWindowView: NSView {
     weak var controller: CallWindowController? { didSet { wire() } }
     private let clip = NSView()
@@ -539,6 +610,7 @@ final class CallWindowView: NSView {
         clip.layer?.masksToBounds = true
         clip.layer?.backgroundColor = NSColor.black.cgColor
         addSubview(clip)
+        controls.fullPage = true
         addSubview(controls)
     }
 
@@ -549,9 +621,15 @@ final class CallWindowView: NSView {
         var a = PiPControlsView.Actions()
         a.backToTab = { [weak self] in self?.controller?.backToTab() }
         a.close = { [weak self] in self?.controller?.dismiss() }
+        a.stopPlayback = { [weak self] in
+            self?.controller?.page?.evaluate("document.querySelectorAll('audio,video').forEach(v => v.pause())", completion: nil)
+        }
         a.microphone = { [weak self] in self?.controller?.perform("togglemicrophone") }
         a.camera = { [weak self] in self?.controller?.perform("togglecamera") }
         a.leave = { [weak self] in self?.controller?.perform("hangup") }
+        a.mute = { [weak self] in self?.controller?.mutePlayback() }
+        a.suppressSite = { [weak self] in self?.controller?.suppressSite() }
+        a.pictureInPicture = { [weak self] in self?.controller?.systemPictureInPicture() }
         controls.actions = a
     }
 
@@ -562,13 +640,16 @@ final class CallWindowView: NSView {
     }
 
     func configure(title: String, session: EngineMediaSession) {
+        controls.miniPlayer.playbackPage = controller?.page
+        controls.mediaTitle = title
+        controls.canSuppressSite = controller?.page?.url.flatMap { MiniPlayerSite.origin($0.absoluteString) } != nil
         update(session)
     }
 
     /// The buttons the page handles, showing what its microphone and camera do.
     func update(_ s: EngineMediaSession) {
         session = s
-        var st = PiPOverlays.state(s, muted: false, at: CACurrentMediaTime())
+        var st = PiPOverlays.state(s, muted: controller?.page?.isMuted ?? false, at: CACurrentMediaTime())
         // Always the call's buttons here, even before the page says it's one.
         st.call = true
         st.canMute = false
@@ -577,8 +658,9 @@ final class CallWindowView: NSView {
 
     override func layout() {
         super.layout()
-        clip.frame = bounds
-        controls.frame = bounds
+        let h = min(bounds.height, PiPControlsView.fullPageBarHeight)
+        clip.frame = NSRect(x: 0, y: h, width: bounds.width, height: max(0, bounds.height - h))
+        controls.frame = NSRect(x: 0, y: 0, width: bounds.width, height: h)
     }
 
     /// On arrival: shown for a moment, so you see what's there.
@@ -614,8 +696,7 @@ extension WindowController {
     /// SB-55: picture-in-picture settings for the call window (off, or this site set to never, means no window).
     func callWindowAllowed(for url: URL?) -> Bool {
         guard let values = app?.settings.values, values.pipAutomatic else { return false }
-        if let origin = url.flatMap({ Self.pictureInPictureOrigin($0.absoluteString) }), values.pipSites[origin] == false { return false }
-        return true
+        return MiniPlayerSite.allowed(url, automatic: values.pipAutomatic, sites: values.pipSites)
     }
 }
 

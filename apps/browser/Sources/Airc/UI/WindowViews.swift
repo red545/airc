@@ -104,7 +104,14 @@ final class PageCardView: NSView {
     private let content = NSView()
     private var emptyView: HiddenSafeHostingView<AnyView>?
     private(set) var hostView: NSView?
+    /// W07: the top of the page drags the window (Browser/PageDrag.swift).
+    private(set) var dragStrip: PageTopDragStrip!
     var palette: Palette? { didSet { if palette != oldValue { applyPalette() } } }
+    /// The page's corner (Arc's 6 pt in the browser window; Little Arc's is concentric with its window corner).
+    var cornerRadius: CGFloat {
+        get { edge.cornerRadius }
+        set { if newValue != edge.cornerRadius { edge.cornerRadius = newValue } }
+    }
     /// The SwiftUI view only re-renders while it shows (a Space switch sets this for every Space; rendering the hidden
     /// view cost ~3 ms of each switch, §2.12); a stale one catches up when it's shown.
     var emptySpace = EmptySpace(emoji: nil, name: "") {
@@ -122,6 +129,7 @@ final class PageCardView: NSView {
         edge.autoresizingMask = [.width, .height]
         addSubview(edge)
         edge.contentView = content
+        dragStrip = PageTopDragStrip.install(in: content)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -131,6 +139,7 @@ final class PageCardView: NSView {
         host.frame = content.bounds
         host.autoresizingMask = [.width, .height]
         content.addSubview(host, positioned: .below, relativeTo: nil)
+        dragStrip.page = host
     }
 
     var showsEmptyState = false {

@@ -12,6 +12,7 @@ import argparse, html, json, os, pathlib, re, subprocess
 from datetime import datetime, timezone
 from owner_versions import owner_versions
 from xctest_summary import FAILED
+from run_result import state as run_state, LABELS
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 e = lambda s: html.escape(str(s))
@@ -49,7 +50,10 @@ def runs(status, n=8):
         rev = (d / 'rev.txt').read_text().strip() if (d / 'rev.txt').exists() else ''
         subject = (d / 'subject.txt').read_text().strip() if (d / 'subject.txt').exists() else ''
         pub = steps.get('publish-dev')
-        if rev in published:
+        gate_state = run_state(d)
+        if gate_state in ('WAIT', 'ENV'):
+            result, cls = LABELS[gate_state], 'skip'
+        elif rev in published:
             result, cls = f'published · {build_label(published[rev])}', 'ok'
         elif steps.get('mac-online', '0') != '0':
             result, cls = 'Mac offline', 'skip'
@@ -176,6 +180,9 @@ footer{color:var(--faint);font-size:12px;margin-top:28px;text-align:center}
         build_tile = (f'<div class="label">Building</div><div class="big step rounded"><span class="dot blue pulse"></span>'
                       f'{e(step_names.get(steps_order[min(idx, len(steps_order) - 1)], "working"))}</div>'
                       f'<div class="small"><code>{e(cur[1])}</code> · {e(short(cur[2], 52))}</div><div class="bar"><i style="width:{pct}%"></i></div>')
+    elif cur and cur[3] in (LABELS['WAIT'], LABELS['ENV']):
+        build_tile = (f'<div class="label">Building</div><div class="big step rounded"><span class="dot"></span>{e(cur[3])}</div>'
+                      '<div class="small">Nothing published. Retrying in a few minutes; UI checks need an unlocked screen.</div>')
     else:
         build_tile = ('<div class="label">Building</div><div class="big rounded"><span class="dot"></span>Idle</div>'
                       '<div class="small">A build starts about two minutes after new commits land.</div>')

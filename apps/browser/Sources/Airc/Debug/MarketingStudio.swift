@@ -208,6 +208,9 @@ final class MarketingServer {
     var slowRate = 900_000
 
     struct File { var name: String; var size: Int; var slowAfter: Int? }
+    /// Pages and downloads of parts in other files (MarketingAI.swift), by path; set before their pages load.
+    static var extraPages: [String: String] = [:]
+    static var extraFiles: [String: (type: String, data: Data)] = [:]
     static let files: [File] = [
         File(name: "Lisbon itinerary.pdf", size: 2_412_000),
         File(name: "Brand guidelines.pdf", size: 8_730_000),
@@ -277,11 +280,22 @@ final class MarketingServer {
         case "/golden-hour": send(c, "200 OK", html, Data(Self.filmPage.replacingOccurrences(of: "{cover}", with: cover.base64EncodedString()).utf8))
         case "/radio": send(c, "200 OK", html, Data(Self.radioPage.replacingOccurrences(of: "{cover}", with: cover.base64EncodedString()).utf8))
         case "/shared": send(c, "200 OK", html, Data(Self.filesPage.utf8))
+        case "/journal/a-quieter-web": send(c, "200 OK", html, Data(Self.fieldnotesPage.utf8))
+        case "/lisbon": send(c, "200 OK", html, Data(SnapshotRunner.mkCapturePage.utf8))   // Capture's shot (MarketingCapture.swift)
         case "/cover.png": send(c, "200 OK", ["Content-Type": "image/png"], cover)
         case "/silence.wav": sendRange(c, silence, type: "audio/wav", range: range)
         default:
+            if let page = Self.extraPages[path] { return send(c, "200 OK", html, Data(page.utf8)) }
+            if let f = Self.extraFiles[path] {
+                let name = (path as NSString).lastPathComponent
+                return send(c, "200 OK", ["Content-Type": f.type, "Content-Disposition": "attachment; filename=\"\(name)\""], f.data)
+            }
             if path.hasPrefix("/files/"), let f = Self.files.first(where: { $0.name == String(path.dropFirst(7)) }) {
                 return stream(c, f)
+            }
+            // Library › Media's pictures and films (MarketingLibrary.swift).
+            if path.hasPrefix("/media/"), let f = SnapshotRunner.mkLibraryMedia[String(path.dropFirst(7))] {
+                return send(c, "200 OK", ["Content-Type": f.type, "Content-Disposition": "attachment; filename=\"\(path.dropFirst(7))\""], f.data)
             }
             send(c, "404 Not Found", ["Content-Type": "text/plain"], Data("not found".utf8))
         }
@@ -348,6 +362,13 @@ final class MarketingServer {
         let svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='\(color)'/>\(glyph)</svg>"
         return "<link rel='icon' href='data:image/svg+xml;base64,\(Data(svg.utf8).base64EncodedString())'>"
     }
+
+    /// Fieldnotes reading page for the toolbar and Copy URL shots.
+    static let fieldnotesPage = """
+    <!doctype html><meta name="theme-color" content="#f7f4ed"><title>A quieter web · Fieldnotes</title>
+    <style>body{margin:0;background:#f7f4ed;color:#273f34;font:18px -apple-system}nav{padding:30px 54px;border-bottom:1px solid #deded2;display:flex;justify-content:space-between}main{max-width:710px;margin:70px auto}small{letter-spacing:3px;font-size:11px;color:#65816a}h1{font:64px Georgia;letter-spacing:-2px;line-height:1.1;margin:24px 0}p{line-height:1.8;color:#5b6a60}blockquote{font:28px Georgia;line-height:1.5;border-left:2px solid #99ae91;padding:12px 28px;margin:38px 0}.tag{font-size:12px;color:#73846d}</style>
+    <nav><b>Fieldnotes</b><span class=tag>IDEAS FOR EVERYDAY LIFE</span></nav><main><small>DESIGN / 6 MIN READ</small><h1>A quieter corner<br>of the web.</h1><p>Space to think. Room to explore. A few familiar tools, right where you expect them.</p><blockquote>The best tools leave a little more room for what matters.</blockquote><p>Keep the whole address in view, follow a new idea, and find your way back. Sometimes a small change makes everything feel more familiar.</p></main>
+    """
 
     // MARK: The call: illustrated people on canvases, silent audio. Never getUserMedia.
 
@@ -419,11 +440,12 @@ final class MarketingServer {
     ms.setActionHandler('hangup', function(){ hangup(); });
     if (new URLSearchParams(location.search).get('pip') === 'document') ms.setActionHandler('enterpictureinpicture', async function(){
       try {
-        pipWin = await documentPictureInPicture.requestWindow({width: 420, height: 300});
+        pipWin = await documentPictureInPicture.requestWindow({width: 640, height: 400, preferInitialWindowPlacement: true});
         pipWin.document.head.append(document.querySelector('style').cloneNode(true));
         pipWin.document.body.style.cssText = 'margin:0;background:#16181d;color:#f4f5f7;font:14px -apple-system,system-ui;overflow:hidden';
-        pipWin.document.body.append(grid); log.push('document-enter');
-        pipWin.addEventListener('pagehide', function(){ document.body.prepend(grid); }, {once: true});
+        var moved = [grid, document.getElementById('top'), document.getElementById('bar')];
+        moved.forEach(function(node){ pipWin.document.body.append(node); }); log.push('document-enter');
+        pipWin.addEventListener('pagehide', function(){ moved.forEach(function(node){ document.body.append(node); }); }, {once: true});
       } catch (e) { log.push('pip-error:' + e.name); }
     });
     function hangup(){ ended = true; stream.getTracks().forEach(function(t){ t.stop(); }); a.close(); b.close(); document.getElementById('r').pause();

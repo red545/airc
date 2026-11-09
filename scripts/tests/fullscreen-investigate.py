@@ -3,8 +3,8 @@
 """One scratch-only fullscreen attempt (--script fullscreen-exit), optionally under LLDB, capped at 55 seconds.
 
 Run on the build Mac with APP OUTPUT --case CASE [--no-debugger].
-The app must be a scratch test build: an org.airc.fscrash* or org.airc.fsexit* bundle identity and a renamed
-executable (AircFullscreen*, AircFsexit*), so its crash reports never count against the owner's Airc ones. Under LLDB
+The app must be a scratch test build: an org.airc.fscrash* or org.airc.fsexit* / org.airc.fsfollow* bundle identity and a renamed
+executable (AircFullscreen*, AircFsexit*, AircFsfollow*), so its crash reports never count against the owner's Airc ones. Under LLDB
 it must be ad-hoc signed with get-task-allow. Without LLDB the app's own crash records run (CrashRecords, Crash.log).
 The scratch app is launched in front (it takes the screen for its attempt); nothing else is activated.
 No capture or HID posting. Never targets another app, profile, or debugger session.
@@ -21,9 +21,9 @@ import subprocess
 import time
 
 CASES = ['native', 'native-rapid', 'native-esc', 'native-video', 'native-split', 'native-webkit', 'native-switch',
-         'little-over-native', 'html', 'switch', 'split', 'little', 'pip', 'webkit', 'webkit-switch']
-IDENTITIES = ('org.airc.fscrash', 'org.airc.fsexit')
-EXECUTABLES = ('AircFullscreen', 'AircFsexit')
+         'little-over-native', 'html', 'switch', 'split', 'little', 'pip', 'webkit', 'webkit-switch', 'webkit-esc']
+IDENTITIES = ('org.airc.fscrash', 'org.airc.fsexit', 'org.airc.fsfollow')
+EXECUTABLES = ('AircFullscreen', 'AircFsexit', 'AircFsfollow')
 
 
 def environment():
@@ -49,6 +49,22 @@ def attempt(app, output, case, debugger=True):
     executable = app / 'Contents/MacOS' / info['CFBundleExecutable']
     if app_pids(executable):
         raise RuntimeError('Scratch app already running; refusing an ambiguous target')
+    idle, locked = environment()
+    if locked or idle < 180:
+        return {'case': case, 'status': 'SKIP', 'idle': idle, 'locked': locked}
+    # A notification alert can block activation even when another app is reported frontmost. Do not try to
+    # dismiss it; check the on-screen window list too. No window titles/content or screen capture are read.
+    front = subprocess.check_output(['lsappinfo', 'front'], text=True, timeout=3).strip()
+    front_name = subprocess.check_output(['lsappinfo', 'info', '-only', 'name', front], text=True, timeout=3).strip()
+    probe = """import CoreGraphics
+let rows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+print(rows.filter { ($0[kCGWindowOwnerName as String] as? String) == "UserNotificationCenter" }.count)
+"""
+    alerts = int(subprocess.check_output(['swift', '-e', probe], text=True, timeout=30).strip())
+    if alerts or 'UserNotificationCenter' in front_name:
+        return {'case': case, 'status': 'SKIP', 'reason': 'notification alert blocks activation',
+                'notification_windows': alerts, 'front': front_name}
+    # The probe compiles before launch; recheck hardware idleness after it.
     idle, locked = environment()
     if locked or idle < 180:
         return {'case': case, 'status': 'SKIP', 'idle': idle, 'locked': locked}
@@ -121,8 +137,10 @@ def attempt(app, output, case, debugger=True):
                 try: os.kill(pid, sig)
                 except ProcessLookupError: pass
         if debug is not None and debug.poll() is None:
+            # Its group also holds debugserver, which this user may not signal: then lldb alone.
             try: os.killpg(debug.pid, signal.SIGTERM)
             except ProcessLookupError: pass
+            except PermissionError: debug.terminate()
         time.sleep(.3)
         for pid in app_pids(executable):
             if pid in seen_pids:
@@ -133,17 +151,24 @@ def attempt(app, output, case, debugger=True):
         # Only reports named for our renamed scratch executable, never the owner's Airc reports; they go to the
         # archive, out of macOS's 25-per-name folder.
         diagnostics = Path.home() / 'Library/Logs/DiagnosticReports'
-        archive = Path.home() / 'arcfork/diag-archive/fsexit'
+        archive = Path.home() / 'arcfork/diag-archive' / ('fsfollow' if info['CFBundleExecutable'].startswith('AircFsfollow') else 'fsexit')
         if result['status'].startswith('CRASH'):
             time.sleep(8)   # ReportCrash takes a while on a big stack, when it manages at all
-        for report in diagnostics.glob(info['CFBundleExecutable'] + '-*.ips'):
-            archive.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(report), archive / report.name)
-            result.setdefault('ips', []).append(report.name)
+        def step(what, action):
+            # A failed step is recorded and the rest of the cleanup still runs.
+            try: action()
+            except OSError as error: result.setdefault('cleanup_errors', []).append(f'{what}: {error!r}')
+        def archive_reports():
+            for report in diagnostics.glob(info['CFBundleExecutable'] + '-*.ips'):
+                archive.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(report), archive / report.name)
+                result.setdefault('ips', []).append(report.name)
+        step('crash reports', archive_reports)
         # Retain small crash evidence, not a new Chromium profile per overnight attempt.
         data = output / 'data'
-        if (data / 'Crash.log').exists(): shutil.copy2(data / 'Crash.log', output / 'Crash.log')
-        if (data / 'CrashRecords').exists(): shutil.copytree(data / 'CrashRecords', output / 'CrashRecords', dirs_exist_ok=True)
+        step('Crash.log', lambda: (data / 'Crash.log').exists() and shutil.copy2(data / 'Crash.log', output / 'Crash.log'))
+        step('CrashRecords', lambda: (data / 'CrashRecords').exists()
+             and shutil.copytree(data / 'CrashRecords', output / 'CrashRecords', dirs_exist_ok=True))
         # WebKit's helper processes outlive the app for a moment and may still be writing there.
         for scratch in [data, output / 'home']:
             for last in [False, False, True]:

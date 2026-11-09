@@ -39,8 +39,22 @@
 	</dict>
 	<!-- AT-1: a default-browser candidate. Web addresses (CFBundleURLTypes below) and HTML files open in Airc; links
 	     from other apps go through Air Traffic Control. -->
+	<key>UTExportedTypeDeclarations</key>
+	<array><dict>
+		<key>UTTypeIdentifier</key><string>org.airc.boost</string>
+		<key>UTTypeDescription</key><string>Airc Boost</string>
+		<key>UTTypeConformsTo</key><array><string>public.json</string></array>
+		<key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>airc-boost</string></array></dict>
+	</dict></array>
 	<key>CFBundleDocumentTypes</key>
 	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Airc Boost</string>
+			<key>CFBundleTypeRole</key><string>Viewer</string>
+			<key>LSHandlerRank</key><string>Owner</string>
+			<key>LSItemContentTypes</key><array><string>org.airc.boost</string></array>
+		</dict>
 		<dict>
 			<key>CFBundleTypeName</key>
 			<string>Web page</string>

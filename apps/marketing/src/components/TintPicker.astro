@@ -65,6 +65,7 @@ const css = (p: Preset) => {
 
   // The window's colour changes on a layer that fades in over the last one, since gradients can't transition.
   const tints = document.querySelector<HTMLElement>(".window > .tints");
+  let tinting = 0;
   const tint = (bg: string, tone: string) => {
     if (!win || !tints) return;
     const layer = document.createElement("div");
@@ -72,8 +73,14 @@ const css = (p: Preset) => {
     if (bg) layer.style.background = bg;
     const old = [...tints.children];
     tints.append(layer);
+    win.classList.add("tinting");
+    clearTimeout(tinting);
+    tinting = window.setTimeout(() => win.classList.remove("tinting"), 650);
     if (tone) win.dataset.tone = tone;
     else delete win.dataset.tone;
+    // Phones have no sidebar: the window's top bar takes the colour instead (Layout.astro, .mobilebar).
+    if (bg) win.style.setProperty("--bar-tint", bg);
+    else win.style.removeProperty("--bar-tint");
     if (reduce) {
       layer.classList.add("in");
       old.forEach((o) => o.remove());
@@ -92,7 +99,8 @@ const css = (p: Preset) => {
         if (b.getAttribute("aria-checked") === "true") return;
         swatches.forEach((s) => s.setAttribute("aria-checked", String(s === b)));
         name.textContent = b.title;
-        tip.textContent = b.dataset.tint === "paper" ? "Airc's default: warm stone." : "Look left.";
+        const phone = matchMedia("(max-width: 900px)").matches;
+        tip.textContent = b.dataset.tint === "paper" ? "Airc's default: warm stone." : phone ? "Look up." : "Look left.";
         tint(b.dataset.bg ?? "", b.dataset.tone ?? "");
         track("tint_picked", { preset: b.dataset.tint ?? "" });
       }),
@@ -134,10 +142,6 @@ const css = (p: Preset) => {
   }
 
   .tp-sw:not([style]) { background: #ebe8e4; }
-
-  @media (prefers-color-scheme: dark) {
-    .tp-sw:not([style]) { background: #26221f; box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.2); }
-  }
 
   .tp-sw:hover { transform: scale(1.08); }
   .tp-sw:active { transform: scale(0.94); }

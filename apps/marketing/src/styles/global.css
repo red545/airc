@@ -11,9 +11,9 @@
   --stone-900: #1d1a18;
   --stone-950: #110f0e;
 
-  --bg: #ffffff;
-  --bg-sunk: #f8f8f9;
-  /* Attio-style neutrals for the page: text, secondary, tertiary, hairlines, panels. */
+  --bg: var(--stone-25);
+  --bg-sunk: var(--stone-50);
+  /* Neutrals for the inner pages (features, changelog, versions, privacy): text, secondary, tertiary, hairlines, panels. */
   --t1: #1c1d1f;
   --t2: #6b7280;
   --t3: #9aa0ab;
@@ -46,8 +46,8 @@
   --ocean: #2f6af0;
   --ocean-2: #13b5b0;
 
-  --font: "Inter Variable", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
-  --font-display: "Inter Variable", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", system-ui, sans-serif;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter Variable", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Figtree Variable", "Figtree", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
 
   --max: 1180px;
@@ -55,33 +55,7 @@
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1); /* AircCurve.entrance */
   --spring-settle: cubic-bezier(0.25, 1, 0.3, 1); /* close to AircSpring.settle, critically damped */
 
-  color-scheme: light dark;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #111113;
-    --bg-sunk: #161618;
-    --t1: #ededf0;
-    --t2: #9a9fab;
-    --t3: #6b707b;
-    --hl: rgb(255 255 255 / 0.07);
-    --hl-strong: rgb(255 255 255 / 0.12);
-    --panel: #161618;
-    --surface: var(--stone-900);
-    --ink: 250 248 245;
-    --text: rgb(var(--ink) / 0.94);
-    --text-2: rgb(var(--ink) / 0.68);
-    --text-3: rgb(var(--ink) / 0.54);
-    --line: rgb(var(--ink) / 0.09);
-    --line-strong: rgb(var(--ink) / 0.15);
-    --fill: rgb(var(--ink) / 0.06);
-    --accent: #5a62ff;
-    --accent-text: #8b91ff;
-    --red: #ff6369;
-    --red-wash: rgb(255 99 105 / 0.14);
-    --shadow-shot: 0 0 0 0.5px rgb(255 255 255 / 0.08), 0 12px 32px -8px rgb(0 0 0 / 0.5), 0 40px 90px -24px rgb(0 0 0 / 0.6);
-  }
+  color-scheme: light only;
 }
 
 *,
@@ -237,21 +211,17 @@ kbd {
 }
 
 .btn-primary {
-  /* Attio's primary: near-black, with a hairline top light. */
-  color: #fff;
+  color: var(--on-accent);
   background:
-    linear-gradient(to bottom, rgb(255 255 255 / 0.14), rgb(255 255 255 / 0) 45%) top / 100% 1px no-repeat,
-    #1c1d1f;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.16), inset 0 0 0 1px rgb(0 0 0 / 0.6);
+    linear-gradient(to bottom, rgb(255 255 255 / 0.2), rgb(255 255 255 / 0) 50%) top / 100% 1px no-repeat,
+    var(--accent);
+  box-shadow:
+    0 2px 6px rgb(49 57 251 / 0.2),
+    inset 0 0 0 0.5px rgb(0 0 0 / 0.1);
 }
 
 .btn-primary:hover {
-  background-color: #2c2d30;
-}
-
-@media (prefers-color-scheme: dark) {
-  .btn-primary { color: #111113; background: #f2f2f4; box-shadow: 0 1px 2px rgb(0 0 0 / 0.3); }
-  .btn-primary:hover { background-color: #ffffff; }
+  background-color: color-mix(in srgb, var(--accent) 92%, #fff);
 }
 
 .btn-quiet {

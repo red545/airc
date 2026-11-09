@@ -60,6 +60,13 @@ enum ImportAdapter {
         return ImportBlueprint(profiles: profiles, spaces: spaces, favorites: favorites, favoriteNodes: favoriteNodes)
     }
 
+    static func visits(_ plan: ImportPlan, profileIDs: [String: String]) -> [HistoryEntry] {
+        plan.mappedHistory(profileIDs: profileIDs).flatMap { pid, visits -> [HistoryEntry] in
+            return visits.map { HistoryEntry(profileID: pid, url: $0.url, title: $0.title,
+                visitCount: $0.visitCount, typedCount: $0.typedCount, lastVisit: $0.lastVisit) }
+        }
+    }
+
     static func theme(_ t: ImportedTheme) -> SpaceTheme {
         ArcTheme.theme(from: t.raw?.foundation, fallbackColors: t.colors.isEmpty ? [t.color] : t.colors)
     }
@@ -115,6 +122,9 @@ enum ImportAdapter {
             guard count > 0 else { return }
             out.append(Change(count: count, summary: "\(count) " + (count == 1 ? one : many), detail: detail))
         }
+        add(n("unreadableHistory"), "profile’s history couldn’t be read", "profiles’ history couldn’t be read", "Quit Arc and import again. Its Spaces still came over.")
+        add(n("historyNeedsCheckpoint"), "profile may have newer history in Arc", "profiles may have newer history in Arc", "Arc is open (or didn't quit cleanly), and its latest visits wait in a file Airc doesn't read while Arc uses it. Quit Arc and import again: they're added, nothing is duplicated.")
+        add(n("unreadableExtensions"), "profile’s extension list couldn’t be fully read", "profiles’ extension lists couldn’t be fully read", "Quit Arc and import again. Check Arc for anything missing.")
         add(n("easel"), "Easel was left out", "Easels were left out", "Airc has no Easels. Arc keeps them until Dec 22; export the ones you need from Arc first.")
         add(n("note"), "Note was left out", "Notes were left out", "Airc has no Notes yet. Copy what you need out of Arc's Notes first.")
         add(n("liveFolder"), "live folder is now a plain folder", "live folders are now plain folders",
@@ -138,7 +148,13 @@ enum ImportAdapter {
                 "Anything inside them came over in their place" + (kinds.isEmpty ? "." : " (Arc calls them: " + names + ")."))
         }
         add(n("missingProfile"), "Arc profile folder is missing", "Arc profile folders are missing",
-            "Its Spaces come over, but its logins and cookies can't.")
+            "Its Spaces come over, but its history, extensions, logins and cookies can't: they live in that folder.")
+        add(n("profileOutsideArc"), "profile folder links outside Arc's folder", "profile folders link outside Arc's folder",
+            "Its Spaces come over. Airc reads only inside Arc's own folder, so its history and extensions didn't.")
+        if n("unreadableProfileList") > 0 {
+            out.append(Change(count: 1, summary: "Arc's profile list is damaged",
+                              detail: "Profiles are named after their folders (\u{201C}Profile 1\u{201D}); everything in them still came over. Rename them in Settings › Profiles."))
+        }
         if n("newerVersion") > 0 {
             out.append(Change(count: 1, summary: "This Arc is newer than Airc knows",
                               detail: "Everything Airc could read came over; check your Spaces once they're in."))

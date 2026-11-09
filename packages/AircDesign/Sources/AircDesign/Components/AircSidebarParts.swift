@@ -40,6 +40,7 @@ extension AircSidebarCard where Icon == AircGoogleMark {
 @MainActor
 public final class AircSignInCardView: NSView {
     public var theme: ResolvedTheme { didSet { if theme != oldValue { update() } } }
+    public var account: String? { didSet { if account != oldValue { update() } } }
     public var onSignIn: () -> Void = {}
     public var onNotNow: () -> Void = {}
     public var onDismiss: (() -> Void)? { didSet { update() } }
@@ -66,8 +67,15 @@ public final class AircSignInCardView: NSView {
     private func update() {
         let dismiss: (() -> Void)? = onDismiss == nil ? nil : { [weak self] in self?.onDismiss?() }
         host.rootView = AnyView(
-            AircSidebarCard.signInToGoogle(isDark: theme.isDark, onSignIn: { [weak self] in self?.onSignIn() },
-                                           onNotNow: { [weak self] in self?.onNotNow() }, onDismiss: dismiss)
+            AircSidebarCard(title: account == nil ? AircSignInCopy.title : "Signed in as…",
+                            message: account.map { "\($0) · Add Gmail and Calendar to Favorites?" } ?? AircSignInCopy.message,
+                            primary: account == nil ? AircSignInCopy.signIn : "Add",
+                            secondary: account == nil ? AircSignInCopy.notNow : "No thanks",
+                            onPrimary: { [weak self] in self?.onSignIn() },
+                            onSecondary: { [weak self] in self?.onNotNow() }, onDismiss: dismiss) {
+                AircGoogleMark(size: 16, onDisc: theme.isDark)
+            }
+                .help(account ?? AircSignInCopy.title)
                 .aircTheme(theme)
                 // Room for the selected-row shadow below the 112 pt card.
                 .padding(.bottom, 0)

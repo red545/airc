@@ -40,7 +40,7 @@ final class URLRulesTests: XCTestCase {
     }
 
     func testMarkdown() {
-        XCTAssertEqual(URLRules.markdownLink(title: "A [b]", url: "https://a.com"), "[A [b\\]](https://a.com)")
+        XCTAssertEqual(URLRules.markdownLink(title: "A [b]", url: "https://a.com"), "[A \\[b\\]](https://a.com)")
     }
 }
 

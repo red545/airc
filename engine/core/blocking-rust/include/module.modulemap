@@ -1,0 +1,4 @@
+module AircBlocking {
+  header "../../airc_blocking_ffi.h"
+  export *
+}

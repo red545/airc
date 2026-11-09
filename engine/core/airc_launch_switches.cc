@@ -109,8 +109,8 @@ std::string TestGateRefusal() {
   return std::string();
 }
 
-const std::string& WhyNotATestInstance() {
-  static const base::NoDestructor<std::string> refusal(TestGateRefusal());
+std::optional<std::string>& TestGateDecision() {
+  static base::NoDestructor<std::optional<std::string>> refusal;
   return *refusal;
 }
 
@@ -152,7 +152,10 @@ bool SignedForDistribution() {
 }
 
 bool TestInstance() {
-  return WhyNotATestInstance().empty();
+  // Queries must never do signature checks or realpath I/O on the UI thread.
+  // Fail closed if queried before the main delegate initializes the decision.
+  const auto& refusal = TestGateDecision();
+  return refusal.has_value() && refusal->empty();
 }
 
 std::optional<std::string> TestValue(std::string_view key) {
@@ -215,11 +218,19 @@ void PassSwitchesToGpuProcess(base::CommandLine* gpu_command_line) {
       kSwitchesSwitch, CommandLine().GetSwitchValueASCII(kSwitchesSwitch));
 }
 
+void InitializeTestGateAtStartup() {
+  auto& refusal = TestGateDecision();
+  if (!refusal.has_value()) {
+    refusal = TestGateRefusal();
+  }
+}
+
 void DecideTestGateAtStartup() {
   if (!BrowserProcess() || (!AsksForTestOrTrace() && !BackgroundInstance())) {
     return;
   }
-  const std::string& why = WhyNotATestInstance();
+  InitializeTestGateAtStartup();
+  const std::string& why = *TestGateDecision();
   if (why.empty() || !AsksForTestOrTrace()) {
     return;
   }
