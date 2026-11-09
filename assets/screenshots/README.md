@@ -20,6 +20,7 @@ profiles through Create Profile instead).
 
 | File | Feature | What it shows | Date | Build |
 |---|---|---|---|---|
+| `cast-picker.webp` | Cast | Native picker anchored below the URL field, with safe no-device recovery on a public Lisbon article | 2026-11-09 | 202611092331 (7cfb398f + Cast changes) |
 | `blocking.webp` | Ads and trackers | Built-in blocking in Site Controls: eight blocked requests and hidden sponsored content on a synthetic Field Notes page served over loopback | 2026-11-09 | 202611092129 (bb2f55c; owner defaults and migration) |
 | `arc-import-checklist.webp` | Arc import | Per-profile history counts, installed status and the extension reinstall checklist with its count, from synthetic Arc data | 2026-11-08 | 202611080726 (c87da37) |
 | `arc-import-logins.webp` | Logins from Arc | Every login and each site’s cookies with what happened: what couldn’t come over and why, and Try Again for the profile whose passwords couldn’t be read, from synthetic Arc data | 2026-11-08 | 202611080726 (c87da37) |

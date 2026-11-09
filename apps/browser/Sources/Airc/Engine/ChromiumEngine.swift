@@ -835,8 +835,15 @@ final class ChromiumRuntime: NSObject, AircEngineDelegate {
     func engine(_ engine: AircEngine, deviceChooser chooser: [String: Any], tab: AircTab) {
         if let id = chooser["id"] as? NSNumber { AircEngine.cancelDeviceChooser(id.int32Value) }
     }
-    func engine(_ engine: AircEngine, castDialog dialog: [String: Any], tab: AircTab) {}
-    func engine(_ engine: AircEngine, castRoutes routes: [[String: String]], profile: AircProfile) {}
+    func engine(_ engine: AircEngine, castDialog dialog: [String: Any], tab: AircTab) {
+        guard let page = tab.delegate as? ChromiumTab else { return }
+        tab.profile?.watchCastRoutes()
+        DispatchQueue.main.async { CastCenter.shared.receive(dialog, page: page) }
+    }
+    func engine(_ engine: AircEngine, castRoutes routes: [[String: String]], profile: AircProfile) {
+        let directory = profile.path + (profile.offTheRecord ? ":private" : "")
+        DispatchQueue.main.async { CastCenter.shared.routes(routes, profile: directory) }
+    }
 }
 
 // Engine pass 13's adapter (ChromiumEngine+Library.swift) and the call window (Call/CallWindow.swift): the engine

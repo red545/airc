@@ -700,6 +700,11 @@ final class TabRowView: SidebarRowView {
         // A custom icon wins, except while the favicon is the "Back to pinned URL" arrow. A Today tab has its own (S03).
         showCustomIcon(drifted && faviconHovered ? nil : item?.icon ?? tab?.icon)
 
+        if CastCenter.shared.isCasting(engineTab) {
+            showCustomIcon(nil)
+            favicon.set(image: nil, url: nil, fallbackPage: url, palette: palette, symbol: "airplayvideo")
+            favicon.toolTip = "Casting — open Site Controls to stop"
+        } else { favicon.toolTip = nil }
         let audible = engineTab?.isAudible ?? false
         muted = tab?.isMuted ?? false
         if audible || muted { makeAudio() }

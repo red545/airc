@@ -24,7 +24,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PARTS="blocking smallwins arcbits arcimport2 profilesignin boostsplus archive browser views media calls settings sync onboarding boosts themes drm basics previews windows sidebarright multiselect parityp01 parityp21b capture notes parityp07 parityp03b parityp09 parityp20d library parityp10 shortcuts devmode routing ai"
+PARTS="cast blocking smallwins arcbits arcimport2 profilesignin boostsplus archive browser views media calls settings sync onboarding boosts themes drm basics previews windows sidebarright multiselect parityp01 parityp21b capture notes parityp07 parityp03b parityp09 parityp20d library parityp10 shortcuts devmode routing ai"
 BUILD=1
 ON_MAC=0
 while [ $# -gt 0 ]; do
@@ -38,7 +38,8 @@ while [ $# -gt 0 ]; do
 done
 
 # Each shot: file name | feature | what it shows. The README's table comes from this list.
-SHOTS='blocking|Ads and trackers|Built-in blocking in Site Controls, on a synthetic Field Notes story served only over loopback
+SHOTS='cast-picker|Cast|Native device picker with a safe no-device state
+blocking|Ads and trackers|Built-in blocking in Site Controls, on a synthetic Field Notes story served only over loopback
 extension-profiles|Extensions in every profile|Per-profile Web Store results, including a profile with no Space and no silently created Space
 backup-restore|Restore from Backup|The backup picker with date, size and counts, before replacing Spaces, tabs and archive
 show-toolbar|Show Toolbar|A full address bar above a synthetic reading page, with back, forward and reload

@@ -56,7 +56,10 @@ final class SidebarTrayView: NSView {
         let plan = TrayPlan(players: library.media?.players ?? [], downloads: library.downloads?.sidebarItems ?? [],
                             maxPlayers: compact ? 1 : 3)
         if plan != model.plan { model.plan = plan }
-        let h = plan.height
+        model.casts = CastCenter.shared.sessions.filter { session in
+            (controller?.promptShownPage as? CastEngineTab)?.castProfileKey == session.profile
+        }
+        let h = plan.height + CGFloat(model.casts.count) * (Self.rowHeight + Self.gap)
         guard h != target else { return }
         target = h
         guard let c = controller, window != nil, !isHiddenOrHasHiddenAncestor else { return setHeight(h) }
@@ -115,6 +118,7 @@ struct TrayPlan: Equatable {
 }
 
 final class TrayModel: ObservableObject {
+    @Published var casts: [CastCenter.Session] = []
     @Published var plan = TrayPlan()
     @Published var theme = DesignTheme.default.resolved(systemIsDark: false)
     weak var library: MediaLibrary?
@@ -127,6 +131,16 @@ struct TrayContent: View {
     var body: some View {
         VStack(spacing: SidebarTrayView.gap) {
             Spacer(minLength: 0)
+            ForEach(model.casts) { session in
+                HStack {
+                    Image(systemName: "airplayvideo")
+                    Text(session.name).lineLimit(1)
+                    Spacer()
+                    Button("Stop") { CastCenter.shared.stop(session) }.buttonStyle(.plain)
+                }.padding(.horizontal, 10).frame(height: SidebarTrayView.rowHeight)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                    .accessibilityLabel("Casting to \(session.name)")
+            }
             ForEach(Array(model.plan.players.enumerated()), id: \.element.id) { i, p in
                 let more = i == model.plan.players.count - 1 ? model.plan.morePlayers : []
                 MediaPlayerRow(player: p, more: more, library: model.library)

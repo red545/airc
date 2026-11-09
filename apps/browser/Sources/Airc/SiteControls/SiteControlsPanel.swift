@@ -365,6 +365,7 @@ struct SiteControlsCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
+            CastSiteRow(page: model.page, controller: model.controller)
             if model.showsConnection { connection.padding(.top, AircSpacing.s) }
             if model.showsSafariEngine {
                 divider

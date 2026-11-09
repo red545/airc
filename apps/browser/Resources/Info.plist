@@ -99,6 +99,8 @@
 	<string>Websites you allow can use your location to show nearby places, directions and local information.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Websites you allow can use your location to show nearby places, directions and local information.</string>
+	<key>NSBonjourServices</key>
+	<array><string>_googlecast._tcp</string></array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Airc uses your local network to discover Cast devices and connect to local devices through websites you allow.</string>
 	<key>NSWebBrowserPublicKeyCredentialUsageDescription</key>

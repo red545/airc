@@ -74,6 +74,7 @@ extension SnapshotRunner {
             case "parityp07": mkParityP07Shots(d)   // MarketingParityP07.swift: Site Search
             case "parityp03b": mkParityP03bShots(d)   // MarketingParityP03b.swift: the Command Bar's ✕ on a history row
             case "parityp09": mkParityP09Shots(d)   // MarketingParityP09.swift: extensions in the toolbar
+            case "cast": mkCastShots(d)
             case "parityp20d": mkParityP20dShots(d)   // MarketingParityP20d.swift: the Task Manager
             case "library": mkLibraryShots(d)
             case "parityp10": mkParityP10Shots(d)   // MarketingParityP10.swift: Library folders and Notes

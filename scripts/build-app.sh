@@ -98,6 +98,8 @@ check_privacy_keys() {   # check_privacy_keys PLIST
     value="$(/usr/libexec/PlistBuddy -c "Print :$key" "$1" 2>/dev/null || true)"
     [[ -n "${value//[[:space:]]/}" ]] || missing+=("$key")
   done
+  value="$(/usr/libexec/PlistBuddy -c "Print :NSBonjourServices" "$1" 2>/dev/null || true)"
+  [[ "$value" == *"_googlecast._tcp"* ]] || missing+=("NSBonjourServices:_googlecast._tcp")
   if [[ ${#missing[@]} -gt 0 ]]; then
     echo "error: $1 has no usage description for: ${missing[*]}" >&2
     echo "  macOS kills the app the first time a page or sign-in uses one of these (TCC privacy violation)." >&2

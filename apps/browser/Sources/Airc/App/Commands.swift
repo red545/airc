@@ -150,6 +150,7 @@ enum CommandMenus {
             // P08c: Arc's Capture in Portrait Mode (its capturePrettyScreenshot): the page framed (Browser/PortraitCapture.swift).
             BrowserCommand("Capture in Portrait Mode", id: "view.capturePortrait", order: .browserFirst) { $0.startCapture(portrait: true) },
             BrowserCommand("Extensions", "e", .command, id: "view.extensions") { $0.showExtensions() },
+            BrowserCommand("Cast…", id: "view.cast") { $0.showCast() }.enabled { $0.promptShownPage != nil },
             BrowserCommand("Site Controls", id: "view.siteControls") { $0.toggleSiteControls() },
             // BST-1. Arc had no shortcut for its Boost editor, so neither does this.
             BrowserCommand("Boost This Site…", id: "view.boost") { $0.showBoostEditor() },

@@ -47,6 +47,8 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>NSBluetoothAlwaysUsageDescription</key><string>Synthetic passkey dialog qualification.</string>
   <key>NSBluetoothPeripheralUsageDescription</key><string>Synthetic passkey dialog qualification.</string>
   <key>NSWebBrowserPublicKeyCredentialUsageDescription</key><string>Synthetic passkey dialog qualification.</string>
+  <key>NSLocalNetworkUsageDescription</key><string>Discover Cast receivers for browser qualification.</string>
+  <key>NSBonjourServices</key><array><string>_googlecast._tcp</string></array>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
 </dict></plist>

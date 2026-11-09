@@ -145,6 +145,7 @@ final class SnapshotRunner {
         case "parityp06b": parityP06bScenario()   // P06b: Little Arc from any app, Show/Close all, archiving
         case "parityp06d": parityP06dScenario()   // P06d: links clicked with ⌥⌘ open in Little Airc
         case "parityp06c": parityP06cScenario()   // P06c: Split View extras (Expand Current Split, Separate Page, ⌥-click)
+        case "paritycast": parityCastScenario()
         case "parityp20d": parityP20dScenario()   // P20d: developer commands in the menu bar, the Task Manager
         case "parityw07": parityW07Scenario()   // W07: the window drags from the top of the page
         case "parityp01c": parityP01cScenario()   // P01c: Move to ›, folder reset and Turn into Space, the Space header, Shared Quotes
@@ -756,7 +757,7 @@ final class SnapshotRunner {
                                       c.tabPreview.isShowing ? c.tabPreview.presentedCard : nil,
                                       c.recentFiles.isShowing ? c.recentFiles.card : nil,
                                       MainActor.assumeIsolated { BlockingNotices.overlay(in: c) },
-                                      c.toast.isHidden ? nil : c.toast, c.protectedMediaToast].compactMap { $0 }
+                                      CastPicker.shared?.host, c.toast.isHidden ? nil : c.toast, c.protectedMediaToast].compactMap { $0 }
             overlays.forEach { $0.isHidden = true }
             let frameView = root.superview ?? root
             let base = render(frameView)
