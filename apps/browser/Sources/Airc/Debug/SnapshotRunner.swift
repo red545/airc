@@ -244,6 +244,7 @@ final class SnapshotRunner {
         case "parityp01c": parityP01cScenario()   // P01c: Move to ›, folder reset and Turn into Space, the Space header, Shared Quotes
         case "parityp09b": parityP09bScenario()
         case "paritycontextmenu": parityContextMenuScenario()
+        case "parityfedcm": parityFedCmScenario()   // FedCM on a fake IdP: no crash; Chromium falls back to the popup (ParityFedCmCheck.swift)
         case "menulang": menuLanguageScenario()   // English-only app strings under a German test locale (MenuLanguageCheck)
         case "parityp08c": parityP08cScenario()   // P08c: Capture in Portrait Mode in View and the Site Control Center
         case "parityp12", "parityp12-relaunch": parityP12Scenario()   // P12: GitHub Live Folders on a local fake GitHub
