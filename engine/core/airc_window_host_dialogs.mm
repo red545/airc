@@ -68,6 +68,12 @@ gfx::NativeView WindowHost::GetHostView() const {
   return modal_parent_->GetNativeView();
 }
 
+views::View* WindowHost::DialogAnchorView() {
+  if (!externally_hosted()) return widget_ ? widget_->GetRootView() : nullptr;
+  UpdateModalParent();
+  return modal_parent_ ? modal_parent_->GetRootView() : nullptr;
+}
+
 void WindowHost::UpdateModalParent() {
   if (!externally_hosted()) return;
   if (!modal_parent_) {

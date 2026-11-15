@@ -1,0 +1,39 @@
+# Copyright 2026 The Airc Authors; Apache-2.0.
+--- a/chrome/browser/ui/views/webid/fedcm_account_selection_view_desktop.cc
++++ b/chrome/browser/ui/views/webid/fedcm_account_selection_view_desktop.cc
+@@ -6,6 +6,7 @@
+ 
+ #include <memory>
+ #include <optional>
++#include "airc/core/airc_fedcm_hooks.h"  // nogncheck
+ 
+ #include "base/functional/bind.h"
+ #include "base/logging.h"
+@@ -1175,6 +1176,11 @@
+         web_contents()->GetTopLevelNativeWindow();
+     views::Widget* top_level_widget =
+         views::Widget::GetWidgetForNativeWindow(top_level_native_window);
++    if (!top_level_widget && g_airc_fedcm_dialog_anchor) {
++      if (views::View* anchor = g_airc_fedcm_dialog_anchor(web_contents())) {
++        top_level_widget = anchor->GetWidget();
++      }
++    }
+     dialog_widget = base::WrapUnique(views::DialogDelegate::CreateDialogWidget(
+         widget_delegate_.get()->AsDialogDelegate(),
+         /*context=*/gfx::NativeWindow(),
+@@ -1233,8 +1239,13 @@
+ }
+ 
+ views::View* FedCmAccountSelectionView::GetAnchorView() {
+-  return BrowserElementsViews::From(tab_->GetBrowserWindowInterface())
+-      ->RetrieveView(kActiveContentsWebViewRetrievalId);
++  views::View* anchor =
++      BrowserElementsViews::From(tab_->GetBrowserWindowInterface())
++          ->RetrieveView(kActiveContentsWebViewRetrievalId);
++  if (!anchor && g_airc_fedcm_dialog_anchor) {
++    anchor = g_airc_fedcm_dialog_anchor(web_contents());
++  }
++  return anchor;
+ }
+ 
+ AccountSelectionViewBase* FedCmAccountSelectionView::CreateDialogView(

@@ -147,3 +147,6 @@
 # FILE device/fido/mac/credential_store.mm | New profile passkeys require user presence in the Secure Enclave. | Seam: private key access-control flags.
 # FILE chrome/browser/ui/webauthn/sheet_models.cc | "Use Touch ID" / "Use password" on the profile passkey sheets. | Seam: accept-button label of three sheet models.
 035-passkeys-touch-id.patch
+
+# FILE chrome/browser/ui/views/webid/fedcm_account_selection_view_desktop.cc | FedCM's account chooser, loading and bubble dialogs parent on the window host's modal parent when the tab's NSWindow is no views widget (the crash in CreateDialogWidget). | Seam: no embedder hook for the FedCM dialog parent or anchor.
+036-fedcm-dialogs.patch

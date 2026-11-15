@@ -82,3 +82,16 @@ be compared with Cocoa frames and active-Space state before inferring a layout
 error. The owner-reported Google/TCC sequence, physical drags, active-Space return
 and real-phone authentication still require interactive verification; the
 background regression does not establish those results.
+
+## FedCM dialogs (fedcm, 036-fedcm-dialogs.patch)
+
+`FedCmAccountSelectionView` looks up its parent through the tab's NSWindow
+(`GetWidgetForNativeWindow`, the modal path: loading dialog, account chooser,
+verifying, errors) and its bubble anchor through
+`kActiveContentsWebViewRetrievalId`, which only `BrowserView` registers. Both
+are null in Airc; the modal path dereferenced it (0.1.17's crash on "Continue
+with Google"). The patch falls back to `g_airc_fedcm_dialog_anchor`
+(airc_fedcm_hooks.h), which returns `WindowHost::DialogAnchorView()`: the root
+view of the same transparent modal parent that tab-modal dialogs use, anchored
+over the page and kept off other Spaces. The app's `--script parityfedcm` drives
+both modes on a loopback RP with a fake IdP.

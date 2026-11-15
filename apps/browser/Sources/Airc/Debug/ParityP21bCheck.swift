@@ -26,11 +26,17 @@ private final class NotesReadyUpdate: ReadyUpdate {
 ///      a page that would ask "Leave site?", a private window with a page, Airc in front, input under 30 minutes ago,
 ///      the setting off, and (as the probe reports them) a call, screen sharing, a download, a page still sending and
 ///      picture in picture; it restarts once nothing would be interrupted, and once only per update.
+///   3b. Restart to Update waits for busy pages (restartwait), with real driver clicks on the pill and the question's
+///      buttons (posted clicks, labelled so, without the driver or a dedicated session): a page with a "Leave site?"
+///      handler holds it back, its tab is named and selected, Cancel keeps the update, the tab and its handler, and
+///      Restart Anyway installs with the page's handlers switched off (the quit won't ask again); a page that answers
+///      after 2 s gets waited for and it installs without a question ("Checking Tabs…" on the pill meanwhile); a page
+///      hung past the 5 s answer time is named as not responding and nothing installs until the person says so.
 ///   4. See What's New from the pill's menu and from the question: the update's own notes in a new tab; Airc's release
 ///      notes when it has none. After a restart into an update, "Updated!" with See What's New for the notes saved with
 ///      that version, never opening a tab by itself.
-///   5. Chromium: a restart cancelled by a page's "Leave site?" keeps every window, tab and the ready update, and the
-///      next quit saves the session again.
+///   5. Chromium: a restart cancelled by a page's "Leave site?" (one that asks only at the quit: the probe saw nothing)
+///      keeps every window, tab and the ready update, and the next quit saves the session again.
 /// `--script p21b-write` / `p21b-read` (the same data folder): two windows, two Spaces and a split, restarted through
 /// the update; they all come back, with "Updated!".
 extension SnapshotRunner {
@@ -38,7 +44,7 @@ extension SnapshotRunner {
         let center = UpdateCenter.shared
         var server: LocalPageServer?, media: MediaLibServer?
         var base = "", mediaBase = ""
-        var music = "", dirty = ""
+        var music = "", dirty = "", unsaved = "", busy = "", busyBase = ""
         let notes = { URL(string: base + "/notes.html")! }
         var update = NotesReadyUpdate(version: "1.0 (209901010000)", notes: nil)
         var beeps = 0, beepsBefore = 0, silencedBefore = 0
@@ -80,11 +86,16 @@ extension SnapshotRunner {
                 "/plain.html": "<!doctype html><title>Plain</title><p style='font:18px -apple-system;padding:30px'>Plain page</p>",
                 "/notes.html": "<!doctype html><title>Airc 1.0 notes</title><h1>What's new</h1>",
                 "/leave.html": leave,
+                "/unsaved.html": "<!doctype html><title>Unsaved draft</title><body style='font:18px -apple-system;padding:30px'>Draft"
+                    + "<script>addEventListener('beforeunload',function(e){if(window.__ask){e.preventDefault();e.returnValue=''}})</script>",
+                "/busy.html": "<!doctype html><title>Busy page</title><p style='font:18px -apple-system;padding:30px'>Busy page</p>",
             ])
             media = MediaLibServer()
             server?.start { port in
                 guard let port else { self.check(false, "parityp21b: the loopback pages"); return self.finish() }
                 base = "http://127.0.0.1:\(port)"
+                // Another site (its own renderer on Chromium): a page kept busy there stalls no other tab.
+                busyBase = "http://localhost:\(port)"
                 media?.start { mport in
                     mediaBase = mport.map { "http://127.0.0.1:\($0)" } ?? ""
                     done()
@@ -339,6 +350,10 @@ extension SnapshotRunner {
             check(update.installs == 1, "parityp21b: the idle restart went through the same install as the button")
         }
 
+        // 3b. Restart to Update waits for busy pages.
+        restartWaitsForPages(update: { update }, setUpdate: { update = $0 }, base: { base }, busyBase: { busyBase },
+                             unsaved: { unsaved }, setUnsaved: { unsaved = $0 }, busy: { busy }, setBusy: { busy = $0 }, gesture: gesture)
+
         // 4. See What's New.
         run { [self] in
             update = NotesReadyUpdate(version: "1.0 (209901020000)", notes: notes())
@@ -431,16 +446,11 @@ extension SnapshotRunner {
             windows = app?.controllers.count ?? 0
             tabs = c.store.todayTabs(ofSpace: c.currentSpaceID).map(\.id)
             update().onInstall = { NSApp.terminate(nil) }
+            // A page that starts asking only after the question (or the person said Restart for other reasons): the
+            // quit itself reaches its Leave site? (restartwait: Restart Anyway switches off the handlers it names).
+            center.riskProbe = { _, done in done(UpdateRestartRisks()) }
             center.restart(from: c)
-        }
-        step { [self] done in
-            guard gated else { return done() }
-            waitUntil({ center.confirm != nil }, timeout: 3) { done() }
-        }
-        run { [self] in
-            guard gated else { return }
-            check(center.confirm?.model.risks.leaveSite == 1, "parityp21b: cancel: the page with unsaved changes is in the question first")
-            center.confirm?.model.onAnswer?(true)
+            center.riskProbe = nil
         }
         step { [self] done in
             guard gated else { return done() }
@@ -478,6 +488,204 @@ extension SnapshotRunner {
             update().onInstall = nil
         }
         #endif
+    }
+
+    /// 3b (restartwait): the clicked Restart to Update gives every page the 5 s answer time and never quits behind a
+    /// page with unsaved changes or one that doesn't answer.
+    private func restartWaitsForPages(update: @escaping () -> NotesReadyUpdate, setUpdate: @escaping (NotesReadyUpdate) -> Void,
+                                      base: @escaping () -> String, busyBase: @escaping () -> String,
+                                      unsaved: @escaping () -> String, setUnsaved: @escaping (String) -> Void,
+                                      busy: @escaping () -> String, setBusy: @escaping (String) -> Void,
+                                      gesture: (@escaping () -> String, String) -> Void) {
+        let center = UpdateCenter.shared
+        let real = realPointerInput
+        var installsBefore = 0, tabsBefore: [String] = [], started = Date(), waited = 0.0, clicked = Date(), busyEnds = Date()
+        var sawConfirm = false, sawChecking = false, sawTitle = false
+        func button() -> UpdateButtonView { c.sidebar.update }
+        func page(_ id: String) -> EngineTab? { c.engineTab(for: id) }
+        func tabIDs() -> [String] { c.store.todayTabs(ofSpace: c.currentSpaceID).map(\.id) }
+        /// A real driver click at a window point (the app is in front in a dedicated session), else a posted one.
+        func press(_ p: @escaping () -> NSPoint?, _ what: String, _ done: @escaping () -> Void) {
+            guard let pt = p() else { check(false, "parityp21b: wait: \(what) is on screen"); return done() }
+            guard real else { return click(at: pt, in: c.window, done) }
+            eventsRealClick(pt) { ok, out in
+                if !ok { self.note("parityp21b: wait: the driver's click on \(what) failed (\(out.prefix(120))), posting it") }
+                ok ? DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: done) : self.click(at: pt, in: self.c.window, done)
+            }
+        }
+        func pill() -> NSPoint? {
+            let b = button()
+            guard b.showsUpdate else { return nil }
+            return b.convert(NSPoint(x: b.pillRect.midX, y: b.pillRect.midY), to: nil)
+        }
+        func anchor(_ name: String) -> () -> NSPoint? {
+            { [self] in center.confirm.flatMap { anchorPoint(name, in: $0.hostingView) } }
+        }
+        func clickPill() {
+            run { [self] in
+                // A question left from a case that failed: never carried into the next one.
+                if center.confirm != nil { note("parityp21b: wait: a question was still open; Cancel"); center.confirm?.model.onAnswer?(false) }
+                installsBefore = update().installs
+                tabsBefore = tabIDs()
+                sawConfirm = false; sawChecking = false; sawTitle = false
+                started = Date()
+            }
+            step { done in press(pill, "the update pill", done) }
+            run { clicked = Date() }
+        }
+        /// Until the question shows or the update installs, noting "Checking Tabs…" on the way.
+        func waitForAnswer(timeout: Double) {
+            step { [self] done in
+                waitUntil({
+                    if center.checking { sawChecking = true }
+                    if button().title.stringValue == UpdateCenter.checkingTitle { sawTitle = true }
+                    if center.confirm != nil { sawConfirm = true }
+                    return sawConfirm || update().installs > installsBefore
+                }, timeout: timeout) {
+                    waited = Date().timeIntervalSince(started)
+                    done()
+                }
+            }
+        }
+        /// Until the busy page answers again.
+        func busyAnswers() {
+            step { done in
+                func poll(_ n: Int) {
+                    guard n > 0, let p = page(busy()) else { return done() }
+                    var answered = false
+                    p.evaluate("1") { _ in answered = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { answered ? done() : poll(n - 1) }
+                }
+                poll(30)
+            }
+        }
+
+        run { [self] in
+            note("parityp21b: wait: \(real ? "real driver clicks" : "POSTED clicks (no UI driver or no dedicated session)")")
+            app?.settings.values.restartToUpdateWhenIdle = false
+            center.idleTestClock = nil
+            center.riskProbe = nil
+            setUpdate(NotesReadyUpdate(version: "1.0 (209901015000)", notes: nil))
+            center.setReady(update())
+            let sid = c.currentSpaceID
+            guard let u = try? c.store.openTab(url: base() + "/unsaved.html", inSpace: sid, activate: false),
+                  let b = try? c.store.openTab(url: busyBase() + "/busy.html", inSpace: sid, activate: false) else {
+                return check(false, "parityp21b: wait: the fixture tabs open")
+            }
+            setUnsaved(u.id)
+            setBusy(b.id)
+            c.reloadAll(animated: false)
+            c.show(busy(), focus: false)
+        }
+        waitForPage()
+        run { [self] in c.show(unsaved(), focus: false) }
+        waitForPage()
+        // The person's touch, then the handler asks.
+        gesture(unsaved, "window.__ask=true;true")
+        activateForRealInput()
+        run { [self] in
+            // Another tab in front: the question selects the one it names.
+            if let other = tabIDs().first(where: { $0 != unsaved() && $0 != busy() }) { c.show(other, focus: false) }
+        }
+        wait(0.4)
+
+        // A page with a Leave site? handler.
+        clickPill()
+        waitForAnswer(timeout: 9)
+        run { [self] in
+            let r = center.confirm?.model.risks
+            let named = r?.blockingTabs.map { "\($0.reason.rawValue) \($0.title)" } ?? []
+            check(sawConfirm && update().installs == installsBefore && r?.blockingTabs.map(\.tabID) == [unsaved()]
+                  && r?.blockingTabs.first?.reason == .leaveSite,
+                  "parityp21b: wait: a page with a Leave site? handler holds Restart to Update back and is named (\(named), installs \(update().installs - installsBefore))")
+            check(c.shownTabID == unsaved(), "parityp21b: wait: its tab is selected (\(c.store.tab(c.shownTabID)?.title ?? "-"))")
+            check(center.confirm?.model.blocks == true && TestAnchors.view("update.blockingTab0", in: center.confirm?.hostingView ?? NSView()) != nil,
+                  "parityp21b: wait: the question lists the tab, with Restart Anyway and Cancel")
+        }
+        capture("p21b-restart-blocked")
+        step { done in press(anchor("update.notNow"), "Cancel", done) }
+        step { [self] done in waitUntil({ center.confirm == nil }, timeout: 3) { done() } }
+        wait(0.3)
+        step { [self] done in
+            guard let p = page(unsaved()) else { check(false, "parityp21b: wait: Cancel keeps the page open"); return done() }
+            p.evaluate(WindowController.wouldAskBeforeUnload) { v in
+                self.check(center.confirm == nil && center.ready === update() && update().installs == installsBefore
+                           && tabIDs() == tabsBefore && p.isClosed == false && (v as? Bool) == true && button().showsUpdate,
+                           "parityp21b: wait: Cancel keeps the update, every tab and the page's Leave site? handler (asks \(v.map { "\($0)" } ?? "nil"))")
+                done()
+            }
+        }
+        // Restart Anyway: it installs, and the quit wouldn't ask that page again.
+        clickPill()
+        waitForAnswer(timeout: 9)
+        step { done in press(anchor("update.restartAnyway"), "Restart Anyway", done) }
+        step { [self] done in waitUntil({ update().installs > installsBefore }, timeout: 4) { done() } }
+        step { [self] done in
+            guard let p = page(unsaved()) else { check(false, "parityp21b: wait: Restart Anyway: the page"); return done() }
+            p.evaluate(WindowController.wouldAskBeforeUnload) { v in
+                self.check(update().installs == installsBefore + 1 && center.confirm == nil && (v as? Bool) == false,
+                           "parityp21b: wait: Restart Anyway installs, and the page's handlers are off so the quit won't ask again (asks \(v.map { "\($0)" } ?? "nil"))")
+                done()
+            }
+        }
+
+        // A page that answers after 2 s: waited for, then it installs without a question.
+        run { [self] in
+            setUpdate(NotesReadyUpdate(version: "1.0 (209901016000)", notes: nil))
+            center.setReady(update())
+            c.show(busy(), focus: false)
+        }
+        wait(0.4)
+        gesture(busy, "setTimeout(function(){var e=Date.now()+2000;while(Date.now()<e){}},30);true")
+        run { busyEnds = Date().addingTimeInterval(2.03) }
+        clickPill()
+        waitForAnswer(timeout: 9)
+        run { [self] in
+            let early = busyEnds.timeIntervalSince(clicked), done = started.addingTimeInterval(waited)
+            if early < 0.5 { note(String(format: "parityp21b: wait: the click landed only %.2f s before the busy page was free", early)) }
+            check(!sawConfirm && update().installs == installsBefore + 1 && done.timeIntervalSince(busyEnds) > -0.25
+                  && done.timeIntervalSince(clicked) < UpdateRestartRisks.answerTime,
+                  String(format: "parityp21b: wait: a page busy for 2 s is waited for and it installs with no question (%.2f s after the click, %.2f s after the page was free; question %@)",
+                         done.timeIntervalSince(clicked), done.timeIntervalSince(busyEnds), sawConfirm ? "shown" : "none"))
+            check(sawChecking, "parityp21b: wait: the pill says “\(UpdateCenter.checkingTitle)” while the pages answer (title seen \(sawTitle))")
+        }
+        busyAnswers()
+
+        // A page hung past the answer time: named as not responding, nothing installs.
+        run { [self] in
+            setUpdate(NotesReadyUpdate(version: "1.0 (209901017000)", notes: nil))
+            center.setReady(update())
+            if let other = tabIDs().first(where: { $0 != unsaved() && $0 != busy() }) { c.show(other, focus: false) }
+        }
+        wait(0.3)
+        // Started at once, not from a timer: Chromium throttles a background tab's timers, so a setTimeout here could
+        // start the busy spell only after the click. The evaluation doesn't answer until it ends; nothing waits for it.
+        run { page(busy())?.evaluate("(function(){var e=Date.now()+9000;while(Date.now()<e){}return true})()") { _ in } }
+        wait(0.25)
+        clickPill()
+        waitForAnswer(timeout: 9)
+        run { [self] in
+            let r = center.confirm?.model.risks
+            let named = r?.blockingTabs.map { "\($0.reason.rawValue) \($0.title)" } ?? []
+            check(sawConfirm && update().installs == installsBefore && started.addingTimeInterval(waited).timeIntervalSince(clicked) >= UpdateRestartRisks.answerTime - 0.5
+                  && r?.blockingTabs.map(\.tabID) == [busy()] && r?.blockingTabs.first?.reason == .unanswered && r?.unanswered == 1,
+                  String(format: "parityp21b: wait: a page hung past the 5 s answer time holds it back, named as not responding (after %.2f s, %@)",
+                         waited, named.joined(separator: ", ")))
+            check(c.shownTabID == busy() && r?.lines.contains("A page isn’t responding. What it holds may be lost.") == true,
+                  "parityp21b: wait: the hung page's tab is selected and the question says it isn't responding")
+        }
+        capture("p21b-restart-hung")
+        step { done in press(anchor("update.notNow"), "Cancel", done) }
+        step { [self] done in waitUntil({ center.confirm == nil }, timeout: 3) { done() } }
+        run { [self] in
+            check(center.confirm == nil && center.ready === update() && update().installs == installsBefore && tabIDs() == tabsBefore,
+                  "parityp21b: wait: Cancel on the hung page keeps the update and every tab")
+        }
+        busyAnswers()
+        run { [self] in
+            page(unsaved())?.evaluate("window.__ask=false;true") { _ in }
+            c.show(tabIDs().first { $0 != unsaved() && $0 != busy() } ?? busy(), focus: false)
+        }
     }
 
     /// How different two icons look at 32 px (mean channel difference, 0–255).

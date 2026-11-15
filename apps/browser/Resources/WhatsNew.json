@@ -2,6 +2,52 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.18",
+      "highlights": [
+        {
+          "title": "Airc from other devices",
+          "lead": "Use Airc from your other devices",
+          "detail": "Claude Code or another AI app on another computer on your Tailscale network can use Airc on this Mac. Turn it on and pair each device with a one-time code in Settings › Agents › Other devices; Revoke ends a device's access.",
+          "icon": "laptopcomputer.and.iphone",
+          "action": "settingsAgents",
+          "image": "other-devices"
+        },
+        {
+          "title": "Google sign-in crash fixed",
+          "lead": "Fixed a crash when signing in with Google on some sites (e.g. Pinterest)",
+          "detail": "With the Chromium engine, \"Continue with Google\" on sites such as Pinterest could quit Airc. Sign-in now opens Google's own sign-in window instead.",
+          "icon": "key"
+        },
+        {
+          "title": "Six-hour calendar cards",
+          "lead": "Calendar previews fit Arc's six hours",
+          "detail": "Rest the pointer on a pinned Google Calendar or Outlook tab to see six hours without scrolling. A Google or Outlook calendar Favorite now shows that calendar's own day, not your Mac's calendars.",
+          "icon": "calendar",
+          "action": "settingsSitePreviews",
+          "image": "calendar-six-hours"
+        },
+        {
+          "title": "Lighter Command Bar typing",
+          "lead": "Typing in the Command Bar is lighter again",
+          "detail": "Each letter you type in the Command Bar takes less work, with the same results. Services from other apps, like \"Ask Claude\", no longer show up there as commands that do nothing.",
+          "icon": "command",
+          "image": "command-bar"
+        },
+        {
+          "title": "AI apps see page headings",
+          "lead": "AI apps see page headings",
+          "detail": "When Claude or another AI app reads a page in Airc, it gets the page's headings with their levels, so it finds its way around long pages. Hidden headings are left out.",
+          "icon": "list.bullet.indent"
+        },
+        {
+          "title": "Steadier update downloads",
+          "lead": "Update downloads come straight from aircbrowser.com",
+          "detail": "Airc's updates now download through aircbrowser.com itself instead of a separate storage host, so they no longer stall on some networks.",
+          "icon": "arrow.down.circle"
+        }
+      ]
+    },
+    {
       "version": "0.1.17",
       "highlights": [
         {

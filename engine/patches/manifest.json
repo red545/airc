@@ -286,5 +286,9 @@
   "chrome/browser/ui/webauthn/sheet_models.cc": {
     "before": "129c4f0d1b470ea1dc5f95747773d585e907c93885166551d2883adcc8b9e537",
     "after": "9960aed747ed9cccb7043af72fd0bf6b2c3c9f188ac49cd5628004058e653df5"
+  },
+  "chrome/browser/ui/views/webid/fedcm_account_selection_view_desktop.cc": {
+    "before": "bb122339540b28fc65b46decfe423ec202c921a1ae7715b0bdb79ee16707c020",
+    "after": "5d193adcf4bbf2f1660c5a2d5f025a6c4dbc40f223504c3946b65ca8d2371bd2"
   }
 }

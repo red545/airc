@@ -9,7 +9,7 @@
 // makes untrue, a Coming row it delivers); `from` shows a row only then. Previews show the state after the newest
 // release. `shot` names a file in src/assets/screens (scripts/sync-screenshots.mjs).
 
-export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "next" | "coming";
+export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "0.1.18" | "next" | "coming";
 
 export interface Feature {
   title: string;
@@ -401,7 +401,7 @@ export const groups: Group[] = [
       { title: "Asks once per app", line: "The first time an app connects, Airc asks: Allow ‘Claude’ to use Airc? It remembers your answer for that app, told apart by who signed it. Remove an app in Settings → Agents to be asked again.", since: "0.1.13" },
       { title: "Passwords filled, never shown", line: "An agent can sign in with a login saved in Airc: Airc fills the form in the page, and no tool returns a password, passkey or cookie. Private windows are never open to agents.", since: "0.1.13" },
       { title: "Follow along", line: "An Agents folder in the sidebar shows each agent tab, with a dot while it works. Click one to watch the page live with what the agent is doing, then take it over as your own tab, or stop the app.", since: "0.1.16" },
-      { title: "From your other devices", line: "Claude Code on your other computers can use Airc on your Mac over Tailscale. Off until you turn it on in Settings → Agents; each device pairs once with a one-time code and can be revoked any time.", since: "next" },
+      { title: "From your other devices", line: "Claude Code on your other computers can use Airc on your Mac over Tailscale. Off until you turn it on in Settings → Agents; each device pairs once with a one-time code and can be revoked any time.", since: "0.1.18" },
     ],
   },
   {

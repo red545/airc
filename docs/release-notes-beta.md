@@ -1,16 +1,36 @@
-# Airc 0.1.17 public beta
+# Airc 0.1.18 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.88.
-This update connects Claude to Airc in one step, brings back Arc's hour grid in calendar previews, retries a stalled
-update download by itself, exports all your Easels at once and keeps dark site icons visible in dark themes. It
-includes everything from 0.1.16. The release manifest records the exact build, source and checksums.
+This update fixes a crash when signing in with Google on some sites, lets AI apps on your other devices use Airc on
+this Mac over Tailscale, fits Arc's six hours into calendar previews, makes typing in the Command Bar lighter, shows AI apps a page's headings and downloads updates
+straight from aircbrowser.com. It includes everything from 0.1.17. The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.16
+## New since 0.1.17
+
+- **Use Airc from your other devices.** Claude Code or another AI app on another computer on your Tailscale network
+  can use Airc on this Mac. Turn it on in Settings › Agents › Other devices (it's off until you do), then press Pair a
+  Device: each device pairs once with a one-time code, and Revoke ends its access at any time. The first time, each
+  device asks for the same one-time approval as an app on the Mac. Airc listens only on the Mac's Tailscale
+  addresses.
+- **Fixed a crash when signing in with Google on some sites (e.g. Pinterest).** With the Chromium engine, "Continue
+  with Google" could quit Airc. Sign-in now opens Google's own sign-in window instead.
+- **Calendar previews fit Arc's six hours.** Rest on a pinned Google Calendar or Outlook calendar tab to see six hours
+  without scrolling, with all-day events and tomorrow's events on one line each. A Google or Outlook calendar Favorite
+  now shows that calendar's own day, not the calendars on your Mac. A Gmail preview that says Open Gmail asks
+  again as soon as you rest on it.
+- **Typing in the Command Bar is lighter again.** Each letter takes about 1 ms less work on the test Mac, with the
+  same results. macOS Services (like "Ask Claude") no longer show up as Command Bar commands that do nothing.
+- **AI apps see page headings.** When Claude or another AI app reads a page, Airc lists its headings with their levels
+  and leaves hidden ones out, on both engines.
+- **Update downloads come straight from aircbrowser.com.** Airc and its updates now download through
+  aircbrowser.com itself, so they no longer stall on networks where the old download host did.
+
+## Included from 0.1.17
 
 - **Connect Claude in one step.** Type "claude" (or "mcp", "agent") in the Command Bar, choose Help › Use Airc with
   Claude…, or use the sidebar's + menu: each opens Settings › Agents with Add to Claude Desktop first. Settings ›
@@ -217,8 +237,11 @@ includes everything from 0.1.16. The release manifest records the exact build, s
 - **If you click Check for Updates yourself** and the download stalls, Sparkle's error still shows before the quiet
   retry.
 
-- **Calendar previews:** with a Join button, all-day events and tomorrow's list, the card shows about three hours of
-  the grid before you scroll.
+- **Signing in with Google** on pages that use Chromium opens Google's sign-in window instead of the browser's own
+  account prompt (FedCM), until a later update brings that prompt back safely.
+
+- **Using Airc from your other devices** was tested with Claude Code on a Linux computer over Tailscale and with test
+  devices on the build Mac.
 
 - **Watching an agent** is live on the Chromium engine. On WebKit, the picture updates about 15 times a second.
 
@@ -274,4 +297,4 @@ includes everything from 0.1.16. The release manifest records the exact build, s
 - **Arc import:** unreadable encrypted data and unsupported records are skipped with a reason.
 - **Smoothness:** 120 Hz animation and zero idle work remain goals, not measured promises.
 
-Source: `78fccf77553ccfa659004079c02b00651aa2e52c`. Build: `202611151025`. Channel: stable.
+Source: `276e19820029687633895ca71e495a14a9d71634`. Build: `202611152216`. Channel: stable.

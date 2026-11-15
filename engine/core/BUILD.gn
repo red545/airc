@@ -131,6 +131,7 @@ source_set("core") {
     "airc_external_apps.mm",
     "airc_fake_media.h",
     "airc_fake_media.mm",
+    "airc_fedcm_hooks.h",
     "airc_host_visibility.h",
     "airc_host_visibility.mm",
     "airc_hooks.h",

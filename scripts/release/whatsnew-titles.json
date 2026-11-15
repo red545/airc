@@ -139,7 +139,34 @@
   },
   "Use Airc from your other devices": {
     "title": "Airc from other devices",
-    "detail": "Claude Code on your other computers can use Airc on this Mac over Tailscale. Turn it on and pair a device in Settings › Agents › Other devices.",
-    "action": "settingsAgents"
+    "detail": "Claude Code or another AI app on another computer on your Tailscale network can use Airc on this Mac. Turn it on and pair each device with a one-time code in Settings › Agents › Other devices; Revoke ends a device's access.",
+    "action": "settingsAgents",
+    "image": "other-devices"
+  },
+  "Calendar previews fit Arc's six hours": {
+    "title": "Six-hour calendar cards",
+    "detail": "Rest the pointer on a pinned Google Calendar or Outlook tab to see six hours without scrolling. A Google or Outlook calendar Favorite now shows that calendar's own day, not your Mac's calendars.",
+    "action": "settingsSitePreviews",
+    "image": "calendar-six-hours"
+  },
+  "Typing in the Command Bar is lighter again": {
+    "title": "Lighter Command Bar typing",
+    "detail": "Each letter you type in the Command Bar takes less work, with the same results. Services from other apps, like \"Ask Claude\", no longer show up there as commands that do nothing.",
+    "action": "none"
+  },
+  "AI apps see page headings": {
+    "title": "AI apps see page headings",
+    "detail": "When Claude or another AI app reads a page in Airc, it gets the page's headings with their levels, so it finds its way around long pages. Hidden headings are left out.",
+    "action": "none"
+  },
+  "Update downloads come straight from aircbrowser.com": {
+    "title": "Steadier update downloads",
+    "detail": "Airc's updates now download through aircbrowser.com itself instead of a separate storage host, so they no longer stall on some networks.",
+    "action": "none"
+  },
+  "Fixed a crash when signing in with Google on some sites (e.g. Pinterest)": {
+    "title": "Google sign-in crash fixed",
+    "detail": "With the Chromium engine, \"Continue with Google\" on sites such as Pinterest could quit Airc. Sign-in now opens Google's own sign-in window instead.",
+    "action": "none"
   }
 }
