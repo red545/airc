@@ -19,11 +19,14 @@ public enum SyncLocation: Codable, Hashable, Sendable {
 /// An explicit allowlist; no raw StoreEntity payloads or arbitrary JSON fields cross this boundary.
 public enum SyncField: String, Codable, Hashable, CaseIterable, Sendable {
     case name, icon, theme, profile, kind, url, title, parent, location, order, deleted
+    /// A saved split's layout (SplitSyncPayload.swift). Only in version 3 batches.
+    case layout
 }
 
 public enum SyncValue: Codable, Hashable, Sendable {
     case null, text(String), flag(Bool), theme(SpaceTheme), icon(SpaceIcon)
     case location(SyncLocation), order(SyncOrder)
+    case split(SplitSyncPayload)
 }
 
 public struct SyncOperation: Codable, Hashable, Sendable {
@@ -40,7 +43,7 @@ public struct SyncOperation: Codable, Hashable, Sendable {
         guard !record.id.isEmpty, !fields.isEmpty, stamp.milliseconds >= 0 else { throw SyncError.invalidOperation }
         let allowed: Set<SyncField> = switch record.kind {
         case .space: [.name, .icon, .theme, .profile, .order, .deleted]
-        case .row: [.kind, .url, .title, .icon, .parent, .location, .order, .deleted]
+        case .row: [.kind, .url, .title, .icon, .parent, .location, .order, .deleted, .layout]
         case .profile: [.name, .icon, .kind, .deleted]
         }
         for (field, value) in fields {
@@ -48,7 +51,9 @@ public struct SyncOperation: Codable, Hashable, Sendable {
             switch (field, value) {
             case (.name, .text), (.profile, .text), (.url, .text), (.title, .text), (.parent, .text),
                  (.icon, .text), (.icon, .icon), (.theme, .theme), (.location, .location): break
-            case (.kind, .text(let kind)) where record.kind == .row && (kind == "tab" || kind == "folder"): break
+            case (.kind, .text(let kind)) where record.kind == .row && (kind == "tab" || kind == "folder" || kind == "split"): break
+            case (.layout, .split(let payload)) where payload.isValid: break
+            case (.layout, .null): break
             case (.kind, .text(let kind)) where record.kind == .profile && (kind == "default" || kind == "profile"): break
             case (.url, .null), (.title, .null), (.icon, .null), (.parent, .null): break
             case (.deleted, .flag): break
@@ -96,6 +101,15 @@ public struct SyncReplica: Codable, Sendable {
         return op
     }
 
+    /// A stamp seen outside the log (a note version, NoteSyncPayload.swift): the next edit's stamp is later, so a row
+    /// re-created after a note's removal elsewhere wins over that removal's row tombstone.
+    public mutating func observe(_ stamp: SyncStamp, now: Int64) throws {
+        _ = try clock.tick(now: now, observing: stamp)
+    }
+
+    /// A stamp for something outside the log (a note version) on this replica's clock.
+    public mutating func tick(now: Int64) throws -> SyncStamp { try clock.tick(now: now) }
+
     /// Atomic batch; reject a reused operation ID with different contents instead of diverging silently.
     public mutating func receive(_ incoming: [SyncOperation], now: Int64) throws {
         var next = self
@@ -129,9 +143,14 @@ public struct SyncReplica: Codable, Sendable {
 
     /// Pure display projection, never a repair operation. Orphans go to their Space root;
     /// a deleted Space hides its rows until explicitly restored. Every member of a parent cycle is rooted.
+    /// Only tabs sit in a split, and a split only at a Space's root, in a folder or in Favorites. A split with fewer than
+    /// two live panes isn't one (a pane deleted elsewhere): its pane takes its place. Panes past `Split.maxPanes` (two
+    /// Macs adding at once) sit next to it as rows of their own. Every Mac projects alike, so all show the same.
     public var sidebar: [SyncRecord] {
         let live = records.filter { !$0.value.isDeleted }
-        return live.values.compactMap { original -> SyncRecord? in
+        func isSplit(_ r: SyncRecord?) -> Bool { r?[.kind] == .text("split") }
+        func kindOf(_ r: SyncRecord) -> SyncValue { r[.kind] ?? .text("tab") }
+        var rows = live.values.compactMap { original -> SyncRecord? in
             var row = original
             if row.id.kind == .row {
                 guard case .location(let location) = row[.location] else { return nil }
@@ -144,13 +163,21 @@ public struct SyncReplica: Codable, Sendable {
                 if case .text(let parent) = row[.parent] {
                     var seen: Set<String> = [row.id.id]
                     var cursor: String? = parent
+                    var child = kindOf(row)
                     var invalid = false
                     while let id = cursor {
-                        guard seen.insert(id).inserted,
-                              let p = live[SyncRecordID(.row, id)], p[.kind] == .text("folder"),
-                              p[.location] == row[.location], case .pinned = location else {
+                        guard seen.insert(id).inserted, let p = live[SyncRecordID(.row, id)], p[.location] == row[.location] else {
                             invalid = true; break
                         }
+                        if isSplit(p) {
+                            // Only a tab sits in a split. Where the split itself sits is checked on its own row: a pane
+                            // stays in its split even if the split's folder went.
+                            if child != .text("tab") { invalid = true }
+                            break
+                        } else {
+                            guard p[.kind] == .text("folder"), case .pinned = location else { invalid = true; break }
+                        }
+                        child = kindOf(p)
                         if case .text(let next) = p[.parent] { cursor = next } else { cursor = nil }
                     }
                     if invalid, let register = row.fields[.parent] {
@@ -159,13 +186,35 @@ public struct SyncReplica: Codable, Sendable {
                 }
             }
             return row
-        }.sorted {
-            if $0.order != $1.order {
-                if let a = $0.order, let b = $1.order { return a < b }
-                return $0.order == nil
-            }
-            return ($0.id.kind.rawValue, $0.id.id) < ($1.id.kind.rawValue, $1.id.id)
         }
+        // Splits: which panes stay, in pane order.
+        var panes: [String: [Int]] = [:]
+        for (i, row) in rows.enumerated() where row.id.kind == .row {
+            if case .text(let parent)? = row[.parent], isSplit(live[SyncRecordID(.row, parent)]) { panes[parent, default: []].append(i) }
+        }
+        var dropped = Set<SyncRecordID>()
+        for (i, split) in rows.enumerated() where split.id.kind == .row && isSplit(split) {
+            let mine = (panes[split.id.id] ?? []).sorted { Self.precedes(rows[$0], rows[$1]) }
+            let loose = mine.count < 2 ? mine : Array(mine.dropFirst(Split.maxPanes))
+            if mine.count < 2 { dropped.insert(split.id) }
+            // Rows of their own where the split is: its parent and its order register.
+            for k in loose {
+                rows[k].fields[.parent] = rows[i].fields[.parent] ?? rows[k].fields[.parent].map {
+                    SyncRegister(operation: $0.operation, stamp: $0.stamp, value: .null)
+                }
+                if let order = rows[i].fields[.order] { rows[k].fields[.order] = order }
+            }
+        }
+        rows.removeAll { dropped.contains($0.id) }
+        return rows.sorted(by: Self.precedes)
+    }
+
+    private static func precedes(_ a: SyncRecord, _ b: SyncRecord) -> Bool {
+        if a.order != b.order {
+            if let x = a.order, let y = b.order { return x < y }
+            return a.order == nil
+        }
+        return (a.id.kind.rawValue, a.id.id) < (b.id.kind.rawValue, b.id.id)
     }
 
     /// Unknown assignments remain unresolved. Never silently load a Space with another profile's cookies.

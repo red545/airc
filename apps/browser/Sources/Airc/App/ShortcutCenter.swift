@@ -20,7 +20,8 @@ final class ShortcutCenter: ObservableObject {
     private weak var settings: AppSettings?
 
     private init() {
-        let all = CommandMenus.app() + CommandMenus.defaults + Self.commandBarKeys
+        // K03: the Edit menu's own submenus (Spelling and Grammar … Speech) last: their usual keys never take one of ours.
+        let all = CommandMenus.app() + CommandMenus.defaults + Self.commandBarKeys + NativeEditingMenus.commands()
         var byID: [String: BrowserCommand] = [:]
         for c in all where !c.id.isEmpty && byID[c.id] == nil { byID[c.id] = c }
         defaultsByID = byID
@@ -135,11 +136,19 @@ final class ShortcutCenter: ObservableObject {
     private func refresh(_ menu: NSMenu) {
         for item in menu.items {
             if let sub = item.submenu { refresh(sub) }
+            if let n = item as? NativeEditingMenus.Item { (n.keyEquivalent, n.keyEquivalentModifierMask) = menuKey(forNative: n.commandID) }
             guard let i = item as? CommandMenuItem, let c = i.command, !c.id.isEmpty else { continue }
             let b = bound(c)
             i.command = b
             (i.keyEquivalent, i.keyEquivalentModifierMask) = Self.menuEquivalent(b.key, b.modifiers)
         }
+    }
+
+    /// K03: the key an Edit submenu item has now, as its menu spells it ("" when the user took it away).
+    func menuKey(forNative id: String) -> (String, NSEvent.ModifierFlags) {
+        guard let k = map.key(id) else { return ("", []) }
+        let (key, mods) = Self.appKit(k)
+        return Self.menuEquivalent(key, mods)
     }
 
     /// A menu item's spelling of a key: a ⇧ letter in upper case without ⇧ in the mask. AppKit's matcher gives an
@@ -263,8 +272,11 @@ final class ShortcutCenter: ObservableObject {
             if k == "+", m.contains(.command) { k = "="; m.remove(.shift) }
             guard let c = combo(k, m), map.command(for: c) == nil, !taken.contains(c), KeyReservation.of(c) == nil else { return }
             taken.insert(c)
-            var alias = cmd
-            (alias.key, alias.modifiers) = (k, m)
+            // Option may be needed only to type the bracket. Keep the original
+            // command's page priority instead of turning its alias browser-first.
+            let order: BrowserCommand.KeyOrder = KeyMonitor.pageCanUse(cmd) ? .pageFirst : cmd.order
+            var alias = BrowserCommand(cmd.title, k, m, id: cmd.id, order: order, cmd.run)
+            alias.isEnabled = cmd.isEnabled
             out.append(alias)
         }
         for cmd in commands where !cmd.id.isEmpty {
@@ -341,10 +353,12 @@ final class ShortcutCenter: ObservableObject {
     static var groups: [(title: String, commands: [BrowserCommand])] {
         [("Airc", CommandMenus.app()),
          ("File", CommandMenus.file().compactMap { $0 }.flatMap { $0.id == "file.reopenClosedTab" ? [$0, KeyMonitor.reopenOnUndo] : [$0] }),
-         ("Edit", CommandMenus.editExtras().compactMap { $0 }),
+         // K03: and the Edit menu's own submenus, Spelling and Grammar, Substitutions, Transformations, Speech.
+         ("Edit", CommandMenus.editExtras().compactMap { $0 } + NativeEditingMenus.commands()),
          ("View", CommandMenus.view().compactMap { $0 }),
          ("Spaces", CommandMenus.spaces().compactMap { $0 }),
          ("Tabs", CommandMenus.tabs().compactMap { $0 } + CommandMenus.hidden() + CommandMenus.keysOnly()),
+         ("Help", ParityCommandCatalog.help().compactMap { $0 }),   // K03
          ("Command Bar", commandBarKeys)]
     }
 

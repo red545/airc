@@ -62,7 +62,13 @@ extension SnapshotRunner {
         run { second?.window.close(); second = nil }
         let restoreClock = FrameClock()
         var restoreStart: CFTimeInterval = 0
-        run { [self] in restoreClock.start(on: c.root) }
+        run { [self] in
+            // A visible sidebar hover must not sort the restored collection
+            // again just to decide whether to show Tidy.
+            c.pageView(for: c.currentSpaceID)?.sidebarHovered = true
+            note("large restore context: active \(NSApp.isActive), key \(c.window.isKeyWindow), sidebar hover \(c.pageView(for: c.currentSpaceID)?.sidebarHovered == true)")
+            restoreClock.start(on: c.root)
+        }
         wait(0.5)
         step { [self] done in
             Task { @MainActor in
@@ -81,6 +87,8 @@ extension SnapshotRunner {
                         return try encoder.encode(backup)
                     }.value
                     restoreStart = CACurrentMediaTime()
+                    RestoreTrace.reset(at: restoreStart)
+                    RestoreTrace.enabled = true
                     _ = try await app!.restoreBackup(large)
                     check(c.store.state.tabs.count >= 5000, "large backup restores 5000 tabs")
                     if let page = c.pageView(for: c.currentSpaceID) {
@@ -99,6 +107,17 @@ extension SnapshotRunner {
         wait(0.5)
         run { [self] in
             let gaps = restoreClock.deltas(from: restoreStart, to: CACurrentMediaTime())
+            RestoreTrace.enabled = false
+            note("large restore phases: " + RestoreTrace.report())
+            var slowFrames: [String] = []
+            for (start, end) in zip(restoreClock.ticks, restoreClock.ticks.dropFirst()) {
+                let milliseconds: Double = (end - start) * 1000
+                guard start >= restoreStart, milliseconds > 16.7 else { continue }
+                let startOffset: Double = (start - restoreStart) * 1000
+                let endOffset: Double = (end - restoreStart) * 1000
+                slowFrames.append(String(format: "%.2f…%.2f ms (%.2f ms)", startOffset, endOffset, milliseconds))
+            }
+            note("large restore slow frames: " + slowFrames.joined(separator: "; "))
             note("large restore frames: \(FrameStats(gaps))")
             if restoreClock.isTicking {
                 check((gaps.max() ?? .infinity) < 100, "large restore has no 100 ms frozen frame")
@@ -144,8 +163,8 @@ extension SnapshotRunner {
             step { [self] done in
                 c.installExtensionInAllProfiles(extensionID) { results in
                     let result = results.first { $0.profileID == otherID }
-                    self.check(result?.tabID == nil && result?.message.contains("No Space") == true,
-                               "profile without a Space reports why it cannot open the Web Store")
+                    self.check(result?.tabID == nil && result?.message.contains("local fixture") == true,
+                               "profile without a Space reaches installer (automation requires a local fixture)")
                     self.check(self.c.store.spaces(usingProfile: otherID).isEmpty,
                                "install action never creates a Space silently")
                     done()
@@ -163,8 +182,8 @@ extension SnapshotRunner {
             step { [self] done in
                 let before = c.store.state.tabs.count
                 c.installExtensionInAllProfiles(extensionID) { results in
-                    self.check(self.c.store.state.tabs.count == before && results.first(where: { $0.profileID == otherID })?.message.contains("already open") == true,
-                               "repeat action reuses a redirected Web Store URL in another Space")
+                    self.check(self.c.store.state.tabs.count == before && results.first(where: { $0.profileID == otherID })?.message.contains("local fixture") == true,
+                               "repeat action uses the installer without adding Web Store tabs")
                     done()
                 }
             }

@@ -7,7 +7,7 @@ import SwiftUI
 
 /// Settings categories (SET-1, design §7 "Settings page").
 enum SettingsPage: String, CaseIterable, Identifiable {
-    case general, boosts, links, profiles, siteSearch = "sitesearch", spaces, sync, appearance, ai, shortcuts, importing = "import", privacy, about
+    case general, boosts, links, profiles, siteSearch = "sitesearch", spaces, sync, appearance, ai, agents, shortcuts, importing = "import", privacy, about
     var id: String { rawValue }
 
     var title: String {
@@ -21,6 +21,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .sync: "Sync"
         case .appearance: "Appearance"
         case .ai: "AI"
+        case .agents: "Agents"
         case .shortcuts: "Shortcuts"
         case .importing: "Import"
         case .privacy: "Privacy"
@@ -39,6 +40,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .sync: "icloud"
         case .appearance: "paintpalette"
         case .ai: "sparkles"
+        case .agents: "cursorarrow.rays"
         case .shortcuts: "command"
         case .importing: "square.and.arrow.down"
         case .privacy: "hand.raised"
@@ -58,6 +60,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .sync: AircColor(0x3A8FE8)
         case .appearance: AircColor(0xE0559F)
         case .ai: AircColor(0x8A5CF6)
+        case .agents: AircColor(0xD9773F)
         case .shortcuts: AircColor.Stone.s700
         case .importing: AircColor(0xF08A4B)
         case .privacy: AircColor(0x5B63EE)
@@ -69,6 +72,14 @@ enum SettingsPage: String, CaseIterable, Identifiable {
 /// What the Settings window shows; republishes store and settings changes.
 final class SettingsModel: ObservableObject {
     @Published var page: SettingsPage = .general
+    /// whatsnew2: a section title to scroll to (WhatsNewPage's "Show me"), with a count so the same one scrolls again.
+    @Published private(set) var revealRequest: (title: String, n: Int)?
+    /// The section the page scrolled to last (the checks read it).
+    var revealed: String?
+
+    func reveal(_ section: String) {
+        revealRequest = (section, (revealRequest?.n ?? 0) + 1)
+    }
     weak var app: AppDelegate?
     let store: SpacesStore
     let settings: AppSettings
@@ -142,22 +153,35 @@ private struct SettingsRoot: View {
         HStack(spacing: 0) {
             sourceList
             Rectangle().fill(theme.surfaceBorder.color).frame(width: 0.5)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(model.page.title).aircFont(AircFont.title2).foregroundStyle(theme.surfaceText.color)
-                        .padding(.bottom, 4)
-                    page
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(model.page.title).aircFont(AircFont.title2).foregroundStyle(theme.surfaceText.color)
+                            .padding(.bottom, 4)
+                        page
+                    }
+                    .frame(maxWidth: 560, alignment: .leading)
+                    .padding(28)
+                    .padding(.top, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxWidth: 560, alignment: .leading)
-                .padding(28)
-                .padding(.top, 12)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                // whatsnew2: "Show me" scrolls to its section (SettingsSection's id is its title), once the page is drawn.
+                .onChange(of: model.revealRequest?.n) { _, _ in reveal(proxy) }
+                .onAppear { reveal(proxy) }   // a window made for the request: no change to see
             }
             .background(theme.surface.color)
         }
         .aircTheme(theme)
         .frame(minWidth: 720, minHeight: 560)
         .ignoresSafeArea()
+    }
+
+    private func reveal(_ proxy: ScrollViewProxy) {
+        guard let title = model.revealRequest?.title else { return }
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(title, anchor: .top) }
+            model.revealed = title
+        }
     }
 
     private var sourceList: some View {
@@ -196,6 +220,7 @@ private struct SettingsRoot: View {
         case .sync: SyncSettingsPage(model: model)
         case .appearance: AppearancePage(model: model)
         case .ai: AIPage(model: model)
+        case .agents: AgentsPage(model: model)
         case .shortcuts: ShortcutsPage(model: model)
         case .importing: ImportPage(model: model)
         case .privacy: PrivacyPage(model: model)
@@ -223,6 +248,7 @@ struct SettingsSection<Content: View>: View {
             }
         }
         .padding(.top, 24)
+        .id(title)   // whatsnew2: SettingsModel.reveal scrolls to it
     }
 }
 
@@ -288,6 +314,7 @@ private struct GeneralPage: View {
             }
             UpdateWhenIdleSection(model: model)   // E13 (Browser/UpdateButton.swift)
             #endif
+            StartupWindowsSection(model: model)   // E12 (Settings/AppPersonalization.swift)
             SoundsAndHapticsSection(model: model)   // E15 (Settings/AppPersonalization.swift)
             DeveloperSettingsSection(model: model)   // DEV-1 (Browser/DeveloperMode.swift)
             PictureInPictureSection(model: model)
@@ -566,6 +593,7 @@ private struct ProfilesPage: View {
                     app?.profiles.deleteProfile(p.id) { ok in
                         if ok {
                             app?.history.clear(profileID: p.id)
+                            SiteIcons.shared.forgetAll()   // the Command Bar's icons by site
                             ServicePreviewCenter.shared.forget(profileID: p.id)   // its tab pictures and site previews (P11a)
                             app?.settings.values.siteSearch.forget(profileID: p.id)
                         } else {
@@ -584,6 +612,14 @@ private struct ProfilesPage: View {
     }
 }
 
+/// Settings › Profiles' search row (C08, C08b).
+enum ProfileSearchRow {
+    /// Its subtitle when a site search is the default (P07d, or an imported custom default).
+    static func subtitle(_ siteSearch: SiteSearchSettings, profileID: String) -> String? {
+        siteSearch.defaultSite(for: profileID).map { "Searching with \($0.name), from Site Search." }
+    }
+}
+
 private struct ProfileSection: View {
     @ObservedObject var model: SettingsModel
     let profile: Profile
@@ -594,6 +630,7 @@ private struct ProfileSection: View {
     @Environment(\.aircTheme) private var theme
 
     private var spaces: [Space] { model.store.spaces(usingProfile: profile.id) }
+
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -635,11 +672,21 @@ private struct ProfileSection: View {
                         try? model.store.updateProfile(profile.id) { $0.archiveAfter = v }
                     }
                 }
-                SettingsRow(title: "Search engine") {
+                SettingsRow(title: "Default search engine",
+                            subtitle: ProfileSearchRow.subtitle(model.settings.values.siteSearch, profileID: profile.id)) {
                     AircPopUp(options: SearchEngine.allCases.map { ($0.name, $0) }, selection: profile.searchEngine) { v in
                         try? model.store.updateProfile(profile.id) { $0.searchEngine = v }
                     }
+                    .testAnchor("profile.searchEngine")
+                    .testAnchor("profile.searchEngine." + profile.id)
                 }
+                // C08: Arc's per-profile "Include search engine suggestions".
+                AircToggleRow("Include search engine suggestions",
+                              subtitle: model.settings.values.suggestionsEnabled
+                                ? "What you type in the Command Bar goes to this profile's search engine, without cookies."
+                                : "Off for every profile in Privacy.",
+                              isOn: Binding(get: { profile.includesSearchSuggestions },
+                                            set: { v in try? model.store.updateProfile(profile.id) { $0.searchSuggestions = v } }))
                 SettingsRow(title: "Google account", subtitle: profile.googleAccount ?? "Not signed in") {
                     Button(profile.googleAccount == nil ? "Sign In…" : "Switch…") { SettingsActions.signIn(profile: profile, model: model) }
                         .buttonStyle(.airc(.secondary))
@@ -811,7 +858,11 @@ private struct AppearancePage: View {
                 }
                 AircToggleRow("Show tab previews", subtitle: "Rest the pointer on a tab to see the page, with pin, Favorites, split and Peek.",
                               isOn: Binding(get: { model.settings.values.tabPreviews }, set: { model.settings.values.tabPreviews = $0 }))
+                // feedback2: the footer's speech bubble (Sidebar/SidebarChrome.swift); its right-click › Hide turns this off.
+                AircToggleRow("Show Feedback button", subtitle: "A speech bubble beside the Library button sends feedback to the Airc team. Help › Send Feedback… and ⌘T always have it.",
+                              isOn: Binding(get: { model.settings.values.sidebarFeedbackButton }, set: { model.settings.values.sidebarFeedbackButton = $0 }))
             }
+            SitePreviewsSettingsSection(model: model)   // S04 (Previews/SitePreviewsSettings.swift)
             AppIconSettingsSection(model: model)   // E15 (Settings/AppPersonalization.swift)
             SettingsSection(title: "Window") {
                 // W07 (Browser/PageDrag.swift): Arc's setting, on by default.
@@ -851,6 +902,7 @@ private struct ImportPage: View {
                     }.buttonStyle(.airc(.secondary))
                 }
             }
+            PasswordManagerSettingsSection(model: model)
             ArcExtensionChecklistView(app: model.app).padding(.top, 20)
             if let o = CredentialImport.lastOutcome, !o.rows.isEmpty {
                 // Engine pass 8: what happened to each login and each site's cookies, problems first.
@@ -900,6 +952,52 @@ private struct ImportPage: View {
         } catch {
             status = "Export failed: \(error.localizedDescription)"
         }
+    }
+}
+
+// MARK: - Your password manager (onboarding step 2b, again)
+
+/// The onboarding step on its own, and each profile's "Offer to save passwords" (the step can turn it off).
+private struct PasswordManagerSettingsSection: View {
+    @ObservedObject var model: SettingsModel
+    @State private var offered: [String: Bool] = [:]
+
+    var body: some View {
+        SettingsSection(title: "Your password manager",
+                        help: model.app?.engine.supportsExtensions == true
+                            ? "1Password, Bitwarden, Apple Passwords and others add their extension; Airc's own needs nothing."
+                            : "Password manager extensions need the Chromium engine.") {
+            SettingsRow(title: "Choose a password manager", subtitle: "The onboarding step: pick one, and add it to the profiles you choose.") {
+                Button("Choose…") { model.app?.startOnboarding(mode: .rerun, atPasswordManager: true) }
+                    .buttonStyle(.airc(.secondary))
+                    .testAnchor("settings.pm.choose")
+            }
+            ForEach(model.store.orderedProfiles.filter { offered[$0.id] != nil }, id: \.id) { p in
+                SettingsRow(title: "Offer to save passwords in \(p.name)", subtitle: "Airc asks to save a login when you sign in.") {
+                    AircSwitch(isOn: Binding(get: { offered[p.id] ?? true }, set: { on in set(on, profileID: p.id) }))
+                        .accessibilityLabel("Offer to save passwords in \(p.name)")
+                        .testAnchor("settings.pm.offer." + p.id)
+                }
+            }
+        }
+        .onAppear(perform: load)
+        // The step (opened from here) may have turned some off.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in load() }
+    }
+
+    private func load() {
+        guard let app = model.app else { return }
+        for p in model.store.orderedProfiles {
+            app.profiles.whenLoaded(p.id) { ep in
+                if let v = app.engine.passwordsOffered(for: ep) { offered[p.id] = v }
+            }
+        }
+    }
+
+    private func set(_ on: Bool, profileID: String) {
+        guard let app = model.app, let ep = app.profiles.engineProfile(for: profileID) else { return }
+        app.engine.setPasswordsOffered(on, for: ep)
+        offered[profileID] = app.engine.passwordsOffered(for: ep)
     }
 }
 
@@ -981,6 +1079,7 @@ enum SettingsActions {
         model.app?.history.clear(profileID: profileID)
         SuggestionService.shared.clear(profileID: profileID)
         ServicePreviewCenter.shared.forget(profileID: profileID)   // its tab pictures and site previews (P11a)
+        SiteIcons.shared.forgetAll()   // the Command Bar's icons by site (not per profile: all of them go)
     }
 
     static func signIn(profile: Profile, model: SettingsModel) {

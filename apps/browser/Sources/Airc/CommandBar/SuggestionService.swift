@@ -32,6 +32,9 @@ final class SuggestionService {
         self.canned = canned
     }
 
+    /// Canned answers, unless a check stood a loopback server in for every engine (C08, `SearchEngineStandIn`).
+    private var usesCanned: Bool { canned && SearchEngineStandIn.origin == nil }
+
     private func session(for profileID: String) -> URLSession {
         if let s = sessions[profileID] { return s }
         let config = URLSessionConfiguration.ephemeral
@@ -46,7 +49,7 @@ final class SuggestionService {
     /// Opens the connection to the engine's suggestion host (a HEAD request to its root: no query is sent), so the first
     /// keystroke's request reuses it. Chrome preconnects to the search engine the same way.
     func prewarm(engine: SearchEngine, profileID: String) {
-        guard !canned, let probe = SearchSuggestions.url(for: "a", engine: engine),
+        guard !usesCanned, let probe = SearchSuggestions.url(for: "a", engine: engine),
               var root = URLComponents(url: probe, resolvingAgainstBaseURL: false) else { return }
         root.path = "/"
         root.query = nil
@@ -65,7 +68,7 @@ final class SuggestionService {
         let gen = generation
         pendingProfileID = profileID
         if let hit = cache[profileID]?[q.lowercased()] { return completion(hit) }
-        if canned {
+        if usesCanned {
             let list = Self.cannedSuggestions(for: q)
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.debounce) { [weak self] in
                 guard self?.generation == gen else { return }

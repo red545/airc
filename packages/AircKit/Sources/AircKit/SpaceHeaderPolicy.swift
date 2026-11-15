@@ -34,6 +34,18 @@ public enum SpaceHeaderPolicy {
         spaceCount == 1 && name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !hasIcon
     }
 
+    /// Arc 2024 (R §2.4, "only named Spaces can collapse their pinned section"): an unnamed Space keeps its pinned
+    /// section open, so its row has no chevron and a press on it does nothing; naming it makes the row fold.
+    public static func canFold(name: String) -> Bool {
+        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// The chevron's turn from pointing down (open), in radians: a quarter turn towards the reading direction's end
+    /// when folded (Arc: "a quarter-turn right while they're collapsed"). `flipped`: the layer's y axis points down.
+    public static func chevronAngle(collapsed: Bool, flipped: Bool) -> Double {
+        collapsed ? (flipped ? -Double.pi / 2 : Double.pi / 2) : 0
+    }
+
     /// What VoiceOver hears after the Space's name: its pinned section's state, and that the current tab is inside.
     public static func accessibilityValue(_ s: State) -> String {
         s.isEmphasized ? "collapsed, contains the current tab" : (s.isExpanded ? "expanded" : "collapsed")
@@ -52,6 +64,12 @@ extension SpacesStore {
         guard let s = space(spaceID) else { return true }
         return SpaceHeaderPolicy.showsHeader(spaceCount: orderedSpaces.count, name: s.name, hasIcon: s.icon != nil,
                                              pinnedCollapsed: s.pinnedCollapsed, showOnSingleUnnamed: showOnSingleUnnamed)
+    }
+
+    /// Whether `spaceID`'s pinned section may fold now (`canFold`); unfolding is always allowed.
+    public func canFoldPinned(ofSpace spaceID: String) -> Bool {
+        guard let s = space(spaceID) else { return false }
+        return SpaceHeaderPolicy.canFold(name: s.name)
     }
 
     /// Whether the Space menu offers Show / Hide Space Header for `spaceID`.

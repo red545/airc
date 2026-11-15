@@ -7,9 +7,9 @@ kind = "teaser"
 # As apps/marketing/src/data/catalog.ts says it: in the repo for a release after 0.1.3.
 since = "next"
 tag = "Coming soon"
-note = "In development. Not in Airc 0.1.3."
+note = "In development. Not in Airc yet."
 end_title = "Coming to Airc"
-end_line = "In development. Not in Airc 0.1.3 yet · aircbrowser.com"
+end_line = "In development. Not in Airc yet · aircbrowser.com"
 summary = """
 A teaser for features that are in the repo but in no release yet: Capture in Portrait Mode, Developer Mode's toolbar
 with Network, site previews (Notion, Linear, Figma, Confluence), and Ask on Page and link previews (both with Apple
@@ -121,7 +121,7 @@ Something we're working on: Ask on Page.
 
 Press ⌘F, ask a question, and Apple Intelligence answers from the page itself, on your Mac. It shows you the sentences it used, and clicking one takes you there.
 
-Not in 0.1.3 yet.
+Not in Airc yet.
 """
 
 [[post]]

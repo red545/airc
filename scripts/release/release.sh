@@ -7,21 +7,22 @@ if [[ ${AIRC_RELEASE_SCRIPT_LOADED:-0} != 1 ]]; then
  exec env AIRC_RELEASE_SCRIPT_LOADED=1 bash -c "$(cat "$0")" "$0" "$@"
 fi
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-channel=stable; green=; dry=0; source_rev=HEAD
+channel=stable; green=; dry=0; source_rev=HEAD; fast_gate=
 while [[ $# -gt 0 ]]; do
  case "$1" in
  --channel) channel=$2; shift 2;;
  --green-run) green=$2; shift 2;;
  --revision) source_rev=$2; shift 2;;
  --dry-run) dry=1; shift;;
- --help) echo 'release.sh [--channel stable|nightly] [--green-run STATUS_RUN] [--revision COMMIT] [--dry-run]'; exit 0;;
+ --fast-gate) fast_gate=$2; shift 2;;
+ --help) echo 'release.sh [--channel stable|nightly] [--green-run STATUS_RUN] [--revision COMMIT] [--dry-run] [--fast-gate RECEIPT]'; exit 0;;
  *) echo 'Unknown argument' >&2; exit 2;;
  esac
 done
 [[ $channel == stable || $channel == nightly ]] || exit 2
 config=${AIRC_RELEASE_CONFIG:-$(dirname "$ROOT")/airc.env}
 [[ ! -f $config ]] || source "$config"
-[[ ${AIRC_PUBLISH_HOLD:-0} != 1 && ${AIRC_PREPARATION:-0} != 1 ]] || {
+[[ $dry == 1 || ( ${AIRC_PUBLISH_HOLD:-0} != 1 && ${AIRC_PREPARATION:-0} != 1 ) ]] || {
  echo 'Public release held; no staging or signing started' >&2; exit 2;
 }
 host=${AIRC_MAC_HOST:-buildmac}
@@ -50,11 +51,20 @@ exec 9>"$artifacts/release/.public-release.lock"
 flock -n 9 || { echo 'Another public release is running' >&2; exit 1; }
 tooling_rev=$(git -C "$ROOT" rev-parse HEAD)
 rev=$(git -C "$ROOT" rev-parse --verify "${source_rev}^{commit}")
-if [[ -z $green ]]; then
+if [[ -n $fast_gate ]]; then
+ [[ $dry == 0 ]] || { echo "Fast qualification and dry preparation are separate" >&2; exit 2; }
+ python3 "$ROOT/scripts/release/fast_gate_proof.py" "$fast_gate" "$rev"
+ green=
+elif [[ $dry == 1 ]]; then
+ # A preparation stage never claims full-suite qualification, even with --green-run.
+ green=
+elif [[ -z $green ]]; then
  green=$(python3 "$ROOT/scripts/release/green.py" "$ROOT" "${AIRC_STATUS_DIR:-$(dirname "$ROOT")/status}/runs" "$rev" || true)
 fi
 qualified=0
-if [[ -n $green ]]; then
+if [[ -n $fast_gate ]]; then
+ qualified=1
+elif [[ -n $green ]]; then
  python3 "$ROOT/scripts/release/green.py" "$ROOT" "$green" "$rev" --check
  qualified=1
 elif [[ $dry != 1 ]]; then
@@ -86,10 +96,13 @@ ssh "$host" 'test ! -d arcfork/work/launchprep/build/.release-running' || {
 }
 git -C "$ROOT" archive "$rev" | tar -x -C "$scratch"
 # Freeze app inputs at the selected commit, while using committed release fixes/notes.
-git -C "$ROOT" archive "$tooling_rev" scripts/release docs/release-notes-beta.md | tar -x -C "$scratch"
+git -C "$ROOT" archive "$tooling_rev" scripts/release infra/release docs/release-notes-beta.md | tar -x -C "$scratch"
 mkdir -p "$stage/evidence/source-run"
 printf '%s\n' "$rev" > "$stage/evidence/source-revision.txt"
 printf '%s\n' "$tooling_rev" > "$stage/evidence/release-tooling-revision.txt"
+if [[ -n $fast_gate ]]; then
+ cp "$fast_gate" "$stage/evidence/fast-gate-result.json"
+fi
 if [[ -n $green ]]; then
  cp "$green/rev.txt" "$green/steps.tsv" "$stage/evidence/source-run/"
 fi
@@ -105,8 +118,12 @@ AIRC_MAC_HOST="$host" "$scratch/scripts/mac.sh" -w launchprep sync > "$stage/syn
   done
  fi
  printf 'export AIRC_SOURCE_REV=%q AIRC_RELEASE_VERSION=%q AIRC_RELEASE_BUILD=%q AIRC_RELEASE_CHANNEL=%q AIRC_RELEASE_QUALIFIED=%q AIRC_KEEP_RELEASE_APP=1\n' "$rev" "$version" "$build" "$channel" "$qualified"
+ if [[ -n $fast_gate ]]; then printf "%s\n" "export AIRC_RELEASE_FAST_GATE=1"; fi
 ) > "$scratch/release.env"
 ssh "$host" 'mkdir -p arcfork/work/launchprep/build; chmod 700 arcfork/work/launchprep/build; rm -f arcfork/work/launchprep/build/release-exit; rm -rf arcfork/work/launchprep/build/stable-stage arcfork/work/launchprep/build/launchprep-delta arcfork/work/launchprep/build/launchprep-full'
+if [[ -n $fast_gate ]]; then
+ scp -q "$fast_gate" "$host:arcfork/work/launchprep/build/fast-gate-result.json"
+fi
 scp -q "$scratch/release.env" "$host:arcfork/work/launchprep/build/release.env"
 # The remote job survives an SSH disconnect. Reconnect using the recovery commands in the runbook.
 ssh "$host" 'cd arcfork/work/launchprep && nohup caffeinate -i -s bash -c '\''scripts/release/worker.sh > build/release-worker.log 2>&1; echo $? > build/release-exit'\'' < /dev/null > /dev/null 2>&1 &'

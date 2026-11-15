@@ -14,8 +14,9 @@ import AppKit
 /// the row's own hover handler (no cursor in the shot, as in every other one).
 extension SnapshotRunner {
     func mkPreviewShots(_ d: MarketingDemo) {
-        mkPreviewShot(d, space: "personal", previewed: "kyoto", shown: "apple", name: "tab-preview", dark: false)
-        mkPreviewShot(d, space: "work", previewed: "github", shown: "linear", name: "tab-preview-dark", dark: true)
+        mkPutAwaySignInCards()   // MarketingParityP12.swift: no "Sign in to Google" card
+        mkPreviewShot(d, space: "personal", previewed: "kyoto", shown: "apple", name: "tab-preview", dark: false, aged: 12 * 60)
+        mkPreviewShot(d, space: "work", previewed: "github", shown: "swiftui", name: "tab-preview-dark", dark: true, aged: 3 * 3600)
         mkSitePreviewShot(d)
     }
 
@@ -66,7 +67,7 @@ extension SnapshotRunner {
         wait(0.3)
     }
 
-    private func mkPreviewShot(_ d: MarketingDemo, space: String, previewed: String, shown: String, name: String, dark: Bool) {
+    private func mkPreviewShot(_ d: MarketingDemo, space: String, previewed: String, shown: String, name: String, dark: Bool, aged: TimeInterval = 0) {
         if dark { run { NSApp.appearance = NSAppearance(named: .darkAqua) } }
         mkShow(d, space, previewed)
         mkSettleShown(timeout: 15, extra: 1.6)
@@ -74,6 +75,8 @@ extension SnapshotRunner {
             guard let id = d.tab[previewed] else { return done() }
             c.tabPreview.capture(id, reason: .shown) { image in
                 if image == nil { self.note("marketing: \(name): no picture of \(previewed) yet") }
+                // S16: a kept picture that old carries its age pill ("Pictured 12 min ago").
+                if aged > 0 { TabPreviewCache.shared.backdateForTesting(aged) }
                 done()
             }
         }
@@ -96,6 +99,7 @@ extension SnapshotRunner {
         run { [self] in
             if !c.tabPreview.isShowing { note("marketing: MISSING \(name): the card didn't show") }
             if c.tabPreview.thumbnail != .cached { note("marketing: \(name): the card shows \(c.tabPreview.thumbnail.rawValue)") }
+            note("marketing: \(name): age pill \(c.tabPreview.card?.staleHintText ?? "none")")
         }
         mkWindowShot(name, dark: dark)
         run { [self] in

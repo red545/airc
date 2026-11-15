@@ -1,5 +1,4 @@
 // Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
-#if AIRC_TESTING // agentspike: a dev-build prototype (docs/agent-ready.md); public builds compile none of Agent/
 import Foundation
 import Darwin
 import Security
@@ -46,6 +45,11 @@ final class AgentSession {
     var via = "local"
     /// The client's process (the helper), from the socket's peer credentials; nil over HTTP.
     var peerPID: pid_t?
+    /// The same process's audit token (pid and its generation: never a recycled pid), for its code signature.
+    var peerToken: audit_token_t?
+    /// The app behind the connection (AgentClientIdentity.key) and its name, once the hello resolved them.
+    var clientKey: String?
+    var clientName: String?
     /// The profile this session may use (AircKit profile ID). Set once; another one needs a new connection.
     var profileID: String?
     /// The profile the hello asked for (a name or an ID), resolved on first use.
@@ -56,6 +60,9 @@ final class AgentSession {
     var leftDown = false
     /// Legacy MCP (an `initialize` handshake) and its version; nil for per-request (2026-07-28) clients.
     var legacyVersion: String?
+    /// A paired device on the Tailscale network (AgentRemote.swift): which one, and its address.
+    struct Remote { let deviceID: String; let deviceName: String; let address: String }
+    var remote: Remote?
     /// HTTP requests are one-shot: their windows outlive the request and belong to the client's name instead.
     let persistent: Bool
     var ownerKey: String { persistent ? "session-\(id)" : "http-\(client)" }
@@ -68,7 +75,8 @@ final class AgentSession {
 /// (computer-use batches must run in the order they were sent).
 final class AgentServer {
     typealias Handler = (_ line: Data, _ session: AgentSession, _ reply: @escaping (Data?) -> Void) -> Void
-    typealias Hello = (_ session: AgentSession) -> String?   // nil: ready; else the refusal
+    /// Answers once: nil lets the connection in, else the refusal (an approval may take a while).
+    typealias Hello = (_ session: AgentSession, _ answer: @escaping (String?) -> Void) -> Void
 
     static let maxLine = 1 << 20          // 1 MiB requests (answers may be larger: screenshots)
     static let maxQueued = 32
@@ -82,8 +90,9 @@ final class AgentServer {
     private var lockFD: Int32 = -1
     private var connections: [Int: Connection] = [:]
     private var nextID = 1
+    #if AIRC_TESTING
     private var http: HTTPListener?
-    var onConnectionsChanged: ((Int) -> Void)?
+    #endif
     var onDisconnect: ((AgentSession) -> Void)?
 
     init(socketPath: String, handler: @escaping Handler, hello: @escaping Hello) {
@@ -132,7 +141,9 @@ final class AgentServer {
         return nil
     }
 
-    /// The optional loopback transport (Streamable HTTP, JSON answers only). Writes port and token to `info` (0600).
+    #if AIRC_TESTING
+    /// The optional loopback transport (test builds; Streamable HTTP, JSON answers only). Writes port and token to
+    /// `info` (0600).
     func startHTTP(info: URL) -> String? {
         let h = HTTPListener(queue: queue, handler: { [weak self] line, session, reply in
             DispatchQueue.main.async {
@@ -144,6 +155,7 @@ final class AgentServer {
         http = h
         return nil
     }
+    #endif
 
     /// The kill switch and quit: every connection closes, the socket goes away.
     func stop() {
@@ -152,10 +164,21 @@ final class AgentServer {
             unlink(socketPath)
             for c in connections.values { c.close() }
             connections.removeAll()
+            #if AIRC_TESTING
             http?.stop(); http = nil
+            #endif
             releaseLock()
         }
-        onConnectionsChanged?(0)
+    }
+
+    /// Ends the connections whose session matches (an app the person removed).
+    func disconnect(where match: @escaping (AgentSession) -> Bool) {
+        queue.async {
+            for c in self.connections.values where match(c.session) {
+                c.close()
+                self.connections[c.session.id] = nil
+            }
+        }
     }
 
     private func takeID() -> Int { let i = nextID; nextID += 1; return i }
@@ -172,31 +195,36 @@ final class AgentServer {
             var pid: pid_t = 0
             var size = socklen_t(MemoryLayout<pid_t>.size)
             let hasPID = getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &size) == 0
+            var token = audit_token_t()
+            var tokenSize = socklen_t(MemoryLayout<audit_token_t>.size)
+            let hasToken = getsockopt(fd, SOL_LOCAL, LOCAL_PEERTOKEN, &token, &tokenSize) == 0
             var on: Int32 = 1
             setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
             _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
             _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
             let session = AgentSession(id: takeID(), persistent: true)
             session.peerPID = hasPID ? pid : nil
+            session.peerToken = hasToken ? token : nil
             let c = Connection(fd: fd, session: session, queue: queue, server: self)
             connections[session.id] = c
             c.start()
-            let n = connections.count
-            DispatchQueue.main.async { self.onConnectionsChanged?(n) }
         }
     }
 
     fileprivate func closed(_ c: Connection) {
         connections[c.session.id] = nil
-        let n = connections.count
-        DispatchQueue.main.async {
-            self.onConnectionsChanged?(n)
-            self.onDisconnect?(c.session)
-        }
+        DispatchQueue.main.async { self.onDisconnect?(c.session) }
     }
 
     fileprivate func helloAnswer(_ session: AgentSession, done: @escaping (String?) -> Void) {
-        DispatchQueue.main.async { done(self.hello(session)) }
+        DispatchQueue.main.async {
+            var answered = false
+            self.hello(session) { refusal in
+                guard !answered else { return }
+                answered = true
+                done(refusal)
+            }
+        }
     }
 
     fileprivate func handle(_ line: Data, _ session: AgentSession, _ reply: @escaping (Data?) -> Void) {
@@ -336,7 +364,8 @@ final class AgentServer {
     }
 }
 
-/// Streamable HTTP on 127.0.0.1 (MCP 2025-11-25 and 2026-07-28): POST /mcp with a JSON-RPC body, answered as JSON.
+#if AIRC_TESTING
+/// Test builds: Streamable HTTP on 127.0.0.1 (MCP 2025-11-25 and 2026-07-28): POST /mcp with a JSON-RPC body, answered as JSON.
 /// Every request needs `Authorization: Bearer <token>` (a new random token each launch), a loopback `Host`, and no
 /// `Origin` (browsers always send one; a web page can therefore never use this, DNS rebinding or not). The profile
 /// comes from `X-Airc-Profile` on every request; the client's name from `X-Airc-Client`.

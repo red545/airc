@@ -171,4 +171,22 @@ public enum SpaceBarLayout {
 
     /// The span between the Library button and "+": 42 pt from each edge.
     public static func span(sidebarWidth: Double) -> Double { max(0, sidebarWidth - 84) }
+
+    /// The Feedback button's room after the Library button (its 32 pt plus a 2 pt gap).
+    public static let feedbackButton: Double = 34
+    /// The Space icons never get narrower than this to make room for the Feedback button.
+    public static let feedbackMinCell: Double = 24
+
+    /// Whether the footer has room for the Feedback button: with one Space (no icons), always; otherwise only while
+    /// every Space icon keeps at least `feedbackMinCell` beside it. Narrower, it's left out (Help and ⌘T have it).
+    public static func showsFeedback(sidebarWidth: Double, spaces: Int) -> Bool {
+        guard spaces >= 2 else { return sidebarWidth >= 84 + feedbackButton }
+        return (span(sidebarWidth: sidebarWidth) - feedbackButton) / Double(spaces) >= feedbackMinCell
+    }
+
+    /// Where the Space icons go: (left edge, span), after the Feedback button when it shows.
+    public static func region(sidebarWidth: Double, feedback: Bool) -> (x: Double, span: Double) {
+        let extra = feedback ? feedbackButton : 0
+        return (42 + extra, max(0, span(sidebarWidth: sidebarWidth) - extra))
+    }
 }

@@ -11,28 +11,18 @@ import AircCore
 
 /// Launch timestamps for `--script perf`: process start (from the kernel), the window, and the first time the main
 /// thread was free to take input after it.
+/// Launch times from the launch timeline (App/LaunchTimeline.swift): the window on screen, and interactive, the next
+/// time the run loop is about to wait after it (Core Animation has committed the frame and no work is queued). A
+/// check starts only once every profile is ready, later than both.
 enum PerfLaunch {
-    static var windowAt: Date?
-    static var interactiveAt: Date?
-
-    static var processStart: Date? {
-        var info = kinfo_proc()
-        var size = MemoryLayout<kinfo_proc>.stride
-        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
-        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return nil }
-        let t = info.kp_proc.p_starttime
-        return Date(timeIntervalSince1970: TimeInterval(t.tv_sec) + TimeInterval(t.tv_usec) / 1e6)
+    static var processStart: Date? { LaunchTimeline.processStart }
+    static var windowAt: Date? { at("window on screen") }
+    static var interactiveAt: Date? { at("interactive") }
+    private static func at(_ name: String) -> Date? {
+        LaunchTimeline.first(name).map { LaunchTimeline.processStart.addingTimeInterval($0 / 1000) }
     }
-
-    /// The window is up: the next time the run loop is about to wait (Core Animation has committed the frame and no
-    /// work is queued), the app is interactive.
-    static func windowOpened() {
-        windowAt = Date()
-        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, false, CFIndex.max) { _, _ in
-            if interactiveAt == nil { interactiveAt = Date() }
-        }
-        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
-    }
+    /// Kept for SnapshotRunner's call; the timeline marks the window itself.
+    static func windowOpened() {}
 }
 
 /// The display's frames while a measurement runs (CADisplayLink), so an action's time is taken to the frame that
@@ -271,6 +261,9 @@ final class PerfRun {
             if let w = PerfLaunch.windowAt, let ready = PerfLaunch.interactiveAt {
                 timings["sidebar_ready_ms"] = ms(ready.timeIntervalSince(w))
             }
+            // The launch's critical path (App/LaunchTimeline.swift), its own event so the timings stay flat.
+            emit(["event": "launch_timeline", "entries": LaunchTimeline.json])
+            runner.note("launch timeline:\n" + LaunchTimeline.text)
         }
         r.wait(0.3)
         // Space switches between neighbours, as a footer click or ⌃-number does (animated).

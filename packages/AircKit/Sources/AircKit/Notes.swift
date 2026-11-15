@@ -4,9 +4,9 @@ import Foundation
 
 // Notes (Arc's Notes, docs/user/notes.md): a note is a sidebar row like a tab. Its tab or pinned item carries the
 // note's address (`airc-note:<id>`), so it drags, pins, goes into folders, archives and restores by the tab rules; what
-// it says is a `note` row in the store, and its pictures are files in the data folder (the app's NoteImages). Notes
-// stay on this Mac: the sync adapter keeps their rows local-only (SyncStoreAdapter.isLocalOnly) and has no `note`
-// record kind.
+// it says is a `note` row in the store, and its pictures are files in the data folder (the app's NoteImages). A pinned
+// note syncs with iCloud (docs/sync.md, "Notes"): its row as a pinned tab, its text, title and pictures sealed in records
+// of their own (Sync/NoteSyncPayload.swift). A note only in Today or the Archive stays on this Mac.
 
 /// A note's address: what its tab or pinned item has for a URL. Never loaded by an engine.
 public enum NoteURL {
@@ -45,8 +45,8 @@ public struct NoteDocument: Codable, Hashable, Sendable {
     /// The longest title the sidebar keeps; the rest of the line stays in the note.
     public static let maxTitleLength = 120
 
-    /// The note's name in the sidebar: its first line with text, trimmed (Arc's notes had a title; here, as in Apple's
-    /// Notes, it's the first line). Empty for a note with no text.
+    /// The note's first line with text, trimmed: its name in the sidebar while it has no title of its own (`Note.title`,
+    /// as in Apple's Notes). Empty for a note with no text.
     public var title: String {
         for b in blocks {
             let line = b.plainText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -59,7 +59,7 @@ public struct NoteDocument: Codable, Hashable, Sendable {
     /// Every line's text, pictures left out.
     public var plainText: String { blocks.map(\.plainText).joined(separator: "\n") }
 
-    /// No text and no picture: closing it deletes it instead of archiving it (Arc, 2023).
+    /// No text and no picture (a note with a title isn't empty, though: `Note.isEmpty`).
     public var isEmpty: Bool {
         blocks.allSatisfy { b in
             b.runs.allSatisfy { $0.image == nil && $0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -235,20 +235,45 @@ public struct Note: Codable, Hashable, Sendable, Identifiable {
     public var document: NoteDocument
     public var createdAt: Date
     public var updatedAt: Date
+    /// The note's own title (the field at the top of the note, as Arc's notes had; P13b), nil when it has none: then
+    /// the first line names it. Never empty or untrimmed (`Note.cleanTitle`). A build from before P13b reads a note
+    /// without it as before and keeps it when it writes the row (the store's unknown-field rule, H4).
+    public var title: String?
 
-    public init(id: String = newID(), document: NoteDocument = NoteDocument(), createdAt: Date = Date(), updatedAt: Date? = nil) {
+    public init(id: String = newID(), document: NoteDocument = NoteDocument(), title: String? = nil, createdAt: Date = Date(),
+                updatedAt: Date? = nil) {
         self.id = id
         self.document = document
+        self.title = Self.cleanTitle(title)
         self.createdAt = createdAt
         self.updatedAt = updatedAt ?? createdAt
     }
 
     public var url: String { NoteURL.make(id) }
 
-    /// What its rows show.
+    /// What its rows show: its title, else its first line, else "New Note".
     public var displayTitle: String {
+        if let title, !title.isEmpty { return title }
         let t = document.title
         return t.isEmpty ? NoteURL.untitled : t
+    }
+
+    /// No title, no text and no picture: closing it deletes it instead of archiving it (Arc, 2023).
+    public var isEmpty: Bool { title == nil && document.isEmpty }
+
+    /// What Export writes: a title that isn't already the first line goes above the text as its heading, so the file
+    /// says what the note was called (and Import Notes… reads it back as that heading, the note's name again).
+    public var exportDocument: NoteDocument {
+        guard let title, title != document.title else { return document }
+        return NoteDocument(blocks: [NoteBlock(kind: .heading1, runs: [NoteRun(title)])] + document.blocks)
+    }
+
+    /// A title as the note keeps it: one line (line breaks become spaces), trimmed, at most `maxTitleLength`
+    /// characters; nil for nothing.
+    public static func cleanTitle(_ text: String?) -> String? {
+        guard let text else { return nil }
+        let line = text.components(separatedBy: .newlines).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        return line.isEmpty ? nil : String(line.prefix(NoteDocument.maxTitleLength))
     }
 }
 
@@ -315,19 +340,71 @@ extension SpacesStore {
         }
     }
 
-    /// Every row of the note shows its title.
-    private func renameRows(of n: Note) {
-        let url = n.url, title = n.displayTitle
+    /// Every row of the note shows its title. A name a pinned row was given before notes had titles (`Item.title`)
+    /// goes once the note has a title of its own, or when `dropNames`: the note's title is the row's name now.
+    func renameRows(of n: Note, dropNames: Bool = false) {
+        let url = n.url, title = n.displayTitle, drop = dropNames || n.title != nil
         for var t in state.tabs.values where t.url == url && t.title != title { t.title = title; put(t) }
-        for var i in state.items.values where i.savedURL == url && i.pageTitle != title { i.pageTitle = title; put(i) }
+        for var i in state.items.values where i.savedURL == url && (i.pageTitle != title || (drop && i.title != nil)) {
+            i.pageTitle = title
+            if drop { i.title = nil }
+            put(i)
+        }
+    }
+
+    /// The pinned rows of note `id` that still have a name of their own from before notes had titles.
+    func noteRowNames(_ id: String) -> [String] {
+        let url = NoteURL.make(id)
+        return state.items.values.filter { $0.savedURL == url }.compactMap(\.title)
+    }
+
+    /// The title field at the top of the note (P13b): the note's own title, nil or empty for none (then its first line
+    /// names it). Every row of the note takes it at once. As typed (`deferred`): in memory at once, on disk with the
+    /// next flush, as the note's text is; its undo is the editor's, with the text's. Never an undo step of the store: a
+    /// store undo puts back the whole note row, text typed since included.
+    public func setNoteTitle(_ id: String, _ title: String?, deferred: Bool = false) throws {
+        guard var n = note(id) else { throw StoreError.notFound }
+        let clean = Note.cleanTitle(title)
+        guard n.title != clean || (clean != nil && !noteRowNames(id).isEmpty) else { return }
+        n.title = clean
+        n.updatedAt = now()
+        try perform(nil, deferred: deferred, contentOnly: true) {
+            put(n)
+            renameRows(of: n)
+        }
+    }
+
+    /// Rename on a note's row (its menu, a double-click on a pinned row; `renameItem`): the note's title, so the row
+    /// and the title field always say the same. Confirming the name the row showed from the first line leaves the note
+    /// without a title (the row keeps following that line); an empty name too.
+    func renameNoteRow(_ id: String, to text: String?) throws {
+        guard var n = note(id) else { throw StoreError.notFound }
+        var clean = Note.cleanTitle(text)
+        if n.title == nil, clean == n.document.title { clean = nil }
+        guard n.title != clean || !noteRowNames(id).isEmpty else { return }
+        n.title = clean
+        n.updatedAt = now()
+        try perform(nil, contentOnly: true) {
+            put(n)
+            renameRows(of: n, dropNames: true)
+        }
+    }
+
+    /// A note that has no title yet takes the name one of its pinned rows was given before notes had titles, so its
+    /// title field shows what its row says (the editor asks, when it opens the note). True when it did.
+    @discardableResult
+    public func adoptNoteRowName(_ id: String) -> Bool {
+        guard let n = note(id), n.title == nil, let name = noteRowNames(id).sorted().first else { return false }
+        return (try? setNoteTitle(id, name, deferred: true)) != nil && note(id)?.title != nil
     }
 
     /// Inside a transaction: the address a copy of a row gets. A note's row (⌥-drag, Duplicate) gets a note of its own
     /// with the same text, so no two rows ever share a note; any other address stays.
     func copiedAddress(_ url: String?) -> String? {
+        if let url, EaselURL.isEasel(url) { return copiedEaselAddress(url) }   // P19b: an Easel's row, the same
         guard let id = NoteURL.noteID(url) else { return url }
         let src = note(id) ?? Note(id: id, createdAt: now())
-        let copy = Note(document: src.document, createdAt: now())
+        let copy = Note(document: src.document, title: src.title, createdAt: now())
         put(copy)
         return copy.url
     }

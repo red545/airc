@@ -7,7 +7,11 @@ until you turn it on in **Settings → AI**:
 - [Tidy tab titles](#tidy-tab-titles): short names for long tab titles.
 - [Ask on Page](#ask-on-page): a question about the page you're on, answered from its text.
 - [Link previews](#link-previews): ⇧ over a link for a short summary of the page it opens.
-- [Tidy downloads](#tidy-downloads): a clean name to choose for a download called "IMG_2041 (1).pdf".
+- [Tidy downloads](#tidy-downloads): a clean name for a download called "IMG_2041 (1).pdf", to choose or applied by
+  itself with Undo.
+- [Instant Links](command-bar.md#instant-links): ⇧Return in the Command Bar opens the best result directly.
+
+[Tidy Tabs](#tidy-tabs) has no switch: it runs only when you click **Tidy** or choose it in the Command Bar.
 
 ## Tidy tab titles
 
@@ -144,6 +148,26 @@ finishes, Airc suggests a clean one, like "Lisbon itinerary.pdf", as with Arc Ma
   a rename failed, with the system's error number: never the file's name or folder.
 - Files with clear names ("Invoice 8834.pdf") are left alone.
 
+### Rename automatically
+
+Arc's Tidy Downloads renames each download by itself. In Airc that's **Settings → AI → Downloads → Rename
+automatically**, under Tidy downloads. It's off by default, and it can only be turned on with Tidy downloads on and Apple
+Intelligence available (otherwise the row is greyed out and says why).
+
+- When a download's suggestion arrives, the file takes the name at once, and the window shows **Renamed to
+  “Lisbon itinerary.pdf”** with **Undo** for a few seconds. Undo puts the original name back ("Download name
+  reverted"); if another file has taken that name meanwhile, it gets a number instead of replacing it.
+- Library › Downloads shows the name a renamed file had ("was “IMG_2041 (1).pdf”"), and its right-click menu has
+  **Revert to “IMG_2041 (1).pdf”**.
+- Disk images, installers, apps and archives (`.dmg`, `.pkg`, `.app`, `.iso`, `.zip`, `.tar.gz`, `.7z`, `.rar` and the
+  like) keep their names: an installer or a script may expect them, and an archive may be being opened. Their
+  suggestion still shows in the Library, for a click.
+- A file another app has open, or that changed in the last second, is left alone and tried again a few times; after
+  that its suggestion stays for a click.
+- Downloads from before you turned it on aren't renamed. Downloads in private windows never are.
+- Unlike Arc, which names a file before it's saved, Airc renames it once it's finished, so the name the site gave
+  appears for a moment first.
+
 ### What the model sees
 
 The file's current name; the page it came from: its title (without counts or email addresses; from a tab of the
@@ -155,12 +179,51 @@ the page alone. Files over 50 MB aren't opened.
 Downloads in private windows are never looked at. The file's text is kept only until the model has answered; Airc
 keeps no copy of it, nor of the requests it made.
 
+## Tidy Tabs
+
+Arc's broom: one click sorts a Space's Today tabs into folders by topic, named by the model on your Mac, and one ⌘Z
+puts them back.
+
+- Rest the pointer on the sidebar: **Tidy** shows in the Today header, left of **Clear** ("Organize Today Tabs"). It
+  shows when Today has at least two different web pages. You can also type "tidy" in the Command Bar (⌘T) and choose
+  **Tidy Tabs**; it tidies the Space on screen.
+- Tabs about the same topic go into a folder with a short name ("Lisbon Trip", "Swift Concurrency"). A folder needs at
+  least two different pages. A page that fits no topic stays in Today. Two tabs of the same page go into the same
+  folder.
+- **The folders go at the top of Today**, as in Arc ("Grouped 6 tabs into 2 folders. ⌘Z to undo"). The tabs in them
+  are still Today tabs: each archives on its own after the Space's archive time, Clear clears them, and a folder goes
+  when its last tab does. Drag a folder above the divider to pin it with its tabs. See
+  [folders in Today](sidebar.md).
+- Pinned tabs, folders that were already there (and the tabs in them), Favorites and split views are never moved,
+  renamed or read. A tab you renamed keeps its name.
+- While the model works, the label reads **Tidying…**. Click it (or choose **Stop Tidying Tabs** in the Command Bar) to
+  stop: nothing changes. Nothing changes either until the model has answered for the whole list. Tabs you close, pin or
+  move while it works are left where they are.
+- **⌘Z** right after puts every tab back where it was in Today and removes the folders, in one step. After you quit
+  and open Airc again, ⌘Z still puts back that Space's last tidy (the tabs that are still in its folders), as long as
+  nothing else is left to undo. You can also drag tabs out of the folders by hand, or right-click a folder and choose
+  **Ungroup**.
+- "No tab groups found" means the model saw no topic shared by two pages: nothing changed.
+- Long lists are sorted in parts of up to 24 pages (the model's context is small), at most 240 pages per tidy, and each
+  part keeps the folder names the earlier parts made. The same tabs get the same folders: the model always picks its
+  most likely answer.
+
+### What the model sees
+
+Each page's title (without counts like "(3)" or email addresses, at most 90 characters) and its site's name
+("example.com"), numbered. Never its address's path or query, never a pinned tab, Favorite or folder, never another
+Space's tabs, and never a private window's page: private windows have their own sidebar, with no Today header and no
+Tidy. Airc keeps no copy of the request. What ⌘Z needs after a relaunch (which tabs went where) stays in Airc's data
+folder on this Mac: it isn't synced or exported.
+
 ## Requires Apple Intelligence
 
 The AI features need Apple Intelligence: macOS 26 or later on a Mac that supports it, with Apple Intelligence turned on
 in **System Settings → Apple Intelligence & Siri** and its model downloaded. Without it, Settings → AI says what's
 missing, the switches are greyed out and nothing changes: tabs show their pages' titles, ⌘F has no ✦, links get no
-previews and downloads keep their names. Airc still runs on macOS 14 and 15; the features just aren't there.
+previews and downloads keep their names, and there's no Tidy in the Today header or the Command Bar. Airc still runs
+on macOS 14 and 15; the features just aren't there. No other model stands in on a Mac without Apple Intelligence: the
+owner decided on 2026-11-09 that Airc's AI runs only on the model on your Mac.
 
 ## Usage data
 
@@ -168,8 +231,11 @@ Turning a feature on or off is counted once, as `feature.used` with `ai.tidy_tit
 or `ai.tidy_downloads` and `on` or `off`. Using one is counted as the same feature with `used`: a question asked, a
 link preview shown (at most once a minute) or a suggested name applied ([telemetry.md](telemetry.md)). No title,
 question, answer, page, address, summary or file name is ever part of an event, and nothing from a private window.
+Tidy Tabs sends no usage event.
 
-## Not in Airc
+## ChatGPT in the Command Bar
 
-Arc Max's ChatGPT in the Command Bar and Tidy Tabs (sorting Today into folders) aren't in Airc. Airc's AI uses only the
-model on your Mac.
+Arc Max's ChatGPT in the Command Bar is in Airc as a web page, not as AI of Airc's: "gpt" + Tab in the Command Bar
+opens your question on chatgpt.com (or Perplexity, or Claude) in a new tab, with no API key
+([Ask ChatGPT](command-bar.md#ask-chatgpt)). It's off until you pick a site in **Settings → Site Search → Ask AI**, and
+it doesn't need Apple Intelligence. Airc's own AI still uses only the model on your Mac.

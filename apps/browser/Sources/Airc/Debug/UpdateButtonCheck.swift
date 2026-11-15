@@ -208,6 +208,7 @@ extension SnapshotRunner {
             }
             Telemetry.shared.removeObserver(telemetryToken)
         }
+        bundleReplacementChecks()
     }
 
     /// What would be lost by restarting now, without a window.

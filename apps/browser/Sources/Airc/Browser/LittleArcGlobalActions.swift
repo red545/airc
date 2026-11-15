@@ -311,7 +311,7 @@ final class LittleArcGlobalActions {
             if selection.isTrusted, let text = selection.selectedText() {
                 lastLookup = text
                 let sid = app.controller?.currentSpaceID ?? app.store.selectedSpace.id
-                url = URLRules.resolve(text, engine: app.store.profile(ofSpace: sid).searchEngine)
+                url = URLRules.resolve(text, search: app.store.profile(ofSpace: sid).defaultSearch)   // C08: the default, a site included
             } else if !selection.isTrusted {
                 lastNeededAccess = true
             }
@@ -439,9 +439,13 @@ struct LittleArcGlobalSettingsSection: View {
         settings.values.littleArcGlobal = v
     }
 
+    /// V06: Arc's row, "Open Little Arc when I press" with the shortcut, and its command's description.
+    static func hotKeyTitle(_ s: GlobalShortcut) -> String { "Open Little Airc when I press \(s.display)" }
+    static let hotKeySubtitle = "Opens a Little Airc window for quick searches, from any app. Over a full-screen app, it opens there."
+
     var body: some View {
         SettingsSection(title: "Little Airc", help: "A small window for quick lookups. ⌘O moves its page into a Space.") {
-            AircToggleRow("Open Little Airc from any app", subtitle: "Press \(value.shortcut.display) in any app, as in Arc. Over a full-screen app, it opens there.",
+            AircToggleRow(Self.hotKeyTitle(value.shortcut), subtitle: Self.hotKeySubtitle,
                           isOn: Binding(get: { value.enabled }, set: { on in set { $0.enabled = on } }))
             if value.enabled {
                 SettingsRow(title: "Shortcut", subtitle: recorder.isRecording ? "Type the new shortcut. Esc cancels, Delete puts back \(GlobalShortcut.littleArcDefault.display)."

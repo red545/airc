@@ -19,6 +19,12 @@ struct LibraryMediaView: View {
     var failed: (String) -> Void
 
     static let spacing: CGFloat = 8
+    #if AIRC_TESTING
+    /// The files the grid last drew, in order (the scripted check reads it).
+    static var rendered: [String] = []
+    /// Drags that started from a tile or a recent-files row.
+    static var dragsStarted = 0
+    #endif
     static let tileMinimum: CGFloat = 108
 
     struct Day: Identifiable {
@@ -27,25 +33,34 @@ struct LibraryMediaView: View {
         var files: [LibraryFile]
     }
 
+    /// Arc's buckets ("Today", "Yesterday", "Earlier This Week", then months), after the type filter.
     private var days: [Day] {
-        let cal = Calendar.current
-        var out: [Day] = []
-        for f in files.media {
-            let title: String
-            if cal.isDateInToday(f.date) { title = "Today" }
-            else if cal.isDateInYesterday(f.date) { title = "Yesterday" }
-            else { title = f.date.formatted(.dateTime.weekday(.wide).day().month(.wide)) }
-            if out.last?.title == title { out[out.count - 1].files.append(f) } else { out.append(Day(title: title, files: [f])) }
-        }
-        return out
+        LibraryMedia.buckets(shown).map { Day(title: $0.title, files: $0.files) }
     }
+
+    /// The grid's files with the type filter (L04).
+    private var shown: [LibraryFile] { LibraryMedia.filtered(files.media, by: files.filter) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             sourcesBar
             ForEach(LibraryFolder.allCases.filter { needsNote($0) }) { f in folderNote(f) }
+            if let f = files.filter { filterChip(f) }
             let days = days
-            if days.isEmpty {
+            #if AIRC_TESTING
+            let _ = { LibraryMediaView.rendered = days.flatMap { $0.files.map(\.name) } }()
+            #endif
+            if days.isEmpty, let f = files.filter, !files.media.isEmpty {
+                VStack(spacing: 10) {
+                    Text("No \(f.title)").aircFont(AircFont.body.weight(.semibold)).foregroundStyle(theme.text.color)
+                    Button("Remove \(f.title) Filter") { files.filter = nil }
+                        .buttonStyle(.airc(.secondary, size: .small))
+                        .testAnchor("library.media.removeFilterEmpty")
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 60)
+                Spacer(minLength: 0)
+            } else if days.isEmpty {
                 VStack(spacing: 10) {
                     Image(systemName: "photo.on.rectangle").font(.system(size: 22, weight: .light)).foregroundStyle(theme.textTertiary.color)
                     Text(noFolders ? "Your Media in the Library" : "Nothing here yet")
@@ -72,10 +87,11 @@ struct LibraryMediaView: View {
                         ForEach(days) { day in
                             Text(day.title).aircFont(AircFont.caption).foregroundStyle(theme.textTertiary.color)
                                 .padding(.horizontal, 22).padding(.top, 10).padding(.bottom, 6)
+                                .testAnchor("library.media.day.\(day.title)")
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.tileMinimum), spacing: Self.spacing)], spacing: Self.spacing) {
                                 ForEach(day.files) { f in
-                                    MediaTile(file: f, theme: theme) { count, command in
-                                        files.activate(f, in: files.media, clickCount: count, command: command, from: host)
+                                    MediaTile(file: f, theme: theme, selected: files.selected?.path == f.path) { count, command in
+                                        files.activate(f, in: shown, clickCount: count, command: command, from: host)
                                     }
                                     .contextMenu { menu(f) }
                                 }
@@ -103,7 +119,7 @@ struct LibraryMediaView: View {
 
     @ViewBuilder private func menu(_ f: LibraryFile) -> some View {
         Button("Open") { files.open(f) }
-        Button("Quick Look") { files.activate(f, in: files.media, clickCount: 1, command: false, from: host) }
+        Button("Quick Look") { files.activate(f, in: shown, clickCount: 1, command: false, from: host) }
         Button("Show in Finder") { files.showInFinder(f) }
         Divider()
         Button("Copy") { files.copy(f) }
@@ -123,6 +139,22 @@ struct LibraryMediaView: View {
         HStack(spacing: 8) {
             Spacer(minLength: 0)
             Menu {
+                Section("Filter Media") {
+                    ForEach(LibraryMedia.Filter.allCases) { f in
+                        Toggle(f.title, isOn: Binding(get: { files.filter == f }, set: { files.filter = $0 ? f : nil }))
+                    }
+                }
+            } label: {
+                Image(systemName: "line.3.horizontal.decrease.circle").font(.system(size: 12, weight: .medium))
+                    .foregroundStyle((files.filter == nil ? theme.textSecondary : theme.text).color)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Filter Media")
+            .accessibilityLabel("Filter Media")
+            .testAnchor("library.media.filter")
+            Menu {
                 Section("Show media from") {
                     Toggle("Captures", isOn: Binding(get: { folders.settings.showCaptures },
                                                      set: { v in var s = folders.settings; s.showCaptures = v; folders.settings = s; files.refresh() }))
@@ -134,7 +166,7 @@ struct LibraryMediaView: View {
                 }
             } label: {
                 HStack(spacing: 5) {
-                    Image(systemName: "line.3.horizontal.decrease.circle").font(.system(size: 12, weight: .medium))
+                    Image(systemName: "folder").font(.system(size: 11, weight: .medium))
                     Text(sourcesSummary).aircFont(AircFont.callout.weight(.medium))
                 }
                 .foregroundStyle(theme.textSecondary.color)
@@ -206,6 +238,24 @@ struct LibraryMediaView: View {
         .padding(.bottom, 8)
     }
 
+    /// Arc's active filter, with its "Remove Images Filter" button.
+    private func filterChip(_ f: LibraryMedia.Filter) -> some View {
+        HStack(spacing: 6) {
+            Text(f.title).aircFont(AircFont.callout.weight(.medium)).foregroundStyle(theme.text.color)
+            Button { files.filter = nil } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)) }
+                .buttonStyle(.plain)
+                .foregroundStyle(theme.textSecondary.color)
+                .help("Remove \(f.title) Filter")
+                .accessibilityLabel("Remove \(f.title) Filter")
+                .testAnchor("library.media.removeFilter")
+        }
+        .padding(.leading, 10).padding(.trailing, 8)
+        .frame(height: 24)
+        .background(Capsule().fill(theme.selectedFill.color))
+        .padding(.horizontal, 20)
+        .padding(.bottom, 4)
+    }
+
     private func undoBar(_ t: LibraryFiles.Trashed) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "trash").font(.system(size: 12, weight: .medium)).foregroundStyle(theme.textTertiary.color)
@@ -230,6 +280,7 @@ struct LibraryMediaView: View {
 private struct MediaTile: View {
     let file: LibraryFile
     let theme: ResolvedTheme
+    var selected = false
     let onClick: (_ clickCount: Int, _ command: Bool) -> Void
     @State private var image: NSImage?
     @State private var hovered = false
@@ -267,7 +318,8 @@ private struct MediaTile: View {
             }
             .frame(width: side, height: side)
             .clipShape(RoundedRectangle(cornerRadius: AircRadius.tile, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: AircRadius.tile, style: .continuous).strokeBorder(theme.separator.color, lineWidth: 0.5))
+            .overlay(RoundedRectangle(cornerRadius: AircRadius.tile, style: .continuous)
+                .strokeBorder(selected ? Color.accentColor : theme.separator.color, lineWidth: selected ? 2 : 0.5))
             .task(id: "\(file.id)|\(file.date.timeIntervalSince1970)|\(Int(side))") {
                 guard side > 0 else { return }
                 if let hit = LibraryThumbnails.shared.cached(file, side: side, scale: scale) { image = hit; return }
@@ -281,7 +333,12 @@ private struct MediaTile: View {
             let e = NSApp.currentEvent
             onClick(e?.clickCount ?? 1, e?.modifierFlags.contains(.command) == true)
         }
-        .onDrag { NSItemProvider(contentsOf: file.url) ?? NSItemProvider() }
+        .onDrag {
+            #if AIRC_TESTING
+            LibraryMediaView.dragsStarted += 1
+            #endif
+            return NSItemProvider(contentsOf: file.url) ?? NSItemProvider()
+        }
         .help(file.name)
         .testAnchor("library.media.\(file.name)")
     }

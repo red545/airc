@@ -239,8 +239,9 @@ final class SyncEngineTests: XCTestCase {
         }
     }
 
-    /// Notes stay on this Mac (docs/sync.md): nothing about them reaches iCloud, and the other Mac gets none of their rows.
-    func testNotesStayOnThisMac() async throws {
+    /// A pinned note syncs (docs/sync.md, "Notes"; more in SyncNotesTests): its row goes in a batch, its text never
+    /// does (it's in its own sealed record). A note in Today stays on this Mac.
+    func testPinnedNotesSyncAndTodayNotesStay() async throws {
         let db = SyncMockCloudDatabase()
         let a = try Mac("A", db: db, root: root, clock: clock), b = try Mac("B", db: db, root: root, clock: clock)
         try seedWork(a)
@@ -259,16 +260,13 @@ final class SyncEngineTests: XCTestCase {
         let group = try XCTUnwrap(a.engine.groupID)
         let sent = try await uploaded(db, key: XCTUnwrap(a.keys.key(group: group)), group: group)
         XCTAssertTrue(sent.contains("https:\\/\\/example.com\\/a"))
-        for secret in ["airc-note", "Pinned secret", "Today secret", "New Note", NoteURL.noteID(pinned.url)!, NoteURL.noteID(today.url)!] {
-            XCTAssertFalse(sent.contains(secret), secret)
-        }
-        XCTAssertEqual(b.pinnedURLs("Work"), ["https://example.com/a", "https://example.com/b"])
-        XCTAssertTrue(b.store.state.notes.isEmpty)
+        XCTAssertTrue(sent.contains(pinned.url), "the pinned note's row is in a batch")
+        for secret in ["Pinned secret", "Today secret", today.url] { XCTAssertFalse(sent.contains(secret), secret) }
+        XCTAssertEqual(b.pinnedURLs("Work"), ["https://example.com/a", "https://example.com/b", pinned.url])
+        XCTAssertEqual(b.store.note(NoteURL.noteID(pinned.url))?.document.title, "Pinned secret, edited")
+        XCTAssertNil(b.store.note(NoteURL.noteID(today.url)))
         XCTAssertFalse(b.store.state.tabs.values.contains { NoteURL.isNote($0.url) })
-        XCTAssertFalse(b.store.state.items.values.contains { NoteURL.isNote($0.savedURL) })
-        XCTAssertNotNil(a.store.item(pinned.itemID))
         XCTAssertNotNil(a.store.tab(today.id))
-        XCTAssertEqual(a.store.note(forTab: pinned.id)?.document.title, "Pinned secret, edited")
     }
 
     func testUserDeletedDataStopsAndKeepsTheKey() async throws {

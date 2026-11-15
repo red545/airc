@@ -27,7 +27,8 @@ extension ResolvedTheme {
     /// reads as a suggestion but stays legible at 3 : 1 on `surface`.
     public var inlineCompletionText: AircColor {
         let ink: AircColor = isDark ? .inkDark : .inkLight
-        var a = isDark ? 0.46 : 0.44
+        // Dark: one step above `surfaceTextTertiary`, which the dark-mode pass raised to 4.5:1.
+        var a = isDark ? max(0.46, surfaceTextTertiary.alpha + 0.03) : 0.44
         while a < 0.9, ink.alpha(a).over(surface).contrast(on: surface) < 3.0 { a += 0.01 }
         return ink.alpha(a)
     }

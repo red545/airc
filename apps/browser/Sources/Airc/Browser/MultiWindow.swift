@@ -56,6 +56,9 @@ struct WindowSessionState {
     var quitting = false
     /// The first browser window has opened (links before it wait; after it, a link with no window opens one).
     var browserReady = false
+    /// linklaunch: the app was launched for a link that opened in Little Airc, and the session's windows haven't opened
+    /// yet (AppDelegate.launchWithoutWindow): the next window the person asks for brings them all back first.
+    var windowsDeferred = false
     var hooksInstalled = false
     var unloadHooksInstalled = false
     var openCount = 0
@@ -63,6 +66,12 @@ struct WindowSessionState {
     var profileKeeper: EngineWindow?
     /// What the store has now (no read back before each write).
     var lastSaved: WindowSession?
+    /// E12: the launch's choice is made (the first restoreWindows of the run); later ones (the Dock with no window)
+    /// always bring the session back.
+    var launchRestoreDecided = false
+    /// How the last run ended and whether this launch brought its windows back (parityprefs reads them).
+    var previousExit: PreviousExit?
+    var launchRestored: Bool?
 }
 
 /// The open browser windows, for the next launch: the store's device-local value "windows" (never synced).
@@ -118,7 +127,10 @@ extension AppDelegate {
     func openNewWindow(from source: WindowController?, spaceID: String? = nil, tab: WindowOpening.Tab = .none,
                        commandBar: Bool = true, frame explicitFrame: NSRect? = nil) -> WindowController? {
         guard store != nil, onboarding == nil else { return nil }
+        restoreDeferredWindows()
         let base = source ?? controller
+        // From full screen: its own full-screen Space, cascaded from the source's windowed frame (NewWindowFullScreen).
+        let fullScreenSource = NewWindowFullScreen.source(fallback: base?.window)
         let frame = explicitFrame ?? base.map { cascade(from: $0.window) } ?? savedSession()?.windows.first.flatMap(restorableFrame) ?? defaultFrame()
         // ⌘N from a blank window: a window on the listed Spaces (only ⌃⌘N names a blank Space).
         let baseSpace = base.flatMap { $0.isBlankWindow ? nil : $0.currentSpaceID }
@@ -126,6 +138,7 @@ extension AppDelegate {
                                     sidebarWidth: base.map { Double($0.sidebarWidth) }, sidebarHidden: base?.sidebarHidden)
         let c = makeController(frame: frame, opening: opening)
         present(c)
+        NewWindowFullScreen.follow(c.window, from: fullScreenSource)
         if commandBar, tab == .none { c.openCommandBar(mode: .newTab) }
         scheduleSessionSave()
         return c
@@ -136,6 +149,7 @@ extension AppDelegate {
     @discardableResult
     func openBlankWindow(from source: WindowController?) -> WindowController? {
         guard let store, onboarding == nil else { return nil }
+        restoreDeferredWindows()
         let base = source ?? controller
         guard let space = try? store.createBlankWindowSpace(from: base?.currentSpaceID) else { NSSound.beep(); return nil }
         return openNewWindow(from: base, spaceID: space.id, tab: .none)
@@ -143,7 +157,7 @@ extension AppDelegate {
 
     /// The next window's frame: the same size, 22 pt down and right (AppKit's cascade), on the same screen.
     private func cascade(from w: NSWindow) -> NSRect {
-        var f = w.frame.offsetBy(dx: 22, dy: -22)
+        var f = NewWindowFullScreen.windowedFrame(of: w).offsetBy(dx: 22, dy: -22)
         if let s = (w.screen ?? NSScreen.main)?.visibleFrame {
             if f.maxX > s.maxX || f.minY < s.minY { f.origin = NSPoint(x: s.minX + 40, y: s.maxY - f.height - 40) }
             f.size = NSSize(width: min(f.width, s.width), height: min(f.height, s.height))
@@ -152,8 +166,9 @@ extension AppDelegate {
     }
 
     func present(_ c: WindowController) {
-        // Scripted runs never take focus on the owner's Mac.
-        if options.isAutomated { c.window.orderFront(nil) } else { c.window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
+        // Scripted runs never take focus on the owner's Mac (unless a scratch copy acts as the owner's build, for
+        // real-input checks in a dedicated session).
+        if options.isAutomated, !LittleArcController.actsAsOwner { c.window.orderFront(nil) } else { c.window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
     }
 
     /// A browser window became key: commands, links and the panels the app has once (downloads card, media tray's
@@ -194,8 +209,13 @@ extension AppDelegate {
     }
 
     /// The Dock icon with no browser window open (as Chrome): the last session's windows come back.
+    /// After a link launch (linklaunch), the session's windows too: Little Airc alone counts as no browser window.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if controllers.isEmpty, windowSession.browserReady, onboarding == nil { reopenWindows() }
+        if controllers.isEmpty, windowSession.browserReady, onboarding == nil {
+            LinkLog.write("reopen (the Dock, or opening the running app): no browser window open\(windowSession.windowsDeferred ? " since the link launch" : ""); "
+                          + "the session's windows come back")
+            reopenWindows()
+        }
         return true
     }
 
@@ -205,9 +225,7 @@ extension AppDelegate {
         m.addItem(DockMenuItem("New Window") { [weak self] in self?.openNewWindow(from: nil) })
         m.addItem(DockMenuItem("New Private Window") { [weak self] in if let self { PrivateBrowsing.shared.open(app: self) } })
         LittleArcGlobalActions.shared.addDockItems(to: m)
-        #if AIRC_TESTING
-        AgentCenter.shared.addDockItems(to: m)   // agentspike: Agents (dev builds)
-        #endif
+        AgentCenter.shared.addDockItems(to: m)   // Agents: who is connected, Stop Agents, Settings
         return m
     }
 
@@ -225,21 +243,41 @@ extension AppDelegate {
     /// Opens the last session's windows (after the last one closed): every window, or one on the last Space.
     @discardableResult
     func reopenWindows() -> WindowController? {
+        let deferred = windowSession.windowsDeferred
+        windowSession.windowsDeferred = false
         let opened = restoreWindows()
         presentRestored(opened)
+        if deferred, let first = opened.first {
+            // linklaunch: the launch's first browser window, after the link launch's Little Airc.
+            LinkLog.write("launch: the session's \(opened.count) window(s) open now, asked for after the link launch")
+            firstWindowOpened(first)
+        }
         return controller
+    }
+
+    /// linklaunch: before any other window opens (⌘N, ⌃⌘N), the windows a link launch held back come back, so the
+    /// session keeps them and the quit saves them.
+    func restoreDeferredWindows() {
+        guard windowSession.windowsDeferred, onboarding == nil else { return }
+        reopenWindows()
     }
 
     // MARK: Session
 
     /// Launch: the windows of the last session (most recent in front), or one window on the last Space.
     func restoreWindows() -> [WindowController] {
-        let saved = (savedSession()?.windows ?? []).filter { store.space($0.spaceID) != nil }
+        let session = savedSession()
+        let restores = launchRestoresSession()
+        let saved = (restores ? session?.windows ?? [] : []).filter { store.space($0.spaceID) != nil }
         // Blank windows' Spaces no saved window has (the session was lost): their tabs go to the Archive. The ones of
         // windows open now stay (a reopen with a window still open).
         let kept = Set(saved.map(\.spaceID) + controllers.map(\.currentSpaceID))
         for s in store.blankWindowSpaces where !kept.contains(s.id) { try? store.closeBlankWindowSpace(s.id) }
-        guard !saved.isEmpty else { return [makeController(frame: initialFrame(), opening: WindowOpening())] }
+        guard !saved.isEmpty else {
+            // "Open a new window": the Space used last, no tab open (as ⌘N).
+            let last = session?.windows.first.map(\.spaceID).flatMap { store.space($0) != nil ? $0 : nil }
+            return [makeController(frame: initialFrame(), opening: restores ? WindowOpening() : WindowOpening(spaceID: last, tab: .none))]
+        }
         var made: [Int: WindowController] = [:]
         // Oldest first, so the window used last ends up first in `controllers`; windows whose page another window had
         // come after the one that has it.
@@ -254,6 +292,29 @@ extension AppDelegate {
         controllers = restored + controllers.filter { c in !restored.contains { $0 === c } }
         if let first = restored.first { MediaLibrary.shared.follow(first) }
         return restored
+    }
+
+    /// The store's device-local mark of how the last run ended (AircKit's PreviousExit).
+    static let exitMarkKey = "session.exit"
+
+    /// E12, Settings › General › When Airc starts, once per run: whether the launch's windows are last time's. Only
+    /// *what* comes back; the launch decides when. The mark is "running" from here until a quit is accepted, so a crash
+    /// (or a force quit, or a power cut) brings the windows back whatever the choice.
+    private func launchRestoresSession() -> Bool {
+        guard !windowSession.launchRestoreDecided else { return true }
+        windowSession.launchRestoreDecided = true
+        let previous = PreviousExit(mark: store.localValue(Self.exitMarkKey))
+        store.setLocalValue(Self.exitMarkKey, PreviousExit.running.rawValue)
+        let restores = LaunchRestore.restoresLastSession(settings.values.startupWindows, previous: previous)
+        windowSession.previousExit = previous
+        windowSession.launchRestored = restores
+        return restores
+    }
+
+    /// Airc quits to restart itself (Restart to Update, a replaced bundle): the windows come back even with "Open a new
+    /// window" chosen.
+    func restoreWindowsAfterRestart() {
+        store?.setLocalValue(Self.exitMarkKey, PreviousExit.restart.rawValue)
     }
 
     /// The restored windows on screen, the one used last in front (and key, unless this is a scripted run).
@@ -321,10 +382,18 @@ extension AppDelegate {
         guard !windowSession.quitting else { return }
         saveSession()
         windowSession.quitting = true
+        // E12: a quit the person chose ("clean"), unless it is Airc's own restart.
+        if let store {
+            store.setLocalValue(Self.exitMarkKey, LaunchRestore.markOnQuit(current: PreviousExit(mark: store.localValue(Self.exitMarkKey))).rawValue)
+        }
     }
 
     /// The quit was cancelled (a page asked "Leave site?" and the person stayed).
-    func quitCancelled() { windowSession.quitting = false }
+    func quitCancelled() {
+        windowSession.quitting = false
+        store?.setLocalValue(Self.exitMarkKey, PreviousExit.running.rawValue)
+        BundleReplacementMonitor.shared.quitCancelled()
+    }
 
     private func restorableFrame(_ w: WindowSession.Window) -> NSRect? {
         guard w.frame.count == 4 else { return nil }

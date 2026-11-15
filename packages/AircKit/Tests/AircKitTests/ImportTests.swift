@@ -325,7 +325,8 @@ final class HistoryTests: XCTestCase {
         XCTAssertEqual(SearchSuggestions.parse(Data("nope".utf8), query: "x"), [])
         XCTAssertEqual(SearchSuggestions.url(for: "a b&c", engine: .google)?.absoluteString,
                        "https://suggestqueries.google.com/complete/search?client=firefox&q=a%20b%26c")
-        XCTAssertNil(SearchSuggestions.url(for: "x", engine: .kagi))
+        XCTAssertEqual(SearchSuggestions.url(for: "x", engine: .kagi)?.absoluteString, "https://kagisuggest.com/api/autosuggest?q=x")
+        XCTAssertNil(SearchSuggestions.url(for: "", engine: .kagi))
     }
 }
 
@@ -366,5 +367,86 @@ final class DeferredWriteTests: XCTestCase {
         let s = try SpacesStore(path: path)
         XCTAssertEqual(s.selectedSpace.id, second)
         XCTAssertEqual(s.lastActiveTab(ofSpace: second)?.id, tab)
+    }
+
+    /// Arc's Today folders import as Today folders (in order, nested, named), their tabs Today tabs with Arc's last-active
+    /// time, so each auto-archives when it would in Arc and a folder goes with its last tab. A second import updates
+    /// in place and follows Arc's new layout.
+    func testTodayFoldersImportAsTodayFoldersAndArchiveAsInArc() throws {
+        typealias B = ImportBlueprint
+        let clock = TestClock()
+        let s = try makeStore(clock)
+        let tab = { (id: String, age: TimeInterval) in
+            B.Tab(sourceID: "arc-item:" + id, url: "https://\(id.lowercased()).example.com/", pageTitle: id, lastActiveAt: clock.date - age)
+        }
+        let made = clock.date - 86_400
+        func blueprint(_ nodes: [B.Node]) -> B {
+            B(profiles: [.init(sourceID: "arc-profile:Default", name: "Personal", isSourceDefault: true)],
+              spaces: [.init(sourceID: "arc-space:S1", name: "Home", profileSourceID: "arc-profile:Default",
+                             today: nodes.flatMap(\.tabs), todayNodes: nodes)])
+        }
+        let first: [B.Node] = [
+            .tab(tab("A", 60)),
+            .folder(.init(sourceID: "arc-item:F1", title: "Reading", children: [
+                .tab(tab("C", 60)),
+                .folder(.init(sourceID: "arc-item:F2", title: "Later", children: [.tab(tab("D", 13 * 3600))], createdAt: made)),
+            ], createdAt: made)),
+            .tab(tab("B", 60)),
+        ]
+        let r = try s.applyImport(blueprint(first))
+        XCTAssertEqual(r.todayTabs, 4)
+        XCTAssertEqual(r.todayFolders, 2)
+        let sid = try XCTUnwrap(r.spaceIDs["arc-space:S1"])
+        func tree(_ rows: [SidebarEntry]) -> String {
+            rows.map { e -> String in
+                if let t = e.liveTab { return t.title }
+                if let f = e.item { return "[\(f.displayTitle): \(tree(s.todayFolderContents(f.id)))]" }
+                return "?"
+            }.joined(separator: " ")
+        }
+        XCTAssertEqual(tree(s.todayRootRows(ofSpace: sid)), "A [Reading: C [Later: D]] B")
+        XCTAssertTrue(s.pinnedRoots(ofSpace: sid).isEmpty, "Today folders aren't pinned")
+        XCTAssertTrue(s.todayTabs(ofSpace: sid).allSatisfy(\.isToday))
+        XCTAssertEqual(s.todayFolders(ofSpace: sid).map(\.createdAt), [made, made])
+        XCTAssertEqual(s.todayTabs(ofSpace: sid).first { $0.title == "D" }?.lastActiveAt, clock.date - 13 * 3600)
+
+        // Re-import with Arc's new layout: D moved to Reading, B into Later; nothing is duplicated.
+        let second: [B.Node] = [
+            .tab(tab("A", 60)),
+            .folder(.init(sourceID: "arc-item:F1", title: "Reading list", children: [
+                .tab(tab("D", 13 * 3600)), .tab(tab("C", 60)),
+                .folder(.init(sourceID: "arc-item:F2", title: "Later", children: [.tab(tab("B", 60))], createdAt: made)),
+            ], createdAt: made)),
+        ]
+        try s.applyImport(blueprint(second))
+        XCTAssertEqual(tree(s.todayRootRows(ofSpace: sid)), "A [Reading list: D C [Later: B]]")
+        XCTAssertEqual(s.todayTabs(ofSpace: sid).count, 4)
+        XCTAssertEqual(s.todayFolders(ofSpace: sid).count, 2)
+
+        // Auto-archive: D is past the 12 h interval, as it was in Arc; the others stay. Then the rest age out and the
+        // folders go with their last tabs.
+        let due = s.dueForAutoArchive()
+        XCTAssertEqual(due.compactMap { s.tab($0)?.title }, ["D"])
+        try s.autoArchive()
+        XCTAssertEqual(tree(s.todayRootRows(ofSpace: sid)), "A [Reading list: C [Later: B]]")
+        clock.advance(13 * 3600)
+        try s.autoArchive()
+        XCTAssertTrue(s.todayTabs(ofSpace: sid).isEmpty)
+        XCTAssertTrue(s.todayFolders(ofSpace: sid).isEmpty, "a Today folder goes with its last tab")
+    }
+
+    /// A Today without folders imports exactly as before (flat), and `includeToday: false` brings no Today folders.
+    func testTodayFoldersFollowIncludeToday() throws {
+        typealias B = ImportBlueprint
+        let s = try makeStore()
+        let t = B.Tab(sourceID: "arc-item:T", url: "https://t.example.com/", pageTitle: "T")
+        let b = B(profiles: [.init(sourceID: "arc-profile:Default", name: "Personal", isSourceDefault: true)],
+                  spaces: [.init(sourceID: "arc-space:S1", name: "Home", profileSourceID: "arc-profile:Default", today: [t],
+                                 todayNodes: [.folder(.init(sourceID: "arc-item:F", title: "F", children: [.tab(t)]))])])
+        let r = try s.applyImport(b, options: .init(includeToday: false))
+        let sid = try XCTUnwrap(r.spaceIDs["arc-space:S1"])
+        XCTAssertEqual(r.todayFolders, 0)
+        XCTAssertTrue(s.todayFolders(ofSpace: sid).isEmpty)
+        XCTAssertTrue(s.todayTabs(ofSpace: sid).isEmpty)
     }
 }

@@ -6,5 +6,15 @@
     "sections": ["__TEXT,__const"],
     "count": 1,
     "reason": "Chromium's components/url_formatter/url_fixer.cc FixupHomedir: kHome (a static const char array, so __TEXT,__const), the generic root that a typed ~otheruser path expands under on macOS; no user's name, not a build path"
+  },
+  {
+    "path": "Contents/Resources/BlockingLists/easyprivacy.txt",
+    "kind": "private-ip",
+    "reason": "Unmodified public EasyPrivacy filter rules include private network addresses; the checksum-verified seed list and its attribution are bundled for CC BY-SA provenance, not build-host data"
+  },
+  {
+    "path": "Contents/Resources/Licenses/Blocking/licenses/psl-rules.txt",
+    "kind": "private-host",
+    "reason": "Unmodified public Mozilla Public Suffix List rules include the Tailscale wildcard suffix; retained from the pinned PSL crate for MPL provenance, not any particular private host"
   }
 ]

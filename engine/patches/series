@@ -135,3 +135,15 @@
 
 # FILE chrome/browser/ui/views/media_router/media_router_dialog_controller_views.cc | Host Cast and site presentations in the native picker; preserve fullscreen blocking and teardown. | Seam: Views owns private controller creation.
 032-cast-host.patch
+
+# FILE chrome/browser/ui/views/tab_sharing/tab_sharing_ui_views.cc | Capture lifecycle identity for native controls. | Seam: private session identity.
+# FILE chrome/browser/ui/tab_sharing/tab_sharing_infobar_delegate.h | Match the exact capture delegate, retaining upstream policy checks. | Seam: private UI identity.
+033-call-share.patch
+
+# FILE chrome/browser/task_manager/sampling/task_manager_impl.cc | Sample the open Task Manager during startup. | Seam: private runner has no public priority setter; sampling starts/stops with observers.
+034-task-manager-priority.patch
+
+# FILE device/fido/mac/util.mm | Always verify the user for profile passkeys (Touch ID, else the Mac password). | Seam: upstream ties UV to "required" or ready biometrics.
+# FILE device/fido/mac/credential_store.mm | New profile passkeys require user presence in the Secure Enclave. | Seam: private key access-control flags.
+# FILE chrome/browser/ui/webauthn/sheet_models.cc | "Use Touch ID" / "Use password" on the profile passkey sheets. | Seam: accept-button label of three sheet models.
+035-passkeys-touch-id.patch

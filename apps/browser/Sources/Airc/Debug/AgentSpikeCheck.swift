@@ -16,15 +16,26 @@ extension SnapshotRunner {
     func agentSpikeScenario() {
         let spike = AgentSpike(runner: self)
         step { done in spike.setUp(done) }
+        if AgentsDemo.mode != nil {
+            // The homepage's loop (AgentsDemo.swift) instead of the checks.
+            step { done in spike.demoScenario(done) }
+            run { spike.finish() }
+            return
+        }
         step { done in spike.protocolChecks(done) }
         step { done in spike.windowChecks(done) }
         step { done in spike.inputChecks(done) }
         step { done in spike.readChecks(done) }
         step { done in spike.navigationChecks(done) }
+        step { done in spike.loggedInChecks(done) }      // AgentsCheck.swift (mcp1)
+        step { done in spike.approvalChecks(done) }
+        step { done in spike.configChecks(done) }
         step { done in spike.hiddenComparison(done) }
         step { done in spike.idleCost(done) }
         step { done in spike.httpChecks(done) }
         step { done in spike.logAndStop(done) }
+        step { done in spike.offAndIdleServer(done) }
+        step { done in spike.settingsShot(done) }
         run { spike.finish() }
     }
 }
@@ -140,6 +151,14 @@ final class AgentSpike {
     let secretCookie = "secret-cookie-value"
     let typed = "hello agent"
     var server: LocalPageServer?
+    var closedProfile: Profile?
+    /// mcp1 (AgentsCheck.swift): the fixture site's signed-in session, the person's window as it was, extra clients.
+    let sessionSecret = "sid-" + UUID().uuidString.prefix(12).lowercased()
+    let loginPassword = "Fixture-Only-Pw-7351"
+    var personState: (tabs: Int, shown: String?, url: String?)?
+    var extra: [SpikeMCPClient] = []
+    /// The demo's bakery pages (AgentsDemo.swift), when it runs.
+    var demoPages: ((LocalPageServer.Request) -> LocalPageServer.Page?)?
 
     init(runner: SnapshotRunner) { self.runner = runner }
 
@@ -149,7 +168,13 @@ final class AgentSpike {
         measures[name] = value
         note("MEASURE agentspike \(engine) \(name) \(value)")
     }
-    var base: String { "http://127.0.0.1:\(port)" }
+    /// The fixture site's address. The social studio's demo runs launched with
+    /// `--host-resolver-rules=MAP *.aircbrowser.com 127.0.0.1` (Chromium) reach it as pastelaria.aircbrowser.com, so no
+    /// loopback address shows in their frames.
+    var base: String {
+        let named = AgentsDemo.mode != nil && CommandLine.arguments.contains { $0.hasPrefix("--host-resolver-rules=") && $0.contains("aircbrowser.com") }
+        return named ? "http://pastelaria.aircbrowser.com:\(port)" : "http://127.0.0.1:\(port)"
+    }
 
     static func median(_ v: [Double]) -> Double { let s = v.sorted(); return s.isEmpty ? 0 : s[s.count / 2] }
     static func p90(_ v: [Double]) -> Double { let s = v.sorted(); return s.isEmpty ? 0 : s[min(s.count - 1, Int(Double(s.count) * 0.9))] }
@@ -218,32 +243,59 @@ final class AgentSpike {
         activeObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
                                                                 queue: .main) { [weak self] _ in self?.activations += 1 }
         personWindowKeyAtStart = runner.c?.window.isKeyWindow ?? false
-        // The profile agents may use; the default one stays closed to them.
+        // A foreground app that quit just before this launch can leave the activation to us (the environment, not
+        // agents): give it back, so the run measures only what agents do.
+        if NSApp.isActive {
+            note("agentspike \(engine): environment: Airc was already active at launch (front \(frontAtStart ?? "none")); handing activation to the Finder before the checks")
+            NSApp.deactivate()
+            NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first?.activate()
+            return waitInactive(Date().addingTimeInterval(3)) { self.setUpServer(done) }
+        }
+        setUpServer(done)
+    }
+
+    func waitInactive(_ deadline: Date, _ then: @escaping () -> Void) {
+        if !NSApp.isActive || Date() > deadline {
+            note("agentspike \(engine): Airc active before the checks: \(NSApp.isActive)")
+            return then()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { self.waitInactive(deadline, then) }
+    }
+
+    func setUpServer(_ done: @escaping () -> Void) {
+        // Every normal profile is open to agents by default; "Closed" is switched off (Settings › Agents › Profiles).
         let store = app.store!
+        // The homepage demo (AgentsDemo.swift) runs in the person's one profile, as a new Mac would have it.
+        let demo = AgentsDemo.mode != nil
         let agent: Profile
-        if let p = store.orderedProfiles.first(where: { $0.name == "Agent" }) { agent = p }
+        if demo { agent = store.defaultProfile }
+        else if let p = store.orderedProfiles.first(where: { $0.name == "Agent" }) { agent = p }
         else { agent = try! runner.c.profiles.createProfile(name: "Agent", emoji: "🤖", color: nil) }
-        _ = agent
+        if demo {}
+        else if let p = store.orderedProfiles.first(where: { $0.name == "Closed" }) { closedProfile = p }
+        else { closedProfile = try? runner.c.profiles.createProfile(name: "Closed", emoji: "🔒", color: nil) }
         let pages: [String: LocalPageServer.Page] = [
             "/agent.html": LocalPageServer.Page(headers: ["Set-Cookie": "agentspike=\(secretCookie); Path=/"], body: Self.agentPage),
             "/second.html": LocalPageServer.Page(body: Self.secondPage),
             "/idle.html": LocalPageServer.Page(body: Self.idlePage),
         ]
         server = LocalPageServer(responses: pages)
+        server?.requestHandler = { [weak self] r in self?.sessionSite(r) }
         server?.start { [self] p in
             port = p ?? 0
             check(port != 0, "fixture server on loopback")
             app.profiles.whenLoaded(agent.id, { _ in
                 AgentCenter.shared.app = self.app
-                AgentCenter.shared.enableForCheck(grants: ["Agent"], http: true)
+                AgentCenter.shared.enableForCheck(grants: [], http: true)
+                AgentCenter.shared.approvals.automatic = nil
+                if let closed = self.closedProfile { AgentCenter.shared.setGranted(closed.id, false) }
+                self.check(AgentCenter.shared.settings.enabled, "agents are on by default (a fresh data folder)")
                 self.check(AgentCenter.shared.isServing, "the agent server listens (\(AgentCenter.shared.socketPath.count) byte path)")
                 var st = stat()
                 let mode = stat(AgentCenter.shared.socketPath, &st) == 0 ? Int(st.st_mode & 0o777) : -1
                 self.check(mode == 0o600, "the socket is 0600 (\(String(mode, radix: 8)))")
-                self.startClient(profile: "Agent") { ok in
-                    self.check(ok, "airc-mcp connects with --profile Agent")
-                    done()
-                }
+                if demo { return done() }
+                self.firstConnection(done)
             }, failed: { self.check(false, "the Agent profile loads"); done() })
         }
     }
@@ -253,8 +305,12 @@ final class AgentSpike {
         return Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/airc-mcp").path
     }
 
-    func helper(_ profile: String) -> SpikeMCPClient {
-        SpikeMCPClient(helper: helperPath, args: ["--data-dir", AppPaths.dataDirectory.path, "--profile", profile, "--client", "agentspike-check"])
+    func helper(_ profile: String?, client name: String = "agentspike-check", via launcher: String? = nil) -> SpikeMCPClient {
+        var args = ["--data-dir", AppPaths.dataDirectory.path, "--client", name]
+        if let profile { args += ["--profile", profile] }
+        // A launcher between Airc and the helper (/usr/bin/time): the client the identity check sees.
+        if let launcher { return SpikeMCPClient(helper: launcher, args: [helperPath] + args) }
+        return SpikeMCPClient(helper: helperPath, args: args)
     }
 
     func startClient(profile: String, _ done: @escaping (Bool) -> Void) {
@@ -287,12 +343,13 @@ final class AgentSpike {
                     self.check((m["error"] as? [String: Any])?["code"] as? Int == -32022, "an unknown protocol version gets UnsupportedProtocolVersionError")
                     self.client.call("list_profiles") { r, _ in
                         let names = ((SpikeMCPClient.json(r)["profiles"] as? [[String: Any]]) ?? []).compactMap { $0["name"] as? String }
-                        self.check(names == ["Agent"], "list_profiles shows only the granted profile (\(names))")
                         let defaultName = self.app.store.defaultProfile.name
-                        self.client.call("use_profile", ["profile": defaultName]) { r, _ in
-                            self.check(SpikeMCPClient.isError(r), "use_profile refuses the ungranted default profile")
-                            // A helper asking for the ungranted profile is turned away at the door.
-                            let other = self.helper(defaultName)
+                        self.check(Set(names) == Set([defaultName, "Agent"]) && !names.contains("Closed"),
+                                   "list_profiles shows every profile but the switched-off one (\(names))")
+                        self.client.call("use_profile", ["profile": "Closed"]) { r, _ in
+                            self.check(SpikeMCPClient.isError(r), "use_profile refuses the switched-off profile")
+                            // A helper asking for the switched-off profile is turned away at the door.
+                            let other = self.helper("Closed")
                             other.onExit = {
                                 self.check(other.exitCode == 77 && other.stderrText.contains("isn't open to agents"),
                                            "airc-mcp --profile <ungranted> is refused (exit \(other.exitCode ?? -1))")
@@ -680,7 +737,7 @@ final class AgentSpike {
             addr.sin_family = sa_family_t(AF_INET)
             addr.sin_port = UInt16(p).bigEndian
             addr.sin_addr.s_addr = inet_addr("127.0.0.1")
-            let ok = withUnsafePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } }
+            let ok = withUnsafePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } }
             guard ok == 0 else { close(fd); return DispatchQueue.main.async { done(0, "connect") } }
             var h = "POST /mcp HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: \(body.utf8.count)\r\n"
             for (k, v) in headers { h += "\(k): \(v)\r\n" }
@@ -751,9 +808,17 @@ final class AgentSpike {
     }
 
     func finish() {
-        check(!(runner.c?.window.isKeyWindow ?? false) || personWindowKeyAtStart, "the person's window kept its key state")
-        check(activations == 0 && !airIsFront,
-              "Airc never became the active app during the run (\(activations) activations; front at start \(frontAtStart ?? "none"), at end \(front))")
+        if AgentsDemo.mode == "setup" {
+            // The setup clip records the person in Settings › Agents pressing Add to Claude Desktop: its question is a
+            // sheet, and macOS makes the app active when a sheet begins on its window, as it is for a person who just
+            // clicked there. Agents never activating Airc is proven by the agents runs, not this clip.
+            note("agentspike \(engine): demo setup: activation checks don't apply (the person is in Settings; \(activations) activations)")
+        } else {
+            check(!(runner.c?.window.isKeyWindow ?? false) || personWindowKeyAtStart, "the person's window kept its key state")
+            check(activations == 0 && !airIsFront,
+                  "Airc never became the active app during the run (\(activations) activations; front at start \(frontAtStart ?? "none"), at end \(front))")
+        }
+        personWindowUntouched()
         if let o = activeObserver { NotificationCenter.default.removeObserver(o) }
         measures["engine"] = engine
         if let data = try? JSONSerialization.data(withJSONObject: measures, options: [.prettyPrinted, .sortedKeys]) {

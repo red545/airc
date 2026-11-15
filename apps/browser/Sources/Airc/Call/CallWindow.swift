@@ -276,18 +276,7 @@ final class CallWindowController: NSObject {
 
     func systemPictureInPicture() {
         guard let page else { return }
-        #if canImport(AircCore)
-        if let chromium = controller?.app?.engine as? ChromiumEngine {
-            chromium.enterPictureInPictureForHost(page) { _, _ in }
-            return
-        }
-        #endif
-        page.evaluate("""
-        (function(){ const v = document.querySelector('video');
-          if (v && v.requestPictureInPicture) v.requestPictureInPicture().catch(function(){});
-          else if (v && v.webkitSupportsPresentationMode && v.webkitSupportsPresentationMode('picture-in-picture'))
-            v.webkitSetPresentationMode('picture-in-picture'); })()
-        """, completion: nil)
+        controller?.app?.engine.enterPictureInPictureForHost(page) { _, _ in }
     }
 
     private func ensureWindow(_ hosting: EngineCallHosting, _ c: WindowController) -> (CallPanel, EngineWindow) {
@@ -506,7 +495,7 @@ final class CallPanel: NSPanel {
     /// On one of our own buttons (Back to Tab, ✕, the call's): it keeps the press.
     private func onControl(_ p: NSPoint) -> Bool {
         guard let frameView = contentView?.superview, let hit = frameView.hitTest(frameView.convert(p, from: nil)) else { return false }
-        return hit is GlyphButton || hit is PiPInteractive
+        return hit is GlyphButton || hit is PiPInteractive || view.containsCallTools(p)
     }
 
     /// Held still: the page (or button) gets the press after all, and the rest of the gesture with it.
@@ -594,7 +583,9 @@ final class CallPanel: NSPanel {
 final class CallWindowView: NSView {
     weak var controller: CallWindowController? { didSet { wire() } }
     private let clip = NSView()
+    private var callTools: AircFirstClickHostingView<CallToolsView>?
     let controls = PiPControlsView()
+    var showsCallTools: Bool { callTools != nil && callTools?.isHidden == false }
     private var session = EngineMediaSession()
     // The buttons by name (the scripted checks press them).
     var back: PiPButton { controls.back }
@@ -640,6 +631,15 @@ final class CallWindowView: NSView {
     }
 
     func configure(title: String, session: EngineMediaSession) {
+        callTools?.removeFromSuperview()
+        callTools = nil
+        if !CallChat.pageOwnsControls(on: .fullPage, url: controller?.page?.url), let id = controller?.tabID {
+            let host = AircFirstClickHostingView(rootView: CallToolsView(id: id, foreground: .white, stateChanged: { [weak self] in self?.needsLayout = true }))
+            host.safeAreaRegions = []
+            addSubview(host)
+            callTools = host
+        }
+        needsLayout = true
         controls.miniPlayer.playbackPage = controller?.page
         controls.mediaTitle = title
         controls.canSuppressSite = controller?.page?.url.flatMap { MiniPlayerSite.origin($0.absoluteString) } != nil
@@ -659,8 +659,16 @@ final class CallWindowView: NSView {
     override func layout() {
         super.layout()
         let h = min(bounds.height, PiPControlsView.fullPageBarHeight)
-        clip.frame = NSRect(x: 0, y: h, width: bounds.width, height: max(0, bounds.height - h))
+        let toolsHeight: CGFloat = callTools != nil && !controls.miniPlayer.state.isMinimized && CallTools.shared.hasControls(controller?.tabID) ? 28 : 0
+        callTools?.isHidden = toolsHeight == 0
+        clip.frame = NSRect(x: 0, y: h + toolsHeight, width: bounds.width, height: max(0, bounds.height - h - toolsHeight))
         controls.frame = NSRect(x: 0, y: 0, width: bounds.width, height: h)
+        callTools?.frame = NSRect(x: 12, y: h, width: max(0, bounds.width - 24), height: toolsHeight)
+    }
+
+    func containsCallTools(_ point: NSPoint) -> Bool {
+        guard let callTools, !callTools.isHidden else { return false }
+        return callTools.bounds.contains(callTools.convert(point, from: nil))
     }
 
     /// On arrival: shown for a moment, so you see what's there.

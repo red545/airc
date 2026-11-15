@@ -6,6 +6,8 @@ export interface Section {
   label: string;
   icon: string;
   space: Space;
+  /** Shown only once its feature is released (src/lib/agents.ts). */
+  gate?: "agents";
 }
 
 export const groups: { title: string; items: Section[] }[] = [
@@ -20,6 +22,7 @@ export const groups: { title: string; items: Section[] }[] = [
   {
     title: "Airc",
     items: [
+      { id: "agents", label: "For AI agents", icon: "agents", space: "peach", gate: "agents" },
       { id: "spaces", label: "Spaces", icon: "swipe", space: "mint" },
       { id: "command", label: "Command bar", icon: "command", space: "sky" },
       { id: "colour", label: "Colours and profiles", icon: "spaces", space: "lilac" },

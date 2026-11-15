@@ -6,11 +6,12 @@ import AppKit
 // of a Today split: its editor goes in the pane's host where a page's view would, the page beside it stays as it was,
 // and the note has the keyboard. WindowController's showSplit, focusSplitPane and leaveSplitPresentation ask here for a
 // pane's note (`notePane(for:)`); the panes, dividers and handles are Split View's own (Browser/SplitView.swift).
-// Notes are never panes of pinned or Favorite splits, and drags don't make splits of notes (AircKit's canBeTodayPane).
+// P13b: a note is a pane as a page is: dragged onto a row or over the page, ⌥-clicked, in pinned and Favorite splits
+// too (AircKit's canBeTodayPane), and dragged out again. Its pane's editor has the keyboard when it's the focused pane.
 
 extension WindowController {
     /// The editor of `tabID` when it's a note: its pane shows the editor, not a page.
-    func notePane(for tabID: String) -> NoteEditor? { noteEditor(forTab: tabID) }
+    func notePane(for tabID: String) -> NoteEditor? { noteEditor(forTab: tabID) as? NoteEditor }
 
     /// Puts the notes among `ids` in their panes' hosts (taking each from wherever it was: one editor per note).
     func presentNotePanes(_ ids: [String]) {
@@ -32,7 +33,7 @@ extension WindowController {
     /// The split leaves the window (a page alone, nothing, another Space): its notes leave their panes.
     func releaseNotePanes() {
         for v in notePaneViews {
-            if v.window?.firstResponder === v.textView { window.makeFirstResponder(nil) }
+            if let r = v.window?.firstResponder as? NSView, r.isDescendant(of: v) { window.makeFirstResponder(nil) }
             v.removeFromSuperview()
         }
         NoteCenter.shared.dropClosed(store: store)
@@ -44,11 +45,11 @@ extension WindowController {
         return splitContainer.tabIDs.flatMap { id in (splitContainer.pane(for: id)?.host.subviews ?? []).compactMap { $0 as? NoteEditorView } }
     }
 
-    /// Whether New Note in Split can put a note beside what's on screen: a page or a Today split with room, not a
-    /// pinned or Favorite split.
+    /// Whether New Note in Split can put a note beside what's on screen: a page, or a split with room (pinned and
+    /// Favorite splits too, P13b).
     var canAddNoteInSplit: Bool {
         guard let anchor = shownTabID, store.tab(anchor) != nil, multiWindow.elsewhereTabID == nil else { return false }
-        if let x = store.split(containing: anchor) { return x.itemID == nil && x.tabIDs.count < Split.maxPanes }
+        if let x = store.split(containing: anchor) { return x.tabIDs.count < Split.maxPanes }
         return !store.isNoteTab(anchor)
     }
 
@@ -58,7 +59,6 @@ extension WindowController {
         closeCommandBar()
         guard let anchor = shownTabID, store.tab(anchor) != nil else { return NSSound.beep() }
         let x = store.split(containing: anchor)
-        if let x, x.itemID != nil { return showToast("A note can’t be in a pinned or Favorite split") }
         if let x, x.tabIDs.count >= Split.maxPanes { return showToast(Self.splitFullMessage) }
         guard canAddNoteInSplit else { return NSSound.beep() }
         let chosen = NoteApps.chosen(app)

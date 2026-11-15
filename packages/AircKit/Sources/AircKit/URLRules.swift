@@ -16,6 +16,7 @@ public enum URLRules {
     public static func displayHost(_ url: String) -> String {
         // A note's address field, Command Bar row and Library row say what it is (Notes.swift).
         if NoteURL.isNote(url) { return "Note" }
+        if EaselURL.isEasel(url) { return "Easel" }
         guard let u = URLComponents(string: url), let host = u.host, !host.isEmpty else {
             if isNewTab(url) { return "" }
             return url
@@ -109,9 +110,10 @@ public enum URLRules {
         return c.string ?? url
     }
 
-    /// SB-13: the unread count a page reports in its title: "Inbox (3) - Gmail", "(12) X".
+    /// SB-13: the unread count a page reports in its title: "Inbox (3) - Gmail", "(12) X", Slack's "… | 3 new items".
+    /// Only the title the tab already shows is read (Arc's AppTrayBadgingProvider parses the title too).
     public static func unreadCount(fromTitle title: String) -> Int? {
-        let patterns = [#"^\((\d+)\+?\)\s"#, #"\((\d+)\)"#]
+        let patterns = [#"^\((\d+)\+?\)\s"#, #"\((\d+)\+?\)"#, #"\|\s(\d+)\snew items?"#]
         for p in patterns {
             if let r = title.range(of: p, options: .regularExpression) {
                 let digits = title[r].filter(\.isNumber)
@@ -121,11 +123,73 @@ public enum URLRules {
         return nil
     }
 
-    /// Hosts whose Favorites show an unread dot (Arc's TopApp list, SB-13).
+    /// Hosts whose Favorites show an unread dot (Arc's TopApp list, SB-13, plus the chat and mail sites that count
+    /// unread items in their title the same way: Discord, Google Messages, Linear; S03).
+    public static let unreadBadgeHosts: Set<String> = [
+        "mail.google.com", "app.slack.com", "x.com", "twitter.com", "web.whatsapp.com", "linkedin.com",
+        "outlook.office.com", "outlook.live.com", "discord.com", "messages.google.com", "linear.app",
+    ]
+
+    /// The scripted checks' loopback host, so a synthetic page can badge (empty outside the checks).
+    nonisolated(unsafe) public static var extraUnreadBadgeHosts: Set<String> = []
+
     public static func showsUnreadBadge(_ url: String) -> Bool {
         let h = displayHost(url)
-        return ["mail.google.com", "app.slack.com", "x.com", "twitter.com", "web.whatsapp.com",
-                "linkedin.com", "outlook.office.com", "outlook.live.com"].contains(h)
+        return unreadBadgeHosts.contains(h) || (!extraUnreadBadgeHosts.isEmpty && extraUnreadBadgeHosts.contains(URL(string: url)?.host ?? h))
+    }
+
+    /// S03b: the sites whose Favorites get their own badge face (Arc RN22: "Slack, Twitter, GCal, and Gmail now have
+    /// custom badging"; Arc's AppTray assets name a TwitterBadgeGray beside the red Gmail/WhatsApp badges).
+    public enum BadgeApp: Sendable, Equatable { case generic, x, slack }
+
+    /// What a Favorite's unread badge shows. Read only from the title the tab already has, as Arc did.
+    public enum FavoriteBadge: Sendable, Equatable {
+        case none
+        /// The plain red dot.
+        case dot
+        /// X's notification count ("(3) Home / X"); `more` when the site says "(20+)".
+        case count(Int, more: Bool)
+        /// Slack: someone mentioned you or wrote to you directly (the title's "!" mark), not just unread channels.
+        case mention
+    }
+
+    /// The scripted checks' synthetic pages: a path prefix on an `extraUnreadBadgeHosts` host → the app it stands for.
+    nonisolated(unsafe) public static var extraBadgeApps: [String: BadgeApp] = [:]
+
+    public static func badgeApp(_ url: String) -> BadgeApp {
+        switch displayHost(url) {
+        case "x.com", "twitter.com": return .x
+        case "app.slack.com": return .slack
+        default:
+            guard !extraBadgeApps.isEmpty, let u = URL(string: url), extraUnreadBadgeHosts.contains(u.host ?? "") else { return .generic }
+            return extraBadgeApps.first { u.path.hasPrefix($0.key) }?.value ?? .generic
+        }
+    }
+
+    /// The badge a Favorite of `url` shows for `title`:
+    ///   - X: its count, "(3) Home / X" → 3, "(20+) …" → 20+.
+    ///   - Slack: "! " in front of the title (a mention or a direct message) → the mention badge; "* " in front, or
+    ///     "… | 4 new items", → the dot.
+    ///   - every other badging site: a count in its title → the dot.
+    public static func favoriteBadge(title: String, url: String) -> FavoriteBadge {
+        guard showsUnreadBadge(url) else { return .none }
+        let t = title.trimmingCharacters(in: .whitespaces)
+        switch badgeApp(url) {
+        case .x:
+            guard let r = t.range(of: #"^\((\d+)(\+?)\)"#, options: .regularExpression) ?? t.range(of: #"\((\d+)(\+?)\)"#, options: .regularExpression),
+                  let n = Int(t[r].filter(\.isNumber)), n > 0 else { return .none }
+            return .count(n, more: t[r].contains("+"))
+        case .slack:
+            if t.hasPrefix("! ") { return .mention }
+            return t.hasPrefix("* ") || (unreadCount(fromTitle: t) ?? 0) > 0 ? .dot : .none
+        case .generic:
+            return (unreadCount(fromTitle: t) ?? 0) > 0 ? .dot : .none
+        }
+    }
+
+    /// The count as a badge prints it: up to 99, then "99+" (a 47 pt tile has room for three characters).
+    public static func badgeCountText(_ n: Int, more: Bool) -> String {
+        n > 99 ? "99+" : "\(n)" + (more ? "+" : "")
     }
 
     public static func isCalendar(_ url: String) -> Bool { displayHost(url) == "calendar.google.com" }

@@ -78,6 +78,7 @@ final class MediaCenter: ObservableObject {
     }
 
     func detachAll() {
+        CallTools.shared.reset()
         for p in observedProfiles.values { engine.observeMediaTabs(in: p, nil) }
         for t in watched.values { engine.observeMediaSession(of: t, nil) }
         observedProfiles = [:]
@@ -136,6 +137,7 @@ final class MediaCenter: ObservableObject {
         p.positionUpdatedAt = Date()
         describe(&p, tab: tab)
         sessions[id] = p
+        CallTools.shared.update(id, page: tab, active: s.isCall, sharing: s.capture.screen || s.capture.tab)
         library?.calls.sessionChanged(id, s)
         refresh()
     }
@@ -143,6 +145,7 @@ final class MediaCenter: ObservableObject {
     private func sessionEnded(_ id: String) {
         closed.remove(id)
         guard sessions.removeValue(forKey: id) != nil else { return }
+        CallTools.shared.update(id, page: nil, active: false)
         library?.calls.sessionChanged(id, EngineMediaSession())
         refresh()
     }
@@ -179,6 +182,7 @@ final class MediaCenter: ObservableObject {
             }
         }
         visible = now
+        CallTools.shared.objectWillChange.send()
         refresh()
     }
 
@@ -225,7 +229,7 @@ final class MediaCenter: ObservableObject {
     func closePlayer(_ p: Player) {
         guard !p.isCall, let page = library?.page(for: p.tabID) else { return }
         if p.session.playback == .playing { perform("pause", p) }
-        if let webKit = page as? WebKitTab, SystemPictureInPicture.isOpen(webKit) { webKit.closeSystemPictureInPicture(pause: true) }
+        if let webKit = page as? WebKitTab, SystemPictureInPicture.isOpenOrOpening(webKit) { webKit.closeSystemPictureInPicture(pause: true) }
         if PiPOverlays.shared.controls(for: page)?.window != nil || HiddenMiniPlayers.isHidden(page) {
             PiPOverlays.shared.close(page, pause: true)
         }

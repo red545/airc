@@ -11,6 +11,13 @@ import SwiftUI
 final class CalendarTileFace {
     private weak var tile: FavoriteTileView?
     let label = NSTextField(labelWithString: "")
+    /// S03b: Arc's subtitle pill under the countdown (its AppTray assets GCalSubtitleBackground…): faint while the
+    /// meeting is a while off, bright when it's five minutes away or on ("meeting soon") and on the selected tile.
+    let pill = CALayer()
+    /// The bright "meeting soon" pill is showing (the checks read it).
+    private(set) var isSoon = false
+    /// Whether the last switch to "soon" faded in (false under Reduce Motion); the checks read it.
+    private(set) var lastSoonAnimated = false
     private var observer: NSObjectProtocol?
     private var palette: Palette?
     private var promptCheckQueued = false
@@ -24,6 +31,11 @@ final class CalendarTileFace {
         label.font = AircFont.caption.weight(.semibold).appFont
         label.lineBreakMode = .byClipping
         label.isHidden = true
+        pill.isHidden = true
+        pill.cornerCurve = .continuous
+        pill.actions = LayerImage.noActions
+        // Above the tile's plate, under its icon, dot and countdown.
+        tile.layer?.insertSublayer(pill, at: 1)
         tile.addSubview(label)
         observer = NotificationCenter.default.addObserver(forName: CalendarCenter.changed, object: nil, queue: .main) { [weak self] _ in
             self?.refresh()
@@ -36,6 +48,7 @@ final class CalendarTileFace {
     deinit {
         if let observer { NotificationCenter.default.removeObserver(observer) }
         label.removeFromSuperview()
+        pill.removeFromSuperlayer()
         CalendarCenter.shared.faceGone()
     }
 
@@ -53,7 +66,28 @@ final class CalendarTileFace {
             label.isHidden = text == nil
             tile?.needsLayout = true
         }
-        if let palette { label.textColor = text == "now" ? palette.textPrimary : palette.textSecondary }
+        let soon = text != nil && center.tileIsSoon
+        let bright = soon || tile?.isSelected == true
+        let dark = palette?.isDark == true
+        // Arc's colours: GCalSubtitleBackgroundSelected/Secondary and GCalSubtitleTextColorSelected/Secondary.
+        label.textColor = bright || !dark ? NSColor(srgbRed: 0.13, green: 0.13, blue: 0.13, alpha: 1)
+            : NSColor(srgbRed: 0.87, green: 0.89, blue: 0.92, alpha: 0.7)
+        let fill = bright ? NSColor(srgbRed: 0.963, green: 0.976, blue: 0.996, alpha: 0.9).cgColor
+            : NSColor(white: dark ? 1 : 0, alpha: 0.07).cgColor
+        if soon != isSoon {
+            isSoon = soon
+            lastSoonAnimated = soon && !MainActor.assumeIsolated { AircMotion.prefersReducedMotion }
+            if lastSoonAnimated {
+                let fade = CABasicAnimation(keyPath: "backgroundColor")
+                fade.fromValue = pill.backgroundColor
+                fade.toValue = fill
+                fade.duration = 0.25
+                fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                pill.add(fade, forKey: "airc.calendar.soon")
+            }
+        }
+        pill.backgroundColor = fill
+        pill.isHidden = text == nil
     }
 
     /// The Join prompt under the grid comes and goes with a page reload (SpacePageView.render places it). Checked after
@@ -86,6 +120,9 @@ final class CalendarTileFace {
             favicon.frame.origin.y = top
             label.frame = NSRect(x: floor((b.width - w) / 2), y: top + s, width: w, height: h)
         }
+        let p = label.frame.insetBy(dx: -4, dy: -0.5)
+        pill.frame = p
+        pill.cornerRadius = p.height / 2
     }
 
     func hover(_ inside: Bool) {
@@ -259,11 +296,24 @@ final class CalendarCard {
         return f
     }()
 
-    /// "10:30 – 11:00", with "Tomorrow" for a meeting on the next day.
+    /// "10:30 – 11:00" (the card's day headers say which day).
     static func timeRange(_ e: CalendarEvent, now: Date) -> String {
-        let range = timeFormat.string(from: e.start) + " – " + timeFormat.string(from: e.end)
-        return Calendar.current.isDate(e.start, inSameDayAs: now) || e.start < now ? range : "Tomorrow, " + range
+        timeFormat.string(from: e.start) + " – " + timeFormat.string(from: e.end)
     }
+
+    /// The card's day header for a meeting: "Today" (also for one on now that began yesterday), "Tomorrow", else the
+    /// weekday.
+    static func dayTitle(_ e: CalendarEvent, now: Date, calendar: Calendar = .current) -> String {
+        if e.start <= now || calendar.isDate(e.start, inSameDayAs: now) { return "Today" }
+        if let next = calendar.date(byAdding: .day, value: 1, to: now), calendar.isDate(e.start, inSameDayAs: next) { return "Tomorrow" }
+        return weekdayFormat.string(from: e.start)
+    }
+
+    static let weekdayFormat: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("EEEE")
+        return f
+    }()
 
     static func serviceName(_ s: MeetingLink.Service) -> String {
         switch s {
@@ -271,6 +321,7 @@ final class CalendarCard {
         case .zoom: "Zoom"
         case .teams: "Teams"
         case .webex: "Webex"
+        case .around: "Around"
         case .web: "Video call"
         }
     }
@@ -339,9 +390,13 @@ private struct CalendarCardView: View {
     }
 
     private var events: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let now = CalendarCenter.shared.now()
+        let days = model.events.map { CalendarCard.dayTitle($0, now: now) }
+        return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 0) {
-                Text("Upcoming").aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextTertiary.color)
+                // The day list: "Today", then "Tomorrow" where the next 24 hours reach into it (Arc's preview is a day).
+                Text(days.first ?? "Today").aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextTertiary.color)
+                    .testAnchor("calendar.day.0")
                 Spacer(minLength: 0)
                 // Arc's "+": the calendar's own page for a new event, in the Calendar Favorite.
                 if model.canCreate {
@@ -359,6 +414,11 @@ private struct CalendarCardView: View {
                     .padding(.horizontal, 14).padding(.vertical, 10)
             }
             ForEach(Array(model.events.enumerated()), id: \.element.id) { i, e in
+                if i > 0, days[i] != days[i - 1] {
+                    Text(days[i]).aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextTertiary.color)
+                        .padding(.leading, 14).padding(.top, 8).padding(.bottom, 4)
+                        .testAnchor("calendar.day.\(i)")
+                }
                 row(e, index: i)
             }
         }
@@ -572,7 +632,7 @@ struct CalendarSettingsSection: View {
                           isOn: Binding(get: { model.settings.values.calendar.enabled }, set: { center.setEnabled($0) }))
             if model.settings.values.calendar.enabled {
                 // Arc's "Show Meeting Link" times. Each calendar Favorite's menu has them too, with its own switches.
-                SettingsRow(title: "Show the Join link", subtitle: "Under your Favorites, before each meeting with a call. ⌃⌘J joins any time.") {
+                SettingsRow(title: "Show Meeting Link", subtitle: "Join under your Favorites, before each meeting with a call. ⌃⌘J joins any time.") {
                     AircPopUp(options: JoinLead.allCases.map { ($0.title, $0) }, selection: model.settings.values.calendar.joinLead,
                               width: 190) { lead in
                         center.setJoinLead(lead)

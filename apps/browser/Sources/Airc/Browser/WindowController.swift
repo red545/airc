@@ -27,9 +27,27 @@ final class RootView: NSView {
     weak var controller: WindowController?
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { true }
+    /// W07c (Arc's DraggableWhenInactive): every view that lets a press move the window (`mouseDownCanMoveWindow`: this
+    /// one, the sidebar's empty areas, the margins' background) also takes the first press on an inactive window. Without
+    /// it AppKit spends that press on activating the window and never delivers it, so the window only moves on a second
+    /// drag. A press that lands on a tab, button or field is theirs, as before.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     /// A press no view takes (the margins, the sidebar's empty areas, the background) drags the window (Arc). It comes
-    /// here up the responder chain; the window itself isn't movable by its background (setUpWindow).
-    override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
+    /// here up the responder chain; the window itself isn't movable by its background (setUpWindow). A double-click
+    /// does the system's title-bar action, as in the title-bar band (W07; the sidebar's empty list area opens a new
+    /// tab instead, as Arc's does: SpacePageView).
+    override func mouseDown(with event: NSEvent) {
+        guard let window else { return }
+        if event.clickCount == 2 { return PageTopDragStrip.titleBarDoubleClick(window) }
+        #if AIRC_TESTING
+        // Posted (not HID) presses in the checks: the window server has no drag to follow.
+        if let o = Self.dragOverride { return o(window, event) }
+        #endif
+        window.performDrag(with: event)
+    }
+    #if AIRC_TESTING
+    static var dragOverride: ((NSWindow, NSEvent) -> Void)?
+    #endif
     /// A WebKit page that doesn't use an Esc sends its `cancelOperation:` up the responder chain
     /// (`WebPageProxy::executeSavedCommandBySelector`), and the window's leaves full screen on it. In full screen it
     /// stops here: one Esc only goes to the page (Arc); twice or held leaves (FullScreenController).
@@ -130,6 +148,9 @@ final class WindowController: NSObject, NSWindowDelegate {
         var shownForDialog = false
     }
     private var archiveDialogObserver: NSObjectProtocol?
+    /// The undo stack's depth when a Clear (or Archive Tabs Below) started: its batches, archived as their pages close,
+    /// join into one undo step (SpacesStore.joinLastUndoSteps).
+    private var archiveRunUndoDepth: Int?
     /// SV-2: a pinned or Favorite split closing pane by pane, each page asked in turn (ItemSplitActions.swift).
     var paneCloseQueue: PaneCloseQueue?
     /// PK-1: the link open in Peek over the page (Peek.swift), and the last one closed (⌘Z brings it back).
@@ -153,6 +174,12 @@ final class WindowController: NSObject, NSWindowDelegate {
     var pendingSplit: PendingSplit?
     var paneClickMonitor: Any?
     private(set) var shownTabID: String?
+    /// A tab shown before its profile was ready (launch: the profile's blocking rules aren't installed yet, so no page
+    /// may load): it shows when the profile is (AppDelegate.profileBecameReady). The card stays blank until then.
+    /// `order`: when it was picked, so the windows show their pages in the order they asked (WIN-7: the window restored
+    /// first takes the page, a later one with the same tab says it is in another window).
+    var waitingForProfile: (tabID: String, focus: Bool, order: Int)?
+    static var profileWaits = 0
     private(set) var currentSpaceID: String
     /// Profile ID → the Space of that profile shown last (M2).
     private var lastSpaceByProfile: [String: String] = [:]
@@ -270,7 +297,11 @@ final class WindowController: NSObject, NSWindowDelegate {
         w.tabbingMode = .disallowed
         w.isRestorable = false
         w.collectionBehavior.insert(.fullScreenPrimary)
+        NewWindowFullScreen.startRecordingFrames()
         w.minSize = NSSize(width: 640, height: 420)
+        // NSWindow construction may constrain an off-main-display rectangle to its default screen.
+        // Apply our global frame after construction for tear-out, restore, and key-display placement.
+        w.setFrame(frame, display: false)
         w.title = "Airc"
         w.delegate = self
         root.registerForDraggedTypes(SidebarFileImport.draggedTypes)
@@ -318,6 +349,7 @@ final class WindowController: NSObject, NSWindowDelegate {
             pageFrame.size.height = max(0, pageFrame.height - PageToolbarView.height)
         }
         card.frame = pageFrame
+        updatedToast?.follow(card.frame)   // "Updated!" stays centred on the card (UpdateButton.swift)
         if shownSplitID != nil, splitContainer.frame != card.frame { splitContainer.frame = card.frame }
         resizeHandle.frame = NSRect(x: (sidebarOnRight ? sidebar.frame.minX : sidebar.frame.maxX) - 4, y: 0, width: 8, height: b.height)
         resizeHandle.isHidden = f < 1 || revealController?.isRevealed == true
@@ -426,9 +458,13 @@ final class WindowController: NSObject, NSWindowDelegate {
         app?.browserWindowBecameKey(self)
         pictureInPictureWindowActiveChanged()
         mediaLibraryWindowBecameKey()
+        commandIndex.invalidate()
     }
     func windowDidMove(_ notification: Notification) { app?.scheduleSessionSave() }
-    func windowDidResignKey(_ notification: Notification) { pictureInPictureWindowActiveChanged() }
+    func windowDidResignKey(_ notification: Notification) {
+        pictureInPictureWindowActiveChanged()
+        commandIndex.invalidate()   // which commands work follows the key window (cbfirstkey)
+    }
 
     /// SB-55: the engine enters automatic picture-in-picture only for a tab left in the active window (as Chrome);
     /// it hears the key state from the shown page (engine/PIP.md).
@@ -455,6 +491,8 @@ final class WindowController: NSObject, NSWindowDelegate {
     func windowDidFailToExitFullScreen(_ window: NSWindow) { fullScreen.didFailToExit() }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        // Closing may yield to engine unload/download confirmation before willClose.
+        CaptureSession.active(in: sender)?.cancel()
         if downloadsHoldClose() { return false }
         // WIN-7: the last window leaves Chromium's profiles loaded for the next one.
         app?.keepProfilesIfLastWindowCloses(self)
@@ -545,6 +583,8 @@ final class WindowController: NSObject, NSWindowDelegate {
             } else {
                 self.scheduleSpareBarRefresh()
             }
+            // The menu bar's commands for ⌘T's first key, in idle slices after the first frames (cbfirstkey).
+            self.commandIndex.schedule(after: 0.5)
         }
     }
 
@@ -695,6 +735,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         commandBar?.palette = pal
         library?.setTheme(pal.resolved)
         mediaLibraryChromeChanged()
+        sidebar.agents.chromeChanged()   // the Agents folder's profile and theme; Watch closes when another tab shows
         if !defersNewSpaceTitle { updateWindowTitle() }
         pageToolbar?.refresh()
         noteChromeChanged()
@@ -726,8 +767,11 @@ final class WindowController: NSObject, NSWindowDelegate {
 
     /// The tab a Space's page shows: the window's tab for the current Space, else its last one.
     func displayedTabID(forSpace spaceID: String) -> String? {
-        spaceID == currentSpaceID ? shownTabID : preferredTab(forSpace: spaceID)
+        spaceID == currentSpaceID ? (shownTabID ?? waitingForProfile?.tabID) : preferredTab(forSpace: spaceID)
     }
+
+    /// Whether `tabID` is picked and waiting for its profile's blocking rules (no page yet: nothing has loaded).
+    func isWaitingForProfile(_ tabID: String?) -> Bool { tabID != nil && waitingForProfile?.tabID == tabID }
 
     /// Creates the engine page for a tab if it has none (pinned tabs and Favorites load lazily).
     @discardableResult
@@ -736,7 +780,8 @@ final class WindowController: NSObject, NSWindowDelegate {
         // WIN-7: another window has the page: it moves here, live.
         if let moved = takePageFromOtherWindow(tabID) { return moved }
         guard let tab = store.tab(tabID), let profile = profiles.engineProfile(for: tab.profileID) else { return nil }
-        let url = URL(string: tab.url).flatMap { URLRules.isNewTab($0.absoluteString) ? nil : $0 }
+        // A note's or Easel's address is never loaded (P19a: one dragged into a split shows a blank pane, not a load).
+        let url = URL(string: tab.url).flatMap { URLRules.isNewTab($0.absoluteString) || LocalDocumentURL.isLocal($0.absoluteString) ? nil : $0 }
         // MEM-3: a WebKit page unloaded after the timeout comes back with its history and scroll position.
         let page = reopenUnloadedPage(tabID, url: url, profile: profile)
             ?? engineWindow.openTab(url: url, profile: profile, foreground: false)
@@ -824,7 +869,27 @@ final class WindowController: NSObject, NSWindowDelegate {
         // Notes (Notes/NoteCenter.swift): a note's tab has no engine page; its editor goes in the card.
         let note = noteEditor(forTab: tabID)
         let page = note == nil ? Perf.time("show.ensurePage", { ensurePage(tabID) }) : nil
-        guard note != nil || page != nil else { return }
+        guard note != nil || page != nil else {
+            if !profiles.isReady(tab.profileID) {
+                // fastlaunch: the tab is picked now (its row, its address in the URL field, a calm loading line); only
+                // its page waits for the profile's rules, so no request goes out unblocked. Another profile's page
+                // doesn't stay on screen meanwhile.
+                Self.profileWaits += 1
+                waitingForProfile = (tabID, focus, Self.profileWaits)
+                profiles.whenLoaded(tab.profileID) { _ in }   // this profile's rules first, not after the others
+                if shownTabID != nil {
+                    pageVisibilityChanged(hidden: shownTabID, shown: nil)
+                    engineWindow.deactivateAll()
+                    shownTabID = nil
+                }
+                card.showsEmptyState = false
+                try? store.activate(tabID, inSpace: currentSpaceID)
+                if updatesRows { pageView(for: currentSpaceID)?.reload(animated: false) }
+                refreshChrome()
+            }
+            return
+        }
+        waitingForProfile = nil
         // SB-45: the page leaving is pictured while it's still drawn (Sidebar/TabPreview.swift).
         tabPreview.pageWillChange(hiding: shownTabID, showing: tabID)
         if let page {
@@ -1200,7 +1265,8 @@ final class WindowController: NSObject, NSWindowDelegate {
     /// archived together as one undoable step. A page with unload handlers is waited for: if it asks "Leave site?" its
     /// tab is shown with the question; Leave archives it and the rest carry on, Stay keeps it and the rest (their pages
     /// never asked). One question at a time, so no tab is left with a hidden one.
-    func closeThenArchive(_ ids: [String], reason: ArchiveReason, label: String, returnTo: String? = nil) {
+    func closeThenArchive(_ ids: [String], reason: ArchiveReason, label: String, returnTo: String? = nil, continuing: Bool = false) {
+        if !continuing { archiveRunUndoDepth = store.undoStack.count }
         var ready: [String] = []
         let ids = ids.filter { store.tab($0) != nil }
         for (n, id) in ids.enumerated() {
@@ -1231,6 +1297,8 @@ final class WindowController: NSObject, NSWindowDelegate {
         let shown = shownTabID
         let next = shown.flatMap { ids.contains($0) ? nextFreeTab(afterClosing: $0, inSpace: currentSpaceID) : nil }
         guard let archived = try? store.archiveTabs(ids, reason: reason, label: label) else { return }
+        // A later batch of the same run: one ⌘Z for all of it (only when nothing else went on the undo stack between).
+        if let depth = archiveRunUndoDepth, store.undoStack.count == depth + 2 { store.joinLastUndoSteps(label: label) }
         archived.forEach(dropPage)
         if let shown, archived.contains(shown) {
             if let next, store.tab(next.id) != nil { show(next.id, takeOver: false) } else { showEmpty() }
@@ -1272,14 +1340,19 @@ final class WindowController: NSObject, NSWindowDelegate {
             if let back = q.returnTo, store.tab(back) != nil, back != id { show(back) }
         }
         archiveNow([id], reason: q.reason, label: q.label)
-        closeThenArchive(q.rest, reason: q.reason, label: q.label, returnTo: q.returnTo)
+        closeThenArchive(q.rest, reason: q.reason, label: q.label, returnTo: q.returnTo, continuing: true)
     }
 
     /// ⌘Z: restores what the last close, Clear, delete or archive removed.
     func undo() {
         if reopenClosedPeek() { return }
         let before = Set(store.state.tabs.keys)
-        guard let result = try? store.undo() else { NSSound.beep(); return }
+        let beforeURLs = store.state.tabs.mapValues(\.url)
+        guard let result = try? store.undo() else {
+            if undoTidyTabsFromRecord() { return }   // P18b (AI/TidyTabsFeature.swift)
+            NSSound.beep()
+            return
+        }
         let label: String
         switch result {
         case .refused(_, let reason):
@@ -1306,7 +1379,7 @@ final class WindowController: NSObject, NSWindowDelegate {
             reloadAll(animated: false)
             switchToSpace(sid, animated: true)
         } else if label == SpacesStore.resetTabLabel || label == SpacesStore.resetTabsLabel {
-            pagesFollowUndoneReset()   // Browser/WindowActions.swift
+            pagesFollowUndoneReset(previousURLs: beforeURLs)   // Browser/WindowActions.swift
         }
     }
 
@@ -1498,6 +1571,8 @@ final class WindowController: NSObject, NSWindowDelegate {
             if let p = profiles.engineProfile(for: s.profileID) { engineWindow.activeProfile = p }
         }
         if refreshesChrome { refreshChrome() }
+        // An inactive window's sidebar dims by this Space's palette (W07c): a Space switched while it's in the background.
+        sidebar.updateInactiveDim(animated: false)
     }
 
     /// The pager moved (swipe or settle): blend the window colour by how much of each page shows.
@@ -1735,6 +1810,7 @@ extension WindowController: EngineTabDelegate {
         applyKeepLoadedPolicy()
         prompts.pageNavigated(tab)
         if let id = tabID(for: tab), id == shownTabID { protectedMediaPageShown(id) }
+        shareLinkPageShown(tab)   // H01/H02: a shared Space's or folder's link shows its import preview (Sharing/)
     }
     func tabDidChangeLoading(_ tab: EngineTab) {
         pageChanged(tab, persist: false)
@@ -1742,7 +1818,10 @@ extension WindowController: EngineTabDelegate {
         // sign-in probe only once that navigation finishes; same-document changes use the URL hook.
         if !tab.isLoading, let id = tabID(for: tab) { profileSignIn.tabNavigated(id) }
     }
-    func tabDidChangeFavicon(_ tab: EngineTab) { pageChanged(tab, persist: true) }
+    func tabDidChangeFavicon(_ tab: EngineTab) {
+        SiteIcons.shared.remember(tab.favicon, page: tab.url)   // the Command Bar's rows for this site (cmdtrust)
+        pageChanged(tab, persist: true)
+    }
     func tabDidChangeNavigationState(_ tab: EngineTab) { pageChanged(tab, persist: false) }
     func tabDidChangeAudio(_ tab: EngineTab) {
         pageChanged(tab, persist: false)
@@ -1838,7 +1917,11 @@ enum AppPaths {
         if !args.contains(where: { $0.hasPrefix("--user-data-dir") }) { args.append("--user-data-dir=" + chromium.path) }
         // Scripted runs happen in a background (often occluded) window, which Chromium would otherwise stop painting.
         // The mock keychain keeps them away from the owner's Keychain (and works while the screen is locked).
-        if options.isAutomated { args += ["--disable-backgrounding-occluded-windows", "--use-mock-keychain"] }
+        // AIRC_KEEP_OCCLUSION=1 (the hiddenpaint check) keeps Chromium's occlusion as in the product.
+        if options.isAutomated {
+            if ProcessInfo.processInfo.environment["AIRC_KEEP_OCCLUSION"] != "1" { args.append("--disable-backgrounding-occluded-windows") }
+            args.append("--use-mock-keychain")
+        }
         return args
     }
 }

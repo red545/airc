@@ -1,0 +1,3 @@
+/* Airc is English-only until it is localized (docs/localization.md). */
+CFBundleName = "Airc";
+CFBundleDisplayName = "Airc";

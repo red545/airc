@@ -24,6 +24,7 @@ extension SnapshotRunner {
         let page = { self.c.engineTab(for: tabID) }
         let privatePage = { privateWindow?.shownPage }
         let center = { BoostCenter.shared }
+        let boostSheets = Self.boostSheetCountJS
         let ip = "127.0.0.1"
         func url(_ host: String, _ path: String) -> String { "http://\(host):\(box.port)\(path)" }
 
@@ -180,6 +181,7 @@ extension SnapshotRunner {
         waitLoaded(page, "the normal window's page")
         expectJS(page, "window.__atStart + '|' + getComputedStyle(document.getElementById('hero')).color",
                  "a normal window: the Boost is there in the page's first script, and styles it") { $0 == "yes|rgb(1, 2, 3)" }
+        expectJS(page, "String(" + boostSheets + ")", "the normal window's generated and custom Boost sheets are identifiable") { (Int($0) ?? 0) >= 2 }
         let zoom = BoostFont(size: 1).scale
         step { [self] done in
             waitUntil({ abs((page()?.zoomFactor ?? 1) - zoom) < 0.01 }, timeout: 4) {
@@ -197,8 +199,8 @@ extension SnapshotRunner {
             }
         }
         waitLoaded(privatePage, "the private window's page")
-        expectJS(privatePage, "[window.__atStart, getComputedStyle(document.getElementById('hero')).color, document.adoptedStyleSheets.length, getComputedStyle(document.body).fontFamily].join('|')",
-                 "a private window: none of the Boost from the first script on, no sheet adopted, the page's own font") {
+        expectJS(privatePage, "[window.__atStart, getComputedStyle(document.getElementById('hero')).color, \(boostSheets), getComputedStyle(document.body).fontFamily].join('|')",
+                 "a private window: none of the Boost from the first script on, no Boost sheet adopted, the page's own font") {
             $0.hasPrefix("none|rgb(10, 20, 30)|0|") && !$0.contains("Georgia")
         }
         run { [self] in
@@ -208,7 +210,7 @@ extension SnapshotRunner {
             center()?.update(domain: ip) { $0.css += " #hero { letter-spacing: 3px !important; }" }
         }
         expectJS(page, "getComputedStyle(document.getElementById('hero')).letterSpacing", "a live edit reaches the normal window's page") { $0 == "3px" }
-        expectJS(privatePage, "getComputedStyle(document.getElementById('hero')).letterSpacing + '|' + document.adoptedStyleSheets.length",
+        expectJS(privatePage, "getComputedStyle(document.getElementById('hero')).letterSpacing + '|' + \(boostSheets)",
                  "…and not the private window's") { $0 == "normal|0" }
         run { privateWindow?.window.close(); privateWindow = nil }
         wait(0.5)
@@ -320,7 +322,7 @@ extension SnapshotRunner {
                 }
             }
             waitLoaded(privatePage, "the private window's WebKit-routed page")
-            expectJS(privatePage, "[window.__atStart, document.adoptedStyleSheets.length, getComputedStyle(document.body).fontFamily].join('|')",
+            expectJS(privatePage, "[window.__atStart, \(boostSheets), getComputedStyle(document.body).fontFamily].join('|')",
                      "a private window's WebKit-routed page: no Boost (WebKit's private session)") { $0.hasPrefix("none|0|") && !$0.contains("Georgia") }
             run { [self] in
                 check(privatePage() is WebKitTab && privatePage().flatMap { center()?.document(of: $0) } == nil,

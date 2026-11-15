@@ -10,11 +10,20 @@ import AppKit
 // the capture is composited twice: ink at alpha a comes out at 1 − (1 − a)², e.g. 0.60 → 0.84, 0.86 → 0.98. Fills,
 // SwiftUI text, `NSTextView`, `CATextLayer` and custom `draw(_:)` text are unaffected. `AircSnapshot` hides those
 // private subviews while it captures, so each label is drawn once (by its own cell), and restores them.
+//
+// macOS 26 also gives every scroll view a scroll-edge "pocket" (`NSScrollPocket`, also inside SwiftUI's `ScrollView`).
+// Its `CAPortalLayer`s mirror a mask layer with compositing filter `destIn`. The window server applies that mask only
+// to the pocket's top edge, but an offscreen `render(in:)` can't draw a portal, so it composites nothing with
+// destination-in and erases the whole scroll view's content: Settings' page came out black beside its sidebar on
+// macOS 26.2 (artifacts/settingsshots). At rest the pocket shows nothing, so `AircSnapshot` hides it while it captures.
 
 @MainActor
 public enum AircSnapshot {
     /// Class names of private views that duplicate their parent's drawing in an offscreen capture.
     public static let duplicatingViewClasses: Set<String> = ["NSTextFieldSimpleLabel"]
+
+    /// Class names of private views whose layers erase what is under them in an offscreen capture (the scroll-edge pocket).
+    public static let erasingViewClasses: Set<String> = ["NSScrollPocket"]
 
     /// Renders `view` (and its subviews) like the screen shows it, at the window's backing scale.
     public static func bitmap(of view: NSView, in rect: NSRect? = nil) -> NSBitmapImageRep? {
@@ -32,13 +41,14 @@ public enum AircSnapshot {
         return img
     }
 
-    /// Runs `body` with the duplicating private subviews of `root` hidden, then restores them. Use it around your own
-    /// `cacheDisplay` or `CALayer.render(in:)` calls.
+    /// Runs `body` with the duplicating and erasing private subviews of `root` hidden, then restores them. Use it around
+    /// your own `cacheDisplay` or `CALayer.render(in:)` calls.
     public static func withoutDuplicates<T>(in root: NSView, _ body: () throws -> T) rethrows -> T {
         var hidden: [NSView] = []
         func walk(_ v: NSView) {
             for s in v.subviews {
-                if !s.isHidden, duplicatingViewClasses.contains(String(describing: type(of: s))) {
+                let name = String(describing: type(of: s))
+                if !s.isHidden, duplicatingViewClasses.contains(name) || erasingViewClasses.contains(name) {
                     s.isHidden = true
                     hidden.append(s)
                 } else {

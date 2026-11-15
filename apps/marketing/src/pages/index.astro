@@ -11,6 +11,7 @@ import Layout from "../layouts/Layout.astro";
 import featureList from "../data/features.json";
 import status from "../data/status.json";
 import { spaceOf } from "../lib/nav";
+import { agentsShown, followAlongShown, remoteShown } from "../lib/agents";
 import { CONTACT_EMAIL } from "../lib/site";
 import nikPhoto from "../assets/nik.webp";
 import claudeLogo from "../assets/logos/claude.svg";
@@ -34,6 +35,11 @@ const checkedLabel =
   checkedAt.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" }) +
   " UTC";
 const chromiumMajor = status.chromium.split(".")[0];
+// For AI agents: shown once the release that ships it is published (src/lib/agents.ts); previews show it now.
+const agentsOn = await agentsShown();
+const followOn = await followAlongShown();
+const remoteOn = await remoteShown();
+const agentsCommand = `claude mcp add --scope user airc -- \\\n  "$HOME/Library/Application Support/Airc/bin/airc-mcp"`;
 
 const facts = [
   { big: `Chromium ${chromiumMajor}`, small: "the real engine underneath" },
@@ -137,6 +143,39 @@ const faqs = [
         </li>
       ))}
     </ul>
+
+    <!-- ---------------------------------------------------------------- for AI agents (docs/user/agents.md) -->
+    {agentsOn && (
+      <section id="agents" class="row" data-space={spaceOf("agents")}>
+        <header class="head">
+          <p class="tag" style="--c: var(--t-peach)">New · For AI agents</p>
+          <h2 class="title">Let Claude use your browser. <span class="soft">In the sites you're already signed in to, in windows of its own, after you say&nbsp;yes.</span></h2>
+        </header>
+        <div class="agents">
+          <figure class="agents-demo">
+            <!-- Rendered frame by frame from a scripted run of the real app on a fixture site (scripts/make-agents-motion.mjs). -->
+            <picture>
+              <source media="(prefers-reduced-motion: reduce)" srcset="/motion/agents-still.webp" type="image/webp" />
+              <img src="/motion/agents.webp" width="960" height="600" loading="lazy" decoding="async" alt="Claude using Airc: it opens a bakery's site where the person is already signed in, fills the order form and places the order, in an agent window beside the conversation." />
+            </picture>
+          </figure>
+          <div class="agents-side">
+            <p class="agents-lead">Airc has an MCP connector built in, and it's on. Claude Desktop, Claude Code and other AI apps open pages, read them, click and type for you while you keep working.</p>
+            <div class="agents-setup">
+              <p><b>Set up in one click:</b> Settings → Agents → Add to Claude Desktop. For Claude Code:</p>
+              <pre><code>{agentsCommand}</code></pre>
+            </div>
+            <ul class="agents-safe">
+              <li><b>Asks once per app.</b> The first time Claude connects, Airc asks you. Remove it any time.</li>
+              <li><b>Never sees your passwords.</b> Airc fills saved logins into the page. No tool returns a password, passkey or cookie.</li>
+              <li><b>Never touches private windows.</b> Agents only reach the windows they open, never yours.</li>
+              {followOn && <li><b>Follow along.</b> An Agents folder in your sidebar shows what each agent is doing. Watch it live, take over the page, or stop it.</li>}
+              {remoteOn && <li><b>From your other devices.</b> Claude Code on your other computers can use Airc on your Mac over Tailscale, after you pair them. Off until you turn it on.</li>}
+            </ul>
+          </div>
+        </div>
+      </section>
+    )}
 
     <!-- ---------------------------------------------------------------- the math: one statement -->
     <section id="math" class="row statement" data-space={spaceOf("math")}>
@@ -409,6 +448,10 @@ const faqs = [
       <p class="more">
         <a class="try" href="/features" data-track="features_clicked" data-track-from="supported">
           Every feature, with screenshots
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"></path></svg>
+        </a>
+        <a class="try" href="/arc" data-track="features_clicked" data-track-from="supported-arc">
+          Every Arc feature, and where it is in Airc
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"></path></svg>
         </a>
       </p>
@@ -820,6 +863,60 @@ const faqs = [
   .people .cell { display: block; grid-row: auto; }
 
   .copy { padding: 32px var(--px) 28px; }
+
+  /* For AI agents: the demo, then what it is, the setup line and the three promises. */
+  .agents {
+    display: grid;
+    grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+    box-shadow: 0 -1px 0 var(--line);
+  }
+  .agents-demo {
+    margin: 0;
+    padding: clamp(18px, 2.4vw, 28px);
+    background: var(--dots), var(--bg-sunk);
+    box-shadow: 1px 0 0 var(--line);
+  }
+  .agents-demo img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 10px;
+    box-shadow: 0 0 0 0.5px var(--line-strong), 0 12px 32px -12px rgb(0 0 0 / 0.25);
+  }
+  .agents-side { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 18px; min-width: 0; padding: 28px var(--px) 30px 28px; }
+  .agents-side > * { min-width: 0; }
+  .agents-lead { color: var(--text-2); }
+  .agents-setup p { color: var(--text-2); font-size: 14px; }
+  .agents-setup pre {
+    margin: 10px 0 0;
+    padding: 12px 14px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    border-radius: 8px;
+    background: var(--fill);
+    box-shadow: inset 0 0 0 0.5px var(--line-strong);
+    font: 12px/1.55 var(--mono);
+    color: var(--text);
+  }
+  .agents-safe { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+  .agents-safe li { position: relative; padding-left: 22px; font-size: 14px; color: var(--text-2); }
+  .agents-safe li::before {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 0.45em;
+    width: 10px;
+    height: 6px;
+    border-left: 2px solid #d9773f;
+    border-bottom: 2px solid #d9773f;
+    transform: rotate(-45deg);
+  }
+  .agents-safe b { color: var(--text); font-weight: 600; }
+  @media (max-width: 900px) {
+    .agents { grid-template-columns: minmax(0, 1fr); }
+    .agents-demo { box-shadow: 0 1px 0 var(--line); }
+    .agents-side { padding: 24px var(--px) 28px; }
+  }
   .cells-3 .copy { padding-inline: 28px; }
 
   .num {
@@ -1117,7 +1214,7 @@ const faqs = [
   .try svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.25s var(--spring-settle); }
   .try:hover svg { transform: translateX(2px); }
 
-  .more { display: flex; justify-content: center; padding: 4px var(--px) 36px; }
+  .more { display: flex; flex-wrap: wrap; justify-content: center; gap: 0 28px; padding: 4px var(--px) 36px; }
   .more .try { margin-top: 28px; }
 
   /* ------------------------------------------------------------------ what works */

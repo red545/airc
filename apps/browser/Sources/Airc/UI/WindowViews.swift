@@ -38,6 +38,7 @@ final class ThemeBackgroundView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     override var mouseDownCanMoveWindow: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true } // W07c: see RootView
 
     var current: ResolvedTheme { base.theme }
 
@@ -199,6 +200,9 @@ final class PageCardView: NSView {
 final class ToastView: NSView {
     private let label = NSTextField(labelWithString: "")
     private var hideWork: DispatchWorkItem?
+    /// L04: an action on the toast ("Undo" after the Library moved a file to the Trash).
+    private(set) var actionButton: NSButton?
+    private var actionRun: (() -> Void)?
     /// What it says while it shows, else nil (the real-event checks read it).
     var shownText: String? { isHidden ? nil : label.stringValue }
 
@@ -216,19 +220,44 @@ final class ToastView: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    /// Clicks reach only the action button; everything else goes through to what's under the toast.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden, let b = actionButton, let sv = superview else { return nil }
+        return b.frame.contains(convert(point, from: sv)) ? b : nil
+    }
 
-    func show(_ text: String, palette: Palette, in container: NSRect, duration: Double = AircMetrics.Toast.defaultDuration) {
+    func show(_ text: String, palette: Palette, in container: NSRect, duration: Double = AircMetrics.Toast.defaultDuration,
+              action: (title: String, run: () -> Void)? = nil) {
         label.stringValue = text
         label.textColor = palette.panelText
         layer?.backgroundColor = palette.panelBackground.cgColor
         layer?.borderWidth = 0.5
         layer?.borderColor = palette.panelBorder.cgColor
         label.sizeToFit()
+        actionButton?.removeFromSuperview()
+        actionButton = nil
+        actionRun = action?.run
+        var buttonWidth: CGFloat = 0
+        if let action {
+            // Clickable: on top of everything else in its window's root (the command bar's view included).
+            if let sv = superview, sv.subviews.last !== self { sv.addSubview(self, positioned: .above, relativeTo: nil) }
+            let b = NSButton(title: action.title, target: self, action: #selector(runAction))
+            b.isBordered = false
+            b.font = AircFont.body.weight(.semibold).appFont
+            b.contentTintColor = .controlAccentColor
+            b.sizeToFit()
+            b.setAccessibilityLabel(action.title)
+            addSubview(b)
+            actionButton = b
+            buttonWidth = b.frame.width + AircSpacing.m
+        }
         let h = AircMetrics.Toast.height
-        let w = label.frame.width + 2 * AircSpacing.l
+        let w = label.frame.width + buttonWidth + 2 * AircSpacing.l
         frame = NSRect(x: container.midX - w / 2, y: container.minY + AircMetrics.Toast.topInset, width: w, height: h)
         label.frame = NSRect(x: AircSpacing.l, y: (h - label.frame.height) / 2, width: label.frame.width, height: label.frame.height)
+        if let b = actionButton {
+            b.frame.origin = NSPoint(x: label.frame.maxX + AircSpacing.m, y: (h - b.frame.height) / 2)
+        }
         isHidden = false
         guard let layer else { return }
         // In: from 0.7 scale on Arc's pop spring, fading in.
@@ -245,10 +274,24 @@ final class ToastView: NSView {
         hideWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: work)
     }
+
+    /// Hides at once (its action ran).
+    func dismiss() {
+        hideWork?.cancel()
+        hideWork = nil
+        isHidden = true
+    }
+
+    @objc private func runAction() {
+        let run = actionRun
+        dismiss()
+        run?()
+    }
 }
 
 /// A view whose empty areas drag the window (Arc: empty sidebar space and margins move it).
 class PassthroughView: NSView {
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true } // W07c: see RootView
 }

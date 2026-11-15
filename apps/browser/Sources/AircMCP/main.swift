@@ -1,11 +1,12 @@
 // Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
 //
-// airc-mcp: the stdio MCP server that Claude Code, Codex or a T3 thread start. It holds no logic: it finds the running
-// Airc's agent socket (docs/agent-ready.md §3.2), says who is asking and for which profile in one hello line, and then
-// pipes MCP's newline-delimited JSON-RPC both ways. Airc decides everything (agents on, the profile granted, the tools).
+// airc-mcp: the stdio MCP server that Claude Desktop, Claude Code and other MCP apps start (docs/user/agents.md). It
+// ships inside Airc.app (Contents/Helpers) and holds no logic: it finds the running Airc's agent socket, says who is
+// asking and for which profile in one hello line, and then pipes MCP's newline-delimited JSON-RPC both ways. Airc decides
+// everything (agents on, the app allowed, the profile, the tools).
 //
-//   claude mcp add airc -- airc-mcp --profile Agent
-//   claude mcp add airc -- ssh <the Mac> "<path>/airc-mcp --profile Agent"     (an agent on another machine)
+//   claude mcp add --scope user airc -- "$HOME/Library/Application Support/Airc/bin/airc-mcp"
+//   claude mcp add airc -- ssh <the Mac> "<that path> --client claude-code"     (an agent on another machine)
 //
 // No network: the socket is a 0600 Unix socket in Airc's data folder (or the per-user temporary folder when that path
 // is too long for a socket address), which only processes of the same user can open.
@@ -118,7 +119,7 @@ if options.printConfig {
     let profile = options.profile.map { " --profile '\($0)'" } ?? ""
     print("""
     # This Mac (Claude Code):
-    claude mcp add airc -- '\(me)'\(profile)
+    claude mcp add --scope user airc -- '\(me)'\(profile)
     # An agent on another machine, over SSH (no port opens):
     claude mcp add airc -- ssh <this Mac> "'\(me)'\(profile)"
     # Codex (~/.codex/config.toml):
@@ -137,7 +138,7 @@ while fd == nil, Date() < deadline {
     fd = connect(path)
 }
 guard let sock = fd else {
-    fail("Airc isn't running, or agents are off (no socket at \(path)). In a dev build: Airc's Dock menu › Agents.")
+    fail("Airc isn't running, or “Let AI apps use Airc” is off (Airc › Settings › Agents). No socket at \(path).")
 }
 
 // One hello line, one answer line, then a plain pipe.

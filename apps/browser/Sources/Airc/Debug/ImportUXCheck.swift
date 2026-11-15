@@ -332,6 +332,7 @@ extension SnapshotRunner {
                     m.onImportEverything?()
                 case .accounts: m.onNext?()
                 case .logins: m.onSkipLogins?()
+                case .passwordManager: m.onPasswordManagerNotNow?()
                 case .theme, .defaultBrowser: m.onNext?()
                 case .done: return done()
                 }

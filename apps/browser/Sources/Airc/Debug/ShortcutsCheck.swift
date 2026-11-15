@@ -25,8 +25,11 @@ extension SnapshotRunner {
     /// `page` is how the test page's logger names it (`event.code`, a physical name).
     struct Key {
         let name: String, code: UInt16, chars: String, ignoring: String, mods: NSEvent.ModifierFlags, page: String
-        /// This layout can't type it (⌘[ on a German layout needs ⌥): Chromium runs SKIP it.
+        /// This layout can't type it (⌘[ on a German layout needs ⌥): Chromium runs SKIP it, unless the case presses the
+        /// layout's own key for the command instead (`onThisLayout`).
         let unavailable: Bool
+        /// This layout can't type it (on any engine).
+        let missingOnLayout: Bool
         /// Chromium runs only post keys their layout makes (WebKit takes an event as posted).
         static var strict = false
 
@@ -52,10 +55,26 @@ extension SnapshotRunner {
             }
             self.name = name; self.code = code; self.chars = chars; self.ignoring = ignoring; self.mods = mods
             unavailable = missing && Self.strict
+            missingOnLayout = missing
             page = (mods.contains(.command) ? "cmd+" : "") + (mods.contains(.control) ? "ctrl+" : "") + (mods.contains(.option) ? "alt+" : "")
                 + (mods.contains(.shift) ? "shift+" : "") + (Layout.domCode[code] ?? "?")
         }
         static func cmd(_ name: String, _ code: UInt16, _ c: String) -> Key { Key(name, code, c, nil, .command) }
+
+        /// K03: a key this layout can't type (⌘[ on Austrian needs ⌥) as a person there presses it: the command's first
+        /// extra key on this layout (ShortcutCenter.layoutAliases: the US key position, ⌘Ü, or the bracket typed with
+        /// ⌥, ⌥⌘6 for ⌘]), posted with that key's real code. `self` when the layout types it, or has no extra key.
+        func onThisLayout(_ id: String) -> Key {
+            guard missingOnLayout,
+                  let alias = ShortcutCenter.shared.layoutAliases.first(where: { $0.id == id && $0.key.count == 1 }) else { return self }
+            let char = alias.key
+            let letter = char.lowercased() != char.uppercased()
+            guard let hit = Layout.code(typing: letter ? char.lowercased() : char, near: code) else { return self }
+            var mods = alias.modifiers.subtracting(.shift)
+            if hit.shift || alias.modifiers.contains(.shift) { mods.insert(.shift) }
+            let shown = (ShortcutCenter.combo(char, mods)?.display ?? char)
+            return Key("\(name) (\(shown) on \(SnapshotRunner.layoutName))", hit.code, char, nil, mods, physical: true)
+        }
         static func cmdShift(_ name: String, _ code: UInt16, _ c: String) -> Key { Key(name, code, c, nil, [.command, .shift]) }
         static func arrow(_ name: String, _ code: UInt16, _ k: Int, _ mods: NSEvent.ModifierFlags) -> Key {
             let c = String(Character(UnicodeScalar(k)!))
@@ -388,28 +407,29 @@ extension SnapshotRunner {
                 waitForPage()
             }
             step { [self] done in refocus(page, done) }
-            let back = Key.cmd("⌘[", 33, "[")
+            let back = Key.cmd("⌘[", 33, "[").onThisLayout("tabs.back")
+            let forward = Key.cmd("⌘]", 30, "]").onThisLayout("tabs.forward")
             keyCase(back, page: page, setup: "reset();prevent[\(Self.js(back.page))]=1;caret(inp,3)", settle: KeyMonitor.pageAnswerTimeout + 0.15) { s, log in
                 self.check((s["href"] as? String)?.hasSuffix("/editor3") == true && log.contains("kd \(back.page) prevented"),
-                           "shortcuts: ⌘[ a page uses stays the page's (at \(s["href"] ?? "-"), log \(log.joined(separator: ", ")))")
+                           "shortcuts: \(back.name) a page uses stays the page's (at \(s["href"] ?? "-"), log \(log.joined(separator: ", ")))")
             }
             if !back.unavailable {
                 wait(1.05)
                 run { [self] in _ = page()?.evaluate("reset();caret(inp,3);1") { _ in } }
-                postKeyStep(.cmd("⌘[", 33, "["))
+                postKeyStep(back)
                 waitForPage()
                 step { [self] done in
                     page()?.evaluate("location.pathname") { v in
-                        self.check(v as? String == "/editor2", "shortcuts: ⌘[ a page doesn't use goes back one page (at \(v ?? "-"))")
+                        self.check(v as? String == "/editor2", "shortcuts: \(back.name) a page doesn't use goes back one page (at \(v ?? "-"))")
                         done()
                     }
                 }
                 step { [self] done in refocus(page, done) }
-                postKeyStep(.cmd("⌘]", 30, "]"))
+                postKeyStep(forward)
                 waitForPage()
                 step { [self] done in
                     page()?.evaluate("location.pathname") { v in
-                        self.check(v as? String == "/editor3", "shortcuts: ⌘] a page doesn't use goes forward one page (at \(v ?? "-"))")
+                        self.check(v as? String == "/editor3", "shortcuts: \(forward.name) a page doesn't use goes forward one page (at \(v ?? "-"))")
                         done()
                     }
                 }
@@ -468,7 +488,8 @@ extension SnapshotRunner {
             // Tab switching: ⌘{ ⌘} (⇧⌘[ ⇧⌘]) and ⌃⇞ ⌃⇟ move through the sidebar's tabs, whoever has the keyboard.
             var pasted = ""
             run { [self] in pasted = c.shownTabID ?? "" }
-            for (k, what) in [(Key("⌘{", 33, "{", nil, [.command, .shift]), "previous"), (Key("⌘}", 30, "}", nil, [.command, .shift]), "next"),
+            for (k, what) in [(Key("⌘{", 33, "{", nil, [.command, .shift]).onThisLayout("tabs.previous.brace"), "previous"),
+                              (Key("⌘}", 30, "}", nil, [.command, .shift]).onThisLayout("tabs.next.brace"), "next"),
                               (Key("⌃⇞", 116, String(Character(UnicodeScalar(NSPageUpFunctionKey)!)), nil, [.control, .function]), "previous"),
                               (Key("⌃⇟", 121, String(Character(UnicodeScalar(NSPageDownFunctionKey)!)), nil, [.control, .function]), "next")] {
                 if k.unavailable { postKeyStep(k); continue }

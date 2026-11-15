@@ -675,6 +675,7 @@ extension SnapshotRunner {
     /// The relaunch shows the same split: its panes, order, axis, sizes and focused pane, both pages live.
     func splitPersistRead() {
         waitForPage()
+        checkNoCommandBarAfterRelaunch("split relaunch")   // RelaunchCommandBarCheck.swift
         step { [self] done in
             waitUntil({ self.c.shownSplitID != nil && self.c.splitContainer.panes.allSatisfy { self.c.engineTab(for: $0.tabID)?.isLoading == false } }, timeout: 8) {
                 let x = self.c.store.split(self.c.shownSplitID)
@@ -716,6 +717,7 @@ extension SnapshotRunner {
         switch d {
         case .split(_, let target, let leading)?: "a split with \(c.store.tab(target)?.title ?? "?") (\(leading ? "first" : "last") pane)"
         case .today(_, let i)?: "into Today at \(i) (a move, no split)"
+        case .todayFolder(_, let i)?: "into a Today folder at \(i) (a move, no split)"
         case .pinned?: "into Pinned"
         case .favorites?: "into Favorites"
         case nil: "nothing"

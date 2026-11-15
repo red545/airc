@@ -1,0 +1,11 @@
+--- a/chrome/browser/task_manager/sampling/task_manager_impl.cc
++++ b/chrome/browser/task_manager/sampling/task_manager_impl.cc
+@@ -82,7 +82,7 @@
+           &TaskManagerImpl::OnTaskGroupBackgroundCalculationsDone,
+           base::Unretained(this))),
+       blocking_pool_runner_(base::ThreadPool::CreateSequencedTaskRunner(
+-          {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
++          {base::MayBlock(), base::TaskPriority::USER_VISIBLE,
+            base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN})),
+       shared_sampler_(new SharedSampler(blocking_pool_runner_)) {
+   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);

@@ -38,9 +38,11 @@
 #include "ui/gfx/geometry/size.h"
 #include "url/gurl.h"
 #include "airc/core/airc_cast_dialog.h"
+#include "airc/core/airc_call_share_target.h"
 #include "airc/core/airc_content_hooks.h"
 #include "airc/core/airc_device_chooser.h"
 #include "airc/core/airc_host_visibility.h"
+#include "airc/core/airc_launch_switches.h"
 #include "airc/core/airc_page_channel.h"
 #include "airc/core/airc_picture_in_picture.h"
 #import "airc/core/airc_api_internal.h"
@@ -93,10 +95,7 @@ CGImageRef CreatePicture(const SkBitmap& bitmap) {
 
 TabSharingInfoBarDelegate* TabSharingDelegateFor(content::WebContents* contents,
                                                  content::WebContents* capturer) {
-  // Upstream 156 keeps the capture-session identity private. The old fork's
-  // capturer_id() accessor is not available. Never guess from a tab's infobar:
-  // that could redirect a different capture session to this page.
-  return nullptr;
+  return airc::CallShareDelegate(contents, capturer);
 }
 
 }
@@ -144,6 +143,7 @@ TabSharingInfoBarDelegate* TabSharingDelegateFor(content::WebContents* contents,
   const bool capturing = indicator->IsCapturingTab(_contents) ||
                          indicator->IsCapturingWindow(_contents) ||
                          indicator->IsCapturingDisplay(_contents);
+  airc::CallShareSwitchCancelled(_contents);
   indicator->StopMediaCapturing(_contents,
                                 MediaStreamCaptureIndicator::MediaType::kDisplayMedia);
   return capturing;
@@ -205,7 +205,9 @@ TabSharingInfoBarDelegate* TabSharingDelegateFor(content::WebContents* contents,
   if (![self canShareThisTabInsteadFor:capturer]) {
     return NO;
   }
-  TabSharingDelegateFor(_contents, capturer.contents)->ShareThisTabInstead();
+  auto* sharing = TabSharingDelegateFor(_contents, capturer.contents);
+  airc::CallShareSwitchRequested(capturer.contents);
+  sharing->ShareThisTabInstead();
   return YES;
 }
 
@@ -241,19 +243,30 @@ TabSharingInfoBarDelegate* TabSharingDelegateFor(content::WebContents* contents,
 }
 
 - (void)exitPictureInPicture {
-  if (!_contents) {
+  NSParameterAssert(NSThread.isMainThread);
+  if (!_contents ||
+      PictureInPictureWindowManager::GetInstance()->GetWebContents() != _contents) {
     return;
   }
-  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+  // Keep destruction outside the native control's action stack. A page may
+  // close/reopen before this task runs; its new entry must not inherit this exit.
+  // The guarded scratch-only delay makes that ordering reproducible in checks.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE, base::BindOnce(
-                     [](base::WeakPtr<content::WebContents> contents) {
+                     [](base::WeakPtr<content::WebContents> contents,
+                        uint64_t generation) {
                        PictureInPictureWindowManager* manager =
                            PictureInPictureWindowManager::GetInstance();
-                       if (contents && manager->GetWebContents() == contents.get()) {
+                       if (contents && manager->GetWebContents() == contents.get() &&
+                           airc::PictureInPictureEntryGeneration() == generation) {
                          manager->ExitPictureInPicture();
+                       } else if (contents &&
+                                  airc::PictureInPictureEntryGeneration() != generation) {
+                         airc::TracePictureInPicture("engine: ignored stale host PiP exit");
                        }
                      },
-                     _contents->GetWeakPtr()));
+                     _contents->GetWeakPtr(), airc::PictureInPictureEntryGeneration()),
+      airc::TestFlag("pipExitRace") ? base::Milliseconds(500) : base::TimeDelta());
 }
 
 @end

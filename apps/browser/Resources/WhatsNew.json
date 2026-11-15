@@ -1,0 +1,285 @@
+{
+  "schema": 1,
+  "releases": [
+    {
+      "version": "0.1.17",
+      "highlights": [
+        {
+          "title": "Connect Claude in one step",
+          "lead": "Connect Claude in one step",
+          "detail": "Type \"claude\" in the Command Bar, or choose Help › Use Airc with Claude…, and Settings › Agents opens with Add to Claude Desktop first. Access then says whether an app has connected.",
+          "icon": "sparkles",
+          "action": "settingsAgents",
+          "image": "connect-claude"
+        },
+        {
+          "title": "Calendar hour grid",
+          "lead": "Calendar previews show Arc's hour grid again",
+          "detail": "Rest the pointer on a pinned Google Calendar or Outlook tab to see the next hours as a grid, with overlapping meetings side by side, a line at the current time and tomorrow's events below.",
+          "icon": "calendar",
+          "action": "settingsSitePreviews",
+          "image": "calendar-grid"
+        },
+        {
+          "title": "Updates retry on their own",
+          "lead": "Updates retry by themselves",
+          "detail": "If an update download stalls, Airc gives up after 20 seconds and quietly tries once more, so updates arrive without you doing anything.",
+          "icon": "arrow.clockwise"
+        },
+        {
+          "title": "Export All Easels",
+          "lead": "Export All Easels",
+          "detail": "The card at the top of Library › Easels saves every Easel as a web page in one ZIP, while you keep working. File › Export Easel… now lets you pick Image or Web Page.",
+          "icon": "square.and.arrow.up"
+        },
+        {
+          "title": "Dark icons stay visible",
+          "lead": "Dark site icons stay visible",
+          "detail": "In a dark theme, a site icon that is itself dark, such as a black letter, now sits on a small light plate so it doesn't disappear into the sidebar.",
+          "icon": "circle.lefthalf.filled"
+        },
+        {
+          "title": "More Show me buttons",
+          "lead": "What's New's Show me goes further",
+          "detail": "Show me on this page can now also open Settings › AI and Settings › Shortcuts, and each update can explain up to seven new things.",
+          "icon": "hand.point.up.left"
+        }
+      ]
+    },
+    {
+      "version": "0.1.16",
+      "highlights": [
+        {
+          "title": "Watch your AI agents",
+          "lead": "See what your AI agent is doing",
+          "detail": "When Claude or another AI app uses Airc, its tabs appear in an Agents folder in the sidebar. Click one to watch it live, then take it over as your own tab or stop it. Settings › Agents › Activity lists what agents did.",
+          "icon": "eye",
+          "action": "settingsAgents",
+          "image": "agents-watch"
+        },
+        {
+          "title": "What's New in Airc",
+          "lead": "What's New in Airc",
+          "detail": "After an update, Airc opens this tab to explain each new thing, with a button that takes you to it. Choose a tab, a card in the sidebar, or nothing in Settings › General.",
+          "icon": "sparkles",
+          "action": "settingsUpdates"
+        },
+        {
+          "title": "Dark mode reads better",
+          "lead": "Dark mode reads better",
+          "detail": "Text in dark mode now meets standard contrast in every Space colour, so labels, addresses and the Command Bar's rows are easier to read. Dark Spaces are a little deeper.",
+          "icon": "moon"
+        },
+        {
+          "title": "Automatic download names",
+          "lead": "Tidy Downloads renames automatically",
+          "detail": "Turn on Rename automatically in Settings › AI › Downloads, and a download with an unclear name gets a clear one by itself, with Undo right after. It needs Apple Intelligence.",
+          "icon": "arrow.down.circle"
+        },
+        {
+          "title": "Share Quote",
+          "lead": "Share Quote",
+          "detail": "Select a few words on a page and a Share Quote button shows under the address. Click it to copy a link that opens the page at that text. You can turn it off in Settings › General.",
+          "icon": "quote.bubble",
+          "action": "settingsGeneral"
+        }
+      ]
+    },
+    {
+      "version": "0.1.15",
+      "highlights": [
+        {
+          "title": "Command Bar opens at once",
+          "lead": "The Command Bar opens instantly",
+          "detail": "The Command Bar is the box where you type a site, a search, an open tab or a command. Press ⌘T anywhere and it now appears in the very next frame, so the first letters you type always land in it.",
+          "icon": "command",
+          "action": "commandBar",
+          "image": "command-bar"
+        },
+        {
+          "title": "Pick Airc's app icon",
+          "lead": "More app icons",
+          "detail": "Choose the icon Airc shows in the Dock, the app switcher and the Finder: six of Airc's own, from Holographic to Sunset, Ocean, Midnight and Graphite. Your choice stays after updates.",
+          "icon": "paintpalette",
+          "action": "settingsAppIcon",
+          "image": "settings-app-icon"
+        },
+        {
+          "title": "Splits sync between Macs",
+          "lead": "Splits sync between your Macs",
+          "detail": "A split shows two or more pages side by side in one tab. With iCloud Sync on, the splits you pinned or made Favorites now appear on your other Macs too, in the same order and sizes.",
+          "icon": "rectangle.split.2x1",
+          "action": "settingsSync",
+          "image": "pinned-split"
+        },
+        {
+          "title": "Calendar previews",
+          "lead": "Calendar previews",
+          "detail": "Rest the pointer on a pinned Google Calendar or Outlook calendar tab to see today's and tomorrow's events without switching to it. Click an event to open it there.",
+          "icon": "calendar",
+          "action": "settingsSitePreviews"
+        }
+      ]
+    },
+    {
+      "version": "0.1.14",
+      "highlights": [
+        {
+          "title": "Opens faster",
+          "lead": "Opens faster",
+          "detail": "Airc's window now appears right away when you open it, instead of waiting for the ad and tracker blocker. Pages still wait for it, so nothing loads unprotected.",
+          "icon": "bolt"
+        },
+        {
+          "title": "Complete Arc import",
+          "lead": "Arc import, complete",
+          "detail": "Importing from Arc now also brings your saved logins, cookies and sites' stored data, so you stay signed in to your sites. It needs the Chromium engine.",
+          "icon": "square.and.arrow.down",
+          "action": "settingsImport",
+          "image": "arc-import-logins"
+        },
+        {
+          "title": "Notes and Easels in Peek",
+          "lead": "Notes and Easels open in Peek",
+          "detail": "Click a note or an Easel in the Library and it opens in Peek, a window floating over your page, ready to edit. Open in Space puts it back in the sidebar.",
+          "icon": "scribble.variable",
+          "action": "libraryNotes"
+        },
+        {
+          "title": "Clear Archive by age",
+          "lead": "Clear Archive by age",
+          "detail": "The Archive keeps the tabs Airc tidied away for you. You can now clear all of it, or only tabs older than 7 or 30 days, with Undo right after.",
+          "icon": "clock",
+          "action": "libraryArchive"
+        },
+        {
+          "title": "See a Boost's code first",
+          "lead": "See a Boost's code first",
+          "detail": "A Boost restyles or changes a website for you. When you add one someone shared, Airc shows its full code before anything runs, and a Boost with code starts switched off.",
+          "icon": "paintbrush",
+          "action": "settingsBoosts",
+          "image": "boost-import"
+        }
+      ]
+    },
+    {
+      "version": "0.1.13",
+      "highlights": [
+        {
+          "title": "Claude can use Airc",
+          "lead": "Let Claude use your browser",
+          "detail": "AI apps such as Claude Desktop and Claude Code can open pages, read them, click and type for you, in windows of their own. Airc asks once per app and never shows one your passwords.",
+          "icon": "sparkles",
+          "action": "settingsAgents"
+        },
+        {
+          "title": "What's new, in Airc",
+          "lead": "What's new, in Airc itself",
+          "detail": "After an update Airc tells you what changed, on a page like this one or as a small card in the sidebar. Choose which, or neither, in Settings › General.",
+          "icon": "arrow.clockwise",
+          "action": "settingsUpdates"
+        },
+        {
+          "title": "Feedback with pictures",
+          "lead": "A Feedback button in the sidebar",
+          "detail": "The speech bubble at the bottom of the sidebar sends a note to the Airc team. Add up to five pictures by pasting, dropping, or capturing the window.",
+          "icon": "bubble.left.and.text.bubble.right",
+          "action": "sendFeedback",
+          "image": "send-feedback"
+        },
+        {
+          "title": "Copy link from the sidebar",
+          "lead": "Copy a link from the sidebar",
+          "detail": "Every tab in the sidebar has a copy button next to its ×. Click it to copy the tab's link without switching to it.",
+          "icon": "link"
+        },
+        {
+          "title": "Full-screen new windows",
+          "lead": "New windows in full screen",
+          "detail": "When Airc is in full screen, ⌘N opens the new window in a full-screen Space of its own, instead of floating over the one you're in.",
+          "icon": "macwindow"
+        }
+      ]
+    },
+    {
+      "version": "0.1.12",
+      "highlights": [
+        {
+          "title": "Right-click menus",
+          "icon": "contextualmenu.and.cursorarrow",
+          "lead": "Right-click menus on web pages"
+        },
+        {
+          "title": "Open Link in Space",
+          "icon": "square.stack.3d.up",
+          "lead": "Open Link in Space, in every link menu"
+        },
+        {
+          "title": "Full extension list",
+          "icon": "puzzlepiece.extension",
+          "lead": "Every extension to reinstall, when you import from Arc"
+        },
+        {
+          "title": "Spaces saved on quit",
+          "icon": "externaldrive.badge.checkmark",
+          "lead": "Your Spaces are saved as soon as you quit"
+        },
+        {
+          "title": "No more held tabs",
+          "icon": "hand.point.up.left",
+          "lead": "No more \"held\" tabs"
+        }
+      ]
+    },
+    {
+      "version": "0.1.11",
+      "highlights": [
+        {
+          "title": "Favorite badges, as in Arc",
+          "icon": "app.badge",
+          "lead": "Favorite badges, as in Arc"
+        },
+        {
+          "title": "Search engines imported",
+          "icon": "magnifyingglass",
+          "lead": "Your search engines come along"
+        },
+        {
+          "title": "Add shared Easels",
+          "icon": "scribble.variable",
+          "lead": "Add to Airc for shared Easels"
+        }
+      ]
+    },
+    {
+      "version": "0.1.10",
+      "highlights": [
+        {
+          "title": "Send Feedback",
+          "icon": "bubble.left.and.text.bubble.right",
+          "lead": "Send Feedback"
+        },
+        {
+          "title": "Previews show their age",
+          "icon": "clock",
+          "lead": "Tab previews show their age"
+        },
+        {
+          "title": "Turn off one tab's preview",
+          "icon": "eye.slash",
+          "lead": "Turn off one tab's preview"
+        },
+        {
+          "title": "VoiceOver reads previews",
+          "icon": "accessibility",
+          "lead": "VoiceOver reads tab previews"
+        },
+        {
+          "title": "Preview cards stay put",
+          "icon": "rectangle.on.rectangle",
+          "lead": "Preview cards stay put"
+        }
+      ]
+    }
+  ]
+}

@@ -121,13 +121,20 @@ final class EventKitCalendarSource: CalendarEventSource {
         guard access == .granted else { return [] }
         let s = eventStore()
         return s.events(matching: s.predicateForEvents(withStart: from, end: to, calendars: nil)).compactMap { e in
-            guard e.status != .canceled,
-                  e.attendees?.first(where: \.isCurrentUser)?.participantStatus != .declined,
-                  let start = e.startDate, let end = e.endDate else { return nil }
+            guard e.status != .canceled, let start = e.startDate, let end = e.endDate else { return nil }
+            // The person's answer; MeetingSchedule leaves declined ones out, as for every source (Arc's rule).
+            let response: CalendarEvent.Response = switch e.attendees?.first(where: \.isCurrentUser)?.participantStatus {
+            case .accepted?: .accepted
+            case .tentative?: .tentative
+            case .declined?: .declined
+            case .pending?: .needsAction
+            default: .none
+            }
             return CalendarEvent(id: "\(e.calendarItemIdentifier)@\(Int(start.timeIntervalSince1970))",
                                  title: e.title?.isEmpty == false ? e.title! : "Untitled meeting", start: start, end: end,
                                  isAllDay: e.isAllDay,
-                                 link: MeetingLink.find(url: e.url?.absoluteString, location: e.location, notes: e.notes))
+                                 link: MeetingLink.find(url: e.url?.absoluteString, location: e.location, notes: e.notes),
+                                 response: response)
         }
     }
 }
@@ -203,6 +210,8 @@ final class CalendarCenter: ObservableObject {
     // MARK: What to show
 
     var tileLabel: String? { isActive ? MeetingSchedule.tileLabel(events, now: now()) : nil }
+    /// S03b: the countdown's meeting is five minutes away or on (the tile's "meeting soon" pill).
+    var tileIsSoon: Bool { isActive && MeetingSchedule.isSoon(events, now: now()) }
     var promptEvent: CalendarEvent? {
         isActive ? MeetingSchedule.promptEvent(events, now: now(), dismissed: dismissed, lead: preferences.joinLead.seconds) : nil
     }

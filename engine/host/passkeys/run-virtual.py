@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 # Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
 """Run the ad-hoc passkey host on loopback TLS under the shared UI lock.
-Usage: run-virtual.py APP NEW_OUTPUT. Build with AIRC_HOST_SOURCE=.../main.mm.
+Usage: run-virtual.py APP NEW_OUTPUT [sheet]. Build with AIRC_HOST_SOURCE=.../main.mm.
+"sheet" needs the Developer ID signed host (real platform authenticator): it captures Airc's
+"Create a passkey" sheet into NEW_OUTPUT/shots and cancels it without pressing its button.
 """
 import base64
 import hashlib
@@ -16,7 +18,9 @@ import http.server
 from functools import partial
 app = pathlib.Path(sys.argv[1]).resolve()
 out = pathlib.Path(sys.argv[2]).resolve()
+sheet = sys.argv[3:] == ['sheet']
 out.mkdir()  # Refuse reuse of profiles/results.
+(out / 'shots').mkdir()
 (out / 'data' / 'Chromium').mkdir(parents=True)
 cert, key = out / 'cert.pem', out / 'key.pem'
 subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
@@ -37,7 +41,8 @@ command = [sys.executable, str(repo/'scripts/ui-check-lock.py'), 'open', '-g', '
     f'--user-data-dir={out}/data/Chromium', f'--airc-data-dir={out}/data',
     '--use-mock-keychain', '--airc-test=passkeys',
     f'--url=https://localhost:{server.server_port}/fixture.html',
-    f'--ignore-certificate-errors-spki-list={spki}', f'--report={out}/result.json', f'--pid={out}/pid']
+    f'--ignore-certificate-errors-spki-list={spki}', f'--report={out}/result.json', f'--pid={out}/pid',
+    *([f'--mode=sheet', f'--shots={out}/shots'] if sheet else [])]
 try:
     # Never inherit the ship suite's permission to proceed without the UI lock.
     env = {k: v for k, v in os.environ.items()
@@ -48,7 +53,7 @@ try:
     result = json.loads((out/'result.json').read_text())
     print(json.dumps(result, indent=2))
     if not result['passed']:
-        raise RuntimeError('virtual passkey check failed')
+        raise RuntimeError('passkey sheet check failed' if sheet else 'virtual passkey check failed')
 finally:
     server.shutdown()
     # Kill only this fixture's recorded executable if it outlived the check.

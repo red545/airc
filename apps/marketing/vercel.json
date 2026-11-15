@@ -4,7 +4,7 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm build",
   "outputDirectory": "dist",
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ../../docs/user ../../docs/release-notes-beta.md ../../assets/screenshots ../../CHROMIUM_VERSION",
+  "ignoreCommand": "bash scripts/vercel-ignore.sh",
   "headers": [
     {
       "source": "/_astro/(.*)",
@@ -30,6 +30,15 @@
         {
           "key": "Cache-Control",
           "value": "public, max-age=60"
+        }
+      ]
+    },
+    {
+      "source": "/releases/:path*",
+      "headers": [
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
         }
       ]
     },
@@ -78,15 +87,45 @@
       "destination": "https://hpqylr02za4pig6a.public.blob.vercel-storage.com/feeds/nightly-latest.json"
     },
     {
+      "source": "/releases/:path*",
+      "destination": "https://hpqylr02za4pig6a.public.blob.vercel-storage.com/releases/:path*"
+    },
+    {
       "source": "/download",
       "destination": "/api/download"
+    },
+    {
+      "source": "/s/:id([A-Za-z0-9]{12})",
+      "destination": "/api/s?id=:id"
+    },
+    {
+      "source": "/e/:id([A-Za-z0-9]{12})",
+      "destination": "/api/e?id=:id"
+    },
+    {
+      "source": "/e/:id([A-Za-z0-9]{12})/a/:asset([0-9a-f]{64}\\.[a-z]{3,4})",
+      "destination": "/api/e?id=:id&asset=:asset"
+    },
+    {
+      "source": "/admin/boosts",
+      "destination": "/api/admin"
+    },
+    {
+      "source": "/admin/feedback",
+      "destination": "/api/feedback?view=admin"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/sweep",
+      "schedule": "17 3 * * *"
     }
   ],
   "redirects": [
     {
-      "source": "/releases/:path*",
-      "destination": "https://hpqylr02za4pig6a.public.blob.vercel-storage.com/releases/:path*",
-      "permanent": true
+      "source": "/releases/:version/:build/notes.html",
+      "destination": "/changelog#v:version",
+      "permanent": false
     }
   ]
 }

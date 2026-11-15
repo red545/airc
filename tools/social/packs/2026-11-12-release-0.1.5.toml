@@ -1,0 +1,184 @@
+# Airc 0.1.5 on Stable (2026-11-11 ~23:40 UTC, build 202611112249, source cabfbaac). Every claim is from its approved
+# notes (docs/release-notes-beta.md at 20ecf3cb; aircbrowser.com/changelog).
+slug = "2026-11-12-release-0.1.5"
+title = "Airc 0.1.5 release pack"
+kind = "release"
+since = "0.1.5"
+# 0.1.5's own source: its shots as committed in the cut.
+shots_rev = "cabfbaac"
+tag = "New in Airc 0.1.5"
+end_title = "Airc 0.1.5"
+end_line = "Free for Mac · aircbrowser.com"
+summary = """
+Airc 0.1.5 shipped on Stable on 2026-11-11. This pack covers it: an announcement image, cards for Easel links, Live
+Captures and Notes sync from the cut's own shots, a launch thread and standalone posts. The cut has no new shots of
+the tab menus, the Command Bar's icons, Favorites' unread dots, the password manager step or Library's media filters,
+so those posts are text only.
+"""
+order = """
+1. Post 1 (the announcement) on its own, then the thread's replies under it, a few minutes apart. No links in any post.
+2. Then the standalone posts, one per slot, in the order below.
+"""
+checked = """
+- 0.1.5's approved notes (docs/release-notes-beta.md at 20ecf3cb, "New since 0.1.4" and "Also improved"): every feature
+  named here is there; nothing else is claimed.
+- Not claimed: automatic updates (not proven end to end); Easel sync between Macs, freehand drawing or editing a
+  shared Easel together; Notes sync between two Macs (exercised with real iCloud on the build Mac only; the post says
+  so); anything about Cast on a real TV.
+- Kept from "Please know": the passkeys warning (no Touch ID: a sign-in may complete without the Mac password; a fix
+  is coming) is its own reply in the thread, word for word from the notes. Safe Browsing stays off (nothing says
+  otherwise).
+- Shots from the cut (cabfbaac) only, on demo data: easel-share, easel-live, settings-sync. settings-sync is clipped to
+  its iCloud switch and the encryption line: its device list shows two Macs, and two-Mac delivery isn't qualified.
+- The Live Captures video (added 2026-11-13, after the first recap: single feature videos do best) is rendered frame by
+  frame by the app from 0.1.5's source (mac-frames.sh --rev cabfbaac), on the demo's own flight and forecast pages;
+  the flight page's change (On time to Boarding) is a fixture, served by the demo server.
+"""
+
+# ---------------------------------------------------------------- images
+
+[[image]]
+id = "announce"
+shot = "easel-share"
+hero = true
+title = "Airc 0.1.5"
+line = "Notes sync, Easel exports and links, Live Captures and better tab menus, in the Arc-style browser for Mac."
+alt = "Airc 0.1.5. Share Easel “Lisbon weekend” in Airc's Travel Space, on demo data: the read-only page exactly as it would be published, a checklist, a note card with an arrow to a picture of Lisboa, two link cards, what's never in a link, and Create Link."
+
+[[image]]
+id = "easel-share"
+shot = "easel-share"
+title = "Share an Easel."
+focus = [390, 120, 660, 660]
+line = "A read-only link. See exactly what's published first, and take it back when you like."
+alt = "Share Easel “Lisbon weekend” in Airc, on demo data: the read-only page as it would be published, a note that it's a snapshot later changes don't reach, that cookies, sign-ins, the pages behind Live Captures and undo history are never in a link, and Create Link."
+
+[[image]]
+id = "easel-live"
+shot = "easel-live"
+title = "Live Captures."
+focus = [250, 200, 1110, 480]
+line = "Captures on an Easel refresh from their page."
+alt = "An Easel called Getting there in Airc's Travel Space, on demo data: two live Captures with Live chips, a flight's status from a demo flights page and the week's forecast from a demo weather page, and a note saying these stay live."
+
+[[image]]
+id = "notes-sync"
+shot = "settings-sync"
+title = "Notes sync."
+line = "Pinned Notes sync through iCloud, encrypted with the rest of your sidebar."
+clip = [200, 20, 580, 195]
+alt = "Airc's Settings, Sync: the switch Sync Spaces, pinned tabs, notes and Favorites with iCloud is on, with the note that it's end-to-end encrypted and the key is in your iCloud Keychain."
+
+# ---------------------------------------------------------------- videos (rendered from cabfbaac)
+
+[[video]]
+id = "easellive-video"
+motion = "easellive"
+tag = "New in Airc 0.1.5"
+title = "Live Captures."
+line = "Captures on an Easel refresh from their page."
+captions = { page = "A page you're keeping an eye on.", select = "Capture the part you need onto an Easel.", easel = "On the Easel it stays live.", refresh = "When the page changes…", live = "…the Capture changes with it." }
+fade_frames = 10
+alt = "An animation rendered frame by frame by Airc 0.1.5 on demo pages: a flight status page for TP 1351, on time at gate A14, is captured onto an Easel called Getting there beside the week's forecast, both with Live chips; then the flight page changes and the Capture on the board updates to Boarding at gate A16."
+
+# ---------------------------------------------------------------- posts
+
+[[post]]
+label = "Announcement (the thread's first post)"
+media = ["announce:16x9"]
+text = """
+Airc 0.1.5 is out.
+
+New: Notes sync through iCloud, Easel exports and share links, Live Captures in Easels, more useful tab menus, clearer ⌘T results and unread dots on more Favorites.
+
+Free, for Macs with Apple silicon. The download is on our profile.
+"""
+
+[[post]]
+label = "Easel exports and links"
+reply = true
+media = ["easel-share:16x9"]
+text = """
+Easels can leave your Mac now. Save a board or a selection as a PNG or an offline web page, copy it as a picture, or send it with Share….
+
+Share Link… makes a read-only page anyone with the link can open. You see what will be published first, and can take the link back.
+"""
+
+[[post]]
+label = "Live Captures"
+reply = true
+media = ["easel-live:16x9"]
+text = """
+Captures on an Easel can stay live: they refresh from their source page, and you can interact with them. Boards that are off screen stay quiet.
+"""
+
+[[post]]
+label = "Notes sync"
+reply = true
+media = ["notes-sync:16x9"]
+text = """
+Pinned Notes and their pictures can sync through iCloud, encrypted with the rest of your sidebar. An open note follows changes as they come in, and conflicting edits keep a separate copy.
+
+Honest note: so far we've exercised it with real iCloud on one Mac.
+"""
+
+[[post]]
+label = "Tab menus and ⌘T"
+reply = true
+text = """
+Tab menus do more: Move to › lists the current Space's folders, and with tabs selected, Archive Tabs Below and Archive Other Tabs clear the rest.
+
+⌘T adds Mute All Tabs and Pin to a folder. Sites there show their icons, and known official addresses get a check mark.
+"""
+
+[[post]]
+label = "Also in 0.1.5"
+reply = true
+text = """
+Also new: more Favorites show an unread dot (Slack's with its count), setup asks which password manager you use, Library's media can be filtered and Quick Looked with Space, Little Airc can open over a full-screen app, and picture in picture reopens more reliably.
+"""
+
+[[post]]
+label = "Passkeys heads-up (from Please know)"
+reply = true
+text = """
+A heads-up on passkeys: on a Mac where Touch ID isn't available (no sensor, or the lid closed), Airc may complete a passkey sign-in after Continue without asking for your Mac password.
+
+A fix is coming in the next update.
+"""
+
+[[post]]
+label = "Your password manager at setup"
+text = """
+New in Airc 0.1.5: setup asks about your password manager. Choose 1Password, Bitwarden, Apple Passwords or another one, keep Airc's own, or skip the step.
+
+You can find it again in Settings → Import.
+"""
+
+[[post]]
+label = "Library media"
+text = """
+Library › Media in Airc 0.1.5: filter by Images, Videos or Captures, press Space for Quick Look, and Delete with Undo.
+
+Right-click the Library button to choose which recent files it shows.
+"""
+
+[[post]]
+label = "Live Captures (standalone)"
+media = ["easel-live:16x9"]
+text = """
+An Easel can hold live Captures now, like a flight's gate or the week's forecast, refreshing from their own pages. New in Airc 0.1.5.
+"""
+
+[[post]]
+label = "Today folders"
+text = """
+Arc import keeps Today's folders together now, and New Folder with N Tabs makes the folder in the selected tabs' own section. New in 0.1.5.
+"""
+
+[[post]]
+label = "Live Captures (video)"
+media = ["easellive-video:16x9"]
+text = """
+Capture part of a page onto an Easel and it stays live. When the page changes, the Capture on your board changes with it. New in Airc 0.1.5.
+"""

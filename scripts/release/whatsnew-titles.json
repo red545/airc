@@ -1,0 +1,145 @@
+{
+  "Right-click menus on web pages": "Right-click menus",
+  "Every extension to reinstall, when you import from Arc": "Full extension list",
+  "Your Spaces are saved as soon as you quit": "Spaces saved on quit",
+  "No more \"held\" tabs": "No more held tabs",
+  "Your search engines come along": "Search engines imported",
+  "Add to Airc for shared Easels": "Add shared Easels",
+  "Tab previews show their age": "Previews show their age",
+  "VoiceOver reads tab previews": "VoiceOver reads previews",
+  "Let Claude use your browser": {
+    "title": "Claude can use Airc",
+    "detail": "AI apps such as Claude Desktop and Claude Code can open pages, read them, click and type for you, in windows of their own. Airc asks once per app and never shows one your passwords.",
+    "action": "settingsAgents"
+  },
+  "What's new, in Airc itself": {
+    "title": "What's new, in Airc",
+    "detail": "After an update Airc tells you what changed, on a page like this one or as a small card in the sidebar. Choose which, or neither, in Settings › General.",
+    "action": "settingsUpdates"
+  },
+  "A Feedback button in the sidebar": {
+    "title": "Feedback with pictures",
+    "detail": "The speech bubble at the bottom of the sidebar sends a note to the Airc team. Add up to five pictures by pasting, dropping, or capturing the window.",
+    "action": "sendFeedback",
+    "image": "send-feedback"
+  },
+  "Copy a link from the sidebar": {
+    "title": "Copy link from the sidebar",
+    "detail": "Every tab in the sidebar has a copy button next to its ×. Click it to copy the tab's link without switching to it."
+  },
+  "New windows in full screen": {
+    "title": "Full-screen new windows",
+    "detail": "When Airc is in full screen, ⌘N opens the new window in a full-screen Space of its own, instead of floating over the one you're in."
+  },
+  "Arc import, complete": {
+    "title": "Complete Arc import",
+    "detail": "Importing from Arc now also brings your saved logins, cookies and sites' stored data, so you stay signed in to your sites. It needs the Chromium engine.",
+    "action": "settingsImport",
+    "image": "arc-import-logins"
+  },
+  "Notes and Easels open in Peek": {
+    "title": "Notes and Easels in Peek",
+    "detail": "Click a note or an Easel in the Library and it opens in Peek, a window floating over your page, ready to edit. Open in Space puts it back in the sidebar.",
+    "action": "libraryNotes"
+  },
+  "The Command Bar opens instantly": {
+    "title": "Command Bar opens at once",
+    "detail": "The Command Bar is the box where you type a site, a search, an open tab or a command. Press ⌘T anywhere and it now appears in the very next frame, so the first letters you type always land in it.",
+    "action": "commandBar",
+    "image": "command-bar"
+  },
+  "Splits sync between your Macs": {
+    "title": "Splits sync between Macs",
+    "detail": "A split shows two or more pages side by side in one tab. With iCloud Sync on, the splits you pinned or made Favorites now appear on your other Macs too, in the same order and sizes.",
+    "action": "settingsSync",
+    "image": "pinned-split"
+  },
+  "More app icons": {
+    "title": "Pick Airc's app icon",
+    "detail": "Choose the icon Airc shows in the Dock, the app switcher and the Finder: six of Airc's own, from Holographic to Sunset, Ocean, Midnight and Graphite. Your choice stays after updates.",
+    "action": "settingsAppIcon",
+    "image": "settings-app-icon"
+  },
+  "Calendar previews": {
+    "title": "Calendar previews",
+    "detail": "Rest the pointer on a pinned Google Calendar or Outlook calendar tab to see today's and tomorrow's events without switching to it. Click an event to open it there.",
+    "action": "settingsSitePreviews"
+  },
+  "Opens faster": {
+    "title": "Opens faster",
+    "detail": "Airc's window now appears right away when you open it, instead of waiting for the ad and tracker blocker. Pages still wait for it, so nothing loads unprotected."
+  },
+  "Clear Archive by age": {
+    "title": "Clear Archive by age",
+    "detail": "The Archive keeps the tabs Airc tidied away for you. You can now clear all of it, or only tabs older than 7 or 30 days, with Undo right after.",
+    "action": "libraryArchive"
+  },
+  "See a Boost's code first": {
+    "title": "See a Boost's code first",
+    "detail": "A Boost restyles or changes a website for you. When you add one someone shared, Airc shows its full code before anything runs, and a Boost with code starts switched off.",
+    "action": "settingsBoosts",
+    "image": "boost-import"
+  },
+  "See what your AI agent is doing": {
+    "title": "Watch your AI agents",
+    "detail": "When Claude or another AI app uses Airc, its tabs appear in an Agents folder in the sidebar. Click one to watch it live, then take it over as your own tab or stop it. Settings › Agents › Activity lists what agents did.",
+    "action": "settingsAgents",
+    "image": "agents-watch"
+  },
+  "What's New in Airc": {
+    "title": "What's New in Airc",
+    "detail": "After an update, Airc opens this tab to explain each new thing, with a button that takes you to it. Choose a tab, a card in the sidebar, or nothing in Settings › General.",
+    "action": "settingsUpdates"
+  },
+  "Dark mode reads better": {
+    "title": "Dark mode reads better",
+    "detail": "Text in dark mode now meets standard contrast in every Space colour, so labels, addresses and the Command Bar's rows are easier to read. Dark Spaces are a little deeper.",
+    "action": null
+  },
+  "Tidy Downloads renames automatically": {
+    "title": "Automatic download names",
+    "detail": "Turn on Rename automatically in Settings › AI › Downloads, and a download with an unclear name gets a clear one by itself, with Undo right after. It needs Apple Intelligence."
+  },
+  "Share Quote": {
+    "title": "Share Quote",
+    "detail": "Select a few words on a page and a Share Quote button shows under the address. Click it to copy a link that opens the page at that text. You can turn it off in Settings › General.",
+    "action": "settingsGeneral"
+  },
+  "Connect Claude in one step": {
+    "title": "Connect Claude in one step",
+    "detail": "Type \"claude\" in the Command Bar, or choose Help › Use Airc with Claude…, and Settings › Agents opens with Add to Claude Desktop first. Access then says whether an app has connected.",
+    "action": "settingsAgents",
+    "image": "connect-claude"
+  },
+  "Calendar previews show Arc's hour grid again": {
+    "title": "Calendar hour grid",
+    "detail": "Rest the pointer on a pinned Google Calendar or Outlook tab to see the next hours as a grid, with overlapping meetings side by side, a line at the current time and tomorrow's events below.",
+    "action": "settingsSitePreviews",
+    "image": "calendar-grid"
+  },
+  "Updates retry by themselves": {
+    "title": "Updates retry on their own",
+    "detail": "If an update download stalls, Airc gives up after 20 seconds and quietly tries once more, so updates arrive without you doing anything.",
+    "action": "none"
+  },
+  "Export All Easels": {
+    "title": "Export All Easels",
+    "detail": "The card at the top of Library › Easels saves every Easel as a web page in one ZIP, while you keep working. File › Export Easel… now lets you pick Image or Web Page.",
+    "action": "none"
+  },
+  "Dark site icons stay visible": {
+    "title": "Dark icons stay visible",
+    "detail": "In a dark theme, a site icon that is itself dark, such as a black letter, now sits on a small light plate so it doesn't disappear into the sidebar.",
+    "action": "none"
+  },
+  "What's New's Show me goes further": {
+    "title": "More Show me buttons",
+    "detail": "Show me on this page can now also open Settings › AI and Settings › Shortcuts, and each update can explain up to seven new things.",
+    "action": "none"
+  },
+  "Use Airc from your other devices": {
+    "title": "Airc from other devices",
+    "detail": "Claude Code on your other computers can use Airc on this Mac over Tailscale. Turn it on and pair a device in Settings › Agents › Other devices.",
+    "action": "settingsAgents"
+  }
+}

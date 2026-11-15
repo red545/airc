@@ -8,7 +8,8 @@ import AppKit
 ///   - notes: Travel with a note pinned in its sidebar, "Lisbon plan": a few lines, a checklist with one tick, and a
 ///     Capture of the synthetic trip-planning page's illustration (MarketingServer's trips.aircbrowser.com/lisbon, the
 ///     Capture shot's page) pasted into it. Fixture text only; the page's tab is closed again before the shot.
-///   - notes-split: New Note in Split: the same trip page with a note beside it, "Packing for Lisbon", being written.
+///   - notes-split: New Note in Split: the same trip page with a note beside it, titled "Lisbon trip" (P13b) and
+///     headed "Packing for Lisbon", being written.
 extension SnapshotRunner {
     func mkNotesShots(_ d: MarketingDemo) {
         let board = NSPasteboard(name: NSPasteboard.Name("org.airc.marketing.notes.\(getpid())"))
@@ -101,6 +102,8 @@ extension SnapshotRunner {
                 return note("marketing: MISSING notes-split: no note")
             }
             splitNote = t.id
+            // P13b: the note's own title, in the field above its text and on its row.
+            if let id = NoteURL.noteID(t.url) { try? c.store.setNoteTitle(id, "Lisbon trip") }
             c.addPane(splitNote, nextTo: splitPage, axis: .horizontal)
             guard c.shownSplitID != nil, let tv = c.shownNote?.textView else { return note("marketing: MISSING notes-split: no split") }
             tv.isContinuousSpellCheckingEnabled = false   // place names aren't misspelled

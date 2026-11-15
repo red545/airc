@@ -58,10 +58,14 @@ png += chunk(b'tEXt', b'Source\0' + sys.argv[2].encode() + b'/Desktop/shot.png')
 png += chunk(b'IDAT', zlib.compress(b'\0\0')) + chunk(b'IEND', b'')
 open(sys.argv[1], 'wb').write(png)
 EOF
+# Made-up values approved by value (scan-synthetic.txt), alone and next to a real-looking one.
+printf 'peer = "100.101.102.7", "my-mac.tailnet.ts.net", "[fd7a:115c:a1e0::42]:80"\n' >"$tree/planted/synthetic.md"
+printf 'peers = ["100.101.102.7", "%s"]\n' "100${d}99${d}12${d}34" >"$tree/planted/mixed.md"
 touch "$tree/planted/notes-$user.txt"
 ln -s /etc/hosts "$tree/planted/outside"
 
-run() { AIRC_PRIVATE_PATTERNS=$patterns AIRC_SCAN_ALLOWLIST=${allow:-/dev/null} "$HERE/scan.sh" "$1" >"$work/out" 2>&1; }
+run() { AIRC_PRIVATE_PATTERNS=$patterns AIRC_SCAN_ALLOWLIST=${allow:-/dev/null} AIRC_SCAN_SYNTHETIC=${synth:-$HERE/scan-synthetic.txt} \
+  "$HERE/scan.sh" "$1" >"$work/out" 2>&1; }
 
 allow=$work/none.txt; : >"$allow"
 if run "$tree"; then fail "scan exits non-zero on planted values"; else pass "scan exits non-zero on planted values"; fi
@@ -82,6 +86,8 @@ expect "planted/shot.png:-: home-path"                 "home path in PNG metadat
 expect "path:username"                                 "private value in a file name"
 expect "planted/outside:-: external-symlink"           "symlink leaving the tree"
 if grep -q 'planted/ok.md' "$work/out"; then fail "reserved addresses are not flagged"; else pass "reserved addresses are not flagged"; fi
+if grep -q 'planted/synthetic.md' "$work/out"; then fail "pre-approved made-up values pass"; else pass "pre-approved made-up values pass"; fi
+expect "planted/mixed.md:1: private-ip"                "a made-up value doesn't approve another address on its line"
 if grep -qF "notes-" "$work/out"; then fail "file name with a private value is redacted"; else pass "file name with a private value is redacted"; fi
 
 leaked=0
@@ -109,6 +115,19 @@ rm -rf "$tree/planted"
 git -C "$ROOT" show HEAD:README.md >"$tree/README.md"
 allow=$HERE/scan-allowlist.txt
 if run "$tree"; then pass "unplanted copy passes"; else fail "unplanted copy passes"; sed -n '1,20p' "$work/out"; fi
+
+# Synthetic entries can never cover a real value or a literal kind.
+synth=$work/synth.txt
+printf '*\tprivate-ip\tnet:%s/32\tSelf-test: would hide a real IP.\n' "$ip" >"$synth"
+if run "$tree"; then fail "synthetic entry covering a private literal is refused"
+else expect "covers a private tailnet-ip value" "synthetic entry covering a private literal is refused"; fi
+printf '*\ttailnet-ip\tnet:100.101.102.0/24\tSelf-test: a literal kind.\n' >"$synth"
+if run "$tree"; then fail "synthetic entry for a literal kind is refused"
+else expect "not a regex kind" "synthetic entry for a literal kind is refused"; fi
+printf '*\tprivate-ip\tnet:100.64.0.0/10\tSelf-test: too wide.\n' >"$synth"
+if run "$tree"; then fail "a too-wide synthetic network is refused"
+else expect "network too wide" "a too-wide synthetic network is refused"; fi
+unset synth
 
 # Refusals.
 inside=$tree/patterns.txt; cp "$patterns" "$inside"

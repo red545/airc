@@ -12,9 +12,11 @@
 #    apps/marketing/src/lib/site.ts (add more with AIRC_PUBLIC_EMAILS="a@b c@d").
 #
 # Hits print as `file:line: kind`, never the value. Approved hits live in scan-allowlist.txt
-# (path glob, kind, reason). Exit status is non-zero on any unapproved hit.
+# (path glob, kind, reason); made-up IPs and tailnet names in scan-synthetic.txt are approved by
+# value (docs/launch/public-repo.md, "Made-up addresses"). Exit status is non-zero on any unapproved hit.
 #
-# Env: AIRC_TOOLS_DIR (default: tools/ beside the repo), AIRC_SCAN_ALLOWLIST, AIRC_SCAN_SHOW_ALLOWED=1.
+# Env: AIRC_TOOLS_DIR (default: tools/ beside the repo), AIRC_SCAN_ALLOWLIST, AIRC_SCAN_SYNTHETIC,
+# AIRC_SCAN_SHOW_ALLOWED=1.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -28,6 +30,7 @@ case "$(cd "$(dirname "$patterns")" && pwd)/" in
   "$ROOT"/*|"$dir"/*) echo "The private pattern file must live outside the repository and the scanned tree." >&2; exit 2 ;;
 esac
 allowlist=${AIRC_SCAN_ALLOWLIST:-$HERE/scan-allowlist.txt}
+synthetic=${AIRC_SCAN_SYNTHETIC:-$HERE/scan-synthetic.txt}
 
 # --- gitleaks, pinned -------------------------------------------------------------------------
 GITLEAKS_VERSION=8.30.1
@@ -72,6 +75,7 @@ echo "gitleaks $GITLEAKS_VERSION: $(python3 -c 'import json,sys; print(len(json.
 # --- private values and emails ----------------------------------------------------------------
 args=(--patterns "$patterns" --gitleaks-report "$report")
 [[ -f "$allowlist" ]] && args+=(--allowlist "$allowlist")
+[[ -f "$synthetic" ]] && args+=(--synthetic "$synthetic")
 [[ "${AIRC_SCAN_SHOW_ALLOWED:-}" == 1 ]] && args+=(--show-allowed)
 for email in ${AIRC_PUBLIC_EMAILS:-}; do args+=(--public-email "$email"); done
 python3 "$HERE/scan.py" "$dir" "${args[@]}"

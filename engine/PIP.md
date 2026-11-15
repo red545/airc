@@ -92,7 +92,13 @@ The manager's entry observer schedules native placement after window creation.
 Both video overlay and Document PiP windows get floating level,
 CanJoinAllSpaces and FullScreenAuxiliary. Initial position is bottom-right of the
 opener's screen (main screen fallback) with 20-point visible-frame margins.
-Saved frames select an intersecting display and clamp to its visible work area.
+Saved placements retain the display UUID and nearest corner offsets, separately
+for video and Document PiP. Reopening selects that display and clamps to its
+visible work area; when it is gone, the same corner falls back to the main display.
+Legacy frame-only preferences still select an intersecting display. Video keeps
+its saved size subject to its aspect ratio; Document PiP honors the site’s newly
+requested viewport size. Native close/open layout cannot overwrite the saved
+user placement before restoration.
 The policy never calls application activation or makeKeyAndOrderFront. Chromium
 retains native click/focus/close behavior. Native focus and fullscreen-Space
 behavior still need on-screen verification; setting collectionBehavior is not
@@ -117,6 +123,12 @@ provide a Back to tab control if a UI variant omits it. The patch's integration
 note specifies this work; it is not a finished settings UI implementation.
 
 ## Tests, evidence and reproduction
+
+The test-only `infra/w10/` runner supplies a scoped virtual second display for
+`parityw10`, `parityw10-read`, and `parityw10-fallback`. It checks video/Document
+PiP display and corner restoration, missing-display fallback, and Document PiP
+viewport resizing without camera, microphone, or screen capture. Results and
+physical-display limitations are recorded in `artifacts/w10/REPORT.md`.
 
 Private evidence is in `artifacts/engine/pip/retest/` outside the repository.
 The updated `status.json` summarizes the retest; the original is preserved as
@@ -571,3 +583,68 @@ call-peer ICE assertions and the media2 system-PiP menu assertion remain
 All five call/video marketing captures completed and were inspected. Real Meet
 participant selection, remote media and service-specific controls still require
 one authenticated call; synthetic fixtures do not establish those results.
+
+## Open/close serialization (pipserial, 2026-11-11)
+
+WebKit drops a picture in picture entry that arrives while its previous system
+player is still closing, and a pausing close that finishes late pauses a video
+the person has just played again. `SystemPictureInPicture`
+(`WebKitMediaControls.swift`) serializes them across all tabs, since macOS shows
+one system player at a time:
+
+* An open during any tab's close, Return or teardown waits for it, including the
+  close's playback step. It runs when the close finishes, or after 5 s with a log
+  line naming what it waited for. A newer open replaces a waiting one (answered
+  `replaced`). A close of the same tab cancels it (answered `cancelled`).
+* An open that waits for a pausing close cancels that pause.
+* Opening in one tab first closes another tab's open player.
+* An open answers `requested` only once WebKit reports the system player. A page
+  that still reports picture in picture with no system player is closed and
+  opened again once, keeping its playback.
+* Every decision writes one `Airc picture in picture:` log line.
+
+`--script pipreturn-rapid` (`PiPRapidCheck.swift`) checks it: 20 tray Hide →
+Picture in Picture back-to-back rounds, 5 closes during an open, two tabs, and a
+replaced open. Each round must end with exactly one system player (WebKit's state
+and the on-screen "Picture in Picture" window), the video playing in it and the
+tray row in sync.
+
+Chromium's host close stays posted so it cannot destroy a native control inside
+its action stack. It now captures the entry generation as well as the weak tab:
+only that tab's same entry can be closed. The observer advances the generation
+before overlay callbacks for both video and Document PiP. A close with no current
+player for the tab is a no-op. This is a core change; no new upstream hook is needed.
+
+The Chromium rapid check requires a real page exit before requesting reentry in
+the same async script, then verifies a new entry event and a stable window with
+playing video and Airc controls. Merely calling requestPictureInPicture on the
+current element resolves with its existing window in Blink; the old check mistook
+that no-op for a new entry, producing alternating failures. It did not establish
+that the generation guard alone fixes those failures.
+
+For deterministic stale-task coverage, guarded scratch instances may pass
+`--airc-test=pipExitRace --airc-trace=pip`: the same host exit task is delayed
+500 ms, letting the page exit and reopen first. Each round checks the new window
+after that deadline; trace output confirms that the stale host exit was ignored.
+Without injection, the check waits for the host's native leave event rather than
+sending a competing page Stop request; Blink resets its observer when stopping,
+so two concurrent exits can strand the page promise. Production instances keep
+the ordinary zero-delay posted task. The guard does
+not cancel Chromium's policy-owned exits. No WebKit teardown paths from the
+PiP crash fix are changed.
+
+## Call-control ownership
+
+A full call page and a site's Document PiP own their call controls. Airc shows
+only its browser bar there: Close, Hide and Back to Tab. Chat and sharing tools
+must not add a second row above the page. `CallChat.pageOwnsControls` records this
+structural policy beside the provider adapter; Document PiP exceptions belong in
+its exact-host override table, after verifying a provider supplies tiles only.
+There is no pixel or DOM-geometry heuristic.
+
+Tile PiP and the sidebar retain Airc's controls because those surfaces do not
+show the page's control row. Tile chat uses the same provider adapter and unread
+state as the tray, and disappears when the adapter is unavailable or the surface
+shows a full page. Closing a floating surface still leaves the call running.
+The pipcontrols, medialib-call, parityp16b and pipreturn checks cover ownership;
+marketing's call-chat capture also asserts that its native duplicate row is absent.

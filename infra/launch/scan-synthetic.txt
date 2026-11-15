@@ -1,0 +1,44 @@
+# Made-up addresses and tailnet names the privacy scan approves by VALUE (scan.py --synthetic).
+# <path glob><TAB><kind><TAB>net:<CIDR> | text:<exact match><TAB><reason>
+# A line's private-ip or tailnet-domain hit passes only when EVERY value of that kind on the line is
+# listed here for that file. Networks are at most a /24 (IPv4) or /112 (IPv6). Real values (the
+# literal kinds from the private pattern file) can never be listed; scan.py refuses an entry that
+# covers one. Prefer the documentation ranges, which the scan never flags: 192.0.2.0/24,
+# 198.51.100.0/24, 203.0.113.0/24 (RFC 5737), 2001:db8::/32 (RFC 3849), example.com/.test names.
+# See docs/launch/public-repo.md, "Made-up addresses".
+
+# --- Pre-approved everywhere: use these for new made-up tailnet and LAN values -------------------
+*	private-ip	net:100.101.102.0/24	Tailscale's own documentation example range (100.101.102.103); made-up tailnet peers.
+*	private-ip	net:100.64.0.0/24	The first /24 of the CGNAT range: range-start constants (100.64.0.0) and made-up peers 100.64.0.x.
+*	private-ip	net:100.127.255.255/32	The last CGNAT address, a range-end constant in tests.
+*	private-ip	net:fd7a:115c:a1e0::/112	Made-up Tailscale IPv6 peers with a short host part (::1, ::42, ::1234); real peers' host parts are 32-bit.
+*	private-ip	text:fd7a:115c:a1e0::	Tailscale's published IPv6 prefix as a range constant (fd7a:115c:a1e0::/48), not an address.
+*	private-ip	text:fd7a:115c:a1e0:	Tailscale's published IPv6 prefix in prose ("fd7a:115c:a1e0:…").
+*	private-ip	text:fd7a:	A shortened Tailscale IPv6 prefix in prose ("[fd7a:…]").
+*	private-ip	net:192.168.1.0/24	The generic home-router LAN in examples and tests.
+*	private-ip	net:10.0.0.0/24	The generic private LAN in examples and tests.
+*	tailnet-domain	text:tailnet.ts.net	Made-up tailnet name (my-mac.tailnet.ts.net).
+*	tailnet-domain	text:tailnet-a1b2.ts.net	Made-up tailnet name (my-mac.tailnet-a1b2.ts.net).
+*	tailnet-domain	text:example.ts.net	Made-up tailnet name (my-mac.example.ts.net).
+
+# --- Exact made-up values in specific files ---------------------------------------------------------
+apps/browser/Sources/Airc/Debug/MarketingAgents.swift	private-ip	net:100.88.12.40/32	Made-up second peer in the marketing screenshot's remote-agents list.
+apps/browser/Sources/Airc/Debug/MarketingAgents.swift	private-ip	net:100.90.7.21/32	Made-up third peer in the marketing screenshot's remote-agents list.
+apps/browser/Sources/Airc/Debug/ParityRemoteCheck.swift	private-ip	net:100.99.1.2/32	Made-up listening address in a doc comment on the lsof output format.
+apps/browser/Sources/Airc/Debug/ParityRemoteCheck.swift	private-ip	net:100.100.7.9/32	Made-up foreign tailnet address the check proves is refused.
+apps/marketing/test/easel.test.mjs	private-ip	net:10.9.9.9/32	Made-up client address in a rate-limit test.
+apps/marketing/test/feedback.test.mjs	private-ip	net:10.9.0.0/24	Made-up client addresses in rate-limit tests.
+packages/AircKit/Tests/AircKitTests/PeekRulesTests.swift	private-ip	net:fe80::1/128	The first link-local IPv6 address, proving Peek treats it as local.
+packages/AircKit/Tests/AircKitTests/PeekRulesTests.swift	private-ip	net:10.168.1.1/32	A host that only looks like a LAN address, in a Peek host-classification test.
+packages/AircKit/Tests/AircKitTests/RemoteAgentsNameBindTests.swift	private-ip	net:100.99.1.2/32	Made-up address that is NOT this Mac, proving name binding refuses it.
+packages/AircKit/Tests/AircKitTests/RemoteAgentsNameBindTests.swift	tailnet-domain	text:mac.ts.net	A malformed made-up name ("my..mac.ts.net") the name check must reject.
+packages/AircKit/Tests/AircKitTests/RemoteAgentsTests.swift	private-ip	net:100.88.12.34/32	Made-up second peer in remote-agent tests.
+packages/AircKit/Tests/AircKitTests/RemoteAgentsTests.swift	private-ip	net:100.64.2.1/32	Made-up foreign tailnet address in an allow-list test.
+packages/AircKit/Tests/AircKitTests/RemoteAgentsTests.swift	private-ip	net:169.254.1.1/32	Link-local example proving it is not a tailnet address.
+packages/AircKit/Tests/AircKitTests/RemoteAgentsTests.swift	private-ip	net:fd7a:115c:a1e0::1234:5678/128	Made-up Tailscale IPv6 peer.
+packages/AircKit/Tests/AircKitTests/RemoteAgentsTests.swift	private-ip	net:fe80::1234:abcd/128	Made-up link-local interface address (utun) that must be skipped.
+packages/AircKit/Tests/AircKitTests/RemoteAgentsTests.swift	private-ip	net:fd7a:115c:a1e0:ab12:cd34::9/128	Made-up Tailscale IPv6 peer in upper case, proving the check ignores case.
+packages/AircKit/Tests/AircKitTests/RemoteAgentsTests.swift	private-ip	net:fe80::1/128	The first link-local IPv6 address, proving it is not a tailnet address.
+packages/AircKit/Tests/AircKitTests/RemoteAgentsTests.swift	private-ip	net:fd00::1/128	ULA example outside Tailscale's prefix, proving it is not a tailnet address.
+packages/AircKit/Tests/AircKitTests/RemoteAgentsTests.swift	private-ip	net:fd7a:115c::1/128	Near-miss of Tailscale's prefix, proving it is not a tailnet address.
+packages/AircKit/Tests/AircKitTests/RemoteAgentsTests.swift	private-ip	net:fd7a:115c:a1e1::1/128	Near-miss of Tailscale's prefix, proving it is not a tailnet address.

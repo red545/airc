@@ -1,5 +1,4 @@
 // Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
-#if AIRC_TESTING // agentspike: a dev-build prototype (docs/agent-ready.md); public builds compile none of Agent/
 import AppKit
 
 /// The window an agent's pages live in. It can never become key or main, takes no clicks from the person's mouse,
@@ -40,6 +39,10 @@ final class AgentWindow: NSObject, EngineWindowDelegate, EngineTabDelegate {
     /// The computer-use cursor, in page points.
     var cursor = CGPoint.zero
     var lastUsed = Date()
+    /// The app behind the connection, for the Agents folder ("Claude · Gmail") and Stop.
+    var clientName: String?
+    var clientKey: String?
+    /// Tabs opened, closed, or a page's title or address changed (the Agents folder's rows follow).
     var onTabsChanged: (() -> Void)?
     private var screensObserver: NSObjectProtocol?
 
@@ -147,6 +150,30 @@ final class AgentWindow: NSObject, EngineWindowDelegate, EngineTabDelegate {
         onTabsChanged?()
     }
 
+    func tab(_ tabID: Int) -> EngineTab? { tabs.first { $0.id == tabID }?.tab }
+
+    /// Take over: the tab leaves this window without closing (its page moves to the person's window). Nil when it's
+    /// gone.
+    func detach(_ tabID: Int) -> EngineTab? {
+        guard let i = tabs.firstIndex(where: { $0.id == tabID }) else { return nil }
+        let t = tabs.remove(at: i)
+        driver.release(t.tab)
+        driver.handBack(t.tab)
+        if t.tab.delegate === self { t.tab.delegate = nil }
+        if activeTabID == tabID {
+            activeTabID = nil
+            if let next = tabs.last { select(next.id) }
+        }
+        onTabsChanged?()
+        return t.tab
+    }
+
+    /// A detached page the person's window couldn't take comes back (a new tab id).
+    func reattach(_ tab: EngineTab) {
+        engineWindow.activeProfile = profile
+        adopt(tab, show: true)
+    }
+
     func close() {
         for t in tabs { closeTab(t.id) }
         // Let the pages' closes go out before the window does; this object lives until then (it holds the engine's
@@ -176,14 +203,13 @@ final class AgentWindow: NSObject, EngineWindowDelegate, EngineTabDelegate {
     /// A page that would play in the other engine stays here (agent windows are one engine's).
     func engineWindowCanReplaceTabs(_ window: EngineWindow) -> Bool { false }
 
-    // MARK: EngineTabDelegate (nothing to show; the tools read the tab's state when asked)
+    // MARK: EngineTabDelegate (the tools read the tab's state when asked; the Agents folder follows titles and addresses)
 
-    func tabDidChangeTitle(_ tab: EngineTab) {}
-    func tabDidChangeURL(_ tab: EngineTab) {}
+    func tabDidChangeTitle(_ tab: EngineTab) { onTabsChanged?() }
+    func tabDidChangeURL(_ tab: EngineTab) { onTabsChanged?() }
     func tabDidChangeLoading(_ tab: EngineTab) {}
     func tabDidChangeFavicon(_ tab: EngineTab) {}
     func tabDidChangeNavigationState(_ tab: EngineTab) {}
     func tabDidChangeAudio(_ tab: EngineTab) {}
     func tabDidChangeThemeColor(_ tab: EngineTab) {}
 }
-#endif

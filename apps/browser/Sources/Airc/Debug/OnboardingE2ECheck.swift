@@ -123,8 +123,14 @@ extension SnapshotRunner {
         }
         wait(0.6)
         run { [self] in
+            guard let m = onboarding?.model else { return }
+            check(m.step == .passwordManager, "\(label): Skip goes on to the password manager (\(m.step))")
+            m.onPasswordManagerNotNow?()
+        }
+        wait(0.6)
+        run { [self] in
             guard let m = onboarding?.model, m.previewSpaces.count > 2 else { return }
-            check(m.step == .theme, "\(label): Skip goes on to the colours (\(m.step))")
+            check(m.step == .theme, "\(label): Not now goes on to the colours (\(m.step))")
             let theme = DesignTheme.preset("ember")!.model
             m.focusedSpace = 2
             m.themes[m.previewSpaces[2].sourceID] = theme

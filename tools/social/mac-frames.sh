@@ -7,6 +7,10 @@
 #   tools/social/mac-frames.sh --rev bde185a           build a release's own source (its features' videos show that
 #                                                     release, not what came after); motion files of later
 #                                                     releases (social-needs) and SocialNext.swift are left out
+#   tools/social/mac-frames.sh --motions agent-hero,agent-login --rev c68f39e3
+#                                                     agentspike's demo runs (`--script agentspike --agent-demo=<mode>`,
+#                                                     AgentsDemo.swift; artifacts/agentview/REPORT.md, "For tools/social")
+#                                                     instead of our own scenario: frames land in _frames/agent-<mode>/
 #   tools/social/mac-frames.sh --no-build              render with the copy's last build
 #   tools/social/mac-frames.sh --keep                  leave the Mac copy (it's deleted after rendering by default)
 #   tools/social/mac-frames.sh --clean                 delete the copy on the Mac
@@ -85,6 +89,19 @@ if [ "$ON_MAC" = 1 ]; then
     for h in meet video radio files trips; do secure="$secure${secure:+,}http://$h.aircbrowser.com"; done
     mkdir -p "$out/$m"
     echo "== social: $m"
+    case "$m" in agent-*)
+      # agentspike's demo, as artifacts/agentview/REPORT.md runs it: a synthetic site the run serves itself, the host
+      # rule so the frames show pastelaria.aircbrowser.com, its own quit after 340 s. Frames: $out/$m/agents-<mode>/.
+      [ -x "$app/Contents/Helpers/airc-mcp" ] || { echo "error: no bundled helper in $app" >&2; exit 1; }
+      # shellcheck disable=SC2016
+      python3 scripts/ui-check-lock.py /bin/sh -c 'grep -q "^pid=$PPID " "$HOME/arcfork/.ui-check.lock" || { echo "social: the UI lock timed out; quitting"; exit 75; }; exec "$@"' sh \
+        open -g -n -W --env "CFFIXED_USER_HOME=$home" "$app" --args \
+        --engine=chromium --snapshot "$out/$m" --ephemeral --data-dir "$home/$m" \
+        --script agentspike "--agent-demo=${m#agent-}" --agent-quit-after=340 '--host-resolver-rules=MAP *.aircbrowser.com 127.0.0.1' \
+        -AppleLanguages '(en-GB)' -AppleLocale en_GB
+      grep -E "^(PASS|FAIL|FAIL-ENV|ENGINE-FAIL) |demo " "$out/$m/log.txt" 2>/dev/null | tail -20 | sed 's/^/  /' || echo "  social: $m wrote no log (crash?)"
+      continue ;;
+    esac
     # The wrapper writes its own pid into the lock file only when it holds the lock; the child checks that.
     # shellcheck disable=SC2016
     python3 scripts/ui-check-lock.py /bin/sh -c 'grep -q "^pid=$PPID " "$HOME/arcfork/.ui-check.lock" || { echo "social: the UI lock timed out; quitting"; exit 75; }; exec "$@"' sh \
@@ -143,8 +160,12 @@ rm -f "$SRC"/apps/browser/Sources/Airc/Debug/Social*.swift
 cp "$DEBUG/SocialFrames.swift" "$DEBUG/SocialMotions.swift" "$SRC/apps/browser/Sources/Airc/Debug/"
 # Motions of features newer than a release don't build on its source. A later release's file says the commit it needs
 # ("// social-needs: <commit>") and goes into builds of that commit and after; SocialNext.swift only into HEAD's.
+# An agent-demo-only run needs none of them (agentspike is the app's own): leaving them out keeps a motion file that
+# hasn't been built yet from failing a release's build.
+OWN=0; for m in $MOTIONS; do case "$m" in agent-*) ;; *) OWN=1 ;; esac; done
 for f in "$DEBUG"/SocialMotions0*.swift "$DEBUG/SocialNext.swift"; do
   [ -f "$f" ] || continue
+  [ "$OWN" = 1 ] || continue
   needs=$(sed -n 's|^// social-needs: \([0-9a-f]\{7,40\}\).*|\1|p' "$f" | head -n 1)
   if [ -z "$REV_ARG" ] || { [ -n "$needs" ] && git -C "$ROOT" merge-base --is-ancestor "$needs" "$REV_ARG"; }; then
     cp "$f" "$SRC/apps/browser/Sources/Airc/Debug/"
@@ -167,8 +188,18 @@ if [ "$BUILD" = 1 ]; then
     ready="$STATUS/buildmac-engine-ready"
     [ -f "$ready" ] || { echo "social: no $ready yet; try later" >&2; exit 75; }
     engine=$(head -n 1 "$ready" | awk '{print $1}')
-    if [ -n "$(git -C "$ROOT" log --oneline "$engine..${REV_ARG:-HEAD}" -- engine/ | head -n 1)" ]; then
-      echo "social: engine/ is newer than buildmac's ($engine); try after the next marker" >&2; exit 75
+    # The engine inputs, not ancestry: a marker commit on a release branch is fine if main's inputs are identical.
+    # shellcheck source=../../infra/engine-inputs.sh
+    . "$ROOT/infra/engine-inputs.sh"
+    rc=0; differ=$(engine_inputs_diff "$ROOT" "$engine" "${REV_ARG:-HEAD}") || rc=$?
+    if [ "$rc" != 0 ]; then
+      if [ "$rc" = 1 ]; then
+        echo "social: engine inputs differ from buildmac's ($engine); try after the next marker. Differing paths:" >&2
+        printf '  %s\n' $differ >&2
+      else
+        echo "social: $differ; try later" >&2
+      fi
+      exit 75
     fi
   fi
   # An engine relink or a quiet window goes first: an unstarted build waits while either is pending.
@@ -176,7 +207,10 @@ if [ "$BUILD" = 1 ]; then
   # The build alone holds the agent build lock (one agent build at a time on the Mac); the time and a priority build
   # (only the agents its first line names) are checked once it's ours.
   # shellcheck disable=SC2016
-  PRIORITY="$STATUS/priority-build" flock -E 75 -w "${AIRC_LOCK_WAIT:-900}" "$LOCK" bash -c '
+  PRIORITY="$STATUS/priority-build" QUIET="$STATUS/quiet-pending" RELINK="$STATUS/relink-pending" \
+  flock -E 75 -w "${AIRC_LOCK_WAIT:-900}" "$LOCK" bash -c '
+    # A reservation made while we waited for the lock: give it back at once and try later.
+    if [ -e "$QUIET" ] || [ -e "$RELINK" ]; then echo "social: a quiet window or relink is pending; try later"; exit 75; fi
     if [ -e "$PRIORITY" ] && ! head -n 1 "$PRIORITY" | grep -qiw social; then echo "social: a priority build is on; try later"; exit 75; fi
     now=$(date -u +%H%M)
     if [ "$now" -ge 0100 ] && [ "$now" -lt 0150 ]; then echo "social: not starting a build from 01:00 to 01:50 UTC (the nightly)"; exit 75; fi
@@ -194,11 +228,13 @@ if [ -e "$STATUS/quiet-pending" ]; then echo "social: a quiet window is on; try 
 "$SRC/scripts/mac.sh" -w "$WORK" run "$ENV caffeinate -i bash tools/social/mac-frames.sh --on-mac --no-build --motions $(echo "$MOTIONS" | tr ' ' ',')" || status=$?
 for m in $MOTIONS; do
   dest="$ARTIFACTS/_frames/$m"
-  if "$SRC/scripts/mac.sh" ssh "test -f ~/arcfork/work/$WORK/build/social/$m/$m.json"; then
+  src="build/social/$m/" check="build/social/$m/$m.json"
+  case "$m" in agent-*) src="build/social/$m/agents-${m#agent-}/" check="build/social/$m/agents-${m#agent-}/capture.json" ;; esac
+  if "$SRC/scripts/mac.sh" ssh "test -f ~/arcfork/work/$WORK/$check"; then
     # A new take replaces the old one whole, and says which source drew it.
     case "$dest" in */_frames/*) rm -rf -- "$dest" ;; esac
     mkdir -p "$dest"
-    "$SRC/scripts/mac.sh" -w "$WORK" get "build/social/$m/" "$dest/"
+    "$SRC/scripts/mac.sh" -w "$WORK" get "$src" "$dest/"
     # (A build from before this file existed has none: under set -e and pipefail a failed read must not end the run.)
     built=$("$SRC/scripts/mac.sh" ssh "cat ~/arcfork/work/$WORK/build/social-source-rev.txt 2>/dev/null" 2>/dev/null | tr -d '[:space:]' || true)
     echo "${built:-$REV}${REV_ARG:+ (release source)}${COMPAT:+$COMPAT (toolchain fix)}" > "$dest/source.txt"

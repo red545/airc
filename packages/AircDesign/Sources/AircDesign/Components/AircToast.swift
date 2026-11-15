@@ -42,7 +42,7 @@ public struct AircToast: View {
                 Button(actionTitle, action: action)
                     .buttonStyle(.plain)
                     .aircFont(AircFont.body.weight(.semibold))
-                    .foregroundStyle(theme.accent.color)
+                    .foregroundStyle(theme.accentText.color)
             }
         }
         .padding(.horizontal, 14)

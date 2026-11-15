@@ -101,6 +101,12 @@ extension SnapshotRunner {
         /// A real click on an AppKit view (the field's buttons, its icons), through the window.
         func clickView(_ what: String, _ view: @escaping () -> NSView?) {
             step { [self] done in
+                // AppKit can deliver a tracking exit between queued scenario steps. Establish
+                // the hover immediately before hit testing, just as entering the sidebar does.
+                c.sidebar.setHovered(true)
+                c.root.layoutSubtreeIfNeeded()
+                field()?.layoutSubtreeIfNeeded()
+                note("sitecontrols hover: sidebar \(c.sidebar.hovered), field \(field()?.sidebarHovered == true), host \(field()?.displayedHost ?? "missing")")
                 guard let v = view(), let w = v.window, !v.isHiddenOrHasHiddenAncestor else {
                     check(false, "sitecontrols (\(tag)): \(what) is on screen"); return done()
                 }
@@ -110,6 +116,10 @@ extension SnapshotRunner {
         func clickPanel(_ anchor: String) {
             run { [self] in
                 let p = c.siteControls
+                if let host = p?.hostingView, var rect = TestAnchors.frames[anchor] {
+                    if !host.isFlipped { rect.origin.y = host.bounds.height - rect.maxY }
+                    host.scrollToVisible(rect.insetBy(dx: -4, dy: -4))
+                }
                 note("sitecontrols: panel \(p.map { NSStringFromRect($0.frame) } ?? "closed"), card fits "
                      + "\(p.map { NSStringFromSize($0.hostingView.fittingSize) } ?? "-"), \(anchor) at "
                      + "\(TestAnchors.frames[anchor].map { NSStringFromRect($0) } ?? "-")")
@@ -135,7 +145,12 @@ extension SnapshotRunner {
         run { [self] in homeSpace = c.currentSpaceID }
 
         // 1. The slider button opens it under the field; Esc closes it; a click outside closes it.
-        run { [self] in c.sidebar.setHovered(true) }
+        run { [self] in
+            activateForRealInput()
+            c.sidebar.setHovered(true)
+            field()?.sidebarHovered = true
+            c.root.layoutSubtreeIfNeeded()
+        }
         wait(0.3)
         clickView("the Site Controls button") {
             field()?.subviews.first { ($0 as? GlyphButton)?.toolTip == "Site Controls" }

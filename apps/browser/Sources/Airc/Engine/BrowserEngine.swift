@@ -39,7 +39,15 @@ protocol BrowserEngine: AnyObject {
     /// Global engine setting. Unsupported engines hide the protected-content UI.
     var supportsProtectedContent: Bool { get }
     var protectedContentEnabled: Bool { get set }
+    /// Chrome extensions run (Chromium). WebKit's installs fail with "Chrome extensions require the Chromium engine."
+    var supportsExtensions: Bool { get }
+    /// The profile's "Offer to save passwords" (Chromium's credentials_enable_service); nil where the engine has no
+    /// password manager of its own (WebKit).
+    func passwordsOffered(for profile: EngineProfile) -> Bool?
+    func setPasswordsOffered(_ offered: Bool, for profile: EngineProfile)
     func installedExtensions(for profile: EngineProfile) -> [[String: Any]]
+    func installExtension(_ id: String, profile: EngineProfile, parent: NSWindow,
+                          completion: @escaping (ExtensionInstallOutcome) -> Void)
     func extensionActions(_ ids: [String], for tab: EngineTab) -> [String: [String: Any]]
     func extensionActionIcon(_ state: [String: Any]) -> NSImage?
     @discardableResult func executeExtensionAction(_ id: String, for tab: EngineTab) -> String
@@ -54,6 +62,8 @@ protocol BrowserEngine: AnyObject {
     /// SB-55: whether the window showing `tab` is the key window. Chromium's automatic picture-in-picture (a playing
     /// video or a call, when its tab is left) only enters for a tab switch in the active window, as in Chrome.
     func setPictureInPictureWindowActive(_ tab: EngineTab, active: Bool)
+    /// Explicit PiP from an Airc call host; implementations select their own live presentation.
+    func enterPictureInPictureForHost(_ tab: EngineTab, completion: @escaping (String, Bool) -> Void)
     /// Loads (or creates) the profile stored in `directory` (AircEngine -loadProfile:completion:).
     /// Directory names are fixed per profile and never reused.
     func loadProfile(directory: String, completion: @escaping (EngineProfile?) -> Void)
@@ -71,7 +81,14 @@ extension BrowserEngine {
     var protectedContentEnabled: Bool { get { false } set {} }
     var linkRouter: ((EngineLinkRequest) -> Bool)? { get { nil } set {} }
     func routeExternalURL(_ url: URL) -> Bool { false }
+    var supportsExtensions: Bool { false }
+    func passwordsOffered(for profile: EngineProfile) -> Bool? { nil }
+    func setPasswordsOffered(_ offered: Bool, for profile: EngineProfile) {}
     func installedExtensions(for profile: EngineProfile) -> [[String: Any]] { [] }
+    func installExtension(_ id: String, profile: EngineProfile, parent: NSWindow,
+                          completion: @escaping (ExtensionInstallOutcome) -> Void) {
+        completion(.init(status: "failed", reason: "Chrome extensions require the Chromium engine."))
+    }
     func extensionActions(_ ids: [String], for tab: EngineTab) -> [String: [String: Any]] { [:] }
     func extensionActionIcon(_ state: [String: Any]) -> NSImage? { nil }
     func executeExtensionAction(_ id: String, for tab: EngineTab) -> String { "none" }
@@ -84,6 +101,7 @@ extension BrowserEngine {
     var reportsPageShortcuts: Bool { false }
     var reportsCloseOutcome: Bool { false }
     func setPictureInPictureWindowActive(_ tab: EngineTab, active: Bool) {}
+    func enterPictureInPictureForHost(_ tab: EngineTab, completion: @escaping (String, Bool) -> Void) { completion("none", false) }
 }
 
 protocol EngineProfile: AnyObject {
@@ -242,6 +260,16 @@ extension EnginePageCommands where Self: EngineTab {
 }
 
 protocol EngineTabDelegate: AnyObject {
+    func tab(_ tab: EngineTab, pageMenu context: [String: Any]) -> [[String: String]]
+    func tab(_ tab: EngineTab, pageMenuCommand id: String)
+    /// C08: the engine a page's "Search … for" item names (the profile's default search); nil keeps the engine's own.
+    func selectionSearchName(for tab: EngineTab) -> String?
+    /// SP-31: the Spaces a link in `tab` can open in ("Open Link in Space ›"), as `["id", "title"]` rows. Empty (the
+    /// default: private windows, Little Airc) leaves the item out.
+    func linkSpaces(for tab: EngineTab) -> [[String: String]]
+    /// SP-31: the chosen Space of "Open Link in Space ›" for a link in `tab`.
+    func tab(_ tab: EngineTab, openLink url: URL, inSpace spaceID: String)
+
     func tabDidChangeTitle(_ tab: EngineTab)
     func tabDidChangeURL(_ tab: EngineTab)
     func tabDidChangeLoading(_ tab: EngineTab)
@@ -254,6 +282,12 @@ protocol EngineTabDelegate: AnyObject {
 }
 
 extension EngineTabDelegate {
+    func tab(_ tab: EngineTab, pageMenu context: [String: Any]) -> [[String: String]] { [] }
+    func tab(_ tab: EngineTab, pageMenuCommand id: String) {}
+    func selectionSearchName(for tab: EngineTab) -> String? { nil }
+    func linkSpaces(for tab: EngineTab) -> [[String: String]] { [] }
+    func tab(_ tab: EngineTab, openLink url: URL, inSpace spaceID: String) {}
+
     func tab(_ tab: EngineTab, didReceiveShortcut combo: String, pageUsedIt: Bool) {}
 }
 

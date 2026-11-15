@@ -73,6 +73,60 @@ public enum LibraryMedia {
         Array(listed(files, exists: exists).prefix(limit))
     }
 
+    /// L04: Library › Media's type filter (Arc's filter chips, "Remove Images Filter"): pictures, videos, or the
+    /// Captures saved with ⇧⌘2.
+    public enum Filter: String, CaseIterable, Sendable, Identifiable {
+        case images, videos, captures
+        public var id: String { rawValue }
+        public var title: String {
+            switch self {
+            case .images: "Images"
+            case .videos: "Videos"
+            case .captures: "Captures"
+            }
+        }
+
+        public func matches(_ f: LibraryFile) -> Bool {
+            switch self {
+            case .images: f.kind == .image
+            case .videos: f.kind == .video
+            case .captures: f.source == .capture
+            }
+        }
+    }
+
+    /// The grid's files with a type filter (nil: all of them), keeping their order.
+    public static func filtered(_ files: [LibraryFile], by filter: Filter?) -> [LibraryFile] {
+        guard let filter else { return files }
+        return files.filter(filter.matches)
+    }
+
+    /// The grid's section titles, as Arc buckets them: "Today", "Yesterday", "Earlier This Week", then the month
+    /// ("October"), with its year once it's from another year ("October 2025"). Files come in newest first, so each
+    /// bucket is one run.
+    public static func bucket(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+        if calendar.isDate(date, inSameDayAs: now) { return "Today" }
+        if let y = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: y) { return "Yesterday" }
+        if date < now, let week = calendar.dateInterval(of: .weekOfYear, for: now), week.contains(date) { return "Earlier This Week" }
+        let f = DateFormatter()
+        f.calendar = calendar
+        f.timeZone = calendar.timeZone
+        f.locale = calendar.locale ?? Locale.current
+        let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
+        f.setLocalizedDateFormatFromTemplate(sameYear ? "MMMM" : "MMMM y")
+        return f.string(from: date)
+    }
+
+    /// Files grouped under `bucket` titles, in order.
+    public static func buckets(_ files: [LibraryFile], now: Date = Date(), calendar: Calendar = .current) -> [(title: String, files: [LibraryFile])] {
+        var out: [(title: String, files: [LibraryFile])] = []
+        for f in files {
+            let t = bucket(f.date, now: now, calendar: calendar)
+            if out.last?.title == t { out[out.count - 1].files.append(f) } else { out.append((t, [f])) }
+        }
+        return out
+    }
+
     /// Finished, not private, newest first, one entry per file (a file downloaded twice under one name, or a Capture
     /// saved over: the newest), and only files that are still where they were written.
     static func listed(_ files: [LibraryFile], exists: (String) -> Bool) -> [LibraryFile] {

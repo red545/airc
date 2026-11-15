@@ -3,6 +3,21 @@ import XCTest
 @testable import AircKit
 
 final class LittleArcProfilesTests: XCTestCase {
+    private var previousSuffixes: PublicSuffixList!
+
+    override func setUp() {
+        super.setUp()
+        // Parallel XCTest workers do not run another test class's fixture setup.
+        previousSuffixes = PublicSuffixList.shared
+        TestSuffixes.install()
+    }
+
+    override func tearDown() {
+        PublicSuffixList.use(previousSuffixes)
+        previousSuffixes = nil
+        super.tearDown()
+    }
+
     func testDomainMemoryPersistencePrecedenceAndMissingProfiles() throws {
         let s = try makeStore()
         let recent = s.selectedSpace.id

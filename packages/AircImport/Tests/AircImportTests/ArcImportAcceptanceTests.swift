@@ -328,7 +328,7 @@ final class ArcImportAcceptanceTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(c.skippedLogins, 5)
         XCTAssertEqual(c.failedLogins, 1)
         let why = Dictionary(uniqueKeysWithValues: c.notes.map { ($0.username, $0.reason) })
-        XCTAssertEqual(why["app"], "An Android app's login: Airc takes website logins only")
+        XCTAssertEqual(why["app"], "An Android app's login (com.example.app): no website is linked to the app, so it can't be imported")
         XCTAssertEqual(why["fed"], "Signs in through another account (such as Google), so Arc had no password for it: use that sign-in on the site")
         XCTAssertEqual(why["basic"], "A password for the browser's own sign-in box (HTTP authentication): Airc can't import these yet")
         XCTAssertEqual(why["nameonly"], "Arc saved a username here but no password")

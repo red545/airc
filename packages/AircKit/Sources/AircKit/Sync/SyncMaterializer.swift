@@ -21,10 +21,12 @@ public struct SyncApplyResult: Equatable, Sendable {
 
 extension SpacesStore {
     /// Applies the synced sidebar (`replica.sidebar`) to the store in one transaction that isn't undoable. Only the
-    /// synced kinds are touched: listed Spaces, pinned tabs, folders and Favorites. Never profiles, Today tabs (except
-    /// those of a Space deleted elsewhere, which go to the Archive as on a local delete), splits, or anything private.
-    /// `replace` also removes this Mac's synced kinds the replica doesn't have (Replace this Mac's sidebar). The caller
-    /// captures local edits before and rebases the adapter after, so nothing applied here is sent back.
+    /// synced kinds are touched: listed Spaces, pinned tabs, folders, pinned and Favorite splits and Favorites. Never
+    /// profiles, Today tabs (except those of a Space deleted elsewhere, which go to the Archive as on a local delete), Today
+    /// splits, or anything private.
+    /// `replace` also removes this Mac's synced kinds the replica doesn't have (Replace this Mac's sidebar), except its
+    /// pinned notes: they stay, with their folders and Space, and the engine sends them (no text is lost to a Replace).
+    /// The caller captures local edits before and rebases the adapter after, so nothing applied here is sent back.
     @discardableResult
     public func applySync(_ replica: SyncReplica, adapter: inout SyncStoreAdapter, replace: Bool = false) throws -> SyncApplyResult {
         var result = SyncApplyResult()
@@ -33,6 +35,9 @@ extension SpacesStore {
         func localProfile(_ group: String) -> String? { groupToLocal[group] ?? (state.profiles[group] != nil ? group : nil) }
         let live = replica.sidebar
         var binder = adapter
+        // What this Mac keeps whatever the group says: local-only rows, and on Replace its pinned notes.
+        func keptNote(_ item: Item) -> Bool { replace && NoteURL.isNote(item.savedURL) && item.spaceID != nil }
+        func keepsHere(_ item: Item) -> Bool { SyncStoreAdapter.isLocalOnly(item, in: state) || keptNote(item) }
         try perform(nil) {
             // Spaces, in the group's order.
             var kept = Set<String>()      // listed Spaces that stay
@@ -75,8 +80,8 @@ extension SpacesStore {
             // Never erase local-only data: a Space another Mac deleted stays here while it holds a local-only item or a
             // note's Today tab (its synced rows still go, by their own tombstones).
             doomed.removeAll { space in
-                state.items.values.contains { $0.spaceID == space && SyncStoreAdapter.isLocalOnly($0) }
-                    || state.tabs.values.contains { $0.isToday && $0.spaceID == space && NoteURL.isNote($0.url) }
+                state.items.values.contains { $0.spaceID == space && keepsHere($0) }
+                    || state.tabs.values.contains { $0.isToday && $0.spaceID == space && LocalDocumentURL.isLocal($0.url) }
             }
             doomed.sort()
             let listed = state.spaces.values.filter { !$0.isBlankWindow }.count
@@ -88,6 +93,8 @@ extension SpacesStore {
             var local: [String: String] = [:]          // record → local item ID
             var favorites: [String: Int] = [:]
             var skipped = Set<String>()
+            let byID = Dictionary(rows.map { ($0.id.id, $0) }, uniquingKeysWith: { a, _ in a })
+            func parentRecord(_ record: SyncRecord) -> String? { if case .text(let p)? = record[.parent], byID[p] != nil { p } else { nil } }
             for record in rows {
                 guard case .location(let location)? = record[.location] else { continue }
                 switch location {
@@ -97,26 +104,41 @@ extension SpacesStore {
                     guard let profile = localProfile(group) else {
                         result.unresolvedProfiles.insert(group); skipped.insert(record.id.id); continue
                     }
-                    let shown = favorites[profile, default: 0]
-                    guard shown < Self.maxFavorites else { result.withheldFavorites += 1; skipped.insert(record.id.id); continue }
-                    favorites[profile] = shown + 1
+                    // A split's panes are part of its one Favorite: they don't count, and go wherever it goes (below).
+                    if parentRecord(record) == nil {
+                        let shown = favorites[profile, default: 0]
+                        guard shown < Self.maxFavorites else { result.withheldFavorites += 1; skipped.insert(record.id.id); continue }
+                        favorites[profile] = shown + 1
+                    }
                 case .today, .archived:
                     continue
                 }
                 // Stable: the same record always lands on the same local item, even after a lost checkpoint.
                 var id = bound[record.id.id] ?? SyncStoreAdapter.localItem(forRecord: record.id.id) ?? newID()
                 // A local-only item (its URL is too long to sync) is this Mac's: remote edits never touch it.
-                if let mine = state.items[id], SyncStoreAdapter.isLocalOnly(mine), binder.record(forItem: id) == record.id.id {
+                if let mine = state.items[id], SyncStoreAdapter.isLocalOnly(mine, in: state), binder.record(forItem: id) == record.id.id {
                     skipped.insert(record.id.id); continue
                 }
-                if let mine = state.items[id], mine.kind == .split || binder.record(forItem: id) != record.id.id { id = newID() }
+                // A synced folder this Mac moved into Today is this Mac's now (Today never syncs): remote edits to its
+                // old record don't pull it back into Pinned.
+                if state.items[id]?.isTodayFolder == true { skipped.insert(record.id.id); continue }
+                if state.items[id] != nil, binder.record(forItem: id) != record.id.id { id = newID() }
                 local[record.id.id] = id
+            }
+            // The panes of a split that stays out (a Favorite past the 12, a local-only split here) stay out with it.
+            var more = true
+            while more {
+                more = false
+                for record in rows where local[record.id.id] != nil {
+                    guard let p = parentRecord(record), skipped.contains(p) else { continue }
+                    local[record.id.id] = nil; skipped.insert(record.id.id); more = true
+                }
             }
             // Local items no longer in the synced sidebar: deleted, unpinned or moved out elsewhere.
             var gone: [(String, unpinned: Bool)] = []
             for (recordID, record) in replica.records where record.id.kind == .row && local[recordID.id] == nil && !skipped.contains(recordID.id) {
                 guard let id = bound[recordID.id] ?? SyncStoreAdapter.localItem(forRecord: recordID.id),
-                      let item = state.items[id], item.kind != .split, !SyncStoreAdapter.isLocalOnly(item),
+                      let item = state.items[id], !keepsHere(item), !item.isTodayFolder,
                       binder.record(forItem: id) == recordID.id else { continue }
                 let unpinned: Bool = if case .location(.archived)? = record[.location], !record.isDeleted { true }
                     else if case .location(.today)? = record[.location], !record.isDeleted { true } else { false }
@@ -125,7 +147,7 @@ extension SpacesStore {
             if replace {
                 let mine = Set(local.values)
                 for item in state.items.values where !mine.contains(item.id) && !gone.contains(where: { $0.0 == item.id })
-                    && !insideSplit(item) && !SyncStoreAdapter.isLocalOnly(item)
+                    && !keepsHere(item) && !item.isTodayFolder && !contains(item.id, keptNote)
                     && item.spaceID.map({ state.spaces[$0]?.isBlankWindow != true }) != false {
                     gone.append((item.id, false))
                 }
@@ -142,11 +164,15 @@ extension SpacesStore {
                 }
                 let old = state.items[id]
                 var item = old ?? Item(id: id, kind: .tab, container: container, createdAt: now())
-                item.kind = record[.kind] == .text("folder") ? .folder : .tab
+                item.kind = record[.kind] == .text("folder") ? .folder : record[.kind] == .text("split") ? .split : .tab
                 item.container = container
-                if case .text(let parent)? = record[.parent], let p = local[parent], case .pinned = container { item.parentID = p }
-                else { item.parentID = nil }
-                item.savedURL = item.kind == .folder ? nil : record[.url].flatMap { if case .text(let u) = $0 { u } else { nil } }
+                // A pane's split may be a Favorite; a folder is only ever pinned.
+                if case .text(let parent)? = record[.parent], let p = local[parent],
+                   byID[parent]?[.kind] == .text("split") || { if case .pinned = container { true } else { false } }() {
+                    item.parentID = p
+                } else { item.parentID = nil }
+                item.savedURL = item.kind != .tab ? nil : record[.url].flatMap { if case .text(let u) = $0 { u } else { nil } }
+                if item.kind != .split { item.splitLayout = nil }
                 item.title = record[.title].flatMap { if case .text(let t) = $0 { t } else { nil } }
                 item.icon = record[.icon].flatMap { if case .text(let e) = $0 { e } else { nil } }
                 if item.kind == .folder, item.title?.isEmpty != false { item.title = "Folder" }
@@ -162,13 +188,29 @@ extension SpacesStore {
                     && zip(indices, indices.dropFirst()).allSatisfy { written[$0.0].order < written[$0.1].order }
                 if !consistent { for (rank, i) in indices.enumerated() { written[i].order = Double(rank + 1) } }
             }
+            // A split's layout, once its panes have their local IDs and order (SplitSyncPayload.swift).
+            let recordOf = Dictionary(local.map { ($0.value, $0.key) }, uniquingKeysWith: { a, _ in a })
+            for i in written.indices where written[i].kind == .split {
+                let split = written[i]
+                let panes = written.filter { $0.parentID == split.id && $0.kind == .tab }
+                    .sorted { ($0.order, $0.createdAt, $0.id) < ($1.order, $1.createdAt, $1.id) }.map(\.id)
+                guard let record = recordOf[split.id].flatMap({ byID[$0] }) else { continue }
+                if case .split(let payload)? = record[.layout] {
+                    written[i].splitLayout = payload.layout(panes: panes, local: local, current: split.splitLayout)
+                } else if written[i].splitLayout == nil {
+                    written[i].splitLayout = SplitLayout()
+                }
+            }
             for item in written where state.items[item.id] != item { put(item) }
 
-            for (id, unpinned) in gone where state.items[id] != nil { removeSynced(id, keepPage: unpinned, replace: replace, keep: Set(local.values)) }
+            for (id, unpinned) in gone where state.items[id] != nil {
+                removeSynced(id, keepPage: unpinned, replace: replace, keep: Set(local.values), kept: keepsHere)
+            }
 
             for id in doomed {
                 for x in splits(ofSpace: id) { remove(Split.self, x.id) }
                 for t in todayTabs(ofSpace: id) { _ = archive(t, reason: .spaceDeleted) }
+                removeTodayFolders(ofSpace: id)
                 for root in pinnedRoots(ofSpace: id) { removeItemTree(root.id) }
                 remove(Space.self, id)
             }
@@ -183,10 +225,11 @@ extension SpacesStore {
 
     /// A pinned item or Favorite that went elsewhere. Its children the group still has were moved already; local-only
     /// ones (splits) go to the root, or with it on Replace. An unpinned pinned tab's open page becomes a Today tab.
-    private func removeSynced(_ id: String, keepPage: Bool, replace: Bool, keep: Set<String>) {
+    private func removeSynced(_ id: String, keepPage: Bool, replace: Bool, keep: Set<String>, kept: (Item) -> Bool) {
         for child in state.items.values where child.parentID == id && !keep.contains(child.id) {
-            // Local-only rows are never erased: they move to the root of their Space with the rest of a merge.
-            if replace && !SyncStoreAdapter.isLocalOnly(child) && !containsLocalOnly(child.id) { removeItemTree(child.id) }
+            // Local-only rows (and notes on Replace) are never erased: they move to the root of their Space with the rest
+            // of a merge.
+            if replace && !kept(child) && !contains(child.id, kept) { removeItemTree(child.id) }
             else { var c = child; c.parentID = nil; put(c) }
         }
         if let tab = liveTab(forItem: id) {
@@ -213,22 +256,15 @@ extension SpacesStore {
         case .favorites(let profile):
             guard profile == t.profileID else { return remove(LiveTab.self, t.id) }
             t.spaceID = nil
+        case .today:
+            return   // never a synced row's container
         }
         put(t)
     }
 
-    /// A folder (or split) with a local-only row somewhere inside.
-    private func containsLocalOnly(_ id: String) -> Bool {
-        state.items.values.contains { $0.parentID == id && (SyncStoreAdapter.isLocalOnly($0) || containsLocalOnly($0.id)) }
+    /// A folder (or split) with a kept row (local-only, or a note on Replace) somewhere inside.
+    private func contains(_ id: String, _ kept: (Item) -> Bool) -> Bool {
+        state.items.values.contains { $0.parentID == id && (kept($0) || contains($0.id, kept)) }
     }
 
-    private func insideSplit(_ item: Item) -> Bool {
-        var cursor: Item? = item
-        var seen = Set<String>()
-        while let row = cursor, seen.insert(row.id).inserted {
-            if row.kind == .split { return true }
-            cursor = row.parentID.flatMap { state.items[$0] }
-        }
-        return false
-    }
 }

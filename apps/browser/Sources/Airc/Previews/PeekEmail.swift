@@ -94,6 +94,18 @@ extension ServicePreviewCenter {
         }
     }
 
+    /// S04: a message on a mail card opens in Peek (Arc's Peek Email from the preview), in the account's own profile:
+    /// over this window, from the account's page in it, else from the page shown when that's the same profile. false
+    /// when neither is (the message then opens in the item's own tab).
+    func peekMail(_ url: URL, account a: PreviewAccount, controller c: WindowController) -> Bool {
+        let own = pageMail.page(for: a).flatMap { p in c.pages.values.contains { $0 === p } ? p : nil }
+        let shown = c.shownTabID.flatMap { id in c.store.tab(id)?.profileID == a.profileID ? c.engineTab(for: id) : nil }
+        guard let opener = own ?? shown else { return false }
+        c.tabPreview.hide()
+        Self.peek(url, from: opener, in: c)
+        return true
+    }
+
     static func peek(_ url: URL, from page: EngineTab, in c: WindowController) {
         #if AIRC_TESTING
         if let hook = shared.peekForTesting { return hook(url) }

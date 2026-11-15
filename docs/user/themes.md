@@ -14,6 +14,14 @@ Whatever the colors, the sidebar's text is kept readable: the theme gives way be
 least 4.5:1 contrast on every part of the background, secondary labels and icons 3:1, placeholders 2.4:1, also at
 intensity 0 and 1 and in a window you're not using (inactive windows dim the ink a little, never below those).
 
+## Dark site icons
+
+On a dark theme, a site icon that is itself dark (a black letter or logo on a clear background, say) sits on a small
+light rounded backing, as in Arc, so it doesn't disappear into the sidebar. Airc looks at the icon's own pixels, once per
+icon, so a colourful icon or a dark tile with a light mark stays as it is. You'll see the backing in tabs, pinned tabs,
+Favorites, the Command Bar and tab previews. Light themes, and light icons on any theme, look exactly as before. With
+**Increase contrast** on, the backing is solid white; with **Reduce transparency**, it is a solid light grey.
+
 ## Reduce Motion and Reduce Transparency
 
 Airc follows **System Settings › Accessibility › Display**:

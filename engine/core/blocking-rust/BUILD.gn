@@ -4,6 +4,7 @@ import("//build/rust/rust_static_library.gni")
 rust_static_library("blocking") {
   crate_root = "src/lib.rs"
   sources = [ "src/lib.rs" ]
+  inputs = [ "src/video_ads_resource.json" ]
   edition = "2024"
   allow_unsafe = true  # C ABI only: pointer ownership documented at each entry.
   build_native_rust_unit_tests = false

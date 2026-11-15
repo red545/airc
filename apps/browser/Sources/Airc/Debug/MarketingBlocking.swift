@@ -6,7 +6,7 @@ import AircKit
 
 extension SnapshotRunner {
     /// A standalone marketing part: every page and resource stays on loopback.
-    func mkBlockingShots() {
+    func mkBlockingShots(video: Bool = false) {
         var server: LocalPageServer?
         var port: UInt16 = 0
         var id = ""
@@ -22,7 +22,14 @@ extension SnapshotRunner {
         }
         step { [self] done in
             guard port > 0, let server else { note("marketing: MISSING blocking: fixture server unavailable"); return done() }
-            let page = Self.blockingDemo(port: port)
+            var page = Self.blockingDemo(port: port)
+            if video {
+                page = page.replacingOccurrences(of: "<title>Field Notes — A slower Sunday</title>", with: "<title>Field Notes — A quiet afternoon</title><script>var ytInitialPlayerResponse={playabilityStatus:{status:'OK'},videoDetails:{videoId:'fixture'},adPlacements:[{kind:'preroll'},{kind:'midroll'}]};</script>")
+                    .replacingOccurrences(of: "A slower Sunday.", with: "A quiet afternoon.")
+                    .replacingOccurrences(of: "Take the long way home. A small collection of paths, quiet places, and things worth noticing.", with: "A short film about taking the long way home.")
+                    .replacingOccurrences(of: "Words by the Field Notes team · Illustration for this demo", with: "Illustration for this demo · Video ad protection")
+                page += "<script>if(ytInitialPlayerResponse.adPlacements){document.querySelector('.landscape').textContent='Sponsored pre-roll';}else{document.querySelector('.landscape').insertAdjacentHTML('beforeend',`<div style='position:absolute;bottom:0;left:0;right:0;padding:16px;background:#223b2dcf;color:white;font:14px system-ui'>▶ &nbsp; A quiet afternoon &nbsp; ━━━━━━━━━━━ &nbsp; CC</div>`);}</script>"
+            }
             server.handler = { path in
                 if path == "/" { return .init(body: page) }
                 if path.hasPrefix("/ads/") { return .init(headers: ["Content-Type": "text/javascript"], body: "window.adSeen=true;") }
@@ -30,14 +37,14 @@ extension SnapshotRunner {
             }
             MainActor.assumeIsolated {
                 let pid = c.store.profile(ofSpace: c.currentSpaceID).id
-                app?.blocking.installCheckRules("/ads/$script\nlocalhost##.sponsored\n", profile: pid, completion: done)
+                app?.blocking.installCheckRules("/ads/$script\nlocalhost##.sponsored\n" + (video ? "localhost##+js(airc-video-prune)\n" : ""), profile: pid, completion: done)
             }
         }
         run { [self] in
             guard let tab = try? c.store.openTab(url: "http://localhost:\(port)/", inSpace: c.currentSpaceID) else { return }
             id = tab.id; c.reloadAll(animated: false); c.show(id, focus: false)
         }
-        step { [self] done in waitUntil({ self.c.engineTab(for: id)?.title == "Field Notes — A slower Sunday" && self.c.engineTab(for: id)?.isLoading == false }, timeout: 12, then: done) }
+        step { [self] done in waitUntil({ self.c.engineTab(for: id)?.title == (video ? "Field Notes — A quiet afternoon" : "Field Notes — A slower Sunday") && self.c.engineTab(for: id)?.isLoading == false }, timeout: 12, then: done) }
         step { [self] done in
             Task { @MainActor in
                 guard let tab = c.engineTab(for: id), let center = app?.blocking else {
@@ -51,7 +58,13 @@ extension SnapshotRunner {
                             resume.resume(returning: $0 as? Bool == true)
                         }
                     }
-                    if hidden && center.count(for: tab) == 8 && center.failures.isEmpty { protected = true; break }
+                    var pruned = true
+                    if video {
+                        pruned = await withCheckedContinuation { resume in
+                            tab.evaluate("!!window.ytInitialPlayerResponse && !('adPlacements' in ytInitialPlayerResponse)") { resume.resume(returning: $0 as? Bool == true) }
+                        }
+                    }
+                    if hidden && pruned && center.count(for: tab) == 8 && center.failures.isEmpty { protected = true; break }
                     try? await Task.sleep(nanoseconds: 100_000_000)
                 }
                 if protected { note("marketing: blocking verified eight network blocks and cosmetic hiding") }
@@ -61,11 +74,11 @@ extension SnapshotRunner {
         }
         run { [self] in c.showSiteControls() }
         wait(0.4)
-        mkWindowShot("blocking")
+        mkWindowShot(video ? "video-blocking" : "blocking")
         run { [self] in
             c.closeSiteControls(animated: false); server?.stop()
             NSApp.appearance = nil
-            note("marketing: blocking done")
+            note("marketing: \(video ? "video-blocking" : "blocking") done")
         }
     }
     private static func blockingDemo(port: UInt16) -> String {

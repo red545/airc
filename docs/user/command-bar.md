@@ -5,6 +5,10 @@ tabs and Favorites, your history, Spaces and commands, or press Return to search
 engine. **⌘L** opens it on the current page's address. Type **/** (or press **Tab** in the empty field) to list only
 commands. Esc closes it.
 
+Return opens the highlighted row: the top match as you type. The pointer only highlights a row once you move it, as in
+Arc and native menus, so a pointer resting where the bar opens never changes what Return opens. Each key you type puts
+the top match first again.
+
 Results always come from the current Space's profile: another profile's history and tabs never show.
 
 ## Site Search
@@ -80,6 +84,99 @@ address it gets from Chrome or Arc: after a "?" spaces become "+" and every char
 
 A site search's words go only to that site: they aren't sent to your search engine for suggestions.
 
+## Ask ChatGPT
+
+Ask ChatGPT (or Perplexity, or Claude) from the Command Bar, as Arc Max's "ChatGPT in the Command Bar" did:
+
+1. Turn it on for a profile: **Settings → Site Search → Ask AI → Ask from the Command Bar**, and pick **ChatGPT**,
+   **Perplexity** or **Claude**. It's **off** by default, as in Arc, where it was off until you opted in to Arc Max.
+2. Press **⌘T**, type **gpt** (or **chatgpt**, **pplx**, **claude**, or the first four letters of the name) and press
+   **Tab**. The row **Ask ChatGPT · Press Tab** shows what Tab will do. The site's name leads the field ("Ask ChatGPT…").
+3. Type your question and press **Return**. It opens on the site in a **new tab** of the Space's profile, with the
+   question filled in, even when the bar was opened with ⌘L:
+
+   | Site | Address |
+   |---|---|
+   | ChatGPT | `https://chatgpt.com/?q=…` |
+   | Perplexity | `https://www.perplexity.ai/search?q=…` |
+   | Claude | `https://claude.ai/new?q=…` |
+
+A question typed in the plain bar (three words or more, or with a "?") also gets an **Ask ChatGPT** row at the end of
+the list. The command **New ChatGPT Message** (type it in the Command Bar) opens the bar ready to ask. Backspace in
+the empty field or Esc goes back to the plain bar; click the site's name for **Stop Asking ChatGPT** or its settings.
+
+- Airc needs no account and no API key. You're signed in on the site as you are when you open it yourself.
+- Nothing is sent until you press Return. The question is in the page's address, so it's kept where any page you open
+  is: in the profile's history. A private window keeps no history, and uses the choice of the profile it was opened
+  from.
+- Each profile has its own choice. Long questions are cut at 2,000 characters.
+- Tried on 2026-11-10, signed out: ChatGPT opens with the question in its message field, and Perplexity searches it
+  straight away. Claude asks you to sign in first and keeps the question in the sign-in address; whether it's filled in after
+  signing in wasn't checked (no account was used).
+
+## Instant Links
+
+Type what you're looking for and press **⇧Return** to open the best result directly, as Arc Max's Instant Links did.
+Ask for several ("top 3 pizza places in Lisbon", "best five hiking trails") and that many open, at most five.
+
+1. Turn it on: **Settings → AI → Instant Links**. It's off by default and needs Apple Intelligence.
+2. Type your search in the Command Bar. The row **Open the Top Result ⇧↩** (or **Open the Top 3 Results**) under the
+   search row shows it's ready.
+3. Press **⇧Return**. The bar says **Finding the best result…** for a moment, then shows what will open: the page, or
+   **Open 3 Results** above the three. Nothing has opened yet.
+4. Press **Return** (or ⇧Return again) to open them. The first opens where Return would open a result (a new tab with
+   ⌘T, or the current tab with ⌘L); the others open as tabs under it. Click one page to open only that one, or the last
+   row to search normally instead. **Esc** goes back to what you typed; Esc while it's still finding cancels it, and
+   nothing opens.
+
+How Airc finds the pages:
+
+- Your words go to the profile's **default search** (its search engine, or the site search you made the default), as
+  a search does. Its results page loads in the background in the same profile and only its links are read, on your
+  Mac. That page doesn't go into Airc's history.
+- When the page marks its results (a result's title in a heading, as results pages do), the first results are what
+  opens, one per site where there are enough. The search engine's own links, ads and trackers are left out. No AI is
+  used for this.
+- When the page doesn't mark them (a site search's results, for example), Apple's on-device model picks from the
+  links' titles. It sees only the titles and sites, and runs on your Mac.
+- Only web pages open (`http` and `https`). `javascript:`, `data:`, `file:` and other addresses never do. A search
+  engine's redirect link opens where it leads, if that's a web page.
+- If nothing usable is found, the results page is too slow (8 seconds) or the model can't pick (4 seconds), Airc does
+  a normal search instead.
+
+Which search engines work (tried on 2026-11-10, on both of Airc's engines):
+
+- **Google.** Its results go through Google's own redirect (`google.com/goto?url=…`), which says where it leads only
+  once it's followed. Airc keeps a result only when Google printed its site under it, and the preview shows that site,
+  marked **as shown by Google** ("github.com › swiftlang · as shown by Google"). Confirming opens the redirect, exactly
+  as clicking the result on Google's page would; nothing is opened or fetched before that. In the test every page opened
+  on the site the preview named, about a second after ⇧Return.
+- **DuckDuckGo's results page.** To use it, add a site search with the address `https://html.duckduckgo.com/html/?q=%s`
+  in **Settings → Site Search** and choose it under **Search with**. A top result in about 1.5 seconds.
+- Bing, Kagi, Ecosia, Brave, Yahoo, Startpage, Perplexity and DuckDuckGo's regular page (the profile's built-in
+  DuckDuckGo) haven't been tried yet. Perplexity shows an answer rather than a list of results, so expect a normal
+  search there.
+
+Without Apple Intelligence (macOS before 26, a Mac that can't run it, or it's turned off), the switch stays off, there's
+no ⇧↩ row, and **⇧Return searches** what you typed with the profile's default search. Private windows never use
+Instant Links: ⇧Return searches there too.
+
+## Icons, row kinds and official sites
+
+Every site in the Command Bar shows its own icon: an open tab's, or the one Airc or the engine kept when you last
+visited it (imported history included, on the Chromium engine). Typing never fetches an icon: a site you haven't
+visited shows its first letter on a colour of its own until you open it. Private windows show only those letters and
+read no icon store.
+
+Rows you haven't highlighted say what they are at their right end: **Website**, **Open Tab**, **Pinned Tab**,
+**Favorite**, **Search**, **Space** or **Command**. The highlighted row shows what Return does instead.
+
+A few sites carry a small check mark: the **Chrome Web Store** (marked **Supported in Airc**: extensions install from
+it), Google's sign-in and apps, YouTube, GitHub, Apple Support and aircbrowser.com (marked **Official**). The mark comes
+from a short list built into Airc, never from the page itself. It shows only for the exact address over https, so
+`chromewebstore.google.com.evil.example`, a look-alike spelled with other alphabets, an IP address or plain http never
+get one. The row shows the site's full address next to the mark, so you can always see where it goes.
+
 ## Removing a suggestion
 
 To remove a page from the suggestions (and from the profile's history), highlight it and press **⌥⌘⌫**, Arc's key. The
@@ -96,6 +193,4 @@ is searched like anything typed, in the plain bar and in a site search.
 
 ## Not in Airc yet
 
-- ChatGPT in the Command Bar (Arc Max's "gpt" + Tab).
-- Instant Links (⇧Return opening the top results).
 - Arc's toast suggesting a site search for a site you search often.

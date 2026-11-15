@@ -2,6 +2,7 @@
 import AppKit
 import AircKit
 import QuartzCore
+import Combine
 
 // Arc's picture-in-picture controls, drawn by Airc over the video (SB-55): the same view in the engine's video PiP,
 // the Little Arc mini player and the call window, so they look identical. Positions are in PiPLayout.
@@ -473,6 +474,19 @@ final class PiPControlsView: NSView {
     /// Full-page call hosts reserve a permanent bar; the site owns its call controls.
     var fullPage = false { didSet { apply(); needsLayout = true; flashControls() } }
     static let fullPageBarHeight: CGFloat = 48
+    var callTabID: String? { didSet { updateChat(callTabID.flatMap { CallTools.shared.chat[$0] } ?? CallChat.State()) } }
+    private var chatObservation: AnyCancellable?
+    private var chatState = CallChat.State()
+    let chat = PiPButton(symbol: "bubble.left", size: 15, label: "Open Chat")
+
+    func updateChat(_ value: CallChat.State) {
+        chatState = value
+        chat.symbol = value.open ? "bubble.left.fill" : "bubble.left"
+        chat.label = "Chat, \(value.unread) unread messages"
+        chat.isHidden = fullPage || !state.call || !value.available
+        needsLayout = true
+    }
+
     var actions = Actions()
     var mediaTitle = "" { didSet { miniPlayer.update() } }
     var canSuppressSite = false
@@ -517,7 +531,7 @@ final class PiPControlsView: NSView {
             g.endPoint = CGPoint(x: 0.5, y: top ? 1 : 0)
         }
         for l in [dim, topScrim, bottomScrim] as [CALayer] { l.actions = LayerImage.noActions; content.layer?.addSublayer(l) }
-        for b in [hide, close, back, mute, previous, skipBack, play, skipAhead, next, mic, camera, leave] { content.addSubview(b) }
+        for b in [hide, close, back, mute, previous, skipBack, play, skipAhead, next, mic, camera, leave, chat] { content.addSubview(b) }
         minimize.isHidden = true // not shown (Esc collapses)
         content.addSubview(scrubber)
         back.title = "Back to Tab"
@@ -547,6 +561,13 @@ final class PiPControlsView: NSView {
         mic.action = { [weak self] in if self?.state.canToggleMicrophone == true { self?.actions.microphone() } }
         camera.action = { [weak self] in if self?.state.canToggleCamera == true { self?.actions.camera() } }
         leave.action = { [weak self] in self?.actions.leave() }
+        chat.action = { [weak self] in
+            if let id = self?.callTabID { CallTools.shared.toggleChat(id) }
+        }
+        chatObservation = CallTools.shared.$chat.sink { [weak self] states in
+            guard let self else { return }
+            self.updateChat(self.callTabID.flatMap { states[$0] } ?? CallChat.State())
+        }
         leave.fill = PiPLayout.leave
         scrubber.onSeek = { [weak self] s, final in self?.actions.seek(s, final) }
         scrubber.onScrub = { [weak self] began in
@@ -579,6 +600,7 @@ final class PiPControlsView: NSView {
     private func apply() {
         let s = state
         let video = !s.call
+        updateChat(chatState)
         play.symbol = s.playing ? "pause.fill" : "play.fill"
         play.label = s.playing ? "Pause" : "Play"
         play.isHidden = !video || !s.canPlayPause
@@ -645,7 +667,7 @@ final class PiPControlsView: NSView {
             back.title = "Back to Tab"
             back.frame = NSRect(x: b.width - inset - back.pillWidth(height: size), y: 10,
                                 width: back.pillWidth(height: size), height: size)
-            for control in [mute, previous, skipBack, play, skipAhead, next, mic, camera, leave] { control.isHidden = true }
+            for control in [mute, previous, skipBack, play, skipAhead, next, mic, camera, leave, chat] { control.isHidden = true }
             scrubber.isHidden = true
             return
         }
@@ -677,7 +699,7 @@ final class PiPControlsView: NSView {
 
         // A call: microphone, camera, leave at the bottom centre.
         let mb = PiPLayout.meetingButton(c), mg = PiPLayout.meetingGap(c)
-        let calls = [mic, camera, leave].filter { !$0.isHidden }
+        let calls = [mic, camera, chat, leave].filter { !$0.isHidden }
         for v in calls { v.glyphSize = PiPLayout.meetingGlyph(c) }
         var mx = (b.width - CGFloat(calls.count) * mb - CGFloat(max(0, calls.count - 1)) * mg) / 2
         for v in calls {

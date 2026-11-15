@@ -193,9 +193,11 @@ extension SnapshotRunner {
             // Pinned, away from its saved URL, loaded.
             let pinned = model("P")
             let edit = pinned.first { $0["title"] as? String == "Edit Pinned Page" }?["submenu"] as? [[String: Any]] ?? []
-            check(p01Titles(pinned) == ["Copy Link", "Share", "Change Icon…", "Rename…", "Edit Pinned Page", "Back to Pinned URL", "Mute", "Customize Page…",
-                                        "Open in Split View", "Duplicate", "Move to", "—", "Unpin", "Add to Favorites", "Close and Keep Pinned", "Delete"]
-                  && p01Titles(edit) == ["Replace Pinned URL with Current", "Edit…"] && p01Enabled(edit, "Replace Pinned URL with Current") == true,
+            // moveto (S09): Arc 1.171's tab-menu order and titles, decoded from its binary (artifacts/moveto/REPORT.md).
+            check(p01Titles(pinned) == ["Show Hover Preview", "—", "Copy Link", "Share", "—", "Change Icon…", "Rename…", "Mute", "Edit Pinned Page",
+                                        "Back to Pinned URL", "—", "Open in Split View", "Duplicate", "Move to", "—", "Unpin", "Add to Favorites",
+                                        "Close Tab", "Remove Pin", "—", "Customize Page…"]
+                  && p01Titles(edit) == ["Edit…", "Replace Pinned URL with Current"] && p01Enabled(edit, "Replace Pinned URL with Current") == true,
                   "parityp01: pinned tab away from its URL: Back to Pinned URL, Edit Pinned Page › Replace (enabled), Mute, Move to "
                   + "(\(p01Titles(pinned).joined(separator: ", ")); › \(p01Titles(edit).joined(separator: ", ")))")
             let moveTo = pinned.first { $0["title"] as? String == "Move to" }?["submenu"] as? [[String: Any]] ?? []
@@ -205,14 +207,14 @@ extension SnapshotRunner {
             let unloaded = model("Doc 2")
             let edit2 = unloaded.first { $0["title"] as? String == "Edit Pinned Page" }?["submenu"] as? [[String: Any]] ?? []
             check(!p01Titles(unloaded).contains("Back to Pinned URL") && !p01Titles(unloaded).contains("Mute")
-                  && !p01Titles(unloaded).contains("Close and Keep Pinned") && p01Enabled(edit2, "Replace Pinned URL with Current") == false
+                  && !p01Titles(unloaded).contains("Close Tab") && p01Enabled(edit2, "Replace Pinned URL with Current") == false
                   && p01Titles(unloaded).contains("Share"),
                   "parityp01: unloaded pinned tab at its URL: no Back, Mute or Close; Replace disabled; Share its saved URL "
                   + "(\(p01Titles(unloaded).joined(separator: ", ")))")
             // Favorite.
             let fav = model("F")
-            check(p01Titles(fav) == ["Copy Link", "Share", "Change Icon…", "Edit Pinned Page", "Mute", "Customize Page…", "Open in Split View", "—", "Remove from Favorites",
-                                     "Close and Keep in Favorites", "Delete Favorite"],
+            check(p01Titles(fav) == ["Show Hover Preview", "—", "Copy Link", "Share", "—", "Change Icon…", "Mute", "Edit Pinned Page", "—",
+                                     "Open in Split View", "Move to", "—", "Unfavorite", "Close Favorite", "Remove Favorite", "—", "Customize Page…"],
                   "parityp01: Favorite menu (\(p01Titles(fav).joined(separator: ", ")))")
             // A Favorite on a site that counts unread items (built in memory: nothing loads): Arc's "Show Unread Badge",
             // on until turned off, kept in the settings.
@@ -227,9 +229,9 @@ extension SnapshotRunner {
                   "parityp01: Show Unread Badge on a badging Favorite: on, off (saved), on again; not offered for other sites")
             // Folder.
             let folder = model("Work")
-            // P01c (55939bc) added Reset all tabs in this Folder, Move to › and Turn into Space (ParityP01cCheck covers them).
-            check(p01Titles(folder) == ["Rename…", "Change Icon…", "—", "Copy All Links", "Copy All Links as Markdown", "—", "Duplicate",
-                                        "New Nested Folder", "Reset all tabs in this Folder", "Move to", "Turn into Space", "—",
+            // moveto (S11): Arc 1.171's folder-menu order (SidebarMenu+ListContextMenu); Reset Folder is Airc's.
+            check(p01Titles(folder) == ["Share Folder…", "—", "New Nested Folder…", "Turn “Work” into Space", "Copy All Links", "Copy All Links as Markdown",
+                                        "—", "Change Icon…", "Rename…", "—", "Duplicate", "Move to", "Reset Folder", "—",
                                         "Delete Folder"] && p01Enabled(folder, "Copy All Links as Markdown") == true,
                   "parityp01: folder menu (\(p01Titles(folder).joined(separator: ", ")))")
             // A split pane (the split row's menu opened over Charlie's segment).
@@ -558,8 +560,18 @@ extension SnapshotRunner {
             step { [self] done in
                 let label = c.store.undoLabel
                 c.undo()
+                let restoredURLs = want.keys.sorted().map { name in
+                    "\(name): model \(self.c.store.tab(k.tab[name] ?? "")?.url ?? "-")"
+                }
                 waitUntil({ want.allSatisfy { self.c.engineTab(for: k.tab[$0.key] ?? "")?.title == $0.value } }, timeout: 8) {
                     let titles = want.keys.sorted().map { "\($0): \(self.c.engineTab(for: k.tab[$0] ?? "")?.title ?? "-")" }
+                    if !want.allSatisfy({ self.c.engineTab(for: k.tab[$0.key] ?? "")?.title == $0.value }) {
+                        self.note("reset undo: " + restoredURLs.joined(separator: "; "))
+                        for name in want.keys.sorted() {
+                            let p = self.c.engineTab(for: k.tab[name] ?? "")
+                            self.note("reset undo: \(name): live \(p?.url?.absoluteString ?? "-"); back \(p?.history.back.first?.url ?? "-")")
+                        }
+                    }
                     self.check(label == wantLabel && want.allSatisfy { self.c.engineTab(for: k.tab[$0.key] ?? "")?.title == $0.value },
                                "parityp01: ⌘Z (\(label ?? "-")) " + what + " (\(titles.joined(separator: ", ")))")
                     done()

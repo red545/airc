@@ -16,7 +16,7 @@ ranges (0, 1, 2-7, 8-30 …).
 |---|---|---|
 | `app.launched` | each launch, when the first window shows | launch time in ranges, first launch or not, whether the last run ended cleanly or crashed |
 | `app.active_day` | once per calendar day you use Airc | how many Spaces, profiles, pinned tabs, Favorites and open tabs, in ranges; the sidebar side; whether Airc is the default browser |
-| `onboarding.step` | each step of the first run | the step, and next, skip or back |
+| `onboarding.step` | each step of the first run | the step (`password_manager` is the password manager step), and next, skip or back |
 | `onboarding.finished` | "Open Airc" | whether you imported from Arc |
 | `import.arc` | an Arc import | success or failure; Spaces, tabs and profiles in ranges; whether logins came over |
 | `import.browser` | an import from another browser, a bookmarks file or a passwords CSV file | which browser (chrome, brave, edge, vivaldi, opera, chromium, dia, helium, firefox, zen, safari, bookmarks_file or passwords_file); success or failure; profiles, bookmarks, folders, history entries and passwords in ranges; never a bookmark, page, site or password |
@@ -40,7 +40,9 @@ Ask on Page, link previews and Tidy downloads (features `ai.ask_page`, `ai.link_
 `on` or `off` when turned on or off in Settings → AI, `used` for a question asked, a link preview shown (at most once a
 minute) or a suggested file name applied; never a question, an answer, a page, an address, a summary or a file name,
 and nothing from a private window; [ai.md](ai.md)), and a note made (feature `note.create`, variant `shortcut`,
-`command_bar` or `plus_menu`; never what it says, its title, its pictures or where it is; [notes.md](notes.md)).
+`command_bar` or `plus_menu`; never what it says, its title, its pictures or where it is; [notes.md](notes.md)), and
+how the password manager step ended (feature `password_manager.step`, variant `installed`, `not_installed`, `builtin`
+or `skipped`; never which password manager, extension or profile; [password-manager.md](password-manager.md)).
 
 Numbers are only ever sent as ranges: "6-10 Spaces", "250-500 ms", never the exact value.
 
@@ -51,6 +53,9 @@ profiles or folders; account names or emails; extension IDs or names; file names
 address as a property. Airc's events are built from fixed lists in the code (`packages/AircKit/Sources/AircKit/
 Telemetry/TelemetryEvent.swift`), so none of these can reach them: there is no event that takes text. A unit test
 serialises every event and fails on any property or value outside a strict list.
+
+Feedback isn't telemetry: Help › Send Feedback… sends only what you write and tick, when you click Send, to
+aircbrowser.com rather than PostHog, and shows it all first ([feedback.md](feedback.md)).
 
 PostHog receives each batch over HTTPS from your Mac's internet connection, so like any web server it sees the
 address the request comes from. Airc asks it not to look up a location from it (`$geoip_disable`) and marks every

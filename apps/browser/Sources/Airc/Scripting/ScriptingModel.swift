@@ -83,6 +83,19 @@ final class ScriptWindow: NSObject {
         return ScriptTab(t.itemID.map(ScriptTab.Ref.item) ?? .today(t.id), in: self)
     }
 
+    /// Chrome's `active tab index`: the active tab's place in `tabs` (1-based; 0 with none). Setting it shows that tab.
+    @objc var activeTabIndex: Int {
+        get {
+            guard let active = activeTab?.uniqueID else { return 0 }
+            return (scriptTabs.firstIndex { $0.uniqueID == active } ?? -1) + 1
+        }
+        set {
+            let tabs = scriptTabs
+            guard tabs.indices.contains(newValue - 1) else { return }
+            ScriptingActions.show(tabs[newValue - 1])
+        }
+    }
+
     @objc var activeSpace: ScriptSpace? {
         guard let c = browser, c.store.space(c.currentSpaceID) != nil else { return nil }
         return ScriptSpace(c.currentSpaceID, in: self)

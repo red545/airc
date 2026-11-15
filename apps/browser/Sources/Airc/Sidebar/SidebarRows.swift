@@ -216,6 +216,8 @@ final class GlyphButton: NSView {
     /// ⌘-click, when it does something else (Back / Forward: open that page in a background tab, SB-1).
     var commandAction: (() -> Void)?
     var menuProvider: (() -> NSMenu?)?
+    /// A right-click only menu, when a press does something else (the Library button's "Show media from:", L04).
+    var contextMenuProvider: (() -> NSMenu?)?
     /// The pointer came onto the button or left it (the Library button's recent files, LIB-1).
     var onHover: ((Bool) -> Void)?
     /// The menu comes on a long press (or right-click) and a plain click acts (Back, Forward); otherwise a press shows
@@ -277,7 +279,16 @@ final class GlyphButton: NSView {
     override func mouseEntered(with event: NSEvent) { hovered = true; onHover?(true) }
     override func mouseExited(with event: NSEvent) { hovered = false; onHover?(false) }
 
+    /// VoiceOver's press, for a button made an accessibility element (the tab preview card's, S16).
+    override func accessibilityPerformPress() -> Bool {
+        guard isEnabled, let action else { return false }
+        action()
+        return true
+    }
+
     override func mouseDown(with event: NSEvent) {
+        // A ⌃-click is a right-click (macOS), never the button's click: ⌃-clicking a row's ✕ used to close the tab.
+        if event.modifierFlags.contains(.control) { return rightMouseDown(with: event) }
         guard isEnabled else { return }
         if !longPressMenu, let menu = menuProvider?() {
             menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 4), in: self)
@@ -303,7 +314,29 @@ final class GlyphButton: NSView {
     }
 
     override func rightMouseDown(with event: NSEvent) {
-        if let menu = menuProvider?() { NSMenu.popUpContextMenu(menu, with: event, for: self) }
+        if let menu = contextMenuProvider?() ?? menuProvider?() { return NSMenu.popUpContextMenu(menu, with: event, for: self) }
+        // No menu of its own: the menu of what it's on (a tab row's ✕, copy and mute buttons give the row's menu).
+        superview?.showContextMenu(for: event)
+    }
+}
+
+extension NSView {
+    /// macOS's convention: a ⌃-click is a right-click. A view with its own mouseDown calls this first; true means the
+    /// press opened the context menu (or found none) and must not select, activate or start a drag.
+    func openContextMenuForControlClick(_ event: NSEvent) -> Bool {
+        guard event.type == .leftMouseDown, event.modifierFlags.contains(.control) else { return false }
+        showContextMenu(for: event)
+        return true
+    }
+
+    /// The context menu a right-click here gets: this view's `menu(for:)`, else the nearest enclosing view's (as AppKit's
+    /// rightMouseDown passes up the chain).
+    func showContextMenu(for event: NSEvent) {
+        var view: NSView? = self
+        while let v = view {
+            if let menu = v.menu(for: event) { return NSMenu.popUpContextMenu(menu, with: event, for: v) }
+            view = v.superview
+        }
     }
 }
 
@@ -366,9 +399,18 @@ enum LayerImage {
 /// An icon FaviconCache couldn't get yet is never given up on: the view asks again when it comes on screen (moved into
 /// a window, unhidden, its window uncovered), when the network comes back, and when its page loads (the engine hands
 /// over the page's icon), within the cache's backoff. No timer of its own.
+///
+/// favbacking: on a dark palette, an icon whose pixels are dark (`AircFavBacking`, cached per image in `FaviconTone`)
+/// sits on a small light plate, as in Arc, so a black glyph isn't black on black. Light palettes never draw it.
 final class FaviconView: NSView, FaviconWatcher {
     private let icon = CALayer()
     private let placeholder = CALayer()
+    /// The light plate behind a dark icon in a dark context (hidden otherwise).
+    private let backing = CALayer()
+    /// The last palette was dark: dark icons get the plate.
+    private var darkContext = false
+    /// The icon shown is a tinted symbol (never backed).
+    private var showsSymbol = false
     /// The icon asked for and not shown yet; `waiting` while FaviconCache hasn't answered.
     private var requested: String?
     private var waiting = false
@@ -383,9 +425,14 @@ final class FaviconView: NSView, FaviconWatcher {
         placeholder.cornerCurve = .continuous
         placeholder.actions = LayerImage.noActions
         layer?.addSublayer(placeholder)
+        backing.cornerCurve = .continuous
+        backing.actions = LayerImage.noActions
+        backing.isHidden = true
+        layer?.addSublayer(backing)
         icon.actions = LayerImage.noActions
         icon.contentsGravity = .resizeAspect
         layer?.addSublayer(icon)
+        FaviconTone.track(self)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -399,6 +446,12 @@ final class FaviconView: NSView, FaviconWatcher {
     var iconLayerHasContents: Bool { placeholder.isHidden && icon.contents != nil }
     /// The icon this view waits for after a failed round (nil: none).
     var watchedIcon: String? { watching }
+    /// favbacking: the light plate shows behind the icon.
+    var showsBacking: Bool { !backing.isHidden }
+    /// The plate's fill as set (nil: none).
+    var backingFill: CGColor? { backing.isHidden ? nil : backing.backgroundColor }
+    /// The plate's frame in this view (zero while hidden).
+    var backingFrame: CGRect { backing.isHidden ? .zero : backing.frame }
     #endif
 
     /// The icon shown now, or nil while the placeholder square shows.
@@ -414,14 +467,37 @@ final class FaviconView: NSView, FaviconWatcher {
         placeholder.isHidden = img != nil
         if icon.contentsGravity != gravity { icon.contentsGravity = gravity }
         CATransaction.commit()
-        guard img !== image else { return }
+        guard img !== image else { return updateBacking() }
         image = img
         LayerImage.set(img, on: icon, in: self)
+        updateBacking()
+    }
+
+    /// Shows or hides the plate for the icon, the palette and the accessibility settings now.
+    func updateBacking() {
+        let want = darkContext && !showsSymbol && placeholder.isHidden && !FaviconTone.off && image.map(FaviconTone.isDark) == true
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if want {
+            let look = FaviconTone.look
+            backing.backgroundColor = look.fill.nsColor.cgColor
+            layoutBacking(look)
+        }
+        if backing.isHidden == want { backing.isHidden = !want }
+        CATransaction.commit()
+    }
+
+    private func layoutBacking(_ look: AircFavBacking.Look) {
+        let f = bounds.insetBy(dx: -look.outset, dy: -look.outset)
+        backing.frame = f
+        backing.cornerRadius = min(f.width, f.height) * look.cornerFraction
     }
 
     func set(image: NSImage?, url: String?, fallbackPage: String?, palette: Palette, symbol: String? = nil) {
         // Every path that shows something else forgets the icon asked for before, so a slow fetch for a reused row's
         // previous content can't land on it (cbsites: Spiegel's icon on Spotify's row).
+        darkContext = palette.isDark
+        showsSymbol = symbol != nil
         if let symbol {
             forgetRequest()
             show(LayerImage.symbol(symbol, size: 14, weight: .semibold, color: palette.textSecondary), gravity: .center)
@@ -534,7 +610,69 @@ final class FaviconView: NSView, FaviconWatcher {
         CATransaction.setDisableActions(true)
         icon.frame = bounds
         placeholder.frame = bounds.insetBy(dx: 1, dy: 1)
+        if !backing.isHidden { layoutBacking(FaviconTone.look) }
         CATransaction.commit()
+    }
+}
+
+/// favbacking: whether a site icon is dark (`AircFavBacking.classify`), remembered per image, and the plate's look for
+/// the current Increase Contrast and Reduce Transparency settings. Every icon view follows those settings live.
+enum FaviconTone {
+    private static let tones = NSCache<NSImage, NSNumber>()
+    private static let views = NSHashTable<FaviconView>.weakObjects()
+    private static var observer: NSObjectProtocol?
+    private static var cachedLook: AircFavBacking.Look?
+    #if AIRC_TESTING
+    /// Images classified (cache misses), for the check.
+    static var classified = 0
+    /// parityfavbacking's "before" shots: no plate anywhere, as before favbacking.
+    static var disabledForTesting = false { didSet { refresh() } }
+    #endif
+
+    /// Whether `image` is a dark icon, classified once per image object.
+    static func isDark(_ image: NSImage) -> Bool {
+        if let t = tones.object(forKey: image) { return t.boolValue }
+        var r = NSRect(x: 0, y: 0, width: AircFavBacking.sampleSide, height: AircFavBacking.sampleSide)
+        let dark = image.cgImage(forProposedRect: &r, context: nil, hints: nil).map { AircFavBacking.classify($0) == .dark } ?? false
+        #if AIRC_TESTING
+        classified += 1
+        #endif
+        tones.setObject(NSNumber(value: dark), forKey: image)
+        return dark
+    }
+
+    /// No plate at all (the check's "before" shots).
+    static var off: Bool {
+        #if AIRC_TESTING
+        return disabledForTesting
+        #else
+        return false
+        #endif
+    }
+
+    /// The plate as the accessibility settings want it now.
+    static var look: AircFavBacking.Look {
+        if let l = cachedLook { return l }
+        let l = onMain { AircFavBacking.look(increaseContrast: AircTranslucency.systemIncreasesContrast,
+                                             reduceTransparency: AircTranslucency.systemReducesTransparency) }
+        cachedLook = l
+        return l
+    }
+
+    static func track(_ v: FaviconView) {
+        views.add(v)
+        guard observer == nil else { return }
+        tones.countLimit = 2000
+        observer = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { _ in
+            refresh()
+        }
+    }
+
+    /// Increase Contrast or Reduce Transparency changed: every icon view redraws its plate.
+    static func refresh() {
+        cachedLook = nil
+        for v in views.allObjects { v.updateBacking() }
     }
 }
 
@@ -567,12 +705,15 @@ final class TabRowView: SidebarRowView {
     var depth = 0
 
     private let favicon = FaviconView()
+    private let sharing = SharedTabIndicatorView()
     private let title = AircFadingLabel(style: AircFont.row)
     /// The host line, the audio button and ✕ are made when first needed (most rows never show them; every view costs
     /// on each layout pass, §2.12).
     private var host: AircFadingLabel?
     private var audio: GlyphButton?
     private var close: GlyphButton?
+    /// feedback2: on hover, left of ✕: copies the row's link (Super Copy's clean link, as ⇧⌘C) without selecting it.
+    private var copy: GlyphButton?
     private var closeSymbol = "xmark"
     private var muted = false
     /// SB-44: AircDesign's ring takes the favicon's slot once a load has run for 150 ms (fast loads never flicker).
@@ -588,7 +729,7 @@ final class TabRowView: SidebarRowView {
         super.init(frame: frame)
         title.font = AircFont.row.appFont
         title.lineBreakMode = .byClipping
-        for v in [favicon, title] as [NSView] { addSubview(v) }
+        for v in [favicon, title, sharing] as [NSView] { addSubview(v) }
         layer?.addSublayer(loading.layer)
         loading.onVisibilityChange = { [weak self] on in
             guard let self else { return }
@@ -613,6 +754,39 @@ final class TabRowView: SidebarRowView {
         return b
     }
 
+    private func makeCopy() -> GlyphButton {
+        if let copy { return copy }
+        let b = GlyphButton(symbol: "doc.on.doc", size: 10.5)
+        b.action = { [weak self] in self?.copyTapped() }
+        b.toolTip = "Copy Link"
+        b.setAccessibilityElement(true)
+        b.setAccessibilityRole(.button)
+        b.setAccessibilityLabel("Copy Link")
+        b.isHidden = true
+        addSubview(b)
+        copy = b
+        styleButtons()
+        return b
+    }
+
+    /// The copy button (the checks hover and click it).
+    var copyButton: NSView? { copy }
+
+    private func copyTapped() {
+        guard let id = tabID else { return }
+        controller?.copyLink(of: id)
+    }
+
+    /// VoiceOver: the row reads as one element (SidebarRowView), so Copy Link is one of its actions too.
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        guard navID != nil, tabID != nil else { return super.accessibilityCustomActions() }
+        return (super.accessibilityCustomActions() ?? []) + [NSAccessibilityCustomAction(name: "Copy Link") { [weak self] in
+            guard let self, self.tabID != nil else { return false }
+            self.copyTapped()
+            return true
+        }]
+    }
+
     private func makeAudio() -> GlyphButton {
         if let audio { return audio }
         let b = GlyphButton(symbol: "speaker.wave.2.fill", size: 11)
@@ -628,7 +802,7 @@ final class TabRowView: SidebarRowView {
 
     private func styleButtons() {
         guard let palette else { return }
-        for b in [audio, close].compactMap({ $0 }) {
+        for b in [audio, close, copy].compactMap({ $0 }) {
             b.tint = palette.textSecondary
             b.hoverFill = palette.hover
         }
@@ -643,11 +817,14 @@ final class TabRowView: SidebarRowView {
         let tab = entry.liveTab
         tabID = tab?.id
         kind = item.map { .pinned(itemID: $0.id) } ?? .today
-        if case .pinned(_, let d, _) = entry { depth = d } else { depth = 0 }
+        if case .pinned(_, let d, _) = entry { depth = d }
+        else if case .today(let t) = entry { depth = controller?.store.todayDepth(ofTab: t.id) ?? 0 }   // in a Today folder
+        else { depth = 0 }
         let engineTab = tab.flatMap { controller?.engineTab(for: $0.id) }
+        sharing.page = engineTab
         // SB-15 / MEM-3: no page yet, or one the engine has freed (Chromium keeps a discarded page's object).
         // A note never loads a page (Notes/NoteCenter.swift): its row isn't dimmed.
-        isUnloaded = (tab == nil || controller?.isPageUnloaded(tab?.id) != false) && !NoteURL.isNote(tab?.url ?? item?.savedURL)
+        isUnloaded = (tab == nil || controller?.isPageUnloaded(tab?.id) != false) && !LocalDocumentURL.isLocal(tab?.url ?? item?.savedURL)
 
         // Title: the custom name, or the page's; a pinned tab away from its URL shows "/" (SB-31). Tidy Titles
         // (AI/AIFeatures.swift) may give a long page title a short name; the page's own then shows on hover.
@@ -694,7 +871,7 @@ final class TabRowView: SidebarRowView {
 
         favicon.set(image: engineTab?.favicon, url: tab?.faviconURL ?? item?.faviconURL,
                     fallbackPage: url, palette: palette,
-                    symbol: NoteURL.isNote(url) ? "note.text" : (drifted && faviconHovered) ? "arrow.uturn.backward" : nil)
+                    symbol: NoteURL.isNote(url) ? "note.text" : EaselURL.isEasel(url) ? "scribble.variable" : WhatsNewURL.isPage(url) ? "sparkles" : (drifted && faviconHovered) ? "arrow.uturn.backward" : nil)
         developerSite = DeveloperMode.shared.applies(url)
         if !showsSpinner { favicon.alphaValue = (item != nil && isUnloaded) ? 0.5 : 1 }
         // A custom icon wins, except while the favicon is the "Back to pinned URL" arrow. A Today tab has its own (S03).
@@ -752,8 +929,9 @@ final class TabRowView: SidebarRowView {
         super.updateStyle()
         DeveloperMode.outline(plate, on: isSelected && developerSite, palette: palette)
         let showsClose = isHovered && tabID != nil
-        if showsClose { makeClose() }
+        if showsClose { makeClose(); makeCopy() }
         close?.isHidden = !showsClose
+        copy?.isHidden = !showsClose
     }
 
     private var faviconAlpha: CGFloat { (entry?.item != nil && isUnloaded) ? 0.5 : 1 }
@@ -761,10 +939,12 @@ final class TabRowView: SidebarRowView {
     override func resetForPool() {
         super.resetForPool()
         faviconHovered = false
+        sharing.page = nil
         favicon.alphaValue = 1
         emoji?.isHidden = true
         favicon.isHidden = false
         close?.isHidden = true
+        copy?.isHidden = true
     }
 
     /// The title as last set: setting the same one again would measure and redraw it (§2.12, a reload configures every
@@ -783,13 +963,16 @@ final class TabRowView: SidebarRowView {
         let h = bounds.height
         let fs = AircMetrics.Row.favicon
         favicon.frame = NSRect(x: AircMetrics.Row.faviconX + indent, y: (h - fs) / 2, width: fs, height: fs)
+        sharing.frame = NSRect(x: favicon.frame.maxX - 6, y: favicon.frame.maxY - 6, width: 12, height: 12)
         emoji?.frame = NSRect(x: AircMetrics.Row.faviconX + indent - 2, y: (h - 20) / 2, width: 22, height: 20)
         var x = AircMetrics.Row.titleX + indent - DesignGaps.labelInset
         if let audio, !audio.isHidden {
             audio.frame = NSRect(x: x - 4, y: (h - 22) / 2, width: 22, height: 22)
             x += 22
         }
-        let right = bounds.width - AircMetrics.Row.titleTrailing - (isHovered ? AircMetrics.Row.closeButton : 0)
+        // On hover, ✕ and the copy button: the title fades out before both.
+        let buttons: CGFloat = isHovered ? (tabID != nil ? 2 : 1) : 0
+        let right = bounds.width - AircMetrics.Row.titleTrailing - buttons * AircMetrics.Row.closeButton
         let titleH: CGFloat = 18
         // Titles end in a soft fade before the trailing controls (✕ on hover) and never run under them.
         if let host, !host.isHidden {
@@ -800,6 +983,7 @@ final class TabRowView: SidebarRowView {
         }
         let cb = AircMetrics.Row.closeButton
         close?.frame = NSRect(x: bounds.width - AircMetrics.Sidebar.inset - 5 - cb, y: (h - cb) / 2, width: cb, height: cb)
+        copy?.frame = NSRect(x: bounds.width - AircMetrics.Sidebar.inset - 5 - 2 * cb, y: (h - cb) / 2, width: cb, height: cb)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         loading.layer.position = CGPoint(x: favicon.frame.midX, y: favicon.frame.midY)
@@ -841,6 +1025,7 @@ final class TabRowView: SidebarRowView {
 
     // Press activates on mouse-down (Arc). Dragging is handled by the page.
     override func mouseDown(with event: NSEvent) {
+        if openContextMenuForControlClick(event) { return }
         let p = convert(event.locationInWindow, from: nil)
         if drifted, favicon.frame.insetBy(dx: -4, dy: -4).contains(p), let id = tabID {
             // "Back to pinned URL"; ⌘-click also keeps the current page in a new Today tab.
@@ -952,6 +1137,7 @@ final class FolderRowView: SidebarRowView {
             }
         }
         CATransaction.commit()
+        LiveFolderBadgeView.configure(in: self, item: item, palette: palette, store: controller?.store)   // P12
         updateStyle()
         needsLayout = true
     }
@@ -972,11 +1158,13 @@ final class FolderRowView: SidebarRowView {
         emoji?.frame = NSRect(x: AircMetrics.Row.faviconX + indent - 2, y: (h - 20) / 2, width: 22, height: 20)
         let x = AircMetrics.Row.titleX + indent - DesignGaps.labelInset
         title.frame = NSRect(x: x, y: (h - 18) / 2, width: max(0, bounds.width - x - AircMetrics.Row.titleTrailing), height: 18)
+        LiveFolderBadgeView.place(in: self, title: title)   // P12: a live folder's state at the row's end
     }
 
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
-        if let item { controller?.folderPreview.hoverBegan(folder: item, row: self) }
+        // A closed pinned folder previews its saved rows; a Today folder's rows are its tabs (no preview).
+        if let item, !item.isTodayFolder { controller?.folderPreview.hoverBegan(folder: item, row: self) }
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -985,6 +1173,7 @@ final class FolderRowView: SidebarRowView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        if openContextMenuForControlClick(event) { return }
         guard let item else { return }
         controller?.folderPreview.hide()
         if event.clickCount == 2 {
@@ -1039,8 +1228,16 @@ final class DividerRowView: SidebarRowView {
     var spaceID = ""
     private let line = CALayer()
     private let clear = NSTextField(labelWithString: "Clear")
+    let tidy = TidyTabsLabel()   // P18b: Tidy Tabs (AI/TidyTabsFeature.swift)
     private var clearHovered = false
-    var sidebarHovered = false { didSet { clear.isHidden = !sidebarHovered } }
+    var tidyHasEnoughPages: Bool?
+    var sidebarHovered = false {
+        didSet {
+            guard sidebarHovered != oldValue else { return }
+            clear.isHidden = !sidebarHovered
+            tidy.refresh(hovered: sidebarHovered, divider: self)
+        }
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -1050,16 +1247,19 @@ final class DividerRowView: SidebarRowView {
         clear.isHidden = true
         clear.toolTip = "Clear this Space’s unpinned tabs"
         addSubview(clear)
+        addSubview(tidy)
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func configure(spaceID: String, palette: Palette) {
+    func configure(spaceID: String, palette: Palette, tidyHasEnoughPages: Bool? = nil) {
         self.spaceID = spaceID
         self.palette = palette
+        self.tidyHasEnoughPages = tidyHasEnoughPages
         line.backgroundColor = palette.separator.cgColor
         let ink = clearHovered ? palette.clearHover : palette.clearIdle
         if clear.textColor != ink { clear.textColor = ink }
+        tidy.refresh(hovered: sidebarHovered, divider: self)
         updateStyle()
     }
 
@@ -1068,7 +1268,7 @@ final class DividerRowView: SidebarRowView {
         clear.sizeToFit()
         let cw = clear.frame.width
         let showClear = !clear.isHidden
-        let lineRight = bounds.width - AircMetrics.Divider.inset - (showClear ? cw + 8 : 0)
+        let lineRight = tidy.place(right: bounds.width - AircMetrics.Divider.inset - (showClear ? cw + 8 : 0), midY: 7)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let scale = window?.backingScaleFactor ?? 2
@@ -1092,6 +1292,7 @@ final class DividerRowView: SidebarRowView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        if openContextMenuForControlClick(event) { return }
         if !clear.isHidden, clear.frame.insetBy(dx: -4, dy: -4).contains(convert(event.locationInWindow, from: nil)) {
             controller?.clearToday()
         }
@@ -1146,6 +1347,7 @@ final class NewTabRowView: SidebarRowView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        if openContextMenuForControlClick(event) { return }
         isPressed = true
         pressAnimation()
         controller?.openCommandBar(mode: .newTab)

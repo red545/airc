@@ -204,10 +204,13 @@ public final class HistoryStore {
         let t = now()
         let keep = all.values.sorted { $0.frecency(now: t) > $1.frecency(now: t) }.prefix(Self.maxEntriesPerProfile * 9 / 10)
         let kept = Set(keep.map(\.url))
-        for url in all.keys where !kept.contains(url) {
-            entries[profileID]?[url] = nil
-            indexer.remove(profileID: profileID, url: url)
-            try? db.run("DELETE FROM visits WHERE profile=? AND url=?", [.text(profileID), .text(url)])
+        let removed = all.keys.filter { !kept.contains($0) }
+        indexer.remove(profileID: profileID, urls: removed)
+        for url in removed { entries[profileID]?[url] = nil }
+        try? db.transaction {
+            for url in removed {
+                try db.run("DELETE FROM visits WHERE profile=? AND url=?", [.text(profileID), .text(url)])
+            }
         }
     }
 }
@@ -245,7 +248,38 @@ public enum InlineCompletion {
 
     /// A URL's host target (lowercased, no "www.", with the port), the URL that completing to the host opens, and its
     /// address target. nil for anything but http(s).
-    static func targets(_ url: String) -> (host: String, hostURL: String, address: String)? {
+    static func targets(_ url: String) -> (host: String, hostURL: String, address: String)? { parseTargets(url) }
+
+    /// `targets` remembered per address, for `complete`'s few extra candidates only (keyframe2): the open tabs and
+    /// pinned pages were parsed on every keystroke, a URLComponents parse each. They depend on the address alone. Not
+    /// for the history index's build (every entry, off the main thread): that would churn the table and hold its lock
+    /// while a keystroke waits for it. Test builds turn it off to time the old path.
+    static func rememberedTargets(_ url: String) -> (host: String, hostURL: String, address: String)? {
+        guard memoizesTargets else { return parseTargets(url) }
+        return targetMemo.get(url)
+    }
+
+    nonisolated(unsafe) public static var memoizesTargets = true
+    private static let targetMemo = TargetMemo()
+
+    private final class TargetMemo: @unchecked Sendable {
+        private var entries: [String: (host: String, hostURL: String, address: String)?] = [:]
+        private let lock = NSLock()
+
+        func get(_ url: String) -> (host: String, hostURL: String, address: String)? {
+            lock.lock()
+            if let hit = entries[url] { lock.unlock(); return hit }
+            lock.unlock()
+            let made = InlineCompletion.parseTargets(url)
+            lock.lock()
+            if entries.count >= 4_000 { entries.removeAll(keepingCapacity: true) }
+            entries[url] = .some(made)
+            lock.unlock()
+            return made
+        }
+    }
+
+    private static func parseTargets(_ url: String) -> (host: String, hostURL: String, address: String)? {
         guard let u = URLComponents(string: url), let scheme = u.scheme?.lowercased(), scheme == "http" || scheme == "https",
               let rawHost = u.host?.lowercased() else { return nil }
         var host = rawHost
@@ -280,16 +314,28 @@ public enum InlineCompletion {
             if weight > b.weight || (weight == b.weight && text.count < b.text.count) { best = (text, url, weight) }
         }
         let b = Array(body.utf8)
-        var i = firstKey(atLeast: b, in: keys)
-        while i < keys.count, keys[i].bytes.starts(with: b) {
-            let k = keys[i]
-            if k.bytes.count > b.count, best.map({ k.weight >= $0.weight }) ?? true { consider(k.text, k.url, k.weight) }
-            i += 1
+        let start = firstKey(atLeast: b, in: keys)
+        // UTF-8 never contains 0xff, so incrementing the final byte gives the exclusive
+        // upper bound of this prefix. Find it once instead of rechecking every candidate.
+        var endPrefix = b
+        endPrefix[endPrefix.count - 1] += 1
+        let end = firstKey(atLeast: endPrefix, in: keys)
+        var winner: Int?
+        for i in start..<end where keys[i].bytes.count > b.count {
+            guard let previous = winner else { winner = i; continue }
+            if keys[i].weight > keys[previous].weight
+                || (keys[i].weight == keys[previous].weight && keys[i].text.count < keys[previous].text.count) {
+                winner = i
+            }
+        }
+        if let winner {
+            let k = keys[winner]
+            best = (k.text, k.url, k.weight)
         }
         // Open tabs and pinned items (a handful) add their weight to the history's for the same target.
         var extras: [String: (url: String, weight: Double)] = [:]
         for c in extra {
-            guard let t = targets(c.url) else { continue }
+            guard let t = rememberedTargets(c.url) else { continue }
             let target = inHost ? t.host : t.address
             guard target.hasPrefix(body), target.count > body.count else { continue }
             let url = inHost ? t.hostURL : c.url
@@ -326,16 +372,9 @@ public enum InlineCompletion {
 public enum SearchSuggestions {
     /// The endpoint for an engine's suggestions (OpenSearch "suggestions" JSON), or nil if it has none.
     public static func url(for query: String, engine: SearchEngine) -> URL? {
-        var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove(charactersIn: "&+=?#")
-        guard let q = query.addingPercentEncoding(withAllowedCharacters: allowed), !q.isEmpty else { return nil }
-        switch engine {
-        case .google: return URL(string: "https://suggestqueries.google.com/complete/search?client=firefox&q=\(q)")
-        case .duckDuckGo: return URL(string: "https://duckduckgo.com/ac/?type=list&q=\(q)")
-        case .bing: return URL(string: "https://api.bing.com/osjson.aspx?query=\(q)")
-        case .ecosia: return URL(string: "https://ac.ecosia.org/autocomplete?type=list&q=\(q)")
-        case .kagi: return nil
-        }
+        let q = SearchEngine.encode(query)
+        guard !q.isEmpty else { return nil }
+        return URL(string: SearchEngineStandIn.route(engine.suggestBase) + q)
     }
 
     /// Parses OpenSearch suggestions: `["query", ["s1", "s2", …], …]`. Drops the query itself and blanks.

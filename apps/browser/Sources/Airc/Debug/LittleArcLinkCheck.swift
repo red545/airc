@@ -46,6 +46,32 @@ extension SnapshotRunner {
         }
         waitForPage()
         littleArcAppleEventCheck()
+        littleArcGlobalNamesCheck()
+    }
+
+    /// V06: Little Arc's global commands under Arc's names and keys (Arc 1.170's MainMenu.nib and its strings): File ›
+    /// New Little Airc Window ⌥⌘N, Window › Show/Close Little Airc Windows, Settings' "Open Little Airc when I press ⌥⌘N"
+    /// and "… when clicking on links with ⌥⌘ held" (on by default), the Command Bar finding New Little Airc Window by
+    /// "little arc". `--script v06` presses and chooses them.
+    func littleArcGlobalNamesCheck() {
+        run { [self] in
+            let item = Self.menuItem("New Little Airc Window")
+            let mods = item?.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask) ?? []
+            check(item?.menu?.title == "File" && item?.keyEquivalent == "n" && mods == [.command, .option],
+                  "little arc (names): File › New Little Airc Window is ⌥⌘N, as in Arc's menu (\(item?.menu?.title ?? "-") › "
+                  + "\(item?.title ?? "-"), key \"\(item?.keyEquivalent ?? "-")\", modifiers \(mods.rawValue))")
+            let window = NSApp.windowsMenu?.items.map(\.title).filter { $0.hasSuffix("Little Airc Windows") } ?? []
+            check(window == ["Show Little Airc Windows", "Close Little Airc Windows"],
+                  "little arc (names): Window › Show Little Airc Windows and Close Little Airc Windows, Arc's two (\(window))")
+            let title = LittleArcGlobalSettingsSection.hotKeyTitle(.littleArcDefault)
+            let d = LittleArcGlobalSettings()
+            check(title == "Open Little Airc when I press ⌥⌘N" && !d.enabled && d.opensOptionCommandClicks,
+                  "little arc (names): Settings → Links says \"\(title)\" (off until turned on) and opens ⌥⌘-clicked links in Little Airc by "
+                  + "default (\(d.opensOptionCommandClicks))")
+            let bar = c.menuCommandActions(excluding: []).first { $0.title == "New Little Airc Window" }
+            check(bar?.keywords.contains("little arc") == true && bar?.hint == "⌥⌘N",
+                  "little arc (names): the Command Bar finds New Little Airc Window by \"little arc\", with ⌥⌘N (\(bar?.hint ?? "not found"))")
+        }
     }
 
     /// A GURL Apple event to this process, as Launch Services delivers a link from another app. Nil, or why it failed.
@@ -842,9 +868,12 @@ extension SnapshotRunner {
             let each = (CACurrentMediaTime() - t0) / 20 * 1000
             check(each < 5, "little arc (full-screen panel): telling a full-screen app costs \(String(format: "%.2f", each)) ms a look, "
                   + "on activations and links only")
-            check(!LittleArcFullScreen.enabled && LittleArcFullScreen.shared.takeLinkSource() == nil,
-                  "little arc (full-screen panel): a test run never opens links over the owner's full-screen app and routes them as before "
-                  + "(enabled \(LittleArcFullScreen.enabled))")
+            // Only a scratch copy acting as the owner's build (AIRC_LA_AS_OWNER=1: the by-hand proof, and runs in front)
+            // turns it on.
+            let owner = LittleArcController.actsAsOwner
+            check(LittleArcFullScreen.enabled == owner && (owner || LittleArcFullScreen.shared.takeLinkSource() == nil),
+                  "little arc (full-screen panel): a test run never opens links over the owner's full-screen app and routes them as before, "
+                  + "unless it acts as the owner's build (enabled \(LittleArcFullScreen.enabled), as owner \(owner))")
         }
         openPanel("panel")
         run { [self] in
@@ -859,9 +888,12 @@ extension SnapshotRunner {
                   + "hides on deactivate \(w.hidesOnDeactivate))")
             check(page.view.window === w && page.view.isDescendant(of: l.card) && page.title == "little arc 0" && w.isVisible,
                   "little arc (full-screen panel): its page is loaded in the panel (title “\(page.title)”, in it \(page.view.window === w))")
-            check(NSApp.isActive == activeBefore && !w.isKeyWindow,
-                  "little arc (full-screen panel): opening it doesn't activate the app (active \(activeBefore) → \(NSApp.isActive); a suite run "
-                  + "never makes it key)")
+            // The owner's build makes the panel key without activating (AppDelegate.openLittleArc); a suite run only
+            // orders it front.
+            let owner = LittleArcController.actsAsOwner
+            check(NSApp.isActive == activeBefore && w.isKeyWindow == owner,
+                  "little arc (full-screen panel): opening it doesn't activate the app (active \(activeBefore) → \(NSApp.isActive)); it's key "
+                  + "only as the owner's build makes it (key \(w.isKeyWindow), as owner \(owner))")
             w.cancelOperation(nil)
         }
         wait(0.3)
@@ -1046,6 +1078,9 @@ extension SnapshotRunner {
             }
             run { [self] in
                 guard let l = little else { return check(false, "little arc (full screen): a link sent through Launch Services opens Little Airc") }
+                // The link came first or with no activation (lafullscreen2): the source as Little Arc took it.
+                let detectedAtActivation = fsAtActivation == true
+                if fsPID == 0 || !detectedAtActivation, LittleArcFullScreen.shared.lastSource != 0 { fsPID = LittleArcFullScreen.shared.lastSource }
                 let w = l.window
                 let (mine, theirs) = fsWindowOrder(w)
                 let inFront = mine != nil && theirs != nil && mine! < theirs!
@@ -1053,8 +1088,18 @@ extension SnapshotRunner {
                 let browserShown = app?.controllers.contains { $0.window.isOnActiveSpace } == true
                 note("little arc (full screen): \(stamp()) \(LinkLog.windowState(w)), app active \(NSApp.isActive), \(type(of: w)), level \(w.level.rawValue), "
                      + "behaviour \(w.collectionBehavior.rawValue), “\(LittleArcFullScreen.shared.lastAction)”")
-                check(fsAtActivation == true, "little arc (full screen): \(fsName()) was in native full screen as Airc became active "
-                      + "(\(fsAtActivation.map(LinkLog.yesNo) ?? "-"))")
+                let expectedSource = ProcessInfo.processInfo.environment["AIRC_LA_FS_SOURCE"].flatMap { id in
+                    NSRunningApplication.runningApplications(withBundleIdentifier: id).first?.processIdentifier }
+                check(l.overFullScreen && (expectedSource == nil || expectedSource == LittleArcFullScreen.shared.lastSource),
+                      "little arc (full screen): the link's source \(fsName()) was detected in native full screen (at the activation "
+                      + "\(fsAtActivation.map(LinkLog.yesNo) ?? "none"), panel \(l.overFullScreen), source as expected "
+                      + "\(expectedSource.map { $0 == LittleArcFullScreen.shared.lastSource } ?? true))")
+                // On that app's full-screen Space by the window server's own list, visible and key.
+                let fsSpace = FullScreenSpaces.space(of: fsPID)
+                let panelSpaces = FullScreenSpaces.spaces(ofWindow: w.windowNumber)
+                check(fsSpace?.current == true && panelSpaces.contains(fsSpace?.id ?? 0) && w.isVisible && w.isKeyWindow,
+                      "little arc (full screen): Little Airc is on \(fsName())'s full-screen Space (Space \(fsSpace.map { String($0.id) } ?? "none"), "
+                      + "on screen \(fsSpace?.current == true), the panel's Spaces \(panelSpaces)), visible \(w.isVisible), key \(w.isKeyWindow)")
                 check(w.isOnActiveSpace && stillFull && inFront && !browserShown && l.overFullScreen,
                       "little arc (full screen): Little Airc ends on the full-screen Space, in front of \(fsName())'s window, without the browser "
                       + "window's desktop (on the active Space \(w.isOnActiveSpace), in front \(inFront), browser window shown \(browserShown), panel "
@@ -1069,13 +1114,16 @@ extension SnapshotRunner {
                 if NSApp.isActive {
                     if #available(macOS 14.0, *) { NSApp.yieldActivation(to: fs); fs.activate(from: .current, options: []) } else { fs.activate(options: []) }
                 }
-                waitUntil({ NSWorkspace.shared.frontmostApplication?.processIdentifier == fsPID && !NSApp.isActive }, timeout: 3) {
+                // Frontmost by the system's account: with the link sent without activating this copy, AppKit reports it active
+                // while its non-activating panel is key, though it never came to the front (no activation notification).
+                let fsFront = { NSWorkspace.shared.frontmostApplication?.processIdentifier == fsPID }
+                waitUntil({ fsFront() && (!NSApp.isActive || activations == 0) }, timeout: 3) {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                         guard let w = little?.window else { return done() }
                         let (mine, theirs) = fsWindowOrder(w)
                         let inFront = mine != nil && theirs != nil && mine! < theirs!
                         activationsAfterHandBack = activations
-                        self.check(!NSApp.isActive && w.isVisible && w.isOnActiveSpace && inFront && LinkLog.isFullScreen(fsPID),
+                        self.check(fsFront() && (!NSApp.isActive || activations == 0) && w.isVisible && w.isOnActiveSpace && inFront && LinkLog.isFullScreen(fsPID),
                                    "little arc (full screen): with \(fsName()) in front again, Little Airc stays over it (app active \(NSApp.isActive), "
                                    + "on the active Space \(w.isOnActiveSpace), in front \(inFront), \(LinkLog.frontApp()))")
                         done()

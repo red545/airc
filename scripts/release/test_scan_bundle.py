@@ -141,5 +141,51 @@ class BundleScanTests(unittest.TestCase):
         self.assertTrue(entries)
         self.assertTrue(all('{' not in path for path in entries))
 
+    def test_public_resource_allowance_is_exact_path_and_kind(self):
+        resource = 'Contents/Resources/Lists/fixture.txt'
+        reason = 'Synthetic public list fixture; one reviewed kind in this exact text file'
+        address = '.'.join(['10', '1', '2', '3']).encode()
+        host = b'fixture' + b'.ts.net'
+        for kind, payload, other_kind in [('private-ip', address, host), ('private-host', host, address)]:
+            cases = [
+                ('reviewed text', resource, payload + b'\n', 0),
+                ('other file', 'Contents/Resources/Lists/other.txt', payload, 1),
+                ('other kind', resource, payload + b'\n' + other_kind, 1),
+                ('home path', resource, payload + b'\n' + HOME.encode() + b'fixture', 1),
+                ('dev setting', resource, payload + b'\nAircDevChannel', 1),
+                ('utf16', resource, payload.decode().encode('utf-16-le'), 1),
+                ('binary', resource, payload + b'\0', 1),
+            ]
+            for label, path, content, expected in cases:
+                with self.subTest(kind=kind, case=label), tempfile.TemporaryDirectory() as tmp:
+                    app = Path(tmp) / 'Scratch.app'
+                    target = app / path
+                    target.parent.mkdir(parents=True)
+                    target.write_bytes(content)
+                    status, output = run(app, allowlist(tmp, {'path': resource, 'kind': kind, 'reason': reason}))
+                    self.assertEqual(status, expected, output)
+                    self.assertNotIn(payload.decode(), output)
+
+    def test_resource_allowance_rejects_broad_paths_and_kinds(self):
+        good = {'path': 'Contents/Resources/Lists/fixture.txt', 'kind': 'private-ip',
+                'reason': 'Synthetic public list fixture; one reviewed kind in this exact text file'}
+        for changes in [dict(path='Contents/Resources/Lists/*.txt'), dict(path='/Contents/Resources/list.txt'),
+                        dict(path='Contents/Resources/../MacOS/fixture.txt'), dict(path='Contents/MacOS/fixture.txt'),
+                        dict(kind='home-path'), dict(kind='dev-channel-key'), dict(reason=''), dict(extra=True)]:
+            with self.subTest(changes=changes), tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaises(ValueError):
+                    allowlist(tmp, dict(good, **changes))
+
+    def test_resource_allowance_does_not_cover_symlinks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app = Path(tmp) / 'Scratch.app'
+            target = app / 'Contents/Resources/Lists/fixture.txt'
+            target.parent.mkdir(parents=True)
+            target.symlink_to(Path(tmp) / 'outside')
+            status, output = run(app, allowlist(tmp, {'path': target.relative_to(app).as_posix(),
+                'kind': 'private-ip', 'reason': 'Synthetic public list fixture; one reviewed text file only'}))
+            self.assertEqual(status, 1, output)
+            self.assertIn('external-symlink', output)
+
 if __name__ == '__main__':
     unittest.main()

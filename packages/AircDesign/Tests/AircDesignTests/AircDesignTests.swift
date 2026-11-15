@@ -141,8 +141,8 @@ func assertContrast(_ theme: SpaceTheme, systemIsDark: Bool, _ label: String) {
     }
     let F = ResolvedTheme.Floor.self
     #expect(worstText >= F.text, "\(label): text \(worstText)")
-    #expect(worstSecondary >= F.textSecondary, "\(label): secondary \(worstSecondary)")
-    #expect(worstTertiary >= F.textTertiary, "\(label): tertiary \(worstTertiary)")
+    #expect(worstSecondary >= r.secondaryFloor, "\(label): secondary \(worstSecondary)")
+    #expect(worstTertiary >= r.tertiaryFloor, "\(label): tertiary \(worstTertiary)")
     #expect(r.onAccent.contrast(on: r.accent) >= F.onAccent, "\(label): onAccent \(r.onAccent.contrast(on: r.accent)) accent \(r.accent)")
     #expect(r.surfaceText.contrast(on: r.surface) >= F.surfaceText, "\(label): surface text")
     #expect(r.surfaceTextSecondary.contrast(on: r.surface) >= 4.5, "\(label): surface secondary")

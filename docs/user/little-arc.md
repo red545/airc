@@ -26,8 +26,12 @@ clicked in stays as it is.
 
 ## From any app
 
-Turn on **Settings → Links → Little Airc → Open Little Airc from any app**. Then **⌥⌘N**, as in Arc, opens a Little Airc
-window from whatever app you're in. If that app is in full screen, Little Airc opens over it.
+Turn on **Settings → Links → Little Airc → Open Little Airc when I press ⌥⌘N**, as in Arc. Then **⌥⌘N** opens a Little
+Airc window from whatever app you're in, ready for a quick search: type a search or an address in its field and press
+Return. If that app is in full screen, Little Airc opens over it.
+
+- In Airc itself, **File → New Little Airc Window** (⌥⌘N) does the same, with the setting on or off. You can also find it
+  in the Command Bar (⌘T) by typing "little arc".
 
 - To use another shortcut, click it in Settings and type the new one. Esc cancels; Delete puts back ⌥⌘N.
 - Settings tells you if macOS or another app already uses the shortcut, so you can choose another.
@@ -52,5 +56,6 @@ Airc addition; Arc doesn't do it.
 - Archived Little Airc pages are in the Library's Archive under **Little Airc**.
 - **Window → Close Little Airc Windows** closes all of them at once and sends their pages to the Archive the same way.
 - **Window → Show Little Airc Windows** brings every Little Airc window to the front.
+- **Window → Show Little Airc Windows** also brings back the ones you minimized.
 - While there are Little Airc windows, both are also in the Command Bar (⌘T) and in the Dock icon's menu.
 - Closing a Little Airc window with a video or call playing keeps it playing in picture in picture.

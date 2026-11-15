@@ -17,12 +17,17 @@ import AppKit
 ///     settles on its own spring (`AircSpring.settle`), sampled at 60 fps.
 ///   - capture: ⇧⌘2 on the demo trip page (MarketingCapture.swift): the dimmed page, a selection dragged open over its
 ///     hero card, then Copy, Save and Share under it.
-/// More motions, one per feature, are in SocialMotions.swift (0.1.2's features), SocialMotions013.swift (0.1.3's) and
-/// SocialNext.swift (no release yet). A build of a release's source leaves out the files of features after it
-/// (tools/social/mac-frames.sh --rev), so those two are found through these protocols.
+/// More motions, one per feature, are in SocialMotions.swift (0.1.2's features), SocialMotions013.swift (0.1.3's),
+/// SocialMotions015.swift (0.1.5's) and SocialNext.swift (no release yet). A build of a release's source leaves out the
+/// files of features after it (tools/social/mac-frames.sh --rev), so those are found through these protocols.
 protocol Social013Motions {
     /// Queues `motion`'s steps if it's one of these; false if not.
     func social013Motion(_ motion: String) -> Bool
+}
+
+protocol Social015Motions {
+    /// Queues `motion`'s steps if it's one of these; false if not.
+    func social015Motion(_ motion: String) -> Bool
 }
 
 protocol SocialNextMotions {
@@ -56,6 +61,7 @@ extension SnapshotRunner {
         default:
             // Motions of features after the release a build is made from are in files its build leaves out.
             if (self as Any as? Social013Motions)?.social013Motion(motion) == true { break }
+            if (self as Any as? Social015Motions)?.social015Motion(motion) == true { break }
             if (self as Any as? SocialNextMotions)?.socialNextMotion(motion) != true { note("social: unknown motion \(motion)") }
         }
         run { [self] in note(String(format: "social: %@ done in %.0f s", motion, Date().timeIntervalSince(started))) }

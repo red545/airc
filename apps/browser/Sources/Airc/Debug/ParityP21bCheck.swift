@@ -1,5 +1,6 @@
 // Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
 #if AIRC_TESTING // test builds only: public builds compile nothing in Debug/ (App/TestingGate.swift)
+import AircDesign
 import AircKit
 import AppKit
 
@@ -26,7 +27,8 @@ private final class NotesReadyUpdate: ReadyUpdate {
 ///      the setting off, and (as the probe reports them) a call, screen sharing, a download, a page still sending and
 ///      picture in picture; it restarts once nothing would be interrupted, and once only per update.
 ///   4. See What's New from the pill's menu and from the question: the update's own notes in a new tab; Airc's release
-///      notes when it has none.
+///      notes when it has none. After a restart into an update, "Updated!" with See What's New for the notes saved with
+///      that version, never opening a tab by itself.
 ///   5. Chromium: a restart cancelled by a page's "Leave site?" keeps every window, tab and the ready update, and the
 ///      next quit saves the session again.
 /// `--script p21b-write` / `p21b-read` (the same data folder): two windows, two Spaces and a split, restarted through
@@ -103,7 +105,7 @@ extension SnapshotRunner {
         // 1. Personalization.
         run { [self] in
             let p = AppPersonalization.preferences
-            check(p == PersonalizationPreferences() && AppPersonalization.availableIcons == [.holographic, .outline],
+            check(p == PersonalizationPreferences() && AppPersonalization.availableIcons == PersonalizationPreferences.AppIcon.allCases,
                   "parityp21b: personalization starts as Holographic, sounds and haptics on; this build has \(AppPersonalization.availableIcons.map(\.title))")
             // What the Dock shows, drawn at 32 px, against what it showed at launch (the app's own icon, as this
             // build's bundle has it): Outline differs, Holographic matches again.
@@ -222,11 +224,24 @@ extension SnapshotRunner {
         run { [self] in app?.settings.values.restartToUpdateWhenIdle = false }
         idle("waits with Automatically update my Airc off", expect: [.turnedOff], installs: 0)
         run { [self] in app?.settings.values.restartToUpdateWhenIdle = true }
-        gesture({ music }, "document.getElementById('a').pause();navigator.mediaSession.playbackState='paused';true")
+        // Part-way by construction: the 6 s fixture loops, so a pause could otherwise land right at its start.
+        gesture({ music }, "var a=document.getElementById('a');a.currentTime=2.5;a.pause();navigator.mediaSession.playbackState='paused';true")
         step { [self] done in
             waitUntil({ page(music).map { (self.app?.engine as? EngineMedia)?.mediaSession(of: $0).playback != .playing && !$0.isAudible } ?? true },
                       timeout: 6) { done() }
         }
+        step { [self] done in
+            guard let p = page(music) else { note("parityp21b: paused music: no page"); return done() }
+            let t0 = Date(), session = (app?.engine as? EngineMedia)?.mediaSession(of: p)
+            let js = "(function(){var a=document.getElementById('a');return JSON.stringify({paused:a.paused,t:a.currentTime,rs:a.readyState,ended:a.ended,r:"
+                + UpdateRestartRisks.pageScript + "})})()"
+            p.evaluate(js) { v in
+                self.note("parityp21b: paused music page says \(v.map { "\($0)" } ?? "nothing") in \(Int(Date().timeIntervalSince(t0) * 1000)) ms; "
+                          + "session \(session.map { "\($0.playback)" } ?? "-") position \(session?.position.map { "\($0)" } ?? "nil"), hidden \(self.c.shownTabID != music)")
+                done()
+            }
+        }
+        risks { [self] r in note("parityp21b: paused music: the probe says \(r.logText)") }
         idle("waits for music paused part-way (it would start over)", expect: [.media], installs: 0)
         // The music page goes elsewhere: no media left.
         run { page(music)?.load(URL(string: base + "/plain.html")!) }
@@ -266,6 +281,28 @@ extension SnapshotRunner {
         }
         gesture({ dirty }, "window.__ask=false;true")
         idle("waits for typed text alone (no Leave site? handler)", expect: [.editedForms], installs: 0)
+        // The same typed text on a page too busy to answer (a long script, a hung renderer): what the page holds is
+        // unknown, so it waits; it never restarts as if nothing would be lost (suitereds).
+        gesture({ dirty }, "setTimeout(function(){var e=Date.now()+8000;while(Date.now()<e){}},100);true")
+        wait(0.4)
+        step { [self] done in
+            center.idleTestClock = { (idle: 31 * 60, active: false) }
+            center.checkIdleRestart { blockers in
+                self.check(blockers.map(\.rawValue) == ["unanswered"] && update.installs == 0,
+                           "parityp21b: idle: waits for typed text on a page too busy to answer (\(blockers.map(\.rawValue)), installs \(update.installs))")
+                done()
+            }
+        }
+        step { done in
+            // Until the page answers again.
+            func poll(_ n: Int) {
+                guard n > 0, let p = page(dirty) else { return done() }
+                var answered = false
+                p.evaluate("1") { _ in answered = true }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { answered ? done() : poll(n - 1) }
+            }
+            poll(30)
+        }
         gesture({ dirty }, "document.getElementById('f').value='';true")
         // A private window with a page.
         var privateWindow: PrivateWindowController?
@@ -333,6 +370,23 @@ extension SnapshotRunner {
             center.riskProbe = nil
         }
         wait(0.4)
+
+        // 4b. "Updated!" after a restart into an update: See What's New opens the notes saved with that version.
+        run { [self] in
+            try? Data("0.0.1 (1)".utf8).write(to: UpdateCenter.lastVersionFile)
+            UpdateCenter.saveNotes(.init(version: UpdateCenter.runningVersion, notes: notes().absoluteString))
+            check(UpdateCenter.notesURL(for: "0.0.2 (2)") == ParityCommandCatalog.releaseNotes,
+                  "parityp21b: Updated! for a version without saved notes points to Airc's release notes")
+            UpdateCenter.shared.noteLaunchedVersion(inScriptedRun: true)
+        }
+        step { [self] done in waitUntil({ self.c.updatedToast?.shownText != nil }, timeout: 8) { done() } }
+        run { [self] in
+            let t = c.updatedToast
+            check(t?.shownText == UpdateCenter.updatedMessage(UpdateCenter.runningVersion) && t?.notes == notes()
+                  && t.map { $0.frame.height == AircMetrics.Toast.height } == true,
+                  "parityp21b: Updated! shows the version and See What’s New for its saved notes, at the toast's size (“\(t?.shownText ?? "-")”)")
+        }
+        p21bUpdatedToastOpensNotes(notes, name: "parityp21b", waitsOut: true, loads: true)
 
         // 5. A cancelled restart.
         cancelledRestart(update: { update }, dirty: { dirty }, gesture: gesture)
@@ -492,13 +546,61 @@ extension SnapshotRunner {
             })
             try? JSONEncoder().encode(expected).write(to: p21bExpectedFile)
             try? Data("0.0.1 (1)".utf8).write(to: UpdateCenter.lastVersionFile)
-            let update = NotesReadyUpdate(version: "1.0 (209901010000)", notes: nil)
+            // The update "restarted into" is this build: its notes link is saved with its version before the restart.
+            let update = NotesReadyUpdate(version: UpdateCenter.runningVersion, notes: Self.p21bSavedNotes)
             UpdateCenter.shared.riskProbe = { _, done in done(UpdateRestartRisks()) }
             UpdateCenter.shared.setReady(update)
+            check(UpdateCenter.savedNotes == .init(version: UpdateCenter.runningVersion, notes: Self.p21bSavedNotes.absoluteString),
+                  "p21b-write: the ready update's notes link is saved with its version before the restart")
             UpdateCenter.shared.restart(from: c)
             check(update.installs == 1, "p21b-write: Restart to Update with nothing at risk installs at once")
             UpdateCenter.shared.riskProbe = nil
             server?.stop()
+        }
+    }
+
+    /// The notes link the relaunch pair's update comes with (never loaded: nothing listens there).
+    static let p21bSavedNotes = URL(string: "http://127.0.0.1:9/p21b/whats-new.html")!
+
+    /// "Updated!" on screen. `waitsOut`: first it goes by itself, opening nothing; then it's shown again. See What's
+    /// New asks for `notesURL()` in a new tab and the toast goes; `loads`: the page then shows at that address.
+    /// Read when the steps run (the page server's address isn't known when they're queued).
+    func p21bUpdatedToastOpensNotes(_ notesURL: @escaping () -> URL, name: String, waitsOut: Bool, loads: Bool) {
+        var tabs = 0
+        var opened: URL?
+        func count() -> Int { c.store.todayTabs(ofSpace: c.currentSpaceID).count }
+        if waitsOut {
+            run { tabs = count() }
+            step { [self] done in waitUntil({ self.c.updatedToast?.shownText == nil }, timeout: UpdatedToastView.duration + 4) { done() } }
+            run { [self] in
+                check(c.updatedToast?.shownText == nil && count() == tabs,
+                      "\(name): Updated! goes by itself after the toast's time and opens nothing by itself")
+                c.showUpdatedToast(UpdateCenter.updatedMessage(UpdateCenter.runningVersion), notes: notesURL())
+            }
+            wait(0.3)
+        }
+        run { [self] in
+            tabs = count()
+            if let t = c.updatedToast {
+                let open = t.onWhatsNew
+                t.onWhatsNew = { url in opened = url; open?(url) }
+            }
+            c.updatedToast?.button.performClick(nil)
+        }
+        step { [self] done in waitUntil({ opened != nil && count() == tabs + 1 }, timeout: 5) { done() } }
+        wait(0.4)
+        run { [self] in
+            check(opened == notesURL() && count() == tabs + 1 && c.updatedToast?.shownText == nil,
+                  "\(name): Updated!'s See What’s New opens that version's notes in a new tab (\(opened?.absoluteString ?? "-")) and the toast goes")
+        }
+        if loads {
+            step { [self] done in
+                waitUntil({ self.c.shownTabID.flatMap { self.c.engineTab(for: $0)?.url } == notesURL() }, timeout: 6) {
+                    let at = self.c.shownTabID.flatMap { self.c.engineTab(for: $0)?.url }
+                    self.check(at == notesURL(), "\(name): the notes page shows in that tab (\(at?.absoluteString ?? "-"))")
+                    done()
+                }
+            }
         }
     }
 
@@ -517,13 +619,16 @@ extension SnapshotRunner {
                       "p21b-read: window \(i + 1): its Space (\(w.store.space(w.currentSpaceID)?.name ?? "?")), tab and \(e.split == nil ? "no split" : "split") as before")
             }
             UpdateCenter.shared.noteLaunchedVersion(inScriptedRun: true)
-            waitUntil({ self.c.toast.shownText?.hasPrefix("Updated!") == true }, timeout: 15) {
+            waitUntil({ self.c.updatedToast?.shownText?.hasPrefix("Updated!") == true }, timeout: 15) {
                 let stamp = try? String(contentsOf: UpdateCenter.lastVersionFile, encoding: .utf8)
-                self.check(self.c.toast.shownText == UpdateCenter.updatedMessage(UpdateCenter.runningVersion) && stamp == UpdateCenter.runningVersion,
-                           "p21b-read: after the update's restart: “\(self.c.toast.shownText ?? "no toast")”")
+                let t = self.c.updatedToast
+                self.check(t?.shownText == UpdateCenter.updatedMessage(UpdateCenter.runningVersion) && stamp == UpdateCenter.runningVersion
+                           && t?.button.title == UpdateConfirmModel.whatsNewTitle && t?.notes == Self.p21bSavedNotes,
+                           "p21b-read: after the update's restart: “\(t?.shownText ?? "no toast")” with See What’s New for that version's saved notes")
                 done()
             }
         }
+        p21bUpdatedToastOpensNotes({ Self.p21bSavedNotes }, name: "p21b-read", waitsOut: false, loads: false)
         capture("p21b-restored")
     }
 }

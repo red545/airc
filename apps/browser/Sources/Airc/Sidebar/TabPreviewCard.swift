@@ -7,6 +7,10 @@ import AppKit
 /// (pin, Favorites, split, Peek). Drawn with layers on the Space's `surface` at `popover` elevation, like the folder
 /// preview; one per window, made on first use and reused. The view is larger than the card by the shadow's reach and
 /// hit-tests only the card.
+///
+/// S16: a kept picture that may be out of date says how old it is in a small pill on the picture ("Not loaded ·
+/// pictured 12 min ago", AircKit's TabPreviewStaleness). VoiceOver reads the card as a group ("Preview of …") with its
+/// four buttons by name; each can be pressed from VoiceOver.
 final class TabPreviewCardView: NSView {
     enum Button: CaseIterable { case pin, favorite, split, peek }
 
@@ -41,6 +45,9 @@ final class TabPreviewCardView: NSView {
     private let favicon = FaviconView()
     private let title = AircFadingLabel(style: AircFont.row)
     private let host = AircFadingLabel(style: AircFont.caption)
+    /// The age hint over the picture's bottom left (S16); hidden for a live or fresh picture.
+    private let stalePill = NSView()
+    private let staleLabel = NSTextField(labelWithString: "")
     private var buttons: [Button: GlyphButton] = [:]
     private(set) var content: Content?
     private var palette: Palette?
@@ -70,13 +77,29 @@ final class TabPreviewCardView: NSView {
         host.font = AircFont.caption.appFont
         host.lineBreakMode = .byClipping
         for v in [placeholderIcon, favicon, title, host] as [NSView] { addSubview(v) }
+        stalePill.wantsLayer = true
+        stalePill.layer?.cornerRadius = 9
+        stalePill.layer?.cornerCurve = .continuous
+        // Over any page's picture, light or dark: a dark translucent plate with white text, like a photo's caption.
+        stalePill.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.58).cgColor
+        staleLabel.font = AircFont.caption.appFont
+        staleLabel.textColor = .white
+        staleLabel.lineBreakMode = .byTruncatingTail
+        stalePill.addSubview(staleLabel)
+        stalePill.isHidden = true
+        stalePill.setAccessibilityElement(false)
+        addSubview(stalePill)
         for b in Button.allCases {
             let g = GlyphButton(symbol: "pin", size: 13)
             g.plateRadius = AircRadius.control
             g.action = { [weak self] in self?.onButton?(b) }
+            g.setAccessibilityElement(true)
+            g.setAccessibilityRole(.button)
             addSubview(g)
             buttons[b] = g
         }
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -135,6 +158,7 @@ final class TabPreviewCardView: NSView {
         }
         let text = TextLimits.clip(c.title.isEmpty ? c.host : c.title)
         if title.stringValue != text { title.stringValue = text }
+        setAccessibilityLabel(c.host.isEmpty || c.host == text ? "Preview of \(text)" : "Preview of \(text), \(c.host)")
         let hostText = TextLimits.clip(c.host)
         if host.stringValue != hostText { host.stringValue = hostText }
         favicon.set(image: c.favicon, url: c.faviconURL, fallbackPage: c.pageURL, palette: p)
@@ -153,6 +177,16 @@ final class TabPreviewCardView: NSView {
         g.tint = on ? t.accent.nsColor : t.surfaceTextSecondary.nsColor
         g.isEnabled = enabled
         g.toolTip = tip
+        g.setAccessibilityLabel(tip)
+        g.setAccessibilityEnabled(enabled)
+    }
+
+    /// The age hint for a kept picture (nil: none, for a live or fresh one). Set after `setThumbnail`.
+    func setStaleHint(_ text: String?) {
+        stalePill.isHidden = text == nil || thumbnailImage == nil
+        staleLabel.stringValue = text ?? ""
+        setAccessibilityHelp(stalePill.isHidden ? nil : text)
+        needsLayout = true
     }
 
     /// The page's picture, its top kept (a page reads from the top), or nil for the placeholder: the favicon, faint, on
@@ -165,6 +199,7 @@ final class TabPreviewCardView: NSView {
         thumbnail.contents = shown
         CATransaction.commit()
         placeholderIcon.isHidden = image != nil
+        if image == nil { stalePill.isHidden = true }
     }
 
     /// The largest part of `image` with the given aspect ratio, from its top (centred across).
@@ -195,6 +230,15 @@ final class TabPreviewCardView: NSView {
         let ps: CGFloat = 28
         placeholderIcon.frame = NSRect(x: thumb.midX - ps / 2, y: thumb.midY - ps / 2, width: ps, height: ps)
         placeholderIcon.alphaValue = 0.55
+        if !stalePill.isHidden {
+            // The text's own width plus the field's few points of padding (the intrinsic width alone cut "just now").
+            let textWidth = (staleLabel.stringValue as NSString).size(withAttributes: [.font: staleLabel.font as Any]).width
+            let tw = min(ceil(max(textWidth, staleLabel.intrinsicContentSize.width)) + 6, thumb.width - 12 - 16)
+            let ph: CGFloat = 18
+            stalePill.frame = NSRect(x: thumb.minX + 6, y: thumb.maxY - 6 - ph, width: tw + 16, height: ph)
+            let lh = ceil(staleLabel.intrinsicContentSize.height)
+            staleLabel.frame = NSRect(x: 8, y: floor((ph - lh) / 2), width: tw, height: lh)
+        }
         let textTop = thumb.maxY + 10
         let fs: CGFloat = 16
         favicon.frame = NSRect(x: r.minX + 12, y: textTop + 1, width: fs, height: fs)
@@ -222,5 +266,12 @@ final class TabPreviewCardView: NSView {
     var titleText: String { title.stringValue }
     var hostText: String { host.stringValue }
     var showsPlaceholder: Bool { !placeholderIcon.isHidden }
+    /// The age hint shown over the picture, nil when there is none (S16).
+    var staleHintText: String? { stalePill.isHidden ? nil : staleLabel.stringValue }
+    /// The hint's whole text fits its label (no ellipsis).
+    var staleHintFits: Bool {
+        let w = (staleLabel.stringValue as NSString).size(withAttributes: [.font: staleLabel.font as Any]).width
+        return staleLabel.frame.width >= ceil(w) + 2 && stalePill.frame.maxX <= cardRect.maxX - Self.inset
+    }
     #endif
 }

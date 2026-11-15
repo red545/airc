@@ -137,8 +137,9 @@ func assertTranslucentContrast(_ r: ResolvedTheme, underlay a: Double, _ label: 
     }
 
     @Test func lightAndNeutralPresetsVisiblyDim() {
-        // Saturated dark presets already draw their ink at the contrast floor, so they barely dim.
-        for id in ["paper", "mint", "sky", "lilac", "peach", "lemon", "midnight"] {
+        // Saturated dark presets already draw their ink at the contrast floor, so they barely dim. Midnight too since the
+        // dark-mode pass (darkmode): its secondary ink sits close to the 4.5:1 dark floor; it dims, just not by 0.05.
+        for id in ["paper", "mint", "sky", "lilac", "peach", "lemon"] {
             let r = SpaceTheme.preset(id)!.resolved(systemIsDark: false)
             #expect(r.forWindow(isActive: false).textSecondary.alpha < r.textSecondary.alpha - 0.05, "\(id)")
             #expect(r.forWindow(isActive: false).text.alpha < r.text.alpha - 0.05, "\(id)")

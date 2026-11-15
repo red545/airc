@@ -74,9 +74,18 @@ pub unsafe extern "C" fn airc_blocking_create(data: *const u8, len: usize) -> *m
     };
     let mut filters = FilterSet::new(false);
     filters.add_filter_list(list.to_owned(), ParseOptions::default());
-    Box::into_raw(Box::new(BlockingEngine(Engine::new_with_filter_set(
-        filters,
-    ))))
+    if !list.trim().is_empty() {
+        filters.add_filter_list(
+            "youtube.com,youtube-nocookie.com##+js(airc-video-prune)\nyoutube.com,youtube-nocookie.com##ytd-ad-slot-renderer,ytd-display-ad-renderer,ytd-promoted-sparkles-web-renderer,ytd-promoted-video-renderer,ytd-search-pyv-renderer,#masthead-ad".to_owned(),
+            ParseOptions::default(),
+        );
+    }
+    let mut engine = Engine::new_with_filter_set(filters);
+    let Ok(resources) = serde_json::from_str::<Vec<adblock::resources::Resource>>(
+        include_str!("video_ads_resource.json"),
+    ) else { return ptr::null_mut(); };
+    engine.use_resources(resources);
+    Box::into_raw(Box::new(BlockingEngine(engine)))
 }
 
 /// # Safety
@@ -392,3 +401,28 @@ pub unsafe extern "C" fn airc_blocking_webkit_rules(data: *const u8, len: usize)
 
 #[cfg(feature = "measure-heap")]
 mod heap_probe;
+
+#[cfg(test)]
+mod video_tests {
+    use super::*;
+    fn script(list: &str, url: &str) -> String {
+        unsafe {
+            let engine = airc_blocking_create(list.as_ptr(), list.len());
+            assert!(!engine.is_null(), "bundled resource decodes");
+            let output = airc_blocking_cosmetics(engine, url.as_ptr(), url.len());
+            let value: serde_json::Value = serde_json::from_slice(slice::from_raw_parts(output.data, output.len)).unwrap();
+            airc_blocking_bytes_free(output);
+            airc_blocking_destroy(engine);
+            value["injected_script"].as_str().unwrap().to_owned()
+        }
+    }
+    #[test]
+    fn video_resource_selection_and_exceptions() {
+        assert!(script("", "https://www.youtube.com/watch?v=fixture").is_empty());
+        assert!(script("! fixture", "https://www.youtube.com/watch?v=fixture").contains("ytInitialPlayerResponse"));
+        assert!(script("! fixture", "https://youtube.com.evil.test/").is_empty());
+        assert!(script("! fixture", "https://example.test/").is_empty());
+        assert!(script("youtube.com#@#+js(airc-video-prune)", "https://www.youtube.com/").is_empty());
+        assert!(script("! fixture", "https://www.youtube-nocookie.com/embed/fixture").contains("ytInitialPlayerResponse"));
+    }
+}

@@ -109,17 +109,25 @@ the new link or file is the next version of the same Boost: anyone who added an 
 ## Add a Boost
 
 Open a link (in Airc, or from another app with Airc as your browser), open a file in Finder, drag it onto the
-browser's background, choose **File → Open…**, or pick one in the **Boost Gallery**. Airc first shows a review, as
+browser's background, choose **File → Open…** or **Settings → Boosts → Import…**, or pick one in the **Boost
+Gallery**. Airc first shows a review, as
 Arc's "Add this Boost?" did: its name, who says they made it, its screenshot (or a sketch of its colors and font), what
 it changes in words, the hidden elements, all CSS and all JavaScript, with a note if it's for a site you haven't visited
-in a while. **JavaScript can read and change pages and send data to other websites.** Only allow code you understand
-and trust.
+in a while. A Boost with JavaScript says so first, in orange: **This Boost runs code on example.com…**. Its code is
+shown in full with colors, and the calls to look at first (network requests, `eval`, cookies and stored data) stand
+out. **JavaScript can read and change pages and send data to other websites.** Only allow code you understand and
+trust.
 
 - **Try It On** shows its colors, font, size, hidden elements and CSS on the site's pages while the review is open (it
   opens the site if it isn't on screen). Its JavaScript never runs before you add it. **Cancel** takes it off again and
   changes nothing.
-- **Add Boost** (**Add and Allow Code** for one with JavaScript) adds it in every Space and profile, and shows the site
-  with it on.
+- **Add Boost** adds it in every Space and profile and shows the site. A style-only Boost is on at once. A Boost with
+  JavaScript is added **off**: nothing of it runs until you turn it on, with **Turn On** on the toast, the editor's
+  switch, Site Controls or Settings → Boosts. Turn On reloads the site's page so its code runs. An update that keeps
+  the same code keeps a Boost that's on, on; new code is off again until you turn it on.
+- Airc refuses files that aren't valid Boosts: not a Boost file, a newer format, more than 256 KB (not counting its
+  screenshot, which may be up to 300 KB), hidden or reordered text, or code that loads more code from elsewhere
+  (`<script>` elements, `import()`, workers, or the address of a `.js` file). Everything a Boost runs is in its file.
 - A newer version of a Boost you added says **Update this Boost?** with the two versions; if you changed your copy
   since, it says that updating replaces your changes. An older version says it's older.
 - When the site already has another Boost, the review shows that one's settings and full code too; **Replace**

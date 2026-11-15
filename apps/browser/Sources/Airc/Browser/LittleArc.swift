@@ -134,6 +134,9 @@ final class LittleArcController: NSObject, NSWindowDelegate {
             w.collectionBehavior.formUnion(Self.spacesBehaviour)
         }
         w.minSize = NSSize(width: 420, height: 300)
+        // NSWindow construction may constrain an off-main-display rectangle to its default screen.
+        // Apply our global frame after construction for tear-out, restore, and key-display placement.
+        w.setFrame(frame, display: false)
         w.title = "Little Airc"
         w.delegate = self
         root.controller = self
@@ -212,13 +215,23 @@ final class LittleArcController: NSObject, NSWindowDelegate {
 
     /// How far the loading line has got for this load (Chromium reports 1, then 0, while a late image still loads).
     private var progressShown = 0.0
+    /// fastlaunch: the address this window opens while its profile's blocking rules get ready (right after launch). The
+    /// window, its address and the loading line show at once; the page (and every request) comes when the rules are in.
+    private(set) var waitingURL: URL?
+    private var waitingForProfile = false
 
     /// The loading line: under the row, over the card's straight top edge (between its corners). It grows with the page
     /// (never back), waits at 95 % for the last requests, and goes when the page has loaded.
     private func layoutProgress() {
         typealias M = AircMetrics.LittleArc
         CATransaction.begin()
-        if let page, page.isLoading {
+        if page == nil, waitingForProfile {
+            CATransaction.setDisableActions(true)
+            let span = max(0, card.frame.width - 2 * M.cardRadius)
+            progress.isHidden = false
+            progress.frame = NSRect(x: card.frame.minX + M.cardRadius, y: Self.barHeight - M.progressHeight - 2,
+                                    width: span * 0.08, height: M.progressHeight)
+        } else if let page, page.isLoading {
             let grew = page.progress > progressShown && !progress.isHidden
             progressShown = max(progressShown, page.progress)
             CATransaction.setDisableActions(!grew)
@@ -240,7 +253,7 @@ final class LittleArcController: NSObject, NSWindowDelegate {
         let p = palette
         background.show(p.resolved)
         card.palette = p
-        addressField.setPage(url: page?.url?.absoluteString ?? "", palette: p)
+        addressField.setPage(url: page?.url?.absoluteString ?? waitingURL?.absoluteString ?? "", palette: p)
         refreshPageDetails(p)
         let space = store?.space(spaceID)
         if let pid = space?.profileID, let profile = store?.profile(pid) {
@@ -264,7 +277,24 @@ final class LittleArcController: NSObject, NSWindowDelegate {
     // MARK: The page
 
     private func open(_ url: URL?) {
-        guard let pid = profileID, let profile = app?.profiles?.engineProfile(for: pid) else { return }
+        guard let pid = profileID, let host = app?.profiles else { return }
+        // Right after launch the profile can still be getting ready (its blocking rules): the page opens when it is.
+        guard let profile = host.engineProfile(for: pid) else {
+            waitingURL = url
+            if !waitingForProfile {
+                waitingForProfile = true
+                // whenLoaded starts this profile now if it was queued behind others.
+                host.whenLoaded(pid, { [weak self] _ in
+                    guard let self, self.page == nil else { return }
+                    self.waitingForProfile = false
+                    self.open(self.waitingURL)
+                }, failed: { [weak self] in self?.waitingForProfile = false; self?.refreshChrome() })
+            }
+            refreshChrome()
+            return
+        }
+        waitingURL = nil
+        waitingForProfile = false
         engineWindow.activeProfile = profile
         let p = engineWindow.openTab(url: url, profile: profile, foreground: true)
         p.delegate = self
@@ -746,6 +776,23 @@ extension LittleArcController: EngineWindowDelegate {
 }
 
 extension LittleArcController: EngineTabDelegate {
+    /// C08: "Search <engine> for “…”" searches the profile's default, in this window (it shows one page; Back returns).
+    func tab(_ tab: EngineTab, pageMenu context: [String: Any]) -> [[String: String]] {
+        SelectionSearchMenu.items(context, search: littleArcSearch)
+    }
+    func tab(_ tab: EngineTab, pageMenuCommand id: String) {
+        guard tab === page, let q = SelectionSearchMenu.query(fromID: id) else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let url = SelectionSearch.url(q, search: self.littleArcSearch), let page = self.page else { return }
+            self.noteActivity()
+            page.load(url)
+            page.focus()
+        }
+    }
+    func selectionSearchName(for tab: EngineTab) -> String? { littleArcSearch.name }
+    private var littleArcSearch: DefaultSearch {
+        profileID.flatMap { store?.profile($0) }?.defaultSearch ?? .engine(.google)
+    }
     func tabDidChangeTitle(_ tab: EngineTab) { refreshAddress(tab) }
     func tabDidChangeURL(_ tab: EngineTab) {
         refreshAddress(tab)
@@ -1181,8 +1228,14 @@ final class LittleArcOpenChip: NSView {
 ///   over it: a round trip to the desktop and back (littlearc3's way).
 /// - **Settling.** The panel stays on that Space. Once the full-screen app leaves full screen (or quits), it becomes an
 ///   ordinary window again (`settleOverFullScreen`).
-/// Links.log has each step with the Space changes, timed from the activation. Event-driven only: it looks at the window
-/// list when Airc is about to become active, as a link is routed, and once per Space change while such a panel is open.
+/// - **Detection, in any order** (lafullscreen2, 2026-11-10). Launch Services usually activates Airc first and hands over
+///   the link about 0.1 s later, but the link can come first, or with no activation at all. So both moments count: the
+///   app in front as Airc is about to become active, and the link's own sender (its Apple event's pid) as it arrives.
+///   Either counts when that app's full-screen Space is on screen then. Full screen is read from the window server's
+///   Space list (FullScreenSpaces: each full-screen Space names its app), with the window geometry as the fallback.
+/// Links.log has each step with the Space changes, timed from the first of the two, and which came first. Event-driven
+/// only: it reads the Space list when Airc is about to become active, as a link arrives and is routed, and once per Space
+/// change while such a panel is open.
 final class LittleArcFullScreen {
     static let shared = LittleArcFullScreen()
     weak var app: AppDelegate?
@@ -1202,8 +1255,14 @@ final class LittleArcFullScreen {
 
     /// The last other app that came to the front.
     private var lastOther: pid_t = 0
-    /// The full-screen app Airc was just activated from, and when (the link comes about 0.1 s later).
+    /// The full-screen app a link is coming from, and when it was seen: at Airc's activation (the link comes about 0.1 s
+    /// later) or at the link itself.
     private var source: (pid: pid_t, at: Date)?
+    /// When Airc last became active (whether the link came first, for Links.log).
+    private var lastActivation: Date?
+    /// Each link's full-screen sender, by URL, until it's routed: a link that launches Airc waits in the launch queue for
+    /// seconds, far past `source`'s 3 s.
+    private var linkSources: [String: (pid: pid_t, at: Date)] = [:]
     /// The last activation from a full-screen app, for Links.log's timings, and the Space changes since.
     private(set) var episodeStart: Date?
     private(set) var spaceChanges: [TimeInterval] = []
@@ -1213,6 +1272,8 @@ final class LittleArcFullScreen {
     private var floating: [Floating] = []
     /// What it did last (the checks and Links.log).
     private(set) var lastAction = "none"
+    /// The full-screen app the last link was taken from (the checks).
+    private(set) var lastSource: pid_t = 0
 
     func install(app: AppDelegate) {
         self.app = app
@@ -1238,6 +1299,12 @@ final class LittleArcFullScreen {
     private func stamp() -> String { episodeStart.map { String(format: "+%.3f s", Date().timeIntervalSince($0)) } ?? "-" }
 
     private func appWillBecomeActive() {
+        lastActivation = Date()
+        // The link came first and named its full-screen sender: that stays the source.
+        if let s = source, Date().timeIntervalSince(s.at) < 3 {
+            LinkLog.write("Little Arc full screen: \(stamp()) activated after the link (source kept)")
+            return
+        }
         source = nil
         let candidates = [NSWorkspace.shared.frontmostApplication?.processIdentifier, lastOther].compactMap { $0 }.filter { $0 != getpid() && $0 != 0 }
         guard let pid = candidates.first(where: LinkLog.isFullScreen) else { return }
@@ -1249,21 +1316,106 @@ final class LittleArcFullScreen {
                       + "in full screen")
     }
 
+    /// A link from another app arrived (its Apple event is being handled; `sender` its pid). If that app is in native full
+    /// screen with its Space on screen, it's the link's source, whether or not Airc was just activated from it.
+    func linkArrived(from sender: pid_t?, url: URL? = nil) {
+        guard Self.enabled else { return }
+        let now = Date()
+        let activatedJustBefore = lastActivation.map { now.timeIntervalSince($0) < 3 } ?? false
+        let order = activatedJustBefore ? String(format: "%.3f s after Airc's activation", now.timeIntervalSince(lastActivation!))
+            : NSApp.isActive ? "with Airc already active" : "before any activation"
+        guard let pid = sender else {
+            if episodeStart.map({ now.timeIntervalSince($0) < 3 }) == true {
+                LinkLog.write("Little Arc full screen: \(stamp()) link arrived \(order), no sender pid")
+            }
+            return
+        }
+        let space = FullScreenSpaces.space(of: pid)
+        let onScreen = space?.current == true || LinkLog.fillsScreen(pid)
+        let name = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier ?? "pid \(pid)"
+        let fresh = source.map { now.timeIntervalSince($0.at) < 3 } ?? false
+        if onScreen, !(fresh && source?.pid == pid) {
+            source = (pid, now)
+            if !(episodeStart.map { now.timeIntervalSince($0) < 3 } ?? false) {
+                episodeStart = now
+                spaceChanges = []
+            }
+            lastAction = "link from a full-screen app"
+        }
+        if onScreen || (fresh && source?.pid == pid), let url {
+            linkSources = linkSources.filter { now.timeIntervalSince($0.value.at) < 120 }
+            linkSources[url.absoluteString] = (pid, now)
+        }
+        guard onScreen || space != nil || fresh else { return }
+        LinkLog.write("Little Arc full screen: \(stamp()) link from \(name) arrived \(order); sender in full screen "
+                      + "\(space != nil || onScreen ? "yes" : "no"), its Space on screen \(LinkLog.yesNo(onScreen)), "
+                      + "source \(source.map { NSRunningApplication(processIdentifier: $0.pid)?.bundleIdentifier ?? "pid \($0.pid)" } ?? "none")")
+    }
+
     /// A link is being routed: the full-screen app it came from, if Airc was just activated from one (or Airc wasn't
     /// activated and that app is still in front in full screen). Taken once.
-    func takeLinkSource() -> pid_t? {
+    func takeLinkSource(for url: URL? = nil) -> pid_t? {
         guard Self.enabled else { return nil }
+        // This link's own sender, as it arrived (however long the launch took), while that app is still in full screen.
+        if let url, let s = linkSources.removeValue(forKey: url.absoluteString), Date().timeIntervalSince(s.at) < 120,
+           FullScreenSpaces.space(of: s.pid) != nil || LinkLog.isFullScreen(s.pid) {
+            if source?.pid == s.pid { source = nil }
+            lastSource = s.pid
+            return s.pid
+        }
         if let s = source, Date().timeIntervalSince(s.at) < 3 {
             source = nil
+            lastSource = s.pid
             return s.pid
         }
         if !NSApp.isActive, let front = NSWorkspace.shared.frontmostApplication, front.processIdentifier != getpid(),
            LinkLog.isFullScreen(front.processIdentifier) {
             episodeStart = Date()
             spaceChanges = []
+            lastSource = front.processIdentifier
             return front.processIdentifier
         }
         return nil
+    }
+
+    /// The link's full-screen app is still in full screen, but its Space isn't on screen any more: macOS switched to the
+    /// browser window's desktop as Airc launched for the link (or came forward). Opened now, Little Arc would sit on that
+    /// desktop. So the activation goes back to that app first, and once its Space is on screen again Little Arc opens over
+    /// it (`open`), as it does with no switch. At most 2 s; then it opens wherever the person is.
+    func needsReturn(to pid: pid_t) -> Bool {
+        Self.enabled && pid != getpid() && !LinkLog.isFullScreen(pid) && FullScreenSpaces.space(of: pid) != nil
+    }
+
+    func returnToFullScreen(of pid: pid_t, then open: @escaping () -> Void) {
+        guard let target = NSRunningApplication(processIdentifier: pid) else { return open() }
+        if episodeStart.map({ Date().timeIntervalSince($0) < 120 }) != true {
+            episodeStart = Date()
+            spaceChanges = []
+        }
+        LinkLog.write("Little Arc full screen: \(stamp()) the link's full-screen app \(target.bundleIdentifier ?? "pid \(pid)") isn't on screen "
+                      + "(\(LinkLog.frontApp())); handing the activation back before Little Arc opens")
+        lastAction = "returning to the full-screen app"
+        var finished = false
+        var observer: NSObjectProtocol?
+        let finish = { [weak self] (why: String) in
+            guard !finished else { return }
+            finished = true
+            if let observer { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+            LinkLog.write("Little Arc full screen: \(self?.stamp() ?? "-") \(why); opening Little Arc")
+            open()
+        }
+        observer = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil,
+                                                                    queue: .main) { _ in
+            // Once the switch has settled.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { if LinkLog.isFullScreen(pid) { finish("its Space is on screen again") } }
+        }
+        if #available(macOS 14.0, *) {
+            NSApp.yieldActivation(to: target)
+            target.activate(from: .current, options: [])
+        } else {
+            target.activate(options: [])
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { finish("its Space didn't come back in 2 s") }
     }
 
     /// A Little Arc opened over `pid`'s full screen and was ordered front. If macOS switched to the desktop anyway, the
@@ -1325,6 +1477,13 @@ final class LittleArcFullScreen {
         floating = floating.filter { f in
             guard let l = f.controller, l.overFullScreen, l.window.isVisible else { return false }
             let onlyThere = !l.window.collectionBehavior.contains(.canJoinAllSpaces)
+            // macOS switched to the desktop before the panel was up, and the hand-back brought the full-screen app's
+            // Space back: the panel comes to it (its Spaces behaviour moves it to the active Space).
+            if LinkLog.isFullScreen(f.app), !l.window.isOnActiveSpace, episodeStart.map({ Date().timeIntervalSince($0) < 15 }) == true {
+                l.window.orderFrontRegardless()
+                LinkLog.write("Little Arc full screen: \(stamp()) the full-screen app's Space is back; Little Arc brought to it "
+                              + "(on the active Space \(LinkLog.yesNo(l.window.isOnActiveSpace)))")
+            }
             if LinkLog.isFullScreen(f.app) || (onlyThere && !l.window.isOnActiveSpace && NSRunningApplication(processIdentifier: f.app) != nil) {
                 return true
             }

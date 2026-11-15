@@ -9,7 +9,8 @@ import socialCard from "../assets/social-card.png"; // assets/brand/kit/airc-soc
 import NavIcon from "../components/NavIcon.astro";
 import GitHubMark from "../components/GitHubMark.astro";
 import { compact, getStars } from "../lib/github";
-import { groups } from "../lib/nav";
+import { groups as allGroups } from "../lib/nav";
+import { agentsShown } from "../lib/agents";
 import { CONTACT_EMAIL, GITHUB_URL } from "../lib/site";
 
 interface Props {
@@ -29,6 +30,9 @@ const socialUrl = new URL(social.src, Astro.site);
 const canonical = new URL(Astro.url.pathname, Astro.site);
 const year = new Date().getFullYear();
 const stars = await getStars();
+// Rows for features not released yet stay out of the sidebar (src/lib/agents.ts).
+const agentsOn = await agentsShown();
+const groups = allGroups.map((g) => ({ ...g, items: g.items.filter((s) => !s.gate || (s.gate === "agents" && agentsOn)) }));
 ---
 
 <!doctype html>
@@ -174,6 +178,7 @@ const stars = await getStars();
           <nav class="footer-links" aria-label="Footer">
             <a href="/download" data-track="download_clicked" data-track-from="footer" data-track-leave>Download</a>
             <a href="/features">Features</a>
+            <a href="/arc">Arc features in Airc</a>
             <a href="/changelog">Changelog</a>
             <a href="/versions">Versions</a>
             <a href="/privacy">Privacy</a>
@@ -340,6 +345,7 @@ const stars = await getStars();
         ...items.map((s) => ({ label: s.label, hint: s.group, icon: iconOf(s.id), run: () => go(s.id) })),
         { label: "Download Airc for Mac", hint: "Action", run: () => { location.href = "/download"; } },
         { label: "Every feature", hint: "Link", run: () => { location.href = "/features"; } },
+        { label: "Every Arc feature, and where it is in Airc", hint: "Link", run: () => { location.href = "/arc"; } },
         { label: "Changelog: what's new", hint: "Link", run: () => { location.href = "/changelog"; } },
         { label: "All versions", hint: "Link", run: () => { location.href = "/versions"; } },
         { label: "Nightly builds", hint: "Link", run: () => { location.href = "/versions#nightly"; } },

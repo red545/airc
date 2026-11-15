@@ -24,6 +24,7 @@ import WebKit
 
 extension SnapshotRunner {
     func pipReturnScenario() {
+        run { [self] in callControlOwnershipChecks() }
         var server: PiPReturnServer?, port: UInt16 = 0
         var player = "", video = "", other = "", spaced = "", firstSpace = "", secondSpace = "", frontSpace = ""
         var second: WindowController?
@@ -93,9 +94,9 @@ extension SnapshotRunner {
         }
 
         // pipreturn-tray: 1 and f; pipreturn-return: 2 and 3 (each well inside the runner's four minutes); pipreturn: both;
-        // pipreturn-aspect: 4.
+        // pipreturn-aspect: 4; pipreturn-rapid: PiPRapidCheck.swift.
         let tray = ["pipreturn", "pipreturn-tray"].contains(script), returns = ["pipreturn", "pipreturn-return"].contains(script)
-        let aspect = script == "pipreturn-aspect"
+        let aspect = script == "pipreturn-aspect", rapid = script == "pipreturn-rapid"
         run { [self] in
             main = self.c
             ProtectedMedia.shared.testHosts = ["localhost"]
@@ -427,7 +428,39 @@ extension SnapshotRunner {
 
         }
 
+        if rapid { pipRapidCase(port: { port }, firstSpace: { firstSpace }, verdict: verdict, beginCase: beginCase, endCase: endCase) }
         if aspect { pipAspectCase(port: { port }, firstSpace: { firstSpace }, verdict: verdict, beginCase: beginCase, endCase: endCase) }
+
+        if tray {
+            // A real tray dismissal followed immediately by closing its tab.
+            // Neither this check nor its completion retains the page for WebKit.
+            weak var closingPage: WebKitTab?
+            var closeAnswers = 0
+            value({ video }, "v.play(); true") { _ in }
+            expectPage("overlapping hide/close: the video plays before its entry", { video }, "!v.paused && v.currentTime > 0")
+            step { [self] done in
+                guard let p = page(video) else { return done() }
+                let events = SystemPictureInPicture.events.count
+                p.requestSystemPictureInPicture { answer in
+                    self.note("pipreturn: overlapping hide/close entry: \(answer); "
+                              + SystemPictureInPicture.events.dropFirst(events).joined(separator: "; "))
+                    done()
+                }
+            }
+            expect("overlapping hide/close has an open system player", { page(video).map(systemPictureInPictureOpen) == true })
+            run { [self] in
+                closingPage = page(video)
+                page(video)?.closeSystemPictureInPicture(pause: false) { closeAnswers += 1 }
+                c.closeTab(video)
+            }
+            step { [self] done in
+                waitUntil({ closeAnswers == 1 && closingPage?.webView.superview == nil }, timeout: 8, then: done)
+            }
+            run {
+                verdict(closeAnswers == 1 && closingPage?.webView.superview == nil,
+                        "pipreturn: closing the tab during tray Hide finishes once and releases its attached view (answers \(closeAnswers), closed \(closingPage?.isClosed ?? true), attached \(closingPage?.webView.superview != nil))")
+            }
+        }
 
         run { [self] in
             second?.window.performClose(nil)
@@ -482,7 +515,7 @@ extension SnapshotRunner {
                     }
                 }
             }
-            func expectShape(_ what: String, _ ratio: Double, sizeLike: Bool = false) {
+            func expectShape(_ what: String, _ ratio: Double, sizeLike: Bool = false, preserveArea: Bool = false) {
                 step { [self] done in
                     waitUntil({ window().map { abs(shape($0) / ratio - 1) <= 0.01 } == true }, timeout: 3) {
                         guard let w = window() else { verdict(false, "pipreturn: aspect: \(what): no picture in picture window"); return done() }
@@ -494,6 +527,10 @@ extension SnapshotRunner {
                                 String(format: "pipreturn: aspect: %@: %.0f×%.0f, %.4f for %.4f (within 1%%), inside the visible frame: %@%@",
                                        what, f.width, f.height, shape(w), ratio, inside ? "yes" : "no",
                                        sizeLike ? String(format: ", width %.0f%% and area %.0f%% of the first", 100 * width, 100 * size) : ""))
+                        if preserveArea {
+                            verdict(abs(size - 1) < 0.2,
+                                    String(format: "pipreturn: aspect: %@ retains the remembered area (%.1f%%)", what, 100 * size))
+                        }
                         if first == .zero { first = f }
                         done()
                     }
@@ -514,7 +551,13 @@ extension SnapshotRunner {
             open("9:16")
             expectShape("then a 9:16 video in the same tab", 9.0 / 16, sizeLike: true)
             load("/movie.mp4")
-            expectShape("its source switched to 16:9 while it floats", 16.0 / 9)
+            expectShape("its source switched to 16:9 while it floats", 16.0 / 9, sizeLike: true)
+            for round in 1...2 {
+                load("/tall.mp4")
+                expectShape("source switch \(round): 9:16", 9.0 / 16, sizeLike: true, preserveArea: true)
+                load("/movie.mp4")
+                expectShape("source switch \(round): 16:9", 16.0 / 9, sizeLike: true, preserveArea: true)
+            }
             run { if let p = page() { chromium.closePictureInPicture(p) } }
             wait(0.8)
             // Another tab's 9:16 video: its size is known when its window opens.
@@ -528,7 +571,7 @@ extension SnapshotRunner {
             open("9:16")
             expectShape("then a 9:16 video in another tab", 9.0 / 16, sizeLike: true)
             load("/movie.mp4")
-            expectShape("that one switched to 16:9 while it floats", 16.0 / 9)
+            expectShape("that one switched to 16:9 while it floats", 16.0 / 9, sizeLike: true)
             run { if let p = page() { chromium.closePictureInPicture(p) } }
             wait(0.5)
         }

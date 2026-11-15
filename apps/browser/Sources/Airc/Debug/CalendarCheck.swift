@@ -49,10 +49,13 @@ final class SyntheticCalendarSource: CalendarEventSource {
 ///   - ⌃⌘J joins the next meeting outside the prompt's time, shows the open call the second time, and from a Space of
 ///     another profile opens it in the calendar's Space;
 ///   - `calendar.enable` and `calendar.join` are recorded, with nothing but their names.
-/// Posted clicks and keys in the new parts wait for the owner to be away (no hardware input for 120 s, our window on
+/// The card's "+", a meeting row and ⌃⌘J are real input from the stable UI driver (clicks, and the key PID-targeted at
+/// this app in front) when the run allows it (AIRC_REAL_KEYS=1 in a dedicated session, AIRC_LA_AS_OWNER=1; calprev).
+/// Without the driver they fall back to posted input once the owner is away (no hardware input for 120 s, our window on
 /// the active Space); otherwise those checks are FAIL-ENV with the evidence, and the same actions run directly.
-/// Writes calendar-invite.png, calendar-tile.png, calendar-card.png, calendar-prompt.png, calendar-menu-lead.png and
-/// calendar-card-soon.png.
+///   - M08: Google's and Outlook's own answers, read as Arc read them (CalendarFeedsCheck.swift).
+/// Writes calendar-invite.png, calendar-tile.png, calendar-card.png, calendar-prompt.png, calendar-menu-lead.png,
+/// calendar-card-soon.png and calendar-feeds-card.png.
 extension SnapshotRunner {
     func calendarScenario() {
         let center = CalendarCenter.shared
@@ -230,6 +233,8 @@ extension SnapshotRunner {
         }
         calendarArcParity(center: center, base: { base }, spaceID: { spaceID }, calendarItem: { calendarItem }, events: { events },
                           tile: tile, prompt: prompt, todayURLs: todayURLs, setNow: setNow)
+        // M08: meetings from Google's and Outlook's own answers (CalendarFeedsCheck.swift).
+        calendarFeeds(center: center, source: source, spaceID: { spaceID }, tile: tile, prompt: prompt, setNow: setNow)
         run { center.setEnabled(false) }
         wait(0.2)
         run { [self] in
@@ -276,13 +281,25 @@ extension SnapshotRunner {
         }
         var opened: [(url: String, item: String)] = []
         center.openedForTesting = { url, item in opened.append((url.absoluteString, item)) }
+        /// Real driver input is allowed now: the driver, a dedicated session, and our window active and key.
+        func real() -> Bool {
+            UIDriverClient.available && ProcessInfo.processInfo.environment["AIRC_UI_DEDICATED_SESSION"] == "1"
+                && NSApp.isActive && c.window.isKeyWindow && c.window.isOnActiveSpace
+        }
+        /// A real driver click on the card's `anchor`; `done(nil)` when it was sent, else why not.
+        func driverClick(_ anchor: String, _ done: @escaping (String?) -> Void) {
+            guard real() else { return done("no real input: driver \(UIDriverClient.available), active \(NSApp.isActive), key \(c.window.isKeyWindow)") }
+            guard let host = CalendarCard.shared.panel, let p = anchorPoint(anchor, in: host) else { return done("\(anchor) is not on the card") }
+            let g = c.window.convertPoint(toScreen: p), top = NSScreen.screens.first?.frame.maxY ?? 0
+            UIDriverClient.run(["--click", String(Double(g.x)), String(Double(top - g.y))]) { ok, out in done(ok ? nil : "driver: \(out)") }
+        }
 
         // The menu, and Arc's Join times.
         run { [self] in
             let titles = menu()?.items.map(\.title) ?? []
             let times = menu()?.item(withTitle: "Show Meeting Link")?.submenu?.items.map(\.title) ?? []
             let switches = ["Show Time to Next Meeting", "Show Next Meeting Link", "Show Hover Preview"]
-            check(switches.allSatisfy { titles.contains($0) && state($0) == .on } && titles.contains("Turn Off Live Calendar")
+            check(switches.allSatisfy { titles.contains($0) && state($0) == .on } && titles.contains("Disable Live Calendar")
                   && times == ["Ten Minutes Before", "Five Minutes Before", "Two Minutes Before", "On Start"]
                   && state("Two Minutes Before", in: "Show Meeting Link") == .on,
                   "calendar menu: Arc's per-Favorite switches (on), Show Meeting Link › \(times) with Two Minutes Before ticked")
@@ -339,24 +356,35 @@ extension SnapshotRunner {
                   "calendar card: the big Join only for meetings moments away (\(m.soon.sorted())), and the calendar's “+” (\(m.events.map(\.id)))")
         }
         capture("calendar-card-soon")
-        // "+" and a row, by real clicks while the owner is away (the card comes back: the hover ended above).
+        // "+" and a row, by real UI-driver clicks (posted ones while the owner is away without the driver; the card comes back:
+        // the hover ended above).
         run { [self] in if let t = tile() { CalendarCard.shared.show(beside: t) } }
         wait(0.4)
         step { [self] done in
-            whenOwnerAway { why in
-                let want = "https://calendar.google.com/calendar/u/0/r/eventedit"
-                if let why {
-                    self.failEnv("calendar card: a real click on “+”", why)
-                    CalendarCard.shared.model.onNewEvent()
-                    self.check(opened.last?.url == want && opened.last?.item == calendarItem(),
-                               "calendar card: “+” (run directly) opens the new-event page in the Calendar Favorite (\(opened.last?.url ?? "-"))")
-                    return done()
+            let want = "https://calendar.google.com/calendar/u/0/r/eventedit"
+            driverClick("calendar.newEvent") { failed in
+                if failed == nil {
+                    return self.waitUntil({ opened.last?.url == want }, timeout: 3) {
+                        self.check(opened.last?.url == want && opened.last?.item == calendarItem() && CalendarCard.shared.panel == nil,
+                                   "calendar card: a real click (UI driver) on “+” opens the new-event page in the Calendar Favorite and closes the card "
+                                   + "(\(opened.last?.url ?? "-"))")
+                        done()
+                    }
                 }
-                self.clickAnchor("calendar.newEvent", in: CalendarCard.shared.panel ?? self.c.root) {
-                    self.check(opened.last?.url == want && opened.last?.item == calendarItem() && CalendarCard.shared.panel == nil,
-                               "calendar card: a click on “+” opens the new-event page in the Calendar Favorite and closes the card "
-                               + "(\(opened.last?.url ?? "-"), \(TestAnchors.lastHit["calendar.newEvent"] ?? "-"))")
-                    done()
+                self.whenOwnerAway { why in
+                    if let why {
+                        self.failEnv("calendar card: a real click on “+”", why)
+                        CalendarCard.shared.model.onNewEvent()
+                        self.check(opened.last?.url == want && opened.last?.item == calendarItem(),
+                                   "calendar card: “+” (run directly) opens the new-event page in the Calendar Favorite (\(opened.last?.url ?? "-"))")
+                        return done()
+                    }
+                    self.clickAnchor("calendar.newEvent", in: CalendarCard.shared.panel ?? self.c.root) {
+                        self.check(opened.last?.url == want && opened.last?.item == calendarItem() && CalendarCard.shared.panel == nil,
+                                   "calendar card: a posted click on “+” opens the new-event page in the Calendar Favorite and closes the card "
+                                   + "(\(opened.last?.url ?? "-"), \(TestAnchors.lastHit["calendar.newEvent"] ?? "-"); \(failed ?? ""))")
+                        done()
+                    }
                 }
             }
         }
@@ -366,19 +394,28 @@ extension SnapshotRunner {
             let d = Calendar.current.dateComponents([.year, .month, .day], from: review.start)
             let want = "https://calendar.google.com/calendar/u/0/r/day/\(d.year!)/\(d.month!)/\(d.day!)"
             let count = opened.count
-            whenOwnerAway { why in
-                if let why {
-                    self.failEnv("calendar card: a real click on a meeting row", why)
-                    CalendarCard.shared.model.onOpen(review)
-                    self.check(opened.count == count + 1 && opened.last?.url == want,
-                               "calendar card: a meeting row (run directly) opens its day in the Calendar Favorite (\(opened.last?.url ?? "-"))")
-                    return done()
+            driverClick("calendar.row.1") { failed in
+                if failed == nil {
+                    return self.waitUntil({ opened.count > count }, timeout: 3) {
+                        self.check(opened.count == count + 1 && opened.last?.url == want,
+                                   "calendar card: a real click (UI driver) on a meeting row opens its day in the Calendar Favorite (\(opened.last?.url ?? "-"))")
+                        done()
+                    }
                 }
-                self.clickAnchor("calendar.row.1", in: CalendarCard.shared.panel ?? self.c.root) {
-                    self.check(opened.count == count + 1 && opened.last?.url == want,
-                               "calendar card: a click on a meeting row opens its day in the Calendar Favorite (\(opened.last?.url ?? "-"), "
-                               + "\(TestAnchors.lastHit["calendar.row.1"] ?? "-"))")
-                    done()
+                self.whenOwnerAway { why in
+                    if let why {
+                        self.failEnv("calendar card: a real click on a meeting row", why)
+                        CalendarCard.shared.model.onOpen(review)
+                        self.check(opened.count == count + 1 && opened.last?.url == want,
+                                   "calendar card: a meeting row (run directly) opens its day in the Calendar Favorite (\(opened.last?.url ?? "-"))")
+                        return done()
+                    }
+                    self.clickAnchor("calendar.row.1", in: CalendarCard.shared.panel ?? self.c.root) {
+                        self.check(opened.count == count + 1 && opened.last?.url == want,
+                                   "calendar card: a posted click on a meeting row opens its day in the Calendar Favorite (\(opened.last?.url ?? "-"), "
+                                   + "\(TestAnchors.lastHit["calendar.row.1"] ?? "-"); \(failed ?? ""))")
+                        done()
+                    }
                 }
             }
         }
@@ -398,6 +435,18 @@ extension SnapshotRunner {
         wait(0.3)
         func joinKey(_ label: String) {
             step { [self] done in
+                // ⌃⌘J from the UI driver, PID-targeted at this app in front (the driver refuses a background target).
+                if real() {
+                    return UIDriverClient.press(["ctrl+cmd+j"], pid: getpid()) { ok, out in
+                        if ok {
+                            self.note("⌃⌘J (\(label)): a real key from the UI driver, PID-targeted")
+                            return DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: done)
+                        }
+                        self.check(false, "⌃⌘J (\(label)): the UI driver pressed it (\(out))")
+                        CommandMenus.all.first { $0.id == "tabs.joinMeeting" }?.run(self.c)
+                        done()
+                    }
+                }
                 whenOwnerAway { why in
                     if let why {
                         self.failEnv("⌃⌘J (\(label)): the posted key", why)

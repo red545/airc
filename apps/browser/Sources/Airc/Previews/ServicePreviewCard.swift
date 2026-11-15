@@ -11,29 +11,47 @@ final class ServicePreviewModel: ObservableObject {
     @Published var now = Date()
     /// The service's own icon (the row's favicon), for recent pages.
     @Published var icon: NSImage?
+    /// calprev: the item's last page picture, shown dimmed behind "Open …" while no page of the account is loaded.
+    @Published var snapshot: NSImage?
+    /// The content is read from the account's own page (S04, calprev): Sign In and Open load that page; no gear.
+    @Published var pageRead = false
     @Published var theme = DesignTheme.default.resolved(systemIsDark: false)
     /// A new card each time it's shown (its list starts at the top).
     @Published var showID = 0
+    /// calcard: the card's height (ServicePreviewCardView.height(for:fitting:)): a calendar's is taller.
+    @Published var cardHeight = ServicePreviewCardView.height
     var onMail: (PreviewMail) -> Void = { _ in }
     var onPage: (PreviewPage) -> Void = { _ in }
     var onEvent: (CalendarEvent) -> Void = { _ in }
     var onJoin: (CalendarEvent) -> Void = { _ in }
     var onAction: () -> Void = {}
     var onSignIn: () -> Void = {}
+    /// S04: "Open Gmail" on a card waiting for the account's page (PreviewState.needsPage).
+    var onOpenPage: () -> Void = {}
     var onRemove: () -> Void = {}
     var onSettings: () -> Void = {}
 }
 
 /// The card beside a pinned tab or Favorite of a service (TabPreview.swift shows it in place of the page-picture card):
 /// Arc's previews, measured from arc.net's integration recordings. Mail: the unread messages, newest first (the
-/// sender, the subject, two lines of the text, its age) and "+" for a new message. A calendar: the day from the
-/// current hour (an hour grid, the meetings as blocks side by side where they overlap, a line at now, a big Join for a
-/// meeting moments away), the gear and "+" for a new event; dark, as Arc's was. Notion, Confluence, Figma and Linear:
+/// sender, the subject, two lines of the text, its age) and "+" for a new message. A calendar (calgrid): Arc's hour
+/// grid, opened 15 minutes before now, the meetings as blocks side by side where they overlap, a line at now, today's
+/// all-day events above, the big Join for one moments away, and tomorrow's later events in a short list under it; "+"
+/// for a new event. Notion, Confluence, Figma and Linear:
 /// the pages visited there, newest first, and "+" for a new one. The list scrolls inside the card.
 final class ServicePreviewCardView: NSView {
     static let width: CGFloat = 240
+    /// Mail and pages. A calendar's card is taller (calcard): see `height(for:fitting:)`.
     static let height: CGFloat = 268
     static let margin: CGFloat = 24
+
+    /// The card's height for `service` in a window `available` points tall: a calendar's card is
+    /// PreviewTimeline.CardLayout.calendarCardHeight, so Arc's six hours fit beside the Join, the all-day strip and
+    /// Tomorrow; in a short window it's smaller (16 pt from the window's edges), and the hours shrink with it.
+    static func height(for service: PreviewService?, fitting available: CGFloat) -> CGFloat {
+        let want = service?.family == .calendar ? CGFloat(PreviewTimeline.CardLayout.calendarCardHeight) : height
+        return max(height, min(want, available - 16)).rounded()
+    }
 
     let model = ServicePreviewModel()
     var onHover: ((Bool) -> Void)?
@@ -58,7 +76,7 @@ final class ServicePreviewCardView: NSView {
     static var frameSize: NSSize { NSSize(width: width + 2 * margin, height: height + 2 * margin) }
 
     /// The card inside the view (the rest is room for the shadow).
-    var cardRect: NSRect { NSRect(x: Self.margin, y: Self.margin, width: Self.width, height: Self.height) }
+    var cardRect: NSRect { NSRect(x: Self.margin, y: Self.margin, width: Self.width, height: model.cardHeight) }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let superview, cardRect.contains(convert(point, from: superview)) else { return nil }
@@ -88,8 +106,8 @@ private struct ServiceCardContent: View {
 
     private var service: PreviewService? { model.account?.service }
     private var isCalendar: Bool { service?.family == .calendar }
-    /// Arc's calendar card is dark whatever the window's theme.
-    private var theme: ResolvedTheme { isCalendar ? DesignTheme.default.resolved(systemIsDark: true) : model.theme }
+    /// The window's theme, as Live Calendar's card (M08).
+    private var theme: ResolvedTheme { model.theme }
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: AircRadius.popover, style: .continuous)
@@ -98,11 +116,11 @@ private struct ServiceCardContent: View {
                 header
                 content.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
-            if showsActions { actions.padding(10) }
+            if showsActions { actions.padding(10).padding(.bottom, actionsLift) }
         }
         .id(model.showID)
-        .frame(width: ServicePreviewCardView.width, height: ServicePreviewCardView.height)
-        .background(shape.fill(isCalendar ? Color(white: 0.17) : theme.surface.color))
+        .frame(width: ServicePreviewCardView.width, height: model.cardHeight)
+        .background(shape.fill(theme.surface.color))
         .overlay(shape.inset(by: 0.25).stroke(theme.surfaceBorder.color, lineWidth: 0.5))
         .clipShape(shape)
         .aircShadow(.popover)
@@ -138,6 +156,7 @@ private struct ServiceCardContent: View {
         case .loading: loading
         case .signedOut: signedOut
         case .expired: expired
+        case .needsPage: needsPage
         case .ready(let c): list(c)
         case .failed(let stale):
             if let stale { list(stale) } else { failed }
@@ -160,17 +179,45 @@ private struct ServiceCardContent: View {
         .testAnchor("svc.loading")
     }
 
-    /// Arc's signed-out card: its sentence, centred, over a full-width button.
+    /// Arc's signed-out card: its sentence, centred, over a full-width button. A calendar read from its page signs in
+    /// there (calprev).
     private var signedOut: some View {
-        VStack(spacing: 16) {
+        let page = model.pageRead && isCalendar
+        return VStack(spacing: 16) {
             Spacer(minLength: 0)
-            Text(service?.signInText ?? "").aircFont(AircFont.body).foregroundStyle(theme.surfaceTextSecondary.color)
+            Text(page ? "Sign in to \(service?.name ?? "your calendar") in this profile to see your events here." : service?.signInText ?? "")
+                .aircFont(AircFont.body).foregroundStyle(theme.surfaceTextSecondary.color)
                 .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-            Button(service?.signInButton ?? "Sign In") { model.onSignIn() }
+            Button(page ? "Open \(service?.name ?? "Calendar")" : service?.signInButton ?? "Sign In") { model.onSignIn() }
                 .buttonStyle(.airc(.secondary, size: .regular, fullWidth: true))
             .testAnchor("svc.signIn")
         }
         .padding(.horizontal, 14).padding(.bottom, 14)
+    }
+
+    /// S04: mail is read from the account's own page, and none is loaded yet in this profile. calprev: the same for a
+    /// calendar, over the item's last page picture when there is one.
+    private var needsPage: some View {
+        VStack(spacing: 16) {
+            if isCalendar, let shot = model.snapshot {
+                Image(nsImage: shot).resizable().aspectRatio(contentMode: .fill)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity).clipped().opacity(0.55)
+                    .overlay(LinearGradient(colors: [.clear, theme.surface.color], startPoint: .center, endPoint: .bottom))
+                    .testAnchor("svc.snapshot")
+            } else {
+                Spacer(minLength: 0)
+            }
+            Text(isCalendar ? "Open \(service?.name ?? "your calendar") to see your events here."
+                 : "Open \(service?.name ?? "your email") to see your unread messages here.").aircFont(AircFont.body)
+                .foregroundStyle(theme.surfaceTextSecondary.color).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 14)
+            Button("Open \(service?.name ?? (isCalendar ? "Calendar" : "Email"))") { model.onOpenPage() }
+                .buttonStyle(.airc(.secondary, size: .regular, fullWidth: true))
+                .padding(.horizontal, 14)
+                .testAnchor("svc.openPage")
+        }
+        .padding(.bottom, 14)
+        .testAnchor("svc.needsPage")
     }
 
     /// Arc: "You were signed out of …", Sign In or Remove.
@@ -203,7 +250,8 @@ private struct ServiceCardContent: View {
         switch c {
         case .mail(let m): mailList(m)
         case .recents(let p): pageList(p)
-        case .calendar(let e): PreviewTimelineView(events: e, now: model.now, theme: theme, onEvent: model.onEvent, onJoin: model.onJoin)
+        case .calendar(let e):
+            CalendarHourGrid(events: e, now: model.now, theme: theme, cardHeight: model.cardHeight, onEvent: model.onEvent, onJoin: model.onJoin)
         }
     }
 
@@ -257,9 +305,17 @@ private struct ServiceCardContent: View {
 
     // MARK: "+" and the gear
 
+    /// calcard: on a calendar with a Tomorrow line, "+" and the gear float over the hours' corner just above it, so the
+    /// line keeps the card's whole width.
+    private var actionsLift: CGFloat {
+        guard case .calendar(let e)? = model.state.content, !PreviewTimeline.tomorrow(e, now: model.now).isEmpty else { return 0 }
+        typealias L = PreviewTimeline.CardLayout
+        return CGFloat(L.spacing + L.tomorrow + L.bottom) - 6
+    }
+
     private var actions: some View {
         HStack(spacing: 8) {
-            if isCalendar {
+            if isCalendar, !model.pageRead {
                 Button(action: model.onSettings) {
                     Image(systemName: "gearshape.fill").font(.system(size: 12, weight: .semibold)).frame(width: 28, height: 28)
                 }
@@ -270,8 +326,7 @@ private struct ServiceCardContent: View {
             Button(action: model.onAction) {
                 Image(systemName: "plus").font(.system(size: 14, weight: .semibold)).frame(width: 32, height: 32)
             }
-            .buttonStyle(RoundButtonStyle(fill: isCalendar ? Color(white: 0.35) : theme.surface.color,
-                                          ink: isCalendar ? .white : theme.surfaceText.color, border: theme.surfaceBorder.color))
+            .buttonStyle(RoundButtonStyle(fill: theme.surface.color, ink: theme.surfaceText.color, border: theme.surfaceBorder.color))
             .help(service?.actionTitle ?? "")
             .accessibilityLabel(service?.actionTitle ?? "")
             .testAnchor("svc.action")
@@ -363,93 +418,235 @@ private struct PageRow: View {
 
 // MARK: - The calendar's day
 
-/// Arc's calendar preview: from the current hour, 40 pt an hour, labels in the Mac's time zone; meetings as blocks
-/// (side by side where they overlap, PreviewTimeline.layout); a line at now; all-day events above; a big Join for a
-/// meeting moments away (ten minutes, MeetingSchedule.soonJoin) or on now that has a call.
-struct PreviewTimelineView: View {
-    static let hourHeight: CGFloat = 40
-    static let gutter: CGFloat = 46
+/// calgrid: a calendar card's day as Arc 1.171's calendar preview laid it out (CalendarPreviewCalendarView,
+/// CalendarLayout): hour lines labelled in a 45 pt gutter, each meeting a block at its time, overlapping ones side by
+/// side (PreviewTimeline.layout), a line at now. Arc's card showed six hours from 15 minutes before now, spread over its
+/// whole grid; this one does too (calcard: PreviewTimeline.CardLayout picks the hour height that fits them in the room
+/// left), opens there and scrolls over the rest of today (and on past midnight while those six hours reach it). Above
+/// the hours: Arc's big Join for a meeting with a call moments away (QuickJoinButton) and today's all-day events in one
+/// line. Under them, tomorrow's later events in one line, which Arc didn't have. A click on a block or a chip opens the
+/// event in the calendar's own pinned tab or Favorite.
+struct CalendarHourGrid: View {
+    /// Arc: the events' rect starts 45 pt in; the hour labels sit in that gutter.
+    static let gutter: CGFloat = 45
+    static let width: CGFloat = ServicePreviewCardView.width - 8
+    static let topInset = CGFloat(PreviewTimeline.CardLayout.topInset)
     let events: [CalendarEvent]
     let now: Date
     let theme: ResolvedTheme
+    /// The whole card's height, header included (ServicePreviewCardView.height(for:fitting:)).
+    let cardHeight: CGFloat
     let onEvent: (CalendarEvent) -> Void
     let onJoin: (CalendarEvent) -> Void
+    @State private var hovered: String?
 
     private static let hourFormat: DateFormatter = {
         let f = DateFormatter()
         f.setLocalizedDateFormatFromTemplate("j")
         return f
     }()
+    private static let dayFormat: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("EEE")
+        return f
+    }()
 
-    private var window: DateInterval { PreviewTimeline.window(now: now) }
+    private func service(_ e: CalendarEvent) -> String? { e.link.map { CalendarCard.serviceName($0.service) } }
 
-    private var soon: [CalendarEvent] {
-        events.filter { $0.link != nil && !$0.isAllDay && $0.start.timeIntervalSince(now) <= MeetingSchedule.soonJoin && now < $0.end }
-            .sorted { $0.start < $1.start }
+    /// What VoiceOver reads for an event: its title, its time, its call.
+    private func spoken(_ e: CalendarEvent, day: String? = nil) -> String {
+        let time = e.isAllDay ? "all day" : CalendarCard.timeRange(e, now: now)
+        return [e.title.isEmpty ? "Event" : e.title, day, time, service(e)].compactMap { $0 }.joined(separator: ", ")
     }
 
-    private func y(_ d: Date) -> CGFloat { CGFloat(d.timeIntervalSince(window.start) / 3600) * Self.hourHeight }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(soon.prefix(2), id: \.id) { e in
-                Button { onJoin(e) } label: {
-                    Label(e.title.isEmpty ? "Join Event" : "Join \(e.title)", systemImage: "video.fill").lineLimit(1)
+        typealias L = PreviewTimeline.CardLayout
+        let window = PreviewTimeline.window(now: now)
+        let allDay = PreviewTimeline.allDay(events, now: now)
+        let soon = PreviewTimeline.soon(events, now: now).first
+        let later = PreviewTimeline.tomorrow(events, now: now)
+        let layout = L(events, now: now, cardHeight: Double(cardHeight))
+        return VStack(alignment: .leading, spacing: 0) {
+            if let soon {
+                Button { onJoin(soon) } label: {
+                    Label(soon.title.isEmpty ? "Join Event" : "Join \(soon.title)", systemImage: "video.fill").lineLimit(1)
                 }
                 .buttonStyle(.airc(.primary, size: .regular, fullWidth: true))
+                .frame(height: L.join)
                 .padding(.horizontal, 10)
-                .testAnchor("svc.join.\(e.id)")
+                .padding(.bottom, L.spacing)
+                .accessibilityHint("Opens the call")
+                .testAnchor("svc.join.\(soon.id)")
             }
-            let allDay = events.filter { $0.isAllDay && $0.end > now && $0.start <= window.end }
-            if !allDay.isEmpty {
-                Text("All day: " + allDay.map(\.title).joined(separator: ", ")).aircFont(AircFont.caption)
-                    .foregroundStyle(theme.surfaceTextSecondary.color).lineLimit(1).padding(.horizontal, 12)
-            }
-            ScrollView(.vertical) {
-                ZStack(alignment: .topLeading) {
-                    VStack(spacing: 0) {
-                        ForEach(PreviewTimeline.hours(in: window), id: \.self) { h in
-                            HStack(alignment: .top, spacing: 4) {
-                                Text(Self.hourFormat.string(from: h)).aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextTertiary.color)
-                                    .frame(width: Self.gutter - 6, alignment: .leading).offset(y: -6)
-                                Rectangle().fill(theme.surfaceBorder.color).frame(height: 0.5)
-                            }
-                            .frame(height: Self.hourHeight, alignment: .top)
-                        }
-                    }
-                    .padding(.top, 8)
-                    GeometryReader { geo in
-                        let width = geo.size.width - Self.gutter - 8
-                        ForEach(PreviewTimeline.layout(events, in: window), id: \.event.id) { b in
-                            let colW = width / CGFloat(b.columns)
-                            let top = max(0, y(b.event.start))
-                            let h = max(18, y(b.event.end) - top - 2)
-                            Button { onEvent(b.event) } label: {
-                                Text(b.event.title).aircFont(AircFont.caption.weight(.medium)).foregroundStyle(.white.opacity(0.92))
-                                    .lineLimit(h > 30 ? 2 : 1).padding(.horizontal, 5).padding(.vertical, 3)
-                                    .frame(width: colW - 2, height: h, alignment: .topLeading)
-                                    .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(theme.accent.color.opacity(0.42)))
-                                    .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).stroke(.white.opacity(0.12), lineWidth: 0.5))
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .testAnchor("svc.event.\(b.event.id)")
-                            .offset(x: Self.gutter + CGFloat(b.column) * colW, y: top + 8)
-                        }
-                        // Now.
-                        let ny = y(now) + 8
-                        HStack(spacing: 0) {
-                            Circle().fill(.white).frame(width: 6, height: 6)
-                            Rectangle().fill(.white.opacity(0.9)).frame(height: 1.5)
-                        }
-                        .frame(width: geo.size.width - Self.gutter + 3)
-                        .offset(x: Self.gutter - 3, y: ny - 3)
-                    }
-                    .frame(height: CGFloat(PreviewTimeline.hours(in: window).count) * Self.hourHeight + 8)
-                }
-                .padding(.leading, 10).padding(.trailing, 6).padding(.bottom, 48)
+            if !allDay.isEmpty { allDayStrip(allDay).frame(height: L.allDay).padding(.bottom, L.spacing) }
+            grid(window, hourHeight: CGFloat(layout.hourHeight)).frame(height: CGFloat(layout.gridHeight))
+            if !later.isEmpty {
+                tomorrowLine(later).frame(height: L.tomorrow).padding(.top, L.spacing).padding(.bottom, L.bottom)
             }
         }
-        .testAnchor("svc.timeline")
+        .frame(maxHeight: .infinity, alignment: .top)
+        .testAnchor("svc.calendar")
+    }
+
+    // MARK: Chips (all day, tomorrow)
+
+    private func chip(_ e: CalendarEvent, text: Text, anchor: String, day: String? = nil) -> some View {
+        Button { onEvent(e) } label: {
+            text.aircFont(AircFont.caption.weight(.semibold)).foregroundStyle(theme.surfaceText.color).lineLimit(1)
+                .padding(.horizontal, 6).frame(height: 18)
+                .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(blockFill(hovered: hovered == e.id)))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 ? e.id : (hovered == e.id ? nil : hovered) }
+        .help(e.title)
+        .accessibilityLabel(spoken(e, day: day))
+        .accessibilityHint("Opens the event")
+        .testAnchor("svc.event.\(e.id)")
+        .testAnchor(anchor)
+    }
+
+    private func more(_ n: Int, spoken: String) -> some View {
+        Text("+\(n)").aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextSecondary.color).fixedSize()
+            .accessibilityLabel(spoken)
+    }
+
+    /// Today's all-day events in one line: two chips, then "+N".
+    private func allDayStrip(_ all: [CalendarEvent]) -> some View {
+        let shown = all.prefix(2)
+        return HStack(spacing: 4) {
+            Text("all-day").aircFont(AircFont.micro).foregroundStyle(theme.surfaceTextTertiary.color)
+                .frame(width: Self.gutter - 6, alignment: .leading)
+                .accessibilityHidden(true)
+            ForEach(Array(shown), id: \.id) { e in
+                chip(e, text: Text(e.title), anchor: "svc.allDay.\(e.id)")
+            }
+            if all.count > shown.count { more(all.count - shown.count, spoken: "\(all.count - shown.count) more all-day events") }
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 10).padding(.trailing, 8)
+        .testAnchor("svc.allDay")
+    }
+
+    // MARK: The hours
+
+    private func blockFill(hovered: Bool) -> Color {
+        theme.accent.color.opacity(theme.isDark ? (hovered ? 0.42 : 0.32) : (hovered ? 0.26 : 0.17))
+    }
+
+    private func grid(_ w: DateInterval, hourHeight: CGFloat) -> some View {
+        let hours = PreviewTimeline.hours(in: w)
+        let blocks = PreviewTimeline.layout(events, in: w)
+        func y(_ d: Date) -> CGFloat { CGFloat(PreviewTimeline.offset(of: d, in: w, hourHeight: Double(hourHeight))) + Self.topInset }
+        let height = CGFloat(w.duration / 3600) * hourHeight + Self.topInset * 2
+        let area = Self.width - Self.gutter - 6
+        let top = max(0, y(PreviewTimeline.visible(now: now).start) - Self.topInset)
+        let calendar = Calendar.current
+        return ScrollViewReader { proxy in
+            ScrollView(.vertical) {
+                ZStack(alignment: .topLeading) {
+                    // Where the card opens: 15 minutes before now at the top (Arc's window).
+                    VStack(spacing: 0) {
+                        Color.clear.frame(width: 1, height: top)
+                        Color.clear.frame(width: 1, height: 1).id("svc.grid.open")
+                    }
+                    .accessibilityHidden(true)
+                    ForEach(hours, id: \.self) { h in
+                        let midnight = calendar.component(.hour, from: h) == 0 && h > w.start
+                        HStack(alignment: .center, spacing: 4) {
+                            Text(midnight ? Self.dayFormat.string(from: h) : Self.hourFormat.string(from: h))
+                                .aircFont(midnight ? AircFont.caption.weight(.semibold) : AircFont.caption)
+                                .foregroundStyle(midnight ? theme.surfaceTextSecondary.color : theme.surfaceTextTertiary.color)
+                                .frame(width: Self.gutter - 8, alignment: .trailing)
+                            Rectangle().fill(midnight ? theme.surfaceTextTertiary.color.opacity(0.6) : theme.surfaceBorder.color).frame(height: midnight ? 1 : 0.5)
+                        }
+                        .frame(width: Self.width - 4, height: 14)
+                        .offset(y: y(h) - 7)
+                        .accessibilityHidden(true)
+                    }
+                    ForEach(blocks, id: \.event.id) { b in
+                        block(b, area: area, top: y(b.start), height: max(18, y(b.end) - y(b.start) - 2))
+                    }
+                    // Now (Arc's NowLine): a dot on the gutter's edge and a line over the events.
+                    HStack(spacing: 0) {
+                        Circle().fill(theme.accent.color).frame(width: 7, height: 7)
+                        Rectangle().fill(theme.accent.color).frame(height: 1.5)
+                    }
+                    .frame(width: area + 7)
+                    .testAnchor("svc.nowLine")
+                    .offset(x: Self.gutter - 3.5, y: y(now) - 3.5)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
+                .frame(width: Self.width, height: height, alignment: .topLeading)
+                .padding(.bottom, 40)
+            }
+            .scrollIndicators(.automatic)
+            // Instant, so there's no motion to reduce: the card opens already scrolled.
+            .onAppear { proxy.scrollTo("svc.grid.open", anchor: .top) }
+        }
+        .padding(.leading, 4)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Today")
+        .testAnchor("svc.grid")
+    }
+
+    private func block(_ b: PreviewTimeline.Block, area: CGFloat, top: CGFloat, height h: CGFloat) -> some View {
+        let e = b.event
+        let colW = area / CGFloat(b.columns)
+        let over = e.end <= now
+        let detail = [CalendarCard.timeRange(e, now: now), service(e)].compactMap { $0 }.joined(separator: " · ")
+        let isHovered = hovered == e.id
+        return Button { onEvent(e) } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(e.title.isEmpty ? "Event" : e.title).aircFont(AircFont.caption.weight(.semibold))
+                    .foregroundStyle(theme.surfaceText.color).lineLimit(h >= 44 ? 2 : 1)
+                if h >= 30 {
+                    Text(detail).aircFont(AircFont.micro.weight(.regular)).foregroundStyle(theme.surfaceTextSecondary.color).lineLimit(1)
+                }
+            }
+            .padding(.leading, 7).padding(.trailing, 3).padding(.vertical, h >= 24 ? 3 : 1)
+            .frame(width: max(8, colW - 2), height: h, alignment: .topLeading)
+            .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(blockFill(hovered: isHovered)))
+            .overlay(alignment: .leading) { Rectangle().fill(theme.accent.color).frame(width: 2.5) }
+            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .opacity(over ? 0.6 : 1)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 ? e.id : (hovered == e.id ? nil : hovered) }
+        .help(e.title)
+        .accessibilityLabel(spoken(e))
+        .accessibilityHint("Opens the event")
+        .testAnchor("svc.event.\(e.id)")
+        .offset(x: Self.gutter + CGFloat(b.column) * colW, y: top)
+    }
+
+    // MARK: Tomorrow
+
+    private static let timeFormat: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .none
+        f.timeStyle = .short
+        return f
+    }()
+
+    /// calcard: tomorrow in one line, so the six hours keep their room: "Tomorrow", the first event (all-day ones come
+    /// first) as a chip with its time, then "+N". Arc had no Tomorrow at all.
+    private func tomorrowLine(_ later: [CalendarEvent]) -> some View {
+        let first = later[0]
+        let text = first.isAllDay ? Text(first.title.isEmpty ? "Event" : first.title)
+            : Text(Self.timeFormat.string(from: first.start) + " ").foregroundStyle(theme.surfaceTextSecondary.color)
+                + Text(first.title.isEmpty ? "Event" : first.title)
+        return HStack(spacing: 4) {
+            Text("Tomorrow").aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextTertiary.color).fixedSize()
+                .accessibilityAddTraits(.isHeader)
+                .testAnchor("svc.day.Tomorrow")
+            chip(first, text: text, anchor: "svc.tomorrow.\(first.id)", day: "tomorrow")
+            if later.count > 1 { more(later.count - 1, spoken: "\(later.count - 1) more tomorrow") }
+            Spacer(minLength: 0)
+        }
+        .testAnchor("svc.tomorrow")
+        .padding(.leading, 12).padding(.trailing, 8)
     }
 }

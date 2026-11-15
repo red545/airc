@@ -1,0 +1,178 @@
+---
+// The Boost gallery (B03): Boosts people sent from Airc (File › Share Boost › Submit to the Gallery) that the owner
+// reviewed and approved, read from /api/boosts in the browser (api/boosts.js). "Get Boost" is the Boost's link, which
+// Airc reads from the address and reviews before anything is added; Boosts too large for a link are in Airc's own
+// gallery (File › Boost Gallery…), with the ones that come with Airc. Every string is inserted as text.
+import Layout from "../layouts/Layout.astro";
+---
+
+<Layout title="Boost Gallery · Airc" description="Boosts for your favourite sites, shared by people who use Airc and reviewed before they're listed.">
+  <article class="gallery">
+    <p class="tag" style="--c:#e0679a">Boost Gallery</p>
+    <h1>Make any site yours. <span>Boosts shared by people who use Airc, each one reviewed before it's listed.</span></h1>
+    <p class="lede">
+      A Boost changes how a site looks: its colors, its font, things you'd rather not see. Click <b>Get Boost</b> with Airc
+      as your browser, and Airc shows you exactly what it changes, and all of its code, before you add it. Airc also comes
+      with Boosts of its own: <b>File › Boost Gallery…</b>
+    </p>
+    <p class="status" data-status>Loading the gallery…</p>
+    <ul class="grid" data-grid></ul>
+    <section class="send">
+      <h2>Share yours</h2>
+      <p>
+        In Airc, open the Boost, then <b>File › Share Boost…</b> and <b>Submit to the Gallery</b>. It's checked for what a
+        gallery Boost may do (nothing loaded from other sites, no packed code), then read by a person before it's listed.
+        No account and no email: your Boost carries only the name you give it, if any.
+      </p>
+    </section>
+  </article>
+
+  <template data-card>
+    <li class="card">
+      <div class="shot"><img alt="" loading="lazy" decoding="async" hidden /><span class="site-mark"></span></div>
+      <div class="body">
+        <h3></h3>
+        <p class="site"></p>
+        <p class="about"></p>
+        <p class="byline"></p>
+        <p class="row">
+          <a class="get">Get Boost</a>
+          <button type="button" class="report-open">Report</button>
+        </p>
+        <form class="report" hidden>
+          <select name="reason" aria-label="What's wrong">
+            <option value="broken">It doesn't work</option>
+            <option value="harmful">It's harmful or deceptive</option>
+            <option value="spam">Spam or a copy</option>
+            <option value="other">Something else</option>
+          </select>
+          <input name="note" maxlength="300" placeholder="A few words (optional)" aria-label="Details" />
+          <button type="submit">Send report</button>
+        </form>
+      </div>
+    </li>
+  </template>
+</Layout>
+
+<script>
+  type Entry = {
+    id: string; name: string; site: string; author: string | null; about: string | null;
+    code: boolean; preview: boolean; link: string | null;
+  };
+  const $ = <T extends Element>(root: ParentNode, sel: string) => root.querySelector<T>(sel)!;
+  const status = $<HTMLElement>(document, "[data-status]");
+  const grid = $<HTMLElement>(document, "[data-grid]");
+  const template = $<HTMLTemplateElement>(document, "[data-card]");
+
+  function card(e: Entry) {
+    const li = template.content.firstElementChild!.cloneNode(true) as HTMLElement;
+    const img = $<HTMLImageElement>(li, "img");
+    if (e.preview) {
+      img.src = `/api/boosts?preview=${encodeURIComponent(e.id)}`;
+      img.hidden = false;
+    } else $(li, ".site-mark").textContent = e.site[0]?.toUpperCase() ?? "";
+    $(li, "h3").textContent = e.name;
+    $(li, ".site").textContent = e.code ? `${e.site} · includes code` : e.site;
+    $(li, ".about").textContent = e.about ?? "";
+    $(li, ".byline").textContent = e.author ? `Shared by ${e.author} (not verified)` : "";
+    const get = $<HTMLAnchorElement>(li, ".get");
+    if (e.link) get.href = e.link;
+    else {
+      get.removeAttribute("href");
+      get.textContent = "In Airc: File › Boost Gallery";
+      get.classList.add("quiet");
+    }
+    const form = $<HTMLFormElement>(li, "form");
+    $<HTMLButtonElement>(li, ".report-open").onclick = () => (form.hidden = !form.hidden);
+    form.onsubmit = async (ev) => {
+      ev.preventDefault();
+      const data = new FormData(form);
+      const button = $<HTMLButtonElement>(form, "button");
+      button.disabled = true;
+      try {
+        const r = await fetch(`/api/boosts?report=${encodeURIComponent(e.id)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: data.get("reason"), note: data.get("note") }),
+        });
+        form.replaceChildren(Object.assign(document.createElement("p"), {
+          className: "thanks",
+          textContent: r.ok ? "Thanks. The report went to whoever reviews the gallery." : "Couldn't send it. Try again later.",
+        }));
+      } catch {
+        button.disabled = false;
+      }
+    };
+    return li;
+  }
+
+  try {
+    const r = await fetch("/api/boosts");
+    if (!r.ok) throw new Error(String(r.status));
+    const { boosts } = (await r.json()) as { boosts: Entry[] };
+    grid.replaceChildren(...boosts.map(card));
+    status.textContent = boosts.length ? "" : "Nothing here yet: be the first to share one.";
+    status.hidden = boosts.length > 0;
+  } catch {
+    status.textContent = "The gallery couldn't load. Airc's own Boosts are in File › Boost Gallery….";
+  }
+</script>
+
+<style>
+  .gallery { max-width: 1040px; margin: 0 auto; padding: clamp(48px, 7vw, 96px) clamp(20px, 4vw, 56px) 0; }
+
+  .tag {
+    --c: var(--t3);
+    display: inline-flex; align-items: center; height: 24px; margin-bottom: 18px; padding: 0 9px; border-radius: 7px;
+    font-size: 12.5px; font-weight: 600;
+    color: color-mix(in srgb, var(--c) 78%, #000);
+    background: color-mix(in srgb, var(--c) 11%, var(--bg));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 22%, transparent);
+  }
+
+  h1 { max-width: 760px; font-size: clamp(32px, 4vw, 52px); line-height: 1.06; font-weight: 550; letter-spacing: -0.026em; color: var(--t1); text-wrap: balance; }
+  h1 span { color: #7a8190; }
+  .lede { max-width: 680px; margin-top: 20px; font-size: 17px; line-height: 1.6; color: var(--t2); }
+  .status { margin-top: 40px; font-size: 15px; color: var(--t3); }
+  .status[hidden] { display: none; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; margin: 40px 0 0; padding: 0; list-style: none; }
+  .grid:empty { display: none; }
+
+  :global(.gallery .card) {
+    display: flex; flex-direction: column; overflow: hidden; border-radius: 16px; background: var(--surface);
+    box-shadow: 0 0 0 0.5px rgb(var(--ink) / 0.1), 0 12px 32px -18px rgb(30 25 20 / 0.3);
+  }
+  :global(.gallery .shot) { display: grid; place-items: center; aspect-ratio: 16 / 10; background: var(--bg-sunk); box-shadow: 0 1px 0 var(--hl); }
+  :global(.gallery .shot img) { width: 100%; height: 100%; object-fit: cover; }
+  :global(.gallery .shot img[hidden]) { display: none; }
+  :global(.gallery .site-mark) { font-size: 40px; font-weight: 650; color: var(--t3); }
+  :global(.gallery .body) { display: flex; flex-direction: column; gap: 6px; padding: 16px 18px 18px; }
+  :global(.gallery .body h3) { font-size: 17px; font-weight: 600; color: var(--t1); overflow-wrap: anywhere; }
+  :global(.gallery .site), :global(.gallery .byline) { font-size: 13px; color: var(--t3); overflow-wrap: anywhere; }
+  :global(.gallery .about) { font-size: 14.5px; line-height: 1.5; color: var(--t2); overflow-wrap: anywhere; }
+  :global(.gallery .about:empty), :global(.gallery .byline:empty) { display: none; }
+  :global(.gallery .row) { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  :global(.gallery .get) {
+    display: inline-flex; align-items: center; height: 36px; padding: 0 14px; border-radius: 10px;
+    font-size: 14px; font-weight: 600; color: #fff; background: #18181b;
+  }
+  :global(.gallery .get.quiet) { color: var(--t2); background: var(--bg-sunk); font-weight: 550; }
+  :global(.gallery .report-open), :global(.gallery .report button) {
+    height: 36px; padding: 0 12px; border: 0; border-radius: 10px; font: inherit; font-size: 13.5px; color: var(--t2);
+    background: transparent; cursor: pointer;
+  }
+  :global(.gallery .report-open:hover) { color: var(--t1); }
+  :global(.gallery .report) { display: grid; gap: 6px; margin-top: 6px; }
+  :global(.gallery .report[hidden]) { display: none; }
+  :global(.gallery .report select), :global(.gallery .report input) {
+    height: 34px; padding: 0 10px; border: 0; border-radius: 9px; font: inherit; font-size: 13.5px; background: var(--bg-sunk);
+    box-shadow: inset 0 0 0 1px var(--hl-strong);
+  }
+  :global(.gallery .report button) { justify-self: start; color: var(--t1); box-shadow: inset 0 0 0 1px var(--hl-strong); }
+  :global(.gallery .thanks) { font-size: 13.5px; color: var(--t2); }
+
+  .send { max-width: 680px; margin-top: clamp(48px, 6vw, 72px); padding-top: 32px; box-shadow: 0 -1px 0 var(--hl); }
+  .send h2 { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; color: var(--t1); }
+  .send p { margin-top: 12px; font-size: 15.5px; line-height: 1.6; color: var(--t2); }
+</style>

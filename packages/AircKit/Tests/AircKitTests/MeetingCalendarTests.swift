@@ -41,7 +41,10 @@ final class MeetingCalendarTests: XCTestCase {
     func testPlainHTTPSComesOnlyFromTheURLOrLocation() {
         XCTAssertEqual(MeetingLink.find(url: "https://whereby.com/team", location: nil, notes: nil),
                        MeetingLink(url: URL(string: "https://whereby.com/team")!, service: .web))
-        XCTAssertEqual(MeetingLink.find(url: nil, location: "Call: https://around.co/r/x", notes: nil)?.service, .web)
+        XCTAssertEqual(MeetingLink.find(url: nil, location: "Call: https://whereby.com/r/x", notes: nil)?.service, .web)
+        // Around was one of Arc's four call-link patterns (with Meet, Zoom and Teams): a known service, even in notes.
+        XCTAssertEqual(MeetingLink.find(url: nil, location: nil, notes: "Call: https://around.co/r/standup")?.service, .around)
+        XCTAssertNil(URL(string: "https://around.co/pricing").flatMap(MeetingLink.service(of:)))
         XCTAssertNil(MeetingLink.find(url: nil, location: "Room 4", notes: "Doc: https://docs.example.com/agenda"))
         XCTAssertNil(MeetingLink.find(url: "http://intranet.example/meeting", location: nil, notes: nil), "http isn't a fallback")
         XCTAssertNil(MeetingLink.find(url: nil, location: nil, notes: nil))
@@ -214,5 +217,17 @@ final class MeetingCalendarTests: XCTestCase {
             if let b = boundary, b <= now { boundary = MeetingSchedule.nextBoundary(events, now: now, promptLead: lead) }
         }
         XCTAssertGreaterThan(changes, 60)
+    }
+
+    /// S03b: the "meeting soon" badge from five minutes before to the end of the five late minutes.
+    func testMeetingSoon() {
+        let t0 = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        let e = [CalendarEvent(id: "a", title: "A", start: t0.addingTimeInterval(600), end: t0.addingTimeInterval(2400))]
+        XCTAssertFalse(MeetingSchedule.isSoon(e, now: t0), "ten minutes before")
+        XCTAssertFalse(MeetingSchedule.isSoon(e, now: t0.addingTimeInterval(299)), "a second over five minutes before")
+        XCTAssertTrue(MeetingSchedule.isSoon(e, now: t0.addingTimeInterval(300)), "five minutes before")
+        XCTAssertTrue(MeetingSchedule.isSoon(e, now: t0.addingTimeInterval(700)), "on now")
+        XCTAssertFalse(MeetingSchedule.isSoon(e, now: t0.addingTimeInterval(1000)), "past the late minutes")
+        XCTAssertFalse(MeetingSchedule.isSoon([], now: t0))
     }
 }

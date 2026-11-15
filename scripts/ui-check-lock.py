@@ -64,9 +64,31 @@ def main():
             lock.truncate()
             lock.write(f"pid={os.getpid()} since={time.time():.0f}")
             lock.flush()
+        # A remote coordinator rechecks quiet/relink holds after acquisition,
+        # closing the race between its pre-launch check and this lock wait.
+        if acquired and os.environ.get("AIRC_UI_COORDINATOR") == "1":
+            print("@@LOCKED@@", flush=True)
+            if sys.stdin.readline().strip() != "RUN":
+                print("UI lock: coordinator refused launch", flush=True)
+                return 75
+        command = sys.argv[1:]
+        if os.environ.get("AIRC_UI_DEDICATED_SESSION") == "1":
+            if not acquired:
+                return 75
+            import runpy
+            try:
+                runpy.run_path(str(Path(__file__).with_name("ui-session-preflight.py")))["prepare"]()
+            except Exception as error:
+                print(f"UI preflight: refused ({type(error).__name__})", flush=True)
+                return 75
+            # open -g deliberately leaves Finder/the previous app active. A
+            # dedicated UI check must activate normally, on its current Space.
+            if "open" in command:
+                index = command.index("open")
+                command = command[:index + 1] + ["--env", "AIRC_UI_DEDICATED_SESSION=1"] + [x for x in command[index + 1:] if x != "-g"]
         # Keep the descriptor open in the child: if this wrapper dies, the still-running check retains the lock.
         # A timeout alone does not excuse assertions: checks must collect their own interference evidence.
-        return subprocess.call(sys.argv[1:], pass_fds=(lock.fileno(),))
+        return subprocess.call(command, pass_fds=(lock.fileno(),))
 
 
 if __name__ == "__main__":

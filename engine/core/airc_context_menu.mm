@@ -18,6 +18,12 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu.h"
 #include "chrome/browser/ui/cocoa/renderer_context_menu/render_view_context_menu_mac_cocoa.h"
+#import "components/remote_cocoa/app_shim/menu_controller_cocoa_delegate_impl.h"
+#include "ui/base/cocoa/menu_utils.h"
+#import "ui/menus/cocoa/menu_controller.h"
+#include "ui/views/controls/menu/menu_controller_cocoa_delegate_params.h"
+#include "ui/views/interaction/element_tracker_views.h"
+#include "ui/views/widget/widget.h"
 #include "chrome/browser/ui/tab_contents/chrome_web_contents_menu_helper.h"
 #include "chrome/browser/ui/tab_contents/chrome_web_contents_view_delegate.h"
 #include "components/tabs/public/tab_interface.h"
@@ -118,12 +124,66 @@ bool FindPicked(ui::MenuModel* model,
 
 class AircContextMenu : public RenderViewContextMenuMacCocoa {
  public:
-  using RenderViewContextMenuMacCocoa::RenderViewContextMenuMacCocoa;
+  AircContextMenu(content::RenderFrameHost& render_frame_host,
+                  const content::ContextMenuParams& params,
+                  bool is_paste_enabled,
+                  bool is_paste_and_match_style_enabled,
+                  NSView* parent_view)
+      : RenderViewContextMenuMacCocoa(render_frame_host, params, is_paste_enabled,
+                                      is_paste_and_match_style_enabled, parent_view),
+        parent_view_(parent_view) {}
+
+  ~AircContextMenu() override { [menu_controller_ cancel]; }
 
   void Show() override {
     if (!ShowThroughHost()) {
-      RenderViewContextMenuMacCocoa::Show();
+      ShowNative();
     }
+  }
+
+  // RenderViewContextMenuMacCocoa::Show(), with the widget looked up through
+  // the page's WindowHost. Pages live in the app's own NSWindow (embedded
+  // WindowHost), which is no views widget, so Chromium's
+  // GetTopLevelWidgetForNativeView() finds nothing there and drops every
+  // native context menu: right-click and Control-click alike.
+  void ShowNative() {
+    content::WebContents* contents = source_web_contents_;
+    views::Widget* widget =
+        views::Widget::GetTopLevelWidgetForNativeView(contents->GetNativeView());
+    if (!widget) {
+      WindowHost* host = WindowHost::ForContents(contents);
+      widget = host ? host->widget() : nullptr;
+    }
+    NSView* parent = parent_view_;
+    if (!widget || !parent.window) {
+      return;
+    }
+    menu_controller_delegate_ = [[MenuControllerCocoaDelegateImpl alloc]
+        initWithParams:views::MenuControllerParamsForWidget(widget)];
+    menu_controller_ =
+        [[MenuControllerCocoa alloc] initWithModel:&menu_model_
+                                     isContextMenu:YES
+                                          delegate:menu_controller_delegate_];
+    NSPoint position = NSMakePoint(params().x, NSHeight(parent.bounds) - params().y);
+    position = [parent convertPoint:position toView:nil];
+    NSEvent* click =
+        ui::EventForPositioningContextMenuRelativeToWindow(position, parent.window);
+    ui::ShowContextMenu(menu_controller_.menu, click, parent,
+                        /*allow_nested_tasks=*/true,
+                        views::ElementTrackerViews::GetContextForWidget(widget));
+  }
+
+  // The base class's own menu controller stays nil: these act on ours.
+  void CancelToolkitMenu() override { [menu_controller_ cancel]; }
+  void UpdateToolkitMenuItem(int command_id,
+                             bool enabled,
+                             bool hidden,
+                             const std::u16string& title) override {
+    NSMenuItem* item = MenuItemByID(&menu_model_, [menu_controller_ menu], command_id);
+    if (!item) return;
+    item.enabled = enabled;
+    item.title = base::SysUTF16ToNSString(title);
+    item.hidden = hidden;
   }
 
   void ArrangeLikeDia() {
@@ -383,6 +443,23 @@ class AircContextMenu : public RenderViewContextMenuMacCocoa {
     return true;
   }
 
+  static NSMenuItem* MenuItemByID(ui::MenuModel* model, NSMenu* menu, int command_id) {
+    for (size_t i = 0; model && i < model->GetItemCount() && i < static_cast<size_t>(menu.numberOfItems); ++i) {
+      NSMenuItem* item = [menu itemAtIndex:i];
+      if (model->GetCommandIdAt(i) == command_id) return item;
+      ui::MenuModel* sub = model->GetSubmenuModelAt(i);
+      // MenuControllerCocoa builds one item per model item (hidden ones too); only a submenu with no visible items
+      // becomes a lone "(empty)" item, which has no command to find.
+      if (sub && item.hasSubmenu && item.submenu.numberOfItems == static_cast<NSInteger>(sub->GetItemCount())) {
+        if (NSMenuItem* found = MenuItemByID(sub, item.submenu, command_id)) return found;
+      }
+    }
+    return nil;
+  }
+
+  NSView* __weak parent_view_ = nil;
+  MenuControllerCocoa* __strong menu_controller_ = nil;
+  MenuControllerCocoaDelegateImpl* __strong menu_controller_delegate_ = nil;
   std::unique_ptr<ui::SimpleMenuModel> space_menu_;
   std::vector<std::string> space_ids_;
   std::vector<std::string> host_items_;

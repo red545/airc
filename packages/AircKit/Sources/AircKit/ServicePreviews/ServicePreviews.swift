@@ -40,7 +40,7 @@ public enum PreviewService: String, CaseIterable, Codable, Sendable {
     public var settingsDetail: String {
         switch family {
         case .mail: "Unread emails"
-        case .calendar: "Today's events"
+        case .calendar: "Today's and tomorrow's events"
         case .recents: "Recent pages"
         }
     }
@@ -103,7 +103,11 @@ public enum PreviewService: String, CaseIterable, Codable, Sendable {
         guard let c = URLComponents(string: url), let scheme = c.scheme?.lowercased(), scheme == "https" || scheme == "http",
               var host = c.host?.lowercased() else { return nil }
         if host.hasPrefix("www.") { host.removeFirst(4) }
+        if let real = fixtureHosts[host] { host = real }
         let path = c.path.lowercased()
+        if let s = loopbackFixtures[host], ["127.0.0.1", "localhost", "::1"].contains(host) {
+            return path.hasPrefix("/mail") || path.isEmpty || path == "/" ? s : nil
+        }
         switch host {
         case "mail.google.com": return path.hasPrefix("/mail") || path.isEmpty || path == "/" ? .gmail : nil
         case "calendar.google.com": return .googleCalendar
@@ -123,7 +127,8 @@ public enum PreviewService: String, CaseIterable, Codable, Sendable {
     /// different accounts and never share a card. Recent pages are the profile's own: one key.
     public static func accountKey(_ url: String) -> String {
         guard let service = detect(url), let c = URLComponents(string: url) else { return "" }
-        let host = c.host?.lowercased() ?? ""
+        let raw = c.host?.lowercased() ?? ""
+        let host = fixtureHosts[raw] ?? raw
         switch service {
         case .gmail, .googleCalendar:
             let parts = c.path.split(separator: "/")
@@ -157,6 +162,35 @@ public enum PreviewService: String, CaseIterable, Codable, Sendable {
         case .linear: return URL(string: "https://linear.app/new")
         case .figma: return URL(string: "https://www.figma.com/new")
         case .confluence: return URL(string: "https://\(host)/wiki/create-content/page")
+        }
+    }
+
+    /// Scripted runs only: a loopback host that stands for a mail service, so local fixture pages that mimic Gmail's
+    /// or Outlook's markup and feeds get the service's card. Consulted for loopback hosts and mail paths only, never a
+    /// real site; empty unless a check sets it.
+    nonisolated(unsafe) public static var loopbackFixtures: [String: PreviewService] = [:]
+
+    /// Scripted runs only (calprev): fixture host names that stand for a real service host, e.g.
+    /// "calendar.google.calprev.co.uk" → "calendar.google.com", served by a loopback fixture (the check maps them there:
+    /// Chromium's host-resolver rules, WebKit's per-profile proxy). Empty unless a check sets it.
+    nonisolated(unsafe) public static var fixtureHosts: [String: String] = [:]
+
+    /// The real host a page's host stands for (itself, unless a check aliased it).
+    public static func serviceHost(_ host: String) -> String {
+        var h = host.lowercased()
+        if h.hasPrefix("www.") { h.removeFirst(4) }
+        return fixtureHosts[h] ?? h
+    }
+
+    /// A service's sign-in page, where its pinned tab lands when the account is signed out (Google's account pages,
+    /// Microsoft's logins, Google Workspace's product page that a signed-out calendar.google.com shows).
+    public static func isSignInPage(_ url: String) -> Bool {
+        guard let c = URLComponents(string: url), let h = c.host else { return false }
+        let host = serviceHost(h)
+        switch host {
+        case "accounts.google.com", "login.live.com", "login.microsoftonline.com", "login.microsoft.com": return true
+        case "workspace.google.com": return c.path.lowercased().contains("/calendar")
+        default: return false
         }
     }
 
@@ -251,6 +285,9 @@ public enum PreviewState: Equatable, Sendable {
     case expired
     case ready(PreviewContent)
     case failed(stale: PreviewContent?)
+    /// Mail read from the account's own page (PageMail): no page of the account is loaded in this profile yet, and
+    /// nothing was read from one before. Opening the pinned tab or Favorite fills the card.
+    case needsPage
 
     public var content: PreviewContent? {
         switch self {
@@ -395,67 +432,6 @@ public enum PreviewStatus {
             consider(e.end)
         }
         return next
-    }
-}
-
-/// The calendar card's day (Arc's preview: an hour grid from the current hour, the meetings as blocks, a line at now).
-public enum PreviewTimeline {
-    /// Arc's card shows about six hours at once; the rest of the day scrolls.
-    public static let visibleHours = 6
-
-    /// From the start of the current local hour to the end of the day (at least `visibleHours`). Hours are the
-    /// calendar's (its time zone): in a zone half an hour off UTC they start at :30 UTC.
-    public static func window(now: Date, calendar: Calendar = .current) -> DateInterval {
-        let start = calendar.dateInterval(of: .hour, for: now)?.start ?? now
-        let dayEnd = calendar.dateInterval(of: .day, for: now)?.end ?? start.addingTimeInterval(86_400)
-        let minEnd = start.addingTimeInterval(TimeInterval(visibleHours) * 3600)
-        return DateInterval(start: start, end: max(dayEnd, minEnd))
-    }
-
-    /// The hours to label, in the calendar's time zone ("2 PM").
-    public static func hours(in w: DateInterval, calendar: Calendar = .current) -> [Date] {
-        var out: [Date] = []
-        var t = w.start
-        while t < w.end {
-            out.append(t)
-            guard let next = calendar.date(byAdding: .hour, value: 1, to: t) else { break }
-            t = next
-        }
-        return out
-    }
-
-    public struct Block: Equatable, Sendable {
-        public var event: CalendarEvent
-        /// Side by side with the events it overlaps: its column and how many there are.
-        public var column: Int
-        public var columns: Int
-    }
-
-    /// The timed events that show in `w`, each in a column beside the ones it overlaps (a cluster of overlapping
-    /// events shares its columns). All-day events are left out: the card lists those above the hours.
-    public static func layout(_ events: [CalendarEvent], in w: DateInterval) -> [Block] {
-        let shown = events.filter { !$0.isAllDay && $0.end > w.start && $0.start < w.end }
-            .sorted { ($0.start, $0.end, $0.id) < ($1.start, $1.end, $1.id) }
-        var out: [Block] = []
-        var cluster: [(CalendarEvent, Int)] = []
-        var clusterEnd = Date.distantPast
-        var columnEnds: [Date] = []
-        func flush() {
-            let n = max(1, columnEnds.count)
-            out += cluster.map { Block(event: $0.0, column: $0.1, columns: n) }
-            cluster = []
-            columnEnds = []
-        }
-        for e in shown {
-            if e.start >= clusterEnd { flush() }
-            // The first column free by this start, else a new one.
-            let col = columnEnds.firstIndex { $0 <= e.start } ?? columnEnds.count
-            if col == columnEnds.count { columnEnds.append(e.end) } else { columnEnds[col] = e.end }
-            cluster.append((e, col))
-            clusterEnd = max(clusterEnd, e.end)
-        }
-        flush()
-        return out
     }
 }
 

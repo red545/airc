@@ -262,5 +262,29 @@
   "chrome/browser/ui/views/media_router/media_router_dialog_controller_views.cc": {
     "before": "907ec84d4706f9f9c5d5446eec0c55b7a53459fc712971b2dd2b411aaecca0fa",
     "after": "e1c91f52817ecb8dfb905dc4097a435267d1296297dc621851184157d703e1bb"
+  },
+  "chrome/browser/ui/views/tab_sharing/tab_sharing_ui_views.cc": {
+    "before": "0f7975dc5b96c499ae202234b07451fc7b51994f801d2287beeeed6285a35652",
+    "after": "0781ca99bc1a648e6d46b795983fa9c3423380ba57d89459b6ccf8f9f2351655"
+  },
+  "chrome/browser/ui/tab_sharing/tab_sharing_infobar_delegate.h": {
+    "before": "f13605c309f059245d4e58444d460d81d48ef97cbdecee82756cb08da954d7f4",
+    "after": "b7aae4892f92dfe6fdb9ec05b98b58f5cdead75efd6becf7eee6382a6a6fa544"
+  },
+  "chrome/browser/task_manager/sampling/task_manager_impl.cc": {
+    "after": "075cee5155679b91a431283d4089f0b27a08219b3ec3682ba1527c66ca1d25ad",
+    "before": "4cab673d6dd3e9325cd00b7e0b975277aa2ee1606743fab949b616c0657fb4bc"
+  },
+  "device/fido/mac/util.mm": {
+    "before": "2923afc844276e79aca4f4dcaebeb27e918d6254e9f887beccb9f3aae4ccbf5a",
+    "after": "6a10236464887f5021cfd830619e749ddb942aee4c5ea22663735f2ad08a2c73"
+  },
+  "device/fido/mac/credential_store.mm": {
+    "before": "a45d6afca8f7397bffc2be238e1914d8c8702f35e154ca4190fb175d7bd3d171",
+    "after": "7f51d38f44b269a08651ccf8e50a9c5049b18f091e7033c07cfc73d8787868e1"
+  },
+  "chrome/browser/ui/webauthn/sheet_models.cc": {
+    "before": "129c4f0d1b470ea1dc5f95747773d585e907c93885166551d2883adcc8b9e537",
+    "after": "9960aed747ed9cccb7043af72fd0bf6b2c3c9f188ac49cd5628004058e653df5"
   }
 }

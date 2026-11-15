@@ -46,6 +46,7 @@ const isCrop = (name: string) => /-(card|panel|menu|window)$/.test(name);
     <header class="head">
       <p class="tag" style="--c:#2f9e62">Features</p>
       <h1>Everything in Airc. <span>{count} features you can use today, grouped the way you'd look for them, and what's coming.</span></h1>
+      <p class="arc-link">Coming from Arc? <a href="/arc">Every Arc feature, and where it is in Airc</a>, including what's still missing.</p>
       {drafts.length > 0 && (
         <p class="draft-note"><i aria-hidden="true"></i>Preview: this includes what {draftVersions} brings, which isn't published yet.</p>
       )}
@@ -188,6 +189,9 @@ const isCrop = (name: string) => /-(card|panel|menu|window)$/.test(name);
   }
 
   .head { padding: 0 var(--pad); max-width: 860px; }
+
+  .arc-link { margin-top: 16px; font-size: 15.5px; color: var(--t2); }
+  .arc-link a { font-weight: 600; color: var(--accent-text); }
 
   .tag {
     --c: var(--t3);

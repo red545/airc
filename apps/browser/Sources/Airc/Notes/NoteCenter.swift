@@ -6,9 +6,9 @@ import AppKit
 // editor in the page card instead (above the card's edge, as the "Open in another window" card is). One editor per note
 // for the whole app, so a note shown in another window moves there with its text and its undo history.
 
-/// One note's editor: its view, its own undo history, and its text going into the store as it's typed (in memory at
-/// once, on disk with the store's next flush: ⌘W right after a keystroke never loses it).
-final class NoteEditor: NSObject, NSTextViewDelegate {
+/// One note's editor: its view, its own undo history, and its text and title going into the store as they're typed
+/// (in memory at once, on disk with the store's next flush: ⌘W right after a keystroke never loses it).
+final class NoteEditor: NSObject, NSTextViewDelegate, NSTextFieldDelegate {
     let noteID: String
     let view: NoteEditorView
     private let history = UndoManager()
@@ -18,6 +18,11 @@ final class NoteEditor: NSObject, NSTextViewDelegate {
     private var lastTitle: String
     /// What this editor last read or wrote: anything else in the store (a backup restored, ⌘Z of a delete) is newer.
     private var known: NoteDocument
+    /// The store's text when this editor last read or wrote it: a store change to anything else came from elsewhere.
+    private var lastStored: NoteDocument?
+    /// The title when the title field took the keyboard: leaving it makes the change one undo step.
+    private var titleBefore: String?
+    private var storeToken: Int?
 
     init(noteID: String, store: SpacesStore, style: NoteStyle) {
         self.noteID = noteID
@@ -25,13 +30,28 @@ final class NoteEditor: NSObject, NSTextViewDelegate {
         view = NoteEditorView(noteID: noteID, style: style)
         let note = store.note(noteID)
         known = note?.document ?? NoteDocument()
+        lastStored = note?.document
         lastTitle = note?.displayTitle ?? NoteURL.untitled
         super.init()
         view.textView.delegate = self
         view.textView.load(known)
         known = view.textView.document
         view.textView.onChange = { [weak self] in self?.save() }
+        // P13b: the title field. A pinned row named before notes had titles gives the note that name first.
+        view.titleField.delegate = self
+        view.textView.onMoveAboveText = { [weak self] in self?.focusTitle() }
+        if store.adoptNoteRowName(noteID) { lastTitle = store.note(noteID)?.displayTitle ?? lastTitle }
+        showTitle()
+        storeToken = store.observe { [weak self] change in
+            guard let self, change.refs.contains(where: { $0.kind == .note && $0.id == self.noteID }) else { return }
+            self.showTitle()
+            // Text from elsewhere (iCloud sync from another Mac): shown at once, so the next keystroke builds on it.
+            // This editor's own typing and a title change leave the stored text as it last saw it.
+            if self.store?.note(self.noteID)?.document != self.lastStored { self.reloadIfChanged() }
+        }
     }
+
+    deinit { if let storeToken { store?.removeObserver(storeToken) } }
 
     var textView: NoteTextView { view.textView }
 
@@ -55,24 +75,123 @@ final class NoteEditor: NSObject, NSTextViewDelegate {
         let doc = textView.document
         guard doc != known else { return }
         known = doc
+        lastStored = doc
         store.updateNote(noteID, document: doc)
-        let title = store.note(noteID)?.displayTitle ?? NoteURL.untitled
+        titleMayHaveChanged()
+    }
+
+    /// The rows and the window title follow a new name (a title typed, or the first line while there's none).
+    private func titleMayHaveChanged() {
+        let title = store?.note(noteID)?.displayTitle ?? NoteURL.untitled
         if title != lastTitle {
             lastTitle = title
             controller?.noteTitleChanged(noteID)
         }
     }
 
+    // MARK: The title field (P13b)
+
+    /// The store's title in the field (unless it's being typed there), and the first line as its placeholder.
+    func showTitle() {
+        guard let n = store?.note(noteID) else { return }
+        let field = view.titleField
+        if field.currentEditor() == nil, field.stringValue != (n.title ?? "") { field.stringValue = n.title ?? "" }
+        view.titlePlaceholder = n.document.title
+    }
+
+    func focusTitle() {
+        guard let window = view.window else { return }
+        window.makeFirstResponder(view.titleField)
+        view.titleField.currentEditor()?.selectedRange = NSRange(location: (view.titleField.stringValue as NSString).length, length: 0)
+    }
+
+    func controlTextDidBeginEditing(_ obj: Notification) {
+        titleBefore = store?.note(noteID)?.title
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+        try? store?.setNoteTitle(noteID, view.titleField.stringValue, deferred: true)
+        titleMayHaveChanged()
+    }
+
+    /// Leaving the field: what was typed in it is one step of the note's own undo history (⌘Z in the text takes the
+    /// title back, as Arc's did), and the field shows the title as kept (one line, trimmed).
+    func controlTextDidEndEditing(_ obj: Notification) {
+        let before = titleBefore, after = store?.note(noteID)?.title
+        titleBefore = nil
+        // The field's own typing steps were in this history (its editor's undo manager is the text view's, up the
+        // responder chain); they go with the editing, and the change becomes one step.
+        if let fieldEditor = obj.userInfo?["NSFieldEditor"] as? NSTextView {
+            history.removeAllActions(withTarget: fieldEditor)
+            if let storage = fieldEditor.textStorage { history.removeAllActions(withTarget: storage) }
+        }
+        view.titleField.stringValue = after ?? ""
+        if before != after { registerTitleUndo(back: before, from: after) }
+        if let movement = obj.userInfo?["NSTextMovement"] as? Int,
+           [NSTextMovement.return.rawValue, NSTextMovement.tab.rawValue, NSTextMovement.down.rawValue].contains(movement) {
+            focusText(atStart: true)
+        }
+    }
+
+    /// Esc in the field: the title it had before, and the keyboard back in the text. ↓: the text.
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        switch selector {
+        case #selector(NSResponder.cancelOperation(_:)):
+            textView.string = titleBefore ?? ""
+            try? store?.setNoteTitle(noteID, titleBefore, deferred: true)
+            titleMayHaveChanged()
+            focusText(atStart: true)
+            return true
+        case #selector(NSResponder.moveDown(_:)):
+            focusText(atStart: true)
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func focusText(atStart: Bool) {
+        guard let window = view.window else { return }
+        window.makeFirstResponder(textView)
+        if atStart { textView.setSelectedRange(NSRange(location: 0, length: 0)) }
+    }
+
+    /// Sets the title as an undo or redo of the field's change, registering the way back.
+    private func registerTitleUndo(back old: String?, from new: String?) {
+        history.registerUndo(withTarget: self) { e in
+            try? e.store?.setNoteTitle(e.noteID, old, deferred: true)
+            e.showTitleNow()
+            e.titleMayHaveChanged()
+            e.registerTitleUndo(back: new, from: old)
+        }
+        history.setActionName("Title")
+    }
+
+    /// The field shows the store's title even while it has the keyboard (an undo from the menu).
+    private func showTitleNow() {
+        let t = store?.note(noteID)?.title ?? ""
+        if let editor = view.titleField.currentEditor() { editor.string = t }
+        view.titleField.stringValue = t
+        showTitle()
+    }
+
     /// The store's text when it changed elsewhere since this editor last saw it.
     func reloadIfChanged() {
         guard let store else { return }
-        let stored = store.note(noteID)?.document ?? NoteDocument()
+        lastStored = store.note(noteID)?.document
+        let stored = lastStored ?? NoteDocument()
         guard stored != known else { return }
         known = stored
         lastTitle = store.note(noteID)?.displayTitle ?? NoteURL.untitled
+        let selection = textView.selectedRange()
         textView.load(stored)
         known = textView.document
+        // The caret stays about where it was (clamped to the new text).
+        let length = (textView.string as NSString).length
+        textView.setSelectedRange(NSRange(location: min(selection.location, length), length: 0))
         history.removeAllActions()
+        showTitle()
+        controller?.noteTitleChanged(noteID)
     }
 
     func focus() {
@@ -94,6 +213,11 @@ final class NoteCenter {
 
     func existingEditor(_ noteID: String) -> NoteEditor? { editors[noteID] }
 
+    /// Pictures another Mac's note brought (iCloud sync): the open notes draw them instead of their placeholders.
+    func picturesArrived() {
+        for e in editors.values { e.textView.needsDisplay = true }
+    }
+
     /// Editors of notes no tab has open any more (closed, archived, deleted) and no card shows. Their text is already
     /// in the store (every change is).
     func dropClosed(store: SpacesStore) {
@@ -108,36 +232,59 @@ final class NoteCenter {
     }
 }
 
+/// What takes a page's place in the card: a note's editor (here) or an Easel's (P19a, Easels/EaselEditor.swift). Neither
+/// ever gets an engine page.
+protocol CardDocument: AnyObject {
+    var cardView: NSView { get }
+    func focus()
+    /// Before it goes into `c`'s card: its window, its colours, the store's latest.
+    func prepare(for c: WindowController)
+}
+
+extension NoteEditor: CardDocument {
+    var cardView: NSView { view }
+
+    func prepare(for c: WindowController) {
+        controller = c
+        reloadIfChanged()
+        view.style = NoteStyle(c.currentPalette.resolved)
+        view.cornerRadius = c.card.cornerRadius
+    }
+}
+
 extension WindowController {
-    /// The editor for `tabID`'s note; nil when it isn't a note's tab.
-    func noteEditor(forTab tabID: String) -> NoteEditor? {
-        guard let id = NoteURL.noteID(store.tab(tabID)?.url) else { return nil }
-        return NoteCenter.shared.editor(for: id, store: store, style: NoteStyle(currentPalette.resolved))
+    /// The editor for `tabID`'s note or Easel; nil when it's a page's tab.
+    func noteEditor(forTab tabID: String) -> CardDocument? {
+        let url = store.tab(tabID)?.url
+        if let id = NoteURL.noteID(url) { return NoteCenter.shared.editor(for: id, store: store, style: NoteStyle(currentPalette.resolved)) }
+        if let id = EaselURL.easelID(url) { return EaselCenter.shared.editor(for: id, store: store) }
+        // whatsnew2: the What's new tab's native page (Browser/WhatsNewPage.swift).
+        if WhatsNewURL.isPage(url) { return WhatsNewPage.page(forTab: tabID, store: store, theme: currentPalette.resolved) }
+        return nil
     }
 
     /// Puts `editor` in the page card, over the card's edge (it leaves another window's card, which says "Open in
     /// another window" then).
-    func present(_ editor: NoteEditor) {
+    func present(_ editor: CardDocument) {
         hideNote(except: editor)
-        editor.controller = self
-        editor.reloadIfChanged()
-        editor.view.style = NoteStyle(currentPalette.resolved)
-        editor.view.cornerRadius = card.cornerRadius
-        if editor.view.superview !== card {
-            editor.view.frame = card.bounds
-            editor.view.autoresizingMask = [.width, .height]
-            card.addSubview(editor.view)
+        editor.prepare(for: self)
+        let v = editor.cardView
+        if v.superview !== card {
+            v.frame = card.bounds
+            v.autoresizingMask = [.width, .height]
+            card.addSubview(v)
         }
-        editor.view.isHidden = false
+        v.isHidden = false
     }
 
-    /// The card shows a page, a split, nothing, or another window's tab: no note in it.
-    func hideNote(except keep: NoteEditor? = nil) {
-        for v in card.subviews.compactMap({ $0 as? NoteEditorView }) where v !== keep?.view {
-            if v.window?.firstResponder === v.textView { window.makeFirstResponder(nil) }
+    /// The card shows a page, a split, nothing, or another window's tab: no note or Easel in it.
+    func hideNote(except keep: CardDocument? = nil) {
+        for v in card.subviews where (v is NoteEditorView || v is EaselEditorView || v is WhatsNewPageView) && v !== keep?.cardView {
+            if let r = v.window?.firstResponder as? NSView, r === v || r.isDescendant(of: v) { window.makeFirstResponder(nil) }
             v.removeFromSuperview()
         }
         NoteCenter.shared.dropClosed(store: store)
+        EaselCenter.shared.dropClosed(store: store)
     }
 
     /// The note on screen with the keyboard's tab: in the card, or a split's focused pane (Notes/NoteSplit.swift).
@@ -152,6 +299,7 @@ extension WindowController {
     func noteChromeChanged() {
         let s = NoteStyle(currentPalette.resolved)
         for v in notePaneViews where v.style != s { v.style = s }
+        if let page = WhatsNewPage.existing(shownTabID), page.host.superview === card { page.prepare(for: self) }
         guard let note = shownNote else { return }
         // A backup restored or ⌘Z of a delete since: the store's text, not the editor's older copy.
         note.reloadIfChanged()
@@ -205,7 +353,7 @@ extension WindowController {
         return true
     }
 
-    /// A note row's menu: what makes sense for a note (no links, Favorites or splits).
+    /// A note row's menu: what makes sense for a note (no links or Favorites; splits by drag and ⌥-click, P13b).
     func noteMenu(for entry: SidebarEntry) -> NSMenu? {
         let m = NSMenu()
         switch entry {
@@ -227,6 +375,8 @@ extension WindowController {
             m.addItem(.separator())
             m.add("Archive Note", "⌘W") { [weak self] in self?.closeTab(t.id) }
         case .pinned(let item, _, let t) where NoteURL.isNote(item.savedURL):
+            // P13b: the note's title, as its title field (Notes.swift renameNoteRow).
+            m.add("Rename…") { [weak self] in self?.renameItemFromMenu(item.id) }
             m.add("Duplicate") { [weak self] in _ = try? self?.store.duplicateItem(item.id) }
             if let id = NoteURL.noteID(item.savedURL) { m.add("Export Note…") { [weak self] in self?.exportNote(id) } }
             m.addItem(.separator())

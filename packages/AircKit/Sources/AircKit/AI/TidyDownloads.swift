@@ -4,7 +4,8 @@ import Foundation
 // Tidy Downloads (Arc Max's auto-renamed downloads, docs/user/ai.md): a finished download with a meaningless name
 // ("IMG_2041 (1).pdf") gets a suggested clean one ("Lisbon itinerary.pdf") from a language model on this Mac, made from
 // the page it came from (title and address) and the start of the file's own text. Nothing is renamed until the person
-// clicks Rename in the downloads list. Everything here works with any `TidyDownloadModel`, so the tests use a fake.
+// clicks Rename in the downloads list, unless they turned on Rename automatically (Arc's Tidy Downloads): then the app
+// renames it at once, with Undo. Everything here works with any `TidyDownloadModel`, so the tests use a fake.
 
 /// What the model is asked about one file.
 public struct TidyDownloadRequest: Equatable, Sendable {
@@ -192,6 +193,24 @@ public enum TidyDownloadRules {
         return "Airc: Tidy Downloads couldn't rename a file (\(domains.contains(e.domain) ? e.domain : "other") \(e.code))"
     }
 
+    /// Files the automatic rename (Settings → AI → Rename automatically) leaves as they are, whatever their name: disk
+    /// images, installers, apps and archives (an app or a script may expect the name, or they're still being opened or
+    /// extracted), a download that isn't done (".crdownload", ".download", ".part") and hidden files. A click on Rename
+    /// in the Library still works for them.
+    public static let autoSkippedExtensions: Set<String> = [
+        "dmg", "pkg", "mpkg", "app", "iso", "xip", "sparseimage", "sparsebundle",
+        "zip", "tar", "gz", "tgz", "bz2", "tbz", "tbz2", "xz", "txz", "zst", "7z", "rar", "lz", "lzma", "cpio", "aar",
+        "crdownload", "download", "part", "partial",
+    ]
+
+    public static func autoRenameSkips(_ fileName: String) -> Bool {
+        if fileName.hasPrefix(".") { return true }
+        let ext = split(fileName).ext.lowercased()
+        let last = ext.split(separator: ".").last.map(String.init) ?? ext
+        let raw = (fileName as NSString).pathExtension.lowercased()
+        return autoSkippedExtensions.contains(last) || autoSkippedExtensions.contains(raw)
+    }
+
     /// `name`, or "Name 2.pdf", "Name 3.pdf"… when a file of that name is there already.
     public static func unique(_ name: String, exists: (String) -> Bool) -> String {
         guard exists(name) else { return name }
@@ -252,6 +271,15 @@ public struct TidyDownloadRenames: Codable, Equatable, Sendable {
     }
 
     public mutating func remove(_ key: String) { entries[key] = nil }
+
+    /// Undo of a rename: where the file goes back to (its folder, its original name, or "Name 2.pdf" when that's taken
+    /// now) and the record after it. Nil when the download wasn't renamed here.
+    public func undo(_ key: String, exists: (String) -> Bool) -> (path: String, name: String)? {
+        guard let e = entries[key] else { return nil }
+        let folder = (e.path as NSString).deletingLastPathComponent
+        let name = TidyDownloadRules.unique(e.from, exists: exists)
+        return ((folder as NSString).appendingPathComponent(name), name)
+    }
     public mutating func removeAll() { entries.removeAll() }
 
     /// Forgets one profile's renames (its downloads' keys start with its ID and a slash).

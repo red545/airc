@@ -1,0 +1,51 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Airc video-ad response fixture</title>
+<style>body {font:18px system-ui;max-width:850px;margin:40px auto} .slot {background:#ffd9d9;padding:20px} video{width:480px}</style>
+<h1>Video response fixture</h1>
+<p>Local synthetic data only. PASS requires native document-start installation.</p>
+<ytd-ad-slot-renderer class="slot">Home / search / banner advertisement</ytd-ad-slot-renderer>
+<video muted controls playsinline><track default kind="captions" src="/captions.vtt" srclang="en" label="Fixture"></video>
+<pre id="result">Running…</pre>
+<script>
+const enabled = !new URLSearchParams(location.search).has('off');
+const payload = () => ({playabilityStatus:{status:'OK'},videoDetails:{videoId:'fixture'},
+  streamingData:{formats:[{url:'/movie.mp4'}]},captions:{fixture:'preserved'},
+  adPlacements:[{adPlacementRenderer:{kind:'preroll'}},{adPlacementRenderer:{kind:'midroll'}}],
+  playerAds:[{ad:'fixture'}],adSlots:[{ad:'fixture'}]});
+window.ytInitialPlayerResponse = payload();
+document.querySelector('video').src = window.ytInitialPlayerResponse.streamingData.formats[0].url;
+const results = [];
+function check(value, name) { results.push({name,pass:!!value}); }
+function response(value, name) {
+  check(['adPlacements','playerAds','adSlots'].every(key => (key in value) === !enabled), name + (enabled ? ' removes pre/midroll fields' : ' retains pre/midroll fields'));
+  check(value.streamingData.formats[0].url === '/movie.mp4' && value.captions.fixture === 'preserved', name + ' preserves media/captions');
+}
+response(window.ytInitialPlayerResponse, 'initial synchronous assignment');
+response(JSON.parse(JSON.stringify(payload())), 'JSON.parse');
+check(JSON.parse('{"adPlacements":[1],"unrelated":true}').adPlacements.length === 1, 'unrelated JSON preserved');
+let threw=false; try { JSON.parse('invalid'); } catch (_) { threw=true; }
+check(threw, 'invalid JSON throws');
+async function xhr(type) {
+  return new Promise((resolve,reject) => {
+    const request = new XMLHttpRequest();
+    request.open('GET', '/youtubei/v1/player'); request.responseType=type;
+    request.onload=() => resolve(type === 'json' ? request.response : JSON.parse(request.responseText));
+    request.onerror=reject; request.send();
+  });
+}
+(async () => {
+  response(await (await fetch('/youtubei/v1/player')).json(), 'fetch json');
+  response(JSON.parse(await (await fetch('/youtubei/v1/player')).text()), 'fetch text + parse');
+  response(await xhr('json'), 'XHR json'); response(await xhr(''), 'XHR text');
+  // Repeated assignment represents a SPA navigation to the next video.
+  window.ytInitialPlayerResponse=payload(); response(window.ytInitialPlayerResponse,'SPA next video');
+  for (const path of ['/doubleclick/ad','/youtube/api/stats/ads']) {
+    let allowed=false; try {await fetch(path);allowed=true;} catch (_) {}
+    check(allowed === !enabled, path+' network policy');
+  }
+  document.querySelector('#result').textContent=JSON.stringify(results,null,2);
+  window.fixtureResults=results;
+  document.documentElement.dataset.fixtureDone='yes';
+})().catch(error => { document.querySelector('#result').textContent=String(error); });
+</script>

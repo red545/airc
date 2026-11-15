@@ -114,8 +114,9 @@ extension SnapshotRunner {
             let action = c.commandActions().first { $0.title == "New Note" }
             check(action?.hint == "⌃⇧N" && action?.keywords.contains("scratchpad") == true, "notes: the Command Bar's New Note action (⌃⇧N)")
             let plus = c.plusMenu().items.map(\.title)
-            check(plus.firstIndex(of: "New Note").map { $0 == (plus.firstIndex(of: "New Folder…") ?? -9) + 1 } == true,
-                  "notes: the \"+\" menu has New Note after New Folder… (\(plus.joined(separator: ", ")))")
+            let creationBlock = plus.firstIndex(of: "New Folder…").map { Array(plus.dropFirst($0).prefix(4)) }
+            check(creationBlock == ["New Folder…", "New Live Folder…", "New Note", "New Easel"],
+                  "notes: the \"+\" menu keeps folder commands before New Note and New Easel (\(plus.joined(separator: ", ")))")
         }
 
         // 2. Made three ways: pinned at the bottom of the Space, shown in the card, no engine page.
@@ -580,6 +581,7 @@ extension SnapshotRunner {
 
     func notesReadScenario() {
         var expected: [String: Any] = [:]
+        checkNoCommandBarAfterRelaunch("notes-read")   // RelaunchCommandBarCheck.swift
         run { [self] in
             expected = (try? Data(contentsOf: notesExpected)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
             guard let first = expected["first"] as? String, let json = expected["doc"] as? String,

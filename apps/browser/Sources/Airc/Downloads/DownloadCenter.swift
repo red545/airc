@@ -159,6 +159,15 @@ final class DownloadCenter: ObservableObject {
         publishSoon()
     }
 
+    /// Tidy Downloads' Undo put the file's original name back: its row shows that name and path again.
+    func restored(_ key: String, path: String, name: String) {
+        guard var i = byKey[key] else { return }
+        i.download.path = path
+        i.download.fileName = name
+        byKey[key] = i
+        publishSoon()
+    }
+
     private func profile(_ id: String) -> EngineProfile? { library?.controller?.profiles.engineProfile(for: id) }
 
     // MARK: Actions

@@ -1,0 +1,62 @@
+# Feature videos (2026-11-12): released features as short videos, the account's best performers so far (Split View
+# 83 views, Select several tabs 65, against 0-3 for the 0.1.4 thread's posts). Built from frames the app rendered from
+# 0.1.3's source (bde185a + the compile-only f448005, on demo data), in Meet Airc's style: no version tag, so they stay
+# true as releases go by. They replace the held 0.1.3 thread's Notes and Site Search posts, whose wording is out of date.
+slug = "2026-11-12-feature-videos"
+title = "Feature videos"
+kind = "release"
+since = "0.1.3"
+shots_rev = "bde185a"
+tag = ""
+end_title = "Arc, kept going."
+end_line = "Free and open source, for Mac"
+summary = """
+One released feature a day as a short video rendered frame by frame by the app: Notes in the sidebar, then Site Search
+in ⌘T.
+"""
+order = """
+1. One post a slot, in this order.
+"""
+checked = """
+- Notes: 0.1.3's notes (⌃⇧N, pinned in the sidebar, saves as you type, headings, checklists, pasted Captures) and 0.1.5's
+  (pinned Notes can sync through iCloud, encrypted with the sidebar). Not claimed: sync between two Macs (exercised on
+  one Mac only).
+- Site Search: 0.1.3's notes (type a shortcut like yt or wiki, press Tab; your own in Settings → Site Search).
+- No web copies: the homepage's own videos are left alone (no `web` key).
+"""
+
+[[video]]
+id = "notes-video"
+motion = "notes"
+# The sidebar and the note, down to the pasted Capture (its right edge is at about 1180 pt).
+clip = [0, 0, 1200, 620]
+scale_16x9 = 0.95
+scale_1x1 = 0.78
+title = "Notes, in the sidebar."
+line = "A page of your own among your tabs."
+captions = { new = "⌃⇧N makes a note, pinned in the sidebar.", title = "Its first line is its name.", text = "It saves as you type.", heading = "## makes a heading as you type.", checklist = "[] makes a checklist.", paste = "A Capture pastes straight in." }
+alt = "An animation rendered frame by frame by Airc: a new note pinned in the Travel Space's sidebar is typed into: its name, Lisbon plan, a line of text, a heading made with ##, a checklist made with [], then a Capture of a trip page pasted in. Captions: Control-Shift-N makes a note. Its first line is its name. ## makes a heading as you type. [] makes a checklist. A Capture pastes straight in."
+
+[[video]]
+id = "sitesearch-video"
+motion = "sitesearch"
+title = "Site Search, in ⌘T."
+line = "Search a site straight from the Command Bar."
+captions = { page = "Press ⌘T.", shortcut = "Type a site’s shortcut: wiki.", tab = "Press Tab: now it searches Wikipedia.", query = "Type, then Return." }
+alt = "An animation rendered frame by frame by Airc: on Wikipedia's Lisbon article, the Command Bar opens, “wiki” is typed and a row offers Search Wikipedia, Press Tab; then a Wikipedia pill leads the field and “Belém Tower” is typed, with Search Wikipedia and the Belém Tower article as results. Captions: Press Command-T. Type a site's shortcut. Press Tab. Type, then Return."
+
+[[post]]
+label = "Notes in the sidebar (video)"
+media = ["notes-video:16x9"]
+text = """
+⌃⇧N drops a note into your sidebar, right beside your tabs. Headings, checklists and pasted Captures all work, and it saves as you type.
+
+Pinned Notes can sync through iCloud too, encrypted with the rest of your sidebar.
+"""
+
+[[post]]
+label = "Site Search in ⌘T (video)"
+media = ["sitesearch-video:16x9"]
+text = """
+In ⌘T, type yt or wiki, press Tab, and you're searching that site. Add your own in Settings → Site Search.
+"""

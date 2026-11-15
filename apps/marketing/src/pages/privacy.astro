@@ -8,6 +8,9 @@ import { CONTACT_EMAIL } from "../lib/site";
 import privacyShot from "../assets/screens/settings-privacy.webp";
 import eventsShot from "../assets/screens/settings-privacy-events.webp";
 import * as telemetry from "../content/telemetry.md";
+import { agentsShown } from "../lib/agents";
+
+const agentsOn = await agentsShown();
 
 const html = await telemetry.compiledContent();
 const cut = html.search(/<h2[^>]*>\s*For contributors/i);
@@ -58,6 +61,68 @@ const appPart = (cut > 0 ? html.slice(0, cut) : html).replace(/<h1[^>]*>.*?<\/h1
       </p>
       <p>
         Questions about your data: <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.
+      </p>
+    </section>
+
+    {agentsOn && (
+      <section class="block" id="agents">
+        <h2>AI apps using Airc</h2>
+        <p>
+          When you let an AI app such as Claude use Airc (Settings → Agents), Airc connects to that app on your Mac and
+          nothing else: no Airc server is involved. The app sees what you ask it to work on: the pages it opens, their
+          text and screenshots of its own agent windows, and it sends them to its own service under its own privacy
+          terms. It never gets your saved passwords, passkeys, cookies or Keychain items: Airc fills logins into the
+          page itself. Private windows, your own windows and tabs, your history and your settings are never open to it.
+        </p>
+        <p>
+          Airc asks once before a new app can connect and keeps your answer on your Mac. It logs each call on your Mac
+          (the app, the tool, the site's host, the time), never what was typed or what a page said. Nothing about
+          agents is in Airc's usage data.
+        </p>
+      </section>
+    )}
+
+    <section class="block" id="sharing">
+      <h2>Shared links and the Boost Gallery</h2>
+      <p>
+        When you share a Space or a folder from Airc, its tab titles and web addresses are stored on aircbrowser.com so
+        the link (aircbrowser.com/s/…) can show them. Nothing else: no account, no name, no cookies, history or page
+        content, and nothing that says who shared it. The link stays until the copy of Airc that made it takes it back
+        (Share Space… or Share Folder…, then Take Back); after that it's deleted and the link no longer works.
+      </p>
+      <p>
+        When you share an Easel, what's on its board is stored so the link (aircbrowser.com/e/…) can show it: its text,
+        pictures, shapes, arrows and link cards. Addresses on it are web addresses without user names, passwords or
+        sign-in parts; a Live Capture is its last picture. The same rules apply: nothing about who shared it, and Take
+        Back deletes the Easel and its pictures. An Easel whose pictures never all arrived is deleted after a day.
+      </p>
+      <p>
+        A Boost you submit to the <a href="/boosts">Boost Gallery</a> is stored with the name and description you gave
+        it, waiting for review. It's deleted if it's rejected, or after 30 days without review. Approved Boosts are
+        public until they're removed. Reports about a Boost keep only the reason and your note, and are deleted once
+        they've been handled.
+      </p>
+      <p>
+        To limit abuse, sharing counts requests per network for one hour. The count is kept under a keyed hash of your
+        IP address, never the address itself. A count is deleted at your next request after its hour, or at the latest by
+        the next day's cleanup. These records
+        are stored in Vercel Blob.
+      </p>
+    </section>
+
+    <section class="block" id="feedback">
+      <h2>Feedback</h2>
+      <p>
+        Help › Send Feedback… in Airc sends us only what you write, and only when you click Send: your message, a reply
+        address if you give one, up to five pictures you add (ones you paste, drop or choose, or a picture of that Airc
+        window as it shows, tabs and page included; never your screen or other apps, and never a private window), and, if
+        you tick it, the app's details (the Airc version and build, the engine, the macOS version, the Mac model and your
+        language and region setting). Airc redraws each picture before it goes, so the location, camera and other details
+        stored in a photo stay on your Mac, and our server removes any that are left. Airc shows you all of it before it
+        goes, and never adds web addresses, tabs, history or profiles. It's stored in Vercel Blob for us to read, and we
+        get an email saying it arrived. We delete it once we've dealt with it, or whenever you ask: write to
+        <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>. Sending counts against the same hourly limit per network
+        as sharing.
       </p>
     </section>
   </article>

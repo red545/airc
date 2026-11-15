@@ -35,7 +35,7 @@ public enum TelemetryEvent: Sendable, Equatable {
     }
 
     public enum OnboardingStep: String, Sendable, CaseIterable {
-        case welcome, arc, accounts, logins, theme, defaultBrowser = "default_browser", done
+        case welcome, arc, accounts, logins, passwordManager = "password_manager", theme, defaultBrowser = "default_browser", done
     }
 
     public enum OnboardingAction: String, Sendable, CaseIterable {
@@ -286,6 +286,9 @@ public enum TelemetryFeature: Sendable, Equatable {
     /// A note made (docs/user/notes.md), and from where: ⌃⇧N or the File menu, the Command Bar, the sidebar's "+".
     /// Never what it says, its title, its pictures or where it is.
     case noteCreate(NoteSource)
+    /// Onboarding's password manager step (or its re-run from Settings → Import) ended: an extension added to at least
+    /// one profile, chosen but not added, Airc's own, or Not now. Never which manager, extension or profile.
+    case passwordManager(PasswordManagerOutcome)
     /// The one manual smoke event that checks a new key end to end.
     case telemetrySmoke
 
@@ -329,6 +332,10 @@ public enum TelemetryFeature: Sendable, Equatable {
         case shortcut, commandBar = "command_bar", plusMenu = "plus_menu"
     }
 
+    public enum PasswordManagerOutcome: String, Sendable, CaseIterable {
+        case installed, notInstalled = "not_installed", builtin, skipped
+    }
+
     /// The `feature` property.
     public var name: String {
         switch self {
@@ -368,6 +375,7 @@ public enum TelemetryFeature: Sendable, Equatable {
         case .aiLinkPreview: "ai.link_preview"
         case .aiTidyDownloads: "ai.tidy_downloads"
         case .noteCreate: "note.create"
+        case .passwordManager: "password_manager.step"
         case .telemetrySmoke: "telemetry.smoke"
         }
     }
@@ -387,6 +395,7 @@ public enum TelemetryFeature: Sendable, Equatable {
         case let .capture(a): a.rawValue
         case let .aiAskPage(v), let .aiLinkPreview(v), let .aiTidyDownloads(v): v.rawValue
         case let .noteCreate(s): s.rawValue
+        case let .passwordManager(o): o.rawValue
         default: nil
         }
     }

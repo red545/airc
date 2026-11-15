@@ -123,6 +123,7 @@ extension SnapshotRunner {
         case .pinned?: "between pinned rows"
         case .favorites(_, let i)?: "Favorite \(i)"
         case .today?: "Today"
+        case .todayFolder?: "a Today folder"
         case nil: "nothing"
         }
     }

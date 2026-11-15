@@ -377,6 +377,9 @@ extension SnapshotRunner {
             let b = center()?.store.boost(domain: reg)
             check(b?.origin?.kind == .installed && b?.origin?.revision == 1 && b?.origin?.author == "Someone Else" && b?.name == "Plum headings",
                   "boosts2 (\(tag)): installed with its origin (revision 1, the author's name)")
+            // BST-2: a Boost with code is installed off until the person turns it on (the toast's Turn On).
+            check(b?.enabled == false, "boosts2 (\(tag)): a Boost with code is installed off")
+            center()?.turnOn(domain: reg, page: page())
         }
         waitJS("getComputedStyle(document.getElementById('hero')).color + '|' + document.documentElement.dataset.tried",
                "installed, its style applies and its reviewed code runs") { $0 == "rgb(70, 30, 110)|ran" }

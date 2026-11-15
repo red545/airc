@@ -216,7 +216,7 @@ public struct SiteSearchSettings: Codable, Equatable, Sendable {
     }
 
     /// Profile ID → its list, for the profiles whose list or setting was changed.
-    public private(set) var profiles: [String: ProfileSearches] = [:]
+    public internal(set) var profiles: [String: ProfileSearches] = [:]
 
     public init() {}
 

@@ -267,7 +267,9 @@ extension WindowController {
         let name = prompt["name"] as? String ?? "this extension"
         let permissions = prompt["permissions"] as? [String] ?? []
         let icon = app?.engine.extensionActionIcon(["icon": prompt["icon"] ?? ""])
-        presentExtensionReview(name: name, icon: icon, permissions: permissions, resolve: resolve)
+        let directory = prompt["profileDirectory"] as? String
+        let profileName = store.orderedProfiles.first { $0.engineDirectory == directory }?.name
+        presentExtensionReview(name: name, icon: icon, permissions: permissions, profileName: profileName, resolve: resolve)
     }
 }
 

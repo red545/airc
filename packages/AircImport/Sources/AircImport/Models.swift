@@ -37,6 +37,9 @@ public struct ImportedFolder: Codable, Sendable, Equatable {
     public var id: String
     public var title: String
     public var children: [ImportedItem]
+    /// When the source made it (Arc: seconds since 2001). A Today folder left empty goes once it's older than the
+    /// archive interval, as Arc's do.
+    public var createdAt: Double? = nil
 }
 /// SV-2: an Arc split view of 2–4 tabs in pinned tabs or Favorites (`SidebarSplitViewData`).
 public struct ImportedSplit: Codable, Sendable, Equatable {
@@ -73,7 +76,11 @@ public struct ImportedSpace: Codable, Sendable, Equatable {
     public var theme: ImportedTheme
     public var profileID: String
     public var pinned: [ImportedItem]
+    /// Today's tabs, in order, folders' tabs included (flat).
     public var today: [ImportedTab]
+    /// Today as Arc shows it, with its folders (nested, in order; splits flattened), when it has any folder; nil when
+    /// Today is only loose tabs (`today` says it all).
+    public var todayItems: [ImportedItem]? = nil
 }
 public struct ImportedProfile: Codable, Sendable, Equatable {
     public var id: String
@@ -92,6 +99,9 @@ public struct ImportWarning: Codable, Sendable, Equatable {
         /// P22: Arc's profile list (`Local State`) is damaged, so profile names come from the folders; a profile folder that
         /// is a link to somewhere outside Arc's folder, whose history and extensions aren't read.
         case unreadableProfileList, profileOutsideArc
+        /// C08b: a profile's `Web Data` (search engines) couldn't be read; an engine whose address isn't a safe https
+        /// search page was left out.
+        case unreadableSearchEngines, unsafeSearchEngine
     }
     public var code: Code
     /// Deliberately excludes source titles, URLs and identifiers.
@@ -109,6 +119,8 @@ public struct ImportPlan: Codable, Sendable, Equatable {
     /// Arc profile ID → checkpointed history and reinstall checklist (IM-3).
     public var history: [String: [ImportedVisit]]? = nil
     public var extensions: [String: [ImportedExtension]]? = nil
+    /// C08b: Arc profile ID → its default search engine and the shortcuts the user made (Chromium's `Web Data`).
+    public var searchEngines: [String: ImportedSearchEngines]? = nil
     public var profiles: [ImportedProfile]
     public var spaces: [ImportedSpace]
     /// Every Favorite tab, flat (a Favorite split's tabs one after another).

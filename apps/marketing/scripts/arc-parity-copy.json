@@ -1,0 +1,873 @@
+{
+  "_about": "Public wording for /arc, one entry per row of docs/qa/parity-audit.md's Feature inventory. scripts/arc-parity.mjs takes each row's status from the ledger and this file's words. arc: the feature in Arc's words. where: where it is in Airc. note: one honest line (needed for Partly and Won't do). since: the first release with it as described. status: only for owner-gated rows, which the ledger can't map (works or partly).",
+  "areas": [
+    {
+      "id": "sidebar",
+      "name": "Sidebar and Spaces"
+    },
+    {
+      "id": "favorites",
+      "name": "Favorites and pinned tabs"
+    },
+    {
+      "id": "command-bar",
+      "name": "Command Bar"
+    },
+    {
+      "id": "little-arc",
+      "name": "Little Arc and links"
+    },
+    {
+      "id": "peek",
+      "name": "Peek and previews"
+    },
+    {
+      "id": "split-view",
+      "name": "Split View"
+    },
+    {
+      "id": "boosts",
+      "name": "Boosts"
+    },
+    {
+      "id": "capture",
+      "name": "Capture"
+    },
+    {
+      "id": "notes",
+      "name": "Notes"
+    },
+    {
+      "id": "easels",
+      "name": "Easels"
+    },
+    {
+      "id": "library",
+      "name": "Library"
+    },
+    {
+      "id": "media",
+      "name": "Media and calls"
+    },
+    {
+      "id": "max",
+      "name": "Arc Max (AI)"
+    },
+    {
+      "id": "sync",
+      "name": "Sync and sharing"
+    },
+    {
+      "id": "import",
+      "name": "Import and profiles"
+    },
+    {
+      "id": "privacy",
+      "name": "Extensions, logins and privacy"
+    },
+    {
+      "id": "developer",
+      "name": "Developer Mode"
+    },
+    {
+      "id": "keyboard",
+      "name": "Keyboard"
+    },
+    {
+      "id": "window",
+      "name": "Window and app"
+    }
+  ],
+  "rows": {
+    "W01": {
+      "area": "window",
+      "arc": "Arc's look: the sidebar and the page as a card",
+      "where": "Every window",
+      "since": "0.1.0"
+    },
+    "W02": {
+      "area": "sidebar",
+      "arc": "Resize or hide the sidebar, and show it from the edge",
+      "where": "Drag the sidebar's edge; ⌘S hides it; rest on the window's edge to bring it back",
+      "since": "0.1.0"
+    },
+    "W03": {
+      "area": "sidebar",
+      "arc": "Hold Option to peek at a hidden sidebar",
+      "where": "Hold ⌥; turn it off in Settings → Appearance",
+      "since": "0.1.3"
+    },
+    "W04": {
+      "area": "sidebar",
+      "arc": "Back, forward and reload in the sidebar",
+      "where": "Top of the sidebar; right-click or long-press Back for history, ⌘-click for a background tab",
+      "since": "0.1.0"
+    },
+    "W05": {
+      "area": "window",
+      "arc": "Full screen",
+      "where": "View › Enter Full Screen (⌃⌘F)",
+      "note": "The sidebar, traffic lights and the Esc exit work as in Arc; some full-screen cases on a second display or with a notch are still being checked.",
+      "since": "0.1.0"
+    },
+    "W06": {
+      "area": "window",
+      "arc": "Show Toolbar: a full address bar over the page",
+      "where": "View › Show Toolbar (⇧⌘D)",
+      "since": "0.1.2"
+    },
+    "W07": {
+      "area": "window",
+      "arc": "Drag the window by its edges, and a sidebar that dims when Arc is in the background",
+      "where": "Any empty margin; Settings → Appearance for dragging from the top of a page",
+      "since": "0.1.3"
+    },
+    "W08": {
+      "area": "window",
+      "arc": "Arc's speed and animations",
+      "where": "Everywhere",
+      "note": "⌘T opens on the next frame and the sidebar moves on Arc's springs; typing in ⌘T doesn't always draw on the very next frame yet.",
+      "since": "0.1.0"
+    },
+    "W09": {
+      "area": "window",
+      "arc": "Several windows sharing your Spaces and tabs",
+      "where": "File › New Window (⌘N)",
+      "since": "0.1.2"
+    },
+    "W10": {
+      "area": "window",
+      "arc": "Drag a tab out into its own window",
+      "where": "Drag a tab from the sidebar onto the desktop",
+      "since": "0.1.9"
+    },
+    "W11": {
+      "area": "window",
+      "arc": "Blank Window",
+      "where": "File › New Blank Window",
+      "since": "0.1.2"
+    },
+    "W12": {
+      "area": "privacy",
+      "arc": "Private windows",
+      "where": "File › New Private Window (⇧⌘N)",
+      "since": "0.1.2"
+    },
+    "S01": {
+      "area": "favorites",
+      "arc": "Favorites at the top of the sidebar",
+      "where": "Drag a tab up, or ⌘D… › Add to Favorites; one set per profile, up to twelve",
+      "since": "0.1.0"
+    },
+    "S02": {
+      "area": "favorites",
+      "arc": "Favorites go back to where they started",
+      "where": "Click a Favorite; closing one keeps its tile",
+      "since": "0.1.0"
+    },
+    "S03": {
+      "area": "favorites",
+      "arc": "Unread badges, sound badges and custom icons",
+      "where": "Right-click a tab or Favorite › Change Icon… / Show Unread Badge",
+      "since": "0.1.5"
+    },
+    "S04": {
+      "area": "peek",
+      "arc": "Previews of Gmail, Outlook, calendars, Notion, Linear and Figma",
+      "where": "Rest the pointer on a pinned tab or Favorite of that site",
+      "note": "Mail, calendar and recent-page cards work; Notion Calendar has no card, and calendar text is read in English only.",
+      "since": "0.1.4"
+    },
+    "S05": {
+      "area": "peek",
+      "arc": "GitHub pull request hover cards",
+      "where": "—",
+      "note": "Arc retired these in 2024 in favour of Live Folders, which Airc has.",
+      "since": null
+    },
+    "S06": {
+      "area": "favorites",
+      "arc": "Pinned tabs that remember where they started",
+      "where": "Pin a tab (⌘D); its address drifts as you browse and comes back when you reset it",
+      "since": "0.1.0"
+    },
+    "S07": {
+      "area": "sidebar",
+      "arc": "Today's tabs: newest on top, and Clear",
+      "where": "The Today list under your pinned tabs; Clear above it",
+      "since": "0.1.0"
+    },
+    "S08": {
+      "area": "sidebar",
+      "arc": "Auto-archive after 12 hours",
+      "where": "Settings → Profiles › Archive tabs after; playing tabs stay",
+      "since": "0.1.0"
+    },
+    "S09": {
+      "area": "sidebar",
+      "arc": "The tab menu: Share, Change Icon, Customize Page, Move To, Mute, Archive Tabs Below",
+      "where": "Right-click or Control-click a tab",
+      "since": "0.1.3"
+    },
+    "S10": {
+      "area": "favorites",
+      "arc": "Nested folders",
+      "where": "Space menu › New Folder, or drag tabs onto each other",
+      "since": "0.1.0"
+    },
+    "S11": {
+      "area": "favorites",
+      "arc": "Folder commands: expand all, collapse all, copy links as Markdown",
+      "where": "Right-click a folder",
+      "since": "0.1.3"
+    },
+    "S12": {
+      "area": "sidebar",
+      "arc": "Select several tabs",
+      "where": "⌘-click or ⇧-click tabs, then right-click",
+      "since": "0.1.2"
+    },
+    "S13": {
+      "area": "sidebar",
+      "arc": "Drag tabs between Spaces and profiles",
+      "where": "Drag to the sidebar's edge to move to the next Space; hold ⌥ to copy",
+      "since": "0.1.0"
+    },
+    "S14": {
+      "area": "sidebar",
+      "arc": "Drop files, folders and text on the sidebar",
+      "where": "Drag from the Finder, or + › Add Files…",
+      "since": "0.1.3"
+    },
+    "S15": {
+      "area": "favorites",
+      "arc": "GitHub Live Folders",
+      "where": "Space menu › New Live Folder…",
+      "status": "partly",
+      "note": "Works for public repositories, or with a GitHub token; Sign in with GitHub isn't available yet.",
+      "since": "0.1.4"
+    },
+    "S16": {
+      "area": "peek",
+      "arc": "Tab previews on hover",
+      "where": "Rest the pointer on a tab in the sidebar",
+      "since": "0.1.2"
+    },
+    "P01": {
+      "area": "sidebar",
+      "arc": "Spaces: name, icon, colour and profile",
+      "where": "+ › New Space…; Manage Spaces… to reorder and rename",
+      "since": "0.1.0"
+    },
+    "P02": {
+      "area": "sidebar",
+      "arc": "Collapse a Space's pinned tabs",
+      "where": "Click the Space's name, or Tabs › Collapse Pinned Section",
+      "since": "0.1.8"
+    },
+    "P03": {
+      "area": "sidebar",
+      "arc": "Switch Spaces by swiping, keys or clicking",
+      "where": "Two-finger swipe, ⌃1–⌃9, or the icons at the bottom of the sidebar",
+      "since": "0.1.0"
+    },
+    "P04": {
+      "area": "import",
+      "arc": "Profiles: separate logins, history and extensions per Space",
+      "where": "Edit a Space › Profile",
+      "since": "0.1.0"
+    },
+    "P05": {
+      "area": "import",
+      "arc": "New profiles, signed in to Google, with suggested Favorites",
+      "where": "Edit a Space › Profile › New Profile…",
+      "since": "0.1.2"
+    },
+    "P06": {
+      "area": "sidebar",
+      "arc": "Space colours: up to three, grain, light or dark",
+      "where": "Click a Space's name › Theme…",
+      "since": "0.1.0"
+    },
+    "P07": {
+      "area": "boosts",
+      "arc": "Pages that use your Space's colours (--arc-palette)",
+      "where": "Automatic on every page",
+      "since": "0.1.3"
+    },
+    "P08": {
+      "area": "favorites",
+      "arc": "Reset all tabs in this Space",
+      "where": "Space menu › Reset All Tabs",
+      "since": "0.1.3"
+    },
+    "C01": {
+      "area": "command-bar",
+      "arc": "Command Bar: search, sites, tabs, Spaces and actions",
+      "where": "⌘T",
+      "since": "0.1.0"
+    },
+    "C02": {
+      "area": "command-bar",
+      "arc": "Remove a suggestion from history",
+      "where": "Highlight it in ⌘T and press ⌥⌘⌫",
+      "since": "0.1.3"
+    },
+    "C03": {
+      "area": "command-bar",
+      "arc": "Site Search",
+      "where": "⌘T, a site's name or shortcut, then Tab; Settings → Site Search",
+      "since": "0.1.3"
+    },
+    "C04": {
+      "area": "command-bar",
+      "arc": "Every menu command in the Command Bar",
+      "where": "⌘T, then type the command's name",
+      "since": "0.1.3"
+    },
+    "C05": {
+      "area": "command-bar",
+      "arc": "Copy URL, and copy it as Markdown or a quote",
+      "where": "⇧⌘C; ⌘T › Copy URL as Markdown",
+      "since": "0.1.0"
+    },
+    "C06": {
+      "area": "command-bar",
+      "arc": "Super Copy and Share Quote",
+      "where": "⌘C on selected text; Share Quote under the address",
+      "note": "Clean links and quote links work; Arc's per-site opt-outs aren't built.",
+      "since": "0.1.3"
+    },
+    "C07": {
+      "area": "command-bar",
+      "arc": "Paste a link into a new tab",
+      "where": "⌥⌘V",
+      "since": "0.1.0"
+    },
+    "C08": {
+      "area": "command-bar",
+      "arc": "Your search engine, per profile",
+      "where": "Settings → Profiles › Search engine",
+      "note": "Nine engines plus your own sites; suggestions come only from the built-in engines, not from imported ones.",
+      "since": "0.1.6"
+    },
+    "V01": {
+      "area": "peek",
+      "arc": "Peek: links open in a card over the page",
+      "where": "Click a link to another site from a pinned tab, or ⇧-click any link; ⌘O makes it a tab",
+      "since": "0.1.0"
+    },
+    "V02": {
+      "area": "little-arc",
+      "arc": "Air Traffic Control",
+      "where": "Settings → Links",
+      "since": "0.1.0"
+    },
+    "V03": {
+      "area": "little-arc",
+      "arc": "Open Link in Space",
+      "where": "Right-click a link › Open Link in Space",
+      "since": "0.1.2"
+    },
+    "V04": {
+      "area": "little-arc",
+      "arc": "Little Arc for links from other apps",
+      "where": "Make Airc your default browser; ⌘O moves the page into a Space",
+      "since": "0.1.0"
+    },
+    "V05": {
+      "area": "little-arc",
+      "arc": "Little Arc over the app you're in, even in full screen",
+      "where": "Click a link in any app",
+      "status": "works",
+      "since": "0.1.2"
+    },
+    "V06": {
+      "area": "little-arc",
+      "arc": "Little Arc from anywhere, and show or close them all",
+      "where": "⌥⌘N in any app (turn it on in Settings → Links); Window › Show Little Airc Windows",
+      "since": "0.1.3"
+    },
+    "V07": {
+      "area": "split-view",
+      "arc": "Split View: up to four pages",
+      "where": "⌥-click a tab, or ⌃⇧= (Add Split View)",
+      "since": "0.1.0"
+    },
+    "V08": {
+      "area": "split-view",
+      "arc": "Pinned and Favorite splits",
+      "where": "Pin a split, or drag it to Favorites",
+      "since": "0.1.0"
+    },
+    "V09": {
+      "area": "split-view",
+      "arc": "Expand Current Split and Separate Page from Split View",
+      "where": "View menu, or a pane's handle",
+      "since": "0.1.3"
+    },
+    "L01": {
+      "area": "library",
+      "arc": "Archive: search, restore and Clear Archive",
+      "where": "Library (⇧⌘L) › Archive",
+      "since": "0.1.0"
+    },
+    "L02": {
+      "area": "library",
+      "arc": "Archive filters by Space and Little Arc",
+      "where": "Library › Archive, the filter above the list",
+      "since": "0.1.3"
+    },
+    "L03": {
+      "area": "library",
+      "arc": "Downloads",
+      "where": "Library › Downloads",
+      "since": "0.1.0"
+    },
+    "L04": {
+      "area": "library",
+      "arc": "Library Media and recent files on hover",
+      "where": "Library › Media; rest the pointer on the Library button",
+      "status": "partly",
+      "note": "Media and recent files work; Arc's badge on the Library button and Cancel for downloads in progress aren't built.",
+      "since": "0.1.2"
+    },
+    "L05": {
+      "area": "library",
+      "arc": "Notes and Easels in the Library",
+      "where": "Library › Notes, Library › Easels",
+      "note": "Search, open and export work; Easels have no thumbnail you choose by hand, and deleting moves to the Trash rather than deleting for good.",
+      "since": "0.1.4"
+    },
+    "L06": {
+      "area": "library",
+      "arc": "Restore Data from a backup",
+      "where": "Settings → Import › Restore from Backup",
+      "since": "0.1.2"
+    },
+    "L07": {
+      "area": "library",
+      "arc": "Export your sidebar",
+      "where": "A Space's menu › Export Space…; File › Export All Spaces…",
+      "since": "0.1.3"
+    },
+    "N01": {
+      "area": "capture",
+      "arc": "Capture part of a page or one element",
+      "where": "⇧⌘2, then drag; ⌘-click for an element",
+      "since": "0.1.2"
+    },
+    "N02": {
+      "area": "capture",
+      "arc": "Capture Full Page and Portrait Mode",
+      "where": "In Capture (⇧⌘2), F or P",
+      "note": "Both work; on Safari-engine pages, a very long page's fixed footer can sit slightly off.",
+      "since": "0.1.4"
+    },
+    "N03": {
+      "area": "easels",
+      "arc": "Live Captures on an Easel",
+      "where": "Capture to an Easel, then refresh it from its page",
+      "since": "0.1.5"
+    },
+    "N04": {
+      "area": "notes",
+      "arc": "Notes: headings, lists, checkboxes, pictures",
+      "where": "⌃⇧N, or + › New Note",
+      "since": "0.1.3"
+    },
+    "N05": {
+      "area": "notes",
+      "arc": "New Note in Split, and export",
+      "where": "File › New Note in Split; a note's menu › Export Note…",
+      "since": "0.1.3"
+    },
+    "N06": {
+      "area": "notes",
+      "arc": "Share notes by link, and sync them",
+      "where": "Settings → Sync",
+      "note": "Pinned notes sync through iCloud, tested on one Mac so far; sharing a note by link isn't built yet.",
+      "since": "0.1.5"
+    },
+    "N07": {
+      "area": "easels",
+      "arc": "Easels: text, pictures, shapes, arrows and links on a canvas",
+      "where": "File › New Easel (⌃⇧E)",
+      "note": "No pencil or freehand drawing, and Easels don't sync between Macs yet.",
+      "since": "0.1.4"
+    },
+    "N08": {
+      "area": "easels",
+      "arc": "Share and export Easels",
+      "where": "File › Share Easel…, File › Export Easel…",
+      "note": "Export and read-only links work; editing an Easel together with others isn't available.",
+      "since": "0.1.5"
+    },
+    "B01": {
+      "area": "boosts",
+      "arc": "Boosts: colours, fonts, Zap, and your own CSS and JavaScript",
+      "where": "View › Boost This Site…",
+      "since": "0.1.2"
+    },
+    "B02": {
+      "area": "boosts",
+      "arc": "Share a Boost",
+      "where": "File › Share Boost…",
+      "since": "0.1.2"
+    },
+    "B03": {
+      "area": "boosts",
+      "arc": "Boost Gallery",
+      "where": "File › Boost Gallery…",
+      "since": "0.1.3"
+    },
+    "B04": {
+      "area": "boosts",
+      "arc": "Boosts inside a page's frames",
+      "where": "Automatic",
+      "since": "0.1.3"
+    },
+    "B05": {
+      "area": "boosts",
+      "arc": "The old Boost builder",
+      "where": "—",
+      "note": "Arc retired it in October 2024; today's Boost editor replaces it.",
+      "since": null
+    },
+    "M01": {
+      "area": "media",
+      "arc": "Media controls in the sidebar",
+      "where": "Bottom of the sidebar while something plays in another tab",
+      "since": "0.1.0"
+    },
+    "M02": {
+      "area": "media",
+      "arc": "Media keys and Now Playing",
+      "where": "Your keyboard's media keys, Control Centre",
+      "since": "0.1.0"
+    },
+    "M03": {
+      "area": "media",
+      "arc": "Picture in picture for videos, and the Mini Player",
+      "where": "Leave a playing video's tab",
+      "status": "partly",
+      "note": "Works on Chromium pages; on Safari-engine sites (Netflix, Spotify) video uses the Mac's own picture in picture.",
+      "since": "0.1.0"
+    },
+    "M04": {
+      "area": "media",
+      "arc": "Calls float when you leave their tab",
+      "where": "Leave a call's tab",
+      "status": "partly",
+      "note": "Tested with simulated calls; not yet with real Meet or Zoom calls.",
+      "since": "0.1.0"
+    },
+    "M05": {
+      "area": "media",
+      "arc": "Call chat and Share This Tab Instead",
+      "where": "The floating call window",
+      "status": "partly",
+      "note": "Built for Google Meet; not yet checked on real calls.",
+      "since": "0.1.4"
+    },
+    "M06": {
+      "area": "media",
+      "arc": "Netflix, Spotify, Disney+ and other protected streaming",
+      "where": "Opens with Safari's engine inside Airc",
+      "status": "partly",
+      "note": "Plays through Safari's engine, so those tabs don't run Chrome extensions; checked signed out only.",
+      "since": "0.1.2"
+    },
+    "M07": {
+      "area": "media",
+      "arc": "Cast",
+      "where": "View › Cast…",
+      "status": "partly",
+      "note": "Finds Chromecast and Google TV; not yet tested with a real TV.",
+      "since": "0.1.4"
+    },
+    "M08": {
+      "area": "favorites",
+      "arc": "Live Calendar: countdown and Join on a Calendar Favorite",
+      "where": "Settings → General; right-click the Calendar Favorite for options",
+      "note": "Reads your Mac's Calendar app and the calendar page itself; it doesn't sign in to Google or Outlook directly.",
+      "since": "0.1.0"
+    },
+    "A01": {
+      "area": "max",
+      "arc": "Tidy Tab Titles",
+      "where": "Settings → AI",
+      "note": "Needs Apple Intelligence (macOS 26); off by default.",
+      "since": "0.1.2"
+    },
+    "A02": {
+      "area": "max",
+      "arc": "Ask on Page",
+      "where": "Settings → AI, then ⌘F and ✦",
+      "since": "0.1.3"
+    },
+    "A03": {
+      "area": "max",
+      "arc": "5-second link previews",
+      "where": "Settings → AI, then hold ⇧ over a link",
+      "since": "0.1.3"
+    },
+    "A04": {
+      "area": "max",
+      "arc": "Tidy Downloads",
+      "where": "Library › Downloads; Settings → AI › Rename automatically",
+      "since": "0.1.16"
+    },
+    "A05": {
+      "area": "max",
+      "arc": "Arc Max on any Mac",
+      "where": "—",
+      "note": "Airc's AI runs on Apple's on-device model, so it needs Apple Intelligence; nothing goes to an AI service.",
+      "since": null
+    },
+    "A06": {
+      "area": "max",
+      "arc": "Tidy Tabs",
+      "where": "Tidy in Today, or Tidy Tabs in ⌘T",
+      "since": "0.1.4"
+    },
+    "A07": {
+      "area": "max",
+      "arc": "Ask ChatGPT from the Command Bar",
+      "where": "⌘T, type gpt, then Tab (turn on Ask AI in Settings → Site Search)",
+      "since": "0.1.4"
+    },
+    "A08": {
+      "area": "max",
+      "arc": "Instant Links",
+      "where": "⇧Return on a search in ⌘T (Settings → AI)",
+      "since": "0.1.4"
+    },
+    "Y01": {
+      "area": "sync",
+      "arc": "Sync your sidebar between Macs",
+      "where": "Settings → Sync",
+      "status": "partly",
+      "note": "Spaces, pinned tabs, folders and Favorites sync end-to-end encrypted through iCloud; tested on one Mac so far.",
+      "since": "0.1.3"
+    },
+    "Y02": {
+      "area": "sync",
+      "arc": "Sync everything, with account recovery",
+      "where": "Settings → Sync",
+      "note": "Today tabs, history, logins and Boosts stay on each Mac, and there's no recovery without iCloud Keychain.",
+      "since": "0.1.5"
+    },
+    "Y03": {
+      "area": "sync",
+      "arc": "Arc Search on iPhone and Arc for Windows",
+      "where": "—",
+      "note": "Airc is a Mac app. It syncs Mac to Mac.",
+      "since": null
+    },
+    "H01": {
+      "area": "sync",
+      "arc": "Share a Space",
+      "where": "Right-click a Space › Share Space…",
+      "since": "0.1.4"
+    },
+    "H02": {
+      "area": "sync",
+      "arc": "Share a folder",
+      "where": "Right-click a folder › Share Folder…",
+      "since": "0.1.4"
+    },
+    "H03": {
+      "area": "sync",
+      "arc": "Share any tab",
+      "where": "Right-click a tab › Share",
+      "since": "0.1.3"
+    },
+    "H04": {
+      "area": "sync",
+      "arc": "Arc accounts, membership and referrals",
+      "where": "—",
+      "note": "Airc needs no account.",
+      "since": null
+    },
+    "E01": {
+      "area": "privacy",
+      "arc": "Chrome extensions, per profile",
+      "where": "The Chrome Web Store; ⌘E lists your extensions",
+      "since": "0.1.0"
+    },
+    "E02": {
+      "area": "privacy",
+      "arc": "Install an extension in every profile",
+      "where": "Offered when you install from the Web Store",
+      "since": "0.1.4"
+    },
+    "E03": {
+      "area": "privacy",
+      "arc": "Passwords, passkeys and sign-in prompts",
+      "where": "Prompts appear over the page; saved logins in a list under the field",
+      "status": "partly",
+      "note": "Passwords and passkeys saved in Airc work; iCloud Keychain passkeys need Apple's approval first.",
+      "since": "0.1.0"
+    },
+    "E04": {
+      "area": "privacy",
+      "arc": "Site Controls: permissions, zoom and site data",
+      "where": "Click the address in the sidebar",
+      "since": "0.1.0"
+    },
+    "E05": {
+      "area": "privacy",
+      "arc": "Ad and tracker blocking",
+      "where": "Settings → Profiles; Site Controls per site",
+      "note": "On by default with EasyList and EasyPrivacy, and YouTube's player ads are filtered; mid-roll ads, embedded players and ads served by the site itself aren't covered yet.",
+      "since": "0.1.4"
+    },
+    "E06": {
+      "area": "developer",
+      "arc": "Developer Tools, View Source and the console",
+      "where": "View › Developer (⌥⌘I)",
+      "since": "0.1.0"
+    },
+    "E07": {
+      "area": "developer",
+      "arc": "Developer Mode",
+      "where": "Automatic on localhost; ⌃D on any site",
+      "since": "0.1.3"
+    },
+    "E08": {
+      "area": "developer",
+      "arc": "Clear Cache and Refresh, Clear Cookies and Refresh, Task Manager",
+      "where": "View menu; Help › Troubleshooting › Open Task Manager",
+      "since": "0.1.4"
+    },
+    "E09": {
+      "area": "window",
+      "arc": "Save, print, zoom, find and history",
+      "where": "File, View and Edit menus",
+      "since": "0.1.0"
+    },
+    "E10": {
+      "area": "import",
+      "arc": "Onboarding",
+      "where": "First launch",
+      "since": "0.1.0"
+    },
+    "E11": {
+      "area": "import",
+      "arc": "Import from Arc and other browsers",
+      "where": "Airc › Import from Another Browser…",
+      "note": "Spaces, pinned tabs, folders, Favorites, history, logins and cookies come over; some site data (IndexedDB, service workers, session storage) and password notes don't, so a site may ask you to sign in again.",
+      "since": "0.1.0"
+    },
+    "E12": {
+      "area": "window",
+      "arc": "Settings",
+      "where": "⌘,",
+      "since": "0.1.0"
+    },
+    "E13": {
+      "area": "window",
+      "arc": "Updates, Restart to Update and release notes",
+      "where": "New Airc Version Available, above the sidebar's footer",
+      "since": "0.1.0"
+    },
+    "E14": {
+      "area": "window",
+      "arc": "Help: keyboard shortcuts, release notes, feedback",
+      "where": "Help menu",
+      "since": "0.1.3"
+    },
+    "E15": {
+      "area": "window",
+      "arc": "App icons and sound effects",
+      "where": "Settings → Appearance › App Icon; Settings → General",
+      "since": "0.1.4"
+    },
+    "E16": {
+      "area": "window",
+      "arc": "Arc's own tools: Record Trace, Send to Dia",
+      "where": "—",
+      "note": "Arc-only plumbing; Airc has its own Send Feedback and data export.",
+      "since": null
+    },
+    "K01": {
+      "area": "keyboard",
+      "arc": "Arc's keyboard shortcuts",
+      "where": "Help › Essential Keyboard Shortcuts",
+      "since": "0.1.0"
+    },
+    "K02": {
+      "area": "keyboard",
+      "arc": "⌘1–⌘9, with or without Favorites",
+      "where": "Settings → Shortcuts → Sidebar › Include Favorites in ordering",
+      "since": "0.1.3"
+    },
+    "K03": {
+      "area": "keyboard",
+      "arc": "Change any shortcut, and websites first or Arc first",
+      "where": "Settings → Shortcuts",
+      "since": "0.1.2"
+    },
+    "K04": {
+      "area": "keyboard",
+      "arc": "Reveal Current Tab and arrow keys in the sidebar",
+      "where": "⌃Space; Tabs › Reveal Tab in Sidebar",
+      "since": "0.1.3"
+    },
+    "K05": {
+      "area": "keyboard",
+      "arc": "The Edit menu: spelling, substitutions, speech, Services",
+      "where": "Edit menu; Airc › Services",
+      "since": "0.1.3"
+    },
+    "K06": {
+      "area": "keyboard",
+      "arc": "Switch to your last tab (⌃Tab)",
+      "where": "⌃Tab, hold ⌃ for older ones",
+      "status": "partly",
+      "note": "Goes back through recent tabs within the Space you're in, not across Spaces.",
+      "since": "0.1.3"
+    },
+    "K07": {
+      "area": "developer",
+      "arc": "AppleScript and Allow JavaScript from Apple Events",
+      "where": "View › Developer › Allow JavaScript from Apple Events",
+      "status": "works",
+      "since": "0.1.4"
+    },
+    "Q01": {
+      "area": "window",
+      "arc": "VoiceOver and keyboard-only use",
+      "where": "Everywhere",
+      "status": "works",
+      "since": "0.1.3"
+    },
+    "Q02": {
+      "area": "window",
+      "arc": "Dark mode, Reduce Motion and contrast",
+      "where": "Follows your Mac's settings",
+      "since": "0.1.3"
+    },
+    "Q03": {
+      "area": "sidebar",
+      "arc": "Swipes and trackpad haptics",
+      "where": "Two-finger swipe between Spaces",
+      "note": "A swipe you reverse halfway doesn't always settle as smoothly as Arc's.",
+      "since": "0.1.4"
+    },
+    "Q04": {
+      "area": "notes",
+      "arc": "Paste a Capture into a note",
+      "where": "⌘V in a note",
+      "since": "0.1.3"
+    },
+    "Q05": {
+      "area": "window",
+      "arc": "Fast to start, light on memory",
+      "where": "Everywhere",
+      "note": "Starts in about a second and unloads idle tabs; a visible page still uses more CPU than in Chrome, and memory with Safari's engine is still being cut down.",
+      "since": "0.1.0"
+    }
+  }
+}

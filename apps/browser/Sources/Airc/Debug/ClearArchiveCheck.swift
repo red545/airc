@@ -38,10 +38,12 @@ extension SnapshotRunner {
         run { [self] in
             let alert = model()?.archiveConfirmation
             check(alert != nil && c.window.attachedSheet === alert?.window, "clear archive: confirmation is attached")
-            check(alert?.messageText.contains("Remove \(count) archived tabs?") == true
-                  && alert?.informativeText.contains("All Spaces and profiles") == true
-                  && alert?.informativeText.contains("backup") == true,
-                  "clear archive: confirmation states count, global scope and recovery backup")
+            check(alert?.messageText == "Are you sure you'd like to Clear Archive?"
+                  && alert?.informativeText.contains("every Space and profile") == true
+                  && alert?.informativeText.contains("undo this right after") == true
+                  && alert?.informativeText.contains("backup") == true
+                  && (alert?.accessoryView?.subviews.compactMap { $0 as? NSButton }.first?.title ?? "") == "Everything (\(count) tabs)",
+                  "clear archive: Arc's question, with global scope, the one Undo, the recovery backup and the count for Everything")
             if let view = alert?.window.contentView, let image = render(view),
                let data = image.tiffRepresentation, let rep = NSBitmapImageRep(data: data) {
                 try? rep.representation(using: .png, properties: [:])?.write(to: dir.appendingPathComponent("archive-confirmation.png"))
@@ -70,7 +72,13 @@ extension SnapshotRunner {
                     check(recovered.state.archive.count == count, "clear archive: backup restores every removed entry")
                 }
                 _ = try c.store.undo()
-                check(c.store.state.archive.isEmpty, "clear archive: undo cannot restore removed entries")
+                check(c.store.state.archive.isEmpty, "clear archive: ⌘Z cannot restore removed entries (only the toast's Undo)")
+                check(model()?.pendingUndo?.count == count, "clear archive: the toast's Undo holds what was cleared")
+                model()?.undoClear()
+                check(c.store.state.archive.count == count, "clear archive: the toast's Undo puts every entry back")
+                model()?.undoClear()
+                check(c.store.state.archive.count == count, "clear archive: Undo works once (nothing doubled)")
+                _ = try c.store.clearArchive(age: .everything) {}
             } catch { check(false, "clear archive: recovery: \(error)") }
             model()?.query = ""
             app?.settings.values.backupFolder = originalFolder

@@ -35,6 +35,8 @@ final class TabPreviewCache {
         /// The profile of the tab it was taken in.
         let profileID: String
         let takenAt: CFTimeInterval
+        /// The same moment on the wall clock, for the card's age hint (S16): media time stops while the Mac sleeps.
+        let takenDate: Date
     }
 
     /// Most recently used last.
@@ -65,7 +67,7 @@ final class TabPreviewCache {
     /// `profileID` is the tab's profile; only the checks' synthetic pictures go without one (and so go with the next
     /// sweep, `retain(profiles:)`).
     func store(_ image: CGImage, url: String, tab: String, item: String?, profileID: String = "") {
-        let s = Shot(image: image, url: url, profileID: profileID, takenAt: CACurrentMediaTime())
+        let s = Shot(image: image, url: url, profileID: profileID, takenAt: CACurrentMediaTime(), takenDate: Date())
         for k in [Self.key(tab: tab)] + (item.map { [Self.key(item: $0)] } ?? []) {
             shots[k] = s
             touch(k)
@@ -98,6 +100,17 @@ final class TabPreviewCache {
     #if AIRC_TESTING
     /// The pages pictured (the checks: never a private window's).
     var urlsForTesting: [String] { shots.values.map(\.url) }
+
+    /// Every kept picture as if taken `seconds` earlier (S16's age hint without waiting minutes).
+    func backdateForTesting(_ seconds: TimeInterval) {
+        for (k, s) in shots {
+            shots[k] = Shot(image: s.image, url: s.url, profileID: s.profileID, takenAt: s.takenAt - seconds,
+                            takenDate: s.takenDate.addingTimeInterval(-seconds))
+        }
+    }
+
+    /// Whether a picture is kept under the tab (the checks: least recently used ones go first).
+    func hasShotForTesting(tab: String) -> Bool { shots[Self.key(tab: tab)] != nil }
     #endif
 
     /// Keeps only the `n` most recently used pictures.

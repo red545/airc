@@ -25,6 +25,9 @@ import AircKit
 ///     before the whole public suffix list) shows its banner and moves to the site it's used for; the Command Bar asks
 ///     the network for no icon while "spot" is typed with an empty cache.
 extension SnapshotRunner {
+    /// Count exact objects made by the Boost runtime, not other features' sheets.
+    static let boostSheetCountJS = "Array.prototype.filter.call(document.adoptedStyleSheets, function(s) { return "
+        + "Array.prototype.indexOf.call(window.__aircBoostSheets || [], s) >= 0; }).length"
     func boostsScenario() {
         let chromium = app?.engine.name.hasPrefix("Chromium") == true
         let tag = chromium ? "chromium" : "webkit"
@@ -36,9 +39,7 @@ extension SnapshotRunner {
         let center = { BoostCenter.shared }
         let siteA = "127.0.0.1", siteB = "localhost"
         let editor = { self.c.boostEditor?.model }
-        // The page's adopted sheets but the Space palette's (P07: every web page has Arc's --arc-palette-* sheet).
-        let boostSheets = "Array.prototype.filter.call(document.adoptedStyleSheets, function (s) { return !Array.prototype.some.call(s.cssRules, "
-            + "function (r) { return r.cssText.indexOf('--arc-palette-') >= 0; }); }).length"
+        let boostSheets = Self.boostSheetCountJS
         func base(_ host: String) -> String { "http://\(host):\(port)" }
 
         let probe = """
@@ -175,6 +176,7 @@ extension SnapshotRunner {
             $0.contains("invert(1)") && $0.contains("brightness(0.9)")
         }
         expectJS("window.__heroAtParse", "the custom CSS applies to the first parsed element") { $0 == "rgb(1, 2, 3)" }
+        expectJS("String(" + boostSheets + ")", "the generated and custom Boost sheets are identifiable") { (Int($0) ?? 0) >= 2 }
         // The first animation frame, where the window draws (no frames while the screen is locked or it's covered).
         js("window.__firstFrame ? JSON.stringify(window.__firstFrame) : 'none'") { [self] got in
             if got == "none" { skip("boosts (\(tag)): the first animation frame (none ran: \(realEventsBlocked ?? inputBlocked ?? "the window isn't drawn"))") }

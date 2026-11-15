@@ -72,7 +72,7 @@ def census(event):
             'timers': list(timers.values()), 'scope': event.get('scope'), 'raw': text}
 
 
-def launch(app, out, action, samples, endpoint, profile=False, extra_env=None):
+def launch(app, out, action, samples, endpoint, profile=False, extra_env=None, app_args=()):
     out.mkdir(parents=True, exist_ok=False)
     (out / 'home/Library').mkdir(parents=True)
     instance = run.Instance(app / 'Contents/MacOS/Airc', out / 'data')
@@ -84,7 +84,7 @@ def launch(app, out, action, samples, endpoint, profile=False, extra_env=None):
     args = ['open', '-g', '-n', '-W']  # visible background window; never activate
     for k, v in env.items(): args += ['--env', k + '=' + v]
     args += [str(app), '--args', '--snapshot', str(out / 'snap'), '--script', 'perf' if action == 'idle' else 'frames',
-             '--ephemeral', '--data-dir', str(out / 'data'), '--airc-data-dir=' + str(out / 'data')]
+             '--ephemeral', '--data-dir', str(out / 'data'), '--airc-data-dir=' + str(out / 'data'), *app_args]
     if action == 'idle':
         workload = {'profiles': ['One', 'Two', 'Three'], 'spaces': [{'id': i, 'profile': i % 3} for i in range(6)],
                     'tabs': [{'space': i % 6, 'url': 'data:text/html,<title>Idle fixture</title>quiet', 'recent': i < 8} for i in range(30)]}
@@ -169,19 +169,23 @@ def main():
     p.add_argument('--samples', type=int, default=5)
     p.add_argument('--actions', nargs='+', choices=ACTIONS, default=ACTIONS)
     p.add_argument('--profile', action='store_true')
+    p.add_argument('--app-arg', action='append', default=[],
+                   help='extra Airc argument, e.g. --app-arg=--agent-server (the MCP server, on by default outside scripted runs)')
     o = p.parse_args()
     server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Suggestions)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     out = o.output.resolve(); out.mkdir(parents=True, exist_ok=True)
     data = {'schema_version': 1, 'kind': 'performance-gaps', 'timestamp': datetime.datetime.now(datetime.timezone.utc).isoformat(),
             'binary_sha256': hashlib.sha256((o.app / 'Contents/MacOS/Airc').read_bytes()).hexdigest(),
-            'requested_runs': o.runs, 'requested_samples': o.samples, 'runs': {}, 'errors': []}
+            'requested_runs': o.runs, 'requested_samples': o.samples, 'runs': {}, 'errors': [], 'app_args': o.app_arg,
+            # Set in the environment, ui-check-lock.py turns each `open -g` into a foreground launch (window key).
+            'dedicated_session': os.environ.get('AIRC_UI_DEDICATED_SESSION') == '1'}
     try:
         for i in range(o.runs):
             for action in o.actions:
                 print(action, i, flush=True)
                 value = launch(o.app.resolve(), out / f'{action}-{i}', action, o.samples,
-                               f'http://127.0.0.1:{server.server_port}/suggest', o.profile)
+                               f'http://127.0.0.1:{server.server_port}/suggest', o.profile, app_args=o.app_arg)
                 data['runs'].setdefault(action, []).append(value)
                 (out / 'gaps.json').write_text(json.dumps(data, indent=2))
     except (Exception, KeyboardInterrupt) as e:

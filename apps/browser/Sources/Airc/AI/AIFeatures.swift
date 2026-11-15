@@ -189,6 +189,13 @@ final class AIFeatures {
         toggle(\.tidyDownloads, on, settings, .aiTidyDownloads(on ? .on : .off))
     }
 
+    /// Settings → AI → Rename automatically (tidydl): only with Apple Intelligence (and Tidy downloads) on. Not counted
+    /// on its own: Tidy downloads' on and off are, and each rename it makes counts as `used`.
+    func setTidyDownloadsAuto(_ on: Bool, settings: AppSettings) {
+        guard settings.values.tidyDownloadsAuto != on, availability.isAvailable || !on else { return }
+        settings.values.tidyDownloadsAuto = on
+    }
+
     @discardableResult
     private func toggle(_ key: WritableKeyPath<AppSettings.Values, Bool>, _ on: Bool, _ settings: AppSettings,
                         _ feature: TelemetryFeature) -> Bool {

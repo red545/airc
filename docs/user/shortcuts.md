@@ -30,6 +30,10 @@ Use **Settings → Shortcuts** to see the full list and change a key. The defaul
 | Developer Mode on or off for the site on screen | ⌃D |
 | Enter or exit fullscreen | ⌃⌘F |
 
+Settings → Shortcuts lists the menu bar's commands by menu, including the Edit menu's own submenus (Spelling and
+Grammar, Substitutions, Transformations, Speech) and the Help menu. A key you give one of those works like the menu
+item: the Edit submenus' commands act on whatever you're typing in, a page first.
+
 Click a key in Settings to record its replacement. Esc cancels; Delete removes the binding. If another command
 already uses it, choose Swap or Replace. Reset one row or use Reset All to restore defaults. macOS-reserved keys
 cannot be assigned. On keyboard layouts that type [ ] { } only with ⌥ (German, French …), the bracket shortcuts also

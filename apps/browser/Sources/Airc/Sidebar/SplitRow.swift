@@ -340,6 +340,7 @@ final class SplitRowView: SidebarRowView {
 
     // Press activates on mouse-down (Arc), on the pane that was pressed. Dragging is handled by the page.
     override func mouseDown(with event: NSEvent) {
+        if openContextMenuForControlClick(event) { return }
         guard let entry else { return }
         // Arc (1.17.2): ⌥-click separates the split into tabs; an ⌥-drag still drags it (Browser/SplitExtras.swift).
         if event.modifierFlags.intersection([.command, .shift, .option, .control]) == .option, let c = controller, c.optionClickSplits(entry) {

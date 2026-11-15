@@ -172,12 +172,12 @@ final class ExtensionInstallPanelHost: NSView {
 
 extension WindowController {
     /// The review card for a Web Store install (replaces the stock alert). `resolve` gets the answer once.
-    func presentExtensionReview(name: String, icon: NSImage?, permissions: [String], resolve: @escaping (Bool) -> Void) {
+    func presentExtensionReview(name: String, icon: NSImage?, permissions: [String], profileName: String? = nil, resolve: @escaping (Bool) -> Void) {
         closeExtensionReview(answer: false)
         closeCommandBar()
         let pal = currentPalette
         let model = ExtensionInstallModel(name: name, icon: icon, permissions: permissions,
-                                          profileName: store.profile(ofSpace: currentSpaceID).name, ui: pal.resolved)
+                                          profileName: profileName ?? store.profile(ofSpace: currentSpaceID).name, ui: pal.resolved)
         var answered = false
         model.onAnswer = { [weak self] yes in
             guard !answered else { return }
@@ -186,7 +186,7 @@ extension WindowController {
             resolve(yes)
             if yes {
                 Telemetry.shared.record(.featureUsed(.extensionInstalled))
-                self?.showToast("\(name) added. Pin it to the URL field with ⌘E.")
+                self?.showToast("Installing \(name)…")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self?.refreshExtensionButtons() }
             }
         }

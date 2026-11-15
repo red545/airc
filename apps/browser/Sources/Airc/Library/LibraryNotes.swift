@@ -75,6 +75,14 @@ enum LibraryNotes {
         return true
     }
 
+    /// L05: in a Peek over the current page (Library/LibraryPeek.swift). False when it's on screen elsewhere.
+    @discardableResult
+    static func peek(_ note: Note, in c: WindowController) -> Bool {
+        // On screen in this window's card already: that's where it is.
+        if c.shownNote?.noteID == note.id { return false }
+        return DocumentPeek.open(.note(note.id), in: c)
+    }
+
     /// The first line of text after the title, for the row's second line.
     static func excerpt(_ note: Note) -> String {
         let lines = note.document.plainText.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
@@ -116,9 +124,10 @@ struct LibraryNotesView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(list) { e in
-                            LibraryNoteRow(entry: e, theme: theme, where_: placeLabel(e.place)) { open(e) }
+                            LibraryNoteRow(entry: e, theme: theme, where_: placeLabel(e.place)) { peek(e) }
                                 .contextMenu {
-                                    Button("Open") { open(e) }
+                                    Button("Open in Peek") { peek(e) }
+                                    Button(isArchived(e) ? "Restore" : "Open in Space") { open(e) }
                                     Button("Copy as Markdown") {
                                         NSPasteboard.general.clearContents()
                                         NSPasteboard.general.setString(e.note.document.markdown, forType: .string)
@@ -136,6 +145,17 @@ struct LibraryNotesView: View {
     private func open(_ e: LibraryNotes.Entry) {
         guard let c = controller, LibraryNotes.open(e.note, in: c) else { return }
         onOpened()
+    }
+
+    /// L05: a click opens the note in Peek over the page (Arc's Library); Open in Space is in the Peek and this menu.
+    private func peek(_ e: LibraryNotes.Entry) {
+        guard let c = controller else { return }
+        if LibraryNotes.peek(e.note, in: c) { onOpened() } else { open(e) }
+    }
+
+    private func isArchived(_ e: LibraryNotes.Entry) -> Bool {
+        if case .archived = e.place { return true }
+        return false
     }
 
     /// Where the note is: its Space, "Archived", or nowhere.
@@ -170,7 +190,7 @@ private struct LibraryNoteRow: View {
                     .aircFont(AircFont.caption).foregroundStyle(theme.textTertiary.color).lineLimit(1)
             }
             Spacer(minLength: 6)
-            if hovered { Text("Open").aircFont(AircFont.callout.weight(.medium)).foregroundStyle(theme.accent.color) }
+            if hovered { Text("Open").aircFont(AircFont.callout.weight(.medium)).foregroundStyle(theme.accentText.color) }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -181,7 +201,7 @@ private struct LibraryNoteRow: View {
         .onTapGesture(perform: onOpen)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
-        .help("Open “\(entry.note.displayTitle)”")
+        .help("Open “\(entry.note.displayTitle)” in Peek")
         .testAnchor("library.note.\(entry.note.id)")
     }
 }

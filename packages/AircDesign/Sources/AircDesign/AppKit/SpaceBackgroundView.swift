@@ -98,6 +98,8 @@ public final class SpaceBackgroundView: NSView {
 
     public override var isOpaque: Bool { translucency == .off && cornerRadius == 0 }
     public override var mouseDownCanMoveWindow: Bool { true }
+    /// A press on an inactive window's margin is delivered (and drags the window) instead of only activating it.
+    public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     /// The background never takes clicks from its own layers; it behaves as one plain view.
     public override func hitTest(_ point: NSPoint) -> NSView? {
         frame.contains(point) ? self : nil
@@ -280,6 +282,8 @@ public class AircMaterialView: NSVisualEffectView {
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     public override var mouseDownCanMoveWindow: Bool { true }
+    /// A press on an inactive window's margin is delivered (and drags the window) instead of only activating it.
+    public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     /// A stretchable rounded-rectangle mask (continuous corners) for `maskImage`.
     public static func roundedMask(radius: CGFloat) -> NSImage {

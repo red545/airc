@@ -220,3 +220,62 @@ final class FullScreenMenu: NSObject, NSMenuDelegate {
         }
     }
 }
+
+/// New windows from full screen (owner, 2026-11-13: "cmd shift n in fullscreen opens on top of app, should open into new
+/// fullscreen"). When the window the person is in is in native full screen, ⌘N, ⌘⇧N, ⌃⌘N, a Space's Open in New Window
+/// and a tab's Move to New Window open their window as a full-screen Space of its own, as Safari and Chrome do; otherwise
+/// AppKit leaves it floating over the full-screen Space. Out of full screen they open as before. Little Airc isn't a
+/// browser window here: from full screen it stays a floating panel (LittleArcFullScreen).
+enum NewWindowFullScreen {
+    /// Each browser or private window's frame just before it entered full screen: where a new window from it goes, so
+    /// leaving full screen there gives a normal window, not a screen-sized one.
+    private static let windowedFrames = NSMapTable<NSWindow, NSValue>.weakToStrongObjects()
+    private static var observers: [NSObjectProtocol] = []
+
+    /// Once, before the first browser window shows.
+    static func startRecordingFrames() {
+        guard observers.isEmpty else { return }
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: NSWindow.willEnterFullScreenNotification, object: nil, queue: .main) { n in
+            guard let w = n.object as? NSWindow, !w.styleMask.contains(.fullScreen) else { return }
+            windowedFrames.setObject(NSValue(rect: w.frame), forKey: w)
+        })
+    }
+
+    /// `w`'s frame out of full screen (its frame, if it isn't in full screen).
+    static func windowedFrame(of w: NSWindow) -> NSRect {
+        guard w.styleMask.contains(.fullScreen) else { return w.frame }
+        if let r = windowedFrames.object(forKey: w)?.rectValue { return r }
+        let s = (w.screen ?? NSScreen.main)?.visibleFrame ?? w.frame
+        let size = NSSize(width: min(1440, s.width - 80), height: min(900, s.height - 60))
+        return NSRect(x: s.midX - size.width / 2, y: s.midY - size.height / 2, width: size.width, height: size.height)
+    }
+
+    /// The full-screen window a new window comes from: the key window if it is a browser or private window, else
+    /// `fallback` (the window the command names); nil when that one isn't in native full screen.
+    static func source(fallback: NSWindow?) -> NSWindow? {
+        let app = NSApp.delegate as? AppDelegate
+        let key = NSApp.keyWindow.flatMap { w in app?.controller(for: w) != nil || PrivateBrowsing.shared.window(for: w) != nil ? w : nil }
+        guard let w = key ?? fallback, w.styleMask.contains(.fullScreen) else { return nil }
+        return w
+    }
+
+    /// The new window `w`, just put on screen: from a full-screen `source`, into a full-screen Space of its own.
+    /// True when it was asked to.
+    @discardableResult
+    static func follow(_ w: NSWindow, from source: NSWindow?) -> Bool {
+        guard let source, source !== w, source.styleMask.contains(.fullScreen) else { return false }
+        w.collectionBehavior.remove([.fullScreenAuxiliary, .fullScreenNone, .canJoinAllApplications])
+        w.collectionBehavior.insert(.fullScreenPrimary)
+        requests += 1
+        // Once it is on screen: AppKit makes the new Space from where the window is.
+        DispatchQueue.main.async { [weak w] in
+            guard let w, w.isVisible, !w.styleMask.contains(.fullScreen) else { return }
+            w.toggleFullScreen(nil)
+        }
+        return true
+    }
+
+    /// How many new windows were sent into full screen (the checks read it).
+    private(set) static var requests = 0
+}

@@ -280,7 +280,7 @@ private struct ShortcutRow: View {
                 if recording {
                     let held = ShortcutCenter.combo("x", editor.heldModifiers)?.symbols.dropLast() ?? []
                     Text(held.isEmpty ? "Type a shortcut" : held.joined() + "…")
-                        .aircFont(AircFont.callout).foregroundStyle(theme.accent.color)
+                        .aircFont(AircFont.callout).foregroundStyle(theme.accentText.color)
                 } else if let key = center.map.key(id) {
                     ForEach(Array(key.symbols.enumerated()), id: \.offset) { AircKeycap(text: $0.element) }
                 } else {

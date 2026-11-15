@@ -13,6 +13,12 @@ import PDFKit
 /// TidyDownloads.json in the data folder (never synced or sent) and the downloads list, Open, Show in Finder and
 /// dragging use the new one. Private windows' downloads are their own list (PrivateWindowExtras.swift) and never
 /// come here.
+///
+/// Rename automatically (tidydl, Arc's Tidy Downloads, off by default): with it on, a suggestion is applied as soon as
+/// it arrives and the window shows "Renamed to “…”" with Undo, which puts the original name back. Disk images,
+/// installers, apps and archives are left alone (`TidyDownloadRules.autoRenameSkips`), and so is a file another app has
+/// open or that changed in the last second (it's tried again a few times, then the suggestion stays for a click). The
+/// Downloads list shows the name a renamed file had.
 enum TidyDownloadsFeature {
     /// The data folder's record of renamed files (download key → its new path and name).
     static var fileURL: URL { AppPaths.dataDirectory.appendingPathComponent("TidyDownloads.json") }
@@ -76,6 +82,120 @@ enum TidyDownloadsFeature {
     /// AIFeatures' queue made (or dropped) a suggestion.
     @MainActor static func suggestionChanged(_ key: String) {
         Model.shared.suggestions = AIFeatures.shared.downloads.suggestions
+        if AIFeatures.shared.downloads.suggestions[key] != nil { autoRename(key) }
+    }
+
+    // MARK: Rename automatically (tidydl)
+
+    /// How often a busy file is tried again, and how long apart.
+    static var autoAttempts = 8
+    static var autoRetryDelay: TimeInterval = 1
+    /// A file written to this recently counts as still being written.
+    static var quietPeriod: TimeInterval = 1
+    /// What the scripted check reads: each automatic rename's outcome ("renamed", "skipped type", "busy"…), by key.
+    static var autoLog: (String, String) -> Void = { _, _ in }
+
+    static var autoEnabled: Bool {
+        guard let v = (NSApp.delegate as? AppDelegate)?.settings.values else { return false }
+        return v.tidyDownloads && v.tidyDownloadsAuto
+    }
+
+    /// A suggestion arrived for a finished download: with Rename automatically on, it's applied when the file is free.
+    @MainActor static func autoRename(_ key: String, attempt: Int = 1) {
+        guard autoEnabled, let center = MediaLibrary.shared.downloads, let item = center.item(key),
+              let name = suggestion(for: item), let file = center.file(item) else { return }
+        if TidyDownloadRules.autoRenameSkips(item.download.fileName) { return autoLog(key, "skipped type") }
+        let quiet = quietPeriod
+        DispatchQueue.global(qos: .utility).async {
+            let busy = fileBusy(file, quietPeriod: quiet)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard autoEnabled, let item = center.item(key), suggestion(for: item) == name else { return }
+                    if let busy {
+                        autoLog(key, "busy: \(busy)")
+                        if attempt < autoAttempts {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + autoRetryDelay) {
+                                MainActor.assumeIsolated { autoRename(key, attempt: attempt + 1) }
+                            }
+                        }
+                        return
+                    }
+                    guard rename(item, center: center), let r = renames.entries[key] else { return autoLog(key, "failed") }
+                    autoLog(key, "renamed")
+                    toastController(center)?.showActionToast("Renamed to “\(r.name)”", action: (title: "Undo", run: {
+                        guard let item = center.item(key), undo(item, center: center) else { return }
+                        toastController(center)?.showToast("Download name reverted")
+                    }))
+                }
+            }
+        }
+    }
+
+    /// The window a rename's toast shows in: the key one, else the Library's.
+    @MainActor static func toastController(_ center: DownloadCenter) -> WindowController? {
+        let app = NSApp.delegate as? AppDelegate
+        return app?.controllers.first { $0.window.isKeyWindow } ?? center.library?.controller ?? app?.controllers.first
+    }
+
+    /// Why a file can't be renamed now (nil: it can): another process has it open (libproc, the same list `lsof` reads;
+    /// Airc itself doesn't count), or it changed in the last `quietPeriod` seconds or while it was looked at. Off the
+    /// main thread.
+    static func fileBusy(_ url: URL, quietPeriod: TimeInterval) -> String? {
+        let fm = FileManager.default
+        func stamp() -> (Int, Date)? {
+            guard let a = try? fm.attributesOfItem(atPath: url.path) else { return nil }
+            return ((a[.size] as? NSNumber)?.intValue ?? -1, (a[.modificationDate] as? Date) ?? .distantPast)
+        }
+        guard let first = stamp() else { return "gone" }
+        if Date().timeIntervalSince(first.1) < quietPeriod { return "being written" }
+        if !openingProcesses(url).isEmpty { return "open in another app" }
+        usleep(200_000)
+        guard let second = stamp(), second == first else { return "being written" }
+        return nil
+    }
+
+    /// Other processes with the file open (event-only watchers such as Finder's left out).
+    static func openingProcesses(_ url: URL) -> [pid_t] {
+        let own = getpid()
+        var pids = [pid_t](repeating: 0, count: 512)
+        let bytes = url.path.withCString { path in
+            pids.withUnsafeMutableBytes { proc_listpidspath(UInt32(PROC_ALL_PIDS), 0, path, UInt32(PROC_LISTPIDSPATH_EXCLUDE_EVTONLY),
+                                                            $0.baseAddress, Int32($0.count)) }
+        }
+        guard bytes > 0 else { return [] }
+        return pids.prefix(Int(bytes) / MemoryLayout<pid_t>.size).filter { $0 > 0 && $0 != own }
+    }
+
+    /// Undo (the toast's, or the Library's Revert to Original Name): the file takes its original name again in its
+    /// folder ("Name 2.pdf" if that's taken now) and stays in the list. False when it's gone or can't be moved.
+    @discardableResult
+    static func undo(_ item: DownloadCenter.Item, center: DownloadCenter) -> Bool {
+        guard let r = renames.entries[item.id], FileManager.default.fileExists(atPath: r.path) else { return false }
+        let folder = (r.path as NSString).deletingLastPathComponent
+        guard let back = renames.undo(item.id, exists: { FileManager.default.fileExists(atPath: (folder as NSString).appendingPathComponent($0)) })
+        else { return false }
+        do {
+            try FileManager.default.moveItem(atPath: r.path, toPath: back.path)
+        } catch {
+            log(TidyDownloadRules.renameFailureLog(error))
+            return false
+        }
+        if back.name == r.from {
+            renames.remove(item.id)
+        } else {
+            // The original name was taken meanwhile: the record keeps where the file is now (and no "renamed from").
+            renames.set(item.id, path: back.path, name: back.name, from: back.name)
+        }
+        save()
+        center.restored(item.id, path: back.path, name: back.name)
+        return true
+    }
+
+    /// The name a renamed download had (the Downloads list shows it), while the file is there.
+    static func originalName(_ item: DownloadCenter.Item) -> String? {
+        guard let r = renames.entries[item.id], r.from != r.name, item.download.state == .complete,
+              FileManager.default.fileExists(atPath: r.path) else { return nil }
+        return r.from
     }
 
     /// The row's Rename: the file gets the suggested name in its folder ("Name 2.pdf" if that's taken). False when the

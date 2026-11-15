@@ -71,7 +71,7 @@ final class MultiMoveTests: XCTestCase {
         XCTAssertEqual(s.children(of: .pinned(spaceID: other), parent: folder.id).map(\.id), [child.id])
     }
 
-    func testAFolderInTheSelectionStaysWhenTheRestGoesToToday() throws {
+    func testAFolderInTheSelectionGoesToTodayAsATodayFolder() throws {
         let s = try makeStore()
         let sid = s.selectedSpace.id
         let folder = try s.createFolder(named: "F", inSpace: sid)
@@ -79,7 +79,9 @@ final class MultiMoveTests: XCTestCase {
         try s.move(.tab(t.id), to: .pinned(spaceID: sid, parentID: nil, index: 1))
         let pin = try XCTUnwrap(s.pinnedRoots(ofSpace: sid).first { $0.id != folder.id })
         try s.move([.item(folder.id), .item(pin.id)], to: .today(spaceID: sid, index: 0))
-        XCTAssertEqual(s.pinnedRoots(ofSpace: sid).map(\.id), [folder.id], "a folder can't be a Today tab")
+        XCTAssertEqual(s.pinnedRoots(ofSpace: sid).map(\.id), [], "the folder goes too, as a Today folder")
+        XCTAssertEqual(s.todayRootRows(ofSpace: sid).map(\.id).first, folder.id)
+        XCTAssertTrue(s.item(folder.id)?.isTodayFolder == true)
         XCTAssertEqual(todayTitles(s, sid), ["P"])
     }
 

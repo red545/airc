@@ -7,8 +7,12 @@ import SwiftUI
 /// Sidebar text and glyphs are ink (near-black or near-white) at an alpha, so they pick up the theme's hue
 /// the way Arc's do. The derivation guarantees contrast instead of hoping for it:
 /// - primary text ≥ 4.5:1 on every point of the background and on the selected row;
-/// - secondary text and glyphs ≥ 3:1; tertiary (placeholders, "+ New Tab") ≥ 2.4:1;
-/// - text on the accent ≥ 4.5:1; text on `surface` ≥ 7:1.
+/// - secondary text and glyphs ≥ 3:1 (≥ 4.5:1 in dark themes, WCAG AA for body text);
+/// - tertiary (placeholders, "+ New Tab", the Space's profile label, URL suffixes) ≥ 2.4:1 (≥ 4.5:1 on the window in
+///   dark themes: it carries information there too);
+/// - text on the accent ≥ 4.5:1; text on `surface` ≥ 7:1; `accentText` ≥ 4.5:1 on `surface` in dark themes.
+/// Dark themes wash their colour layer a little further toward black than light ones, so secondary ink can reach its
+/// floor and still sit visibly below primary ink (darkmode, 2026-11-14: owner feedback on dark-mode readability).
 /// If a colour is too strong for its appearance (black text on navy, white text on lemon), the colour layer
 /// is washed toward the underlay until text passes. The theme yields to legibility, never the reverse.
 public struct ResolvedTheme: Hashable, Sendable {
@@ -79,6 +83,9 @@ public struct ResolvedTheme: Hashable, Sendable {
     public let onAccent: AircColor
     /// Focus ring, 2 pt outside the control.
     public let focusRing: AircColor
+    /// The accent as text and small glyphs on `surface`: links, "Undo" in a toast, row actions. The accent itself in
+    /// light themes; lighter in dark ones, so it reads (≥ 4.5:1) where the accent fill alone would sit near 3:1.
+    public let accentText: AircColor
 
     public var colorScheme: ColorScheme { isDark ? .dark : .light }
 
@@ -185,14 +192,36 @@ extension ResolvedTheme {
         public static let textTertiary = 2.4
         public static let onAccent = 4.5
         public static let surfaceText = 7.0
+        /// Dark themes (darkmode): secondary and tertiary ink are body text (URLs, subtitles, the profile label, "+ New
+        /// Tab"), so both get WCAG AA's 4.5:1. Tertiary only on the window (not on selected rows), so it keeps a clear
+        /// step below secondary (about 0.54 vs 0.78 alpha).
+        public static let textSecondaryDark = 4.5
+        public static let textTertiaryDark = 4.5
+        /// Dark surfaces (Command Bar, menus, Settings, cards): tertiary text there carries timestamps, hints and
+        /// subtitles, so it reads as body text too; and accent-coloured text (links, actions) on them.
+        public static let surfaceTextTertiaryDark = 4.5
+        public static let accentTextDark = 4.5
+
+        /// The secondary floor for a light (`false`) or dark (`true`) theme.
+        public static func textSecondary(dark: Bool) -> Double { dark ? textSecondaryDark : textSecondary }
+        public static func textTertiary(dark: Bool) -> Double { dark ? textTertiaryDark : textTertiary }
     }
+
+    /// The floors this theme's sidebar ink meets (`Floor`, by appearance).
+    public var secondaryFloor: Double { Floor.textSecondary(dark: isDark) }
+    public var tertiaryFloor: Double { Floor.textTertiary(dark: isDark) }
 
     /// Nominal ink alphas before contrast correction (Arc's tokens).
     enum Ink {
         static func text(_ dark: Bool) -> Double { dark ? 0.92 : 0.86 }
-        static func secondary(_ dark: Bool) -> Double { 0.60 }
-        static func tertiary(_ dark: Bool) -> Double { dark ? 0.40 : 0.42 }
+        /// Dark starts higher than Arc's 0.60 / 0.40 (darkmode): at the 4.5:1 floor exactly, Subtle translucency would
+        /// have to go opaque over a bright desktop to keep it; this headroom keeps the desktop showing through.
+        static func secondary(_ dark: Bool) -> Double { dark ? 0.75 : 0.60 }
+        static func tertiary(_ dark: Bool) -> Double { dark ? 0.60 : 0.42 }
         static func disabled(_ dark: Bool) -> Double { 0.26 }
+        /// Dark themes wash the colour layer until secondary ink passes its floor at this alpha or less, so it keeps a
+        /// clear step below primary ink (0.92).
+        static let secondaryCapDark = 0.78
     }
 
     /// Sample grid used for contrast checks: 9 × 9 (diagonal position, height) pairs.
@@ -224,11 +253,24 @@ extension ResolvedTheme {
         func textGrounds(_ bgs: [AircColor]) -> [AircColor] {
             bgs + bgs.map { selected.over($0) } + bgs.map { hover.over($0) }
         }
+        /// Primary ink also reads on the selected row under the pointer in dark themes (its fill is the brightest
+        /// ground in the sidebar). Light themes' is near-white, never the binding ground, so they leave it out.
+        let selectedHover = AircColor.inkDark.alpha(AircMetrics.Row.selectedHoverAlphaDark)
+        func primaryGrounds(_ bgs: [AircColor]) -> [AircColor] {
+            dark ? textGrounds(bgs) + bgs.map { selectedHover.over($0) } : textGrounds(bgs)
+        }
 
-        // 1. Wash the colour layer out until full-strength ink passes the primary floor with margin.
+        // 1. Wash the colour layer out until full-strength ink passes the primary floor with margin (and, in dark themes,
+        //    until secondary ink at `Ink.secondaryCapDark` passes its floor).
+        let secondaryFloor = Floor.textSecondary(dark: dark)
+        func washed(_ bgs: [AircColor]) -> Bool {
+            let g = textGrounds(bgs)
+            if worst(ink, primaryGrounds(bgs)) < Floor.text + 0.6 { return false }
+            return !dark || worst(ink.alpha(Ink.secondaryCapDark), g) >= secondaryFloor + 0.02
+        }
         var opacity = 0.2 + 0.55 * theme.intensity.clamped01
         var bgs = samples(opacity)
-        while opacity > 0.02, worst(ink, textGrounds(bgs)) < Floor.text + 0.6 {
+        while opacity > 0.02, !washed(bgs) {
             opacity -= 0.01
             bgs = samples(opacity)
         }
@@ -245,9 +287,9 @@ extension ResolvedTheme {
         self.isDark = dark
         self.underlay = underlay
         self.layerOpacity = opacity
-        self.text = inkAlpha(start: Ink.text(dark), floor: Floor.text, on: grounds)
-        self.textSecondary = inkAlpha(start: Ink.secondary(dark), floor: Floor.textSecondary, on: grounds)
-        self.textTertiary = inkAlpha(start: Ink.tertiary(dark), floor: Floor.textTertiary, on: bgs)
+        self.text = inkAlpha(start: Ink.text(dark), floor: Floor.text, on: primaryGrounds(bgs))
+        self.textSecondary = inkAlpha(start: Ink.secondary(dark), floor: secondaryFloor, on: grounds)
+        self.textTertiary = inkAlpha(start: Ink.tertiary(dark), floor: Floor.textTertiary(dark: dark), on: bgs)
         self.textDisabled = ink.alpha(Ink.disabled(dark))
 
         self.hoverFill = hover
@@ -285,18 +327,64 @@ extension ResolvedTheme {
         let surfaceInk: AircColor = dark ? .inkDark : .inkLight
         self.surface = surface
         self.surfaceText = surfaceInk.alpha(dark ? 0.94 : 0.90)
-        self.surfaceTextSecondary = surfaceInk.alpha(dark ? 0.62 : 0.58)
-        self.surfaceTextTertiary = surfaceInk.alpha(dark ? 0.40 : 0.38)
+        // Dark: 0.62, raised until it passes 4.5:1 on the surface, its hover and the accent-tinted selected row (light
+        // accents, such as a yellow theme's, tint that row brightly).
+        var secondaryAlpha = dark ? 0.62 : 0.58
+        let selectedRow = Self.accentForSelection(cs: cs, dark: dark, surface: surface).alpha(dark ? 0.26 : 0.12).over(surface)
+        while dark, secondaryAlpha < 0.9,
+              [surface, surfaceInk.alpha(0.06).over(surface), selectedRow]
+                  .contains(where: { surfaceInk.alpha(secondaryAlpha).contrast(on: $0) < 4.52 }) {
+            secondaryAlpha += 0.01
+        }
+        // Dark: raised from 0.40 until it passes 4.5:1 on the surface, its hover and the selected row (about 0.52; a selected
+        // Command Bar row shows its URL in it). Secondary stays a visible step above.
+        var tertiaryAlpha = dark ? 0.40 : 0.38
+        while dark, tertiaryAlpha < 0.9,
+              [surface, surfaceInk.alpha(0.06).over(surface), selectedRow]
+                  .contains(where: { surfaceInk.alpha(tertiaryAlpha).contrast(on: $0) < Floor.surfaceTextTertiaryDark + 0.02 }) {
+            tertiaryAlpha += 0.01
+        }
+        if dark { secondaryAlpha = max(secondaryAlpha, min(0.94, tertiaryAlpha + 0.06)) }
+        self.surfaceTextSecondary = surfaceInk.alpha(secondaryAlpha)
+        self.surfaceTextTertiary = surfaceInk.alpha(tertiaryAlpha)
         self.surfaceBorder = surfaceInk.alpha(dark ? 0.10 : 0.08)
         self.surfaceHover = surfaceInk.alpha(dark ? 0.06 : 0.04)
 
         // 4. Accent: the most chromatic theme colour at a fixed lightness, adjusted until its label passes.
-        let source = cs.max { $0.oklab.chroma < $1.oklab.chroma } ?? (dark ? AircColor.aircBlueDark : AircColor.aircBlue)
-        let (accent, onAccent) = Self.accent(from: source, dark: dark, surface: surface)
+        let (accent, onAccent) = Self.accent(from: Self.accentSource(cs, dark: dark), dark: dark, surface: surface)
         self.accent = accent
         self.onAccent = onAccent
         self.focusRing = accent.alpha(dark ? 0.75 : 0.55)
         self.surfaceSelected = accent.alpha(dark ? 0.26 : 0.12)
+        self.accentText = Self.accentText(accent: accent, dark: dark, surface: surface, selected: accent.alpha(dark ? 0.26 : 0.12),
+                                          window: bgs)
+    }
+
+    /// The accent as text on `surface` (links, toast and row actions). Light themes use the accent itself. Dark themes
+    /// lighten it in OKLab (same hue) until it passes `Floor.accentTextDark` on the surface, its selected row and the window, since
+    /// the accent's own lightness is set by its white label and sits near 3:1 on the dark surface.
+    static func accentText(accent: AircColor, dark: Bool, surface: AircColor, selected: AircColor, window: [AircColor] = []) -> AircColor {
+        guard dark else { return accent }
+        // The surface, its selected and hovered rows, and the window itself (the Library and other panels on the Space).
+        let grounds = [surface, selected.over(surface), AircColor.inkDark.alpha(0.06).over(surface)] + window
+        let lab = accent.oklab
+        var l = lab.l
+        var c = accent
+        while l < 0.97, grounds.contains(where: { c.contrast(on: $0) < Floor.accentTextDark + 0.05 }) {
+            l += 0.01
+            c = AircColor(oklab: .lch(l, lab.chroma, lab.hue))
+        }
+        return c
+    }
+
+    /// The accent `init` will derive, for tokens computed before it (the selected row's tint).
+    static func accentForSelection(cs: [AircColor], dark: Bool, surface: AircColor) -> AircColor {
+        accent(from: accentSource(cs, dark: dark), dark: dark, surface: surface).0
+    }
+
+    /// The theme colour the accent comes from: the most chromatic one, or Airc blue.
+    static func accentSource(_ cs: [AircColor], dark: Bool) -> AircColor {
+        cs.max { $0.oklab.chroma < $1.oklab.chroma } ?? (dark ? AircColor.aircBlueDark : AircColor.aircBlue)
     }
 
     static func accent(from source: AircColor, dark: Bool, surface: AircColor) -> (AircColor, AircColor) {

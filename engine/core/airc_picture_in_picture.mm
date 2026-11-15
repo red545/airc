@@ -61,10 +61,13 @@
 namespace airc {
 
 namespace {
+uint64_t g_pip_entry_generation = 0;
+
 bool AutoPipAllowed(content::WebContents* contents);
 void PlacePipWindow();
 void InstallAppOverlay();
 void SavePipFrame(NSNotification* note);
+void ClearPipPlacement();
 
 void Report(base::WeakPtr<content::WebContents> contents, bool active, NSString* kind) {
   base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
@@ -157,6 +160,9 @@ class DocumentPipBrowsers : public BrowserCollectionObserver {
 class PictureInPictureObserver : public PictureInPictureWindowManager::Observer {
  public:
   void OnEnterPictureInPicture() override {
+    // Advance before overlay/delegate work can reenter the host API.
+    ++g_pip_entry_generation;
+    ClearPipPlacement();
     PictureInPictureWindowManager* manager = PictureInPictureWindowManager::GetInstance();
     content::WebContents* opener = manager->GetWebContents();
     if (opener_ && opener_.get() != opener) {
@@ -187,6 +193,7 @@ class PictureInPictureObserver : public PictureInPictureWindowManager::Observer 
   }
 
   void OnExitPictureInPicture() override {
+    ClearPipPlacement();
     if (PictureInPictureTracing()) {
       NSArray<NSString*>* stack = NSThread.callStackSymbols;
       NSMutableString* frames = [NSMutableString string];
@@ -209,6 +216,11 @@ class PictureInPictureObserver : public PictureInPictureWindowManager::Observer 
   NSString* __strong kind_ = @"video";
 };
 
+}
+
+uint64_t PictureInPictureEntryGeneration() {
+  NSCAssert(NSThread.isMainThread, @"PiP generation is UI-thread only");
+  return g_pip_entry_generation;
 }
 
 bool PictureInPictureTracing() {
@@ -277,6 +289,33 @@ void StartPictureInPictureObserver() {
 namespace airc {
 namespace {
 const char kPlacedPip = 0;
+const char kPlacedPipAspect = 0;
+const char kPlacedPipFrame = 0;
+__weak NSWindow* g_placed_pip_window = nil;
+void ClearPipPlacement() {
+  // Chromium can reuse the native window. Its close/open layout must not replace
+  // the last user placement before PlacePipWindow has restored it.
+  if (g_placed_pip_window)
+    objc_setAssociatedObject(g_placed_pip_window, &kPlacedPip, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  g_placed_pip_window = nil;
+}
+NSString* PipScreenIdentity(NSScreen* screen) {
+  NSNumber* number = screen.deviceDescription[@"NSScreenNumber"];
+  if (!number) return nil;
+  CFUUIDRef uuid = CGDisplayCreateUUIDFromDisplayID(number.unsignedIntValue);
+  if (!uuid) return nil;
+  NSString* identity = CFBridgingRelease(CFUUIDCreateString(kCFAllocatorDefault, uuid));
+  CFRelease(uuid);
+  return identity;
+}
+NSScreen* PipMainScreen() {
+  for (NSScreen* screen in NSScreen.screens)
+    if ([screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue] == CGMainDisplayID()) return screen;
+  return NSScreen.screens.firstObject;
+}
+const char* PipScreenKey(bool document) {
+  return document ? "airc_document_pip_screen" : "airc_pip_screen";
+}
 NSRect SavedFrame(Profile* profile, bool document = false) {
   const std::string* frame = profile->GetPrefs()->GetDict(prefs::kAppWindowPlacement)
       .FindString(document ? "airc_document_pip_frame" : "airc_pip_frame");
@@ -285,8 +324,25 @@ NSRect SavedFrame(Profile* profile, bool document = false) {
 void SaveFrame(Profile* profile, NSRect frame, bool document = false) {
   const char* key = document ? "airc_document_pip_frame" : "airc_pip_frame";
   ScopedDictPrefUpdate update(profile->GetPrefs(), prefs::kAppWindowPlacement);
-  if (NSIsEmptyRect(frame)) update->Remove(key);
-  else update->Set(key, base::SysNSStringToUTF8(NSStringFromRect(frame)));
+  if (NSIsEmptyRect(frame)) {
+    update->Remove(key);
+    update->Remove(PipScreenKey(document));
+  } else {
+    update->Set(key, base::SysNSStringToUTF8(NSStringFromRect(frame)));
+    NSScreen* screen = PipMainScreen();
+    CGFloat largest = 0;
+    for (NSScreen* candidate in NSScreen.screens) {
+      NSRect intersection = NSIntersectionRect(candidate.visibleFrame, frame);
+      CGFloat area = intersection.size.width * intersection.size.height;
+      if (area > largest) { largest = area; screen = candidate; }
+    }
+    if (NSString* identity = PipScreenIdentity(screen)) {
+      base::DictValue placement;
+      placement.Set("uuid", base::SysNSStringToUTF8(identity));
+      placement.Set("visible_frame", base::SysNSStringToUTF8(NSStringFromRect(screen.visibleFrame)));
+      update->Set(PipScreenKey(document), std::move(placement));
+    }
+  }
 }
 NSWindow* PipWindow() {
   auto* manager = PictureInPictureWindowManager::GetInstance();
@@ -365,10 +421,26 @@ void PlacePipWindow() {
   auto* profile = Profile::FromBrowserContext(opener->GetBrowserContext());
   const bool document = PictureInPictureWindowManager::GetInstance()->GetChildWebContents() != nullptr;
   NSRect saved = SavedFrame(profile, document);
-  NSScreen* screen = opener->GetTopLevelNativeWindow().GetNativeNSWindow().screen ?: NSScreen.mainScreen;
-  for (NSScreen* candidate in NSScreen.screens)
-    if (!NSIsEmptyRect(NSIntersectionRect(candidate.visibleFrame, saved))) { screen = candidate; break; }
+  NSScreen* screen = opener->GetTopLevelNativeWindow().GetNativeNSWindow().screen ?: PipMainScreen();
+  const auto* placement = profile->GetPrefs()->GetDict(prefs::kAppWindowPlacement).FindDict(PipScreenKey(document));
+  const std::string* identity = placement ? placement->FindString("uuid") : nullptr;
+  if (identity) {
+    // An absent remembered display falls back to the main display, not whichever
+    // display happens to contain the saved absolute coordinates today.
+    screen = PipMainScreen();
+    for (NSScreen* candidate in NSScreen.screens)
+      if ([PipScreenIdentity(candidate) isEqualToString:base::SysUTF8ToNSString(*identity)]) { screen = candidate; break; }
+  } else if (!NSIsEmptyRect(saved)) {
+    screen = PipMainScreen();
+    for (NSScreen* candidate in NSScreen.screens)
+      if (!NSIsEmptyRect(NSIntersectionRect(candidate.visibleFrame, saved))) { screen = candidate; break; }
+  }
   NSRect area = NSInsetRect(screen.visibleFrame, 20, 20);
+  NSRect previous_area = area;
+  if (const std::string* visible = placement ? placement->FindString("visible_frame") : nullptr) {
+    NSRect previous = NSRectFromString(base::SysUTF8ToNSString(*visible));
+    if (!NSIsEmptyRect(previous)) previous_area = NSInsetRect(previous, 20, 20);
+  }
   NSRect frame = window.frame;
   double aspect = PipAspect(opener, window);
   if (!NSIsEmptyRect(saved) && aspect > 0) {
@@ -385,15 +457,27 @@ void PlacePipWindow() {
     frame.origin = NSMakePoint(NSMaxX(area)-frame.size.width, NSMinY(area));
   } else {
     // The saved window's corner nearest the screen's stays where it was.
-    bool right = NSMidX(saved) > NSMidX(area), top = NSMidY(saved) > NSMidY(area);
-    frame.origin = NSMakePoint(right ? NSMaxX(saved)-frame.size.width : NSMinX(saved),
-                               top ? NSMaxY(saved)-frame.size.height : NSMinY(saved));
+    bool right = NSMidX(saved) > NSMidX(previous_area), top = NSMidY(saved) > NSMidY(previous_area);
+    frame.origin = NSMakePoint(
+        right ? NSMaxX(area) - (NSMaxX(previous_area) - NSMaxX(saved)) - frame.size.width
+              : NSMinX(area) + (NSMinX(saved) - NSMinX(previous_area)),
+        top ? NSMaxY(area) - (NSMaxY(previous_area) - NSMaxY(saved)) - frame.size.height
+            : NSMinY(area) + (NSMinY(saved) - NSMinY(previous_area)));
   }
   frame.origin.x = MAX(NSMinX(area), MIN(frame.origin.x, NSMaxX(area)-frame.size.width));
   frame.origin.y = MAX(NSMinY(area), MIN(frame.origin.y, NSMaxY(area)-frame.size.height));
+  // Placement and aspect restoration are not user resizes. Their synchronous
+  // frame notifications must not replace the remembered area with a fitted one.
+  objc_setAssociatedObject(window, &kPlacedPip, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
   ConfigurePipWindow(window, document);
   [window setFrame:frame display:YES];
+  objc_setAssociatedObject(window, &kPlacedPipAspect, @(aspect), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  objc_setAssociatedObject(window, &kPlacedPipFrame, [NSValue valueWithRect:window.frame], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
   objc_setAssociatedObject(window, &kPlacedPip, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  g_placed_pip_window = window;
+  // Seed the first video's area even if no later move/resize notification arrives.
+  // An existing preference retains its original area when this display must fit it.
+  if (NSIsEmptyRect(saved)) SaveFrame(profile, window.frame, document);
   // Notifications are process-scoped; only the current PiP is persisted.
 }
 void SavePipFrame(NSNotification* note) {
@@ -403,9 +487,26 @@ void SavePipFrame(NSNotification* note) {
       !SwitchOn("pipPlacement")) return;
   // A frame that isn't the video's shape (the app's collapsed pill, a step of its animation) is never remembered.
   double aspect = PipAspect(opener, window), now = window.frame.size.width / MAX(1.0, window.frame.size.height);
+  double previous_aspect = [objc_getAssociatedObject(window, &kPlacedPipAspect) doubleValue];
+  if (aspect > 0 && previous_aspect > 0 && std::abs(aspect / previous_aspect - 1) > 0.001) {
+    // UpdateNaturalSize fits the new shape into Chromium's old bounds. That
+    // transient frame is often much smaller. Restore from the saved area after
+    // Chromium's resize finishes, before allowing any placement saves again.
+    objc_setAssociatedObject(window, &kPlacedPip, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    __weak NSWindow* target = window;
+    base::WeakPtr<content::WebContents> contents = opener->GetWeakPtr();
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (target && PipWindow() == target && contents &&
+          PictureInPictureWindowManager::GetInstance()->GetWebContents() == contents.get()) PlacePipWindow();
+    });
+    return;
+  }
   if (aspect > 0 && std::abs(now / aspect - 1) > 0.02) return;
+  NSValue* placed = objc_getAssociatedObject(window, &kPlacedPipFrame);
+  if (placed && NSEqualRects(window.frame, placed.rectValue)) return;
   SaveFrame(Profile::FromBrowserContext(opener->GetBrowserContext()), window.frame,
             PictureInPictureWindowManager::GetInstance()->GetChildWebContents() != nullptr);
+  objc_setAssociatedObject(window, &kPlacedPipFrame, [NSValue valueWithRect:window.frame], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 }  // namespace
 }  // namespace airc

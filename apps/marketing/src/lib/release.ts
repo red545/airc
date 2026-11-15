@@ -1,3 +1,5 @@
+import { publishedHistory } from "./published-history.mjs";
+
 // The latest stable release, read once at build time from the public feed (the same feeds/latest.json that
 // /download and installed copies use). If the feed can't be reached the page still builds, with the release it
 // shipped with.
@@ -122,8 +124,9 @@ declare const process: { env: Record<string, string | undefined> };
 // only. In production a release appears once the stable feed lists it, at the next deploy.
 export const SHOW_UNRELEASED = import.meta.env.DEV || process.env.VERCEL_ENV === "preview";
 
-// The published stable versions, newest first, from the Sparkle feed.
+// All shipped Stable versions, including changelog entries retired from the update feed.
+const historyEntries = import.meta.glob<string>("../content/changelog/*.md", { eager: true, query: "?raw", import: "default" });
 export async function getPublished(): Promise<Map<string, Version>> {
   const { all } = await getVersions();
-  return new Map(all.filter((v) => v.channel === "stable").map((v) => [v.version, v]));
+  return publishedHistory(all, historyEntries);
 }

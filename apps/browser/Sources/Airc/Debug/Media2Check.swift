@@ -167,6 +167,9 @@ extension SnapshotRunner {
         wait(1)
         step { [self] done in
             guard let page = c.engineTab(for: call) else { check(false, "media2: no page for system PiP"); return done() }
+            if let webkit = page as? WebKitTab {
+                note("media2: WebKit PiP request callback: \(SystemPictureInPicture.requestResults[ObjectIdentifier(webkit)] ?? "pending")")
+            }
             page.evaluate("!!document.pictureInPictureElement || Array.from(document.querySelectorAll('video')).some(v => v.webkitPresentationMode === 'picture-in-picture')") { value in
                 self.check(value as? Bool == true, "media2: Picture in Picture menu opens system PiP")
                 page.evaluate("if(document.pictureInPictureElement) document.exitPictureInPicture(); document.querySelectorAll('video').forEach(v => { if(v.webkitPresentationMode === 'picture-in-picture') v.webkitSetPresentationMode('inline'); })", completion: nil)

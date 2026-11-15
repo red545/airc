@@ -10,6 +10,9 @@
 # the build Mac is covered), local and SSH usernames, home-directory prefixes, the hosts in
 # ~/.ssh/config, the git and GitHub identities configured here, and the private IP ranges.
 # Add more lines by hand afterwards (for example real Space or tab names); a rerun keeps them.
+# Values listed one per line in <out-file minus .txt>.skip (also outside the repo) are never added:
+# use it only for names that identify nothing, such as an SSH alias like "buildmac" that the repo's
+# own scripts use. Never skip an IP address, a tailnet name or a real machine name.
 #
 # Format, one per line:  <kind><TAB>literal:<text>   or   <kind><TAB>regex:<python regex>
 # Literals match case-insensitively and only at alphanumeric boundaries.
@@ -28,9 +31,13 @@ add() { # kind value
   [[ -n "$value" ]] || return 0
   # Too short or a stock device name (phones report "localhost"): would match ordinary text.
   if [[ ${#value} -lt 4 || " $GENERIC " == *" ${value,,} "* ]]; then skipped=$((skipped + 1)); return 0; fi
+  if grep -qixF -- "$value" <<<"$SKIP"; then skipped=$((skipped + 1)); return 0; fi
   printf '%s\tliteral:%s\n' "$kind" "$value" >>"$tmp"
 }
 skipped=0
+skip_file=${out%.txt}.skip
+SKIP=$( [[ -f "$skip_file" ]] && grep -v '^#' "$skip_file" || true)
+if grep -qE '^[0-9.]+$|:|\.ts\.net$' <<<"$SKIP"; then echo "Refusing: $skip_file lists an IP or tailnet name." >&2; exit 2; fi
 GENERIC="localhost iphone ipad android macbook macbook-pro macbook-air imac mac-mini desktop laptop ubuntu debian raspberrypi"
 
 # Tailnet: this machine, its peers and the tailnet itself.
@@ -110,4 +117,4 @@ mv "$out.new" "$out"
 
 echo "Wrote $(grep -cv '^#' "$out") patterns:"
 grep -v '^#' "$out" | cut -f1 | sort | uniq -c
-[[ $skipped == 0 ]] || echo "Skipped $skipped value(s) shorter than 4 characters or generic device names (too generic to match safely)."
+[[ $skipped == 0 ]] || echo "Skipped $skipped value(s): shorter than 4 characters, generic device names, or listed in the .skip file."

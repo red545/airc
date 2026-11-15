@@ -21,6 +21,7 @@
 #include "extensions/browser/extension_install_prompt_client.h"
 #include "extensions/common/extension_id.h"
 #include "airc/core/airc_hooks.h"
+#include "airc/core/airc_call_share_target.h"
 #include "airc/core/airc_browser.h"
 #include "airc/core/airc_cast_dialog.h"
 #include "airc/core/airc_browser_window.h"
@@ -150,6 +151,7 @@ void DevToolsDockChanged(BrowserWindowInterface* browser,
 }
 
 void InstallChromeHooks() {
+  g_airc_call_share = &CallShareChanged;
   g_airc_browser_window_factory = &WindowForChromeBrowser;
   g_airc_reserved_accelerator = &IsReservedAccelerator;
   g_airc_reserved_global_accelerator = &IsReservedGlobalAccelerator;

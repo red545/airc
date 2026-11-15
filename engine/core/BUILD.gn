@@ -49,7 +49,22 @@ executable("passkeys_store_test") {
   testonly = true
   sources = [ "airc_passkeys_store_test.mm" ]
   deps = [ ":passkey_access_group", "//base", "//crypto", "//device/fido" ]
-  frameworks = [ "Foundation.framework", "Security.framework" ]
+  frameworks = [ "Foundation.framework", "LocalAuthentication.framework", "Security.framework" ]
+}
+
+# When profile passkeys ask for Touch ID or the Mac's password: Chromium's
+# LocalAuthentication seam and fake keychain, no prompt and no signing needed.
+executable("passkeys_uv_test") {
+  testonly = true
+  sources = [ "airc_passkeys_uv_test.mm" ]
+  deps = [
+    "//base",
+    "//crypto:test_support",
+    "//device/fido",
+    "//device/fido:test_support",
+    "//ui/base",
+    "//ui/gfx",
+  ]
 }
 
 source_set("hooks") {
@@ -86,6 +101,8 @@ source_set("core") {
     "airc_window_host_close.mm",
     "airc_window_host_dialogs.mm",
     "airc_window_host_tabs.mm",
+    "airc_call_share_target.h",
+    "airc_call_share_target.mm",
     "airc_cast_dialog.h",
     "airc_cast_dialog.mm",
     "airc_content_hooks.h",
@@ -273,6 +290,7 @@ source_set("core") {
     "//ui/events:events_base",
     "//ui/events/blink",
     "//ui/gfx",
+    "//ui/menus",
     "//ui/views",
   ]
 

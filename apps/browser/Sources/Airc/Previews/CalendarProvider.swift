@@ -5,8 +5,8 @@ import AppKit
 /// M08's seam (CalendarAccountEvents): Live Calendar's meetings from a Calendar Favorite's account (Google Calendar,
 /// Outlook Calendar) when its calendars aren't on this Mac. It reads what the service previews' calendar provider last
 /// answered for each Calendar Favorite's account (ServicePreviewCenter), and asks again only for accounts whose site
-/// was opened in their profile, at most once a minute. Airc has no real calendar provider yet (P11b/c); scripted runs
-/// use the fake one on loopback fixtures.
+/// was opened in their profile, at most once a minute. The provider is the calendar page's own reader (calprev,
+/// PageMailProvider): a Favorite's account gives meetings once its page has been read in its profile.
 final class PreviewCalendarAccounts: CalendarAccountEvents {
     static let shared = PreviewCalendarAccounts()
     var onChange: (() -> Void)?

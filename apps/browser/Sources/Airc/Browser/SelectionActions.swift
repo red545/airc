@@ -62,9 +62,11 @@ extension WindowController {
         m.add("New Folder with \(n) \(noun)") { [weak self] in self?.newFolderWithSelected(ids, spaceID: spaceID) }
         m.addItem(addToFolderMenu(ids: ids, spaceID: spaceID))
         m.addItem(moveToSpaceMenu(ids: ids, spaceID: spaceID))
+        addResetFoldersItem(to: m, ids: ids)
         m.addItem(.separator())
         m.add("Close \(n) \(noun)", "⌘W") { [weak self] in self?.closeSelected(ids, spaceID: spaceID) }
         m.add("Archive \(n) \(noun)", "⌫") { [weak self] in self?.archiveSelected(ids, spaceID: spaceID) }
+        addSelectionArchiveRows(to: m, ids: ids, spaceID: spaceID)   // S09: Archive Tabs Below, Archive Other Tabs
         return m
     }
 
@@ -73,30 +75,58 @@ extension WindowController {
         let item = NSMenuItem(title: "Add to Folder", action: nil, keyEquivalent: "")
         let sub = NSMenu()
         let selected = Set(ids)
-        func walk(_ parent: String?, depth: Int) {
-            for f in store.children(of: .pinned(spaceID: spaceID), parent: parent) where f.kind == .folder && !selected.contains(f.id) {
+        func walk(_ container: ItemContainer, _ parent: String?, depth: Int) {
+            for f in store.children(of: container, parent: parent) where f.kind == .folder && !selected.contains(f.id) {
                 let row = sub.add((f.icon ?? "").isEmpty ? f.displayTitle : "\(f.icon!)  \(f.displayTitle)") { [weak self] in
                     self?.addSelected(ids, toFolder: f.id, spaceID: spaceID)
                 }
                 row.indentationLevel = depth
-                walk(f.id, depth: depth + 1)
+                walk(container, f.id, depth: depth + 1)
             }
         }
-        walk(nil, depth: 0)
+        walk(.pinned(spaceID: spaceID), nil, depth: 0)
+        // Then the folders in Today (AircKit's TodayFolders.swift), after a line.
+        if !store.todayFolders(ofSpace: spaceID).isEmpty {
+            if !sub.items.isEmpty { sub.addItem(.separator()) }
+            walk(.today(spaceID: spaceID), nil, depth: 0)
+        }
         item.submenu = sub
         item.isEnabled = !sub.items.isEmpty
         return item
     }
 
+    /// "Move to Space ›" (S09/S11): AircKit's MoveToPlan for the selection's profile, grouped by profile as a row's
+    /// Move to › is. Pinned rows and folders stay pinned there, nesting intact; selected Favorites become pinned
+    /// there; Today rows go to the top of its Today. One ⌘Z.
     private func moveToSpaceMenu(ids: [String], spaceID: String) -> NSMenuItem {
         let item = NSMenuItem(title: "Move to Space", action: nil, keyEquivalent: "")
         let sub = NSMenu()
-        for s in store.orderedSpaces where s.id != spaceID {
-            sub.add(s.iconLabel.isEmpty ? s.name : "\(s.iconLabel)  \(s.name)") { [weak self] in self?.moveSelected(ids, from: spaceID, to: s.id) }
+        let pid = store.profile(ofSpace: spaceID).id
+        let hasFavorite = ids.contains { store.item($0)?.isFavorite == true }
+        let plan = store.moveToPlan(fromProfile: pid, excludingSpace: hasFavorite ? nil : spaceID, favorites: false)
+        addMovePlan(plan, to: sub) { [weak self] target in
+            guard case .space(let sid) = target else { return }
+            self?.moveSelected(ids, from: spaceID, to: sid)
         }
         item.submenu = sub
         item.isEnabled = !sub.items.isEmpty
         return item
+    }
+
+    /// "Reset N Folders": the selected folders' pinned tabs away from their saved URLs go back, as Reset Folder does
+    /// for one (one question for pages with unsaved changes, one ⌘Z). Only when every selected row is a folder.
+    private func addResetFoldersItem(to m: NSMenu, ids: [String]) {
+        let folders = ids.filter { store.item($0)?.kind == .folder }
+        guard folders.count == ids.count, folders.count > 1 else { return }
+        let tabs = folders.flatMap { store.driftedPinnedTabs(inFolder: $0).map(\.id) }
+        m.add("Reset \(folders.count) Folders") { [weak self] in
+            guard let self else { return }
+            self.pageView(for: self.currentSpaceID)?.clearSelection()
+            var seen = Set<String>()   // a selected folder inside another selected one lists its tabs once
+            let ids = folders.flatMap { self.store.driftedPinnedTabs(inFolder: $0).map(\.id) }.filter { seen.insert($0).inserted }
+            guard !ids.isEmpty else { return NSSound.beep() }
+            self.resetTabs(ids, keepCurrent: false, question: "Reset all tabs in these folders?")
+        }.isEnabled = !tabs.isEmpty
     }
 
     // MARK: The actions
@@ -233,16 +263,20 @@ extension WindowController {
             let next = self.nextTab(afterClosing: moving)
             let shown = self.shownTabID
             do {
-                self.reloadPagesInNewProfile(try self.store.move(sources, toSpace: target))
+                // S09/S11: selected Favorites become pinned there too (AircKit's MoveToCommands).
+                let reload = try self.store.moveRows(sources, toSpace: target)
+                self.reloadPagesInNewProfile(reload)
+                if !reload.isEmpty { self.showToast("Moved to “\(TextLimits.clip(space.name))”, in its Profile’s logins and cookies") }
             } catch { return NSSound.beep() }
             if let shown, moving.contains(shown), spaceID == self.currentSpaceID {
                 if let next { self.show(next) } else { self.showEmpty() }
             }
         }
-        if store.profile(ofSpace: spaceID).id != space.profileID, !tabs.isEmpty {
-            confirmInterProfileMove(title: "Move \(sources.count) tabs to “\(space.name)”?",
-                                    message: "Their pages reload with the other Profile’s logins and data, so they may look different.",
-                                    confirm: "Move them", then: go)
+        let reopening = store.tabsReopening(sources, inProfile: space.profileID).filter { engineTab(for: $0.id) != nil }
+        if !reopening.isEmpty {
+            confirmInterProfileMove(title: "Move \(sources.count) items to “\(space.name)”?",
+                                    message: "Their pages reopen with the other Profile’s logins and cookies, so they may look different. ⌘Z moves them back.",
+                                    confirm: "Move", then: go)
         } else {
             go()
         }
@@ -274,6 +308,7 @@ extension WindowController {
         performDrop(sources, to: destination)
         let sid: String? = switch destination {
         case .pinned(let s, _, _), .today(let s, _), .split(let s, _, _): s
+        case .todayFolder(let f, _): store.item(f)?.spaceID
         case .favorites: nil
         }
         if let sid, sid != other.currentSpaceID, other.windowSpaces.contains(where: { $0.id == sid }) { other.switchToSpace(sid, animated: false) }

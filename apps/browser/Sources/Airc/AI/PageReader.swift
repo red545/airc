@@ -186,7 +186,8 @@ enum PageReader {
     """
 }
 
-/// Loads a page nobody sees, in a given profile, reads its text and closes it: link previews (LinkPreviewCard.swift).
+/// Loads a page nobody sees, in a given profile, reads its text and closes it: link previews (LinkPreviewCard.swift);
+/// or runs another read-only script in it instead (`evaluate`: Instant Links reads a results page's links).
 /// One never-shown engine window holds at most two such pages at a time (at most four more wait; a fifth pushes out the
 /// oldest waiting); it goes after a minute without work. Each page has a hard deadline past its load timeout, so a page
 /// whose read never answers can't hold its place. A read no longer wanted (`cancel`) leaves the queue, or its page
@@ -208,7 +209,9 @@ final class HiddenPageReader: NSObject, EngineWindowDelegate, EngineTabDelegate 
         let profile: EngineProfile
         let profileID: String
         let cap: Int
-        let done: (PageText?) -> Void
+        /// Run instead of the text reader (its value is the answer; null: not ready yet).
+        let script: String?
+        let done: (Any?) -> Void
     }
     private final class Load {
         let tab: EngineTab
@@ -239,8 +242,21 @@ final class HiddenPageReader: NSObject, EngineWindowDelegate, EngineTabDelegate 
     /// Reads `url` in a profile; `completion` gets its text, or nil, once. Returns the read's ID for `cancel`.
     @discardableResult
     func read(_ url: URL, profile: EngineProfile, profileID: String = "", cap: Int, completion: @escaping (PageText?) -> Void) -> Int {
+        enqueue(url, profile: profile, profileID: profileID, cap: cap, script: nil) { completion($0 as? PageText) }
+    }
+
+    /// Loads `url` in a profile and runs `script` in it once it has loaded (again until the deadline while it answers
+    /// null); `completion` gets its value, or nil, once. Returns the load's ID for `cancel`.
+    @discardableResult
+    func evaluate(_ url: URL, profile: EngineProfile, profileID: String = "", script: String,
+                  completion: @escaping (Any?) -> Void) -> Int {
+        enqueue(url, profile: profile, profileID: profileID, cap: 0, script: script, completion: completion)
+    }
+
+    private func enqueue(_ url: URL, profile: EngineProfile, profileID: String, cap: Int, script: String?,
+                         completion: @escaping (Any?) -> Void) -> Int {
         nextID += 1
-        queue.append(Job(id: nextID, url: url, profile: profile, profileID: profileID, cap: cap, done: completion))
+        queue.append(Job(id: nextID, url: url, profile: profile, profileID: profileID, cap: cap, script: script, done: completion))
         while queue.count > Self.maxWaiting + max(0, Self.concurrent - loads.count) { queue.removeFirst().done(nil) }
         pump()
         return nextID
@@ -318,6 +334,17 @@ final class HiddenPageReader: NSObject, EngineWindowDelegate, EngineTabDelegate 
             if now.timeIntervalSince(l.settledAt!) < 0.4 { return }
         }
         l.reading = true
+        if let script = l.job.script {
+            l.tab.evaluate(script) { [weak self] value in
+                guard let self else { return }
+                if value == nil || value is NSNull, !late {
+                    l.reading = false
+                    return
+                }
+                self.finish(l, value is NSNull ? nil : value)
+            }
+            return
+        }
         PageReader.read(l.tab, cap: l.job.cap) { [weak self] page in
             guard let self else { return }
             if page == nil, !late {
@@ -328,7 +355,7 @@ final class HiddenPageReader: NSObject, EngineWindowDelegate, EngineTabDelegate 
         }
     }
 
-    private func finish(_ l: Load, _ page: PageText?) {
+    private func finish(_ l: Load, _ page: Any?) {
         guard !l.finished else { return }
         l.finished = true
         loads.removeAll { $0 === l }

@@ -186,6 +186,52 @@ final class BulkActionTests: XCTestCase {
         XCTAssertNil(k.s.item(f.id), "one ⌘Z takes the folder away too")
     }
 
+    /// Arc: "New Folder with N Tabs" on Today tabs makes the folder in Today, where the first one was; they stay
+    /// Today tabs (auto-archive, Clear). One ⌘Z undoes it.
+    func testNewFolderWithTodayTabsMakesATodayFolderWhereTheyWere() throws {
+        let k = try fixture()
+        let f = try k.s.newFolder(with: [.tab(k.b.id), .tab(k.a.id)], inSpace: k.sid)
+        XCTAssertNotNil(k.s.todayFolder(f.id), "a Today folder, not a pinned one")
+        XCTAssertEqual(pinned(k.s, k.sid), ["P", "Q", "F"], "Pinned unchanged")
+        XCTAssertEqual(k.s.todayRootRows(ofSpace: k.sid).map(\.id), [k.c.id, f.id], "where B was, below C")
+        XCTAssertEqual(k.s.todayFolderTabs(f.id).map(\.title), ["B", "A"])
+        XCTAssertTrue(k.s.todayFolderTabs(f.id).allSatisfy(\.isToday))
+        XCTAssertEqual(k.s.undoLabel, "New Folder")
+        _ = try k.s.undo()
+        XCTAssertNil(k.s.item(f.id))
+        XCTAssertEqual(today(k.s, k.sid), ["C", "B", "A"])
+
+        // Inside a Today folder: the new one nests there, where its first row was.
+        let outer = try k.s.newFolder(with: [.tab(k.c.id), .tab(k.b.id), .tab(k.a.id)], named: "Outer", inSpace: k.sid)
+        let inner = try k.s.newFolder(with: [.tab(k.b.id), .tab(k.a.id)], named: "Inner", inSpace: k.sid)
+        XCTAssertEqual(inner.parentID, outer.id)
+        XCTAssertEqual(k.s.todayFolderContents(outer.id).map(\.id), [k.c.id, inner.id])
+        XCTAssertEqual(k.s.todayFolderTabs(inner.id).map(\.title), ["B", "A"])
+
+        // Rows from Today's top level and a folder: the new one goes at the top level, where the first was.
+        let d = try k.s.openTab(url: "https://example.com/d", inSpace: k.sid, title: "D")
+        let mixed = try k.s.newFolder(with: [.tab(d.id), .tab(k.c.id)], named: "Mixed", inSpace: k.sid)
+        XCTAssertNil(mixed.parentID)
+        XCTAssertEqual(k.s.todayRootRows(ofSpace: k.sid).map(\.id), [mixed.id, outer.id])
+    }
+
+    /// A mixed selection follows its first (topmost) row: a pinned row first makes a pinned folder, and its Today tabs
+    /// become pinned tabs, as before.
+    func testNewFolderWithPinnedFirstStaysPinned() throws {
+        let k = try fixture()
+        let f = try k.s.newFolder(with: [.item(k.q.id), .tab(k.b.id)], inSpace: k.sid)
+        XCTAssertNil(k.s.todayFolder(f.id))
+        XCTAssertEqual(f.container, .pinned(spaceID: k.sid))
+        XCTAssertEqual(pinned(k.s, k.sid, in: f.id), ["Q", "B"])
+        XCTAssertEqual(pinned(k.s, k.sid), ["P", "F", "New Folder"], "at the end of Pinned")
+        XCTAssertEqual(today(k.s, k.sid), ["C", "A"])
+        // A Today folder first: a Today folder, and the pinned tab after it becomes a Today tab inside it.
+        let tf = try k.s.newFolder(with: [.tab(k.c.id)], named: "T", inSpace: k.sid)
+        let g = try k.s.newFolder(with: [.item(tf.id), .item(k.p.id)], named: "G", inSpace: k.sid)
+        XCTAssertNotNil(k.s.todayFolder(g.id))
+        XCTAssertEqual(k.s.todayFolderTabs(g.id).map(\.title), ["C", "P"])
+    }
+
     func testNewFolderFromRowsInsideAFolderNestsWhereTheyWere() throws {
         let k = try fixture()
         let z = try k.s.openTab(url: "https://example.com/z", inSpace: k.sid, title: "Z")

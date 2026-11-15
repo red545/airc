@@ -274,9 +274,13 @@ class BlockingLoad final : public network::mojom::URLLoader,
     decision_=context_.Evaluate(request_,true);
     if (decision_.blocked) { Complete(net::ERR_BLOCKED_BY_CLIENT); return; }
     if (decision_.rewrite.is_valid()) request_.url=decision_.rewrite;
-    // Supply the checked target even when a filter removed parameters from a
-    // server redirect. The downstream network loader retains redirect checks.
-    loader_->FollowRedirect(std::move(headers),request_.url);
+    // Pass a target only when it differs from the server's. The network
+    // service turns any new_url into an internal 307 to it, so passing the
+    // unchanged target redirected every load to itself until the navigation
+    // failed with ERR_TOO_MANY_REDIRECTS (Google sign-in, Stripe, LinkedIn...).
+    std::optional<GURL> target;
+    if (request_.url!=server_redirect_url_) target=request_.url;
+    loader_->FollowRedirect(std::move(headers),target);
   }
   void SetPriority(net::RequestPriority priority,int32_t intra) override { loader_->SetPriority(priority,intra); }
   void OnReceiveEarlyHints(network::mojom::EarlyHintsPtr hints) override { client_->OnReceiveEarlyHints(std::move(hints)); }
@@ -294,6 +298,7 @@ class BlockingLoad final : public network::mojom::URLLoader,
     client_->OnReceiveResponse(std::move(head),std::move(body),std::move(metadata));
   }
   void OnReceiveRedirect(const net::RedirectInfo& redirect,network::mojom::URLResponseHeadPtr head) override {
+    server_redirect_url_=redirect.new_url;
     request_.url=redirect.new_url; request_.method=redirect.new_method;
     decision_=context_.Evaluate(request_,true);
     if (decision_.blocked) { Complete(net::ERR_BLOCKED_BY_CLIENT); return; }
@@ -315,6 +320,8 @@ class BlockingLoad final : public network::mojom::URLLoader,
   MatchContext context_;
   Decision decision_;
   network::ResourceRequest request_;
+  // The target the network loader will follow unless told otherwise.
+  GURL server_redirect_url_;
   mojo::Receiver<network::mojom::URLLoader> receiver_;
   mojo::Remote<network::mojom::URLLoaderClient> client_;
   mojo::Receiver<network::mojom::URLLoaderClient> response_;
@@ -344,6 +351,14 @@ class BlockingFactory final : public network::SelfDeletingURLLoaderFactory {
   mojo::Remote<network::mojom::URLLoaderFactory> target_;
   MatchContext context_;
 };
+}
+std::string BlockingDocumentScript(content::BrowserContext* context, const GURL& url) {
+  auto* state=State(context);
+  if (!url.SchemeIsHTTPOrHTTPS() || !state->Enabled() || state->Excepted(Host(url)) || !state->ActiveRules()) return {};
+  auto value=url.spec();
+  NSDictionary* resources=JSON(airc_blocking_cosmetics(state->ActiveRules().get(),Bytes(value),value.size()));
+  NSString* script=resources[@"injected_script"];
+  return [script isKindOfClass:NSString.class] ? base::SysNSStringToUTF8(script) : std::string();
 }
 void ObserveBlockingPage(content::WebContents* contents) {
   // Observe before the first navigation reaches ReadyToCommitNavigation.

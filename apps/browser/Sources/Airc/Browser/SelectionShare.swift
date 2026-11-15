@@ -217,7 +217,7 @@ final class QuoteLinkOfferView: NSView {
     func show(_ link: String, palette: Palette, in container: NSRect, duration: Double = 6) {
         self.link = link
         label.textColor = palette.panelText
-        button.contentTintColor = palette.resolved.accent.nsColor
+        button.contentTintColor = palette.resolved.accentText.nsColor
         layer?.backgroundColor = palette.panelBackground.cgColor
         layer?.borderWidth = 0.5
         layer?.borderColor = palette.panelBorder.cgColor
@@ -265,13 +265,25 @@ extension WindowController {
               let url = page.url?.absoluteString else { return }
         let changeCount = board.changeCount
         func words(_ s: String) -> String { s.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).joined(separator: " ") }
-        page.evaluate("String(window.getSelection() || '')") { [weak self, weak page] v in
-            guard let self, let page, page === self.displayedLinkPage, board.changeCount == changeCount,
-                  let selection = v as? String, words(selection).count >= 3, words(selection) == words(copied),
-                  let link = LinkCopyPolicy.textFragmentURL(url, selection: selection) else { return }
+        page.evaluate(Self.selectionToWholeWordsScript) { [weak self, weak page] v in
+            let pair = (v as? [Any])?.compactMap { $0 as? String } ?? []
+            guard let self, let page, page === self.displayedLinkPage, board.changeCount == changeCount, pair.count == 2,
+                  case let selection = pair[0], words(selection).count >= 3, words(selection) == words(copied),
+                  let link = LinkCopyPolicy.textFragmentURL(url, selection: pair[1].isEmpty ? selection : pair[1]) else { return }
             self.showQuoteLinkOffer(link)
         }
     }
+
+    /// The page's selection, and the same text out to whole words: a text fragment only matches at word boundaries, so
+    /// a selection that starts or ends inside a word ("…the ferries sto") would make a link that finds nothing. Chrome's
+    /// Copy Link to Highlight does the same. The page's selection itself isn't changed.
+    static let selectionToWholeWordsScript = """
+        (function(){var s=window.getSelection();var t=String(s||'');if(!s||!s.rangeCount)return [t,t];
+        var r=s.getRangeAt(0).cloneRange();var w=/[\\p{L}\\p{N}\\p{M}_'’]/u;
+        var n=r.startContainer,o=r.startOffset;if(n.nodeType===3){while(o>0&&w.test(n.data[o-1]))o--;r.setStart(n,o);}
+        n=r.endContainer;o=r.endOffset;if(n.nodeType===3){while(o<n.data.length&&w.test(n.data[o]))o++;r.setEnd(n,o);}
+        return [t,String(r)];})()
+        """
 
     func showQuoteLinkOffer(_ link: String) {
         let offer = quoteLinkOffer ?? {
@@ -282,5 +294,239 @@ extension WindowController {
         offer.onCopy = { [weak self] link in self?.writeLinks(link, toast: "Copied a link to this text") }
         offer.onDisable = { [weak self] in self?.setSharedQuotes(false) }
         offer.show(link, palette: currentPalette, in: card.frame)
+    }
+}
+
+// MARK: Arc's Share Quote under the URL (C06)
+
+/// Arc's affordance below the URL field while page text is selected ("Share Quote", decoded from Arc 1.171): a small
+/// pill that copies the page's link to the selected text, the same whole-word text fragment as the ⌘C offer, cleaned by
+/// the Super Copy policy (LinkCopyPolicy). It appears once a selection is made (after the mouse-up or the key that made
+/// it, never during a drag) and goes when the selection does, when another page is on screen, the sidebar hides, or
+/// Shared Quotes is turned off.
+final class QuotePillView: NSView {
+    static let title = "Share Quote"
+    weak var controller: WindowController?
+    let icon = NSImageView()
+    let label = NSTextField(labelWithString: QuotePillView.title)
+    /// The link a click copies.
+    private(set) var link = ""
+    /// The page the link is for (the pill goes when another one is on screen).
+    private weak var page: EngineTab?
+    private var poll: Timer?
+    /// Each new look at the selection; a slower, older answer is ignored.
+    private var generation = 0
+    private var hovered = false
+    /// How often it appeared (a drag shows it once, after the mouse-up).
+    private(set) var shows = 0
+
+    static let height: CGFloat = 22
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.cornerRadius = Self.height / 2
+        layer?.cornerCurve = .continuous
+        layer?.shadowOpacity = 0.12
+        layer?.shadowRadius = 4
+        layer?.shadowOffset = CGSize(width: 0, height: -1)
+        icon.image = NSImage(systemSymbolName: "quote.bubble", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
+        label.font = AircFont.callout.weight(.medium).appFont
+        addSubview(icon)
+        addSubview(label)
+        isHidden = true
+        toolTip = "Copy a link to the selected text"
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(Self.title)
+        setAccessibilityHelp("Copies a link that opens this page at the selected text")
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+    override var isFlipped: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    /// The whole pill takes the click (not its label or glyph).
+    override func hitTest(_ point: NSPoint) -> NSView? { !isHidden && frame.contains(point) ? self : nil }
+    override func accessibilityPerformPress() -> Bool { copyLink(); return true }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+
+    override func mouseEntered(with event: NSEvent) { hovered = true; paint() }
+    override func mouseExited(with event: NSEvent) { hovered = false; paint() }
+
+    override func mouseDown(with event: NSEvent) {
+        if openContextMenuForControlClick(event) { return }
+        layer?.backgroundColor = controller?.currentPalette.pressed.cgColor
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if bounds.contains(convert(event.locationInWindow, from: nil)) { copyLink() } else { paint() }
+    }
+
+    /// Its right-click menu: Arc's switch, as on the ⌘C offer.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let m = NSMenu()
+        m.add("Disable Shared Quotes") { [weak self] in
+            self?.hide()
+            self?.controller?.setSharedQuotes(false)
+        }
+        return m
+    }
+
+    func copyLink() {
+        guard !isHidden, !link.isEmpty else { return }
+        let l = link
+        hide()
+        controller?.writeLinks(l, toast: "Copied a link to this text")
+    }
+
+    private func paint() {
+        guard let c = controller else { return }
+        let p = c.currentPalette
+        layer?.backgroundColor = (hovered ? p.tileHover : p.urlFieldFill).cgColor
+        layer?.borderWidth = 0.5
+        layer?.borderColor = p.separator.cgColor
+        icon.contentTintColor = hovered ? p.textPrimary : p.glyph
+        label.textColor = hovered ? p.textPrimary : p.textSecondary
+    }
+
+    /// Centred under the URL field (the sidebar's coordinates are flipped: the field is at the top).
+    func place() {
+        label.sizeToFit()
+        let h = Self.height, gap: CGFloat = 5, side: CGFloat = 10, glyph: CGFloat = 13
+        let w = side + glyph + gap + ceil(label.frame.width) + side
+        let sidebar = superview?.bounds.width ?? 0
+        // Under the URL field, or under Developer Mode's strip while it shows there.
+        var below = AircMetrics.Sidebar.urlFieldTop + AircMetrics.Sidebar.urlFieldHeight
+        if let c = controller, let page = c.pageView(for: c.currentSpaceID), let sup = superview {
+            let strip = page.developerStrip
+            let anchor: NSView = strip.superview != nil && !strip.isHidden ? strip : page.urlField
+            if anchor.window != nil { below = anchor.convert(anchor.bounds, to: sup).maxY }
+        }
+        frame = NSRect(x: ((sidebar - w) / 2).rounded(), y: below + 3, width: w, height: h)
+        icon.frame = NSRect(x: side, y: (h - glyph) / 2, width: glyph, height: glyph)
+        label.frame.origin = NSPoint(x: side + glyph + gap, y: ((h - label.frame.height) / 2).rounded())
+        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: h / 2, cornerHeight: h / 2, transform: nil)
+    }
+
+    /// The page's selection may have changed (a mouse-up or a key in the window): look again, and show the pill for a
+    /// selection worth a link. `poll` looks only to take it away: it never shows the pill by itself.
+    func refresh(poll fromPoll: Bool = false) {
+        guard let c = controller else { return }
+        generation += 1
+        let asked = generation
+        guard c.app?.settings.values.sharedQuotes != false, !c.sidebarHidden, !c.sidebar.isHidden, c.peek == nil,
+              let id = c.shownTabID, !c.store.isNoteTab(id), let page = c.engineTab(for: id),
+              let url = page.url?.absoluteString, url.hasPrefix("http://") || url.hasPrefix("https://"),
+              !fromPoll || page === self.page else { return hide() }
+        page.evaluate(Self.selectionScript) { [weak self, weak page] v in
+            guard let self, let page, asked == self.generation, page === c.shownTabID.flatMap(c.engineTab) else { return }
+            let pair = (v as? [Any])?.compactMap { $0 as? String } ?? []
+            func words(_ s: String) -> [Substring] { s.split(whereSeparator: { $0.isWhitespace || $0.isNewline }) }
+            guard pair.count == 2, words(pair[0]).count >= 3,
+                  let link = LinkCopyPolicy.textFragmentURL(url, selection: pair[1].isEmpty ? pair[0] : pair[1]) else { return self.hide() }
+            // The sidebar may have been resized meanwhile.
+            if fromPoll { if link != self.link { self.hide() } else { self.place() }; return }
+            self.show(link, for: page)
+        }
+    }
+
+    /// The page's selection out to whole words (`selectionToWholeWordsScript`); null while a field or an editor has the
+    /// focus (a text fragment can't point into one).
+    static let selectionScript = "(function(){var a=document.activeElement;"
+        + "if(a&&(a.isContentEditable||/^(input|textarea|select)$/i.test(a.tagName)))return null;"
+        + "var s=window.getSelection();if(!s||s.isCollapsed)return null;return \(WindowController.selectionToWholeWordsScript.trimmingCharacters(in: .whitespacesAndNewlines))})()"
+
+    private func show(_ link: String, for page: EngineTab) {
+        self.link = link
+        self.page = page
+        superview?.addSubview(self)   // over the pager, the header and anything added since
+        place()
+        paint()
+        // Hidden, or still fading out from a moment ago.
+        makeRoom(true)
+        if isHidden || (layer?.opacity ?? 1) < 1 {
+            let from: Float = isHidden ? 0 : layer?.presentation()?.opacity ?? 0
+            if isHidden { shows += 1 }
+            isHidden = false
+            layer?.fade(from: from, to: 1, duration: AircCurve.previewIn.duration)
+        }
+        poll?.invalidate()
+        poll = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.refresh(poll: true) }
+    }
+
+    func hide() {
+        poll?.invalidate()
+        poll = nil
+        generation += 1
+        guard !isHidden, (layer?.opacity ?? 1) > 0 else { return }
+        makeRoom(false)
+        hovered = false
+        layer?.fade(from: 1, to: 0, duration: AircCurve.toastOut.duration)
+        let shown = shows
+        DispatchQueue.main.asyncAfter(deadline: .now() + AircCurve.toastOut.duration) { [weak self] in
+            guard let self, self.shows == shown, self.poll == nil else { return }
+            self.isHidden = true
+        }
+    }
+
+    /// The Space's list moves down to make room under the URL field (and back), on the row spring, so the pill never
+    /// covers Favorites or the Space's name.
+    private func makeRoom(_ on: Bool) {
+        guard let c = controller else { return }
+        let room: CGFloat = on ? Self.height + 4 : 0
+        let pages = c.sidebar.pager.pages.filter { $0.quotePillRoom != (on && $0.spaceID == c.currentSpaceID ? room : 0) }
+        guard !pages.isEmpty else { return }
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = AircCurve.previewIn.duration * 2
+            ctx.allowsImplicitAnimation = true
+            for p in pages {
+                p.quotePillRoom = on && p.spaceID == c.currentSpaceID ? room : 0
+                p.layoutSubtreeIfNeeded()
+            }
+        }
+    }
+
+    // MARK: Where selections change
+
+    private static var monitor: Any?
+
+    /// One monitor for the app: a mouse-up or a key-up in a browser window, once the page has taken it, makes that
+    /// window's pill look at the selection. A drag selects with no mouse-up until it ends, so the pill never flickers.
+    static func installMonitor() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp, .keyUp]) { event in
+            guard let w = event.window, let c = (NSApp.delegate as? AppDelegate)?.controller(for: w), let pill = c.quotePill else { return event }
+            if event.type == .leftMouseUp, !pill.isHidden, pill.bounds.contains(pill.convert(event.locationInWindow, from: nil)) { return event }
+            // Once the page has had the event, and again a little later: an engine may update its selection after
+            // the event reached it (a later answer replaces the first).
+            for delay in [0.12, 0.4] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak c, weak pill] in
+                    guard let c, let pill, c.focusedPage != nil || !pill.isHidden else { return }
+                    pill.refresh()
+                }
+            }
+            return event
+        }
+    }
+}
+
+extension WindowController {
+    /// The Share Quote pill under this window's URL field.
+    var quotePill: QuotePillView? { sidebar.subviews.first { $0 is QuotePillView } as? QuotePillView }
+
+    /// From the sidebar (SidebarView.connect): the pill, and the app's selection monitor.
+    func installQuotePill() {
+        guard quotePill == nil else { return }
+        let pill = QuotePillView()
+        pill.controller = self
+        sidebar.addSubview(pill)
+        QuotePillView.installMonitor()
     }
 }

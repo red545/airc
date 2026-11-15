@@ -8,6 +8,8 @@ import SwiftUI
 /// P22: what didn't come over, grouped by reason, above the rows; a whole database or profile that couldn't be read as
 /// one row; and **Try Again**, which redoes only the parts that failed and may pass on another try (a database Arc was
 /// writing, a store that didn't answer), keeping everything that came over.
+/// P22b: sites' storage rows, and the sites to sign in to again through another account ("Sign in with Google"), by
+/// provider, whether or not the engine kept them as federated sign-ins.
 struct ImportResultsView: View {
     typealias Row = CredentialImport.ResultRow
     let outcome: CredentialImport.Outcome
@@ -64,6 +66,15 @@ struct ImportResultsView: View {
                 }
                 .testAnchor("results.reasons")
             }
+            let federated = shown.federated
+            if !federated.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(0..<min(3, federated.count), id: \.self) { i in
+                        federatedLine(federated[i].provider, federated[i].sites)
+                    }
+                }
+                .testAnchor("results.federated")
+            }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if visible.isEmpty {
@@ -77,8 +88,17 @@ struct ImportResultsView: View {
             .frame(maxHeight: maxHeight)
             .fixedSize(horizontal: false, vertical: visible.count < 5)
             .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(theme.fieldFill.color))
+            // arcimport3: what never comes over, said once (not per site).
+            if shown.sections.contains(where: { $0.part.kind == .siteData }) {
+                Text(Self.neverImported)
+                    .aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextTertiary.color)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .testAnchor("results.never")
+            }
         }
     }
+
+    static let neverImported = "Never brought over: sites' offline databases (IndexedDB), service workers and their caches, each tab's session storage, and notes on saved passwords."
 
     private var retryButton: some View {
         let profiles = Set(shown.retryable.map(\.profileID)).count
@@ -105,7 +125,24 @@ struct ImportResultsView: View {
     }
 
     private func noun(_ kind: Row.Kind, _ n: Int) -> String {
-        kind == .login ? (n == 1 ? "login" : "logins") : (n == 1 ? "cookie" : "cookies")
+        switch kind {
+        case .login: n == 1 ? "login" : "logins"
+        case .cookies: n == 1 ? "cookie" : "cookies"
+        case .siteData: n == 1 ? "site" : "sites"
+        }
+    }
+
+    /// "Use Sign in with Google on a.example and b.example: Arc keeps no password for these."
+    private func federatedLine(_ provider: String, _ sites: [String]) -> some View {
+        let shownSites = sites.prefix(4).joined(separator: ", ") + (sites.count > 4 ? " and \(sites.count - 4) more" : "")
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "person.crop.circle").font(.system(size: 10, weight: .semibold)).frame(width: 14)
+                .foregroundStyle(theme.surfaceTextSecondary.color)
+            (Text("Use “Sign in with \(CredentialImport.providerName(provider))”").fontWeight(.semibold)
+             + Text(" on " + shownSites + ": Arc keeps no password for " + (sites.count == 1 ? "it." : "these.")))
+                .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private func chip(_ status: Row.Status?, _ title: String, count: Int?) -> some View {
@@ -134,8 +171,12 @@ struct ImportResultsView: View {
                     Text(r.site).aircFont(AircFont.body).foregroundStyle(theme.surfaceText.color).lineLimit(1)
                     Text(r.whole ? "the whole profile"
                          : r.kind == .login ? (r.username.isEmpty ? "no username" : r.username)
+                         : r.kind == .siteData ? r.detail
                          : (r.count == 1 ? "1 cookie" : "\(r.count.formatted()) cookies"))
                         .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color).lineLimit(1)
+                    if r.kind == .login, !r.detail.isEmpty {
+                        Text(r.detail).aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextTertiary.color).lineLimit(1)
+                    }
                     Spacer(minLength: 0)
                     if showsProfiles || r.whole, let name = profileNames[r.profileID] {
                         Text(name).aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextTertiary.color).lineLimit(1)

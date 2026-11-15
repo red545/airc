@@ -20,6 +20,9 @@ enum ParityCommandCatalog {
             BrowserCommand("Essential Keyboard Shortcuts", id: "help.shortcuts") { EssentialShortcutsWindow.show(over: $0.window) },
             nil,
             BrowserCommand("Release Notes", id: "help.releaseNotes") { $0.openHelpPage(releaseNotes) },
+            // Arc's Contact the Team, in its place (decoded from Arc's MainMenu.nib: Help, after Release Notes, no key).
+            BrowserCommand("Send Feedback…", id: "help.feedback") { c in c.app.map { FeedbackSheet.show(from: c.window, app: $0) } },
+            BrowserCommand(AgentsConnect.helpTitle, id: "help.agents") { c in c.app.map { AgentsConnect.open(app: $0, from: "help-menu") } },
             BrowserCommand("Privacy Policy", id: "help.privacy") { $0.openHelpPage(privacyPolicy) },
             BrowserCommand("Open Task Manager", id: "help.taskManager") { $0.openTaskManager() },   // P20d: Help › Troubleshooting
         ]
@@ -80,6 +83,10 @@ enum ParityCommandCatalog {
         "Show Toolbar", "Toggle Sidebar", "Pin / Unpin Tab", "Reload Page", "New Split View",
         // …and Separate Tab from Split and Expand / Restore Current Split (SplitActions.splitCommandActions).
         "Separate Page from Split View", "Expand Current Split", "Restore Current Split",
+        // The Command Bar has it as "Send Feedback" (Feedback/FeedbackSheet.swift).
+        "Send Feedback…",
+        // …and as "Connect Claude and other AI apps…" (Agent/AgentsConnect.swift).
+        "Use Airc with Claude…",
     ]
 
     /// Other words for some commands, so typing what you mean finds them.
@@ -118,14 +125,23 @@ enum ParityCommandCatalog {
             if let sub = item.submenu {
                 // The Window menu lists windows by name; Share's submenu is the system's.
                 if path.isEmpty && sub === NSApp.windowsMenu { continue }
+                // Airc › Services: other apps' services (Claude's "Ask Claude", Finder's "Encode Selected Audio
+                // Files"…) act on a selection the bar never has, so from it they did nothing. Arc lists none either.
+                if sub === NSApp.servicesMenu { continue }
                 if SelectionShare.of(item) != nil { continue }
                 out += entries(of: sub, path: path + [path.isEmpty ? sub.title : item.title])
                 continue
             }
-            guard item.action != nil, !leftOut.contains(item.title), !isNumbered(item.title) else { continue }
+            guard item.action != nil, !leftOut.contains(item.title), !isNumbered(item.title), !isService(item) else { continue }
             out.append(Entry(path: path, item: item))
         }
         return out
+    }
+
+    /// A macOS service AppKit put in a menu (its items run another app's service on the selection), wherever it is.
+    static func isService(_ item: NSMenuItem) -> Bool {
+        if let menu = item.menu, let services = NSApp.servicesMenu, menu === services { return true }
+        return item.action.map { NSStringFromSelector($0).hasSuffix("UserService:") } ?? false
     }
 
     /// "Space 3", "Sidebar Tab 2", "Focus Pane 1": one of a numbered run, which ⌃/⌘ digits cover.
@@ -143,6 +159,18 @@ enum ParityCommandCatalog {
 
     /// The last list made, for the keys typed in the same second.
     static var cache: (window: ObjectIdentifier, at: CFTimeInterval, actions: [WindowController.CommandAction])?
+
+    #if AIRC_TESTING
+    /// `body` with the menu commands made from scratch, no cache and no prepared index (cbperf's parity rows).
+    static var bypassing = false
+    static func bypassingIndex<T>(_ body: () -> T) -> T {
+        let saved = cache
+        cache = nil
+        bypassing = true
+        defer { cache = saved; bypassing = false }
+        return body()
+    }
+    #endif
 }
 
 extension WindowController {
@@ -151,30 +179,50 @@ extension WindowController {
 
     /// C04: the menu bar's commands for the Command Bar, the ones it doesn't offer under the same name already, as the
     /// menus would enable them in this window. Choosing one is choosing it in its menu, once the bar has closed.
-    /// Built at most once a second (the bar asks on every key).
-    func menuCommandActions(excluding taken: Set<String>) -> [CommandAction] {
+    /// Built at most once a second (the bar asks on every key). `prepared`: the bar's keystrokes, which take this
+    /// window's CommandIndex list while it is still the one this would make (cbfirstkey).
+    func menuCommandActions(excluding taken: Set<String>, prepared: Bool = false) -> [CommandAction] {
         let now = CACurrentMediaTime()
-        if let c = ParityCommandCatalog.cache, c.window == ObjectIdentifier(window), now - c.at < 1 {
-            return (c.actions + blockingCommandActions()).filter { !taken.contains($0.title) }
+        let actions: [CommandAction]
+        #if AIRC_TESTING
+        let direct = ParityCommandCatalog.bypassing
+        #else
+        let direct = false
+        #endif
+        if prepared, !direct, let list = commandIndex.preparedActions(now: now) {
+            actions = list
+        } else if let c = ParityCommandCatalog.cache, c.window == ObjectIdentifier(window), now - c.at < 1 {
+            actions = c.actions
+        } else {
+            actions = makeMenuCommandActions()
+            ParityCommandCatalog.cache = (ObjectIdentifier(window), now, actions)
+            if !direct { commandIndex.store(actions, startedAt: now) }
         }
-        let entries = ParityCommandCatalog.entries(of: NSApp.mainMenu)
-        Set(entries.compactMap(\.item.menu)).forEach { $0.update() }
-        let actions: [CommandAction] = entries.compactMap { e in
-            guard menuItemWorksHere(e.item) else { return nil }
-            let item = e.item, title = item.title
-            var words = e.path.map { $0.lowercased() }
-            words += ParityCommandCatalog.aliases[title] ?? []
-            return CommandAction(title: title, symbol: "filemenu.and.selection", hint: ParityCommandCatalog.keys(of: item), keywords: words) { [weak item] in
-                // After the bar has closed and the page (or note) has the keyboard back.
-                DispatchQueue.main.async {
-                    guard let item, let menu = item.menu, let i = menu.items.firstIndex(of: item) else { return }
-                    menu.update()
-                    if item.isEnabled { menu.performActionForItem(at: i) } else { NSSound.beep() }
-                }
+        return (actions + blockingCommandActions() + tidyTabsCommandActions()).filter { !taken.contains($0.title) }
+    }
+
+    /// The menu bar's commands from scratch, now: every menu walked, updated and its items validated (CommandIndex
+    /// does the same in idle slices).
+    func makeMenuCommandActions() -> [CommandAction] {
+        let entries = Perf.time("cb.menu.walk") { ParityCommandCatalog.entries(of: NSApp.mainMenu) }
+        Perf.time("cb.menu.update") { Set(entries.compactMap(\.item.menu)).forEach { $0.update() } }
+        return Perf.time("cb.menu.validate") { entries.compactMap { menuCommandAction($0) } }
+    }
+
+    /// One menu item as a command, if choosing it would do something here now.
+    func menuCommandAction(_ e: ParityCommandCatalog.Entry) -> CommandAction? {
+        guard menuItemWorksHere(e.item) else { return nil }
+        let item = e.item, title = item.title
+        var words = e.path.map { $0.lowercased() }
+        words += ParityCommandCatalog.aliases[title] ?? []
+        return CommandAction(title: title, symbol: "filemenu.and.selection", hint: ParityCommandCatalog.keys(of: item), keywords: words) { [weak item] in
+            // After the bar has closed and the page (or note) has the keyboard back.
+            DispatchQueue.main.async {
+                guard let item, let menu = item.menu, let i = menu.items.firstIndex(of: item) else { return }
+                menu.update()
+                if item.isEnabled { menu.performActionForItem(at: i) } else { NSSound.beep() }
             }
         }
-        ParityCommandCatalog.cache = (ObjectIdentifier(window), now, actions)
-        return (actions + blockingCommandActions()).filter { !taken.contains($0.title) }
     }
 
     /// Whether choosing `item` does something once the bar has closed and the note or page has the keyboard again:

@@ -48,13 +48,13 @@ final class TelemetryEventTests: XCTestCase {
         "extension.install", "update.install", "theme.change", "calendar.enable", "calendar.join", "telemetry.smoke",
         "update.ready_shown", "update.restart_clicked", "boost.save", "private_window.open", "tab_preview.action",
         "shortcut.remap", "ai.tidy_titles", "developer_mode.toggle", "capture", "ai.ask_page", "ai.link_preview",
-        "ai.tidy_downloads", "note.create",
+        "ai.tidy_downloads", "note.create", "password_manager.step",
     ]
 
     static let variants: Set<String> = ["new_tab", "edit_url", "2", "3", "4", "shortcut", "link", "video", "call", "document",
                                         "back", "forward", "shown", "accepted", "declined", "pin", "unpin", "favorite",
                                         "unfavorite", "split", "peek", "on", "off", "copy", "save", "share", "used",
-                                        "command_bar", "plus_menu"]
+                                        "command_bar", "plus_menu", "installed", "not_installed", "builtin", "skipped"]
 
     /// Per event: its own properties (required ones first) beyond the super properties.
     static let eventRules: [String: (required: [String: Rule], optional: [String: Rule])] = [
@@ -99,6 +99,7 @@ final class TelemetryEventTests: XCTestCase {
         + TelemetryFeature.CaptureAction.allCases.map { .capture($0) }
         + TelemetryFeature.AIUse.allCases.flatMap { [.aiAskPage($0), .aiLinkPreview($0), .aiTidyDownloads($0)] }
         + TelemetryFeature.NoteSource.allCases.map { .noteCreate($0) }
+        + TelemetryFeature.PasswordManagerOutcome.allCases.map { .passwordManager($0) }
 
     /// One of every event, with extreme numbers too.
     static let allEvents: [TelemetryEvent] = {
@@ -177,9 +178,10 @@ final class TelemetryEventTests: XCTestCase {
             case .aiLinkPreview: 34
             case .aiTidyDownloads: 35
             case .noteCreate: 36
+            case .passwordManager: 37
             }
         }
-        XCTAssertEqual(Set(Self.allFeatures.map(index)), Set(0...36))
+        XCTAssertEqual(Set(Self.allFeatures.map(index)), Set(0...37))
         XCTAssertEqual(Set(Self.allFeatures.map(\.name)), Self.featureNames)
         func covered(_ e: TelemetryEvent) -> String {
             switch e {

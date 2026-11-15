@@ -312,7 +312,8 @@ final class DragAndDropTests: XCTestCase {
             XCTAssertEqual($0 as? StoreError, .invalidMove)
         }
         XCTAssertThrowsError(try s.move(.item(outer.id), to: .favorites(profileID: s.defaultProfile.id, index: 0)))
-        XCTAssertThrowsError(try s.move(.item(outer.id), to: .today(spaceID: sp, index: 0)))
+        // Into Today it goes as a Today folder (TodayFoldersTests), but never into a folder that isn't a Today folder.
+        XCTAssertThrowsError(try s.move(.item(outer.id), to: .todayFolder(folderID: inner.id, index: 0)))
         // Collapsing hides the contents.
         try s.toggleFolder(outer.id)
         XCTAssertEqual(s.pinnedRows(ofSpace: sp).count, 1)
@@ -423,6 +424,14 @@ final class SidebarOrderTests: XCTestCase {
 
     func testSpaceBarSqueeze() {
         XCTAssertEqual(SpaceBarLayout.span(sidebarWidth: 228), 144)
+        // feedback2: the Feedback button after Library only while the Space icons keep 24 pt; never crowding them.
+        XCTAssertTrue(SpaceBarLayout.showsFeedback(sidebarWidth: 164, spaces: 1))
+        XCTAssertFalse(SpaceBarLayout.showsFeedback(sidebarWidth: 164, spaces: 2))
+        XCTAssertTrue(SpaceBarLayout.showsFeedback(sidebarWidth: 228, spaces: 4))
+        XCTAssertFalse(SpaceBarLayout.showsFeedback(sidebarWidth: 228, spaces: 5))
+        XCTAssertTrue(SpaceBarLayout.showsFeedback(sidebarWidth: 320, spaces: 8))
+        XCTAssertTrue(SpaceBarLayout.region(sidebarWidth: 228, feedback: true) == (76, 110))
+        XCTAssertTrue(SpaceBarLayout.region(sidebarWidth: 228, feedback: false) == (42, 144))
         XCTAssertEqual(SpaceBarLayout.cellWidths(count: 3, current: 0, span: 144), [34, 34, 34])
         XCTAssertEqual(SpaceBarLayout.cellWidths(count: 6, current: 0, span: 144), Array(repeating: 24, count: 6))
         // 12 / 16 / 22 Spaces in a 300 pt sidebar: the current keeps 22, others about 17.5 / 13 / 9

@@ -1,5 +1,4 @@
 // Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
-#if AIRC_TESTING // agentspike: a dev-build prototype (docs/agent-ready.md); public builds compile none of Agent/
 import AppKit
 import ImageIO
 import UniformTypeIdentifiers
@@ -150,9 +149,24 @@ protocol AgentPageDriver: AnyObject {
     func dropUnloadQuestion(_ tab: EngineTab, completion: @escaping () -> Void)
     /// AgentPageScripts.guards in the shown document (idempotent): after a load, and before a press.
     func installGuards(_ tab: EngineTab, completion: @escaping () -> Void)
+    /// Watch (AgentWatchView): the page's latest picture, at most `maxPixels`, as cheaply as the engine can (a copy of
+    /// its surface, no encoding). Nil when there's none yet. Never changes the page or the agent's input state.
+    func watchFrame(_ tab: EngineTab, maxPixels: CGSize, completion: @escaping (CGImage?) -> Void)
+    /// Take over: the page leaves agent mode (no kept-visible session, the engine's own focus and occlusion again) and
+    /// becomes the person's.
+    func handBack(_ tab: EngineTab)
+    /// Watch without copies (default: none). See the extension.
+    func liveLayer(_ tab: EngineTab, in window: NSWindow) -> (layer: CALayer, id: UInt32, flipped: Bool)?
+    func liveContextID(in window: NSWindow) -> UInt32?
 }
 
 extension AgentPageDriver {
+    /// Watch without copies: a layer that shows the agent window's own compositor output live (the render server draws
+    /// it; the app copies nothing). Nil where the engine has none: Watch copies frames instead (watchFrame).
+    func liveLayer(_ tab: EngineTab, in window: NSWindow) -> (layer: CALayer, id: UInt32, flipped: Bool)? { nil }
+    /// The context a live layer shows now (nil: none any more), so Watch can tell when to make a new one.
+    func liveContextID(in window: NSWindow) -> UInt32? { nil }
+
     /// A right click without the engine's context menu, which is a modal menu on the owner's screen: the page gets
     /// the mouse events and `contextmenu`, from a script.
     func scriptContextClick(_ tab: EngineTab, at p: CGPoint, completion: @escaping (String?) -> Void) {
@@ -216,4 +230,3 @@ func agentJSON(_ value: Any?) -> [String: Any]? {
     if let s = value as? String, let data = s.data(using: .utf8) { return try? JSONSerialization.jsonObject(with: data) as? [String: Any] }
     return nil
 }
-#endif

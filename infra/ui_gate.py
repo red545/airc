@@ -9,20 +9,24 @@ Independent assertions in UI scenarios can use `FAIL [independent] ...`; engine
 failures, unit failures, crashes and missing scenario logs are always red.
 """
 import argparse
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
+import math
 import os
 from pathlib import Path
 import plistlib
 import re
+import signal
 import subprocess
 import sys
 import threading
 import time
+import uuid
 
 RETRY = 75
 FAILURE = re.compile(r'^(?:\s*\[(?:chromium|webkit|snapshot)\]\s*)?(FAIL(?:-ENV|-INDEPENDENT)?|ENGINE-FAIL) (.*)$')
-INDEPENDENT = re.compile(r'^(?:unit|model|serialization):|\[independent\]|\b(?:unit[- ](?:test|level)|XCTAssert|assertion failed|precondition failed|crashed|never started|wrote no log|no log \(crashed)', re.I)
+INDEPENDENT = re.compile(r'^(?:unit|model|serialization):|\[independent\]|\b(?:unit[- ](?:test|level)|XCTAssert|assertion failed|precondition failed|crash(?:ed)?|died|hung|still alive|watchdog|no PID|never started|wrote no log|no log \(crashed)', re.I)
 DRAWING = re.compile(r'^click .*: not on screen$|^no sheet to press |^the sheet has no .* button$|^\w[\w-]*: timed out after \d+ s')
 LEGACY_LOCK = re.compile(r'\b(?:the screen is locked|screen locked true|screen locked;)')
 
@@ -113,11 +117,11 @@ def classify(text, intervals=(), legacy=False):
         failures.append(dict(kind='FAIL-ENV' if environmental else 'FAIL', message=message,
                              locks=failure_evidence if environmental else [], observed=observed))
         observed = None
-    # Preserve the existing policy for non-lock FAIL-ENV (e.g. clipboard contention).
-    # Only proven lock exposure invalidates an otherwise-green UI gate here.
+    # Every recorded environmental failure keeps the gate red, including focus
+    # and clipboard interference without a screen-lock interval.
     locked_failure = any(f['kind'] == 'FAIL-ENV' and LEGACY_LOCK.search(f['message']) for f in failures)
     state = 'FAIL' if any(f['kind'] == 'FAIL' for f in failures) else (
-        'ENV' if evidence or locked_failure or any(f['locks'] for f in failures) else 'PASS')
+        'ENV' if evidence or locked_failure or any(f['kind'] == 'FAIL-ENV' for f in failures) else 'PASS')
     return dict(state=state, failures=failures, locks=evidence)
 
 
@@ -148,6 +152,172 @@ def preflight(path):
     return result_code(data)
 
 
+def launch_budget(script):
+    # SnapshotRunner gets 240 s (660 s for perf). Start hard cleanup 30 s
+    # later, leaving another 30 s for sampling/signals before the outer limit. An operator may shorten, never extend, this bound.
+    normal = 690 if script == 'perf' else 270
+    value = float(os.environ.get('AIRC_UI_LAUNCH_TIMEOUT', normal))
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError('AIRC_UI_LAUNCH_TIMEOUT must be finite and positive')
+    return min(value, normal)
+
+
+def bundle_executable(command):
+    """Resolve open's app operand, excluding option values and app arguments."""
+    if not command or Path(command[0]).name != 'open':
+        return None
+    flags = {'-g', '-n', '-W', '-j', '-F', '--background', '--new',
+             '--wait-apps', '--hide', '--fresh'}
+    options = {'--env', '--stdin', '--stdout', '--stderr', '--arch'}
+    index = 1
+    while index < len(command):
+        argument = command[index]
+        if argument == '--args':
+            return None
+        if argument in options:
+            if index + 1 == len(command):
+                raise ValueError(f'missing value for open {argument}')
+            index += 2
+            continue
+        if argument in flags:
+            index += 1
+            continue
+        if argument in {'--', '-a', '--application'}:
+            index += 1
+            if index == len(command):
+                raise ValueError('missing open application path')
+            argument = command[index]
+        elif argument.startswith('-'):
+            raise ValueError(f'unsupported open option: {argument}')
+        # This is the explicit application operand, never a later .app value.
+        bundle = Path(argument).resolve()
+        if bundle.suffix != '.app':
+            raise ValueError('open requires an explicit .app path')
+        info = plistlib.loads((bundle / 'Contents/Info.plist').read_bytes())
+        name = info['CFBundleExecutable']
+        if not name or Path(name).name != name:
+            raise ValueError('invalid bundle executable')
+        return (bundle / 'Contents/MacOS' / name).resolve()
+    return None
+
+
+def matching_app_pids(executable, snapshot, script):
+    """Match this executable AND this launch's arguments, never a process name."""
+    if executable is None:
+        return set()
+    rows = subprocess.check_output(['ps', '-ww', '-axo', 'pid=,comm='], text=True, timeout=5)
+    found = set()
+    for row in rows.splitlines():
+        fields = row.strip().split(None, 1)
+        if len(fields) != 2 or os.path.realpath(fields[1]) != str(executable):
+            continue
+        pid = int(fields[0])
+        result = subprocess.run(['ps', '-ww', '-p', str(pid), '-o', 'args='], capture_output=True, text=True, timeout=5)
+        arguments = result.stdout.strip() + ' '
+        if f'--snapshot {snapshot} ' in arguments and f'--script {script} ' in arguments:
+            found.add(pid)
+    return found
+
+
+def stop_owned_app(executable, snapshot, script, previous, evidence):
+    """Sample before termination; re-check ownership before every signal."""
+    owned = lambda: matching_app_pids(executable, snapshot, script) - previous
+    sampled = []
+    for pid in sorted(owned()):
+        sample = snapshot / f'watchdog-sample-{pid}.txt'
+        try:
+            result = subprocess.run(['sample', str(pid), '1', '1', '-file', str(sample)],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=8)
+            sampled.append(dict(pid=pid, file=sample.name, exit=result.returncode))
+        except (OSError, subprocess.TimeoutExpired) as error:
+            sampled.append(dict(pid=pid, error=type(error).__name__))
+        if pid in owned():
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+    evidence['samples'] = sampled
+    deadline = time.monotonic() + 2
+    while owned() and time.monotonic() < deadline:
+        time.sleep(0.1)
+    killed = []
+    for pid in sorted(owned()):
+        try:
+            os.kill(pid, signal.SIGKILL)
+            killed.append(pid)
+        except ProcessLookupError:
+            pass
+    evidence['killed'] = killed
+    deadline = time.monotonic() + 2
+    remaining = owned()
+    while remaining and time.monotonic() < deadline:
+        time.sleep(0.1)
+        remaining = owned()
+    evidence['remaining'] = sorted(remaining)
+
+
+def run_bounded(command, snapshot, script):
+    """Independent of the app's main thread, including before its window opens."""
+    budget = launch_budget(script)
+    executable = bundle_executable(command)
+    previous = matching_app_pids(executable, snapshot, script)
+    token = uuid.uuid4().hex
+    command = list(command)
+    if Path(command[0]).name == 'open':
+        command[1:1] = ['--env', 'AIRC_UI_LAUNCH_TOKEN=' + token]
+    env = dict(os.environ, AIRC_UI_LAUNCH_TOKEN=token)
+    process = subprocess.Popen(command, env=env, close_fds=False)
+    try:
+        return process.wait(timeout=budget), None
+    except subprocess.TimeoutExpired:
+        evidence = dict(timeout_seconds=budget, samples=[], killed=[])
+        try:
+            stop_owned_app(executable, snapshot, script, previous, evidence)
+        except (OSError, subprocess.SubprocessError) as error:
+            evidence['cleanup_error'] = type(error).__name__
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            process.terminate()  # Exact child launcher PID, not an app-name match.
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=2)
+        # Append only after the app is stopped, so its final flush cannot erase
+        # this independent failure. Keep the result red even if sampling failed.
+        with (snapshot / 'log.txt').open('a') as output:
+            output.write(f'\n[{script}]\nFAIL [independent] {script}: launcher hard timeout after {budget:g} s\n')
+        return 124, evidence
+
+
+@contextmanager
+def keyboard_navigation(script):
+    """Exercise button traversal with macOS Keyboard navigation enabled.
+
+    The dedicated runner already verified the agent's console and holds the UI
+    lock. Restore its preference before releasing that lock, including timeouts.
+    CFFIXED_USER_HOME and launch arguments do not override AppKit's console-wide
+    keyboard-navigation setting.
+    """
+    if script != 'arcimport2' or os.environ.get('AIRC_UI_DEDICATED_SESSION') != '1':
+        yield
+        return
+    read = subprocess.run(['defaults', 'read', '-g', 'AppleKeyboardUIMode'],
+                          capture_output=True, text=True, timeout=5)
+    previous = int(read.stdout.strip()) if read.returncode == 0 else None
+    try:
+        subprocess.run(['defaults', 'write', '-g', 'AppleKeyboardUIMode', '-int', '3'],
+                       capture_output=True, timeout=5, check=True)
+        print('UI preflight: Keyboard navigation enabled for checklist button traversal', flush=True)
+        yield
+    finally:
+        command = ['defaults', 'delete', '-g', 'AppleKeyboardUIMode'] if previous is None else [
+            'defaults', 'write', '-g', 'AppleKeyboardUIMode', '-int', str(previous)]
+        subprocess.run(command, capture_output=True, timeout=5, check=True)
+        print('UI cleanup: Keyboard navigation preference restored', flush=True)
+
+
 def launch(path, command):
     data = json.loads(path.read_text())
     observation = Observation()
@@ -173,7 +343,8 @@ def launch(path, command):
     started = utc(time.time())
     try:
         # Retain the UI-lock fd inherited from ui-check-lock.py through open -W.
-        rc = subprocess.call(command, close_fds=False)
+        with keyboard_navigation(script):
+            rc, watchdog = run_bounded(command, out.parent, script)
     finally:
         stop.set()
         watcher.join()
@@ -189,6 +360,8 @@ def launch(path, command):
     if observation.errors and result['state'] == 'PASS':
         result['state'] = 'ENV'  # Cannot prove this launch was unlocked; never publish it.
     result.update(script=script, start=started, end=utc(time.time()), errors=observation.errors)
+    if watchdog is not None:
+        result['watchdog'] = watchdog
     data['launches'].append(result)
     save(path, summarize(data))
     # Finish the suite so independent failures still surface; final gate returns 75/1.

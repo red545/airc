@@ -14,7 +14,9 @@ Everything here runs on the Linux box. No step needs the build Mac.
 |---|---|
 | `fresh-repo.sh <out-dir>` | Exports the committed tree at `HEAD` (never the working tree), minus `exclude.txt`, into a new repository at `<out-dir>` with exactly one root commit. Author and committer come from `AIRC_PUBLIC_AUTHOR` (required, no default), the date from `AIRC_PUBLIC_DATE` (default now, always UTC). It uses an isolated git config (no hooks, signing keys or identities from the machine), adds no remote, never pushes, checks the result blob for blob against `HEAD`, then runs `scan.sh` on the tree and on the commit metadata. It exits non-zero if anything fails. The same `HEAD`, author, date and message always give the same commit hash. |
 | `scan.sh <dir>` | The privacy and secret gate. It runs gitleaks 8.30.1 (a pinned release, checked against the published checksum and the hash pinned in the script, kept in `tools/` beside the repo) and `scan.py`. `scan.py` greps every file, file name and symlink for the operator's private values and for email addresses that are neither reserved (`example.com`, `.invalid`, `.test` and so on) nor the public mailbox in `apps/marketing/src/lib/site.ts`. Hits print as `file:line: kind`, never the value. |
-| `scan-allowlist.txt` | Approved hits, as `path glob<TAB>kind<TAB>reason`. An entry with no reason is rejected, and an entry that no longer matches anything gets a warning. |
+| `scan-allowlist.txt` | Approved hits, as `path glob<TAB>kind<TAB>reason`. An entry with no reason is rejected, and an entry that no longer matches anything gets a warning. Use it for hits that aren't addresses (URL user info, fixture secrets, upstream files). |
+| `scan-synthetic.txt` | Made-up IP addresses and tailnet names, approved **by value**: `path glob<TAB>kind<TAB>net:<CIDR>` or `text:<exact><TAB>reason`. See "Made-up addresses" below. |
+| `public-sync-check.sh [<commit>]` | Release checklist step: the last sync was OK, the published revision contains `<commit>`, and GitHub's public `main` is the commit the sync recorded. Read-only. |
 | `make-private-patterns.sh` | Writes the private pattern file **outside the repo** (default `private-patterns.txt` beside it, mode 0600). It reads the values from this machine: the tailnet names and IPs of this box and its peers, its hostnames, the local and SSH usernames, home-directory prefixes, the hosts in `~/.ssh/config`, the git and GitHub identities, the Vercel account, team and project IDs, the operator's agent-workspace paths and the private IP ranges. It prints counts only. Lines you add below its marker survive a rerun. |
 | `test_scan.sh` | Self-test: it plants fake values (tailnet host and IP, username, home path, PNG metadata, file name, outside symlink, personal email, GitHub token, hand-added Space name) into a temporary copy of `HEAD`, then proves that each one is caught at the right `file:line` and that none appears in the output. It also checks the allowlist and the refusals. |
 | `images.sh <dir> <out.html>` | Image review sheet: every committed image with its size, where it is referenced, risky metadata (EXIF/XMP beyond resolution and colour space), OCR text (tesseract if installed, otherwise RapidOCR in a private venv in `tools/`), seen words that occur in no committed file, and flags (emails, handles, local or private URLs, possible personal names). Private values are redacted from the OCR text. One self-contained HTML page with downscaled thumbnails and an approve checkbox per image. |
@@ -159,4 +161,63 @@ The public repository (`GITHUB_REPO` in `apps/marketing/src/lib/site.ts`) was cr
 - The public `main` is protected (no force pushes, no deletion, linear history), with secret scanning and
   push protection on. A push of private history is non-fast-forward and is refused.
 - The hand-added private patterns (the owner's real Space and profile names, name) are in
-  `../private-patterns.txt`, outside the repo. Add new private words there.
+  `../private-patterns.txt`, outside the repo. Add new private words there. Rerun `make-private-patterns.sh
+  ../private-patterns.txt` whenever a machine joins the tailnet (on 2026-11-15 the file still lacked the build
+  Mac added on 9 Nov). Names that identify nothing and that the repo's own scripts use (SSH aliases such as
+  `buildmac`) go in `../private-patterns.skip`; the script refuses IPs and tailnet names there.
+
+### The sync gate runs from main, and says when it fails
+
+- Cron starts `sync-public.sh` from a checkout (`../worktrees/public-sync-runner`, detached; any checkout works).
+  That copy only fetches `origin/main`; it then re-runs `infra/launch/` **as committed in the revision it
+  publishes**: the script, `scan.sh`, `scan.py`, `scan-allowlist.txt`, `scan-synthetic.txt` and `exclude.txt`. A
+  fix to the gate lands with a normal push to main. (From 9 to 15 Nov the scan failed every hour and nothing was
+  published, and cron ran the shared checkout's stale copy, so fixes on main wouldn't have reached it.)
+  `AIRC_SYNC_GATE=local … --dry-run` tests your checkout's gate instead.
+- Every real run writes `../status/public-sync.state`:
+
+  ```
+  status=OK|FAIL
+  checked=2026-11-15T21:20Z
+  src=<origin/main it looked at>
+  published=<last private revision published>   public=<public main commit>
+  detail=published 1a2b3c4d as 5e6f7a8b | up to date | SCAN FAILED for …: FAIL: 3 unapproved (email 1, private-ip 2) …
+  ```
+
+  The lead's hourly tick reads it. A new failure (or a changed one) also appends an alert to `briefs/queue.md`
+  (`AIRC_SYNC_ALERT_FILE` in the cron line). The log is `../status/public-sync.log`.
+- Releases check it: `infra/launch/public-sync-check.sh <cut>` ([release.md](../release.md), per-release procedure).
+
+### Made-up addresses: what passes the scan
+
+Tests, docs and screenshots need example addresses. Pick one that the scan never flags, or one that is
+pre-approved, and nobody has to approve anything:
+
+| Use | Never flagged | Pre-approved in `scan-synthetic.txt` (any file) |
+|---|---|---|
+| Public IPv4 | `192.0.2.x`, `198.51.100.x`, `203.0.113.x` (RFC 5737) | |
+| IPv6 | `2001:db8::/32` (RFC 3849) | |
+| Tailscale peer (IPv4) | | `100.101.102.x` (Tailscale's own docs example), `100.64.0.x`, `100.127.255.255` |
+| Tailscale peer (IPv6) | | `fd7a:115c:a1e0::<1–ffff>` (e.g. `::1`, `::42`, `::1234`), and the prefix itself in prose or as a range constant |
+| Home LAN | | `192.168.1.x`, `10.0.0.x` |
+| Tailnet name | | `<host>.tailnet.ts.net`, `<host>.tailnet-a1b2.ts.net`, `<host>.example.ts.net` |
+| Host or e-mail | `example.com/.net/.org`, `*.example`, `*.test`, `*.invalid` | |
+
+Anything else (another 100.x peer, another 10.x LAN host, a link-local fe80 address) needs an exact entry in `scan-synthetic.txt` for
+that file, with a reason. Rules the scan enforces:
+
+- A line passes only when **every** address (or tailnet name) of that kind on it is approved for that file, so a
+  real address next to a made-up one still fails. An allowlist entry would approve the whole file; for addresses
+  use `scan-synthetic.txt` instead.
+- Networks are at most a /24 (IPv4) or /112 (IPv6).
+- Only the regex kinds (`private-ip`, `tailnet-domain`) can be approved by value. The operator's real values (the
+  literal kinds: `tailnet-ip`, `tailnet-host`, `ssh-host`, …) never can, and `scan.py` refuses an entry that covers
+  one of them.
+- Real data (a real machine's address or name, the tailnet name, real e-mail addresses, keys, real Space or tab
+  names) is never approved: replace it with a made-up value in the private repo. The public side is a fresh
+  snapshot, so the private history doesn't matter.
+
+Suggested line for `briefs/common.md`: **Made-up addresses (public scan):** use 192.0.2.x / 2001:db8:: for public
+IPs, 100.101.102.x or fd7a:115c:a1e0::<small> for tailnet peers, `<host>.tailnet.ts.net` for tailnet names and
+example.com for hosts and mail; anything else needs a value entry in infra/launch/scan-synthetic.txt
+(docs/launch/public-repo.md, "Made-up addresses"). Never put a real machine's address or name in the repo.

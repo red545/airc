@@ -98,7 +98,7 @@ extension SpacesStore {
     /// first Space.
     private func homeSpace(of s: Item) -> String {
         switch s.container {
-        case .pinned(let sid): return sid
+        case .pinned(let sid), .today(let sid): return sid
         case .favorites(let pid):
             if let w = space(windowState.selectedSpaceID), w.profileID == pid { return w.id }
             return spaces(usingProfile: pid).first?.id ?? ""
@@ -108,7 +108,7 @@ extension SpacesStore {
     /// The Space and profile a container's live tabs belong to.
     func binding(of container: ItemContainer) -> (spaceID: String?, profileID: String) {
         switch container {
-        case .pinned(let sid): (sid, profile(ofSpace: sid).id)
+        case .pinned(let sid), .today(let sid): (sid, profile(ofSpace: sid).id)
         case .favorites(let pid): (nil, pid)
         }
     }
@@ -165,8 +165,8 @@ extension SpacesStore {
     func pinSplit(_ splitID: String, to destination: DropDestination) throws -> [String] {
         guard let x = state.splits[splitID] else { throw StoreError.notFound }
         let tabs = members(of: x)
-        // Notes stay out of pinned and Favorite splits (Splits.swift's canBeTodayPane).
-        guard tabs.count >= 2, !tabs.contains(where: { NoteURL.isNote($0.url) }) else { throw StoreError.invalidMove }
+        // A split holding a note pins and becomes a Favorite as any split does (P13b).
+        guard tabs.count >= 2 else { throw StoreError.invalidMove }
         var container = ItemContainer.favorites(profileID: "")
         var parentID: String?
         var index = 0
@@ -254,7 +254,7 @@ extension SpacesStore {
             }
         case .today(let sid, let index):
             guard let sp = space(sid) else { throw StoreError.notFound }
-            let rows = todayRows(ofSpace: sid)
+            let rows = todayRootRows(ofSpace: sid)
             let order = Ordering.insertion(at: min(max(index, 0), rows.count), in: rows.map(rowOrder))
             let panes = self.panes(ofSplitItem: id)
             let layout = s.splitLayout ?? SplitLayout()
@@ -282,7 +282,8 @@ extension SpacesStore {
                               focusedTabID: focused ?? ids[0], order: order, createdAt: now()))
                 }
             }
-        case .split:
+        case .split, .todayFolder:
+            // A split is a row of Today's top level, never in a Today folder (TodayFolders.swift).
             throw StoreError.invalidMove
         }
         return reload
@@ -294,9 +295,9 @@ extension SpacesStore {
     /// is shown; default: last). It
     /// becomes a pane item there (a pinned tab or Favorite brings its item), so it must already be in the split's profile.
     func addPane(_ tabID: String, toSplitItem id: String, at index: Int?, focus: Bool) throws {
-        guard let s = item(id), s.kind == .split, var t = tab(tabID) else { throw StoreError.invalidMove }
+        guard let s = item(id), s.kind == .split, var t = tab(tabID), canBeSplitPane(tabID) else { throw StoreError.invalidMove }
         let panes = self.panes(ofSplitItem: id)
-        guard !panes.contains(where: { $0.id == t.itemID }), !isItemSplitPane(tabID), !NoteURL.isNote(t.url) else { throw StoreError.invalidMove }
+        guard !panes.contains(where: { $0.id == t.itemID }), !isItemSplitPane(tabID) else { throw StoreError.invalidMove }
         guard panes.count < Split.maxPanes else { throw StoreError.splitFull }
         let (sid, pid) = binding(of: s.container)
         guard t.profileID == pid else { throw StoreError.invalidMove }

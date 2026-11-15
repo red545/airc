@@ -11,8 +11,10 @@ public enum DropDestination: Hashable, Sendable {
     case favorites(profileID: String, index: Int)
     /// Into a Space's pinned tree, inside `parentID` (nil = top level) at `index`.
     case pinned(spaceID: String, parentID: String?, index: Int)
-    /// Into a Space's Today list at `index`.
+    /// Into a Space's Today list at `index`, counting its top-level rows (`todayRootRows`: tabs, splits, Today folders).
     case today(spaceID: String, index: Int)
+    /// Into a Today folder at `index`, counting its own rows (TodayFolders.swift `todayFolderContents`).
+    case todayFolder(folderID: String, index: Int)
     /// SV-1: onto a Today row of `spaceID`: a tab (the two make a split) or a split (the tab joins it). `leading`: the
     /// left (or top) half of the row, which puts the dropped tab first (Arc ref §2.11).
     case split(spaceID: String, target: String, leading: Bool)
@@ -29,7 +31,7 @@ extension DropDestination {
     /// The position in the destination's list.
     public var index: Int {
         switch self {
-        case .favorites(_, let i), .pinned(_, _, let i), .today(_, let i): i
+        case .favorites(_, let i), .pinned(_, _, let i), .today(_, let i), .todayFolder(_, let i): i
         case .split: 0
         }
     }
@@ -40,6 +42,7 @@ extension DropDestination {
         case .favorites(let p, _): .favorites(profileID: p, index: i)
         case .pinned(let s, let parent, _): .pinned(spaceID: s, parentID: parent, index: i)
         case .today(let s, _): .today(spaceID: s, index: i)
+        case .todayFolder(let f, _): .todayFolder(folderID: f, index: i)
         case .split: self
         }
     }
@@ -175,6 +178,7 @@ extension SpacesStore {
         try perform("Delete Space", undoable: true) {
             for x in splits(ofSpace: id) { remove(Split.self, x.id) }
             for t in todayTabs(ofSpace: id) { archive(t, reason: .spaceDeleted) }
+            removeTodayFolders(ofSpace: id)
             for root in pinnedRoots(ofSpace: id) { removeItemTree(root.id) }
             remove(Space.self, id)
             if windowState.selectedSpaceID == id, let i = spacesBefore.firstIndex(where: { $0.id == id }) {
@@ -204,6 +208,7 @@ extension SpacesStore {
         try perform(nil) {
             for x in splits(ofSpace: id) { remove(Split.self, x.id) }
             for t in todayTabs(ofSpace: id) { _ = archive(t, reason: .spaceDeleted) }
+            removeTodayFolders(ofSpace: id)
             for root in pinnedRoots(ofSpace: id) { removeItemTree(root.id) }
             remove(Space.self, id)
         }
@@ -257,8 +262,10 @@ extension SpacesStore {
     public func openTab(url: String, inSpace spaceID: String, openerID: String? = nil,
                         background: Bool = false, activate: Bool = true, title: String = "") throws -> LiveTab {
         guard let s = space(spaceID) else { throw StoreError.notFound }
-        // Today's rows: a split is one row (SV-1).
-        let today = todayRows(ofSpace: spaceID)
+        // Today's rows: a split is one row (SV-1), a Today folder too. A background link from a tab in a Today folder
+        // lines up after it in that folder (TodayFolders.swift).
+        let folder = background ? tab(openerID).flatMap(shownTodayFolderID) : nil
+        let today = folder.map { todayFolderContents($0) } ?? todayRootRows(ofSpace: spaceID)
         var order = Ordering.between(nil, today.first.map(rowOrder))
         if background, let openerID, let opener = tab(openerID), opener.isToday, opener.spaceID == spaceID,
            let i = today.firstIndex(where: { $0.shows(openerID) }) {
@@ -266,8 +273,9 @@ extension SpacesStore {
             while j + 1 < today.count, today[j + 1].liveTab?.openerID == openerID, today[j + 1].split == nil { j += 1 }
             order = Ordering.between(rowOrder(today[j]), j + 1 < today.count ? rowOrder(today[j + 1]) : nil)
         }
-        let t = LiveTab(profileID: s.profileID, spaceID: spaceID, url: url, title: title, order: order,
+        var t = LiveTab(profileID: s.profileID, spaceID: spaceID, url: url, title: title, order: order,
                         openerID: openerID, createdAt: now())
+        if tab(openerID)?.spaceID == spaceID { t.folderID = folder }
         try perform(nil) {
             put(t)
             if activate { markActive(t.id, inSpace: spaceID) }
@@ -293,6 +301,8 @@ extension SpacesStore {
         case .favorites(let pid):
             t = LiveTab(profileID: pid, spaceID: nil, itemID: itemID, url: saved, title: item.pageTitle ?? "",
                         faviconURL: item.faviconURL, createdAt: now())
+        case .today:
+            throw StoreError.notFound   // only folders live there
         }
         try perform(nil) {
             put(t)
@@ -375,7 +385,7 @@ extension SpacesStore {
     public func navigationDecision(forTab tabID: String?) -> NavigationDecision {
         guard let t = tab(tabID) else { return .openTodayTab }
         // A note's tab never becomes a page: what's typed in its address field opens in a new tab.
-        return t.isToday && !NoteURL.isNote(t.url) ? .loadInPlace : .openTodayTab
+        return t.isToday && !LocalDocumentURL.isLocal(t.url) ? .loadInPlace : .openTodayTab
     }
 
     // MARK: - Closing, archiving, Clear, undo (SB-30, SB-40, SB-43, CB-2)
@@ -416,7 +426,7 @@ extension SpacesStore {
     /// the result is "".
     @discardableResult
     func archive(_ t: LiveTab, reason: ArchiveReason, origin: String? = nil) -> String {
-        if let id = NoteURL.noteID(t.url), note(id)?.document.isEmpty != false, !noteHasOtherRows(id, besidesTab: t.id) {
+        if let id = NoteURL.noteID(t.url), note(id)?.isEmpty != false, !noteHasOtherRows(id, besidesTab: t.id) {
             remove(LiveTab.self, t.id)
             remove(Note.self, id)
             return ""
@@ -438,15 +448,18 @@ extension SpacesStore {
         return nil
     }
 
-    /// SB-40: Clear archives every Today tab except the one shown. ⌘Z restores them.
+    /// SB-40: Clear archives every Today tab except the one shown, those in Today folders (closed ones too) included,
+    /// and the Today folders it leaves empty go: one ⌘Z restores them all. The shown tab keeps its folder.
     @discardableResult
     public func clearToday(inSpace spaceID: String, keeping visibleTabID: String?) throws -> [String] {
         // A split on screen stays whole (SV-1).
         let kept = Set(split(containing: visibleTabID)?.tabIDs ?? []).union([visibleTabID].compactMap { $0 })
         let victims = todayRowTabs(ofSpace: spaceID).filter { !kept.contains($0.id) }
-        guard !victims.isEmpty else { return [] }
+        let emptyFolders = todayFolders(ofSpace: spaceID).contains { !todayFolderHasTabs($0.id) }
+        guard !victims.isEmpty || emptyFolders else { return [] }
         try perform("Clear Today", undoable: true) {
             for t in victims { archive(t, reason: .clear) }
+            removeEmptyTodayFolders(ofSpace: spaceID)
         }
         return victims.map(\.id)
     }
@@ -460,6 +473,8 @@ extension SpacesStore {
         guard !victims.isEmpty else { return [] }
         try perform(label, undoable: true) {
             for t in victims { archive(t, reason: reason, origin: origin) }
+            // Clear takes the Today folders it leaves empty, made-empty ones too (TodayFolders.swift).
+            if reason == .clear { for sid in Set(victims.compactMap(\.spaceID)) { removeEmptyTodayFolders(ofSpace: sid) } }
         }
         return victims.map(\.id)
     }
@@ -513,7 +528,13 @@ extension SpacesStore {
         t.spaceID = sid
         t.itemID = nil
         t.profileID = s.profileID
-        t.order = topOfToday(sid)
+        // Back in its Today folder (at its top) when that's still there in this Space, else at the top of Today.
+        if let f = t.folderID, todayFolder(f)?.spaceID == sid {
+            t.order = Ordering.between(nil, todayFolderContents(f).first.map(rowOrder))
+        } else {
+            t.folderID = nil
+            t.order = topOfToday(sid)
+        }
         t.lastActiveAt = now()
         try perform(nil) {
             remove(ArchiveEntry.self, entryID)
@@ -534,6 +555,31 @@ extension SpacesStore {
         try perform(nil) { for entry in victims { remove(ArchiveEntry.self, entry.id) } }
         discardUndoForRemovedArchive(victims)
         return victims.count
+    }
+
+    /// LIB-2: the Library's Clear Archive with a choice of age, from every Space and profile. A fresh recovery
+    /// backup must succeed first. It isn't a ⌘Z step: the Library's toast offers one Undo (`restoreCleared`), and once
+    /// that toast is gone (or the next Clear Archive replaces it) the entries are gone. `entryIDs`: the snapshot the
+    /// person confirmed, so a tab auto-archived while the question was open stays.
+    @discardableResult
+    public func clearArchive(age: ArchiveClearAge, entryIDs: Set<String>? = nil, backup: () throws -> Void) throws -> ClearedArchive {
+        let date = now()
+        let victims = archivedEntries.filter { age.includes($0, now: date) && (entryIDs?.contains($0.id) ?? true) }
+        guard !victims.isEmpty else { return ClearedArchive(entries: [], age: age) }
+        try backup()
+        try perform(nil) { for entry in victims { remove(ArchiveEntry.self, entry.id) } }
+        discardUndoForRemovedArchive(victims)
+        return ClearedArchive(entries: victims, age: age)
+    }
+
+    /// The toast's Undo: the cleared entries back as they were (same ids, dates and tabs). An entry whose profile has
+    /// gone since stays gone; one already back (an id in the Archive again) isn't doubled. Returns how many came back.
+    @discardableResult
+    public func restoreCleared(_ cleared: ClearedArchive) throws -> Int {
+        let back = cleared.entries.filter { state.archive[$0.id] == nil && state.profiles[$0.profileID] != nil }
+        guard !back.isEmpty else { return 0 }
+        try perform(nil) { for entry in back { put(entry) } }
+        return back.count
     }
 
     /// Library list, newest first.
@@ -558,6 +604,7 @@ extension SpacesStore {
             if let iid = t.itemID { remove(Item.self, iid) }
             leaveSplit(tabID)
             t.itemID = nil
+            t.folderID = nil
             t.spaceID = spaceID
             t.profileID = s.profileID
             t.order = topOfToday(spaceID, excluding: tabID)
@@ -643,8 +690,8 @@ extension SpacesStore {
             case .favorites(let pid, let index):
                 guard profile(pid) != nil else { throw StoreError.notFound }
                 if srcItem?.kind == .folder { throw StoreError.invalidMove }
-                // Notes live in a Space (Today, pinned, folders), not in a profile's Favorites.
-                if NoteURL.isNote(srcTab?.url ?? srcItem?.savedURL) { throw StoreError.invalidMove }
+                // Notes and Easels live in a Space (Today, pinned, folders), not in a profile's Favorites.
+                if LocalDocumentURL.isLocal(srcTab?.url ?? srcItem?.savedURL) { throw StoreError.invalidMove }
                 let current = favorites(ofProfile: pid)
                 let isTile = srcItem?.container == .favorites(profileID: pid) && srcItem?.parentID == nil
                 if !isTile, current.count >= Self.maxFavorites {
@@ -676,6 +723,12 @@ extension SpacesStore {
                 }
                 let siblings = children(of: .pinned(spaceID: sid), parent: parentID)
                 let orders = siblingOrders(siblings, excluding: srcItem?.id, index: index)
+                // A Today folder becomes a pinned folder, its tabs its pinned tabs (TodayFolders.swift).
+                if let f = srcItem, f.isTodayFolder {
+                    moveTodayFolderIntoPinned(f, spaceID: sid, parentID: parentID,
+                                              order: Ordering.insertion(at: orders.index, in: orders.orders), reload: &reload)
+                    break
+                }
                 var i = srcItem ?? Item(kind: .tab, container: .pinned(spaceID: sid), savedURL: srcTab?.url,
                                         pageTitle: srcTab?.title, faviconURL: srcTab?.faviconURL, icon: srcTab?.icon, createdAt: now())
                 let wasFavorite = i.isFavorite
@@ -693,21 +746,44 @@ extension SpacesStore {
                     if wasFavorite, var s = space(sid), s.lastActiveTabID == nil { s.lastActiveTabID = t.id; put(s) }
                 }
 
-            case .today(let sid, let index):
+            case .today, .todayFolder:
+                // Into Today's top level or into a Today folder (TodayFolders.swift).
+                let sid: String
+                let folderID: String?
+                if case .todayFolder(let f, _) = destination {
+                    guard let folder = todayFolder(f), let s = folder.spaceID else { throw StoreError.invalidMove }
+                    sid = s
+                    folderID = f
+                } else if case .today(let s, _) = destination {
+                    sid = s
+                    folderID = nil
+                } else { throw StoreError.invalidMove }
                 guard let sp = space(sid) else { throw StoreError.notFound }
-                if srcItem?.kind == .folder { throw StoreError.invalidMove }
-                // Rows as shown: a split is one (SV-1); the index counts them before the move.
-                let today = todayRows(ofSpace: sid)
-                let others = today.filter { $0.id != srcTab?.id }
-                var adjusted = index
-                if let st = srcTab, let si = today.firstIndex(where: { $0.id == st.id }), si < index { adjusted -= 1 }
-                let order = Ordering.insertion(at: min(adjusted, others.count), in: others.map(rowOrder))
+                let movingFolder = srcItem.flatMap { $0.kind == .folder ? $0 : nil }
+                if let f = movingFolder {
+                    // A folder goes in with everything inside, unless it holds a split or would go inside itself.
+                    if folderHoldsSplit(f.id) || folderID.map({ isFolderAncestorOrSelf(f.id, of: $0) }) == true {
+                        throw StoreError.invalidMove
+                    }
+                }
+                // Rows as shown: a split is one (SV-1), a Today folder too; the index counts them before the move.
+                let today = folderID.map { todayFolderContents($0) } ?? todayRootRows(ofSpace: sid)
+                let movingID = movingFolder?.id ?? srcTab?.id
+                let others = today.filter { $0.id != movingID }
+                var adjusted = destination.index
+                if let m = movingID, let si = today.firstIndex(where: { $0.id == m }), si < destination.index { adjusted -= 1 }
+                let order = Ordering.insertion(at: min(max(adjusted, 0), others.count), in: others.map(rowOrder))
+                if let f = movingFolder {
+                    moveFolderIntoToday(f, spaceID: sid, parentID: folderID, order: order, reload: &reload)
+                    break
+                }
                 var t = srcTab ?? LiveTab(profileID: sp.profileID, spaceID: sid, url: srcItem?.savedURL ?? "",
                                           title: srcItem?.pageTitle ?? "", faviconURL: srcItem?.faviconURL,
                                           createdAt: now())
                 if let si = srcItem { remove(Item.self, si.id); t.icon = si.icon }
                 t.itemID = nil
                 t.spaceID = sid
+                t.folderID = folderID
                 t.order = order
                 bindTab(&t, profileID: sp.profileID)
                 put(t)
@@ -777,7 +853,11 @@ extension SpacesStore {
         let unique = sources.filter { seen.insert($0).inserted }
         let folders = Set(unique.compactMap(sourceItemID).filter { item($0)?.kind == .folder })
         return unique.filter { s in
-            guard let id = sourceItemID(s) else { return true }
+            guard let id = sourceItemID(s) else {
+                // A tab in a selected Today folder (or one inside it) goes with the folder.
+                guard case .tab(let t) = s, let f = tab(t).flatMap(shownTodayFolderID) else { return true }
+                return !folders.contains { isFolderAncestorOrSelf($0, of: f) }
+            }
             var parent = item(id)?.parentID
             var guardCount = 0
             while let p = parent, guardCount < 256 {
@@ -798,14 +878,18 @@ extension SpacesStore {
         case .pinned(let sid, let parent, _):
             guard let id = sourceItemID(source) else { return nil }
             return children(of: .pinned(spaceID: sid), parent: parent).firstIndex { $0.id == id }
-        case .today(let sid, _):
+        case .today, .todayFolder:
             let id: String
             switch source {
             case .tab(let t): id = t
             case .split(let x): id = x
-            case .item: return nil
+            case .item(let i):
+                guard todayFolder(i) != nil else { return nil }
+                id = i
             }
-            return todayRows(ofSpace: sid).firstIndex { $0.id == id }
+            if case .todayFolder(let f, _) = destination { return todayFolderContents(f).firstIndex { $0.id == id } }
+            if case .today(let sid, _) = destination { return todayRootRows(ofSpace: sid).firstIndex { $0.id == id } }
+            return nil
         case .split:
             return nil
         }
@@ -831,6 +915,8 @@ extension SpacesStore {
             throw StoreError.invalidMove
         }
         if case .split = destination { throw StoreError.invalidMove }
+        // A Today folder isn't copied (its tabs are pages, not saved rows); folders don't go into Today folders by copy.
+        if srcItem?.isTodayFolder == true { throw StoreError.invalidMove }
         // SV-2: a pinned or Favorite split copies as a split (not into Today); a pane copies as a tab of its own.
         if srcItem?.kind == .split, case .today = destination { throw StoreError.invalidMove }
         // A copy of a pinned item keeps its saved address and name; a Today tab's copy takes the page it's on.
@@ -853,7 +939,7 @@ extension SpacesStore {
             case .favorites(let pid, let index):
                 guard profile(pid) != nil else { throw StoreError.notFound }
                 if srcItem?.kind == .folder { throw StoreError.invalidMove }
-                if NoteURL.isNote(srcTab?.url ?? srcItem?.savedURL) { throw StoreError.invalidMove }
+                if LocalDocumentURL.isLocal(srcTab?.url ?? srcItem?.savedURL) { throw StoreError.invalidMove }
                 let current = favorites(ofProfile: pid)
                 if current.count >= Self.maxFavorites { throw StoreError.favoritesFull }
                 var i = copiedItem(.favorites(profileID: pid))
@@ -876,14 +962,22 @@ extension SpacesStore {
                 if let src = srcItem, src.kind == .folder { copyChildren(from: src.id, to: i.id, container: .pinned(spaceID: sid)) }
                 if let src = srcItem, src.kind == .split { copyPanes(from: src.id, to: i.id, container: .pinned(spaceID: sid)) }
                 created = i.id
-            case .today(let sid, let index):
+            case .today, .todayFolder:
+                var folderID: String?
+                var sid = ""
+                if case .todayFolder(let f, _) = destination {
+                    guard let folder = todayFolder(f), let s = folder.spaceID else { throw StoreError.invalidMove }
+                    folderID = f
+                    sid = s
+                } else if case .today(let s, _) = destination { sid = s }
                 guard let sp = space(sid) else { throw StoreError.notFound }
-                if srcItem?.kind == .folder { throw StoreError.invalidMove }
-                let today = todayRows(ofSpace: sid)
+                if srcItem?.kind == .folder || (folderID != nil && srcItem?.kind == .split) { throw StoreError.invalidMove }
+                let today = folderID.map { todayFolderContents($0) } ?? todayRootRows(ofSpace: sid)
                 var t = LiveTab(profileID: sp.profileID, spaceID: sid, url: copiedAddress(srcTab?.url ?? srcItem?.savedURL) ?? "",
                                 title: srcTab?.title ?? srcItem?.pageTitle ?? "", faviconURL: srcTab?.faviconURL ?? srcItem?.faviconURL,
                                 createdAt: now())
-                t.order = Ordering.insertion(at: min(index, today.count), in: today.map(rowOrder))
+                t.folderID = folderID
+                t.order = Ordering.insertion(at: min(destination.index, today.count), in: today.map(rowOrder))
                 put(t)
                 created = t.id
             }
@@ -944,6 +1038,8 @@ extension SpacesStore {
 
     public func renameItem(_ id: String, to title: String?) throws {
         guard var i = item(id) else { throw StoreError.notFound }
+        // P13b: a note's row is named by its note's title (Notes.swift renameNoteRow), so its title field says the same.
+        if i.kind == .tab, let note = NoteURL.noteID(i.savedURL), self.note(note) != nil { return try renameNoteRow(note, to: title) }
         let t = title?.trimmingCharacters(in: .whitespacesAndNewlines)
         i.title = (t?.isEmpty ?? true) ? (i.kind == .folder ? "Folder" : nil) : t
         try perform(nil) { put(i) }
@@ -972,6 +1068,7 @@ extension SpacesStore {
     @discardableResult
     public func duplicateItem(_ id: String) throws -> Item {
         guard let src = item(id) else { throw StoreError.notFound }
+        if src.isTodayFolder { throw StoreError.invalidMove }   // its tabs are pages, not saved rows
         let siblings = children(of: src.container, parent: src.parentID)
         let i = siblings.firstIndex(where: { $0.id == id }) ?? siblings.count - 1
         if src.isFavorite, siblings.count >= Self.maxFavorites { throw StoreError.favoritesFull }
@@ -1006,7 +1103,7 @@ extension SpacesStore {
         guard let f = item(id) else { return [] }
         var out: [String] = []
         for c in children(of: f.container, parent: id) {
-            if c.kind == .folder { out += allLinks(inFolder: c.id) } else if let u = c.savedURL, !NoteURL.isNote(u) { out.append(u) }
+            if c.kind == .folder { out += allLinks(inFolder: c.id) } else if let u = c.savedURL, !LocalDocumentURL.isLocal(u) { out.append(u) }
         }
         return out
     }

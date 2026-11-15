@@ -210,6 +210,17 @@ final class NoteTextView: NSTextView, NSTextStorageDelegate {
     private var restyling = false
     /// Off for the printed copy: the column is the page's width.
     var centersColumn = true
+    /// The note's title field above the text (NoteEditorView, P13b): it scrolls with the text, which starts under it.
+    /// None on the printed copy.
+    var header: NSView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            if let header { addSubview(header) }
+            setFrameSize(frame.size)
+        }
+    }
+    /// ↑ on the first line: the title field takes the keyboard (P13b).
+    var onMoveAboveText: (() -> Void)?
 
     static let noteFragment = NSPasteboard.PasteboardType("org.airc.note.fragment")
 
@@ -834,9 +845,30 @@ final class NoteTextView: NSTextView, NSTextStorageDelegate {
     override func setFrameSize(_ newSize: NSSize) {
         if centersColumn {
             let side = max(NoteStyle.sideInset, floor((newSize.width - NoteStyle.columnWidth) / 2))
-            if textContainerInset.width != side { textContainerInset = NSSize(width: side, height: NoteStyle.topInset) }
+            let top = NoteStyle.topInset + (header == nil ? 0 : NoteTitleField.band)
+            if textContainerInset != NSSize(width: side, height: top) { textContainerInset = NSSize(width: side, height: top) }
         }
         super.setFrameSize(newSize)
+        if let header {
+            // Over the text column, its first character where the text's is.
+            let x = textContainerInset.width + (textContainer?.lineFragmentPadding ?? 5)
+            header.frame = NSRect(x: x - 2, y: NoteStyle.topInset - 4, width: max(40, newSize.width - 2 * x + 4), height: NoteTitleField.height)
+        }
+    }
+
+    override func moveUp(_ sender: Any?) {
+        if let onMoveAboveText, selectedRange().length == 0, caretOnFirstLine { return onMoveAboveText() }
+        super.moveUp(sender)
+    }
+
+    /// The caret is on the note's first line as laid out (a wrapped first paragraph's first row only).
+    private var caretOnFirstLine: Bool {
+        let n = storage.length, loc = selectedRange().location
+        guard n > 0, let lm = layoutManager else { return true }
+        if loc >= n, nsString.character(at: n - 1) == 0x0A { return false }
+        let first = lm.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil)
+        let here = lm.lineFragmentRect(forGlyphAt: lm.glyphIndexForCharacter(at: min(loc, n - 1)), effectiveRange: nil)
+        return here.minY <= first.minY
     }
 
     // ⌘Z and ⇧⌘Z: this note's own history (its delegate's undo manager), never another note's or the window's.
@@ -1024,6 +1056,42 @@ final class NoteTextView: NSTextView, NSTextStorageDelegate {
     }
 }
 
+/// The note's own title (P13b; Arc's notes had one): one line at the top of the text column, above the text and
+/// scrolling with it, in the secondary colour. Empty, it shows what names the note then, its first line, dimmed
+/// (`NoteEditorView.titlePlaceholder`). NoteEditor writes what's typed to the store as it's typed.
+final class NoteTitleField: NSTextField {
+    static let height: CGFloat = 20
+    /// How much lower the text starts with the field above it.
+    static let band: CGFloat = 26
+    static let font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+
+    init() {
+        super.init(frame: NSRect(x: 0, y: 0, width: 600, height: Self.height))
+        isBordered = false
+        isBezeled = false
+        drawsBackground = false
+        focusRingType = .none
+        isEditable = true
+        isSelectable = true
+        usesSingleLineMode = true
+        cell?.wraps = false
+        cell?.isScrollable = true
+        lineBreakMode = .byTruncatingTail
+        font = Self.font
+        setAccessibilityIdentifier("note-title")
+        setAccessibilityLabel("Note title")
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func apply(_ style: NoteStyle, placeholder: String) {
+        textColor = style.secondary
+        placeholderAttributedString = NSAttributedString(string: placeholder.isEmpty ? "Title" : placeholder,
+                                                         attributes: [.font: Self.font, .foregroundColor: style.tertiary])
+        appearance = NSAppearance(named: style.isDark ? .darkAqua : .aqua)
+    }
+}
+
 /// A menu item that runs a closure.
 final class NoteMenuItem: NSMenuItem {
     private let run: () -> Void
@@ -1043,7 +1111,10 @@ final class NoteMenuItem: NSMenuItem {
 final class NoteEditorView: NSView {
     let scrollView = NSScrollView()
     let textView: NoteTextView
+    let titleField = NoteTitleField()
     let noteID: String
+    /// What the empty title field shows: the note's first line, its name while it has no title of its own.
+    var titlePlaceholder = "" { didSet { if titlePlaceholder != oldValue { titleField.apply(style, placeholder: titlePlaceholder) } } }
 
     init(noteID: String, style: NoteStyle) {
         self.noteID = noteID
@@ -1064,6 +1135,7 @@ final class NoteEditorView: NSView {
         textView.frame = NSRect(origin: .zero, size: scrollView.contentSize)
         textView.minSize = NSSize(width: 0, height: scrollView.contentSize.height)
         addSubview(scrollView)
+        textView.header = titleField
         applyStyle()
         setAccessibilityIdentifier("note-editor")
     }
@@ -1080,6 +1152,7 @@ final class NoteEditorView: NSView {
         layer?.borderColor = (textView.style.hairline ?? .clear).cgColor
         scrollView.backgroundColor = textView.style.background
         scrollView.appearance = NSAppearance(named: textView.style.isDark ? .darkAqua : .aqua)
+        titleField.apply(textView.style, placeholder: titlePlaceholder)
     }
 
     override func layout() {
@@ -1175,5 +1248,62 @@ final class NoteEditorView: NSView {
         paper.layoutManager?.ensureLayout(for: paper.textContainer!)
         paper.sizeToFit()
         return paper
+    }
+}
+
+// Use the live text view's normal AppKit drawing, including its existing marker and
+// attachment cells. Layer contents are not a bitmap of a layer-backed NSTextView.
+extension NoteEditorView: NativeCaptureRendering {
+    func drawCapture(in context: CGContext) {
+        layoutSubtreeIfNeeded()
+        if let container = textView.textContainer { textView.layoutManager?.ensureLayout(for: container) }
+        drawCaptureBody(in: context)
+        drawCaptureTitle(in: context)
+    }
+
+    /// The title field above the text (P13b) is a subview, which the text view's draw(_:) leaves out. Strings and its
+    /// cell drawn into the flipped context below came out blank (polish4: no title in Capture or the notes-split
+    /// shot), so AppKit draws the field itself, as on screen (its title, or the dimmed first line), at its place in
+    /// this view's own coordinates, inside the scrolled area.
+    private func drawCaptureTitle(in context: CGContext) {
+        let viewport = convert(scrollView.contentView.bounds, from: scrollView.contentView)
+        let field = convert(titleField.bounds, from: titleField)
+        guard !titleField.isHidden, field.intersects(viewport) else { return }
+        context.saveGState()
+        defer { context.restoreGState() }
+        context.clip(to: viewport)
+        context.translateBy(x: field.minX, y: field.minY)
+        let graphics = NSGraphicsContext(cgContext: context, flipped: false)
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current = graphics
+        titleField.displayIgnoringOpacity(titleField.bounds, in: graphics)
+    }
+
+    private func drawCaptureBody(in context: CGContext) {
+        context.saveGState()
+        defer { context.restoreGState() }
+        context.translateBy(x: 0, y: bounds.height)
+        context.scaleBy(x: 1, y: -1)
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+        let outline = NSBezierPath(roundedRect: NSRect(origin: .zero, size: bounds.size),
+                                  xRadius: cornerRadius, yRadius: cornerRadius)
+        outline.addClip()
+        textView.style.background.setFill()
+        NSRect(origin: .zero, size: bounds.size).fill()
+        let viewport = convert(scrollView.contentView.bounds, from: scrollView.contentView)
+        let destination = NSRect(x: viewport.minX, y: bounds.height - viewport.maxY,
+                                 width: viewport.width, height: viewport.height)
+        context.saveGState()
+        context.clip(to: destination)
+        let visible = textView.visibleRect
+        context.translateBy(x: destination.minX - visible.minX, y: destination.minY - visible.minY)
+        textView.draw(visible)
+        context.restoreGState()
+        (textView.style.hairline ?? .clear).setStroke()
+        outline.lineWidth = 0.5
+        outline.stroke()
     }
 }

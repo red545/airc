@@ -13,6 +13,29 @@ copies at the output root. `--output DIR` overrides the output root;
 `--app PATH` selects the built Airc bundle. Exit 3 means incomplete measurements.
 The nightly runner reserves perf for 23:00–07:00 UTC; `--perf` overrides this.
 
+## Repeated runs for the status page (`aggregate.py`)
+
+One run is one launch per browser. For published numbers, repeat it and combine:
+
+```sh
+# each under the UI-check lock (strict); the MCP server is off in scripted runs unless --agent-server
+AIRC_UI_LOCK_STRICT=1 python3 scripts/ui-check-lock.py python3 infra/perf/run.py --instrumented \
+    --app build/Airc-Chromium.app --app-arg=--agent-server --output OUT/on-1          # ×3, background
+AIRC_UI_DEDICATED_SESSION=1 AIRC_UI_LOCK_STRICT=1 python3 scripts/ui-check-lock.py python3 infra/perf/run.py \
+    --instrumented --app build/Airc-Chromium.app --airc-only --foreground --app-arg=--agent-server --output OUT/fg-1  # ×3
+python3 infra/perf/aggregate.py --output STATUS_DIR/perf/<name> OUT/on-*/results.json \
+    --foreground OUT/fg-*/results.json --ab mcp_off=OUT/off-1/results.json
+```
+
+Headline values are medians over the runs that measured them (`spread`: min, max, n; `runs`: every run).
+`--foreground` runs decide the timing budgets (launch, Space, tab, sidebar ready, New Space); memory and CPU
+come from the background runs, like Chrome's. `complete` is true only for three or more error-free runs with
+MEM-4's 8 pages verified in both browsers. The status page reads `status/perf/*/results.json` next to the
+nightly's `runs/*/results.json` (newest by timestamp) and shows the latest WebKit result separately.
+`--foreground` launches activate Airc, so run them only with `AIRC_UI_DEDICATED_SESSION=1` on the dedicated
+build Mac. `gaps.py` takes `--app-arg` too; with `AIRC_UI_DEDICATED_SESSION=1` in its environment the lock
+wrapper turns its launches into foreground ones (`dedicated_session` in gaps.json).
+
 ## What one instrumented run measures
 
 Four launches, one after the other (about ten minutes, inside the nightly's 15-minute perf step; watchdog 840 s):

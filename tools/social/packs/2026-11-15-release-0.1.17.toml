@@ -1,0 +1,68 @@
+# Airc 0.1.17 (cut b083dd9f, release/0.1.17-cut; build revision 78fccf77 adds only notes, What's New, catalog and
+# changelog). Claims from its approved notes ("New since 0.1.16", worktrees/release029/docs/release-notes-beta.md, as
+# release029 sent them 2026-11-15). NOT TO POST before release029 posts LIVE for 0.1.17 in briefs/queue.md: plan and
+# approve only then.
+slug = "2026-11-15-release-0.1.17"
+title = "Airc 0.1.17"
+kind = "release"
+since = "0.1.17"
+shots_rev = "b083dd9f"
+tag = "New in Airc 0.1.17"
+end_title = "Airc 0.1.17"
+end_line = "Free for Mac · aircbrowser.com"
+summary = """
+Three single posts, no thread (the 0.1.16 agent campaign is still running): Connect Claude in one step and the
+calendar's hour grid as cards from the cut's own shots, Export All Easels as text.
+"""
+order = """
+1. One post a slot, at 10:30 UTC (the slot that does best) on days the agent follow-ups don't hold it, else 11:30.
+"""
+checked = """
+- 0.1.17's notes: Connect Claude ("claude", "mcp" or "agent" in the Command Bar, Help › Use Airc with Claude…, the
+  sidebar's + menu; Settings › Agents opens with Add to Claude Desktop first); calendar previews (pinned Google
+  Calendar or Outlook calendar tab, six hours from just before now, overlaps side by side, a now line, tomorrow under
+  it); Export All Easels (Library › Easels, every Easel as web pages in one ZIP with a page that lists them, keep
+  working, Cancel leaves no file).
+- Left out: "Updates retry by themselves" (no automatic-update post until the update path is proven, the standing
+  rule); dark site icons and What's New's Show me (small, no shot).
+- Please know kept: no claim about how much of the calendar shows before scrolling.
+- Shots: command-bar-connect-claude, clipped to the Command Bar (the page behind is Apple's developer site); the
+  light calendar-preview, clipped to the card. Not calendar-preview-dark: it shows a Google sign-in card and a real
+  Linear page with a person's name.
+"""
+
+[[image]]
+id = "connect"
+shot = "command-bar-connect-claude"
+title = "Connect Claude in one step."
+line = "Type “claude” in ⌘T."
+clip = [340, 284, 758, 230]
+alt = "Airc's Command Bar with “connect claude” typed: the first row, Connect Claude and other AI apps…, with Run, above search suggestions."
+
+[[image]]
+id = "calendar"
+shot = "calendar-preview"
+title = "Arc's hour grid is back."
+line = "Rest on your pinned calendar."
+clip = [237, 388, 234, 263]
+alt = "Airc's preview of a pinned Google Calendar tab, on synthetic events: Join Design review, an all-day Lisbon trip, an hour grid from 16:00 with Design review and 1:1 with Jonas side by side and a line at the current time, Write the launch notes at 17:00, and tomorrow's Team standup at 09:30 under it."
+
+[[post]]
+label = "Connect Claude in one step"
+media = ["connect:16x9"]
+text = """
+Connecting Claude to your browser is one step now: type "claude" in ⌘T, or use Help › Use Airc with Claude…, and Settings › Agents opens with Add to Claude Desktop first. New in Airc 0.1.17.
+"""
+
+[[post]]
+label = "Calendar hour grid"
+media = ["calendar:16x9"]
+text = """
+Rest on a pinned Google Calendar or Outlook tab and Airc shows Arc's hour grid again: six hours from just before now, overlapping meetings side by side, a line at the current time, and tomorrow underneath. New in Airc 0.1.17.
+"""
+
+[[post]]
+label = "Export All Easels"
+text = """
+Library › Easels can now save every Easel at once: web pages in one ZIP, with a page that lists them. Keep working while it exports; Cancel leaves no file behind. New in Airc 0.1.17.
+"""

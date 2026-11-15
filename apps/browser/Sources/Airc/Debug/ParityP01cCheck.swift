@@ -9,7 +9,7 @@ import AircKit
 ///     row back; an empty rename is allowed;
 ///   - a Favorite's Move to › lists the other profiles with a Space, by avatar and name, and moves it to that profile's
 ///     Favorites; ⌘Z brings it back;
-///   - a folder's menu: Reset all tabs in this Folder (off with nothing to reset; resets only the folder's tabs, nested
+///   - a folder's menu: Reset Folder (off with nothing to reset; resets only the folder's tabs, nested
 ///     ones too; ⌘Z), Move to › another Space (with everything inside; ⌘Z), and Turn into Space (a new Space after this
 ///     one, named after the folder with its emoji, same profile and theme, the folder's rows as its pinned section in
 ///     order; the folder goes; shown; ⌘Z undoes it all);
@@ -115,19 +115,23 @@ extension SnapshotRunner {
                 return check(false, "parityp01c: a Favorite to move")
             }
             let m = c.menu(for: .favorite(fav, c.store.liveTab(forItem: fav.id)))
+            // moveto (S09): Move to › lists this profile's Spaces, then “Second” (a header with its avatar), its Favorites
+            // and Spaces (MoveToPlan).
             let move = item(m, "Move to")
             let rows = move?.submenu.map(titles) ?? []
-            let avatar = move?.submenu?.items.first?.image != nil
-            fire(move?.submenu?.items.first { $0.title == "Second" })
+            let header = move?.submenu?.items.first { $0.title == "Second" }
+            let avatar = header?.image != nil && header?.isEnabled == false
+            let sub = move?.submenu
+            if let h = header, let i = sub?.items.firstIndex(of: h), let favRow = sub?.items[(i + 1)...].first(where: { $0.title == "Favorites" }) { fire(favRow) }
             let moved = c.store.favorites(ofProfile: otherPID).contains { $0.id == fav.id } && !c.store.favorites(ofProfile: pid).contains { $0.id == fav.id }
             c.undo()
             let back = c.store.favorites(ofProfile: pid).contains { $0.id == fav.id }
-            check(rows == ["Second"] && avatar && moved && back,
+            check(rows.contains("Second") && rows.contains("Favorites") && rows.contains { $0.hasSuffix("Elsewhere") } && avatar && moved && back,
                   "parityp01c: a Favorite's Move to › lists the other profiles with a Space (\(rows), avatar \(avatar)) and moves it to that "
                   + "profile's Favorites (\(moved)); ⌘Z brings it back (\(back))")
         }
 
-        // A folder: Reset all tabs in this Folder, Move to ›, Turn into Space.
+        // A folder: Reset Folder, Move to ›, Turn “Trip” into Space.
         var folder = "", a = "", b = "", d = "", nested = ""
         run { [self] in
             c.switchToSpace(home, animated: false)
@@ -144,9 +148,9 @@ extension SnapshotRunner {
             folder = f.id; nested = n.id; a = ta; b = tb; d = td
             c.reloadAll(animated: false)
             let m = c.menu(for: .folder(c.store.item(f.id)!, depth: 0))
-            let reset = item(m, "Reset all tabs in this Folder")
-            check(reset?.isEnabled == false && item(m, "Move to") != nil && item(m, "Turn into Space") != nil,
-                  "parityp01c: a folder's menu has Reset all tabs in this Folder (off: nothing to reset), Move to › and Turn into Space (\(titles(m)))")
+            let reset = item(m, "Reset Folder")
+            check(reset?.isEnabled == false && item(m, "Move to") != nil && item(m, "Turn “Trip” into Space") != nil,
+                  "parityp01c: a folder's menu has Reset Folder (off: nothing to reset), Move to › and Turn into Space (\(titles(m)))")
         }
         // Drift the folder's nested tab and the tab outside it: each page goes elsewhere.
         let drifts: [(() -> String, String)] = [({ b }, "/c?b"), ({ d }, "/c?d")]
@@ -162,14 +166,14 @@ extension SnapshotRunner {
         step { [self] done in
             c.show(a, focus: false)
             let m = c.menu(for: .folder(c.store.item(folder)!, depth: 0))
-            let on = item(m, "Reset all tabs in this Folder")?.isEnabled == true
-            fire(item(m, "Reset all tabs in this Folder"))
+            let on = item(m, "Reset Folder")?.isEnabled == true
+            fire(item(m, "Reset Folder"))
             waitUntil({ !self.c.store.isDrifted(b) }, timeout: 5) {
                 let reset = !self.c.store.isDrifted(b), outside = self.c.store.isDrifted(d)
                 self.c.undo()
                 self.waitUntil({ self.c.store.isDrifted(b) }, timeout: 5) {
                     self.check(on && reset && outside && self.c.store.isDrifted(b),
-                               "parityp01c: Reset all tabs in this Folder takes the folder's tabs back, nested ones too (\(reset)), not one outside it "
+                               "parityp01c: Reset Folder takes the folder's tabs back, nested ones too (\(reset)), not one outside it "
                                + "(\(outside)); ⌘Z puts it back (\(self.c.store.isDrifted(b)))")
                     done()
                 }

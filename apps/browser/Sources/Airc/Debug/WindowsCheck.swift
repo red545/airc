@@ -783,6 +783,7 @@ extension SnapshotRunner {
     }
 
     func windowsSessionRead() {
+        checkNoCommandBarAfterRelaunch("windows-read")   // RelaunchCommandBarCheck.swift
         step { [self] done in
             guard let app, let data = try? Data(contentsOf: windowsExpectedFile),
                   let expected = try? JSONDecoder().decode(WindowsExpected.self, from: data) else {

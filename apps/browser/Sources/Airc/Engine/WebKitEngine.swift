@@ -2,6 +2,7 @@
 import AppKit
 import CryptoKit
 import WebKit
+import AircKit
 
 // The dev engine: WKWebView, one WKWebsiteDataStore per profile. This is the only file that
 // imports WebKit.
@@ -69,9 +70,8 @@ final class WebKitEngine: BrowserEngine {
 
     func makeWindow(contentRect: NSRect) -> EngineWindow {
         let window = WebKitWindow(contentRect: contentRect)
-        window.linkPolicy = { [weak self] tab, url, newTab, background in
-            self?.linkRouter?(EngineLinkRequest(url: url, source: "page",
-                disposition: newTab ? (background ? "background_tab" : "foreground_tab") : "current_tab",
+        window.linkPolicy = { [weak self] tab, url, disposition in
+            self?.linkRouter?(EngineLinkRequest(url: url, source: "page", disposition: disposition,
                 sourceBundleID: nil, userGesture: true, opener: tab)) ?? false
         }
         return window
@@ -89,6 +89,13 @@ final class WebKitEngine: BrowserEngine {
     }
 }
 
+
+extension WebKitEngine {
+    func enterPictureInPictureForHost(_ tab: EngineTab, completion: @escaping (String, Bool) -> Void) {
+        guard let page = tab as? WebKitTab else { completion("none", false); return }
+        page.requestSystemPictureInPicture(forCall: true) { completion($0, false) }
+    }
+}
 final class WebKitProfile: EngineProfile {
     let directory: String
     let dataStore: WKWebsiteDataStore
@@ -110,6 +117,10 @@ final class WebKitProfile: EngineProfile {
         userContent.addUserScript(WKUserScript(source: Self.keysScript, injectionTime: .atDocumentStart,
                                                forMainFrameOnly: false))
         userContent.add(router, name: "aircKeys")
+        // SP-31: the link a context menu is for, from every frame, in a world of its own (pages can't post to it).
+        userContent.addUserScript(WKUserScript(source: Self.contextLinkScript, injectionTime: .atDocumentStart,
+                                               forMainFrameOnly: false, in: Self.linkWorld))
+        userContent.add(router, contentWorld: Self.linkWorld, name: "aircContextLink")
         PasteAndMatchStyle.add(to: WKWebView.self)   // Edit › Paste and Match Style (Commands.swift)
         library.installMediaBridge()
         WebKitPageScripts.shared.attach(self)
@@ -157,13 +168,47 @@ final class WebKitProfile: EngineProfile {
         if (!(e.metaKey || e.ctrlKey)) return;
         // ⌥ changes the character (⌥⌘V is "√"): then the letter's key, as the app and Chromium name it.
         var key = e.altKey && /^Key[A-Z]$/.test(e.code) ? e.code.slice(3) : (e.key || '');
-        var combo = (e.metaKey ? 'cmd+' : '') + (e.ctrlKey ? 'ctrl+' : '') + (e.altKey ? 'alt+' : '') + (e.shiftKey ? 'shift+' : '') + key.toLowerCase();
+        var modifiers = (e.metaKey ? 'cmd+' : '') + (e.ctrlKey ? 'ctrl+' : '') + (e.altKey ? 'alt+' : '') + (e.shiftKey ? 'shift+' : '');
+        var combo = modifiers + key.toLowerCase();
         setTimeout(function(){
           // Chrome's own ⌘B ⌘I ⌘U in a rich text field the page left alone (WebKit has no such keys).
           var format = e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && {b: 'bold', i: 'italic', u: 'underline'}[key.toLowerCase()];
           if (format && !e.defaultPrevented && e.target && e.target.isContentEditable) document.execCommand(format);
-          try { window.webkit.messageHandlers.aircKeys.postMessage({combo: combo, prevented: e.defaultPrevented}); } catch (x) {}
+          try { window.webkit.messageHandlers.aircKeys.postMessage({combo: combo, code: e.code, modifiers: modifiers, option: e.altKey, shift: e.shiftKey, prevented: e.defaultPrevented}); } catch (x) {}
         }, 0);
+      }, true);
+    })();
+    """
+
+    /// DOM key values include Option's character. Match the native command's
+    /// spelling on the current layout, including French/Swiss shifted brackets.
+    /// These DOM positions correspond to macOS virtual key codes 0...50.
+    static let shortcutKeyCodes = ["KeyA", "KeyS", "KeyD", "KeyF", "KeyH", "KeyG", "KeyZ", "KeyX", "KeyC", "KeyV", "IntlBackslash", "KeyB", "KeyQ", "KeyW",
+        "KeyE", "KeyR", "KeyY", "KeyT", "Digit1", "Digit2", "Digit3", "Digit4", "Digit6", "Digit5", "Equal", "Digit9", "Digit7",
+        "Minus", "Digit8", "Digit0", "BracketRight", "KeyO", "KeyU", "BracketLeft", "KeyI", "KeyP", "Enter", "KeyL", "KeyJ", "Quote", "KeyK",
+        "Semicolon", "Backslash", "Comma", "Slash", "KeyN", "KeyM", "Period", "Tab", "Space", "Backquote"]
+
+    static func shortcutCombo(_ body: [String: Any], layout: ShortcutCenter.Layout? = ShortcutCenter.currentLayout()) -> String {
+        let fallback = body["combo"] as? String ?? ""
+        guard body["option"] as? Bool == true, let code = body["code"] as? String,
+              let index = shortcutKeyCodes.firstIndex(of: code), let modifiers = body["modifiers"] as? String,
+              let key = layout?(UInt16(index), body["shift"] as? Bool == true, false) else { return fallback }
+        return modifiers + key.lowercased()
+    }
+
+    static let linkWorld = WKContentWorld.world(name: "airc-context-link")
+    /// Sent before WebKit shows its menu (same connection, in order): the link under the pointer, "" for none.
+    static let contextLinkScript = """
+    (function(){
+      if (window.__aircContextLink) return; window.__aircContextLink = true;
+      window.addEventListener('contextmenu', function(e){
+        var href = '';
+        var path = e.composedPath ? e.composedPath() : [];
+        for (var i = 0; i < path.length; i++) {
+          var n = path[i];
+          if (n && n.nodeType === 1 && (n.localName === 'a' || n.localName === 'area') && n.href) { href = String(n.href); break; }
+        }
+        try { window.webkit.messageHandlers.aircContextLink.postMessage(href); } catch (x) {}
       }, true);
     })();
     """
@@ -195,8 +240,11 @@ final class ScriptRouter: NSObject, WKScriptMessageHandler {
         if message.name == "aircAudio", let playing = message.body as? Bool {
             tab.setAudible(playing)
         }
+        if message.name == "aircContextLink", let href = message.body as? String {
+            (tab.webView as? PageMenuWebView)?.noteContextLink(href)
+        }
         if message.name == "aircKeys", let body = message.body as? [String: Any], let prevented = body["prevented"] as? Bool {
-            tab.delegate?.tab(tab, didReceiveShortcut: body["combo"] as? String ?? "", pageUsedIt: prevented)
+            tab.delegate?.tab(tab, didReceiveShortcut: WebKitProfile.shortcutCombo(body), pageUsedIt: prevented)
         }
     }
 }
@@ -210,7 +258,9 @@ final class WebKitWindow: EngineWindow {
     private weak var shown: WebKitTab?
     /// The Chromium build (HybridEngine.swift): a link a page follows, before WebKit does (`newTab` for target=_blank and
     /// ⌘-click, with `background` for ⌘-click). True: the window took it and the page doesn't navigate.
-    var linkPolicy: ((_ tab: WebKitTab, _ url: URL, _ newTab: Bool, _ background: Bool) -> Bool)?
+    /// A link the person clicked, with its disposition as Chromium names it (LinkRouting.webKitDisposition): true when
+    /// the app took it (Peek, a rule's Space, another engine), so the page doesn't follow it.
+    var linkPolicy: ((_ tab: WebKitTab, _ url: URL, _ disposition: String) -> Bool)?
 
     convenience init(contentRect: NSRect) {
         self.init(window: NSWindow(contentRect: contentRect,
@@ -348,7 +398,7 @@ final class WebKitWindow: EngineWindow {
         // steal it from there; WebKit restores its placeholder when the presentation ends.
         if shown === t, t.webView.fullscreenState != .notInFullscreen { return }
         guard shown !== t || t.webView.superview !== hostView else { return }
-        t.webView.closeAllMediaPresentations(completionHandler: nil)
+        t.closeMediaPresentations()
         shown?.leaveElementFullscreen()
         shown?.webView.isHidden = true
         if t.webView.superview !== hostView {
@@ -405,6 +455,76 @@ final class WebKitWindow: EngineWindow {
 }
 
 final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
+    private var closingMediaPresentations = false
+    private var mediaPresentationCloseCompletions: [() -> Void] = []
+
+    /// One exit transaction owns the page until WebKit reports that its native
+    /// presentations have ended. A native Return button is already exiting;
+    /// selecting its tab must not start another native close transaction.
+    var nativePictureInPictureReturnInFlight = false
+
+    /// System picture in picture open/close serialization (SystemPictureInPicture in WebKitMediaControls.swift):
+    /// tray/teardown closes still running, including their playback step, and the entry being requested now.
+    var systemPictureInPictureCloses = 0
+    /// An open came after a pausing close: the close leaves playback alone (the newer request wants the video).
+    var systemPictureInPicturePauseSuperseded = false
+    var systemPictureInPictureEntry: [((String) -> Void)?]?
+    /// A close, Return or teardown still owns this page's presentation; an open waits for it.
+    var isClosingSystemPictureInPicture: Bool {
+        systemPictureInPictureCloses > 0 || closingMediaPresentations || nativePictureInPictureReturnInFlight
+    }
+
+    func closeMediaPresentations(completion: (() -> Void)? = nil) {
+        SystemPictureInPicture.track(self)
+        if let completion { mediaPresentationCloseCompletions.append(completion) }
+        guard !closingMediaPresentations else { return }
+        closingMediaPresentations = true
+        let frame = webKitProfile.library.mediaFrame(of: self)
+        func waitForNativeExit() {
+            guard !SystemPictureInPicture.isOpen(self), webView.fullscreenState == .notInFullscreen else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: waitForNativeExit)
+                return
+            }
+            // The delegate can announce inline from inside WebKit's exit
+            // callback. Leave that stack before a caller detaches the view.
+            DispatchQueue.main.async { [self] in
+                nativePictureInPictureReturnInFlight = false
+                closingMediaPresentations = false
+                let callbacks = mediaPresentationCloseCompletions
+                mediaPresentationCloseCompletions.removeAll()
+                callbacks.forEach { $0() }
+                SystemPictureInPicture.closeFinished()
+            }
+        }
+        DispatchQueue.main.async { [self] in
+            if nativePictureInPictureReturnInFlight { return waitForNativeExit() }
+            // Use the page's single exit promise, shared with tray Hide/Close.
+            // Calling closeAllMediaPresentations while this exit (or PIPAgent's
+            // Return) is pending creates a second WebKit completion aggregator.
+            webView.callAsyncJavaScript("""
+                if (!window.__aircPresentationExit) {
+                    window.__aircPresentationExit = (async () => {
+                        const videos = Array.from(document.querySelectorAll('video'));
+                        await Promise.all(videos.map(v => Promise.resolve(v.__aircPiPEntry).catch(() => {})));
+                        if (document.pictureInPictureElement && document.exitPictureInPicture) {
+                            try { await document.exitPictureInPicture(); } catch (_) {}
+                        }
+                        for (const v of videos) {
+                            if (v.webkitPresentationMode && v.webkitPresentationMode !== 'inline')
+                                v.webkitSetPresentationMode('inline');
+                        }
+                        if (document.fullscreenElement && document.exitFullscreen) {
+                            try { await document.exitFullscreen(); } catch (_) {}
+                        } else if (document.webkitFullscreenElement && document.webkitExitFullscreen) {
+                            document.webkitExitFullscreen();
+                        }
+                    })().finally(() => { delete window.__aircPresentationExit; });
+                }
+                await window.__aircPresentationExit;
+                """, arguments: [:], in: frame, in: .page) { _ in waitForNativeExit() }
+        }
+    }
+
     /// End only an element presentation, never the browser's native fullscreen or a standalone PiP player.
     /// Use WebKit's presentation API so its temporary window and placeholder are cleaned up too.
     private var closingElementFullscreen = false
@@ -424,7 +544,7 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
         }
         guard webView.fullscreenState != .notInFullscreen else { return finished() }
         closingElementFullscreen = true
-        webView.closeAllMediaPresentations(completionHandler: finished)
+        closeMediaPresentations(completion: finished)
     }
 
     #if AIRC_TESTING
@@ -453,8 +573,9 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
         webKitProfile = profile
         self.hostProfile = hostProfile
         self.window = window
-        webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 800, height: 600), configuration: configuration)
+        webView = PageMenuWebView(frame: NSRect(x: 0, y: 0, width: 800, height: 600), configuration: configuration)
         super.init()
+        (webView as? PageMenuWebView)?.pageTab = self
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = true
@@ -599,12 +720,12 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
     func close() {
         guard !isClosed else { return }
         isClosed = true
-        webKitProfile.library.clearSession(of: self)
+        SystemPictureInPicture.cancelQueuedOpen(for: self, because: "its tab closed")
         webView.pauseAllMediaPlayback(completionHandler: nil)
         // PiP closes asynchronously. Keep the tab/view alive until WebKit has
         // finished its presentation callbacks, then leave that callback's stack
         // before removing the last window/media references to the view.
-        webView.closeAllMediaPresentations { [self] in
+        closeMediaPresentations { [self] in
             DispatchQueue.main.async { [self] in
                 observations = []
                 webView.stopLoading()
@@ -614,6 +735,9 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
                 window?.remove(self)
             }
         }
+        // closeMediaPresentations captured the media frame before removing its
+        // session, including protected/embedded video in a child frame.
+        webKitProfile.library.clearSession(of: self)
     }
 
     // MARK: Favicons
@@ -656,9 +780,10 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
                  decisionHandler: @escaping (WKNavigationActionPolicy, WKWebpagePreferences) -> Void) {
         // The Chromium build picks the engine for links that open tabs, and Peek for its pinned tabs.
         if action.navigationType == .linkActivated, let url = action.request.url, let policy = window?.linkPolicy {
-            let newTab = action.targetFrame == nil || action.modifierFlags.contains(.command)
-            if action.targetFrame?.isMainFrame ?? true,
-               policy(self, url, newTab, action.modifierFlags.contains(.command) && !action.modifierFlags.contains(.shift)) {
+            let disposition = LinkRouting.webKitDisposition(newFrame: action.targetFrame == nil,
+                                                            command: action.modifierFlags.contains(.command),
+                                                            shift: action.modifierFlags.contains(.shift))
+            if action.targetFrame?.isMainFrame ?? true, policy(self, url, disposition) {
                 decisionHandler(.cancel, preferences)
                 return
             }
@@ -722,7 +847,8 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
         let isPopup = windowFeatures.width != nil || windowFeatures.height != nil
         // A target=_blank link the Chromium build opens itself (window.open keeps this engine: popups keep their opener's).
         if !isPopup, action.navigationType == .linkActivated, let url = action.request.url, let policy = window.linkPolicy,
-           policy(self, url, true, action.modifierFlags.contains(.command) && !action.modifierFlags.contains(.shift)) {
+           policy(self, url, LinkRouting.webKitDisposition(newFrame: true, command: action.modifierFlags.contains(.command),
+                                                           shift: action.modifierFlags.contains(.shift))) {
             return nil
         }
         let disposition: TabDisposition = isPopup ? .popup

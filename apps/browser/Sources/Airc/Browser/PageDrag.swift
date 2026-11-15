@@ -16,7 +16,7 @@ import AppKit
 ///   - ⌘ held (Arc's opt-out), or another modifier: the page has the press, for selecting text, dragging a link out of
 ///     the strip, ⇧-click or ⌃-click. Right and middle presses, scrolling, hovering and drops always reach the page.
 /// Below the strip the page is untouched. The window's margin and the sidebar's empty top area drag as before (the
-/// window server, in the band no view claims).
+/// window server, in the band no view claims); the other margins drag and double-click the same way (RootView).
 final class PageTopDragStrip: NSView {
     /// The page the strip lies over: a click goes to its view under the pointer.
     weak var page: NSView?
@@ -89,7 +89,7 @@ final class PageTopDragStrip: NSView {
 
     override func mouseDown(with event: NSEvent) {
         guard let w = window else { return }
-        if event.clickCount >= 2 { return titleBarDoubleClick(w) }
+        if event.clickCount >= 2 { return Self.titleBarDoubleClick(w) }
         let wasKey = w.isKeyWindow
         let start = event.locationInWindow
         // (A release always comes; the limit only keeps a lost one from holding the app.)
@@ -135,7 +135,8 @@ final class PageTopDragStrip: NSView {
         return d.bool(forKey: "AppleMiniaturizeOnDoubleClick") ? "Minimize" : "Maximize"
     }
 
-    private func titleBarDoubleClick(_ w: NSWindow) {
+    /// The title-bar double-click, also for the window's other empty margins (RootView): what the system setting says.
+    static func titleBarDoubleClick(_ w: NSWindow) {
         let action = Self.doubleClickAction
         #if AIRC_TESTING
         Self.last = "double-click: " + action

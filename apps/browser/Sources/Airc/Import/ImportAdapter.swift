@@ -43,7 +43,8 @@ enum ImportAdapter {
         let spaces = plan.spaces.map { s in
             ImportBlueprint.Space(sourceID: "arc-space:" + s.id, name: s.name, icon: s.emoji == "•" ? nil : .emoji(s.emoji),
                                   theme: theme(s.theme), profileSourceID: profileKey(id: s.profileID, in: plan),
-                                  pinned: s.pinned.map { node($0) }, today: s.today.map { tab($0) })
+                                  pinned: s.pinned.map { node($0) }, today: s.today.map { tab($0) },
+                                  todayNodes: s.todayItems.map { $0.map { node($0) } })
         }
         // Every profile a Space uses gets a profile, even one Arc's profile list doesn't have (a missing folder): without
         // it, applyImport would put that Space in the default profile, with the default profile's logins.
@@ -75,7 +76,8 @@ enum ImportAdapter {
     static func node(_ i: ImportedItem, prefix: String = "arc-item:") -> ImportBlueprint.Node {
         switch i {
         case .tab(let t): .tab(tab(t, prefix: prefix))
-        case .folder(let f): .folder(.init(sourceID: prefix + f.id, title: f.title, children: f.children.map { node($0, prefix: prefix) }))
+        case .folder(let f): .folder(.init(sourceID: prefix + f.id, title: f.title, children: f.children.map { node($0, prefix: prefix) },
+                                           createdAt: f.createdAt.map { Date(timeIntervalSinceReferenceDate: $0) }))
         case .split(let x):
             .split(.init(sourceID: prefix + x.id, title: x.title, axis: x.axis == "vertical" ? .vertical : .horizontal,
                          shares: x.shares, focusedSourceID: x.focusedID.map { prefix + $0 }, tabs: x.tabs.map { tab($0, prefix: prefix) }))
@@ -125,6 +127,10 @@ enum ImportAdapter {
         add(n("unreadableHistory"), "profile’s history couldn’t be read", "profiles’ history couldn’t be read", "Quit Arc and import again. Its Spaces still came over.")
         add(n("historyNeedsCheckpoint"), "profile may have newer history in Arc", "profiles may have newer history in Arc", "Arc is open (or didn't quit cleanly), and its latest visits wait in a file Airc doesn't read while Arc uses it. Quit Arc and import again: they're added, nothing is duplicated.")
         add(n("unreadableExtensions"), "profile’s extension list couldn’t be fully read", "profiles’ extension lists couldn’t be fully read", "Quit Arc and import again. Check Arc for anything missing.")
+        add(n("unreadableSearchEngines"), "profile’s search engines couldn’t be read", "profiles’ search engines couldn’t be read",
+            "Quit Arc and import again. Its default search engine and shortcuts stay as they are in Airc until then.")
+        add(n("unsafeSearchEngine"), "search engine was left out", "search engines were left out",
+            "Airc only keeps search engines whose address is an https search page with the search words in it.")
         add(n("easel"), "Easel was left out", "Easels were left out", "Airc has no Easels. Arc keeps them until Dec 22; export the ones you need from Arc first.")
         add(n("note"), "Note was left out", "Notes were left out", "Airc has no Notes yet. Copy what you need out of Arc's Notes first.")
         add(n("liveFolder"), "live folder is now a plain folder", "live folders are now plain folders",

@@ -6,16 +6,28 @@ and keeps what you type. Make one with **⌃⇧N** (File › New Note), **New No
 
 - A new note is **pinned** at the bottom of the Space's pinned tabs (Arc pinned new notes too, so they're hard to
   lose), and its first line is ready for a title. The sidebar shows the note's first line as its name, "New Note" until
-  it has one. ⌘D moves it to Today and back; drag it like a tab, into a folder, to another Space, or ⌥-drag it for a copy.
+  it has one, unless you give the note a title of its own (below). ⌘D moves it to Today and back; drag it like a tab, into a folder, to another Space, or ⌥-drag it for a copy.
 - It saves as you type. There's no Save and nothing to lose when you quit.
 - **⌘W** archives a note in Today like a tab, and the Library's Archive brings it back as it was. A note with nothing in
   it doesn't go to the Archive: closing it deletes it (⌘Z brings it back). Archived notes are kept until you clear the
   Archive, not only 90 days as pages are.
 - **New Note in Split** (File › New Note in Split, or the Command Bar beside a page; Arc's "New Note (in Split)") puts
   a new note beside the page you're on, in Split View, with the keyboard in the note. The page stays as it was. A
-  note in a split is a Today note: click a pane or use ⌘[ and ⌘] to move between them, ⌘W archives the note and the
-  page is a tab of its own again. Notes don't go into Favorites or pinned splits, and dragging a note onto a tab
-  doesn't split them.
+  note in a split is like any other pane: click a pane or use ⌘[ and ⌘] to move between them, and ⌘W archives the note
+  so the page is a tab of its own again.
+- **A note in a split by dragging**, as with a tab: drag a note's row onto another tab's row (its right or left half),
+  over the page (its right or left edge), or onto a pinned split's row or a Favorite split's tile. The note opens
+  beside the page with the keyboard in it. ⌥-click a note's row to open it in a split too. Drag the note out again by its
+  pane's handle, or Separate All Tabs. Notes themselves still don't become Favorites, but a Favorite split can hold
+  one. See [Notes: titles and splits](parity-p13b.md).
+
+## The title
+
+The line at the top of a note, above the text, is its **title**. Empty, it shows the note's first line dimmed, because
+that's what names the note then. Click it and type to give the note a name of its own. The sidebar row and the window
+title follow as you type. **Return** or **↓** goes to the text, **↑** on the text's first line comes back, and **Esc**
+drops what you just typed. ⌘Z in the note undoes a title change like any other edit. Renaming a pinned note's row
+(double-click it, or Rename… in its menu) sets the same title, and Export uses it as the file's name and first heading.
 
 ## Writing
 
@@ -90,6 +102,6 @@ document count nothing. See [Usage data and crash reports](telemetry.md).
 
 ## What's not here yet
 
-Arc's notes could be shared by link (read-only or editable) and synced through Arc's account; Airc's can't yet. There's
-no separate title field (the first line is the title), no tables and no code blocks (inline code only; a Markdown
+Arc's notes could be shared by link (read-only or editable) and synced through Arc's account; Airc's can't yet. There are
+no tables and no code blocks (inline code only; a Markdown
 code block imports as code lines).

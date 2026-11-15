@@ -40,6 +40,8 @@ extension SnapshotRunner {
         let part = ProcessInfo.processInfo.environment["AIRC_MARKETING_PART"] ?? "browser"
         let d = MarketingDemo()
         note("marketing: part \(part)")
+        darkAuditInstall()   // DarkModeAudit.swift: AIRC_DARKAUDIT_APPEARANCE pins the appearance (no-op without it)
+        if part == "video-blocking" { mkBlockingShots(video: true); return }
         if part == "blocking" { mkBlockingShots(); return }
         mkPrepare(d)
         if part == "onboarding" {
@@ -50,12 +52,18 @@ extension SnapshotRunner {
             mkSeed(d)
             switch part {
             case "boostsplus": mkBoostSharingShot()
+            case "sharing": mkSharingShots(d)   // MarketingSharing.swift: Share Space…, a shared Space's import preview
+            case "feedback": mkFeedbackShots(d)   // MarketingFeedback.swift: Help › Send Feedback…
+            case "whatsnew": mkWhatsNewShots(d)   // MarketingWhatsNew.swift: the What's new card after an update
+            case "agents": mkAgentsShots(d)   // MarketingAgents.swift: the Agents folder and Watch
             case "profilesignin": mkProfileSignInShot()
             case "browser": mkBrowserShots(d)
             case "smallwins": mkSmallwinsShots()
             case "archive": mkArchiveShots()
             case "views": mkViewShots(d)
             case "media": mkMediaShots(d)
+            case "update": mkBundleReplacementShot(d)
+            case "parityp16b": mkParityP16bShots(d)
             case "calls": mkCallShots(d)
             case "media2": mkMedia2Shots(d)
             case "routing": mkRoutingShots(d)
@@ -72,16 +80,29 @@ extension SnapshotRunner {
             case "capture": mkCaptureShots(d)
             case "notes": mkNotesShots(d)
             case "parityp07": mkParityP07Shots(d)   // MarketingParityP07.swift: Site Search
+            case "parityp07bc": mkParityP07bcShots(d)   // MarketingParityP07bc.swift: Ask ChatGPT, Instant Links
             case "parityp03b": mkParityP03bShots(d)   // MarketingParityP03b.swift: the Command Bar's ✕ on a history row
             case "parityp09": mkParityP09Shots(d)   // MarketingParityP09.swift: extensions in the toolbar
             case "cast": mkCastShots(d)
             case "parityp20d": mkParityP20dShots(d)   // MarketingParityP20d.swift: the Task Manager
+            case "parityp18b": MainActor.assumeIsolated { mkParityP18bShots(d) }   // MarketingParityP18b.swift: Tidy Tabs
+            case "todayfolders": MainActor.assumeIsolated { mkTodayFoldersShots(d) }   // MarketingTodayFolders.swift: folders in Today
             case "library": mkLibraryShots(d)
             case "parityp10": mkParityP10Shots(d)   // MarketingParityP10.swift: Library folders and Notes
+            case "parityp12": mkParityP12Shots(d)   // MarketingParityP12.swift: a GitHub Live Folder
             case "shortcuts": mkShortcutsShots(d)
+            case "parityp19a": mkParityP19aShots(d)   // MarketingParityP19a.swift: an Easel
+            case "parityp19b": mkParityP19bShots(d)   // MarketingParityP19b.swift: an Easel's live Captures
+            case "parityp19c": mkParityP19cShots(d)   // MarketingParityP19c.swift: Share Link… on an Easel
+            case "parityp12": mkParityP12Shots(d)   // MarketingParityP12.swift: a GitHub Live Folder
             case "arcbits": mkArcbitsShots()
             case "devmode": mkDeveloperModeShots()
             case "ai": MainActor.assumeIsolated { mkAIShots(d) }
+            case "favbadges": mkFavoriteBadgeShots(d)   // MarketingFeatureShots.swift: Favorites' own badges (S03b)
+            case "mailcard": mkMailCardShot(d)   // MarketingFeatureShots.swift: the Gmail card (S04)
+            case "calgrid": mkCalGridShots(d)   // MarketingCalGrid.swift: the calendar card's hour grid
+            case "profilesearch": mkProfileSearchShot(d)   // MarketingFeatureShots.swift: Settings › Profiles search rows (C08)
+            case "darkaudit-sidebar", "darkaudit-overlays", "darkaudit-settings": darkAudit(d, part: part)   // DarkModeAudit.swift
             default: note("marketing: unknown part \(part)")
             }
         }
@@ -369,7 +390,12 @@ extension SnapshotRunner {
       sel.forEach(function(s){ try { document.querySelectorAll(s).forEach(function(e){ e.style.setProperty('display', 'none', 'important'); }); } catch (e) {} });
       document.querySelectorAll('aside, section, div, nav').forEach(function(e){
         var r = e.getBoundingClientRect();
-        if (r.top < 4 && r.height > 0 && r.height < 160 && /choose another country or region/i.test(e.textContent || '')) e.style.setProperty('display', 'none', 'important');
+        if (r.top < 4 && r.height > 0 && r.height < 160 && /choose another country or region|anderes Land oder eine andere Region/i.test(e.textContent || '')) {
+          // The whole bar, not just its text: its outermost ancestor that is still a bar at the top.
+          var bar = e, up = e.parentElement;
+          while (up && up !== document.body) { var q = up.getBoundingClientRect(); if (q.top < 4 && q.height > 0 && q.height < 160) { bar = up; up = up.parentElement; } else break; }
+          bar.style.setProperty('display', 'none', 'important');
+        }
       });
       document.querySelectorAll('body *').forEach(function(e){
         var st = getComputedStyle(e); if (st.position !== 'fixed' && st.position !== 'sticky') return;

@@ -52,7 +52,7 @@ final class ForwardCompatTests: XCTestCase {
         // Damage and future data, written behind the store's back.
         let homeBody = try XCTUnwrap(try rows()["space/\(ids["home"]!)"])
         var workProfile = try object(try rows()["profile/\(ids["work"]!)"])
-        workProfile["searchEngine"] = "perplexity"
+        workProfile["searchEngine"] = "askjeeves"
         workProfile["syncAccount"] = "someone@example.com"
         let futureProfile = String(decoding: try JSONSerialization.data(withJSONObject: workProfile, options: [.sortedKeys]),
                                    as: UTF8.self)
@@ -97,7 +97,7 @@ final class ForwardCompatTests: XCTestCase {
         }
         let written = try object(after["profile/\(ids["work"]!)"])
         XCTAssertEqual(written["name"] as? String, "Work 2")
-        XCTAssertEqual(written["searchEngine"] as? String, "perplexity", "a newer build's value was overwritten")
+        XCTAssertEqual(written["searchEngine"] as? String, "askjeeves", "a newer build's value was overwritten")
         XCTAssertEqual(written["syncAccount"] as? String, "someone@example.com", "a newer build's field was dropped")
         XCTAssertEqual(try Database(path: path).query("SELECT value FROM meta WHERE key='schema'").first?.first as? String,
                        "\(SpacesStore.schemaVersion + 1)")
@@ -133,14 +133,14 @@ final class ForwardCompatTests: XCTestCase {
     }
 
     func testMergeKeepsUnknownAndUnchangedValues() {
-        let raw = #"{"a":1,"e":"perplexity","icon":{"sticker":{"_0":"x"}},"n":"old","opt":"v","theme":{"appearance":"sepia","grain":0.5},"x":"future"}"#
+        let raw = #"{"a":1,"e":"askjeeves","icon":{"sticker":{"_0":"x"}},"n":"old","opt":"v","theme":{"appearance":"sepia","grain":0.5},"x":"future"}"#
         let loaded = #"{"a":1,"e":"google","icon":{"symbol":{"_0":"circle.dashed"}},"n":"old","opt":"v","theme":{"appearance":"auto","grain":0.5}}"#
         // Renamed, cleared `opt`, changed the grain and the icon.
         let current = #"{"a":1,"e":"google","icon":{"emoji":{"_0":"🙂"}},"n":"new","theme":{"appearance":"auto","grain":0.25}}"#
         let merged = SpacesStore.merge(raw: raw, loaded: loaded, current: current)
         let o = try! JSONSerialization.jsonObject(with: Data(merged.utf8)) as! [String: Any]
         XCTAssertEqual(o["n"] as? String, "new")
-        XCTAssertEqual(o["e"] as? String, "perplexity")
+        XCTAssertEqual(o["e"] as? String, "askjeeves")
         XCTAssertEqual(o["x"] as? String, "future")
         XCTAssertNil(o["opt"])
         XCTAssertEqual((o["icon"] as? [String: Any])?.keys.sorted(), ["emoji"])
@@ -151,7 +151,7 @@ final class ForwardCompatTests: XCTestCase {
 
     func testUnknownEnumValuesReadAsDefaults() throws {
         let d = JSONDecoder()
-        XCTAssertEqual(try d.decode([SearchEngine].self, from: Data(#"["kagi","perplexity"]"#.utf8)), [.kagi, .google])
+        XCTAssertEqual(try d.decode([SearchEngine].self, from: Data(#"["kagi","askjeeves"]"#.utf8)), [.kagi, .google])
         XCTAssertEqual(try d.decode([SpaceIcon].self, from: Data(#"[{"emoji":{"_0":"🙂"}},{"sticker":{}}]"#.utf8)),
                        [.emoji("🙂"), .unknown])
     }

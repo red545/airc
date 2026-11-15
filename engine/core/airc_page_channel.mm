@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Modified by The Airc Authors
 
+#include "airc/core/airc_blocking.h"
 #include "airc/core/airc_page_channel.h"
 
 #import <Foundation/Foundation.h>
@@ -158,6 +159,9 @@ void PageChannel::ReadyToCommitNavigation(
   if (frame && !frame->GetParentOrOuterDocument()) {
     if (auto remote = PageOf(frame)) {
       remote->SetPageColor(page_color_);
+      if (!navigation->IsSameDocument() && !navigation->IsPageActivation())
+        remote->SetBlockingScript(BlockingDocumentScript(
+            web_contents()->GetBrowserContext(), navigation->GetURL()));
     }
   }
 }

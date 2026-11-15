@@ -10,13 +10,28 @@ public struct PersonalizationPreferences: Codable, Equatable, Sendable {
         case holographic
         /// The outline mark on white (assets/brand/airc-outline-squircle).
         case outline
+        /// The same icon recoloured (assets/brand/alticons.py): a warm ring of coral, peach and gold.
+        case sunset
+        /// Blues and teals.
+        case ocean
+        /// A night-blue face with a white mark, the holographic ring around it.
+        case midnight
+        /// Monochrome: greys only.
+        case graphite
 
         public var title: String {
             switch self {
             case .holographic: "Holographic"
             case .outline: "Outline"
+            case .sunset: "Sunset"
+            case .ocean: "Ocean"
+            case .midnight: "Midnight"
+            case .graphite: "Graphite"
             }
         }
+
+        /// The .icns in the app's Resources (assets/brand/app-icons); nil for the app's own icon.
+        public var resourceName: String? { self == .holographic ? nil : "AppIcon-" + rawValue }
 
         public init(from decoder: Decoder) throws {
             self = (try? AppIcon(rawValue: decoder.singleValueContainer().decode(String.self))) ?? .holographic
@@ -26,8 +41,8 @@ public struct PersonalizationPreferences: Codable, Equatable, Sendable {
     public var appIcon: AppIcon = .holographic
     /// Airc's own sounds (the alert when it can't do something). Off: none at all.
     public var playsSounds = true
-    /// The trackpad's tap when a dragged tab moves on to the next Space or a swipe past the first or last Space is
-    /// far enough.
+    /// Arc's "Haptic feedback when reordering tabs" (on, as Arc's): the trackpad's tap on each place a dragged tab
+    /// moves to, when it moves on to the next Space, and when a swipe past the first or last Space is far enough.
     public var haptics = true
 
     public init() {}
@@ -52,7 +67,9 @@ public struct IdleUpdatePolicy: Equatable, Sendable {
 
     public enum Blocker: String, CaseIterable, Sendable {
         case turnedOff, automated, notReady, active, recentInput, media, pictureInPicture, call, screenSharing, downloads,
-             loading, leaveSite, editedForms, developerMode, privateWindows, dialog
+             loading, leaveSite, editedForms, developerMode, privateWindows, dialog,
+             /// A page didn't say what it holds in time (a long script, a hung renderer): it might have typed text.
+             unanswered
     }
 
     public var enabled = false
@@ -72,6 +89,8 @@ public struct IdleUpdatePolicy: Equatable, Sendable {
     public var leaveSite = 0
     public var editedForms = 0
     public var developerMode = 0
+    /// Pages that didn't answer what a restart would interrupt.
+    public var unanswered = 0
     public var privateWindowsWithPages = false
     public var dialogOpen = false
 
@@ -96,6 +115,7 @@ public struct IdleUpdatePolicy: Equatable, Sendable {
         if developerMode > 0 { out.append(.developerMode) }
         if privateWindowsWithPages { out.append(.privateWindows) }
         if dialogOpen { out.append(.dialog) }
+        if unanswered > 0 { out.append(.unanswered) }
         return out
     }
 
@@ -105,4 +125,49 @@ public struct IdleUpdatePolicy: Equatable, Sendable {
     }
 
     public var restartsNow: Bool { blockers.isEmpty }
+}
+
+/// E12, Settings › General › "When Airc starts" (Arc: "When opening Arc, restore windows from previous session", on).
+/// Only *what* the launch's first windows are; when they open is the launch's own business.
+public enum StartupWindows: String, Codable, CaseIterable, Sendable {
+    /// The windows from last time, each with its Space, tab, split, frame and sidebar (WIN-7). Airc's behaviour before
+    /// the choice existed, so the default.
+    case lastSession
+    /// One new window on the Space used last, no tab open. Pinned tabs, Favorites and the Today list are still there:
+    /// they're the sidebar's, not the window's.
+    case newWindow
+
+    public var title: String {
+        switch self {
+        case .lastSession: "Open my windows and tabs from last time"
+        case .newWindow: "Open a new window"
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        self = (try? StartupWindows(rawValue: decoder.singleValueContainer().decode(String.self))) ?? .lastSession
+    }
+}
+
+/// How the last run ended, as the store's device-local "session.exit" mark says: "running" from the launch's first
+/// windows until a quit is accepted, "clean" after it, "restart" when Airc quit to restart itself (an update).
+public enum PreviousExit: String, Sendable {
+    case clean, running, restart
+
+    /// No mark (a first launch, or the build before the mark existed): as a crash, so nothing is lost.
+    public init(mark: String?) { self = mark.flatMap(PreviousExit.init(rawValue:)) ?? .running }
+
+    /// The last run crashed, was force-quit or lost power: it never accepted a quit.
+    public var crashed: Bool { self == .running }
+}
+
+public enum LaunchRestore {
+    /// Whether the launch brings back the last session's windows. "Open a new window" still does after a crash or a
+    /// restart Airc did itself (an update), as Arc does: only a quit the person chose starts fresh.
+    public static func restoresLastSession(_ choice: StartupWindows, previous: PreviousExit) -> Bool {
+        choice == .lastSession || previous != .clean
+    }
+
+    /// The mark an accepted quit leaves: a restart Airc asked for stays one.
+    public static func markOnQuit(current: PreviousExit) -> PreviousExit { current == .restart ? .restart : .clean }
 }

@@ -14,6 +14,8 @@ enum NativeEditingMenus {
         let selector: Selector
         var key = ""
         var modifiers: NSEvent.ModifierFlags = []
+        /// K03: Settings › Shortcuts and settings.json know it by this ("edit.native.uppercaseWord").
+        var id: String { "edit.native." + NSStringFromSelector(selector).replacingOccurrences(of: ":", with: "") }
     }
 
     static func action(_ title: String, _ selector: String, _ key: String = "", _ modifiers: NSEvent.ModifierFlags = []) -> Action {
@@ -55,18 +57,34 @@ enum NativeEditingMenus {
     static let delete = action("Delete", "delete:")
 
     /// The submenu items, each sent to the first responder (target nil): AppKit enables one only when something in the
-    /// key window's responder chain answers it.
+    /// key window's responder chain answers it. Each has the user's key (K03, ShortcutCenter).
     static func editSubmenuItems() -> [NSMenuItem] {
         submenus.map { s in
             let item = NSMenuItem(title: s.title, action: nil, keyEquivalent: "")
             let sub = NSMenu(title: s.title)
             for a in s.actions {
                 guard let a else { sub.addItem(.separator()); continue }
-                let i = sub.addItem(withTitle: a.title, action: a.selector, keyEquivalent: a.key)
-                i.keyEquivalentModifierMask = a.modifiers
+                let i = Item(title: a.title, action: a.selector, keyEquivalent: "")
+                i.commandID = a.id
+                (i.keyEquivalent, i.keyEquivalentModifierMask) = ShortcutCenter.shared.menuKey(forNative: a.id)
+                sub.addItem(i)
             }
             item.submenu = sub
             return item
+        }
+    }
+
+    /// An editing action's menu item: AppKit's own (the responder chain runs it), with the id its key is kept by.
+    final class Item: NSMenuItem {
+        var commandID = ""
+    }
+
+    /// K03: the submenus' actions as Settings › Shortcuts lists them, with their usual keys. The menu items run them (the
+    /// key monitor never sees these keys: they go to whatever has the keyboard, a page first, as Arc's do); a run from
+    /// elsewhere sends the action down the key window's responder chain.
+    static func commands() -> [BrowserCommand] {
+        submenus.flatMap { $0.actions.compactMap { $0 } }.map { a in
+            BrowserCommand(a.title, a.key, a.modifiers, id: a.id) { _ in NSApp.sendAction(a.selector, to: nil, from: nil) }
         }
     }
 

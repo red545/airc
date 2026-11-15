@@ -1,0 +1,44 @@
+--- a/chrome/browser/ui/views/tab_sharing/tab_sharing_ui_views.cc
++++ b/chrome/browser/ui/views/tab_sharing/tab_sharing_ui_views.cc
+@@ -6,6 +6,7 @@
+ 
+ #include <algorithm>
+ #include <memory>
++#include "airc/core/airc_hooks.h"  // nogncheck
+ #include <optional>
+ #include <string>
+ #include <utility>
+@@ -250,6 +251,7 @@
+   CreateInfobarsForAllTabs();
+   UpdateTabCaptureData(shared_tab_, TabCaptureUpdate::kCaptureAdded);
+   CreateTabCaptureIndicator();
++  if (g_airc_call_share && capture_type_ == TabSharingInfoBarDelegate::TabShareType::CAPTURE) g_airc_call_share(this, WebContentsFromId(capturer_), shared_tab_, !source_callback_.is_null());
+   return 0;
+ }
+ 
+@@ -293,6 +295,7 @@
+ }
+ 
+ void TabSharingUIViews::StopSharing(std::string_view reason) {
++  if (g_airc_call_share) g_airc_call_share(this, nullptr, nullptr, false);
+   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+   if (!stop_callback_.is_null()) {
+     if (log_message_callback_) {
+@@ -681,6 +684,7 @@
+ bool TabSharingUIViews::IsCapturableByCapturer(const Profile* profile) const {
+   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+   CHECK(profile);
++  if (g_airc_embedder) return WebContentsFromId(capturer_) && WebContentsFromId(capturer_)->GetBrowserContext() == profile;
+ 
+   // Guest profiles may have an arbitrary non-guest profile as their original,
+   // so direct comparison would not work. Instead, we rely on the assumption
+--- a/chrome/browser/ui/tab_sharing/tab_sharing_infobar_delegate.h
++++ b/chrome/browser/ui/tab_sharing/tab_sharing_infobar_delegate.h
+@@ -119,6 +119,7 @@
+   std::u16string GetButtonTooltip(TabSharingInfoBarButton button) const;
+   int GetButtons() const;
+ 
++  TabSharingUI* airc_ui() const { return ui_; }
+   bool IsSharedTabBlocked() const;
+ 
+   void Stop();

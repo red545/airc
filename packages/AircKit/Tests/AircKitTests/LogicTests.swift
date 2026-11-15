@@ -37,6 +37,40 @@ final class URLRulesTests: XCTestCase {
         XCTAssertEqual(URLRules.unreadCount(fromTitle: "(12) Home / X"), 12)
         XCTAssertNil(URLRules.unreadCount(fromTitle: "Inbox - Gmail"))
         XCTAssertNil(URLRules.unreadCount(fromTitle: "Inbox (0)"))
+        XCTAssertEqual(URLRules.unreadCount(fromTitle: "general (Channel) - Team - Slack | 4 new items"), 4)
+        XCTAssertEqual(URLRules.unreadCount(fromTitle: "Team | 1 new item"), 1)
+        XCTAssertEqual(URLRules.unreadCount(fromTitle: "(99+) Discord | #general"), 99)
+        XCTAssertTrue(URLRules.showsUnreadBadge("https://discord.com/channels/@me"))
+        XCTAssertTrue(URLRules.showsUnreadBadge("https://messages.google.com/web/conversations"))
+        XCTAssertFalse(URLRules.showsUnreadBadge("http://127.0.0.1:8080/inbox"))
+    }
+
+    /// S03b: each badging site's own face, read from the title only.
+    func testFavoriteBadge() {
+        typealias B = URLRules.FavoriteBadge
+        XCTAssertEqual(URLRules.favoriteBadge(title: "(3) Home / X", url: "https://x.com/home"), B.count(3, more: false))
+        XCTAssertEqual(URLRules.favoriteBadge(title: "(20+) Notifications / X", url: "https://x.com/notifications"), B.count(20, more: true))
+        XCTAssertEqual(URLRules.favoriteBadge(title: "Elon (@x) (1) / X", url: "https://twitter.com/x"), B.count(1, more: false))
+        XCTAssertEqual(URLRules.favoriteBadge(title: "Home / X", url: "https://x.com/home"), B.none)
+        XCTAssertEqual(URLRules.favoriteBadge(title: "(0) Home / X", url: "https://x.com/home"), B.none)
+        XCTAssertEqual(URLRules.favoriteBadge(title: "! Slack | dm | Team", url: "https://app.slack.com/client/T1/D2"), B.mention)
+        XCTAssertEqual(URLRules.favoriteBadge(title: "* Slack | general | Team", url: "https://app.slack.com/client/T1/C2"), B.dot)
+        XCTAssertEqual(URLRules.favoriteBadge(title: "Slack | general | Team | 4 new items", url: "https://app.slack.com/client/T1"), B.dot)
+        XCTAssertEqual(URLRules.favoriteBadge(title: "Slack | general | Team", url: "https://app.slack.com/client/T1"), B.none)
+        XCTAssertEqual(URLRules.favoriteBadge(title: "Inbox (3) - Gmail", url: "https://mail.google.com/mail/u/0/"), B.dot)
+        XCTAssertEqual(URLRules.favoriteBadge(title: "! Inbox (3) - Gmail", url: "https://mail.google.com/mail/u/0/"), B.dot)
+        XCTAssertEqual(URLRules.favoriteBadge(title: "(3) Something", url: "https://example.com/"), B.none)
+        XCTAssertEqual(URLRules.badgeCountText(7, more: false), "7")
+        XCTAssertEqual(URLRules.badgeCountText(20, more: true), "20+")
+        XCTAssertEqual(URLRules.badgeCountText(240, more: false), "99+")
+        // The checks' loopback pages stand for an app by path, only while the seam is set.
+        XCTAssertEqual(URLRules.badgeApp("http://127.0.0.1:9/x"), .generic)
+        URLRules.extraUnreadBadgeHosts = ["127.0.0.1"]
+        URLRules.extraBadgeApps = ["/x": .x, "/slack": .slack]
+        defer { URLRules.extraUnreadBadgeHosts = []; URLRules.extraBadgeApps = [:] }
+        XCTAssertEqual(URLRules.favoriteBadge(title: "(5) Home / X", url: "http://127.0.0.1:9/x"), B.count(5, more: false))
+        XCTAssertEqual(URLRules.favoriteBadge(title: "! Slack | dm", url: "http://127.0.0.1:9/slack"), B.mention)
+        XCTAssertEqual(URLRules.favoriteBadge(title: "Inbox (2)", url: "http://127.0.0.1:9/inbox"), B.dot)
     }
 
     func testMarkdown() {

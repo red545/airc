@@ -1,0 +1,209 @@
+# Airc 0.1.16, the agent release (cut c68f39e3, release/0.1.16-cut; build revision 24552a35 adds only the notes, What's
+# New, catalog and changelog). Every claim is from its approved notes (docs/release-notes-beta.md at 24552a35, "New
+# since 0.1.15", as release028 sent them 2026-11-15) or docs/user/agents.md. NOT TO POST before release028 posts LIVE
+# for 0.1.16 in briefs/queue.md: approve only then.
+slug = "2026-11-15-release-0.1.16"
+title = "Let Claude use your browser: Airc 0.1.16"
+kind = "release"
+since = "0.1.16"
+shots_rev = "c68f39e3"
+tag = "New in Airc 0.1.16"
+end_title = "Let Claude use your browser."
+end_line = "Airc · Free for Mac · aircbrowser.com"
+summary = """
+The agent launch the owner asked for ("a bigger story on x"): a 7-post thread led by the hero video (Claude works in
+Airc; the Agents folder lights up; you watch it click and type; you take over), then single posts over ten days.
+Cards from the cut's own shots (agentview's agents-watch, agents-approval, settings-agents, settings-agents-activity);
+videos from the cut's own build (tools/social/mac-frames.sh --motions agent-hero,agent-login --rev c68f39e3), on
+synthetic sites only.
+"""
+order = """
+1. Launch, 10:30 UTC on the first day after LIVE: post 1 with posts 2-7 as replies.
+2. Then posts 8-12, one a day at 10:30.
+"""
+checked = """
+- 0.1.16's notes, item 1 (See what your AI agent is doing): Agents folder with each agent tab ("Claude · Mailbox"),
+  watch live with each click and the field typed into highlighted, Take over (the page becomes your tab), Stop (ends
+  the agent's session), a banner when an agent starts, Settings › Agents › Activity (last 7 days, sites and kinds of
+  actions, never what they read or typed), Show agent pages in front. docs/user/agents.md for the rest (asks once,
+  passwords filled never shown, private windows, setup).
+- Please know, kept: Watch is live on Chromium (the default engine); on WebKit it updates about 15 times a second, so
+  no post says "every engine". Claude Desktop hasn't been tried with a released build: posts say "Claude" and name
+  Claude Desktop only as Settings' button (the owner used it on a signed build, per the lead). No other app is named
+  as working; Settings' "Cursor, Codex, VS Code" line shows on the setup card, the post says "other MCP apps".
+- Not claimed: the setup clip (its demo's activation fix isn't in the cut), cross-device (mcpremote hasn't shipped),
+  speed beyond the notes' own numbers. No competitor named.
+- Demo honesty: the client in every shot and video is Airc's own test client named Claude ("Started by Airc itself"
+  shows in the ask and in Settings); alts say so; no post calls a video a recording of Claude Desktop.
+"""
+
+# ---------------------------------------------------------------- images
+
+[[image]]
+id = "watch"
+shot = "agents-watch"
+title = "Watch Claude use your browser."
+line = "The Agents folder shows each agent. Click one to watch it live."
+alt = "Airc's Travel Space with the Agents folder at the foot of the sidebar: Claude · Corner Shop, and Claude · Mailbox typing in 'Search mail'. The page is open in Watch, read-only, with Take Over and Stop at the top; Claude is typing “flight to Lisbon” into the outlined search field, with the caption Typing in 'Search mail'. A synthetic mailbox site and Airc's own test client named Claude."
+
+[[image]]
+id = "ask"
+shot = "agents-approval"
+mode = "plate"
+title = "It asks first."
+line = "Once per app. It never sees your saved passwords or your private windows."
+alt = "Airc's question when a new app connects: Allow 'Claude' to use Airc? It can open pages and act in your signed-in sites in Personal and Work. It never sees your saved passwords or your private windows. Started by Airc itself (Airc's own test client). Don't Allow, Allow."
+
+[[image]]
+id = "activity"
+shot = "settings-agents-activity"
+title = "Activity."
+line = "What agents did in the last 7 days: sites and kinds of actions, never what they read or typed."
+clip = [210, 555, 560, 255]
+alt = "Settings › Agents › Activity in Airc: Claude on mailbox.aircbrowser.com, today, Clicked 2×, Typed in a field, Read the page; Claude on cornershop.aircbrowser.com, Opened a page 2×; Clear History. Below: what agents did in the last 7 days, sites and kinds of actions, never what they read or typed. Kept on this Mac only."
+
+[[image]]
+id = "setup"
+shot = "settings-agents-activity"
+title = "One click to set up."
+line = "Settings › Agents › Set up."
+clip = [210, 830, 560, 236]
+alt = "Settings › Agents › Set up in Airc: Claude Desktop, Add to Claude Desktop (adds Airc to Claude's settings, after asking); Claude Code, Copy and Add to Claude Code; Other apps, Copy JSON to paste into their MCP settings."
+
+[[image]]
+id = "infront"
+shot = "settings-agents"
+title = "Out of sight, or in front."
+line = "Your choice, in Settings › Agents."
+clip = [210, 160, 560, 160]
+alt = "Settings › Agents › Access in Airc: Let AI apps use Airc, on; Show agent pages in front, off: an agent's page opens live in your window as it starts, in the sidebar's Agents folder; off, agents work out of sight and you can watch any time from the Agents folder."
+
+# ---------------------------------------------------------------- videos (agentspike's demos, rendered from c68f39e3)
+# Frames: mac-frames.sh --motions agent-hero,agent-login --rev c68f39e3 (2026-11-15 05:55Z, every check PASS), with
+# manifests written from their capture.json (labels per step); agent-takeover is the hero's last five frames.
+
+[[video]]
+id = "hero-video"
+motion = "agent-hero"
+# The whole window, so the ask in its top-right corner and Take Over and Stop stay in frame.
+scale_16x9 = 0.78
+scale_1x1 = 0.65
+tag = "New in Airc 0.1.16"
+title = "Watch Claude use your browser."
+line = "In the sites you're signed in to."
+captions = { page = "You ask Claude to order your usual.", ask = "The first time, Airc asks.", start = "A banner, and Claude in the Agents folder.", watch = "Click it to watch, live.", click = "Each click, highlighted…", type = "…and each field it types into.", done = "Order placed.", takeover = "Take over: the page is your tab.", stop = "Stop ends the agent's session." }
+fade_frames = 10
+alt = "A scripted run of Airc 0.1.16 on a demo bakery site, Pastelaria Aurora, signed in as a made-up customer, Ada Example; the client is Airc's own test client named Claude. Airc asks: Allow 'Claude' to use Airc? A banner says Claude is using Airc, and the sidebar's Agents folder shows Claude · Pastelaria Aurora. Watch shows the agent's page read-only with Take Over and Stop: it clicks Order again, types 9:30 as the pickup time and a note, and places order 4821, each click and field highlighted with a caption. Take over makes the page the person's tab; then the agent is stopped."
+
+[[video]]
+id = "takeover-video"
+motion = "agent-takeover"
+# The whole window, so the ask in its top-right corner and Take Over and Stop stay in frame.
+scale_16x9 = 0.78
+scale_1x1 = 0.65
+tag = "New in Airc 0.1.16"
+title = "Take over, or Stop."
+line = "One click from the wheel."
+captions = { type = "Watch Claude work.", done = "Done.", takeover = "Take over: the page is your tab.", stop = "Stop ends the agent's session." }
+fade_frames = 10
+alt = "A scripted run of Airc 0.1.16 on a demo bakery site: Watch shows Airc's test client named Claude typing a pickup time and a note on the order page, then the placed order; Take Over makes the page the person's own tab, and Stop ends the agent's session, shown in the sidebar's Agents folder."
+
+# ---------------------------------------------------------------- posts
+
+[[post]]
+label = "Launch: watch Claude use your browser (hero video)"
+media = ["hero-video:16x9"]
+text = """
+Watch Claude use your browser.
+
+When Claude or another AI app uses Airc, an Agents folder appears in your sidebar. Click an agent to watch it live, each click and field highlighted, and take over whenever you like.
+
+New in Airc 0.1.16.
+"""
+
+[[post]]
+label = "It asks first"
+reply = true
+media = ["ask:16x9"]
+text = """
+It starts with a question. The first time an app connects, Airc asks once: Allow 'Claude' to use Airc?
+
+It can act in your signed-in sites, in the profiles you allow. It never sees your saved passwords or your private windows.
+"""
+
+[[post]]
+label = "The Agents folder"
+reply = true
+media = ["watch:16x9"]
+text = """
+Agents work in pages of their own, so your tabs stay as you left them. A banner tells you when one starts, and the Agents folder shows each one: Claude · Mailbox, Claude · Corner Shop.
+"""
+
+[[post]]
+label = "Passwords: filled, never shown (video)"
+reply = true
+media = ["2026-11-15-agents-login/login-video:16x9"]
+text = """
+Claude can sign in with a login you saved without ever seeing it: Airc fills the form itself.
+
+Reading a page hides password, one-time code and card fields.
+"""
+
+[[post]]
+label = "Activity"
+reply = true
+media = ["activity:16x9"]
+text = """
+Settings › Agents › Activity lists what agents did in the last 7 days: the sites and the kinds of actions. Never what they read or typed, and it stays on your Mac.
+"""
+
+[[post]]
+label = "Setup"
+reply = true
+media = ["setup:16x9"]
+text = """
+Setup is one click in Settings › Agents: Add to Claude Desktop, Add to Claude Code, or copy the JSON for other MCP apps.
+"""
+
+[[post]]
+label = "The browser you live in"
+reply = true
+text = """
+Arc shuts down on December 22. Airc is the Arc-style browser for Mac: your Spaces, your sidebar, and now your own AI working in the browser you already live in.
+
+Free. The download is on our profile.
+"""
+
+[[post]]
+label = "Take over and Stop (video)"
+media = ["takeover-video:16x9"]
+text = """
+You're one click from the wheel. Watch Claude work, then Take over and the page becomes your own tab. Stop ends the agent's session. New in Airc 0.1.16.
+"""
+
+[[post]]
+label = "Passwords (video)"
+media = ["2026-11-15-agents-login/login-video:16x9"]
+text = """
+Claude signed in to this site with a login saved in Airc, and never saw the password. Airc fills the form itself; when Claude reads the page, the password shows as hidden.
+"""
+
+[[post]]
+label = "In front, or out of sight"
+media = ["infront:16x9"]
+text = """
+Want to see agents as they start? Settings › Agents › Show agent pages in front opens an agent's page in your window. Leave it off and they work out of sight; watch any time from the Agents folder.
+"""
+
+[[post]]
+label = "Claude Code"
+text = """
+Claude Code can use Airc too: Settings › Agents › Add to Claude Code, then ask it to check something on a site you're signed in to. It works in its own page, and you can watch from the Agents folder.
+"""
+
+[[post]]
+label = "Activity (standalone)"
+media = ["activity:16x9"]
+text = """
+Curious what an AI agent did in your browser? Airc keeps a week of it in Settings › Agents › Activity: which site and what kind of action. Never what it read or typed. New in Airc 0.1.16.
+"""

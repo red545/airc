@@ -202,9 +202,13 @@ extension SnapshotRunner {
                 let before = copies()
                 CredentialImport.run(arcDirectory: arc, profiles: [("Default", homeID)], sink: sink, keychainStatus: { status }, password: password,
                                      progress: { _ in }) { [self] result in
-                    if case .failure(let e) = result, (e as? ImportError) == want {
-                        check(sink.received.isEmpty && copies() == before,
-                              "arcaccept: the Keychain \(label): nothing is read, and it says so: \(e.localizedDescription)")
+                    // arcimport3: the Keychain's answer no longer fails the import: logins and cookies are skipped with
+                    // why (this stand-in takes no sites' storage, so nothing else is read either).
+                    if case .success(let o) = result, let why = o.keychainProblem, why == CredentialImport.keychainReason(want) {
+                        check(sink.received.isEmpty && copies() == before && o.isFailure
+                              && o.rows.filter(\.whole).map(\.status) == [.skipped, .skipped]
+                              && (o.retryable.isEmpty == (want == .keychainNotFound)),
+                              "arcaccept: the Keychain \(label): logins and cookies aren't read, and it says why — \(o.summary)")
                     } else {
                         check(false, "arcaccept: the Keychain \(label) (\(result))")
                     }
@@ -243,7 +247,7 @@ extension SnapshotRunner {
                 check(o.rows.contains { $0.whole && $0.profileID == workID && $0.reason.contains("macOS didn't let Airc read it") }
                       && o.summary.contains("One profile's saved passwords couldn't be read."),
                       "arcaccept: the unreadable database is one row and one sentence — \(o.summary)")
-                check(o.loginsImported == 1 && o.cookiesImported == 1, "arcaccept: what could come over did (\(o.loginsImported) logins, \(o.cookiesImported) cookies)")
+                check(o.loginsImported == 2 && o.cookiesImported == 1, "arcaccept: what could come over did (\(o.loginsImported) logins, \(o.cookiesImported) cookies)")
                 note("arcaccept: first attempt: " + o.summary)
                 // The real view, in a window of its own, with Try Again.
                 let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 470), styleMask: [.titled, .closable], backing: .buffered, defer: false)
@@ -289,15 +293,15 @@ extension SnapshotRunner {
                 check(false, "arcaccept: Try Again ran"); return done()
             }
             let retried = sink.received.suffix(2).map { "\($0.profile == homeID ? "Default" : "Profile 1") \($0.logins)/\($0.cookies)" }
-            check(retried == ["Default 2/3", "Profile 1 1/0"] && lookups.value == 2,
+            check(retried == ["Default 3/3", "Profile 1 1/0"] && lookups.value == 2,
                   "arcaccept: Try Again (a real click) read and sent only the failed parts: \(retried); macOS was asked again (\(lookups.value) lookups)")
-            check(o.retryable.isEmpty && o.loginsImported == 3 && o.cookiesImported == 2 && o.failed == 0 && o.failedProfiles.isEmpty,
+            check(o.retryable.isEmpty && o.loginsImported == 4 && o.cookiesImported == 2 && o.failed == 0 && o.failedProfiles.isEmpty,
                   "arcaccept: after Try Again everything that can come over did, nothing failed — \(o.summary)")
             let saved = o.rows.filter { $0.kind == .login && $0.status == .imported }.map(\.site).sorted()
-            check(saved == ["mail.example", "shop.example", "work.example"] && !o.rows.contains { $0.reason == "Already saved in this profile" },
+            check(saved == ["mail.example", "news.example", "shop.example", "work.example"] && !o.rows.contains { $0.reason == "Already saved in this profile" },
                   "arcaccept: the login saved the first time stays imported, not “Already saved” (\(saved))")
             let why = Dictionary(o.rows.filter { $0.status == .skipped }.map { ($0.site, $0.reason) }, uniquingKeysWith: { a, _ in a })
-            check(why["com.example.app"] == "An Android app's login: Airc takes website logins only"
+            check(why["com.example.app"] == "An Android app's login (com.example.app): no website is linked to the app, so it can't be imported"
                   && why["fed.example"]?.hasPrefix("Signs in through another account") == true
                   && why["intranet.example"]?.contains("HTTP authentication") == true
                   && why["news.example"]?.hasPrefix("Partitioned") == true
@@ -309,22 +313,129 @@ extension SnapshotRunner {
         }
         run { results?.orderOut(nil); results = nil }
 
-        // MARK: Chromium: the engine's own reasons in the same words
+        // MARK: P22b: an engine that takes the rest (the stand-in with P22b's kinds, on both engines)
 
+        let server = LocalPageServer(responses: ["/storage": .init(body: "<title>storage</title><p>Site storage</p>")])
+        var page = ""
+        step { [self] done in
+            guard let server else { check(false, "arcaccept: the loopback page server starts"); return done() }
+            server.start { port in page = "http://127.0.0.1:\(port ?? 0)"; done() }
+        }
+        let full = AcceptanceSink(importKinds: .all)
+        var p22b: NSWindow?
+        func row(_ o: CredentialImport.Outcome, _ kind: CredentialImport.ResultRow.Kind, _ site: String, _ user: String = "") -> CredentialImport.ResultRow? {
+            o.rows.first { $0.kind == kind && $0.site == site && (user.isEmpty || $0.username == user) }
+        }
+        step { [self] done in
+            do { try ImportAcceptanceFixture.siteData(arc, page: page) } catch { check(false, "arcaccept: P22b: site data fixture (\(error))") }
+            CredentialImport.run(arcDirectory: arc, profiles: [("Default", homeID), ("Profile 1", workID)], sink: full,
+                                 key: (try? ArcSafeStorage.deriveKey(password: password)) ?? Data(count: 16), progress: { _ in }) { [self] result in
+                guard case .success(let o) = result else { check(false, "arcaccept: P22b import (\(result))"); return done() }
+                let basic = row(o, .login, "intranet.example"), fed = row(o, .login, "fed.example")
+                check(o.loginsImported == 6 && basic?.status == .imported && basic?.detail == "the browser's sign-in box"
+                      && fed?.status == .imported && fed?.provider == "accounts.google.com" && fed?.detail == "with Google",
+                      "arcaccept: P22b: HTTP authentication and the federated sign-in come over as such (\(o.loginsImported) logins)")
+                let app = row(o, .login, "news.example", "home-app")
+                check(app?.status == .imported && app?.detail == "from the Android app com.example.news"
+                      && row(o, .login, "com.example.app")?.reason.contains("no website is linked to the app") == true,
+                      "arcaccept: P22b: an Android app's login comes over for the website Arc linked to it; one with none says it can't be imported")
+                check(o.cookiesImported == 3 && row(o, .cookies, "news.example")?.status == .imported,
+                      "arcaccept: P22b: the partitioned cookie goes into its partition (\(o.cookiesImported) cookies in)")
+                let loopback = row(o, .siteData, "127.0.0.1")
+                check(o.siteDataImported == 2 && loopback?.detail == "local storage · 2 items" && row(o, .siteData, "store.example")?.status == .imported
+                      && row(o, .siteData, "offline.example")?.reason == "Its offline data (IndexedDB) stays in Arc: Airc can't import it"
+                      && full.received.suffix(2).map { $0.sites } == [2, 0] && o.summary.hasPrefix("6 logins, 3 cookies and 2 sites' storage imported."),
+                      "arcaccept: P22b: two sites' localStorage in, the IndexedDB site listed with why — \(o.summary)")
+                check(o.federated.count == 1 && o.federated.first?.provider == "accounts.google.com" && o.federated.first?.sites == ["fed.example"],
+                      "arcaccept: P22b: the sites to sign in to again with Google (\(o.federated.map { "\($0.provider): \($0.sites)" }))")
+                let items = full.siteStore[homeID]?[page] ?? []
+                check(items.contains { $0.key == Data([1]) + Data("token".utf8) && $0.value == Data([1]) + Data("synthetic-arc-token".utf8) },
+                      "arcaccept: P22b: the store got Chromium's own bytes for each item (format byte included)")
+                let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 520), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+                w.isReleasedWhenClosed = false
+                w.title = "Login import results"
+                let names = Dictionary(uniqueKeysWithValues: (self.app?.store.orderedProfiles ?? []).map { ($0.id, $0.name) })
+                w.appearance = NSAppearance(named: .aqua)
+                w.contentView = NSHostingView(rootView: ImportResultsView(outcome: o, profileNames: names, maxHeight: 330)
+                    .padding(20).frame(width: 640, height: 520, alignment: .top)
+                    .background(Color(nsColor: .windowBackgroundColor)).testAnchorRoot())
+                w.setFrameOrigin(NSPoint(x: 140, y: 140))
+                w.orderFront(nil)
+                p22b = w
+                done()
+            }
+        }
+        wait(0.8)
+        step { [self] done in
+            guard let w = p22b else { return done() }
+            check(TestAnchors.frames["results.federated"] != nil && TestAnchors.frames["results.reasons"] != nil,
+                  "arcaccept: P22b: the results show the sign-in-again line and the reasons")
+            captureWindow(w, name: "arcaccept-results-p22b", rounded: 18, done)
+        }
+        run { p22b?.orderOut(nil); p22b = nil }
+        // Importing again: the sites' storage Airc now has stays as it is.
+        step { [self] done in
+            CredentialImport.run(arcDirectory: arc, profiles: [("Default", homeID)], sink: full,
+                                 key: (try? ArcSafeStorage.deriveKey(password: password)) ?? Data(count: 16), progress: { _ in }) { [self] result in
+                guard case .success(let o) = result else { check(false, "arcaccept: P22b import again (\(result))"); return done() }
+                check(o.siteDataImported == 0 && row(o, .siteData, "store.example")?.reason == "Airc already has this site's storage, and keeps it"
+                      && o.loginsImported == 0,
+                      "arcaccept: P22b: importing again keeps the storage and logins Airc has (\(o.summary))")
+                done()
+            }
+        }
+
+        // MARK: Chromium: the engine's own store, with or without P22b's engine change
+
+        var engineKinds: ImportKinds = []
         step { [self] done in
             guard let app, app.credentialSink.acceptsCredentials else {
                 note("arcaccept: no Chromium engine: the engine's own store isn't part of this run")
                 return done()
             }
+            engineKinds = app.credentialSink.importKinds
+            note("arcaccept: the engine's import kinds: " + (engineKinds == .all ? "all four (P22b's engine)" : engineKinds.isEmpty ? "none (an engine from before P22b)" : "\(engineKinds.rawValue)"))
             CredentialImport.run(arcDirectory: arc, profiles: [("Default", homeID)], sink: app.credentialSink,
                                  key: (try? ArcSafeStorage.deriveKey(password: password)) ?? Data(count: 16), progress: { _ in }) { [self] result in
                 guard case .success(let o) = result else { check(false, "arcaccept: engine import (\(result))"); return done() }
                 let why = Dictionary(o.rows.filter { $0.status == .skipped && $0.kind == .cookies }.map { ($0.site, $0.reason) }, uniquingKeysWith: { a, _ in a })
-                check(o.loginsImported == 2 && o.cookiesImported == 1 && why["news.example"]?.hasPrefix("Partitioned") == true
-                      && why["old.example"] == "Already expired in Arc",
-                      "arcaccept: Chromium's store: 2 logins and 1 cookie in; its refusals in the same precise words (\(why))")
+                if engineKinds == .all {
+                    check(o.loginsImported == 4 && row(o, .login, "fed.example")?.status == .imported && o.cookiesImported == 2
+                          && row(o, .cookies, "news.example")?.status == .imported && why["old.example"] == "Already expired in Arc"
+                          && o.siteDataImported == 2,
+                          "arcaccept: Chromium's store (P22b engine): 4 logins with the federated one, 2 cookies with the partitioned one, 2 sites' storage — \(o.summary)")
+                } else {
+                    check(o.loginsImported == 3 && o.cookiesImported == 1 && why["news.example"]?.hasPrefix("Partitioned") == true
+                          && why["old.example"] == "Already expired in Arc"
+                          && row(o, .login, "fed.example")?.reason.hasPrefix("Signs in through another account") == true,
+                          "arcaccept: Chromium's store (engine before P22b): 3 logins and 1 cookie in; the rest skipped in precise words (\(why))")
+                }
                 done()
             }
+        }
+        // P22b's engine: a page of the site reads the imported localStorage (the Home Space is Default's profile).
+        var storageTab: String?
+        run { [self] in
+            guard engineKinds.contains(.localStorage), let home = c.store.space(sourceID: "arc-space:s-home"),
+                  let t = try? c.store.openTab(url: page + "/storage", inSpace: home.id, title: "storage") else { return }
+            storageTab = t.id
+            c.switchToSpace(home.id, animated: false)
+            c.reloadAll(animated: false)
+            c.show(t.id, focus: false)
+        }
+        step { [self] done in
+            guard let id = storageTab else { return done() }
+            waitUntil({ self.c.engineTab(for: id)?.title == "storage" }, timeout: 10) {
+                self.c.engineTab(for: id)?.evaluate("localStorage.getItem('token') + '|' + localStorage.getItem('wide')") { value in
+                    self.check(value as? String == "synthetic-arc-token|Grüße ✓",
+                               "arcaccept: Chromium (P22b engine): the site's page reads its imported localStorage (\(value ?? "nil"))")
+                    done()
+                }
+            }
+        }
+        run { [self] in
+            if let id = storageTab { c.closeTab(id) }
+            server?.stop()
         }
         run { [self] in
             ArcExtensionChecklist.testStoreBase = nil
@@ -342,15 +453,19 @@ extension SnapshotRunner {
 extension SnapshotRunner {
     /// Marketing part `arcimport2` (P22): `arc-import-logins`, the login results after one import: what came over, what
     /// didn't and why (most common first), and Try Again for the one profile whose passwords couldn't be read.
-    /// Synthetic Arc data and a stand-in store only.
+    /// P22b: with the engine that takes the rest, so the federated sign-in's "Use Sign in with Google" line and the
+    /// sites' storage rows are in it. Synthetic Arc data and a stand-in store only.
     func arcImportLoginsShot() {
         let root = dir.appendingPathComponent("arc-import-logins")
         let arc = root.appendingPathComponent("Arc")
-        let sink = AcceptanceSink()
+        let sink = AcceptanceSink(importKinds: .all)
         var window: NSWindow?
         step { [self] done in
             guard let store = app?.store else { return done() }
-            do { sqlite3_close(try ImportAcceptanceFixture.write(arc)) } catch { note("arc-import-logins: fixture (\(error))"); return done() }
+            do {
+                sqlite3_close(try ImportAcceptanceFixture.write(arc))
+                try ImportAcceptanceFixture.siteData(arc, page: "https://notes.example")
+            } catch { note("arc-import-logins: fixture (\(error))"); return done() }
             try? FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: arc.appendingPathComponent("User Data/Profile 1/Login Data").path)
             let profiles = store.orderedProfiles
             let home = profiles.first?.id ?? store.defaultProfile.id, work = profiles.dropFirst().first?.id ?? home
@@ -358,14 +473,14 @@ extension SnapshotRunner {
                                  key: (try? ArcSafeStorage.deriveKey(password: Data("synthetic-only".utf8))) ?? Data(count: 16),
                                  progress: { _ in }) { [self] result in
                 guard case .success(let o) = result else { note("arc-import-logins: \(result)"); return done() }
-                let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 430), styleMask: [.titled], backing: .buffered, defer: false)
+                let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
                 w.isReleasedWhenClosed = false
                 let names = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0.name) })
                 w.contentView = NSHostingView(rootView: VStack(alignment: .leading, spacing: 10) {
                     Text("Logins from Arc").aircFont(AircFont.title3)
                     Text(o.summary).aircFont(AircFont.callout).fixedSize(horizontal: false, vertical: true)
-                    ImportResultsView(outcome: o, profileNames: names, maxHeight: 230)
-                }.padding(22).frame(width: 600, height: 430, alignment: .topLeading)
+                    ImportResultsView(outcome: o, profileNames: names, maxHeight: 270)
+                }.padding(22).frame(width: 640, height: 500, alignment: .topLeading)
                     .background(Color(nsColor: .windowBackgroundColor)).testAnchorRoot())
                 w.appearance = NSAppearance(named: .aqua)
                 w.orderFront(nil)
@@ -450,19 +565,31 @@ enum ImportAcceptanceFixture {
             return "INSERT INTO logins VALUES('\(origin)','','\(realm)','\(user)',X'\(blob)',0,\(scheme),'\(federation)');"
         }
         func cookie(_ host: String, _ value: String, expires: Int64, partition: String = "") throws -> String {
-            "INSERT INTO cookies VALUES('\(host)','c','/','',X'\(try hex(ArcSafeStorage.digest(host) + Data(value.utf8)))',\(expires),1,0,1,'\(partition)');"
+            "INSERT INTO cookies VALUES('\(host)','c','/','',X'\(try hex(ArcSafeStorage.digest(host) + Data(value.utf8)))',\(expires),1,0,1,'\(partition)',\(partition.isEmpty ? 0 : 1));"
         }
         let logins = "CREATE TABLE logins(origin_url TEXT, action_url TEXT, signon_realm TEXT, username_value TEXT, password_value BLOB, blacklisted_by_user INTEGER, scheme INTEGER, federation_url TEXT);"
         let cookies = """
             CREATE TABLE meta(key TEXT, value TEXT); INSERT INTO meta VALUES('version','24');
-            CREATE TABLE cookies(host_key TEXT, name TEXT, path TEXT, value TEXT, encrypted_value BLOB, expires_utc INTEGER, is_secure INTEGER, is_httponly INTEGER, samesite INTEGER, top_frame_site_key TEXT);
+            CREATE TABLE cookies(host_key TEXT, name TEXT, path TEXT, value TEXT, encrypted_value BLOB, expires_utc INTEGER, is_secure INTEGER, is_httponly INTEGER, samesite INTEGER, top_frame_site_key TEXT, has_cross_site_ancestor INTEGER);
             """
         let later = chromeTime(days: 30), earlier = chromeTime(days: -3)
         _ = try sqlite(root.appendingPathComponent("User Data/Default/Login Data"), logins
             + (try login("https://mail.example/", "https://mail.example/", "home-1", "pw-1"))
             + (try login("https://shop.example/", "https://shop.example/", "home-2", "pw-2"))
             + (try login("android://hash@com.example.app/", "android://hash@com.example.app/", "app-1", "pw-3"))
-            + (try login("https://fed.example/", "federation://fed.example/accounts.example", "fed-1", "", federation: "https://accounts.example")))
+            + (try login("https://fed.example/", "federation://fed.example/accounts.google.com", "fed-1", "", federation: "https://accounts.google.com"))
+            // P22b: an Android app Arc's affiliations link to a website (news.example), so it comes over for it.
+            + (try login("android://hash2@com.example.news/", "android://hash2@com.example.news/", "home-app", "pw-6")))
+        _ = try sqlite(root.appendingPathComponent("User Data/Default/Affiliation Database"), """
+            CREATE TABLE eq_classes(id INTEGER PRIMARY KEY, last_update_time INTEGER); INSERT INTO eq_classes VALUES(1, 0);
+            CREATE TABLE eq_class_members(id INTEGER PRIMARY KEY, facet_uri LONGVARCHAR UNIQUE NOT NULL, facet_display_name VARCHAR,
+              facet_icon_url VARCHAR, set_id INTEGER NOT NULL);
+            INSERT INTO eq_class_members VALUES(1, 'android://hash2@com.example.news', 'News', '', 1);
+            INSERT INTO eq_class_members VALUES(2, 'https://news.example', 'News', '', 1);
+            """)
+        // P22b: a site with IndexedDB data (listed, not imported; only the folder's name is read).
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("User Data/Default/IndexedDB/https_offline.example_0.indexeddb.leveldb"),
+                                                withIntermediateDirectories: true)
         _ = try sqlite(root.appendingPathComponent("User Data/Default/Cookies"), cookies
             + (try cookie("mail.example", "c-1", expires: later))
             + (try cookie("news.example", "c-2", expires: later, partition: "https://portal.example"))
@@ -472,6 +599,22 @@ enum ImportAcceptanceFixture {
             + (try login("https://intranet.example/", "https://intranet.example/Staff", "intranet", "pw-5", scheme: 1)))
         _ = try sqlite(root.appendingPathComponent("User Data/Profile 1/Cookies"), cookies + (try cookie("work.example", "c-4", expires: later)))
         return open
+    }
+}
+
+extension ImportAcceptanceFixture {
+    /// P22b: Default's localStorage, as Chromium's own LevelDB holds it: a token for the check's loopback page and
+    /// two items for another site. Written once the page server's port is known.
+    static func siteData(_ root: URL, page: String) throws {
+        func key(_ origin: String, _ k: String) -> Data { Data("_\(origin)".utf8) + Data([0, 1]) + Data(k.utf8) }
+        let latin1: (String) -> Data = { Data([1]) + Data($0.utf8) }
+        try LevelDBFixture.write([
+            (Data("VERSION".utf8), Data("1".utf8)),
+            (key(page, "token"), latin1("synthetic-arc-token")),
+            (key(page, "wide"), Data([0]) + "Grüße ✓".data(using: .utf16LittleEndian)!),
+            (key("https://store.example", "cart"), latin1("three items")),
+            (key("https://store.example", "theme"), latin1("dark")),
+        ], to: root.appendingPathComponent("User Data/Default/Local Storage/leveldb"))
     }
 }
 
@@ -486,20 +629,32 @@ final class LookupCount: @unchecked Sendable {
 /// A credential sink with the engine's rules (PROFILE-SERVICES.md), on both engines: it records what it was sent, keeps
 /// logins by realm and username (a second one is "skipped-duplicate"), refuses partitioned and expired cookies with the
 /// engine's words, and can fail a profile's cookies or one login once ("store unavailable", "did not persist").
+/// P22b: with `importKinds` it is the engine after P22b's ask: HTTP authentication (realm = origin + a realm name) and
+/// federated sign-ins (no password, federation:// realm) are stored, partitioned Secure cookies accepted, and sites'
+/// localStorage kept per profile and site (a site that has some keeps it: "skipped-existing").
 final class AcceptanceSink: CredentialSink {
     var acceptsCredentials: Bool { true }
-    private(set) var received: [(profile: String, logins: Int, cookies: Int)] = []
+    let importKinds: ImportKinds
+    private(set) var received: [(profile: String, logins: Int, cookies: Int, sites: Int)] = []
     private var stored: [String: Set<String>] = [:]
+    private(set) var siteStore: [String: [String: [ImportedSiteStorage.Item]]] = [:]
     var failCookiesOnce: Set<String> = []
     var failLoginOnce: [String: Int] = [:]
+    var failSitesOnce: Set<String> = []
+
+    init(importKinds: ImportKinds = []) { self.importKinds = importKinds }
 
     func receive(_ c: ImportedCredentials, forProfile profileID: String, completion: @escaping (CredentialImport.EngineResult) -> Void) {
-        received.append((profileID, c.logins.count, c.cookies.count))
+        received.append((profileID, c.logins.count, c.cookies.count, c.siteData.count))
         var r = CredentialImport.EngineResult()
         var logins: [[String: Any]] = []
         for (i, l) in c.logins.enumerated() {
             let key = l.signonRealm + "\u{1f}" + l.username
-            if !l.origin.hasPrefix("http") {
+            let site = URL(string: l.origin).flatMap { u in u.host.map { "\(u.scheme ?? "")://\($0)" + (u.port.map { ":\($0)" } ?? "") + "/" } } ?? ""
+            let valid = !l.scheme.isEmpty ? importKinds.contains(.httpAuthLogins) && l.signonRealm.hasPrefix(site) && l.signonRealm.count > site.count
+                : !l.federationOrigin.isEmpty ? importKinds.contains(.federatedLogins) && l.password.isEmpty && l.signonRealm.hasPrefix("federation://")
+                : l.signonRealm == site
+            if !l.origin.hasPrefix("http") || !valid {
                 r.loginsRejected += 1
                 logins.append(["index": i, "status": "rejected", "reason": "invalid HTTP(S) origin, realm or password"])
             } else if failLoginOnce[profileID] == i {
@@ -519,13 +674,24 @@ final class AcceptanceSink: CredentialSink {
         let now = Int64((Date().timeIntervalSince1970 + 11_644_473_600) * 1_000_000)
         var cookies: [[String: Any]] = []
         for (i, k) in c.cookies.enumerated() {
+            let partitioned = !(k.metadata["top_frame_site_key"] ?? "").isEmpty
             let reason = failCookies ? "store unavailable"
-                : !(k.metadata["top_frame_site_key"] ?? "").isEmpty ? "partitioned cookie unsupported"
+                : partitioned && !importKinds.contains(.partitionedCookies) ? "partitioned cookie unsupported"
+                : partitioned && !k.secure ? "partitioned cookie without Secure"
                 : (k.expiresUTC != 0 && k.expiresUTC < now) ? "expired cookie" : ""
             if reason.isEmpty { r.cookiesImported += 1 } else { r.cookiesRejected += 1 }
             cookies.append(["index": i, "status": reason.isEmpty ? "accepted" : "rejected", "reason": reason])
         }
-        r.rows = CredentialImport.rows(logins: c.logins, loginResults: logins, cookies: c.cookies, cookieResults: cookies, profileID: profileID)
+        let failSites = failSitesOnce.remove(profileID) != nil
+        var sites: [[String: Any]] = []
+        for (i, site) in c.siteData.enumerated() {
+            let (status, reason) = failSites || !importKinds.contains(.localStorage) ? ("rejected", "store unavailable")
+                : siteStore[profileID]?[site.origin] != nil ? ("skipped-existing", "site already has local storage") : ("imported", "")
+            if status == "imported" { siteStore[profileID, default: [:]][site.origin] = site.items; r.siteDataImported += 1 }
+            sites.append(["index": i, "status": status, "reason": reason, "items": site.items.count])
+        }
+        r.rows = CredentialImport.rows(logins: c.logins, loginResults: logins, cookies: c.cookies, cookieResults: cookies, profileID: profileID,
+                                       sites: c.siteData, siteResults: sites)
         DispatchQueue.main.async { completion(r) }
     }
 }

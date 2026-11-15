@@ -20,10 +20,13 @@ public struct SyncCloudRecord: Codable, Hashable, Sendable {
     public func int(_ key: String) -> Int64? { if case .int(let v) = fields[key] { return v }; return nil }
     public func bytes(_ key: String) -> Data? { if case .bytes(let v) = fields[key] { return v }; return nil }
     public func date(_ key: String) -> Date? { if case .date(let v) = fields[key] { return v }; return nil }
+    public func asset(_ key: String) -> Data? { if case .asset(let v) = fields[key] { return v }; return nil }
 }
 
+/// `asset`: a CKAsset's bytes (note pictures and large note versions; NoteSyncPayload.swift). Older builds drop asset
+/// fields when they read a record.
 public enum SyncCloudValue: Codable, Hashable, Sendable {
-    case string(String), int(Int64), bytes(Data), date(Date)
+    case string(String), int(Int64), bytes(Data), date(Date), asset(Data)
 }
 
 /// What one incremental fetch returned. `token` resumes after it; `moreComing` asks for another page. `failed`: records
@@ -166,6 +169,26 @@ public protocol SyncGroupTransport: SyncTransport {
     /// After a `read()`: whether a zone was recreated (kept until taken, across reads), whether the read was full and
     /// which of this device's batches it saw, and unparseable records. The engine decides recovery from it.
     func takeReadReport() async -> SyncReadReport
+
+    // Notes (NoteSyncPayload.swift). A transport without them (the test builds' folder transport) carries no notes.
+    /// Writes this device's record of one note, replacing its earlier one.
+    func saveNote(_ record: SyncNoteRecord) async throws
+    /// Uploads a picture once; one that's already there (any Mac's) is a success.
+    func saveAsset(_ asset: SyncNoteAsset) async throws
+    /// The note records with these names that exist.
+    func fetchNotes(_ names: [String]) async throws -> [SyncNoteRecord]
+    /// The pictures with these record names that exist.
+    func fetchAssets(_ names: [String]) async throws -> [SyncNoteAsset]
+    /// The other devices' note records the last `read()` brought (taken once, like the read report).
+    func takeNotes() async -> [SyncNoteRecord]
+}
+
+extension SyncGroupTransport {
+    public func saveNote(_ record: SyncNoteRecord) async throws {}
+    public func saveAsset(_ asset: SyncNoteAsset) async throws {}
+    public func fetchNotes(_ names: [String]) async throws -> [SyncNoteRecord] { [] }
+    public func fetchAssets(_ names: [String]) async throws -> [SyncNoteAsset] { [] }
+    public func takeNotes() async -> [SyncNoteRecord] { [] }
 }
 
 // MARK: - CloudKit transport
@@ -177,6 +200,9 @@ public enum SyncCloudSchema {
     public static let device = "SyncDevice"
     public static let group = "SyncGroup"
     public static let groupRecordName = "group"
+    /// The fields a change fetch asks for: everything but pictures (`SyncNoteAsset.data`), which are fetched by name
+    /// when a note needs them. Every field a record mapping here reads must be listed.
+    public static let feedKeys = ["group", "device", "envelope", "version", "sealed", "check", "created", "seen", "note", "payload"]
 
     /// `<device>.<envelope>`: a device only ever creates names with its own UUID.
     public static func batchName(_ envelope: SyncEnvelope) -> String { envelope.device.uuidString + "." + envelope.id.uuidString }
@@ -257,6 +283,7 @@ public actor CloudKitSyncTransport: SyncGroupTransport {
     private var pending: Checkpoint?
     private var zoneRecreated = false
     private var lastRead = SyncReadReport()
+    private var lastNotes: [SyncNoteRecord] = []
     private let cancellation = Cancellation()
     private var account: String?
     /// `AircSidebar`; the real-iCloud test uses a zone of its own (docs/sync.md) and deletes it afterwards.
@@ -298,6 +325,11 @@ public actor CloudKitSyncTransport: SyncGroupTransport {
         zoneRecreated = false
         lastRead = SyncReadReport()
         return report
+    }
+
+    public func takeNotes() -> [SyncNoteRecord] {
+        defer { lastNotes = [] }
+        return lastNotes
     }
 
     public func accountIdentity() async throws -> String? {
@@ -343,6 +375,7 @@ public actor CloudKitSyncTransport: SyncGroupTransport {
         var restarted = false
         var full = next.token == nil
         var own = Set<UUID>()
+        var notes: [String: SyncNoteRecord] = [:]
         // Each batch record's last outcome in this read, in page order: a record malformed on one page and repaired or
         // deleted on a later one ends valid or deleted (one name has at most one event per page).
         enum Outcome { case malformed, valid, deleted }
@@ -359,6 +392,7 @@ public actor CloudKitSyncTransport: SyncGroupTransport {
                 next.token = nil
                 envelopes = []
                 own = []
+                notes = [:]
                 outcome = [:]
                 continue
             } catch SyncCloudFailure.zoneNotFound {
@@ -369,6 +403,7 @@ public actor CloudKitSyncTransport: SyncGroupTransport {
                 pending = nil
                 zoneRecreated = true
                 lastRead = SyncReadReport(full: true)
+                lastNotes = []
                 return []
             }
             // A record CloudKit couldn't return: keep the old token (nothing is acknowledged past it) and try again.
@@ -383,10 +418,14 @@ public actor CloudKitSyncTransport: SyncGroupTransport {
                     if envelope.device == device { own.insert(envelope.id) } else { envelopes.append(envelope) }
                 case SyncCloudSchema.device:
                     if let d = SyncCloudSchema.device(record) { next.devices[d.device] = d }
+                case SyncCloudSchema.note:
+                    guard let note = SyncCloudSchema.note(record) else { outcome[record.name] = .malformed; break }
+                    outcome[record.name] = .valid
+                    if note.device != device { notes[record.name] = note }
                 default: break
                 }
             }
-            for name in changes.deleted { outcome[name] = .deleted }
+            for name in changes.deleted { outcome[name] = .deleted; notes[name] = nil }
             for name in changes.deleted where name.hasPrefix("device.") {
                 if let id = UUID(uuidString: String(name.dropFirst(7))) { next.devices[id] = nil }
             }
@@ -398,6 +437,7 @@ public actor CloudKitSyncTransport: SyncGroupTransport {
                                   valid: Set(outcome.filter { $0.value == .valid }.map(\.key)),
                                   deleted: Set(outcome.filter { $0.value == .deleted }.map(\.key)))
         pending = next
+        lastNotes = notes.values.sorted { $0.name < $1.name }
         return envelopes
     }
 
@@ -425,6 +465,25 @@ public actor CloudKitSyncTransport: SyncGroupTransport {
             guard let existing = try await group() else { throw SyncCloudFailure.other("group record unreadable") }
             return existing
         }
+    }
+
+    public func saveNote(_ record: SyncNoteRecord) async throws {
+        guard record.device == device else { throw SyncError.invalidEnvelope }
+        try await save(SyncCloudSchema.record(record), mode: .overwrite)
+    }
+
+    public func saveAsset(_ asset: SyncNoteAsset) async throws {
+        try await save(SyncCloudSchema.record(asset), mode: .createOnly)
+    }
+
+    public func fetchNotes(_ names: [String]) async throws -> [SyncNoteRecord] {
+        guard !names.isEmpty else { return [] }
+        return try await retrying { try await self.database.fetch(names, zone: self.zone) }.compactMap(SyncCloudSchema.note)
+    }
+
+    public func fetchAssets(_ names: [String]) async throws -> [SyncNoteAsset] {
+        guard !names.isEmpty else { return [] }
+        return try await retrying { try await self.database.fetch(names, zone: self.zone) }.compactMap(SyncCloudSchema.noteAsset)
     }
 
     public func publish(_ device: SyncDeviceRecord) async throws {

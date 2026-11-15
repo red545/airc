@@ -4,6 +4,13 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
+	<!-- One language until Airc is localized (docs/localization.md): English is the only localization, so AppKit's own
+	     items (Start Dictation, Emoji & Symbols, the Window menu, alerts, panels) and Chromium's UI locale match Airc's
+	     English titles on a Mac in any language. Sites still get the Mac's languages; region formats stay the Mac's. -->
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+	</array>
 	<key>CFBundleDisplayName</key>
 	<string>Airc</string>
 	<key>CFBundleExecutable</key>
@@ -78,6 +85,15 @@
 			<array>
 				<string>http</string>
 				<string>https</string>
+			</array>
+		</dict>
+		<!-- H01/H02: a shared Space's or folder's page on aircbrowser.com links to airc://share/<id> ("Add to Airc"). -->
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>Airc share link</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>airc</string>
 			</array>
 		</dict>
 	</array>

@@ -11,7 +11,7 @@ final class UndoProfileTests: XCTestCase {
             XCTAssertNotNil(s.profile(t.profileID), "tab \(t.url) names a missing profile", file: file, line: line)
             let expected: String? = if let iid = t.itemID {
                 switch s.item(iid)?.container {
-                case .pinned(let sid)?: s.space(sid)?.profileID
+                case .pinned(let sid)?, .today(let sid)?: s.space(sid)?.profileID
                 case .favorites(let pid)?: pid
                 case nil: nil
                 }

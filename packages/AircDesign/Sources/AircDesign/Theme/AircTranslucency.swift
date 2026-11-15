@@ -39,6 +39,16 @@ public enum AircTranslucency: String, Hashable, Sendable, Codable, CaseIterable 
     /// as the system does). nil follows the system.
     @MainActor public static var reduceTransparencyOverride: Bool?
 
+    /// Whether the user turned on System Settings › Accessibility › Display › Increase contrast. The inactive
+    /// window's sidebar doesn't dim then (`ResolvedTheme.sidebarInactiveOpacity(increaseContrast:)`).
+    @MainActor public static var systemIncreasesContrast: Bool {
+        increaseContrastOverride ?? NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+    }
+
+    /// Scripted checks only (parityw07b): Increase Contrast as if the system had it on, as `reduceTransparencyOverride`
+    /// does for Reduce Transparency. nil follows the system.
+    @MainActor public static var increaseContrastOverride: Bool?
+
     public var title: String {
         switch self {
         case .off: "Off"
@@ -106,8 +116,8 @@ extension ResolvedTheme {
             grounds.allSatisfy { ink.contrast(on: $0) >= floor }
         }
         return passes(text, Floor.text, textGrounds)
-            && passes(textSecondary, Floor.textSecondary, textGrounds)
-            && passes(textTertiary, Floor.textTertiary, window)
+            && passes(textSecondary, secondaryFloor, textGrounds)
+            && passes(textTertiary, tertiaryFloor, window)
     }
 
     /// The window background at the contrast sample points, over each worst-case desktop.
@@ -146,8 +156,8 @@ extension ResolvedTheme {
         }
         var copy = self
         copy.text = dim(text, floor: Floor.text, on: rows)
-        copy.textSecondary = dim(textSecondary, floor: Floor.textSecondary, on: rows)
-        copy.textTertiary = dim(textTertiary, floor: Floor.textTertiary, on: window)
+        copy.textSecondary = dim(textSecondary, floor: secondaryFloor, on: rows)
+        copy.textTertiary = dim(textTertiary, floor: tertiaryFloor, on: window)
         copy.textDisabled = textDisabled.alpha(textDisabled.alpha * Self.inactiveInkFactor)
         copy.isWindowActive = false
         return copy

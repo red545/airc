@@ -5,11 +5,11 @@
 Literal dev/test key names also fail in executables: compile out their readers
 before public packaging. This does not decode arbitrary compressed resources.
 
-Reviewed false positives live in scan-allowlist.json. An entry covers one kind
-(only `home-path` can be allowlisted), in one exact file, as a bare NUL-bounded
-C string inside the named Mach-O sections, at most `count` times, with a reason.
-Anything else of that kind in that file (a longer path, another section, one
-more occurrence, any UTF-16 copy) still fails, and so does every other file.
+Reviewed false positives live in scan-allowlist.json. A literal entry covers
+`home-path` in one exact file, as a bare NUL-bounded C string in named Mach-O
+sections, at most `count` times. A resource entry covers one kind in one exact
+UTF-8 text resource containing public third-party data. Both require a reason.
+Other kinds, paths, symlinks and UTF-16 copies remain checked.
 """
 import json
 import mmap
@@ -30,6 +30,7 @@ PATTERNS = {
 }
 # Kinds an allowlist entry may cover, with the exact literal it must name.
 ALLOWLISTABLE = {'home-path': b'/Users/'}
+RESOURCE_KINDS = {'private-host', 'private-ip'}
 IP = re.compile(rb'(?<![\w.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?![\w.])')
 IPV6 = re.compile(rb'(?i)(?<![\w:])(?:f[cd][0-9a-f]{2}|fe[89ab][0-9a-f]):[0-9a-f:]+(?:%[\w]+)?')
 
@@ -60,9 +61,15 @@ def load_allowlist(path=ALLOWLIST):
     entries = json.loads(Path(path).read_text())
     version = (ROOT / 'CHROMIUM_VERSION').read_text().strip()
     keys = {'path', 'kind', 'literal', 'sections', 'count', 'reason'}
+    resource_keys = {'path', 'kind', 'reason'}
     by_path = {}
     for entry in entries:
-        ok = (isinstance(entry, dict) and set(entry) == keys
+        common = (isinstance(entry, dict) and isinstance(entry.get('path'), str)
+              and not re.search(r'[*?\[\]]', entry['path'])
+              and not entry['path'].startswith('/')
+              and '..' not in Path(entry['path']).parts
+              and isinstance(entry.get('reason'), str) and len(entry['reason'].strip()) >= 20)
+        literal = (common and set(entry) == keys
               and isinstance(entry['path'], str) and not re.search(r'[*?\[]', entry['path'])
               and not entry['path'].startswith('/')
               and ALLOWLISTABLE.get(entry['kind']) == str(entry['literal']).encode()
@@ -70,7 +77,11 @@ def load_allowlist(path=ALLOWLIST):
               and all(re.fullmatch(r'__\w+,__\w+', s) for s in entry['sections'])
               and isinstance(entry['count'], int) and entry['count'] > 0
               and isinstance(entry['reason'], str) and len(entry['reason'].strip()) >= 20)
-        if not ok:
+        resource = (common and set(entry) == resource_keys
+              and entry['kind'] in RESOURCE_KINDS
+              and entry['path'].startswith('Contents/Resources/')
+              and entry['path'].endswith('.txt'))
+        if not (literal or resource):
             raise ValueError('invalid allowlist entry')
         path = entry['path'].replace('{CHROMIUM_VERSION}', version)
         if path in by_path:
@@ -152,13 +163,23 @@ def scan(app, allowlist=None):
                 with path.open('rb') as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
                     raw, decoded = content_kinds(data)
                     entry = allowlist.get(relative.as_posix())
-                    if entry and entry['kind'] in raw - decoded:
+                    if entry and 'literal' in entry and entry['kind'] in raw - decoded:
                         count = allowed_occurrences(entry, data)
                         if count is not None:
                             raw.discard(entry['kind'])
                             used.add(relative.as_posix())
                             print(f"ALLOW {label(relative)}: {entry['kind']} x{count} in {'/'.join(entry['sections'])}"
                                   f" ({entry['reason']})")
+                    elif entry and 'literal' not in entry and entry['kind'] in raw - decoded and data.find(b'\0') == -1:
+                        # Resource allowances never apply to binary/UTF-16 payloads or path/link metadata.
+                        try:
+                            data[:].decode('utf-8')
+                        except UnicodeDecodeError:
+                            pass
+                        else:
+                            raw.discard(entry['kind'])
+                            used.add(relative.as_posix())
+                            print(f"ALLOW {label(relative)}: {entry['kind']} in public text resource ({entry['reason']})")
                     hits |= raw | decoded
             for kind in sorted(hits):
                 print(f'FAIL {label(relative)}: {kind}')

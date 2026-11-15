@@ -68,9 +68,9 @@ extension SpacesStore {
         guard (2...Split.maxPanes).contains(rows.count) else { return nil }
         for s in rows {
             switch s {
-            case .tab(let id): if tab(id) == nil || split(containing: id) != nil { return nil }
+            case .tab(let id): if tab(id) == nil || split(containing: id) != nil || !canBeSplitPane(id) { return nil }
             case .split: return nil
-            case .item(let id): if item(id)?.kind != .tab || splitItem(ofPane: id) != nil { return nil }
+            case .item(let id): if item(id)?.kind != .tab || splitItem(ofPane: id) != nil || EaselURL.isEasel(item(id)?.savedURL) { return nil }
             }
         }
         return rows
@@ -148,13 +148,17 @@ extension SpacesStore {
         let unpin = allPinned(list)
         return try perform(unpin ? "Unpin" : "Pin", undoable: true) {
             if unpin {
-                return try move(list, to: .today(spaceID: spaceID, index: 0))
+                // A folder stays pinned: Unpin is for tabs (dragging a folder into Today makes it a Today folder).
+                return try move(list.filter { s in
+                    if case .item(let id) = s { return item(id)?.kind != .folder }
+                    return true
+                }, to: .today(spaceID: spaceID, index: 0))
             }
             let today = list.filter { s in
                 switch s {
                 case .tab(let id): return tab(id)?.isToday == true
                 case .split: return true
-                case .item: return false
+                case .item(let id): return todayFolder(id) != nil   // a Today folder pins with its tabs
                 }
             }
             return try move(today, to: .pinned(spaceID: spaceID, parentID: nil, index: pinnedRoots(ofSpace: spaceID).count))
@@ -176,7 +180,7 @@ extension SpacesStore {
             switch s {
             case .tab(let id): return tab(id)?.isToday == true
             case .split: return true
-            case .item: return false
+            case .item(let id): return todayFolder(id) != nil   // a Today folder goes with its tabs
             }
         }
         return try perform("Move to Space", undoable: true) {
@@ -190,23 +194,45 @@ extension SpacesStore {
     /// stays out). One undo step. Returns the tabs whose page must reload in another profile.
     @discardableResult
     public func move(_ sources: [DragSource], intoFolder folderID: String) throws -> [String] {
-        guard let f = item(folderID), f.kind == .folder, case .pinned(let sid) = f.container else { throw StoreError.notFound }
+        guard let f = item(folderID), f.kind == .folder else { throw StoreError.notFound }
         let list = topLevel(sources).filter { s in
             guard case .item(let id) = s else { return true }
             return !isAncestorOrSelf(id, of: folderID)
         }
         guard !list.isEmpty else { return [] }
+        // A Today folder (TodayFolders.swift) takes them as Today rows.
+        if f.isTodayFolder {
+            return try perform("Add to Folder", undoable: true) {
+                try move(list, to: .todayFolder(folderID: folderID, index: todayFolderContents(folderID).count))
+            }
+        }
+        guard case .pinned(let sid) = f.container else { throw StoreError.notFound }
         return try perform("Add to Folder", undoable: true) {
             try move(list, to: .pinned(spaceID: sid, parentID: folderID, index: children(of: f.container, parent: folderID).count))
         }
     }
 
-    /// "New Folder with N Items": a folder holding the selection, in order. When every selected row is pinned under
-    /// one parent (⇧-clicked inside a folder), the new folder goes inside that parent, where its first row was (Arc's
-    /// nested folders); otherwise at the end of the pinned section. One undo step.
+    /// "New Folder with N Items": a folder holding the selection, in order, made in the section of the first row (the
+    /// topmost, as the sidebar lists a selection). Today rows make a Today folder where the first one was (inside its
+    /// Today folder when every row shares it), as Arc does; a pinned first row makes a pinned folder. A mixed selection
+    /// therefore goes pinned, since Pinned is above Today (docs/qa/arc-parity.md SB-36). When every selected row is
+    /// pinned under one parent (⇧-clicked inside a folder), the new folder goes inside that parent, where its first
+    /// row was (Arc's nested folders); otherwise at the end of the pinned section. One undo step.
     @discardableResult
     public func newFolder(with sources: [DragSource], named name: String = "New Folder", inSpace spaceID: String) throws -> Item {
         let list = topLevel(sources)
+        if let first = list.first, let at = todayPlace(of: first, inSpace: spaceID) {
+            // The Today folder every row is in (nil: some are at Today's top level, or in different folders).
+            let shared = list.dropFirst().allSatisfy { todayPlace(of: $0, inSpace: spaceID)?.parentID == at.parentID } ? at.parentID : nil
+            let siblings = shared.map { todayFolderContents($0) } ?? todayRootRows(ofSpace: spaceID)
+            let index = siblings.firstIndex { $0.id == at.rowID } ?? 0
+            return try perform("New Folder", undoable: true) {
+                let f = try createTodayFolder(named: name, inSpace: spaceID, parentID: shared, index: index, containing: list)
+                // Nothing could go in (a Today split, a pinned folder holding a split): no folder.
+                guard !todayFolderContents(f.id).isEmpty else { throw StoreError.invalidMove }
+                return item(f.id) ?? f
+            }
+        }
         var parentID: String?
         var index: Int?
         let items = list.compactMap { s -> Item? in if case .item(let id) = s { return item(id) } else { return nil } }
@@ -219,6 +245,23 @@ extension SpacesStore {
             let f = try createFolder(named: name, inSpace: spaceID, parentID: parentID, index: index)
             try move(list, to: .pinned(spaceID: spaceID, parentID: f.id, index: 0))
             return item(f.id) ?? f
+        }
+    }
+
+    /// Where a selected row is in `spaceID`'s Today: its row ID and the Today folder it's in (nil: Today's top level).
+    /// Nil when it isn't a Today row (pinned, a Favorite, another Space).
+    func todayPlace(of source: DragSource, inSpace spaceID: String) -> (rowID: String, parentID: String?)? {
+        switch source {
+        case .tab(let id):
+            guard let t = tab(id), t.isToday, t.spaceID == spaceID else { return nil }
+            if let x = state.splits.values.first(where: { $0.tabIDs.contains(id) }) { return (x.id, nil) }
+            return (id, shownTodayFolderID(of: t))
+        case .split(let id):
+            guard let x = state.splits[id], members(of: x).first?.spaceID == spaceID else { return nil }
+            return (id, nil)
+        case .item(let id):
+            guard let f = todayFolder(id), f.spaceID == spaceID else { return nil }
+            return (id, f.parentID.flatMap { todayFolder($0) == nil ? nil : $0 })
         }
     }
 

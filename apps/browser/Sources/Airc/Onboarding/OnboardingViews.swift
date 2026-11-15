@@ -19,6 +19,7 @@ struct OnboardingRoot: View {
                 case .arc: ArcStep(model: model)
                 case .accounts: AccountsStep(model: model)
                 case .logins: LoginsStep(model: model)
+                case .passwordManager: PasswordManagerStep(model: model)
                 case .theme: ThemeStep(model: model)
                 case .defaultBrowser: DefaultBrowserStep(model: model)
                 case .done: DoneStep(model: model)
@@ -793,6 +794,9 @@ struct ArcAppIcon: View {
 struct AccountsStep: View {
     @ObservedObject var model: OnboardingModel
     @Environment(\.aircTheme) private var theme
+    /// The accounts list's rows and the room it got, measured: the fade shows only when rows are below it.
+    @State private var accountsContent: CGFloat = 0
+    @State private var accountsViewport: CGFloat = 0
 
     /// Every row is this tall, signed in or not, so hovering or signing in never moves a row.
     static let rowHeight: CGFloat = 64
@@ -803,7 +807,7 @@ struct AccountsStep: View {
                            drawsBackground: false) {
             SidebarPreview(model: model)
         } content: {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: hasChecklist ? 10 : 14) {
                 // Every profile, scrolling past the room there is; a fade at the bottom says there's more.
                 ScrollView(.vertical, showsIndicators: true) {
                     AircGroup {
@@ -812,8 +816,10 @@ struct AccountsStep: View {
                         }
                     }
                     .padding(.bottom, 2)
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { accountsContent = $0 }
                 }
                 .scrollBounceBehavior(.basedOnSize)
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { accountsViewport = $0 }
                 .mask {
                     VStack(spacing: 0) {
                         Rectangle()
@@ -823,9 +829,18 @@ struct AccountsStep: View {
                 .frame(maxHeight: .infinity, alignment: .top)
                 .testAnchor("onboarding.accounts.list")
                 if model.importedFromArc, model.result != nil {
-                    Text("\(model.historyImported.formatted()) history entries imported")
+                    Text("\(model.historyImported.formatted()) history entries imported" + (model.searchEnginesImported.map { " · " + $0 } ?? ""))
                         .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color)
-                    ArcExtensionChecklistView(app: model.importApp, profileIDs: Set(model.result?.profileIDs.values.map { $0 } ?? []))
+                        .testAnchor("onboarding.importedCounts")
+                    // The checklist takes its height first (whole rows, every button reachable); the accounts list
+                    // above gives way and fades, as it does for many profiles (importcard).
+                    ArcExtensionChecklistView(app: model.importApp, profileIDs: Set(model.result?.profileIDs.values.map { $0 } ?? []),
+                                              compact: true)
+                        .layoutPriority(1)
+                } else if model.result != nil, let engines = model.searchEnginesImported {
+                    Text(engines.prefix(1).uppercased() + engines.dropFirst() + " imported")
+                        .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color)
+                        .testAnchor("onboarding.importedCounts")
                 }
                 if model.offersLoginsStep {
                     HStack(alignment: .top, spacing: 10) {
@@ -851,8 +866,14 @@ struct AccountsStep: View {
         }
     }
 
-    /// More rows than the list shows at once (with the logins note under it).
-    private var overflows: Bool { CGFloat(model.profileRows.count) * Self.rowHeight > 230 }
+    /// More rows than the list shows at once (with the logins note under it, or the extension checklist).
+    private var overflows: Bool { accountsViewport > 0 && accountsContent > accountsViewport + 1 }
+    /// Arc's extensions are listed under the accounts.
+    private var hasChecklist: Bool {
+        guard model.importedFromArc, let ids = model.result?.profileIDs.values else { return false }
+        let profiles = Set(ids)
+        return ArcExtensionChecklist.shared.rows.contains { profiles.contains($0.profileID) }
+    }
 
     private func profileRow(_ row: OnboardingModel.ProfileRow) -> some View {
         let p = row.profile
@@ -1029,7 +1050,7 @@ struct LoginsStep: View {
     private var arc: some View {
         AircOnboardingPage(step: OnboardingStep.logins.dot, of: model.dots, title: "Bring your logins.",
                            subtitle: model.loginsAvailable
-                               ? "Arc keeps passwords and cookies locked with a key in your Keychain. macOS asks for your Mac password once to unlock it."
+                               ? "Arc keeps passwords and cookies locked with a key in your Keychain, “Arc Safe Storage”. macOS asks you once whether Airc may use it."
                                : "Arc keeps passwords and cookies locked with a key in your Keychain. They come over once Airc runs on its Chromium engine.",
                            drawsBackground: false) {
             SidebarPreview(model: model)
@@ -1043,7 +1064,12 @@ struct LoginsStep: View {
                 AircGroup {
                     row("key", "Saved passwords", "Every Arc profile's, into the matching Airc profile.")
                     row("checkmark.shield", "Cookies", "So you stay signed in where Arc had you signed in.")
+                    if model.siteStorageAvailable {
+                        row("internaldrive", "Sites' storage", "What the sites you visit most kept in Arc, like settings and drafts. It needs no key.")
+                    }
                     if model.loginsAvailable {
+                        // arcimport3: what the Keychain prompt is, before it appears, and what a Deny does.
+                        row("person.badge.key", "macOS asks first", "Enter your Mac password and choose Allow, so Airc can use “Arc Safe Storage”. If you deny it, the rest still comes over and you can try again.")
                         row("lock", "Stays on this Mac", "Read even while Arc is open, and re-encrypted here with Airc's own key. Nothing is sent anywhere.")
                     } else {
                         row("lock", "Comes with the Chromium engine", "This build runs on WebKit, so nothing is read.")
@@ -1070,6 +1096,7 @@ struct LoginsStep: View {
             default:
                 Button("Not now") { model.onSkipLogins?() }.buttonStyle(.airc(.secondary, size: .large))
                 Button("Import logins") { model.onImportLogins?() }.buttonStyle(.airc(.primary, size: .large)).keyboardShortcut(.defaultAction)
+                    .testAnchor("onboarding.logins.import")
             }
         }
     }
@@ -1082,7 +1109,7 @@ struct LoginsStep: View {
                 Text("Reading logins…").aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color)
             }
         case .done(let o):
-            Label(o.summary, systemImage: o.isFailure ? "exclamationmark.triangle" : "checkmark.circle.fill")
+            Label(o.summary, systemImage: o.isFailure || o.keychainProblem != nil ? "exclamationmark.triangle" : "checkmark.circle.fill")
                 .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color)
                 .fixedSize(horizontal: false, vertical: true)
         case .failed(let why):

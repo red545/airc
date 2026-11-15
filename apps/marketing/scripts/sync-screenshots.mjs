@@ -6,7 +6,8 @@
 // The site shows only what's released, so the shots come from git, not the working tree: a released feature's shot as
 // of the source of the newest published release (its notes in src/content/changelog end with "Source: `<commit>`"),
 // and a next-release feature's (`upcoming`) as of HEAD. A shot retaken since the release waits for the next one by
-// itself, and nobody's uncommitted shot reaches the site.
+// itself, and nobody's uncommitted shot reaches the site. Approved release-time retakes are pinned by full commit
+// in released-shot-overrides.json, keyed by release and source shot; they do not change the frozen product source.
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -14,6 +15,7 @@ import { createRequire } from "node:module";
 const sharp = createRequire(import.meta.url)("sharp");
 
 const used = [
+  "video-blocking", // original player-response filtering; next release
   "media-controls", // Spaces demo: Personal (Mint), on Wikivoyage
   "split-view-3", // Spaces demo: Travel (Sky), and Split View
   "pinned-split", // Spaces demo: Studio (Peach)
@@ -67,13 +69,13 @@ const used = [
   "downloads-library",
   "settings-shortcuts",
   "settings-app-icon", // the same, for the app icon choice (f742f48)
+  "settings-profiles-search", // C08's per-profile search engine rows (released in 0.1.6; this shot is newer than 0.1.10's source)
+  "whats-new-card", // the What's new card after an update (released in 0.1.13)
+  "whats-new-tab", // whatsnew2: the What's New in Airc tab after an update (the catalog's "next" row)
 ];
 
-// The next release's shots, shown on /features as "next" (and the crops made from them): taken from HEAD.
-// (0.1.3's own shots, Notes, Site Search, Boosts' gallery and the rest, now come from its source like any released shot.)
-const upcoming = new Set([
-  "capture-portrait", "developer-mode-site-controls",
-  "update-whats-new", "update-playing", "settings-app-icon"]);
+// Only unreleased features take their shots from HEAD. The former entries shipped in 0.1.4.
+const upcoming = new Set(["video-blocking", "whats-new-tab"]);   // whats-new-tab: whatsnew2, next release
 
 // Crops: the part of a shot that shows the feature, without the page behind it when that page is someone else's
 // artwork (Apple's product page, Spotify's covers). Boxes are in the 2400 px shot; each crop gets its own rounded
@@ -88,18 +90,17 @@ const crops = [
   // Arc's tab and folder menus (P01a, after 0.1.2: "next" on /features): the sidebar and the menu, not the Apple page.
   { from: "tab-menu", to: "tab-menu-card", box: { left: 126, top: 832, width: 515, height: 536 }, radius: 18 },
   { from: "folder-markdown", to: "folder-markdown-card", box: { left: 126, top: 380, width: 555, height: 375 }, radius: 18 },
-  // Developer Mode's new toolbar (80d0c28): the sidebar's top from the retaken developer-mode, whose released copy the
-  // 0.1.2 rows keep. `next` takes the source from HEAD.
-  { from: "developer-mode", to: "developer-mode-toolbar-card", box: { left: 126, top: 96, width: 448, height: 250 }, radius: 18, next: true },
+  // Developer Mode's toolbar, released in 0.1.4: the sidebar's top from the frozen source shot.
+  { from: "developer-mode", to: "developer-mode-toolbar-card", box: { left: 126, top: 96, width: 448, height: 250 }, radius: 18 },
   // Extensions in the toolbar (aee6132, "next"): the toolbar's top right and ⌘E's list, not the linear.app page.
   { from: "toolbar-extensions", to: "toolbar-extensions-card", box: { left: 1806, top: 110, width: 464, height: 345 }, radius: 18 },
-  // Site previews (10c6a8f, "next"): the Favorites and the Linear card, not the Apple Developer page behind them.
-  { from: "site-preview", to: "site-preview-card", box: { left: 126, top: 236, width: 720, height: 462 }, radius: 18, next: true },
+  // Site previews, released in 0.1.4: the Favorites and the Linear card, not the Apple Developer page behind them.
+  { from: "site-preview", to: "site-preview-card", box: { left: 126, top: 236, width: 720, height: 462 }, radius: 18 },
   // Little Arc's Open In menu (3dc145b, after 0.1.2: /features shows it from the next release), same window, same box.
   { from: "little-arc-menu", to: "little-arc-menu-window", box: { left: 877, top: 421, width: 1253, height: 913 }, radius: 26 },
   { from: "tab-preview", to: "tab-preview-card", box: { left: 125, top: 770, width: 780, height: 470 }, radius: 18 },
-  { from: "multi-select", to: "multi-select-menu", box: { left: 126, top: 822, width: 522, height: 470 }, radius: 18 },
-  { from: "calendar", to: "calendar-card", box: { left: 472, top: 230, width: 406, height: 264 }, radius: 22 },
+  { from: "multi-select", to: "multi-select-menu", box: { left: 126, top: 822, width: 540, height: 550 }, radius: 18 },
+  { from: "calendar", to: "calendar-card", box: { left: 472, top: 230, width: 406, height: 371 }, radius: 22 },
   { from: "drm-site-controls", to: "drm-site-controls-panel", box: { left: 138, top: 228, width: 446, height: 678 }, radius: 24 },
   { from: "site-controls", to: "site-controls-panel", box: { left: 138, top: 228, width: 440, height: 790 }, radius: 24 },
   // The homepage's 0.1.2 cells: the Boost panel over the page it changed (one box, three states) and the top of Site
@@ -112,6 +113,10 @@ const crops = [
   // question, not the Apple page behind them.
   { from: "update-whats-new", to: "update-whats-new-card", box: { left: 126, top: 1290, width: 560, height: 144 }, radius: 18 },
   { from: "update-playing", to: "update-playing-card", box: { left: 126, top: 900, width: 340, height: 534 }, radius: 18 },
+  // Favorite badges (S03b, released in 0.1.11): the Work Space's Favorites only, not the page beside them.
+  { from: "favorite-badges", to: "favorite-badges-card", box: { left: 126, top: 96, width: 336, height: 312 }, radius: 18 },
+  // Mail previews (S04, released in 0.1.9): the pinned Gmail row and its card, not the Swift.org page behind them.
+  { from: "mail-preview", to: "mail-preview-card", box: { left: 126, top: 666, width: 720, height: 416 }, radius: 18 },
   { from: "drm-site-controls", to: "drm-site-controls-top", box: { left: 138, top: 228, width: 446, height: 330 }, radius: 24 },
 ];
 
@@ -137,10 +142,14 @@ try {
 }
 
 // A shot as the site should show it, or null if that version of the repo doesn't have it.
+const overrides = JSON.parse(readFileSync(new URL("./released-shot-overrides.json", import.meta.url), "utf8"))[release.version] || {};
 const shot = (name, next = upcoming.has(name)) => {
+  const override = next ? undefined : overrides[name];
+  if (override && !/^[0-9a-f]{40}$/.test(override)) throw new Error(`screenshots: invalid approved retake for ${name}`);
   try {
-    return git(["show", `${next ? "HEAD" : release.source}:assets/screenshots/${name}.webp`]);
+    return git(["show", `${override || (next ? "HEAD" : release.source)}:assets/screenshots/${name}.webp`]);
   } catch {
+    if (override) throw new Error(`screenshots: approved retake ${override} for ${name} is unavailable`);
     return null;
   }
 };

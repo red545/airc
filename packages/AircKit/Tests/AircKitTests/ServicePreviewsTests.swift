@@ -142,50 +142,6 @@ final class ServicePreviewsTests: XCTestCase {
         XCTAssertEqual(PreviewTime.pageAge(at(-90 * 1440), now: t0), "3 months ago")
     }
 
-    // MARK: The timeline
-
-    private func calendar(_ zone: String) -> Calendar {
-        var c = Calendar(identifier: .gregorian)
-        c.timeZone = TimeZone(identifier: zone)!
-        return c
-    }
-
-    func testTheWindowStartsAtTheLocalHourInEveryZone() {
-        // 1_800_000_000 is 2027-01-15 08:00:00 UTC.
-        let now = t0.addingTimeInterval(17 * 60)   // 08:17 UTC
-        let utc = PreviewTimeline.window(now: now, calendar: calendar("UTC"))
-        XCTAssertEqual(utc.start, t0)
-        XCTAssertEqual(utc.end, t0.addingTimeInterval(16 * 3600), "to midnight")
-        // India is UTC+5:30: 13:47 there, so its hour began at 13:00 local = 07:30 UTC.
-        let india = PreviewTimeline.window(now: now, calendar: calendar("Asia/Kolkata"))
-        XCTAssertEqual(india.start, t0.addingTimeInterval(-30 * 60))
-        // Late in the day it still shows six hours, past midnight.
-        let late = PreviewTimeline.window(now: t0.addingTimeInterval(14 * 3600 + 600), calendar: calendar("UTC"))   // 22:10
-        XCTAssertEqual(late.duration, TimeInterval(PreviewTimeline.visibleHours * 3600))
-        XCTAssertEqual(PreviewTimeline.hours(in: late, calendar: calendar("UTC")).count, 6)
-    }
-
-    func testOverlappingEventsShareColumnsPerCluster() {
-        let w = DateInterval(start: t0, duration: 6 * 3600)
-        func e(_ id: String, _ s: Double, _ end: Double, allDay: Bool = false) -> CalendarEvent {
-            CalendarEvent(id: id, title: id, start: at(s), end: at(end), isAllDay: allDay)
-        }
-        let blocks = PreviewTimeline.layout([
-            e("standup", 0, 30), e("1:1", 15, 45), e("review", 30, 60),   // one cluster, two columns
-            e("lunch", 120, 180),                                          // alone
-            e("holiday", -600, 900, allDay: true),                         // all day: not a block
-            e("yesterday", -300, -200),                                    // before the window
-        ], in: w)
-        let byID = Dictionary(uniqueKeysWithValues: blocks.map { ($0.event.id, $0) })
-        XCTAssertEqual(Set(byID.keys), ["standup", "1:1", "review", "lunch"])
-        XCTAssertEqual(byID["standup"]?.column, 0)
-        XCTAssertEqual(byID["1:1"]?.column, 1)
-        XCTAssertEqual(byID["review"]?.column, 0, "standup's column is free again at 30")
-        XCTAssertEqual(byID["standup"]?.columns, 2)
-        XCTAssertEqual(byID["lunch"]?.columns, 1)
-        XCTAssertEqual(byID["lunch"]?.column, 0)
-    }
-
     // MARK: Row status lines
 
     func testMailStatus() {

@@ -5,6 +5,7 @@
 namespace network { class URLLoaderFactoryBuilder; }
 namespace net { class IsolationInfo; }
 namespace airc {
+std::string BlockingDocumentScript(content::BrowserContext*, const GURL&);
 void ObserveBlockingPage(content::WebContents*);
 void AppendBlockingFactory(content::BrowserContext*, content::RenderFrameHost*,
     content::ContentBrowserClient::URLLoaderFactoryType, const url::Origin&,

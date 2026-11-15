@@ -90,7 +90,8 @@ public enum ArcSidebarParser {
                     out.append(.tab(.init(id: id, url: url, title: title == page ? nil : title, pageTitle: page, lastActiveAt: tab["timeLastActiveAt"] as? Double)))
                 } else if d["list"] != nil {
                     if item["automaticLiveFolderData"] != nil { warn(.liveFolder, "Imported a live folder as a regular folder.") }
-                    out.append(.folder(.init(id: id, title: nonempty(item["title"]) ?? "Folder", children: children(index, id, depth + 1, keepSplits: keepSplits))))
+                    out.append(.folder(.init(id: id, title: nonempty(item["title"]) ?? "Folder", children: children(index, id, depth + 1, keepSplits: keepSplits),
+                                             createdAt: item["createdAt"] as? Double)))
                 } else if d["splitView"] != nil {
                     let tabs = children(index, id, depth + 1, keepSplits: false).flatMap(\.tabs)
                     guard keepSplits, tabs.count >= 2 else {
@@ -145,7 +146,11 @@ public enum ArcSidebarParser {
                 else { untitled += 1; name = "Space \(untitled)" }
             }
             let color = colors(obj(theme["primaryColorPalette"])["midTone"]).first ?? colors(theme["background"]).first ?? colors(theme).first ?? "#8edcc0"
-            spaces.append(.init(id: id, name: name!, emoji: emoji ?? "•", icon: jsonValue(custom["iconType"]), theme: .init(color: color, colors: colors(theme["background"] ?? theme), raw: jsonValue(custom["windowTheme"])), profileID: profileID(s["profile"]), pinned: roots["pinned"].map { children(index, $0) } ?? [], today: includeToday ? roots["unpinned"].map { children(index, $0, keepSplits: false).flatMap(\.tabs) } ?? [] : []))
+            let pinned = roots["pinned"].map { children(index, $0) } ?? []
+            // Today keeps its folders (Arc's unpinned folders, nested, in order); its splits come over as their tabs.
+            let today = includeToday ? roots["unpinned"].map { children(index, $0, keepSplits: false) } ?? [] : []
+            let hasTodayFolder = today.contains { if case .folder = $0 { return true }; return false }
+            spaces.append(.init(id: id, name: name!, emoji: emoji ?? "•", icon: jsonValue(custom["iconType"]), theme: .init(color: color, colors: colors(theme["background"] ?? theme), raw: jsonValue(custom["windowTheme"])), profileID: profileID(s["profile"]), pinned: pinned, today: today.flatMap(\.tabs), todayItems: hasTodayFolder ? today : nil))
         }
         var favorites: [String: [ImportedTab]] = [:]
         var favoriteItems: [String: [ImportedItem]] = [:]

@@ -284,7 +284,7 @@ enum NoteExport {
     /// Every note a row still points at (Today, pinned, in folders, archived), with text or pictures, by title.
     static func allNotes(_ store: SpacesStore) -> [Note] {
         let referenced = store.referencedNoteIDs
-        return store.state.notes.values.filter { referenced.contains($0.id) && !$0.document.isEmpty }
+        return store.state.notes.values.filter { referenced.contains($0.id) && !$0.isEmpty }
             .sorted { ($0.displayTitle.localizedLowercase, $0.createdAt) < ($1.displayTitle.localizedLowercase, $1.createdAt) }
     }
 
@@ -307,7 +307,7 @@ enum NoteExport {
             var k = 2
             while used.contains(name.lowercased()) { name = fileName(note.displayTitle) + " \(k)"; k += 1 }
             used.insert(name.lowercased())
-            try write(note.document, title: note.displayTitle, format: format,
+            try write(note.exportDocument, title: note.displayTitle, format: format,
                       to: folder.appendingPathComponent(name).appendingPathExtension(format.fileExtension))
             count += 1
         }
@@ -389,6 +389,8 @@ extension WindowController {
         if NoteApps.chosen(app) != .airc {
             m.add("New Airc Note") { [weak self] in self?.newAircNote(source: .plusMenu) }
         }
+        // P19a: Arc's "+" also made Easels (Easels/EaselCenter.swift).
+        m.add("New Easel", ShortcutCenter.hint("file.newEasel", "⌃⇧E")) { [weak self] in _ = self?.newEasel() }
     }
 
     /// The Command Bar's note actions besides New Note.
@@ -411,6 +413,14 @@ extension WindowController {
             a.append(.init(title: "Export Note…", symbol: "square.and.arrow.up", hint: "", keywords: ["note", "markdown", "pdf", "rtf", "html", "save"]) { [weak self] in
                 self?.exportNote(id)
             })
+        }
+        // P19a: Arc's "New Easel" (Easels/EaselCenter.swift).
+        a.append(.init(title: "New Easel", symbol: "scribble.variable", hint: ShortcutCenter.hint("file.newEasel", "⌃⇧E"),
+                       keywords: ["easel", "canvas", "whiteboard", "moodboard", "board", "draw", "create"]) { [weak self] in _ = self?.newEasel() })
+        // P19c: the Easel on screen out of Airc (Easels/EaselSharing.swift).
+        if let easel = shownEasel, !easel.document.isEmpty {
+            a.append(.init(title: "Share Easel…", symbol: "link", hint: "", keywords: ["easel", "share", "link", "publish", "send"]) { easel.shareLink() })
+            a.append(.init(title: "Export Easel…", symbol: "square.and.arrow.up", hint: "", keywords: ["easel", "export", "png", "image", "html", "zip", "save"]) { easel.export() })
         }
         a += [
             .init(title: "Export All Notes…", symbol: "square.and.arrow.up.on.square", hint: "", keywords: ["notes", "export", "markdown", "backup"]) { [weak self] in
@@ -447,7 +457,7 @@ extension WindowController {
             guard let self, r == .OK, let url = panel.url else { return }
             NoteExport.lastFormat = format
             do {
-                try NoteExport.write(note.document, title: note.displayTitle, format: format, to: url)
+                try NoteExport.write(note.exportDocument, title: note.displayTitle, format: format, to: url)
                 self.showToast("Exported “\(url.lastPathComponent)”")
             } catch {
                 self.showToast("Airc couldn’t export the note")

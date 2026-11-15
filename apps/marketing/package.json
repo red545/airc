@@ -6,7 +6,7 @@
   "license": "Apache-2.0",
   "scripts": {
     "dev": "astro dev",
-    "build": "node scripts/sync-privacy.mjs && node scripts/sync-screenshots.mjs && node scripts/sync-changelog.mjs && node scripts/sync-videos.mjs && astro check && astro build",
+    "build": "node --test test/published-history.test.mjs && node scripts/sync-privacy.mjs && node scripts/sync-screenshots.mjs && node scripts/sync-changelog.mjs && node scripts/sync-videos.mjs && astro check && astro build",
     "preview": "astro preview",
     "shots": "scripts/shots.sh",
     "sync": "node scripts/sync-status.mjs"
@@ -15,6 +15,7 @@
     "@fontsource-variable/figtree": "^5.3.0",
     "@fontsource-variable/inter": "^5.3.0",
     "@fontsource-variable/newsreader": "^5.3.0",
+    "@vercel/blob": "2.8.2",
     "astro": "^7.4.5",
     "posthog-js": "^1.446.3",
     "sharp": "^0.35.5"

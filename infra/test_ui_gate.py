@@ -3,6 +3,7 @@ from datetime import datetime
 import json
 import os
 import plistlib
+import signal
 from pathlib import Path
 import subprocess
 import sys
@@ -16,6 +17,34 @@ from run_result import state
 import work_page
 
 LOCK = [dict(start='2026-01-01T12:00:00Z', end='2026-01-01T12:01:00Z', seconds=60)]
+
+
+class KeyboardNavigationTests(unittest.TestCase):
+    def test_restores_console_preference_when_check_fails(self):
+        read = subprocess.CompletedProcess([], 0, '0\n', '')
+        with patch.dict(os.environ, AIRC_UI_DEDICATED_SESSION='1'), patch.object(ui_gate.subprocess, 'run', return_value=read) as run:
+            with self.assertRaisesRegex(RuntimeError, 'check failed'):
+                with ui_gate.keyboard_navigation('arcimport2'):
+                    raise RuntimeError('check failed')
+            self.assertEqual(run.call_args_list[-1].args[0],
+                             ['defaults', 'write', '-g', 'AppleKeyboardUIMode', '-int', '0'])
+
+    def test_restores_absent_preference_after_success(self):
+        missing = subprocess.CompletedProcess([], 1, '', 'does not exist')
+        with patch.dict(os.environ, AIRC_UI_DEDICATED_SESSION='1'), patch.object(ui_gate.subprocess, 'run', return_value=missing) as run:
+            with ui_gate.keyboard_navigation('arcimport2'):
+                pass
+            self.assertEqual(run.call_args_list[-1].args[0], ['defaults', 'delete', '-g', 'AppleKeyboardUIMode'])
+
+    def test_never_changes_other_sessions_or_unrelated_checks(self):
+        with patch.object(ui_gate.subprocess, 'run') as run:
+            with patch.dict(os.environ, AIRC_UI_DEDICATED_SESSION='0'):
+                with ui_gate.keyboard_navigation('arcimport2'):
+                    pass
+            with patch.dict(os.environ, AIRC_UI_DEDICATED_SESSION='1'):
+                with ui_gate.keyboard_navigation('parityk05'):
+                    pass
+            run.assert_not_called()
 
 
 class ClassifierTests(unittest.TestCase):
@@ -37,7 +66,9 @@ class ClassifierTests(unittest.TestCase):
     def test_independent_failures_win_over_lock(self):
         for line in ('FAIL [independent] model invariant', 'ENGINE-FAIL profile isolation',
                      'FAIL-INDEPENDENT serialized state mismatch', 'FAIL unit-level assertion: wrong value', 'FAIL unit: bad count', 'FAIL model: wrong state',
-                     'FAIL events: the app wrote no log (crashed or never started)'):
+                     'FAIL events: the app wrote no log (crashed or never started)',
+                     'FAIL native fullscreen: still alive', 'FAIL watchdog: app hung', 'FAIL no PID after launch',
+                     'FAIL app died during exit', 'FAIL app hung during exit', 'FAIL crash during exit'):
             self.assertEqual(ui_gate.classify(line, LOCK)['state'], 'FAIL', line)
 
     def test_lock_without_failures_is_not_green(self):
@@ -58,8 +89,8 @@ class ClassifierTests(unittest.TestCase):
         self.assertEqual(result['state'], 'ENV')
         self.assertEqual(result['failures'][0]['locks'][0]['seconds'], 0)
 
-    def test_other_interference_policy_is_unchanged(self):
-        self.assertEqual(ui_gate.classify('FAIL-ENV clipboard changed by another app')['state'], 'PASS')
+    def test_other_interference_is_not_green(self):
+        self.assertEqual(ui_gate.classify('FAIL-ENV clipboard changed by another app')['state'], 'ENV')
         self.assertEqual(ui_gate.classify('FAIL-ENV click blocked (the screen is locked)')['state'], 'ENV')
 
     def test_legacy_unknown_failure_not_excused(self):
@@ -102,7 +133,7 @@ class ClassifierTests(unittest.TestCase):
 
     def test_preflight_no_launch_while_locked(self):
         with tempfile.TemporaryDirectory() as temp, patch.object(ui_gate, 'screen_locked', return_value=True), \
-                patch.object(ui_gate.subprocess, 'call') as call:
+                patch.object(ui_gate, 'run_bounded') as call:
             path = Path(temp) / 'ui-gate.json'
             self.assertEqual(ui_gate.preflight(path), 75)
             self.assertEqual(json.loads(path.read_text())['state'], 'WAIT')
@@ -113,7 +144,7 @@ class ClassifierTests(unittest.TestCase):
             path = Path(temp) / 'ui-gate.json'
             ui_gate.preflight(path)
             with patch.object(ui_gate, 'screen_locked', return_value=True), \
-                    patch.dict(os.environ, AIRC_SHIP_GATE='1'), patch.object(ui_gate.subprocess, 'call') as call:
+                    patch.dict(os.environ, AIRC_SHIP_GATE='1'), patch.object(ui_gate, 'run_bounded') as call:
                 self.assertEqual(ui_gate.launch(path, ['open']), 75)
                 call.assert_not_called()
             self.assertEqual(json.loads(path.read_text())['state'], 'WAIT')
@@ -124,11 +155,11 @@ class ClassifierTests(unittest.TestCase):
             path = folder / 'ui-gate.json'
             ui_gate.preflight(path)
             command = ['open', '--script', 'events', '--snapshot', temp]
-            def write_log(_, **kwargs):
+            def write_log(*args, **kwargs):
                 with (folder / 'log.txt').open('a') as log:
                     log.write('[events]\nFAIL click target: not on screen\n')
-                return 0
-            with patch.object(ui_gate.subprocess, 'call', side_effect=write_log):
+                return 0, None
+            with patch.object(ui_gate, 'run_bounded', side_effect=write_log):
                 with patch.object(ui_gate, 'screen_locked', side_effect=[False, True]):
                     self.assertEqual(ui_gate.launch(path, command), 0)
                 self.assertEqual(json.loads(path.read_text())['state'], 'ENV')
@@ -175,6 +206,108 @@ class ClassifierTests(unittest.TestCase):
             with (run / 'steps.tsv').open('a') as output:
                 output.write('test-AircKit\t1\t3\n')
             self.assertEqual(state(run), 'FAIL')
+
+
+class BundleExecutableTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.bundle = Path(self.temp.name) / 'Synthetic Airc.app'
+        (self.bundle / 'Contents').mkdir(parents=True)
+        (self.bundle / 'Contents/Info.plist').write_bytes(
+            plistlib.dumps({'CFBundleExecutable': 'Synthetic Airc'}))
+        self.executable = (self.bundle / 'Contents/MacOS/Synthetic Airc').resolve()
+
+    def test_preview_env_and_redirect_paths_are_not_bundles(self):
+        command = ['/usr/bin/open', '--env', 'AIRC_SHARING_BASE=https://synthetic-preview.vercel.app',
+                   '--stdout', '/synthetic/output.app', '--stderr', '/synthetic/error.app',
+                   '-g', '-n', '-W', '--env', 'OTHER=/synthetic/other.app', str(self.bundle),
+                   '--args', '--script', 'events', '--fixture', '/synthetic/fixture.app']
+        self.assertEqual(ui_gate.bundle_executable(command), self.executable)
+
+    def test_explicit_application_operand_forms(self):
+        for prefix in ([], ['--'], ['-a'], ['--application']):
+            with self.subTest(prefix=prefix):
+                self.assertEqual(ui_gate.bundle_executable(
+                    ['open', '-n', '-W', *prefix, str(self.bundle)]), self.executable)
+
+    def test_app_arguments_and_non_open_commands_are_not_scanned(self):
+        self.assertIsNone(ui_gate.bundle_executable(['open', '--args', str(self.bundle)]))
+        self.assertIsNone(ui_gate.bundle_executable(['python3', 'check.py', str(self.bundle)]))
+
+    def test_missing_values_and_ambiguous_options_refuse(self):
+        for arguments in (['--env'], ['--stdout'], ['-a'], ['--'], ['--unknown', str(self.bundle)],
+                          ['https://synthetic.invalid', str(self.bundle)]):
+            with self.subTest(arguments=arguments), self.assertRaises(ValueError):
+                ui_gate.bundle_executable(['open', *arguments])
+
+    def test_executable_cannot_escape_bundle(self):
+        (self.bundle / 'Contents/Info.plist').write_bytes(
+            plistlib.dumps({'CFBundleExecutable': '../../unrelated'}))
+        with self.assertRaisesRegex(ValueError, 'invalid bundle executable'):
+            ui_gate.bundle_executable(['open', str(self.bundle)])
+
+
+class WatchdogTests(unittest.TestCase):
+    def test_budget_can_only_be_shortened(self):
+        with patch.dict(os.environ, AIRC_UI_LAUNCH_TIMEOUT='9999'):
+            self.assertEqual(ui_gate.launch_budget('events'), 270)
+            self.assertEqual(ui_gate.launch_budget('perf'), 690)
+        with patch.dict(os.environ, AIRC_UI_LAUNCH_TIMEOUT='5'):
+            self.assertEqual(ui_gate.launch_budget('events'), 5)
+        for value in ['nan', 'inf', '0', '-1']:
+            with patch.dict(os.environ, AIRC_UI_LAUNCH_TIMEOUT=value), self.assertRaises(ValueError):
+                ui_gate.launch_budget('events')
+
+    def test_process_identity_requires_executable_and_launch_arguments(self):
+        executable = Path('/synthetic/App.app/Contents/MacOS/App')
+        snapshot = Path('/synthetic/evidence with spaces')
+        rows = f'41 {executable}\n42 {executable}\n43 /synthetic/Other.app/Contents/MacOS/App\n'
+        commands = {41: f'{executable} --snapshot {snapshot} --script events',
+                    42: f'{executable} --snapshot /synthetic/other --script events'}
+        def arguments(command, **kwargs):
+            return subprocess.CompletedProcess(command, 0, commands[int(command[3])])
+        with patch.object(ui_gate.subprocess, 'check_output', return_value=rows), \
+                patch.object(ui_gate.subprocess, 'run', side_effect=arguments):
+            self.assertEqual(ui_gate.matching_app_pids(executable, snapshot, 'events'), {41})
+
+    def test_sample_then_signal_only_new_owned_pid(self):
+        active = {41, 42}
+        order = []
+        def sample(command, **kwargs):
+            order.append(('sample', int(command[1])))
+            return subprocess.CompletedProcess(command, 0)
+        def kill(pid, sig):
+            order.append(('signal', pid, sig))
+            active.remove(pid)
+        evidence = {}
+        with patch.object(ui_gate, 'matching_app_pids', side_effect=lambda *args: set(active)), \
+                patch.object(ui_gate.subprocess, 'run', side_effect=sample), patch.object(ui_gate.os, 'kill', side_effect=kill):
+            ui_gate.stop_owned_app(Path('/synthetic/App'), Path('/synthetic'), 'events', {41}, evidence)
+        self.assertEqual(order, [('sample', 42), ('signal', 42, signal.SIGTERM)])
+        self.assertEqual(active, {41})
+
+    def test_identity_is_rechecked_after_sampling(self):
+        # The observed app exited during sampling; never signal a reused PID.
+        with patch.object(ui_gate, 'matching_app_pids', side_effect=[{42}, set(), set(), set(), set()]), \
+                patch.object(ui_gate.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)), \
+                patch.object(ui_gate.os, 'kill') as kill:
+            ui_gate.stop_owned_app(Path('/synthetic/App'), Path('/synthetic'), 'events', set(), {})
+            kill.assert_not_called()
+
+    def test_blocked_child_is_bounded_and_prior_failure_survives(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, AIRC_UI_LAUNCH_TIMEOUT='0.1'):
+            root = Path(temp)
+            (root / 'log.txt').write_text('[earlier]\nFAIL earlier assertion\n')
+            started = time.monotonic()
+            code, evidence = ui_gate.run_bounded([sys.executable, '-c', 'import time; time.sleep(60)'], root, 'watchdog')
+            self.assertEqual(code, 124)
+            self.assertLess(time.monotonic() - started, 8)
+            self.assertEqual(evidence['timeout_seconds'], 0.1)
+            log = (root / 'log.txt').read_text()
+            self.assertIn('FAIL earlier assertion', log)
+            self.assertIn('launcher hard timeout', log)
+            self.assertEqual(ui_gate.classify(log, LOCK)['state'], 'FAIL')
 
 
 class ShipLoopTests(unittest.TestCase):

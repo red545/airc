@@ -4,12 +4,13 @@ import AircDesign
 import AircKit
 import AppKit
 
-/// The social studio's motions of features that aren't in a release yet (SocialMotions.swift and SocialMotions013.swift
-/// have the released ones). A build of a release's own source leaves this file out, and `--script social` then says
-/// the motion is unknown:
+// social-needs: f35bc013 (Airc 0.1.4's source: tools/social/mac-frames.sh builds this file into that release and later)
+
+/// The social studio's motions of features that came in Airc 0.1.4 (SocialMotions.swift and SocialMotions013.swift have the
+/// earlier ones; a feature with no release yet goes in a new SocialNext.swift, built only into HEAD's source):
 ///   - portrait: Capture in Portrait Mode of the trip page, the colour slider moved from cyan to yellow, then the
 ///     website's own colour (never the desktop picture: that's the person's own);
-///   - devtoolbar: devtabs (SocialMotions013.swift) from main, whose Developer Mode toolbar adds Network;
+///   - devtoolbar: devtabs (SocialMotions013.swift) on 0.1.4, whose Developer Mode toolbar adds Network;
 ///   - sitepreview: Work on the demo's shared folder, the pointer resting on the Linear Favorite, then Figma's, then the pinned
 ///     Notion page: each card lists the pages visited there (made-up visits in the demo's history, as
 ///     TabPreviewShots.swift records Linear's), newest first, with "+".

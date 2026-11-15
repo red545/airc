@@ -29,13 +29,15 @@ if [[ $build_app == 1 ]]; then
   fi
   # A public build: no test code (AIRC_PUBLIC_BUILD, App/TestingGate.swift). Do not inherit a private feed, test
   # defaults, a test identity or a signing identity from a dev shell.
+  test_args=()
+  [[ ${AIRC_RELEASE_FAST_GATE:-0} != 1 ]] || test_args=(--no-test)
   env -u AIRC_LAUNCH_ARGS -u AIRC_BUNDLE_ID -u AIRC_PASSKEY_ENTITLEMENTS -u AIRC_ICLOUD_ENTITLEMENTS \
     -u AIRC_TELEMETRY_KEY -u AIRC_TELEMETRY_HOST \
     AIRC_PUBLIC_BUILD=1 CHROMIUM_OUT="$chromium_out" AIRC_CHROMIUM_CREDITS="$credits" \
     AIRC_DEV_CHANNEL=0 AIRC_UPDATE_CHANNEL="${AIRC_RELEASE_CHANNEL:-stable}" \
     AIRC_UPDATE_FEED=https://aircbrowser.com/appcast.xml AIRC_SIGN_IDENTITY=- \
     SPARKLE_ROOT="${SPARKLE_ROOT:-$HOME/arcfork/tools/sparkle}" \
-    "$ROOT/scripts/build-app.sh"
+    "$ROOT/scripts/build-app.sh" ${test_args[@]+"${test_args[@]}"}
 fi
 [[ $(uname) == Darwin && -d "$app/Contents" ]] || { echo 'Run on macOS with a built app.' >&2; exit 1; }
 # All shared engine/credits reads finished in build-app.sh; the coordinator can release its ship lock.

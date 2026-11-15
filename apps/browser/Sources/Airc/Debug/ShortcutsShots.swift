@@ -25,6 +25,10 @@ extension SnapshotRunner {
             }
         }
         wait(0.9)
+        // File's rows from Open Location down to the asking row: since New Boost, Boost Gallery and the Notes rows came,
+        // New Private Window is below the fold at the top of the page.
+        run { [self] in mkScrollSettings(.down(250)) }   // MarketingSettingsScroll.swift
+        wait(0.5)
         step { [self] done in
             defer { done() }
             guard editor.conflict?.other == "file.newWindow" else { return note("marketing: MISSING settings-shortcuts: no conflict row") }

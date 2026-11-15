@@ -409,6 +409,32 @@ extension SnapshotRunner {
                       + "\(prev.flatMap { ShortcutCenter.combo($0.key, $0.modifiers)?.display } ?? "-") Previous Tab (⌘} ⌘{)")
             }
         }
+        // Option used to type a bracket preserves Websites First. Give Back
+        // real history, then wait past its fallback: preventDefault must keep it.
+        var pageBackAlias: BrowserCommand?
+        uiCase(window: { self.c.window }) {
+            step { [self] done in
+                pageBackAlias = ShortcutCenter.shared.layoutAliases.first { $0.id == "tabs.back" && $0.modifiers.contains(.option) }
+                guard pageBackAlias != nil, let id = c.shownTabID, let p = c.engineTab(for: id) else { return done() }
+                c.show(id, focus: true)
+                p.evaluate("window.__aliasKeys=0; window.__stopAlias=function(e){if(e.metaKey&&e.altKey){window.__aliasKeys++;e.preventDefault()}}; addEventListener('keydown',window.__stopAlias)") { _ in done() }
+            }
+            run { [self] in
+                guard let alias = pageBackAlias,
+                      let code = Self.p03bCode(typing: alias.key, shift: alias.modifiers.contains(.shift)) else { return }
+                let typed = ShortcutCenter.currentLayout()?(code, alias.modifiers.contains(.shift), true) ?? alias.key
+                send(typed, code, alias.modifiers, ignoring: alias.key)
+            }
+            wait(KeyMonitor.pageAnswerTimeout + 0.3)
+            step { [self] done in
+                guard pageBackAlias != nil, let id = c.shownTabID, let p = c.engineTab(for: id) else { return done() }
+                p.evaluate("String(window.__aliasKeys || 0)") { value in
+                    self.check(value as? String == "1" && pageName() == "Second",
+                               "parityp03b K03: a page consumes the Option-bracket alias once, with no delayed Back (keys \(value ?? "none"), page \(pageName()))")
+                    p.evaluate("removeEventListener('keydown',window.__stopAlias)") { _ in done() }
+                }
+            }
+        }
         // Other layouts' tables, as macOS has them (none is selected): one key each, through the app's key monitor.
         let layouts = [("com.apple.keylayout.German", "German"), ("com.apple.keylayout.French", "French"),
                        ("com.apple.keylayout.SwissGerman", "Swiss German"), ("com.apple.keylayout.Norwegian", "Norwegian"),
@@ -419,6 +445,18 @@ extension SnapshotRunner {
                 ShortcutCenter.shared.layoutForTesting = layout
                 let aliases = ShortcutCenter.shared.layoutAliases
                 note("parityp03b K03: \(label): " + aliases.map { "\($0.id)=\(ShortcutCenter.combo($0.key, $0.modifiers)?.display ?? "?")" }.joined(separator: ", "))
+                for alias in aliases where alias.modifiers.contains(.option) {
+                    let shift = alias.modifiers.contains(.shift)
+                    guard let code = (0...50).first(where: { layout(UInt16($0), shift, false)?.lowercased() == alias.key }) else {
+                        check(false, "parityp03b K03: \(label) alias has a physical key")
+                        continue
+                    }
+                    let wanted = KeyMonitor.combo(alias)
+                    let body: [String: Any] = ["combo": "unmatched Option character", "code": WebKitProfile.shortcutKeyCodes[code],
+                        "modifiers": String(wanted.dropLast(alias.key.count)), "option": true, "shift": shift]
+                    check(WebKitProfile.shortcutCombo(body, layout: layout) == wanted,
+                          "parityp03b K03: \(label) WebKit acknowledges \(wanted) using its layout")
+                }
                 if id.hasSuffix(".US") { return check(aliases.isEmpty, "parityp03b K03: U.S. types the brackets: no extra keys") }
                 c.window.makeFirstResponder(nil)
                 let start = c.shownTabID

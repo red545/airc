@@ -4,6 +4,7 @@
 #include "airc/core/airc_hooks.h"
 #include "content/public/browser/web_contents.h"
 #include "content/browser/web_contents/web_contents_impl.h"  // nogncheck
+void (*g_airc_call_share)(TabSharingUI*, content::WebContents*, content::WebContents*, bool) = nullptr;
 bool g_airc_background_instance = false;
 bool (*g_airc_hidden_from_extensions)(const BrowserWindowInterface* browser) = nullptr;
 bool (*g_airc_keeps_window_without_tabs)(

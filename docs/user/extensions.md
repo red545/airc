@@ -24,7 +24,12 @@ Open **Chrome Web Store…** from ⌘E's list (or go to chromewebstore.google.co
 choose **Add to Chrome**. Airc shows what the extension can do and which profile it goes to before it's added.
 **Manage Extensions…** opens chrome://extensions for that profile.
 
-**Install in all profiles…** (right-click an extension in ⌘E's list) opens the extension's Web Store page in a Space of
-every other profile, so you can review and add it there. A profile that already has it is skipped. A profile without a
-Space is listed, but nothing opens for it: create a Space for it first. Installing it everywhere in one step isn't
-available yet.
+**Install in all profiles…** (right-click an extension in ⌘E's list) asks Chromium to install it in each profile.
+Each new installation has its own permission review, showing the destination profile. Profiles that already have the
+extension are skipped. A profile without a Space uses the current window for its review; no Space or tab is created.
+The result lists installed, already installed, denied, failed (with a reason), or blocked by policy for each profile.
+Cancelling one review continues to the next profile.
+
+Onboarding's **Your password manager** step ([password-manager.md](password-manager.md)) uses the same reviews to add
+a password manager to the profiles you choose. Arc import's **Reinstall your extensions → Install all** uses the same reviews, keeping each extension in the
+profile it came from. Extensions from outside the Web Store still need to be reinstalled from their original source.

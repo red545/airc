@@ -18,12 +18,18 @@ extension AppDelegate {
     @MainActor
     @discardableResult
     func restoreBackup(_ data: Data) async throws -> URL {
-        let recovery = try await store.restoreBackup(data, savingCurrentTo: settings.backupDirectory)
+        let storePhase = RestoreTrace.begin("restore.store")
+        let recovery: URL
+        do { recovery = try await store.restoreBackup(data, savingCurrentTo: settings.backupDirectory) }
+        catch { RestoreTrace.end(storePhase); throw error }
+        RestoreTrace.end(storePhase)
         reloadAfterRestore()
         return recovery
     }
 
     private func reloadAfterRestore() {
+        let phase = RestoreTrace.begin("restore.reload")
+        defer { RestoreTrace.end(phase) }
         // Even a surviving tab ID may now name a different URL/profile. Drop its old page.
         for c in controllers {
             for id in Array(c.pages.keys) { c.dropPage(id) }
@@ -32,6 +38,5 @@ extension AppDelegate {
         profiles.loadAll { [weak self] in
             self?.controllers.forEach { $0.reloadAll(animated: false) }
         }
-        controllers.forEach { $0.reloadAll(animated: false) }
     }
 }

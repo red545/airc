@@ -111,8 +111,11 @@ fi
 if [[ $HOST == buildmac ]]; then
   engine_ready=${AIRC_ENGINE_READY_FILE:-$(dirname "$ROOT")/status/buildmac-engine-ready}
   ready=$(awk 'NR==1 {print $1}' "$engine_ready" 2>/dev/null || true)
-  if [[ ! $ready =~ ^[0-9a-f]{40}$ ]] || ! git -C "$ROOT" diff --quiet "$ready" "$REV" -- engine/core engine/patches ':(glob)engine/*.gn' ':(glob)engine/*.gni' ':(glob)engine/BUILD*' CHROMIUM_VERSION; then
-    step engine-ready bash -c 'echo "engine owner must reconcile this revision first"; exit 75'
+  # shellcheck source=engine-inputs.sh
+  source "$ROOT/infra/engine-inputs.sh"
+  differ=$(engine_inputs_diff "$ROOT" "${ready:-none}" "$REV" 2>&1) && engine_ok=1 || engine_ok=0
+  if [[ ! $ready =~ ^[0-9a-f]{40}$ || $engine_ok != 1 ]]; then
+    step engine-ready bash -c 'echo "engine owner must reconcile this revision first; differing engine inputs: $1"; exit 75' sh "${differ//$'\n'/ }"
     finish
   fi
   step engine-framework mac 'test -f "$HOME/arcfork/chromium/src/out/AircRelease/Airc Framework.framework/Versions/Current/Airc Framework"' || finish

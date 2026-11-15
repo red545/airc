@@ -35,6 +35,9 @@ sign() {
   codesign --force "$timestamp" --options runtime --sign "$identity" "$@"
 }
 fwv="$app/Contents/Frameworks/$fw_name.framework/Versions/$version"
+# Helpers take the app's identifier ('<app id>.helper', as Chrome's do) so call recorders map the audio
+# service's microphone use to this app (scripts/release/helper_ids.py; release signing repeats it).
+python3 "$(dirname "$0")/../scripts/release/helper_ids.py" "$app" >/dev/null
 for lib in "$fwv"/Libraries/*.dylib; do [[ ! -e "$lib" ]] || sign "$lib"; done
 for helper in "$fwv"/Helpers/*.app "$fwv"/Helpers/chrome_crashpad_handler "$fwv"/Helpers/app_mode_loader "$fwv"/Helpers/web_app_shortcut_copier; do
   [[ -e "$helper" ]] || continue

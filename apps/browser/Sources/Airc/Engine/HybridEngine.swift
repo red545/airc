@@ -193,8 +193,8 @@ final class HybridWebKitSide: NSObject, EngineWindowDelegate {
         if let made { return made }
         let w = WebKitWindow(window: owner!.window, hostView: owner!.hostView)
         w.delegate = self
-        w.linkPolicy = { [weak self] tab, url, newTab, background in
-            self?.owner?.webKitLink(tab, url: url, newTab: newTab, background: background) ?? false
+        w.linkPolicy = { [weak self] tab, url, disposition in
+            self?.owner?.webKitLink(tab, url: url, disposition: disposition) ?? false
         }
         // The window closing (Little Arc, the call window) closes its WebKit pages too; Chromium closes its own.
         closing = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: owner!.window,
@@ -412,13 +412,15 @@ extension ChromiumWindow {
     }
 
     /// A WebKit page's link (WebKitWindow.linkPolicy). New tabs Airc opens follow the rules (a sign-in host stays
-    /// WebKit); a link in the page's own frame stays WebKit unless the app routes it (Peek from a pinned tab).
-    func webKitLink(_ tab: WebKitTab, url: URL, newTab: Bool, background: Bool) -> Bool {
+    /// WebKit); a link in the page's own frame stays WebKit unless the app routes it (Peek from a pinned tab, ⇧-click,
+    /// an Air Traffic Control rule).
+    func webKitLink(_ tab: WebKitTab, url: URL, disposition: String) -> Bool {
         guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return false }
-        let request = EngineLinkRequest(url: url, source: "page",
-                                        disposition: newTab ? (background ? "background_tab" : "foreground_tab") : "current_tab",
+        let request = EngineLinkRequest(url: url, source: "page", disposition: disposition,
                                         sourceBundleID: nil, userGesture: true, opener: tab)
-        if !newTab {
+        if disposition == "window" { return ChromiumRuntime.linkRouter?(request) == true }
+        let background = disposition == "background_tab"
+        if disposition == "current_tab" {
             guard WindowController.crossSite(tab.url, url) else { return false }
             return ChromiumRuntime.linkRouter?(request) == true
         }

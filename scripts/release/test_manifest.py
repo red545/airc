@@ -29,6 +29,8 @@ class ManifestTests(unittest.TestCase):
    m.generate(p,notes,'nightly',True)
    tree=ET.parse(p/'appcast.xml'); item=tree.find('./channel/item')
    self.assertEqual(item.findtext(m.tag('channel')),'nightly')
+   self.assertEqual(item.findtext(m.tag('releaseNotesLink')), 'https://aircbrowser.com/changelog#v0.1.0')
+   self.assertTrue((p/'notes.html').is_file())
    e=item.find(m.tag('deltas')).find('enclosure')
    self.assertEqual(e.attrib[m.tag('deltaFrom')],'202611061500')
    self.assertEqual(e.attrib[m.tag('edSignature')],'delta-signature')

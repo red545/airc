@@ -24,6 +24,8 @@ public struct BrowserProfileSummary: Sendable, Equatable, Identifiable {
     /// Folders as the sidebar will show them, "Other bookmarks" included.
     public var folders = 0
     public var history = 0
+    /// C08b: its default search engine (when it chose one) plus the shortcuts it made.
+    public var searchEngines = 0
     /// The parts that couldn't be read ("bookmarks", "history"). Never why in terms of a value.
     public var unreadable: [String] = []
     public var id: String { sourceKey }
@@ -44,6 +46,8 @@ public struct BrowserImport: Sendable {
     /// Profile source key → its history, newest first.
     public var history: [String: [ImportedVisit]]
     public var profiles: [BrowserProfileSummary]
+    /// C08b: profile source key → its default search engine and shortcuts (Chromium family only).
+    public var searchEngines: [String: ImportedSearchEngines] = [:]
 
     public var bookmarks: Int { profiles.reduce(0) { $0 + $1.bookmarks } }
     public var folders: Int { profiles.reduce(0) { $0 + $1.folders } }
@@ -167,6 +171,18 @@ extension BrowserImporter {
                     if includeHistory, BrowserImporter.isFile(history) {
                         do { visits = try ChromiumHistory.read(DatabaseCopy(history, tempRoot: tempRoot), limit: historyLimit) }
                         catch { summary.unreadable.append("history") }
+                    }
+                    do {
+                        if let engines = try ChromiumSearchEngines.read(profile: p.folder, tempRoot: tempRoot) {
+                            if !engines.isEmpty { out.searchEngines[key] = engines }
+                            summary.searchEngines = (engines.defaultEngine == nil ? 0 : 1) + engines.custom.count
+                            for _ in 0..<engines.rejected {
+                                out.plan.warnings.append(.init(code: .unsafeSearchEngine, message: "A search engine whose address isn't a safe https search page was left out."))
+                            }
+                        }
+                    } catch {
+                        summary.unreadable.append("search engines")
+                        out.plan.warnings.append(.init(code: .unreadableSearchEngines, message: "A profile's search engines couldn't be read."))
                     }
                 }
                 try Task.checkCancellation()

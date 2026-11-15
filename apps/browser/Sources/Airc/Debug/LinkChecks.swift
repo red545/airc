@@ -153,16 +153,34 @@ extension SnapshotRunner {
 
         // 5. Left alone past its archive time (6 h; a second here), it goes to the Archive.
         var before = 0
+        var archiving: LittleArcController?
         run { [self] in
             before = c.store.archivedEntries.count
             LittleArcController.archiveAfter = 1
-            c.app?.openLittleArc(url: URL(string: base + "/routed?archive=1")!)
+            archiving = c.app?.openLittleArc(url: URL(string: base + "/routed?archive=1")!)
+        }
+        // A window in use isn't archived (LittleArcController.archiveNow): when the window is key at its time, the timer
+        // starts again. A suite run (`open -g`) never makes it key; a run in front as the owner's build does
+        // (AIRC_LA_AS_OWNER=1, a link makes Little Arc key), so there it's checked kept, and then "left alone" means the
+        // person has moved on to the browser window.
+        step { [self] done in
+            guard let l = archiving, l.window.isKeyWindow else { return done() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                let open = self.c.app?.littleArcs.contains { $0 === l } == true
+                self.check(open && l.window.isKeyWindow && l.archiveDue != nil,
+                           "links: a Little Arc window in use (key) isn't archived at its archive time; its timer starts again "
+                           + "(open \(open), key \(l.window.isKeyWindow), due again \(l.archiveDue != nil))")
+                self.c.window.makeKeyAndOrderFront(nil)
+                done()
+            }
         }
         step { [self] done in
             waitUntil({ self.c.app?.littleArcs.isEmpty == true }, timeout: 6) {
                 let entry = self.c.store.archivedEntries.first { $0.tab.url.contains("archive=1") }
                 self.check(self.c.app?.littleArcs.isEmpty == true && entry?.reason == .auto && self.c.store.archivedEntries.count == before + 1,
-                           "links: a Little Arc window left alone past its archive time goes to the Archive (\(entry?.reason.rawValue ?? "not archived"))")
+                           "links: a Little Arc window left alone past its archive time goes to the Archive (\(entry?.reason.rawValue ?? "not archived")"
+                           + "\(entry == nil ? ", open \(self.c.app?.littleArcs.count ?? 0), key \(archiving?.window.isKeyWindow == true)" : ""))")
+                archiving = nil
                 LittleArcController.archiveAfter = 6 * 3600
                 server?.stop()
                 done()

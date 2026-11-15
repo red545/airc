@@ -39,7 +39,7 @@ public struct AircCommandAction: View {
 
     public var body: some View {
         HStack(spacing: AircMetrics.CommandBar.actionGap) {
-            Text(title).aircFont(AircCommandText.actionStyle).foregroundStyle(theme.accent.color).lineLimit(1)
+            Text(title).aircFont(AircCommandText.actionStyle).foregroundStyle(theme.accentText.color).lineLimit(1)
             AircShortcutKeys(keys)
         }
         .opacity(isSelected ? 1 : 0)
@@ -244,7 +244,7 @@ public final class AircCommandActionView: NSView {
     public override var isFlipped: Bool { true }
 
     private var titleAttributes: [NSAttributedString.Key: Any] {
-        [.font: AircCommandText.actionStyle.nsFont, .foregroundColor: theme.accent.nsColor]
+        [.font: AircCommandText.actionStyle.nsFont, .foregroundColor: theme.accentText.nsColor]
     }
 
     /// The title's measured size, until the title or theme changes: rows ask for the intrinsic size on every layout

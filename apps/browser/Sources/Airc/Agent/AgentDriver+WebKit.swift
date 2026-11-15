@@ -1,5 +1,4 @@
 // Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
-#if AIRC_TESTING // agentspike: a dev-build prototype (docs/agent-ready.md); public builds compile none of Agent/
 import AppKit
 import WebKit
 
@@ -55,6 +54,34 @@ final class WebKitAgentDriver: AgentPageDriver {
     }
 
     func release(_ tab: EngineTab) { visible.remove(ObjectIdentifier(tab)) }
+
+    func watchFrame(_ tab: EngineTab, maxPixels: CGSize, completion: @escaping (CGImage?) -> Void) {
+        guard let v = web(tab), !tab.isClosed else { return completion(nil) }
+        var answered = false
+        let once: (CGImage?) -> Void = { image in
+            guard !answered else { return }
+            answered = true
+            completion(image)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { once(nil) }
+        let config = WKSnapshotConfiguration()
+        // Without waiting for a new frame: what the page last drew (the window is off screen).
+        config.afterScreenUpdates = false
+        let scale = v.window?.backingScaleFactor ?? 2
+        let width = min(v.bounds.width, maxPixels.width / scale)
+        if width > 0 { config.snapshotWidth = NSNumber(value: Double(width)) }
+        v.takeSnapshot(with: config) { image, _ in once(image?.cgImage(forProposedRect: nil, context: nil, hints: nil)) }
+    }
+
+    func handBack(_ tab: EngineTab) {
+        visible.remove(ObjectIdentifier(tab))
+        guard let v = web(tab) else { return }
+        let sel = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
+        if v.responds(to: sel) {
+            typealias Set = @convention(c) (AnyObject, Selector, Bool) -> Void
+            unsafeBitCast(v.method(for: sel), to: Set.self)(v, sel, true)
+        }
+    }
 
     func installGuards(_ tab: EngineTab, completion: @escaping () -> Void) {
         guard let v = web(tab) else { return completion() }
@@ -243,4 +270,3 @@ final class WebKitAgentDriver: AgentPageDriver {
         v.evaluateJavaScript("window.onbeforeunload = null; true", in: nil, in: .page) { _ in completion() }
     }
 }
-#endif

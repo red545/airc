@@ -20,6 +20,9 @@ extension SnapshotRunner {
             app?.settingsWindow?.window.setFrameOrigin(NSPoint(x: -6000, y: 200))
         }
         wait(0.9)
+        // Remembered profiles near the top, under Little Airc's section.
+        run { [self] in mkScrollSettings(.down(270)) }   // MarketingSettingsScroll.swift
+        wait(0.5)
         run { [self] in
             guard let w = app?.settingsWindow?.window, let view = w.contentView, let image = mkContentImage(w) else {
                 return note("marketing: MISSING remembered-profiles: no Settings window")

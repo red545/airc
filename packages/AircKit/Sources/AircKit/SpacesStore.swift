@@ -51,9 +51,11 @@ public struct StoreState: Codable, Hashable, Sendable {
         if !notes.isEmpty { try c.encode(notes, forKey: .notes) }
     }
 
-    /// The schema a backup of this state needs: 2 when it holds notes or a note's row (Notes.swift), else 1, which
-    /// Airc 0.1.2 restores.
+    /// The schema a backup of this state needs: 3 when it holds a Today folder (TodayFolders.swift), 2 when it holds
+    /// notes or a note's row (Notes.swift), else 1, which Airc 0.1.2 restores. A build that reads less refuses the backup
+    /// (`Backups.swift`) instead of restoring it without its folders.
     public var requiredSchema: Int {
+        if items.values.contains(where: \.isTodayFolder) { return 3 }
         let noteRows = !notes.isEmpty || tabs.values.contains { NoteURL.isNote($0.url) }
             || items.values.contains { NoteURL.isNote($0.savedURL) } || archive.values.contains { NoteURL.isNote($0.tab.url) }
         return noteRows ? 2 : 1
@@ -135,8 +137,9 @@ public enum StoreError: Error, Equatable, Sendable {
 
 public final class SpacesStore {
     /// The newest schema this build reads. 1: the first store. 2 (2026-11-07): notes (`note` rows, Notes.swift).
+    /// 3 (2026-11-10): folders in Today (`ItemContainer.today`, `LiveTab.folderID`, TodayFolders.swift).
     /// What a store or backup is marked with is what its data needs, not this: see `schemaMark`.
-    public static let schemaVersion = 2
+    public static let schemaVersion = 3
     /// The mark on disk (meta `schema`). It says what the data needs, so going back to an older Airc stays safe until
     /// that's untrue: a store that never had a note stays at 1 and Airc 0.1.2 opens it without its "Some data is from a
     /// newer Airc" note (lead, 2026-11-07). The first note row raises it to 2 in the same transaction (`writePending`,
@@ -144,6 +147,8 @@ public final class SpacesStore {
     /// note's delete stays in the op log (compaction keeps each row's last operation), the store has had notes, and a
     /// mark that only rises keeps "a newer build wrote here" reliable for older builds. A 2 on a store with no note in
     /// its rows or its op log was written by ffa8abf, which raised the mark at open; it goes back to 1.
+    /// 3 works the same way: the first Today folder row raises it, in the transaction that writes it, and it stays 3
+    /// (docs/sync.md, "Schema marks and going back to an older Airc").
     public private(set) var schemaMark = 1
     public static let maxFavorites = 12
     public static let maxUndo = 50
@@ -209,6 +214,7 @@ public final class SpacesStore {
     /// The schema the data was last written with, when that's newer than this build's.
     public private(set) var newerSchemaVersion: Int?
     private static let log = Logger(subsystem: "org.airc.Airc", category: "store")
+    private static let restoreSignposts = OSLog(subsystem: "org.airc", category: "Restore")
 
     /// Opens (or creates) the store at `path`. `nil` keeps it in memory, for tests.
     public init(path: String?) throws {
@@ -239,8 +245,9 @@ public final class SpacesStore {
             schemaMark = stored
             Self.log.warning("store written by schema \(stored, privacy: .public); this build reads \(Self.schemaVersion, privacy: .public)")
         } else {
-            // Schema 1 → 2 rewrites no row: the mark follows the data (`schemaMark`).
-            let mark = try Self.notesEverWritten(db) ? 2 : 1
+            // Schema 1 → 2 → 3 rewrites no row: the mark follows the data (`schemaMark`). A 3 stays 3: a Today folder
+            // that was deleted leaves no trace of its kind in the op log (a delete has no body), and the mark only rises.
+            let mark = try stored == 3 || Self.todayFoldersEverWritten(db) ? 3 : Self.notesEverWritten(db) ? 2 : 1
             if stored != mark {
                 try db.run("INSERT OR REPLACE INTO meta(key, value) VALUES('schema', ?)", [.text("\(mark)")])
             }
@@ -264,6 +271,20 @@ public final class SpacesStore {
     static func raiseMarkForNotes(_ db: Database) throws {
         try db.run("INSERT OR REPLACE INTO meta(key, value) VALUES('schema', '2')")
         log.info("store schema 1 → 2: its first note")
+    }
+
+    /// Whether a Today folder row was ever written here (it's there, or a write of it is in the op log). Items encode
+    /// with sorted keys, so a Today folder's body starts `{"container":{"today":`.
+    static func todayFoldersEverWritten(_ db: Database) throws -> Bool {
+        let like = #"{"container":{"today":%"#
+        return try !db.query("SELECT 1 FROM entities WHERE kind='item' AND body LIKE ? LIMIT 1", [.text(like)]).isEmpty
+            || !db.query("SELECT 1 FROM ops WHERE kind='item' AND body LIKE ? LIMIT 1", [.text(like)]).isEmpty
+    }
+
+    /// The SQL that raises the mark to 3 with a transaction's first Today folder row (`schemaMark`).
+    static func raiseMarkForTodayFolders(_ db: Database) throws {
+        try db.run("INSERT OR REPLACE INTO meta(key, value) VALUES('schema', '3')")
+        log.info("store schema → 3: its first Today folder")
     }
 
     // MARK: Loading
@@ -326,7 +347,7 @@ public final class SpacesStore {
             changed = false
             for item in s.items.values {
                 let why: String? = switch item.container {
-                case .pinned(let sid) where spaces.contains(sid): "its Space is unreadable"
+                case .pinned(let sid) where spaces.contains(sid), .today(let sid) where spaces.contains(sid): "its Space is unreadable"
                 case .favorites(let pid) where profiles.contains(pid): "its profile is unreadable"
                 default: item.parentID.map { items.contains($0) } == true ? "its folder is unreadable" : nil
                 }
@@ -388,7 +409,7 @@ public final class SpacesStore {
                 changed = false
                 for item in state.items.values where !gone.contains(item.id) {
                     let missing: Bool = switch item.container {
-                    case .pinned(let sid): state.spaces[sid] == nil
+                    case .pinned(let sid), .today(let sid): state.spaces[sid] == nil
                     case .favorites(let pid): state.profiles[pid] == nil
                     }
                     if missing || item.parentID.map(gone.contains) == true {
@@ -417,7 +438,7 @@ public final class SpacesStore {
                         continue
                     }
                     switch item.container {
-                    case .pinned(let sid): expected = state.spaces[sid]?.profileID
+                    case .pinned(let sid), .today(let sid): expected = state.spaces[sid]?.profileID
                     case .favorites(let pid): expected = pid
                     }
                 } else if let sid = tab.spaceID, let sp = state.spaces[sid] {
@@ -444,6 +465,8 @@ public final class SpacesStore {
                 claimed.formUnion(members)
                 if members != x.tabIDs || !x.isNormalized { var y = x; y.keep(members); put(y) }
             }
+            // Today folders (TodayFolders.swift): what an older build or a damaged row left behind is made consistent.
+            repairTodayFolders()
             if windowState.selectedSpaceID.flatMap({ state.spaces[$0] }) == nil {
                 windowState.selectedSpaceID = orderedSpaces.first?.id
                 txWindowChanged = true
@@ -496,6 +519,8 @@ public final class SpacesStore {
         let result: R
         do {
             result = try body()
+            // A Today folder a change emptied goes in the same transaction, so one ⌘Z brings both back (TodayFolders).
+            if txDepth == 1 { tidyTodayFolders(before: txBefore) }
         } catch {
             txDepth -= 1
             if txDepth == 0 { rollback() }
@@ -564,10 +589,12 @@ public final class SpacesStore {
             failNextFlushes -= 1
             throw Database.DBError.step("injected failure")
         }
-        // The first note row raises the store's mark to 2, in the same transaction (`schemaMark`).
+        // The first note row raises the store's mark to 2, the first Today folder row to 3, in the same transaction
+        // (`schemaMark`).
         let raisesMark = schemaMark < 2 && refs.contains { $0.kind == .note && !hidden.contains($0) }
+        let raisesTo3 = schemaMark < 3 && refs.contains { $0.kind == .item && !hidden.contains($0) && state.items[$0.id]?.isTodayFolder == true }
         try db.transaction {
-            if raisesMark { try Self.raiseMarkForNotes(db) }
+            if raisesTo3 { try Self.raiseMarkForTodayFolders(db) } else if raisesMark { try Self.raiseMarkForNotes(db) }
             for ref in refs.sorted(by: { ($0.kind.rawValue, $0.id) < ($1.kind.rawValue, $1.id) }) {
                 // A row this build couldn't read is never overwritten or deleted (H4).
                 if hidden.contains(ref) { continue }
@@ -584,7 +611,7 @@ public final class SpacesStore {
                 }
             }
         }
-        if raisesMark { schemaMark = 2 }
+        if raisesTo3 { schemaMark = 3 } else if raisesMark { schemaMark = 2 }
     }
 
     public var hasPendingWrites: Bool { !pendingWrites.isEmpty || windowStateDirty }
@@ -720,6 +747,20 @@ public final class SpacesStore {
     }
 
     public var canUndo: Bool { !undoStack.isEmpty }
+
+    /// One action that wrote in several transactions (Clear while pages close one after another, WindowController's
+    /// closeThenArchive): the last undo step joins the one before it when both are `label`, so one ⌘Z undoes it all.
+    /// Each entity keeps its earliest before-image. Returns whether it joined.
+    @discardableResult
+    public func joinLastUndoSteps(label: String) -> Bool {
+        guard undoStack.count >= 2, undoStack[undoStack.count - 1].label == label,
+              undoStack[undoStack.count - 2].label == label else { return false }
+        let last = undoStack.removeLast()
+        for (ref, snap) in last.before where undoStack[undoStack.count - 1].before[ref] == nil {
+            undoStack[undoStack.count - 1].before[ref] = snap
+        }
+        return true
+    }
     public var undoLabel: String? { undoStack.last?.label }
 
     /// What ⌘Z did.
@@ -743,6 +784,7 @@ public final class SpacesStore {
     @discardableResult
     public func undo() throws -> UndoResult? {
         guard let entry = undoStack.popLast() else { return nil }
+        let undoneCopies = easelCopies(touchedBy: entry.before.keys)   // P19c: an undone row copy's Easel goes too
         var moved: [String] = []
         do {
             try perform(nil) {
@@ -762,6 +804,7 @@ public final class SpacesStore {
         } catch let r as UndoRefusal {
             return .refused(label: entry.label, reason: r.reason)
         }
+        deleteUndoneEaselCopies(undoneCopies)
         return .restored(label: entry.label, movedTabs: moved)
     }
 
@@ -783,7 +826,7 @@ public final class SpacesStore {
             }
             let target: String? = if let iid = t.itemID {
                 switch item(iid)?.container {
-                case .pinned(let sid)?: space(sid)?.profileID
+                case .pinned(let sid)?, .today(let sid)?: space(sid)?.profileID
                 case .favorites(let pid)?: pid
                 case nil: nil
                 }
@@ -1024,9 +1067,10 @@ public final class SpacesStore {
             let ts = current.exportedAt.timeIntervalSince1970
             // The database lock covers the entire transaction, including unknown-field merging.
             let raisesMark = mark < 2 && changed.contains { $0.kind == .note && !hiddenRows.contains($0) && !prepared.hidden.contains($0) }
+            let raisesTo3 = mark < 3 && replacement.items.values.contains(where: \.isTodayFolder)
             try database.transaction {
-                // The backup's first note raises the store's mark (`schemaMark`).
-                if raisesMark { try Self.raiseMarkForNotes(database) }
+                // The backup's first note raises the store's mark, its first Today folder to 3 (`schemaMark`).
+                if raisesTo3 { try Self.raiseMarkForTodayFolders(database) } else if raisesMark { try Self.raiseMarkForNotes(database) }
                 for ref in changed where !hiddenRows.contains(ref) && !prepared.hidden.contains(ref) {
                     if var body = try prepared.encodedBody(ref) {
                         if let raw = try database.query("SELECT body FROM entities WHERE kind=? AND id=?",
@@ -1048,10 +1092,13 @@ public final class SpacesStore {
                 try database.run("INSERT OR REPLACE INTO meta(key,value) VALUES('window',?)", [.text(body)])
                 if fail { throw Database.DBError.step("injected restore failure") }
             }
-            return (recovery, replacement, prepared.windowState, changed, raisesMark)
+            return (recovery, replacement, prepared.windowState, changed, raisesTo3 ? 3 : raisesMark ? 2 : 0)
         }.value
         let start = Date.timeIntervalSinceReferenceDate
-        if result.4 { schemaMark = 2 }
+        let applyID = OSSignpostID(log: Self.restoreSignposts)
+        os_signpost(.begin, log: Self.restoreSignposts, name: "restore.apply", signpostID: applyID)
+        defer { os_signpost(.end, log: Self.restoreSignposts, name: "restore.apply", signpostID: applyID) }
+        if result.4 > schemaMark { schemaMark = result.4 }
         state = result.1
         windowState = result.2
         cachedTabByItem = nil
@@ -1140,6 +1187,8 @@ public final class SpacesStore {
     }
 
     func removeItemTree(_ id: String) {
+        // A Today folder's tabs go to the Archive with it (TodayFolders.swift).
+        if item(id)?.isTodayFolder == true { return removeTodayFolderTree(id) }
         for child in state.items.values where child.parentID == id { removeItemTree(child.id) }
         if let t = liveTab(forItem: id) { remove(LiveTab.self, t.id) }
         remove(Item.self, id)

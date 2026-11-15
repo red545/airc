@@ -42,6 +42,7 @@ public struct HistorySnapshot: Sendable {
     let addressKeys: [InlineCompletion.Key]
     let now: Date
     private let localScores: [(url: CommandSearch.Folded, title: CommandSearch.Folded)]?
+    private var excludedLocalURLs: Set<String> = []
 
     static let empty = HistorySnapshot(rows: [], now: Date())
 
@@ -61,7 +62,16 @@ public struct HistorySnapshot: Sendable {
         addressKeys = addresses.values.sorted { $0.bytes.lexicographicallyPrecedes($1.bytes) }
     }
 
-    public var count: Int { rows.count }
+    public var count: Int { rows.count - excludedLocalURLs.count }
+
+    /// Keep the bounded local tier usable while its replacement builds. Filtering at most 128
+    /// URLs preserves the prepared scores and never scans or rebuilds the full index on the caller.
+    func excludingLocalURLs(_ urls: Set<String>) -> HistorySnapshot {
+        precondition(localScores != nil)
+        var copy = self
+        for row in rows where urls.contains(row.entry.url) { copy.excludedLocalURLs.insert(row.entry.url) }
+        return copy
+    }
 
     /// The best `limit` matches for `query`. `cancelled` is polled during the scan.
     public func search(_ query: String, limit: Int = 8, cancelled: () -> Bool = { false }) -> [HistoryMatch] {
@@ -72,6 +82,7 @@ public struct HistorySnapshot: Sendable {
         candidates.reserveCapacity(min(rows.count, 4096))
         for (i, r) in rows.enumerated() {
             if i & 2047 == 0, cancelled() { return [] }
+            if excludedLocalURLs.contains(r.entry.url) { continue }
             let p = max(HistoryIndex.preScore(q, r.display), HistoryIndex.preScore(q, r.title))
             if p > 0 { candidates.append((i, Double(p) * 1_000_000 + r.weight)) }
         }
@@ -215,13 +226,14 @@ enum HistoryIndex {
 
 /// Owns the folded rows and snapshots, on its own queue. HistoryStore feeds it every change.
 final class HistoryIndexer: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "org.airc.history-index", qos: .userInitiated)
+    private let queue: DispatchQueue
     private let lock = NSLock()
     // Guarded by `lock`: read from any thread.
     private var generation = 0
     private var published: [String: HistorySnapshot] = [:]
     private var local: [String: HistorySnapshot] = [:]
-    // A deletion invalidates publication immediately, including a build already in flight.
+    // A deletion invalidates full completion publication immediately, including a build in flight.
+    // The bounded local tier keeps only surviving rows until its replacement is ready.
     private var revisions: [String: Int] = [:]
     private var queueRevisions: [String: Int] = [:] // owned by queue
     private var localPending: Set<String> = [] // owned by queue
@@ -232,6 +244,10 @@ final class HistoryIndexer: @unchecked Sendable {
     private var source: [String: [String: HistoryEntry]] = [:]
     private var dirty: Set<String> = []
     private var snapshots: [String: HistorySnapshot] = [:]
+
+    init(queue: DispatchQueue = DispatchQueue(label: "org.airc.history-index", qos: .userInitiated)) {
+        self.queue = queue
+    }
 
     /// The entries loaded at launch. Rows are folded lazily, per profile, the first time it's searched or prepared.
     func load(_ entries: [String: [String: HistoryEntry]]) {
@@ -247,22 +263,31 @@ final class HistoryIndexer: @unchecked Sendable {
         }
     }
 
-    private func invalidate(_ profileID: String) -> Int {
+    private func invalidate(_ profileID: String, removing urls: Set<String>? = nil) -> Int {
         lock.withLock {
             generation += 1
             published[profileID] = nil
-            local[profileID] = nil
+            local[profileID] = urls.flatMap { local[profileID]?.excludingLocalURLs($0) }
             revisions[profileID, default: 0] += 1
             return revisions[profileID]!
         }
     }
 
     func remove(profileID: String, url: String) {
-        let revision = invalidate(profileID)
+        remove(profileID: profileID, urls: [url])
+    }
+
+    /// A prune is one change: invalidate once, remove the batch, rebuild once.
+    /// Rebuilding after each removed URL blocks subsequent searches behind thousands of snapshots.
+    func remove(profileID: String, urls: [String]) {
+        guard !urls.isEmpty else { return }
+        let revision = invalidate(profileID, removing: Set(urls))
         queue.async {
             self.queueRevisions[profileID] = revision
-            self.rows[profileID]?[url] = nil
-            self.source[profileID]?[url] = nil
+            for url in urls {
+                self.rows[profileID]?[url] = nil
+                self.source[profileID]?[url] = nil
+            }
             self.dirty.insert(profileID)
             if self.built.contains(profileID) { _ = self.snapshot(profileID, now: Date()) }
             else if self.localPrepared.contains(profileID) { self.publishLocal(profileID, now: Date()) }

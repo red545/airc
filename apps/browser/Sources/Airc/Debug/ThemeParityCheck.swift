@@ -240,7 +240,9 @@ extension SnapshotRunner {
         wait(0.8)
         run { [self] in MainActor.assumeIsolated {
             w1().switchToSpace(home, animated: false)
-            let v = SpaceBackgroundView(theme: DesignTheme.preset("ocean")!.resolved(systemIsDark: false))
+            // Paper: a theme that stays translucent at Subtle. Saturated dark presets such as Ocean draw opaque there since
+            // the dark-mode contrast floors (darkmode), which would leave nothing for Reduce Transparency to change.
+            let v = SpaceBackgroundView(theme: DesignTheme.preset("paper")!.resolved(systemIsDark: false))
             v.translucency = .subtle
             v.isWindowActiveOverride = true
             let translucent = v.currentUnderlayOpacity

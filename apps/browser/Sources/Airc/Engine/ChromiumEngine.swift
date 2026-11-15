@@ -165,9 +165,34 @@ final class ChromiumEngine: BrowserEngine {
         (tab as? ChromiumTab)?.core.executeChromeCommand(35007) ?? false
     }
     var discardedStateDidChange: ((EngineTab) -> Void)?
+    func installExtension(_ id: String, profile: EngineProfile, parent: NSWindow,
+                          completion: @escaping (ExtensionInstallOutcome) -> Void) {
+        guard let profile = profile as? ChromiumProfile else {
+            completion(.init(status: "failed", reason: "Unsupported profile.")); return
+        }
+        let done: ([String: String]) -> Void = {
+            completion(.init(status: $0["status"] ?? "failed", reason: $0["reason"] ?? ""))
+        }
+        #if AIRC_TESTING
+        if LaunchOptions.current.isAutomated, let fixture = Self.installFixture {
+            profile.core.installExtensionFixture(fixture, extensionID: id, parentWindow: parent, completion: done)
+            return
+        }
+        if LaunchOptions.current.isAutomated {
+            completion(.init(status: "failed", reason: "Automated installs require a local fixture.")); return
+        }
+        #endif
+        profile.core.installWebStoreExtension(id, parentWindow: parent, completion: done)
+    }
+    #if AIRC_TESTING
+    static var installFixture: String?
+    #endif
     func installedExtensions(for profile: EngineProfile) -> [[String: Any]] {
         (profile as? ChromiumProfile)?.core.extensions ?? []
     }
+    var supportsExtensions: Bool { true }
+    func passwordsOffered(for profile: EngineProfile) -> Bool? { (profile as? ChromiumProfile)?.core.passwordsOffered }
+    func setPasswordsOffered(_ offered: Bool, for profile: EngineProfile) { (profile as? ChromiumProfile)?.core.passwordsOffered = offered }
     func extensionActions(_ ids: [String], for tab: EngineTab) -> [String: [String: Any]] {
         let states = (tab as? ChromiumTab)?.core.actionStates(forExtensions: ids) ?? [:]
         return states.mapValues { $0 as? [String: Any] ?? [:] }
@@ -617,6 +642,22 @@ final class ChromiumTab: NSObject, EngineTab, AircTabDelegate {
     }
     @discardableResult func discard() -> Bool { core.discard() }
     func close() { dismissDevTools(); findCompletion = nil; core.close() }
+    #if AIRC_TESTING
+    var testPageMenu: (([String: Any]) -> [String: Any]?)?
+    var testPageContext: [String: Any] = [:]
+    func tab(_ tab: AircTab, runContextMenu menu: [String: Any]) -> [String: Any]? {
+        testPageMenu?(menu)
+    }
+    #endif
+    func tab(_ tab: AircTab, contextMenuItemsForPage context: [String: Any]) -> [[String: String]] {
+        #if AIRC_TESTING
+        testPageContext = context
+        #endif
+        return delegate?.tab(self, pageMenu: context) ?? []
+    }
+    func tab(_ tab: AircTab, contextMenuCommand id: String, text: String, modifiers: [String: NSNumber]) {
+        delegate?.tab(self, pageMenuCommand: id)
+    }
     func tab(_ tab: AircTab, spacesForContextMenuLink url: String) -> [[AnyHashable: Any]] {
         (owner?.engine.contextMenuSpaces?(self, url) ?? []).map { Dictionary<AnyHashable, Any>(uniqueKeysWithValues: $0.map { (AnyHashable($0.key), $0.value as Any) }) }
     }
@@ -826,8 +867,13 @@ final class ChromiumRuntime: NSObject, AircEngineDelegate {
     static var extensionInstallFailedHandler: ((String) -> Void)?
     func engine(_ engine: AircEngine, extensionInstallPrompt prompt: [String: Any], profile: AircProfile, tab: AircTab?) {
         guard let id = prompt["requestId"] as? String else { return }
-        guard let handler = Self.extensionInstallHandler else { AircEngine.resolveExtensionInstallPrompt(id, accepted: false); return }
-        handler(prompt) { AircEngine.resolveExtensionInstallPrompt(id, accepted: $0) }
+        // Onboarding's password manager step reviews on its own window (there may be no browser window yet).
+        guard let handler = ExtensionInstallBatch.reviewer ?? Self.extensionInstallHandler else {
+            AircEngine.resolveExtensionInstallPrompt(id, accepted: false); return
+        }
+        var scoped = prompt
+        scoped["profileDirectory"] = URL(fileURLWithPath: profile.path).lastPathComponent
+        handler(scoped) { AircEngine.resolveExtensionInstallPrompt(id, accepted: $0) }
     }
     func engine(_ engine: AircEngine, extensionInstallFailed message: String, tab: AircTab?) {
         Self.extensionInstallFailedHandler?(message)

@@ -16,7 +16,7 @@ public struct SyncStoreAdapter: Codable, Sendable {
     /// The group's profile ID → the local profile its Spaces and Favorites use (inbound: several group profiles may
     /// share one local profile; the first mapped is the one the local profile syncs as).
     public private(set) var inboundProfiles: [String: String] = [:]
-    /// Rows excluded at the last capture (their item is local-only: its saved URL is too long, or it's a note). An explicit state:
+    /// Rows excluded at the last capture (their item is local-only: its saved URL is too long). An explicit state:
     /// while excluded a row sends nothing and remote changes leave its item alone; when it fits again it's re-created
     /// under the same record (with its Space and folders, if another Mac deleted them meanwhile).
     public private(set) var excludedRows: Set<String> = []
@@ -96,6 +96,25 @@ public struct SyncStoreAdapter: Codable, Sendable {
     /// The next capture describes this Mac's unmapped profiles again (after Replace took the group's sidebar as is).
     public mutating func forgetProfileDescriptions() { previous = previous.filter { $0.key.kind != .profile } }
 
+    /// The next capture sends these pinned items again in full, with a newer stamp: a note kept against a removal it
+    /// didn't see (its edit wins), or kept by Replace. A folder or Space of theirs that the group doesn't have at all goes
+    /// with them (one the group deleted is re-created by the capture itself, as for a returning local-only row).
+    public mutating func resurrect(items: some Sequence<String>, in state: StoreState, replica: SyncReplica) {
+        for id in items {
+            guard let item = state.items[id] else { continue }
+            previous[SyncRecordID(.row, record(forItem: id))] = nil
+            var cursor = item.parentID, seen: Set<String> = [id]
+            while let p = cursor, seen.insert(p).inserted, let folder = state.items[p] {
+                let rid = SyncRecordID(.row, record(forItem: p))
+                if replica.records[rid] == nil { previous[rid] = nil }
+                cursor = folder.parentID
+            }
+            if let space = item.spaceID, replica.records[SyncRecordID(.space, space)] == nil {
+                previous[SyncRecordID(.space, space)] = nil
+            }
+        }
+    }
+
     private func canonical(_ profile: String) -> String { groupProfiles[profile] ?? profile }
 
     private mutating func snapshot(_ state: StoreState) -> ([SyncRecordID: Snapshot], [LiveTab], Set<SyncRecordID>) {
@@ -121,23 +140,30 @@ public struct SyncStoreAdapter: Codable, Sendable {
                 .theme: .theme(space.theme), .profile: .text(canonical(space.profileID))
             ], order: space.order)
         }
-        // Splits are deferred as a whole, including their children (no partial or lossy flattening).
+        // Pinned and Favorite splits sync as a `split` row with its panes as tab rows under it (SplitSyncPayload.swift).
         func supported(_ item: Item) -> Bool {
+            // Today stays on this Mac (docs/user/sync.md), its folders too (TodayFolders.swift): never in the payload.
+            if item.isTodayFolder { return false }
             var cursor: Item? = item
             var seen = Set<String>()
             while let row = cursor {
-                guard row.kind != .split, seen.insert(row.id).inserted else { return false }
+                guard seen.insert(row.id).inserted else { return false }
                 cursor = row.parentID.flatMap { state.items[$0] }
             }
             if let space = item.spaceID { return spaces[space] != nil }
             return true
+        }
+        func recordID(_ item: String) -> String { aliases["item:" + item] ?? Self.defaultRecord(forItem: item) }
+        func layout(_ split: Item) -> SyncValue {
+            let panes = Self.panes(of: split, in: state).map(\.id)
+            return .split(SplitSyncPayload(split.splitLayout ?? SplitLayout(), panes: panes, record: recordID))
         }
         for item in state.items.values where supported(item) {
             let id = aliases["item:" + item.id] ?? Self.defaultRecord(forItem: item.id)
             aliases["item:" + item.id] = id
             // A saved URL past maxURLBytes (a data: URL) keeps its item on this Mac only. Excluded is not deleted: an
             // item that synced before keeps its last synced values (no tombstone, no edit), until its URL fits again.
-            if Self.isLocalOnly(item) {
+            if Self.isLocalOnly(item, in: state) {
                 if let synced = previous[SyncRecordID(.row, id)] { current[SyncRecordID(.row, id)] = synced }
                 excluded.insert(SyncRecordID(.row, id))
                 continue
@@ -146,18 +172,21 @@ public struct SyncStoreAdapter: Codable, Sendable {
             switch item.container {
             case .pinned(let space): location = .pinned(space: space)
             case .favorites(let profile): location = .favorites(profile: canonical(profile))
+            case .today: continue
             }
             let parent = item.parentID.map { aliases["item:" + $0] ?? Self.defaultRecord(forItem: $0) }
-            current[SyncRecordID(.row, id)] = Snapshot(fields: [
+            var fields: [SyncField: SyncValue] = [
                 .kind: .text(item.kind.rawValue), .location: .location(location),
                 .parent: parent.map(SyncValue.text) ?? .null,
-                .url: item.savedURL.map(SyncValue.text) ?? .null,
+                .url: item.kind == .split ? .null : item.savedURL.map(SyncValue.text) ?? .null,
                 .title: item.title.map { .text(Self.cut($0)) } ?? .null,
                 .icon: item.icon.map { .text(Self.cut($0)) } ?? .null
-            ], order: item.order)
+            ]
+            if item.kind == .split { fields[.layout] = layout(item) }
+            current[SyncRecordID(.row, id)] = Snapshot(fields: fields, order: item.order)
         }
-        // A note's Today tab stays on this Mac like its pinned item (isLocalOnly): never exported, never archived.
-        let today = state.tabs.values.filter { $0.isToday && $0.spaceID.map { spaces[$0] != nil } == true && !NoteURL.isNote($0.url) }
+        // A note's or Easel's Today tab stays on this Mac (only pinned notes sync): never exported, never archived.
+        let today = state.tabs.values.filter { $0.isToday && $0.spaceID.map { spaces[$0] != nil } == true && !LocalDocumentURL.isLocal($0.url) }
         if includeToday {
             for tab in today {
                 let id = SyncRecordID(.row, aliases["tab:" + tab.id]!)
@@ -178,6 +207,17 @@ public struct SyncStoreAdapter: Codable, Sendable {
         // Back from exclusion: a re-creation under the same record, every field and a new order key, whatever happened
         // to the record elsewhere meanwhile (a deletion, an unpin).
         var recreate = Set(excludedRows.map { SyncRecordID(.row, $0) }.filter { current[$0] != nil && !excluded.contains($0) })
+        // A pane that left its split (separated, dragged out, its split ended) is sent whole, outside a version 3 batch:
+        // a build that couldn't read the split then gets the complete row, not a lone parent and order.
+        func inSplit(_ fields: [SyncField: SyncValue]?, _ snap: [SyncRecordID: Snapshot]) -> Bool {
+            guard case .text(let p)? = fields?[.parent] else { return false }
+            return snap[SyncRecordID(.row, p)]?.fields[.kind] == .text("split")
+                || replica.records[SyncRecordID(.row, p)]?[.kind] == .text("split")
+        }
+        for (id, row) in current where id.kind == .row && previous[id] != nil && inSplit(previous[id]?.fields, previous)
+            && !inSplit(row.fields, current) && !excluded.contains(id) {
+            recreate.insert(id)
+        }
         // A Space (or folder) another Mac deleted that this Mac kept, for its local-only rows, stays quiet until this Mac
         // edits something synced in it: a new or changed row inside, or the Space itself. That local edit, made after
         // the deletion was seen, re-creates the container under its record (a newer stamp wins), so what's in it syncs.
@@ -254,10 +294,26 @@ public struct SyncStoreAdapter: Codable, Sendable {
         return replica.log.filter { !start.contains($0.id) }
     }
 
-    /// Items that stay on this Mac whatever happens elsewhere: their saved URL is too long to sync, or they're a note's
-    /// (Notes.swift: notes stay on this Mac for now; what they say is a `note` row, which no record kind carries).
+    /// Items that stay on this Mac whatever happens elsewhere: their saved URL is too long to sync, or they're an Easel's
+    /// (Easels stay on this Mac). A pinned note's row syncs as a pinned tab (its text goes in note records,
+    /// NoteSyncPayload.swift); a note's Today tab doesn't.
     public static func isLocalOnly(_ item: Item) -> Bool {
-        (item.savedURL?.utf8.count ?? 0) > maxURLBytes || NoteURL.isNote(item.savedURL)
+        (item.savedURL?.utf8.count ?? 0) > maxURLBytes || EaselURL.isEasel(item.savedURL)
+    }
+
+    /// `isLocalOnly`, for a split as a whole: a split with a local-only pane (an Easel) stays on this Mac with all its
+    /// panes, as one unit, rather than reach other Macs with a pane missing.
+    public static func isLocalOnly(_ item: Item, in state: StoreState) -> Bool {
+        if isLocalOnly(item) { return true }
+        let split = item.kind == .split ? item : item.parentID.flatMap { state.items[$0] }.flatMap { $0.kind == .split ? $0 : nil }
+        guard let split else { return false }
+        return panes(of: split, in: state).contains(where: isLocalOnly)
+    }
+
+    /// A split item's panes, in pane order (as `SpacesStore.panes(ofSplitItem:)`).
+    static func panes(of split: Item, in state: StoreState) -> [Item] {
+        state.items.values.filter { $0.parentID == split.id && $0.kind == .tab && $0.container == split.container }
+            .sorted { ($0.order, $0.createdAt, $0.id) < ($1.order, $1.createdAt, $1.id) }
     }
 
     /// At most `maxTextBytes` of UTF-8, cut at a character boundary.

@@ -6,6 +6,11 @@ import ImageIO
 import QuartzCore
 import UniformTypeIdentifiers
 
+/// Native controls whose content is drawn by AppKit rather than retained in layer contents.
+protocol NativeCaptureRendering: AnyObject {
+    func drawCapture(in context: CGContext)
+}
+
 /// What a window gives Capture (CB-5): where the page card is, the pages on it, and how it says things.
 protocol CaptureHost: AnyObject {
     var captureWindow: NSWindow { get }
@@ -135,6 +140,7 @@ final class CaptureSession: NSObject, NSSharingServicePickerDelegate, NSSharingS
     private weak var responderBefore: NSResponder?
     private var ended = false
     private var shareFile: URL?
+    private var contentIsCurrent: () -> Bool = { false }
 
     private init(host: CaptureHost, tabs: [EngineTab]) {
         self.host = host
@@ -152,8 +158,30 @@ final class CaptureSession: NSObject, NSSharingServicePickerDelegate, NSSharingS
         overlay.session = self
         overlay.palette = host.capturePalette
         overlay.frame = host.captureCardFrame
+        let root = host.captureRoot
+        let card = host.captureCardFrame
+        let backing = window.backingScaleFactor
+        let identities = host.capturePages.map(ObjectIdentifier.init)
+        let nativeIdentities = host.captureViews.map(ObjectIdentifier.init)
+        let frames = (tabs.map { $0.view } + views).map { $0.convert($0.bounds, to: root) }
+        contentIsCurrent = { [weak self, weak host, weak window, weak root] in
+            guard let self, !self.ended, let host, let window, let root,
+                  Self.active(in: window) === self, window.isVisible,
+                  host.captureRoot === root, host.captureCardFrame == card,
+                  window.backingScaleFactor == backing,
+                  host.capturePages.map(ObjectIdentifier.init) == identities,
+                  host.captureViews.map(ObjectIdentifier.init) == nativeIdentities else { return false }
+            return (tabs.map { $0.view } + views).map { $0.convert($0.bounds, to: root) } == frames
+        }
+        watch(window)
         // Airc's own views are pictured from their drawing, before the overlay covers them.
-        let pictures = views.map { Self.picture(of: $0) }
+        Self.pictures(of: views, in: window) { [weak self] pictures in
+            self?.begin(tabs, views: views, pictures: pictures)
+        }
+    }
+
+    private func begin(_ tabs: [EngineTab], views: [NSView], pictures: [CGImage?]) {
+        guard contentIsCurrent(), let host, let window else { cancel(); return }
         host.captureRoot.addSubview(overlay)
         viewShots = zip(views, pictures).map { v, image in
             ViewShot(frame: v.convert(v.bounds, to: overlay).intersection(overlay.bounds), image: image)
@@ -162,12 +190,12 @@ final class CaptureSession: NSObject, NSSharingServicePickerDelegate, NSSharingS
         responderBefore = window.firstResponder
         window.makeFirstResponder(overlay)
         overlay.appear()
-        watch(window)
         var left = shots.count
         if shots.isEmpty { picturesArrived() }
         for i in shots.indices {
-            Self.picture(of: shots[i].tab, while: { [weak self] in self?.ended == false }) { [weak self] image in
+            Self.picture(of: shots[i].tab, while: { [weak self] in self?.contentIsCurrent() == true }) { [weak self] image in
                 guard let self, !self.ended else { return }
+                guard self.contentIsCurrent() else { self.cancel(); return }
                 self.shots[i].image = image
                 left -= 1
                 if left == 0 { self.picturesArrived() }
@@ -193,13 +221,36 @@ final class CaptureSession: NSObject, NSSharingServicePickerDelegate, NSSharingS
     static var pictureRequest: ((EngineTab, @escaping (NSImage?) -> Void) -> Void)?
     /// The output's pixels per point instead of the window's (1× on a Retina display).
     static var scaleOverride: CGFloat?
+    static var nativeRenderMilliseconds: [Double] = []
     #endif
 
-    /// A view of Airc's own as it's drawn, at its window's backing scale.
+    private static func pictures(of views: [NSView], in window: NSWindow, completion: @escaping ([CGImage?]) -> Void) {
+        // Only native subtrees: no sibling chrome, visibility changes or toast restoration.
+        completion(views.map { $0.window === window ? picture(of: $0) : nil })
+    }
+
+    /// Draw our own layer tree into memory, without a window-server/screen API.
     static func picture(of view: NSView) -> CGImage? {
-        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
-        view.cacheDisplay(in: view.bounds, to: rep)
-        return rep.cgImage
+        #if AIRC_TESTING
+        let started = ProcessInfo.processInfo.systemUptime
+        defer { nativeRenderMilliseconds.append((ProcessInfo.processInfo.systemUptime - started) * 1000) }
+        #endif
+        guard let window = view.window else { return nil }
+        view.layoutSubtreeIfNeeded()
+        view.displayIfNeeded()
+        guard let layer = view.layer else { return nil }
+        let scale = window.backingScaleFactor
+        let width = Int(ceil(view.bounds.width * scale))
+        let height = Int(ceil(view.bounds.height * scale))
+        guard width > 0, height > 0, width <= 16384, height <= 16384,
+              let context = CGContext(data: nil, width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.scaleBy(x: scale, y: scale)
+        if let native = view as? NativeCaptureRendering { native.drawCapture(in: context) }
+        else { layer.render(in: context) }
+        return context.makeImage()
     }
 
     /// Chromium can return nil before the first compositor surface exists (including a background private window).
@@ -529,6 +580,87 @@ final class CaptureSession: NSObject, NSSharingServicePickerDelegate, NSSharingS
         let toast = host
         finish()
         toast?.captureToast("Copied Capture")
+    }
+
+    /// P19a: Arc's "add it to an Easel": a menu of the Easels (most recently edited first) and New Easel at the bar's
+    /// Easel button. The picture goes onto the one picked as a Capture block (its page's address and title), and the
+    /// Capture closes. Private windows have no Easels.
+    func chooseEasel(at anchor: NSView) {
+        guard host is WindowController, host?.captureIsPrivate != true else { return }
+        let menu = NSMenu()
+        for e in EaselCenter.shared.files.list().prefix(8) {
+            let i = NSMenuItem(title: e.displayTitle, action: #selector(easelPicked(_:)), keyEquivalent: "")
+            i.target = self
+            i.representedObject = e.id
+            menu.addItem(i)
+        }
+        if !menu.items.isEmpty { menu.addItem(.separator()) }
+        let new = NSMenuItem(title: "New Easel", action: #selector(easelPicked(_:)), keyEquivalent: "")
+        new.target = self
+        menu.addItem(new)
+        // P19b: live (Refresh, Live, Interact) or a still picture; remembered.
+        menu.addItem(.separator())
+        let live = NSMenuItem(title: "Keep It Live", action: #selector(toggleLiveCapture(_:)), keyEquivalent: "")
+        live.target = self
+        live.state = Self.addsLive ? .on : .off
+        menu.addItem(live)
+        _ = menu.popUp(positioning: nil, at: NSPoint(x: 0, y: anchor.bounds.height + 4), in: anchor)
+    }
+
+    @objc private func easelPicked(_ sender: NSMenuItem) { addToEasel(sender.representedObject as? String) }
+
+    @objc private func toggleLiveCapture(_ sender: NSMenuItem) { Self.addsLive.toggle() }
+
+    /// P19b: whether Add to Easel keeps where the picture came from (a live Capture). On unless turned off.
+    static var addsLive: Bool {
+        get { UserDefaults.standard.object(forKey: "easelCapturesLive") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "easelCapturesLive") }
+    }
+
+    /// The page under the selection, and the selection in its view's points from its top left, for a live Capture: a
+    /// region of one web page of one of the window's profiles (never a full page, a portrait, Airc's own views or a
+    /// private window's page).
+    private func liveRegion(_ c: WindowController) -> (tab: EngineTab, selection: EaselRect, viewWidth: Double, url: String, profileID: String)? {
+        guard Self.addsLive, host?.captureIsPrivate == false, fullPagePicture == nil, portrait == nil, let sel = overlay.selection,
+              let shot = shots.last(where: { $0.frame.intersects(sel) && $0.image != nil }), !shot.tab.isClosed,
+              let url = shot.tab.url?.absoluteString, EaselLiveSource.isLiveableURL(url),
+              let profileID = c.profiles.profileID(for: shot.tab.profile) else { return nil }
+        let v = shot.tab.view
+        let r = overlay.convert(sel.intersection(shot.frame), to: v)
+        let top = v.isFlipped ? r.minY : v.bounds.height - r.maxY
+        return (shot.tab, EaselRect(x: Double(r.minX), y: Double(top), width: Double(r.width), height: Double(r.height)),
+                Double(v.bounds.width), url, profileID)
+    }
+
+    /// The confirmed picture onto Easel `easelID` (nil: a new one, pinned in the current Space). The Easel's id, or nil.
+    @discardableResult
+    func addToEasel(_ easelID: String?) -> String? {
+        guard let c = host as? WindowController, host?.captureIsPrivate != true, let image = confirmedImage() else { return nil }
+        let id = easelID ?? newID()
+        if easelID == nil {
+            guard (try? EaselCenter.shared.files.save(EaselDocument(id: id))) != nil,
+                  (try? c.store.createEasel(id, inSpace: c.currentSpaceID)) != nil else { return nil }
+            c.reloadAll(animated: false)
+        }
+        guard let stored = EaselCenter.shared.storePicture(cgImage: image, in: id) else { return nil }
+        let tab = fullPageTab ?? shots.last?.tab
+        let editor = EaselCenter.shared.editor(for: id, store: c.store)
+        let block = editor.addCapture(stored, url: siteURL?.absoluteString, title: tab?.title, scale: Double(resultScale))
+        // P19b: where it came from, once the page says where it's scrolled (part of the Add step, no step of its own).
+        if let region = liveRegion(c) {
+            region.tab.evaluate(EaselLiveGeometry.PageMetrics.script) { [weak editor] m in
+                guard let editor, let page = EaselLiveGeometry.PageMetrics(m),
+                      let live = EaselLiveGeometry.source(selection: region.selection, viewWidth: region.viewWidth, page: page,
+                                                          url: region.url, profileID: region.profileID) else { return }
+                editor.attachLive(live, to: block)
+            }
+        }
+        editor.saveNow(wait: false)
+        let title = editor.document.displayTitle
+        let toast = host
+        finish()
+        toast?.captureToast("Added to \(title)")
+        return id
     }
 
     /// Save: a PNG in Downloads, "Capture example.com 2026-11-07 at 10.15.32.png". ⌥-click or ⇧⌘S asks where.
@@ -1098,6 +1230,8 @@ final class CaptureBar: NSView {
     let copyButton = CaptureBarButton(title: "Copy", symbol: "doc.on.doc")
     let saveButton = CaptureBarButton(title: "Save", symbol: "arrow.down.circle")
     let shareButton = CaptureBarButton(title: "Share", symbol: "square.and.arrow.up")
+    /// P19a: Arc's "add it to an Easel" (Easels/).
+    let easelButton = CaptureBarButton(title: "Easel", symbol: "scribble.variable")
     let closeButton = CaptureBarButton(title: nil, symbol: "xmark")
     override var isFlipped: Bool { true }
 
@@ -1109,7 +1243,7 @@ final class CaptureBar: NSView {
             fullPageButton.isHidden = mode != .start
             portraitButton.isHidden = mode != .start
             captureButton.isHidden = mode != .selecting
-            for b in [copyButton, saveButton, shareButton] { b.isHidden = mode != .confirmed }
+            for b in [copyButton, saveButton, shareButton, easelButton] { b.isHidden = mode != .confirmed }
             needsLayout = true
         }
     }
@@ -1122,7 +1256,7 @@ final class CaptureBar: NSView {
             for b in buttons { b.palette = p }
         }
     }
-    private var buttons: [CaptureBarButton] { [visibleButton, fullPageButton, portraitButton, captureButton, copyButton, saveButton, shareButton, closeButton] }
+    private var buttons: [CaptureBarButton] { [visibleButton, fullPageButton, portraitButton, captureButton, copyButton, saveButton, shareButton, easelButton, closeButton] }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -1138,6 +1272,7 @@ final class CaptureBar: NSView {
         copyButton.toolTip = "Copy the picture (⌘C)"
         saveButton.toolTip = "Save to Downloads (⌘S). Option-click or ⇧⌘S to choose a folder"
         shareButton.toolTip = "Share the picture"
+        easelButton.toolTip = "Add it to an Easel"
         closeButton.toolTip = "Cancel (Esc)"
         visibleButton.action = { [weak self] in self?.overlay?.session?.toggleFullPage() }
         // ⌥ as in Arc: on Full Page a full-page portrait; on Portrait, copied at once in the remembered style.
@@ -1152,10 +1287,14 @@ final class CaptureBar: NSView {
         copyButton.action = { [weak self] in self?.overlay?.session?.copyImage() }
         saveButton.action = { [weak self] in self?.overlay?.session?.save() }
         shareButton.action = { [weak self] in self?.overlay?.session?.share() }
+        easelButton.action = { [weak self] in
+            guard let self else { return }
+            self.overlay?.session?.chooseEasel(at: self.easelButton)
+        }
         closeButton.action = { [weak self] in self?.overlay?.session?.cancel() }
         captureButton.primary = true
         for b in buttons { addSubview(b) }
-        for b in [visibleButton, fullPageButton, portraitButton, copyButton, saveButton, shareButton] { b.isHidden = true }
+        for b in [visibleButton, fullPageButton, portraitButton, copyButton, saveButton, shareButton, easelButton] { b.isHidden = true }
     }
 
     required init?(coder: NSCoder) { fatalError() }

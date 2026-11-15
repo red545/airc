@@ -22,7 +22,10 @@ extension SnapshotRunner {
             note("events: window key \(c.window.isKeyWindow), app active \(NSApp.isActive), on the active Space \(c.window.isOnActiveSpace), "
                  + "screen locked \(Self.screenLocked)")
         }
+        run { [self] in eventsTraceStart() }
+        eventsState("start")
         waitForPage()
+        pointerInWindow("start")
         // AIRC_EVENTS_ONLY=split,archive: just those checks (for working on them).
         if let only = ProcessInfo.processInfo.environment["AIRC_EVENTS_ONLY"]?.split(separator: ",").map(String.init) {
             if only.contains("unload") { unloading() }
@@ -92,11 +95,18 @@ extension SnapshotRunner {
                   "new space (Esc): spaces \(before) → \(c.store.orderedSpaces.count), card " + (c.newSpacePanel == nil ? "closed" : "still open"))
         }
 
+        eventsState("profile")
+        pointerInWindow("before the Profile pill")
         profileFlows()
+        eventsState("drag")
         dragChecks()
+        eventsState("multi-select")
         multiSelect()
+        eventsState("multi-drag")
         multiSelectDrag()
+        eventsState("footer")
         footerReorder()
+        eventsState("after footer")
         extensionReviewCard()
         preferWebsite()
         findInPage()
@@ -194,11 +204,19 @@ extension SnapshotRunner {
             let start = row.convert(NSPoint(x: 90, y: row.bounds.midY), to: nil)
             // Into Today, just below the row itself.
             let end = row.convert(NSPoint(x: 110, y: row.bounds.maxY + 12), to: nil)
-            drag(from: start, to: end, modifiers: .option) {
+            func result(_ how: String) {
                 let after = self.c.store.todayTabs(ofSpace: startSpace).count + self.c.store.pinnedRoots(ofSpace: startSpace).count
                 self.check(self.c.store.tab(tabID)?.itemID == nil && after == before + 1,
-                           "drag (⌥): the tab stays in Today and a copy lands where it was dropped (\(before) → \(after) rows)")
+                           "drag (⌥): the tab stays in Today and a copy lands where it was dropped (\(before) → \(after) rows, \(how))")
                 done()
+            }
+            guard realPointerInput else { return drag(from: start, to: end, modifiers: .option) { result("posted") } }
+            // A real ⌥-press off a row is a window drag, which tiles the window (w10): the press must be on the row.
+            let (onRow, hits) = pressHits(start, SidebarRowView.self)
+            guard onRow else { check(false, "drag (⌥): the real press at \(NSStringFromPoint(start)) is on the row (hits \(hits))"); return done() }
+            eventsRealDrag(from: start, to: end, mods: "opt") { ok, why in
+                if !ok { self.note("FAIL-ENV drag (⌥): \(why)"); return done() }
+                result("real driver ⌥-drag")
             }
         }
         wait(0.4)
@@ -228,8 +246,8 @@ extension SnapshotRunner {
         wait(0.6)
     }
 
-    /// SB-36: ⌘-click picks rows without changing the page shown; the selection's "New Folder with N Items" puts them
-    /// in one folder. (Copy Links isn't run here: it would write to the owner's clipboard.)
+    /// SB-36: ⌘-click picks rows without changing the page shown; the selection's "New Folder with N Tabs" puts them
+    /// in one folder, in Today where they were. (Copy Links isn't run here: it would write to the owner's clipboard.)
     private func multiSelect() {
         var picked: [String] = []
         var sid = ""
@@ -242,15 +260,25 @@ extension SnapshotRunner {
         step { [self] done in
             guard let page = c.pageView(for: sid) else { note("multi-select: no page for \(sid)"); return done() }
             let shownBefore = c.shownTabID
+            var how = realPointerInput ? "real driver ⌘-clicks" : "posted"
             // One ⌘-click at a time, each on the row as it is then.
             func pick(_ k: Int) {
                 guard k < picked.count else { return finish() }
                 guard let row = todayRow(picked[k], in: page) else { note("multi-select: no row for pick \(k)"); return pick(k + 1) }
                 let p = row.convert(NSPoint(x: 90, y: row.bounds.midY), to: nil)
+                if realPointerInput {
+                    return UIDriverClient.click(p, in: c.window, mods: "cmd") { ok, out in
+                        if !ok { how = "real driver ⌘-click failed: \(out.prefix(120))" }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval + 0.15) { pick(k + 1) }
+                    }
+                }
                 for (type, pressure) in [(NSEvent.EventType.leftMouseDown, Float(1)), (.leftMouseUp, 0)] {
                     if let e = NSEvent.mouseEvent(with: type, location: p, modifierFlags: .command, timestamp: ProcessInfo.processInfo.systemUptime,
                                                   windowNumber: c.window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: pressure) {
-                        c.window.sendEvent(e)
+                        // Posted, never `sendEvent`: a mouse-down that lands on a text field (w10: the menu bar had begun tracking)
+                        // enters AppKit's text-selection loop and waits for a mouse-up that only comes after this call returns.
+                        // Queued behind it, the up arrives inside the loop (airc-check-nested-loop-hang).
+                        NSApp.postEvent(e, atStart: false)
                     }
                 }
                 // Past the double-click interval, so the next ⌘-click isn't taken as a double click.
@@ -260,14 +288,16 @@ extension SnapshotRunner {
               DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 let sel = page.selection
                 self.check(picked.allSatisfy(sel.contains) && self.c.shownTabID == shownBefore,
-                           "multi-select: ⌘-click picks rows (\(sel.count) selected) and the page shown stays")
+                           "multi-select: ⌘-click picks rows (\(sel.count) selected, \(how)) and the page shown stays")
                 let menu = self.c.selectionMenu(ids: picked, spaceID: sid)
                 guard let item = menu.items.first(where: { $0.title.hasPrefix("New Folder with") }) as? ClosureMenuItem else { return done() }
                 item.fire()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    let parents = Set(picked.compactMap { self.c.store.tab($0)?.itemID }.compactMap { self.c.store.item($0)?.parentID })
-                    self.check(parents.count == 1 && self.c.store.item(parents.first!)?.kind == .folder,
-                               "multi-select: New Folder with 2 Items puts both in one folder")
+                    // Today tabs go in a folder in Today (Arc), and stay Today tabs.
+                    let folders = Set(picked.compactMap { self.c.store.tab($0).flatMap(self.c.store.shownTodayFolderID) })
+                    self.check(folders.count == 1 && picked.allSatisfy { self.c.store.tab($0)?.isToday == true }
+                               && self.c.store.todayFolder(folders.first) != nil,
+                               "multi-select: New Folder with 2 Today Tabs puts both in one Today folder")
                     done()
                 }
             }
@@ -293,10 +323,43 @@ extension SnapshotRunner {
                   "extension review: the card opens with the name, the profile (\(review.model.profileName)) and 2 permissions")
             captureWindow(c.window, name: "30-extension-review", rounded: 10) { done() }
         }
-        clickIn({ [weak self] in self?.c.pendingExtensionReview?.hostingView }, "extension.cancel")
+        // A person's click comes after the pointer arrives on the button. A posted press alone, with the real pointer
+        // resting where no tracking area reports it (empty sidebar, where real-pointer checks leave it), never fires
+        // the card's SwiftUI button (eventscancel). So: a real driver click when the run has the driver; otherwise
+        // posted moves onto Cancel, then the posted click.
+        var how = "posted, after posted moves onto it"
+        if UIDriverClient.available && ProcessInfo.processInfo.environment["AIRC_UI_DEDICATED_SESSION"] == "1" {
+            step { [self] done in
+                guard let h = c.pendingExtensionReview?.hostingView, let p = anchorPoint("extension.cancel", in: h),
+                      let top = NSScreen.screens.first?.frame.maxY else { how = "real click: Cancel not on screen"; return done() }
+                waitForStillness(of: "extension.cancel", in: h) {
+                    let g = self.c.window.convertPoint(toScreen: p)
+                    UIDriverClient.run(["--click", String(Double(g.x)), String(Double(top - g.y))]) { ok, out in
+                        how = ok ? "real driver click" : "real driver click failed: \(out.prefix(120))"
+                        done()
+                    }
+                }
+            }
+        } else {
+            run { [self] in
+                guard let h = c.pendingExtensionReview?.hostingView, let p = anchorPoint("extension.cancel", in: h) else { return }
+                for dx in [-30.0, -15.0, 0.0] {
+                    if let e = NSEvent.mouseEvent(with: .mouseMoved, location: NSPoint(x: p.x + dx, y: p.y), modifierFlags: [],
+                                                  timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: c.window.windowNumber,
+                                                  context: nil, eventNumber: 0, clickCount: 0, pressure: 0) {
+                        NSApp.postEvent(e, atStart: false)
+                    }
+                }
+            }
+            wait(0.2)
+            clickIn({ [weak self] in self?.c.pendingExtensionReview?.hostingView }, "extension.cancel")
+        }
         step { [self] done in waitUntil({ !answers.isEmpty }, timeout: 3) { done() } }
         run { [self] in
-            check(answers == [false] && c.pendingExtensionReview == nil, "extension review: a click on Cancel answers no and closes it")
+            let ok = answers == [false] && c.pendingExtensionReview == nil
+            check(ok, "extension review: a click on Cancel answers no and closes it (\(how))"
+                  + (ok ? "" : "; answers \(answers), it hit \(TestAnchors.lastHit["extension.cancel"] ?? "nothing"), "
+                     + "key \(c.window.isKeyWindow), active \(NSApp.isActive)"))
             // The Add button's anchor is recorded when SwiftUI first lays the new card out, which is also when its ↩
             // shortcut exists: a Return before that (a busy Mac) reaches nothing.
             TestAnchors.frames["extension.add"] = nil
@@ -340,15 +403,26 @@ extension SnapshotRunner {
             let start = cells[0].convert(NSPoint(x: cells[0].bounds.midX, y: cells[0].bounds.midY), to: nil)
             // Past the third icon's centre: the first Space becomes the third.
             let end = cells[2].convert(NSPoint(x: cells[2].bounds.midX + 4, y: cells[2].bounds.midY), to: nil)
-            drag(from: start, to: end) {
+            let how = realPointerInput ? "real driver drag" : "posted"
+            func result() {
                 let after = self.c.store.orderedSpaces.map(\.id)
                 let names = { (ids: [String]) in ids.prefix(3).compactMap { self.c.store.space($0)?.name }.joined(separator: ", ") }
                 self.check(after.count == before.count && after[2] == before[0] && after[0] == before[1] && self.c.currentSpaceID == before[0]
                            && abs(self.c.sidebar.pager.position - 2) < 0.01,
-                           "footer reorder: dragging the first icon past the third moves its Space there (\(names(before)) → \(names(after))), shown on page \(self.c.sidebar.pager.position)")
+                           "footer reorder: dragging the first icon past the third moves its Space there (\(names(before)) → \(names(after))), shown on page \(self.c.sidebar.pager.position) (\(how))")
                 // Back where it was, for the checks after this one.
                 self.c.reorderSpace(before[0], to: 0)
                 done()
+            }
+            guard realPointerInput else { return drag(from: start, to: end) { result() } }
+            let frame = c.window.contentView?.superview
+            let hit = frame.flatMap { $0.hitTest($0.convert(start, from: nil)) }
+            guard let hit, hit === cells[0] || hit.isDescendant(of: cells[0]) else {
+                check(false, "footer reorder: the real press is on the first icon (hits \(Self.describe(hit)))"); return done()
+            }
+            eventsRealDrag(from: start, to: end) { ok, why in
+                if !ok { self.note("FAIL-ENV footer reorder: \(why)"); return done() }
+                result()
             }
         }
         wait(0.4)
@@ -376,32 +450,49 @@ extension SnapshotRunner {
                 guard k < picked.count else { return drag() }
                 guard let row = todayRow(picked[k], in: page) else { check(false, "multi-drag: row \(k) shows"); return done() }
                 let p = row.convert(NSPoint(x: 90, y: row.bounds.midY), to: nil)
+                if realPointerInput {
+                    return UIDriverClient.click(p, in: c.window, mods: "cmd") { ok, out in
+                        if !ok { self.note("multi-drag: real driver ⌘-click failed: \(out.prefix(120))") }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval + 0.15) { pick(k + 1) }
+                    }
+                }
                 for (type, pressure) in [(NSEvent.EventType.leftMouseDown, Float(1)), (.leftMouseUp, 0)] {
                     if let e = NSEvent.mouseEvent(with: type, location: p, modifierFlags: .command, timestamp: ProcessInfo.processInfo.systemUptime,
                                                   windowNumber: c.window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: pressure) {
-                        c.window.sendEvent(e)
+                        // Posted, never `sendEvent`: a mouse-down that lands on a text field (w10: the menu bar had begun tracking)
+                        // enters AppKit's text-selection loop and waits for a mouse-up that only comes after this call returns.
+                        // Queued behind it, the up arrives inside the loop (airc-check-nested-loop-hang).
+                        NSApp.postEvent(e, atStart: false)
                     }
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval + 0.15) { pick(k + 1) }
             }
             func drag() {
                 let pinnedBefore = c.store.pinnedRoots(ofSpace: sid).count
+                let how = realPointerInput ? "real driver ⌘-clicks and drag" : "posted"
                 guard page.selection.count >= 2, let row = todayRow(picked[1], in: page),
                       let divider = page.list.subviews.first(where: { $0 is DividerRowView }) else {
-                    check(false, "multi-drag: two rows picked (\(page.selection.count))"); return done()
+                    check(false, "multi-drag: two rows picked (\(page.selection.count), \(how))"); return done()
                 }
                 let start = row.convert(NSPoint(x: 90, y: row.bounds.midY), to: nil)
                 // Just above the divider: the end of the pinned section.
                 let end = divider.convert(NSPoint(x: 110, y: -4), to: nil)
                 let order = page.selection   // display order (Today lists the newest first)
-                self.drag(from: start, to: end) {
+                func result() {
                     let s = self.c.store
                     let pinned = s.pinnedRoots(ofSpace: sid)
                     let ids = order.compactMap { s.tab($0)?.itemID }
                     let inOrder = ids.count == 2 && pinned.suffix(2).map(\.id) == ids
                     self.check(inOrder && pinned.count == pinnedBefore + 2 && s.tab(other)?.itemID == nil,
-                               "multi-drag: dragging one of 2 selected rows pins both, in order (\(pinnedBefore) → \(pinned.count) pinned)")
+                               "multi-drag: dragging one of 2 selected rows pins both, in order (\(pinnedBefore) → \(pinned.count) pinned, \(how))")
                     done()
+                }
+                guard realPointerInput else { return self.drag(from: start, to: end) { result() } }
+                let (onRow, hits) = pressHits(start, SidebarRowView.self)
+                guard onRow else { check(false, "multi-drag: the real press is on the row (hits \(hits))"); return done() }
+                eventsRealDrag(from: start, to: end) { ok, why in
+                    if !ok { self.note("FAIL-ENV multi-drag: \(why)"); return done() }
+                    result()
                 }
             }
             pick(0)
@@ -808,7 +899,8 @@ extension SnapshotRunner {
             var titles: [String] = []
             var token: NSObjectProtocol?
             token = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { n in
-                guard let menu = n.object as? NSMenu, titles.isEmpty else { return }
+                // Only the pill's own menu (main-menu tracking isn't it: eventsmode).
+                guard let menu = n.object as? NSMenu, menu !== NSApp.mainMenu, titles.isEmpty else { return }
                 titles = menu.items.map { $0.isSeparatorItem ? "—" : $0.title + ($0.state == .on ? " ✓" : "") }
                 let t = Timer(timeInterval: 0.15, repeats: false) { _ in
                     menu.cancelTracking()
@@ -819,13 +911,22 @@ extension SnapshotRunner {
                 RunLoop.main.add(t, forMode: .common)
             }
             guard let host = card() else { check(false, "new space: no card"); return done() }
-            clickAnchor("new.profile", in: host) {
+            var how = "posted"
+            let after = {
                 self.waitUntil({ self.c.createProfilePanel != nil }, timeout: 3) {
                     token.map(NotificationCenter.default.removeObserver)
                     self.check(titles.last == "New Profile…" && titles.contains(where: { $0.hasSuffix(" ✓") }),
-                               "new space: a click on the Profile pill opens its menu: " + titles.joined(separator: " | "))
+                               "new space: a click on the Profile pill opens its menu (\(how)): " + titles.joined(separator: " | "))
                     self.check(self.c.createProfilePanel?.model.oneStep == true, "new space: New Profile… opens the one-step Create Profile card")
                     done()
+                }
+            }
+            guard realPointerInput else { return clickAnchor("new.profile", in: host, after) }
+            waitForStillness(of: "new.profile", in: host) {
+                guard let p = self.anchorPoint("new.profile", in: host) else { how = "real click: the pill isn't on screen"; return after() }
+                self.eventsRealClick(p) { ok, out in
+                    how = ok ? "real driver click" : "real driver click failed: \(out.prefix(120))"
+                    after()
                 }
             }
         }
@@ -1060,6 +1161,9 @@ extension SnapshotRunner {
 
     /// The window point at the centre of a `testAnchor`.
     func anchorPoint(_ name: String, in host: NSView) -> NSPoint? {
+        if let view = TestAnchors.view(name, in: host) {
+            return view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        }
         guard let f = TestAnchors.frames[name] else { return nil }
         let p = NSPoint(x: f.midX, y: host.isFlipped ? f.midY : host.bounds.height - f.midY)
         return host.convert(p, to: nil)
@@ -1085,15 +1189,50 @@ enum TestAnchors {
     static let enabled = LaunchOptions.current.snapshotDir != nil
     static let space = "airc-test-root"
     static var frames: [String: CGRect] = [:]
+    private final class WeakView { weak var view: NSView?; init(_ view: NSView) { self.view = view } }
+    private static var views: [String: [WeakView]] = [:]
+    static func register(_ view: NSView, name: String) {
+        var current = views[name, default: []].filter { $0.view != nil && $0.view !== view }
+        current.append(WeakView(view))
+        views[name] = current
+    }
+    static func view(_ name: String, in host: NSView) -> NSView? {
+        views[name, default: []].reversed().compactMap(\.view).first {
+            $0.window === host.window && $0.isDescendant(of: host)
+        }
+    }
+    static func frame(_ name: String, in host: NSView) -> CGRect? {
+        guard let view = view(name, in: host) else { return nil }
+        let frame = view.convert(view.bounds, to: host)
+        return host.isFlipped ? frame : CGRect(x: frame.minX, y: host.bounds.height - frame.maxY,
+                                              width: frame.width, height: frame.height)
+    }
     /// What the last click on each anchor hit (clickAnchor).
     static var lastHit: [String: String] = [:]
+}
+
+/// A real layout anchor scoped to its hosting view. Named SwiftUI coordinate
+/// spaces can retain a previous window's value during close/reopen transitions;
+/// the transparent native view follows clipping and scrolling in the live one.
+private struct NativeTestAnchor: NSViewRepresentable {
+    let name: String
+    final class Probe: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+    func makeNSView(context: Context) -> Probe {
+        let view = Probe()
+        TestAnchors.register(view, name: name)
+        return view
+    }
+    func updateNSView(_ view: Probe, context: Context) { TestAnchors.register(view, name: name) }
 }
 
 extension View {
     /// Records this view's frame under `name` in scripted runs; does nothing otherwise.
     @ViewBuilder func testAnchor(_ name: String) -> some View {
         if TestAnchors.enabled {
-            onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(TestAnchors.space)) }) { TestAnchors.frames[name] = $0 }
+            background { NativeTestAnchor(name: name).allowsHitTesting(false) }
+                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(TestAnchors.space)) }) { TestAnchors.frames[name] = $0 }
         } else {
             self
         }

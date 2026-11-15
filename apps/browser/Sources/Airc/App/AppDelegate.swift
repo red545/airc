@@ -158,6 +158,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // did-finish-launching afterwards (release builds start fast enough): set up exactly once.
         guard !launched else { return }
         launched = true
+        let launchSetup = LaunchTimeline.begin("didFinishLaunching")
+        defer { launchSetup() }
         AppPaths.prepare(options)
         #if canImport(Sparkle)
         // Dev builds: a check at launch, then every 10 minutes (the ship loop publishes about every 20; Sparkle's own
@@ -169,7 +171,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             updater.automaticallyChecksForUpdates = true
             updater.automaticallyDownloadsUpdates = true
             updater.updateCheckInterval = 3600
-            updater.checkForUpdatesInBackground()
+            // Off the launch's path: once every profile is ready, a few seconds later.
+            whenProfilesReady { [weak updater] in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5) { updater?.checkForUpdatesInBackground() }
+            }
             devUpdateTimer = Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { [weak updater] _ in
                 // Not while a downloaded update waits for its restart (the pill is showing).
                 guard let updater, !updater.sessionInProgress, UpdateCenter.shared.ready == nil else { return }
@@ -178,9 +183,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         #endif
         let firstRun = !FileManager.default.fileExists(atPath: AppPaths.store.path)
+        let storeOpen = LaunchTimeline.begin("store open")
+        defer { storeOpen() }
         do {
             store = try SpacesStore(path: AppPaths.store.path)
+            storeOpen()
         } catch {
+            LaunchEvent.shared.releaseActivation(activate: true)
             let alert = NSAlert()
             alert.messageText = "Airc can't open its data"
             alert.informativeText = "\(error)"
@@ -194,16 +203,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         ProfileHost.migrateColors(in: store)
         settings = AppSettings(directory: AppPaths.dataDirectory)
+        let services = LaunchTimeline.begin("telemetry, crash reports, feedback")
         AppTelemetry.shared.start(app: self, firstRun: firstRun)
         AppCrashReports.shared.start()
+        FeedbackCenter.shared.start(app: self)   // feedback saved while offline goes once the network is back
+        services()
+        let historyOpen = LaunchTimeline.begin("history open")
         history = (try? HistoryStore(path: AppPaths.history.path)) ?? (try! HistoryStore(path: nil))
+        historyOpen()
         // Scripted runs never keep web data (cookies, caches), even when the store persists.
+        let engineMade = LaunchTimeline.begin("engine object")
+        defer { engineMade() }
         #if canImport(AircCore)
         if options.engine == "chromium" { engine = ChromiumEngine() }
-        else { engine = WebKitEngine(ephemeral: options.ephemeral || options.snapshotDir != nil) }
+        else { engine = Self.makeWebKitEngine(options) }
         #else
-        engine = WebKitEngine(ephemeral: options.ephemeral || options.snapshotDir != nil)
+        engine = Self.makeWebKitEngine(options)
         #endif
+        engineMade()
+        let pageScripts = LaunchTimeline.begin("page scripts")
         // BST-1: the Boosts part of the engine's page script, before the first page opens.
         BoostCenter.start(engine: engine)
         // SB-2: the page script's location and device-ask part (SiteUse.swift), on the same script.
@@ -213,9 +231,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DeveloperMode.shared.start(settings: settings)
         // Link previews' part of the page script, before the first page opens (only when an AI setting is on).
         MainActor.assumeIsolated { AIFeatures.startIfNeeded(settings: settings) }
+        pageScripts()
         profiles = ProfileHost(store: store, engine: engine)
         MainActor.assumeIsolated {
+            let center = LaunchTimeline.begin("blocking center")
             blocking = BlockingCenter(app: self)
+            center()
             profiles.beforeUse = { [weak self] profile, id, ready in
                 MainActor.assumeIsolated {
                     self?.blocking.prepare(profile: profile, id: id) { [weak self] in
@@ -233,22 +254,76 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         credentialSink = EngineCredentialSink.make(engine: engine, profiles: profiles)
         // L4: private copies of Arc's databases that a crash left behind.
         DispatchQueue.global(qos: .utility).async { ArcCredentialImporter.removeStaleCopies() }
+        let menu = LaunchTimeline.begin("main menu")
         NSApp.mainMenu = MainMenu.build(app: self)
+        menu()
         keyMonitor = KeyMonitor.install(app: self)
         #if AIRC_TESTING
         if options.snapshotDir != nil { snapshotRunner = SnapshotRunner(app: self, directory: options.snapshotDir!, script: options.script) }
         #endif
-        profiles.loadAll { [weak self] in
+        // fastlaunch: the window doesn't wait for the profiles. Each profile's pages wait for its blocking rules
+        // (`beforeUse`); its windows show their page once it is ready (profileBecameReady). The launch's visible
+        // profiles load first, the others after them; what needs every profile (agents, sync, links that came
+        // with the launch, a check's start) runs when all are ready.
+        profiles.onReady { [weak self] id in self?.profileBecameReady(id) }
+        // --agent-headless opens no window, and AgentCenter decides that with the profiles loaded.
+        let headless = CommandLine.arguments.contains("--agent-headless")
+        LaunchTimeline.mark("profiles requested")
+        profiles.loadAll(first: headless ? [] : launchProfileIDs()) { [weak self] in
             guard let self else { return }
-            #if AIRC_TESTING
-            // agentspike (Agent/AgentCenter.swift): agents, when switched on; --agent-headless opens no window.
-            if AgentCenter.shared.launch(app: self) { return }
-            #endif
-            if self.shouldShowOnboarding(firstRun: firstRun) {
-                self.startOnboarding(mode: .firstRun)
-            } else {
-                self.openWindow()
-            }
+            LaunchTimeline.mark("all profiles ready")
+            self.allProfilesReady(headless: headless, firstRun: firstRun)
+        }
+        if !headless { openBrowserAtLaunch(firstRun: firstRun) }
+    }
+
+    private func openBrowserAtLaunch(firstRun: Bool) {
+        if shouldShowOnboarding(firstRun: firstRun) {
+            // First run, even for a link (it waits for onboarding): onboarding comes forward.
+            LaunchEvent.shared.releaseActivation(activate: !options.isAutomated)
+            startOnboarding(mode: .firstRun)
+        } else {
+            openWindowAtLaunch()
+        }
+    }
+
+    /// The profiles the launch shows first: those of the restored windows' Spaces (else the selected Space's).
+    private func launchProfileIDs() -> Set<String> {
+        let saved = (savedSession()?.windows ?? []).map(\.spaceID).filter { store.space($0) != nil }
+        return Set((saved.isEmpty ? [store.selectedSpace.id] : saved).map { store.profile(ofSpace: $0).id })
+    }
+
+    /// Work that waits for every profile: none is pending once they all are ready.
+    private var profilesReadyWaiters: [() -> Void]? = []
+    var allProfilesAreReady: Bool { profilesReadyWaiters == nil }
+    func whenProfilesReady(_ block: @escaping () -> Void) {
+        if profilesReadyWaiters == nil { block() } else { profilesReadyWaiters!.append(block) }
+    }
+
+    private func allProfilesReady(headless: Bool, firstRun: Bool) {
+        // Agents (Agent/AgentCenter.swift, docs/user/agents.md): the MCP connector, after the window.
+        let agents = LaunchTimeline.begin("agents")
+        let windowless = AgentCenter.shared.launch(app: self)
+        agents()
+        if headless {
+            if windowless { LaunchEvent.shared.releaseActivation(activate: false) } else { openBrowserAtLaunch(firstRun: firstRun) }
+        }
+        let waiters = profilesReadyWaiters ?? []
+        profilesReadyWaiters = nil
+        waiters.forEach { $0() }
+    }
+
+    /// A profile is ready (launch, or a profile loaded later): windows that picked one of its tabs before then show it.
+    private func profileBecameReady(_ id: String) {
+        LaunchTimeline.mark("profile ready \(store.profile(id)?.name ?? id)")
+        // In the order the windows picked their tabs (restore order), not the windows' recency order.
+        let waits = controllers.filter { $0.waitingForProfile != nil }.sorted { $0.waitingForProfile!.order < $1.waitingForProfile!.order }
+        for c in waits {
+            guard let waiting = c.waitingForProfile, let tab = store.tab(waiting.tabID), tab.profileID == id else { continue }
+            c.waitingForProfile = nil
+            // Only while the window still shows that profile (no Space switch to another profile since).
+            guard c.currentProfileID == id else { continue }
+            c.show(tab.id, focus: waiting.focus, updatesRows: false, takeOver: false)
         }
     }
 
@@ -263,7 +338,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: Onboarding
 
     /// First run, or Settings → Import → "Run onboarding again" (ON-3).
-    func startOnboarding(mode: OnboardingController.Mode, atImport: Bool = false) {
+    func startOnboarding(mode: OnboardingController.Mode, atImport: Bool = false, atPasswordManager: Bool = false) {
         guard onboarding == nil else { onboarding?.window.makeKeyAndOrderFront(nil); return }
         #if AIRC_TESTING
         let fixture = options.isAutomated ? OnboardingFixture.plan() : nil
@@ -272,12 +347,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         let o = OnboardingController(app: self, mode: mode, fixture: fixture)
         onboarding = o
-        if atImport { o.startAtImport() }
+        if atImport { o.startAtImport() } else if atPasswordManager { o.startAtPasswordManager() }
         o.present(focus: !options.isAutomated)
         AppTelemetry.shared.launched()
         if !options.isAutomated { NSApp.activate(ignoringOtherApps: true) }
         #if AIRC_TESTING
-        snapshotRunner?.onboardingDidStart(o)
+        whenProfilesReady { [weak self] in self?.snapshotRunner?.onboardingDidStart(o) }
         #endif
     }
 
@@ -331,9 +406,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return c
     }
 
+    /// linklaunch: the launch's browser window, unless the launch was for a link that opens in Little Airc. Arc showed
+    /// only Little Arc then: no browser window, so no switch to the desktop's Space over a full-screen app (WhatsApp).
+    /// Decided one run-loop turn after the profiles loaded, since AppKit hands the launch's link to the app around
+    /// did-finish-launching, in either order; a launch whose Apple event is a link waits for it (at most 1.5 s).
+    /// A plain launch ('oapp') always opens the window, even if a link comes while it launches.
+    private func openWindowAtLaunch() {
+        let deadline = Date().addingTimeInterval(1.5)
+        func decide() {
+            let launch = LaunchEvent.shared
+            if pendingURLs.isEmpty, launch.announcesLink, Date() < deadline {
+                return DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: decide)
+            }
+            if !launch.isPlainLaunch, !pendingURLs.isEmpty, pendingURLs.allSatisfy(routesToLittleArc) {
+                launchWithoutWindow()
+            } else {
+                if !pendingURLs.isEmpty {
+                    LinkLog.write("launch: \(pendingURLs.count) link(s) at launch, the browser window opens (launch event \(launch.summary), "
+                                  + "link before did-finish-launching \(LinkLog.yesNo(launch.linkDuringLaunch)), Little Airc for all "
+                                  + "\(LinkLog.yesNo(pendingURLs.allSatisfy(routesToLittleArc))))")
+                }
+                // A launch held for a link that the browser window shows after all: activated as Launch Services would have.
+                LaunchEvent.shared.releaseActivation(activate: !options.isAutomated || LittleArcController.actsAsOwner)
+                openWindow()
+            }
+        }
+        DispatchQueue.main.async(execute: decide)
+    }
+
+    /// Whether `routeExternal` sends this link to Little Airc (no rule's Space, Settings → Links says Little Airc).
+    func routesToLittleArc(_ url: URL) -> Bool {
+        guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""), !BoostSharing.accepts(url) else { return false }
+        return settings.values.externalLinks == .littleArc
+            && LinkRouting.space(for: url, rules: settings.values.linkRules, existingSpaces: Set(store.state.spaces.keys)) == nil
+    }
+
+    /// linklaunch: launched for links that open in Little Airc. The store, profiles and session are ready, but no browser
+    /// window is made or ordered in; the session's windows come back when the person asks for one: the Dock
+    /// (applicationShouldHandleReopen), ⌘N, ⌘O in Little Airc, a link to a Space (`reopenWindows`, MultiWindow.swift).
+    private func launchWithoutWindow() {
+        windowSession.browserReady = true
+        windowSession.windowsDeferred = true
+        LinkLog.write("launch: launched by a link for Little Airc (launch event \(LaunchEvent.shared.summary), link before "
+                      + "did-finish-launching \(LinkLog.yesNo(LaunchEvent.shared.linkDuringLaunch))): no browser window until one is asked for")
+        // Chromium: the hidden window that keeps every loaded profile alive (Little Arc's too), as with a first window.
+        installWindowHooksOnce()
+        didLaunchBrowser()
+        AppTelemetry.shared.launched()
+        #if AIRC_TESTING
+        snapshotRunner?.launchedWithoutWindow()
+        #endif
+        // Once Little Airc is on screen over the sending app: a regular app again (the Dock icon), not activated.
+        // Little Airc becomes key again then (it couldn't while the app was held), still without activating the app.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            guard LaunchEvent.shared.holdingActivation else { return }
+            LaunchEvent.shared.releaseActivation(activate: false)
+            if let l = self?.littleArcs.last, l.overFullScreen, l.window.isVisible, !l.window.isKeyWindow { l.window.makeKeyAndOrderFront(nil) }
+        }
+        // Should Little Airc not open after all (the links failed to route), the session's windows come, never nothing.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+            LaunchEvent.shared.releaseActivation(activate: false)
+            guard let self, self.windowSession.windowsDeferred, self.littleArcsOpened == 0, self.onboarding == nil else { return }
+            LinkLog.write("launch: no Little Airc opened for the launch's link; the browser window opens")
+            self.reopenWindows()
+        }
+    }
+
     private func openWindow() {
         // WIN-7: the last session's windows, the one used last in front.
+        let restoring = LaunchTimeline.begin("windows restore")
         let restored = restoreWindows()
+        restoring()
         guard let c = restored.first else { return }
         windowSession.browserReady = true
         if options.snapshotDir != nil {
@@ -342,18 +485,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             presentRestored(restored)
         }
+        LaunchTimeline.mark("window on screen")
+        LaunchTimeline.markInteractiveAtNextIdle()
         didOpen(c)
         AppTelemetry.shared.launched()
         #if AIRC_TESTING
-        snapshotRunner?.windowDidOpen(c)
+        // A check starts with every profile ready, as before fastlaunch; the launch timeline check starts at once.
+        if options.script.hasPrefix("launchtimeline") { snapshotRunner?.windowDidOpen(c) }
+        else { whenProfilesReady { [weak self] in self?.snapshotRunner?.windowDidOpen(c) } }
         #endif
     }
 
     private func didOpen(_ c: WindowController) {
-        MainActor.assumeIsolated {
-            BlockingNotices.show(in: c)
-            Task { await blocking.refresh() }
-        }
+        firstWindowOpened(c)
+        didLaunchBrowser()
+    }
+
+    /// The launch's first browser window (at launch, after onboarding, or when a link launch's deferred windows open).
+    func firstWindowOpened(_ c: WindowController) {
+        MainActor.assumeIsolated { BlockingNotices.show(in: c) }
         #if AIRC_TESTING
         LaunchDiagnostics.start(c)   // AIRC_DIAG_LOG only
         #endif
@@ -361,6 +511,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !store.unreadableRows.isEmpty {
             c.showToast(store.newerSchemaVersion != nil ? "Some data is from a newer Airc and is kept for it"
                                                        : "Some saved items couldn't be read and are kept on disk")
+        }
+    }
+
+    /// The browser is up (with its first window, or for a link launch without one): the app's own launch work, then
+    /// the links that waited for it.
+    private func didLaunchBrowser() {
+        let launchWork = LaunchTimeline.begin("browser launch work")
+        defer { launchWork() }
+        // List updates (network), sync and the launch's links wait for every profile, off the launch's path.
+        whenProfilesReady { [weak self] in
+            guard let self else { return }
+            MainActor.assumeIsolated { Task { await self.blocking.refresh() } }
         }
         // H6: the spare loads when a profile might be created; only recorded orphan spares are removed, at idle. M5: the
         // op log and the archive are trimmed once per launch, also at idle.
@@ -373,8 +535,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NoteCenter.collectGarbage(store: self.store, backups: AppPaths.backups)
         }
         _ = try? settings.backUp(store)
+        EaselCenter.register()   // P19b: a duplicated Easel row copies its Easel (Easels/EaselCenter.swift)
         // iCloud sync (Sync/SyncCenter.swift): off until turned on in Settings → Sync.
-        SyncCenter.shared.start(app: self)
+        whenProfilesReady { [weak self] in
+            guard let self else { return }
+            let sync = LaunchTimeline.begin("sync start")
+            SyncCenter.shared.start(app: self)
+            sync()
+        }
+        // The launch's links now: their windows and tabs show at once, their pages wait for their profile's rules.
+        if !pendingURLs.isEmpty { LaunchTimeline.mark("launch links routed") }
         pendingURLs.forEach(open)
         pendingURLs = []
     }
@@ -405,6 +575,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Open Little Arc windows.
     private(set) var littleArcs: [LittleArcController] = []
+    /// How many Little Arc windows opened since the launch.
+    private var littleArcsOpened = 0
 
     func application(_ application: NSApplication, open urls: [URL]) {
         openFromOtherApp(urls, source: LinkLog.eventSource())
@@ -413,12 +585,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Links from other apps: GURL Apple events (URLEventHandler, while the event is current; or from its launch queue)
     /// and files from Finder (AppKit). `source` is the sending app's bundle ID, for Links.log.
     func openFromOtherApp(_ urls: [URL], source: String?) {
+        // LA-1: the sending app, while its Apple event is current. In native full screen, Little Arc opens over it, in
+        // whatever order Launch Services activates Airc and hands over the link (LittleArcFullScreen.linkArrived).
+        let sender = LinkLog.eventSenderPID()
+        URLEventHandler.noteLaunchLink()
+        let senderState = LinkLog.enabled ? LinkLog.senderState(sender) : ""
+        for url in urls { LittleArcFullScreen.shared.linkArrived(from: sender, url: url) }
         for url in urls {
-            linkTraces[url.absoluteString] = LinkTrace(source: source, activeAtReceipt: NSApp.isActive, front: LinkLog.frontApp(),
+            linkTraces[url.absoluteString] = LinkTrace(source: source, activeAtReceipt: NSApp.isActive, front: senderState,
                                                        via: windowSession.browserReady ? "the app" : "the launch queue")
         }
         // Before the first browser window (launching, onboarding). After it, a link with every window closed opens one
-        // (routeExternal).
+        // (routeExternal). A link whose profile isn't ready yet (launch) opens its window or tab at once; only its page
+        // waits for the profile's blocking rules (WindowController.waitingForProfile, LittleArcController.waitingURL).
         if !windowSession.browserReady {
             pendingURLs += urls
             for url in urls {
@@ -439,7 +618,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private struct LinkTrace {
         var source: String?
         var activeAtReceipt: Bool
-        /// The front app as the link came, and whether it was in full screen.
+        /// The sending app as the link came: in full screen, and its Space on screen (LinkLog.senderState).
         var front: String
         var via: String
     }
@@ -482,32 +661,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             // No fallback to the most recent window: private and Little Arc pages must stay there.
             guard let c = self.controllers.first(where: { $0.tabID(for: opener) != nil || $0.peek?.page === opener }) else { return false }
+            // PK-1 / AT-1 (LinkRouting.pageTarget): Peek for another site from a pinned tab or Favorite, or a ⇧-click;
+            // a rule's Space instead for a link a rule matches; a meeting link in a new tab.
             let target = LinkRouting.pageTarget(from: opener.url, to: request.url, userGesture: request.userGesture,
-                                                wantsPeek: c.wantsPeek(request), fromPeek: c.peek?.page === opener,
-                                                rules: self.settings.values.linkRules,
+                                                wantsPeek: c.wantsPeek(request), explicitPeek: request.disposition == "window",
+                                                fromPeek: c.peek?.page === opener, rules: self.settings.values.linkRules,
                                                 existingSpaces: Set(self.store.orderedSpaces.map(\.id)))
             switch target {
             case .engine: return false
             case .peek:
                 DispatchQueue.main.async { [weak c] in c?.openPeek(request.url, from: opener) }
+            case .newTab:
+                DispatchQueue.main.async { [weak c] in c?.navigate(to: request.url, newTab: true) }
             case .space(let id):
-                DispatchQueue.main.async { [weak c] in c?.openExternal(request.url, inSpace: id) }
+                // A link followed inside Peek leaves the card behind: it closes, then the rule's Space shows the link.
+                let fromPeek = c.peek?.page === opener
+                DispatchQueue.main.async { [weak c] in
+                    if fromPeek { c?.closePeek() }
+                    c?.openExternal(request.url, inSpace: id)
+                }
             }
             return true
         }
+        // SP-31: Chromium's "Open link in Space ›" (WebKit's menu asks its tab's delegate the same way).
         engine.contextMenuSpaces = { [weak self] page, _ in
-            guard let c = self?.controllers.first(where: { $0.tabID(for: page) != nil || $0.peek?.page === page }) else { return [] }
-            return c.windowSpaces.map { space in
-                let icon: String
-                if case .emoji(let emoji)? = space.icon { icon = emoji } else { icon = "●" }
-                return ["id": space.id, "title": icon + " " + space.name]
-            }
+            self?.controllers.lazy.map { $0.linkSpaces(for: page) }.first { !$0.isEmpty } ?? []
         }
         engine.openLinkInSpace = { [weak self] page, raw, id in
-            guard let url = URL(string: raw), ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
-                  let c = self?.controllers.first(where: { $0.tabID(for: page) != nil || $0.peek?.page === page }),
-                  c.windowSpaces.contains(where: { $0.id == id }) else { return }
-            DispatchQueue.main.async { [weak c] in c?.openExternal(url, inSpace: id) }
+            guard let url = URL(string: raw) else { return }
+            self?.controllers.forEach { $0.tab(page, openLink: url, inSpace: id) }
         }
     }
 
@@ -521,13 +703,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let trace = linkTraces.removeValue(forKey: url.absoluteString)
         // The full-screen app the link came from, if it was in full screen (every route takes it; Little Arc uses it).
-        let fullScreenApp = LittleArcFullScreen.shared.takeLinkSource()
+        let fullScreenApp = LittleArcFullScreen.shared.takeLinkSource(for: url)
         let web = ["http", "https"].contains(url.scheme?.lowercased() ?? "")
         let rule = web ? LinkRouting.space(for: url, rules: settings.values.linkRules, existingSpaces: Set(store.state.spaces.keys)) : nil
         if web, rule == nil, settings.values.externalLinks == .littleArc {
-            let l = openLittleArc(url: url, overFullScreenOf: fullScreenApp)
-            if let l, trace != nil { openedLittleArc = (l, Date()) }
-            logLink(url, trace, route: "Little Arc", window: l?.window, created: l != nil)
+            let open = { [weak self] in
+                guard let self else { return }
+                let l = self.openLittleArc(url: url, overFullScreenOf: fullScreenApp)
+                if let l, trace != nil { self.openedLittleArc = (l, Date()) }
+                self.logLink(url, trace, route: "Little Arc", window: l?.window, created: l != nil)
+            }
+            // A link that launched Airc (or one macOS switched away for): back to the full-screen app's Space first.
+            // A link launch from an app that isn't in full screen: activated now, as Launch Services would have, so Little
+            // Arc comes forward as an ordinary window (LaunchEvent.holdActivation).
+            if fullScreenApp == nil { LaunchEvent.shared.releaseActivation(activate: !options.isAutomated || LittleArcController.actsAsOwner) }
+            if let fs = fullScreenApp, LittleArcFullScreen.shared.needsReturn(to: fs) {
+                LittleArcFullScreen.shared.returnToFullScreen(of: fs, then: open)
+            } else {
+                open()
+            }
             return
         }
         // WIN-7: the window used last; with every window closed, the last session's come back first.
@@ -601,6 +795,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let l = LittleArcController(app: self, url: url, spaceID: sid, frame: frame, overFullScreen: fullScreenApp != nil)
         Telemetry.shared.record(.featureUsed(.littleArcOpen(url == nil ? .shortcut : .link)))
         littleArcs.append(l)
+        littleArcsOpened += 1
         if let fullScreenApp {
             // Key without activating Airc (a non-activating panel): no Space switch, and the full-screen app stays.
             if options.isAutomated, !LittleArcController.actsAsOwner { l.window.orderFront(nil) } else { l.window.makeKeyAndOrderFront(nil) }
@@ -620,6 +815,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if options.isAutomated, !LittleArcController.actsAsOwner { w.orderFront(nil) } else { w.makeKeyAndOrderFront(nil); NSApp.activate() }
     }
 
+    /// The WebKit dev engine. A scripted run keeps its cookies in memory only, except the quitdata pair, which checks that
+    /// they survive a quit and relaunch: its store persists, named from its data folder (as the Chromium build's WebKit
+    /// pages' stores are), so it never shares the daily one's (artifacts/wkcookie). Run it with CFFIXED_USER_HOME, as
+    /// its runner does: the store is in that home's Library/WebKit.
+    private static func makeWebKitEngine(_ options: LaunchOptions) -> WebKitEngine {
+        #if AIRC_TESTING
+        if options.script.hasPrefix("quitdata-"), options.snapshotDir != nil, !options.ephemeral {
+            return WebKitEngine(ephemeral: false, storeScope: AppPaths.dataDirectory.standardizedFileURL.path)
+        }
+        #endif
+        return WebKitEngine(ephemeral: options.ephemeral || options.snapshotDir != nil)
+    }
+
     /// WIN-7: Airc stays open with no window (as Arc and Chrome); ⌘N, the Dock or a link brings one back.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
@@ -632,24 +840,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               downloads.runningCount > 0, let confirm = downloads.engine.downloadsCloseConfirmation else {
             // WIN-7: every window is in the session as it is now; the quit closing them doesn't take them out.
             quitWillCloseWindows()
+            flushForQuit()
             return .terminateNow
         }
         awaitingDownloadQuitAnswer = true
         confirm(downloads.runningCount) { [weak self] quit in
             self?.awaitingDownloadQuitAnswer = false
-            if quit { self?.quitWillCloseWindows() }
+            if quit { self?.quitWillCloseWindows(); self?.flushForQuit() }
+            else { BundleReplacementMonitor.shared.quitCancelled() }
             sender.reply(toApplicationShouldTerminate: quit)
         }
         return .terminateLater
     }
 
+    /// Writes Airc's own state as soon as a quit is accepted, before Chromium's teardown starts. Under heavy disk load
+    /// that teardown can wait on its own file flushes until Chromium's Mac teardown watchdog ends the process at 10 s
+    /// (`_exit`, no willTerminate), so willTerminate's flush is not guaranteed to run (artifacts/quitflush).
+    private func flushForQuit() {
+        try? store?.flush()
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
+        #if AIRC_TESTING
+        QuitDiagnostics.mark("willTerminate")
+        defer { QuitDiagnostics.mark("willTerminate done") }
+        #endif
+        BundleReplacementMonitor.shared.applicationWillTerminate()
         // WIN-7: the dev engine quits with its windows still open (Chromium's closed them, already saved).
         quitWillCloseWindows()
         try? store?.flush()
+        #if AIRC_TESTING
+        QuitDiagnostics.mark("store flushed")
+        #endif
         AppTelemetry.shared.willTerminate()
-        if options.ephemeral, AppPaths.mayDeleteEphemeral(AppPaths.dataDirectory) {
-            try? FileManager.default.removeItem(at: AppPaths.dataDirectory)
+        #if AIRC_TESTING
+        QuitDiagnostics.mark("telemetry done")
+        #endif
+        // An --ephemeral data folder goes only once the engine has finished. With Chromium, the first willTerminate comes
+        // from chrome::HandleAppExitingForPlatform, while Chromium still runs and launches helpers into that folder:
+        // deleting it then made a helper's CHECK(CreateDirectory(--user-data-dir)) abort, and under disk load the
+        // recursive delete held the main thread past the 15 s quit bound (quitflush). main.swift calls this again after
+        // ChromiumRuntime.run returns, with chromiumRunning false.
+        if options.ephemeral, !Self.chromiumRunning, AppPaths.mayDeleteEphemeral(AppPaths.dataDirectory) {
+            Self.removeEphemeral(AppPaths.dataDirectory)
         }
     }
+
+    /// Moves `dir` aside at once (a rename, so nothing can use the old path) and deletes the moved copy in a detached
+    /// `rm`, so the quit never waits on a recursive delete. Falls back to deleting in place if the rename fails.
+    private static func removeEphemeral(_ dir: URL) {
+        let fm = FileManager.default
+        let aside = dir.deletingLastPathComponent()
+            .appendingPathComponent(".\(dir.lastPathComponent).deleting-\(ProcessInfo.processInfo.processIdentifier)")
+        guard (try? fm.moveItem(at: dir, to: aside)) != nil else { try? fm.removeItem(at: dir); return }
+        let rm = Process()
+        rm.executableURL = URL(fileURLWithPath: "/bin/rm")
+        rm.arguments = ["-rf", aside.path]
+        rm.standardInput = FileHandle.nullDevice
+        rm.standardOutput = FileHandle.nullDevice
+        rm.standardError = FileHandle.nullDevice
+        if (try? rm.run()) == nil { try? fm.removeItem(at: aside) }
+    }
+
+    /// True while ChromiumRuntime.run owns the process (main.swift): Chromium hasn't finished its shutdown yet.
+    nonisolated(unsafe) static var chromiumRunning = false
 }

@@ -54,6 +54,10 @@ class Strings : public ui::ResourceBundle::Delegate {
       *value = u"Your Airc profile";
       return true;
     }
+    if (message_id == IDS_WEBAUTHN_CREATE_PASSKEY_EXTRA) {
+      *value = u"Saved in your Airc profile on this Mac. You sign in with Touch ID or your Mac's password.";
+      return true;
+    }
     if (message_id == IDS_EXTENSION_INSTALLED_MANAGE_INFO) {
       *value = kManageExtensions;
       return true;

@@ -4,6 +4,9 @@
   K07: Airc's scripting dictionary. Arc's class, property and command names and their four-letter codes, so a script
   written for Arc works with `tell application "Airc"` (docs/user/scripting.md). The Cocoa classes and keys are Airc's
   own (apps/browser/Sources/Airc/Scripting). Additions: a space's `profile`, and `exists`.
+  Chrome compatibility: window and tab also answer to Chrome's class codes (hidden synonyms 'cwin' and 'CrTb'), and a
+  window has Chrome's `active tab index`, so tools that read a Chromium browser's front tab with Chrome's terms or a
+  ScriptingBridge header made from Chrome work too (call recorders, artifacts/callrecorders/REPORT.md).
 -->
 <dictionary title="Airc Terminology">
   <suite name="Standard Suite" code="core" description="Common classes and commands for all applications.">
@@ -64,6 +67,7 @@
 
     <class name="window" code="WiND" description="A browser window, or a private window." plural="windows">
       <cocoa class="AircScriptWindow"/>
+      <synonym code="cwin" hidden="yes"/>
       <element description="The tabs of every space in this window (a private window's own tabs)." type="tab" access="rw">
         <cocoa key="scriptTabs"/>
       </element>
@@ -102,6 +106,9 @@
       </property>
       <property name="active tab" code="acTa" description="The tab on screen (the focused pane in a split)." type="tab" access="r">
         <cocoa key="activeTab"/>
+      </property>
+      <property name="active tab index" code="acTI" description="The index of the active tab in the window's tabs (Chrome's term). Setting it shows that tab." type="integer">
+        <cocoa key="activeTabIndex"/>
       </property>
       <property name="active space" code="acSp" description="The space on screen. A private window has none." type="space" access="r">
         <cocoa key="activeSpace"/>
@@ -147,6 +154,7 @@
 
     <class name="tab" code="tAbB" description="A Favorite, a pinned tab or a Today tab." plural="tabs">
       <cocoa class="AircScriptTab"/>
+      <synonym code="CrTb" hidden="yes"/>
       <property name="id" code="ID  " type="text" access="r" description="The unique identifier of the tab.">
         <cocoa key="uniqueID"/>
       </property>

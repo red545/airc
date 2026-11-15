@@ -1,0 +1,23 @@
+# The login demo of the 0.1.16 agent pack (2026-11-15-release-0.1.16.toml uses it as "2026-11-15-agents-login/login-
+# video:16x9"). Its frames are agentspike's `--agent-demo=login` from the cut c68f39e3 (mac-frames.sh --motions
+# agent-login, 2026-11-15 05:55Z, every check PASS, including "nothing Claude got back holds the password"): full
+# compositions of a drawn conversation (the run's real tool calls) beside the agent window, so they're built by hand
+# into a 16:9 video (artifacts/social/2026-11-15-agents-login/list.txt), each frame held as the run held it, then the
+# 0.1.16 pack's end card. pack.json lists it directly. No posts of its own.
+slug = "2026-11-15-agents-login"
+title = "Agent login demo (video only)"
+kind = "release"
+since = "0.1.16"
+tag = ""
+summary = """
+The video of Airc's test client named Claude signing in to a synthetic site with a saved login it never sees.
+"""
+order = """
+No posts here: the 0.1.16 pack posts it.
+"""
+checked = """
+- docs/user/agents.md, "Passwords: filled, never shown": fill_saved_login fills the form in the page; reading a page
+  hides password fields. The run checked it: read_page shows the filled password as (hidden), and nothing the client
+  got back holds the password.
+- Synthetic site and login (ada@example.test). The client is Airc's own test client named Claude.
+"""

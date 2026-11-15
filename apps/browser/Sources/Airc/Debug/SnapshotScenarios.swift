@@ -350,6 +350,10 @@ extension SnapshotRunner {
     /// only, so nothing else on screen is ever captured; no Screen Recording permission is needed for our windows).
     /// Empty while the screen is locked; then nothing is written.
     func captureOwnWindow(_ w: NSWindow, name: String) {
+        guard ProcessInfo.processInfo.environment["AIRC_DISABLE_LEGACY_WINDOW_CAPTURE"] != "1" else {
+            note("\(name): unsupported legacy diagnostic image omitted; functional assertions still run")
+            return
+        }
         typealias Fn = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
         guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return note("\(name): no window capture") }
         let fn = unsafeBitCast(sym, to: Fn.self)
@@ -368,10 +372,17 @@ enum Perf {
     private static var totals: [String: (sum: Double, n: Int)] = [:]
     private static var order: [String] = []
 
+    /// Each timed section is also an os_signpost interval ("section", its name as the message), so an Instruments
+    /// trace (Time Profiler + Points of Interest) lines up samples with sections.
+    static let signposts = OSLog(subsystem: "app.airc.perf", category: .pointsOfInterest)
+
     @inline(__always) static func time<T>(_ name: String, _ body: () throws -> T) rethrows -> T {
         guard enabled else { return try body() }
         let t0 = CACurrentMediaTime()
+        let id = OSSignpostID(log: signposts)
+        os_signpost(.begin, log: signposts, name: "section", signpostID: id, "%{public}s", name)
         defer {
+            os_signpost(.end, log: signposts, name: "section", signpostID: id)
             let d = (CACurrentMediaTime() - t0) * 1000
             if totals[name] == nil { order.append(name) }
             totals[name, default: (0, 0)].sum += d

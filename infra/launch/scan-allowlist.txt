@@ -13,7 +13,6 @@ packages/AircKit/Tests/AircKitTests/PublicSuffixListTests.swift	private-ip	Reser
 packages/AircKit/Tests/AircKitTests/TelemetryEventTests.swift	home-path-other	Synthetic home-folder paths proving telemetry rejects and redacts paths
 apps/browser/Sources/Airc/Debug/ImportAcceptanceCheck.swift	email	Android credential realm (an android:// URI with user info) in synthetic Login Data fixtures, not a mailbox.
 packages/AircImport/Tests/AircImportTests/ArcImportAcceptanceTests.swift	email	Android credential realm (an android:// URI with user info) in synthetic Login Data fixtures, not a mailbox.
-apps/browser/Sources/Airc/Debug/DeveloperModeCheck.swift	private-ip	A reserved LAN address literal proving Developer Mode never turns on automatically for LAN hosts; no real machine.
 
 # P20c: pinned public filter-engine dependency attribution and fixtures.
 # Public upstream source and attribution only; exact file/kind entries.
@@ -139,6 +138,17 @@ apps/browser/Resources/BlockingLists/easyprivacy.txt	private-ip	Public upstream 
 packages/AircKit/Tests/AircKitTests/DevelopmentHostTests.swift	private-ip	Reserved private/link-local/CGNAT address literals that prove Developer Mode's local-host detection and its lookalike rejections
 packages/AircKit/Tests/AircKitTests/LinkSiteTests.swift	email	A synthetic mailto: address on a made-up domain (b.co.uk) that proves mailto links stay in the engine
 engine/core/blocking-rust/third_party/chromium_crates_io/vendor/*/.cargo-checksum.json	gitleaks:generic-api-key	Cargo's per-file SHA-256 checksums of vendored crates (adblock-rust's dependencies), not keys
-packages/AircKit/Tests/AircKitTests/DeveloperSitePolicyTests.swift	private-ip	Reserved private address literals proving Developer Mode doesn't treat LAN hosts as localhost
 packages/AircKit/Tests/AircKitTests/FaviconGuessTests.swift	home-path-other	A synthetic file:// URL in a made-up home folder proving favicons skip local files
 packages/AircKit/Tests/AircKitTests/ParityP10Tests.swift	home-path-other	Synthetic Desktop paths in a made-up home folder for the Library's folder listing tests
+
+# publicsync (2026-11-15): file:kind approvals for non-address hits (IPs and tailnet names are approved
+# by value in scan-synthetic.txt instead).
+apps/browser/Sources/Airc/Debug/Arcimport3Check.swift	email	Android credential realm (an android:// URI with user info) in a synthetic Login Data fixture, not a mailbox.
+packages/AircKit/Tests/AircKitTests/OfficialSitesTests.swift	email	URL user info (user and password before the host) in a URL-matching test, not a mailbox.
+packages/AircKit/Tests/AircKitTests/EaselImportTests.swift	email	URL user info (a user name before the host) in a list of links the importer must reject, not a mailbox.
+packages/AircKit/Tests/AircKitTests/SharingServiceTests.swift	email	URL user info (a user name before the host) in a list of links sharing must reject, not a mailbox.
+packages/AircKit/Tests/AircKitTests/TidyTabsTests.swift	email	A made-up two-letter address-like string in a list of strings Tidy Tabs must reject as a title, not a mailbox.
+apps/browser/Sources/Airc/Debug/ParityAgentViewCheck.swift	gitleaks:generic-api-key	A made-up fixture password ("Fixture-Secret-Pw-…") the check types into its own local test page to prove it is masked.
+apps/marketing/test/feedback.test.mjs	gitleaks:generic-api-key	A made-up UUID upload token in a request-size test against the local test server; no real credential.
+infra/launch/scan-synthetic.txt	private-ip	The list of approved made-up addresses itself; scan.py refuses any entry that covers one of the operator's real values.
+infra/launch/scan-synthetic.txt	tailnet-domain	The list of approved made-up tailnet names itself; scan.py refuses any entry that covers one of the operator's real values.

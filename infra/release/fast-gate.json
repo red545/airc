@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "maximum_seconds": 600,
+  "preferred_seconds": 300,
+  "engines": [
+    "webkit",
+    "chromium"
+  ],
+  "cases": [
+    {
+      "script": "release-fast",
+      "timeout_seconds": 85,
+      "covers": [
+        "launch-quit",
+        "http",
+        "https",
+        "notes-create",
+        "little-airc-real-pid-key",
+        "fullscreen-real-green-click",
+        "local-sharing"
+      ]
+    },
+    {
+      "script": "release-fast-read",
+      "timeout_seconds": 20,
+      "covers": [
+        "notes-relaunch"
+      ]
+    },
+    {
+      "script": "pipreturn-rapid",
+      "timeout_seconds": 75,
+      "covers": [
+        "pip-rapid-open-close"
+      ]
+    },
+    {
+      "script": "onboarding-e2e",
+      "timeout_seconds": 60,
+      "covers": [
+        "first-run-onboarding"
+      ]
+    },
+    {
+      "script": "redirects",
+      "engines": [
+        "chromium"
+      ],
+      "timeout_seconds": 65,
+      "covers": [
+        "chromium-redirects"
+      ]
+    }
+  ],
+  "continuous_only": [
+    "full unit suite",
+    "54-launch feature inventory",
+    "extended PiP repetitions",
+    "performance suite",
+    "real-account and hardware qualification"
+  ],
+  "distribution_separate": [
+    "sign",
+    "notarize",
+    "staple",
+    "Gatekeeper",
+    "mounted privacy scan",
+    "identity continuity",
+    "BinaryDelta apply",
+    "public install"
+  ]
+}

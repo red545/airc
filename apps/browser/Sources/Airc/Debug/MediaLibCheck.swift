@@ -758,7 +758,7 @@ extension SnapshotRunner {
                     self.note("call \(label): page heartbeat \(s["beats"] ?? "-"), server \(x.server?.beatSummary().count ?? -1)")
                     if !connected || label == "start" {
                         // What ICE got to, and the candidates each peer handed the other (on loopback).
-                        self.note("call \(label): ice \(s["ice"] ?? "-"), gathering \(s["gathering"] ?? "-"), candidates \(s["candidates"] ?? "-"), "
+                        self.note("call \(label): accepted \(s["accepted"] ?? "-"), signaling \(s["signaling"] ?? "-"), ice \(s["ice"] ?? "-"), gathering \(s["gathering"] ?? "-"), candidates \(s["candidates"] ?? "-"), "
                                   + "events \(s["events"] ?? "-")")
                     }
                     self.check(id != nil && id == loadID && live && connected,
@@ -770,6 +770,11 @@ extension SnapshotRunner {
         func expectWindow(_ label: String, _ want: Bool, timeout: Double = 3) {
             step { [self] done in waitUntil({ want ? inCallWindow() : !calls.isShowing }, timeout: timeout) { done() } }
             run { [self] in
+                if want, let view = calls.window?.contentView as? CallWindowView {
+                    view.layoutSubtreeIfNeeded()
+                    check(!view.showsCallTools && view.mic.isHidden && view.camera.isHidden && view.leave.isHidden,
+                          "callcontrols: full call window has exactly the site's control set")
+                }
                 check(want ? inCallWindow() : (!calls.isShowing && !calls.holds(call)),
                       "call \(label): " + (want ? "the page is in the call window" : "no call window")
                       + " (window \(calls.window?.isVisible == true), holds \(calls.holds(call)))")
@@ -1275,8 +1280,16 @@ final class MediaLibServer {
     // listens too (bound to every address). Without a camera or microphone grant both engines name host candidates with
     // mDNS (<uuid>.local), and resolving those needs multicast on the local network: in the 0.1.0 suite Chromium's peers
     // stayed "new" (WebKit's weren't required to connect). Loopback needs no lookup, no local network and no devices.
-    // Other candidates (TCP, relays) are left out.
-    var handed = [[], []];
+    // Preserve actual candidates too: WebKit host sockets need not listen on loopback.
+    var handed = [[], []], pending = [[], []], accepted = [0, 0], draining = [false, false];
+    async function flush(to, k) {
+      if (!to.remoteDescription || draining[k]) return;
+      draining[k] = true;
+      try { while (pending[k].length) {
+        try { await to.addIceCandidate(pending[k].shift()); accepted[k]++; }
+        catch (x) { events.push("candidate:" + x.name); }
+      } } finally { draining[k] = false; }
+    }
     function loopback(c){
       var m = c && /^(candidate:\\S+ \\d+ udp \\d+ )(\\S+)( \\d+ typ host\\b.*)$/i.exec(c.candidate);
       if (!m) return null;
@@ -1291,10 +1304,15 @@ final class MediaLibServer {
       if (!e.candidate) return;
       var c = loopback(e.candidate);
       handed[k].push(kind(e.candidate.candidate) + (c ? ' as loopback' : ' left out'));
-      if (c) to.addIceCandidate(c).catch(function(x){ events.push('candidate:' + x.name); });
+      // WebKit's host socket need not listen on loopback. Preserve the actual
+      // host candidate too; logging records only its kind, never its address.
+      if (c) pending[k].push(c);
+      pending[k].push(e.candidate);
+      flush(to, k);
     }; }
     function state(){ return {id: id, visibility: document.visibilityState, peers: [a && a.connectionState, b && b.connectionState],
       ice: [a && a.iceConnectionState, b && b.iceConnectionState], gathering: [a && a.iceGatheringState, b && b.iceGatheringState],
+      accepted: accepted, signaling: [a && a.signalingState, b && b.signalingState],
       candidates: handed.map(function(l){ return l.slice(-4); }),
       tracks: stream ? stream.getTracks().map(function(t){ return {kind: t.kind, state: t.readyState, enabled: t.enabled}; }) : [],
       mic: mic, cam: cam, ended: ended, events: events.slice(-6), beats: {ticks: ticks, sent: sent, failed: failed}}; }
@@ -1310,8 +1328,8 @@ final class MediaLibServer {
       b.onicecandidate = hand(a, 1);
       b.ontrack = function(e){ document.getElementById('v').srcObject = e.streams[0]; };
       stream.getTracks().forEach(function(t){ a.addTrack(t, stream); });
-      await a.setLocalDescription(await a.createOffer()); await b.setRemoteDescription(a.localDescription);
-      await b.setLocalDescription(await b.createAnswer()); await a.setRemoteDescription(b.localDescription);
+      await a.setLocalDescription(await a.createOffer()); await b.setRemoteDescription(a.localDescription); await flush(b, 0);
+      await b.setLocalDescription(await b.createAnswer()); await a.setRemoteDescription(b.localDescription); await flush(a, 1);
       var ms = navigator.mediaSession;
       ms.setActionHandler('togglemicrophone', toggleMic);
       ms.setActionHandler('togglecamera', toggleCamera);

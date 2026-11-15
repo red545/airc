@@ -223,6 +223,8 @@ extension SnapshotRunner {
         run { o?.model.onNext?() }
         wait(0.7)
         run { o?.model.onSkipLogins?() }
+        wait(0.7)
+        run { o?.model.onPasswordManagerNotNow?() }
         wait(0.9)
         frame(0.9, "colours")
         for preset in ["sky", "lilac", "ember"] {

@@ -190,14 +190,15 @@ final class AppTelemetry {
         Telemetry.shared.record(.featureUsed(feature))
     }
 
-    /// OnboardingController.go: the step being left, and how. Skips: "Start fresh" (no import), "Skip" on logins and
-    /// "Not now" on the default-browser step.
+    /// OnboardingController.go: the step being left, and how. Skips: "Start fresh" (no import), "Skip" on logins,
+    /// "Not now" on the password manager and on the default-browser step.
     static func onboardingStep(from: OnboardingStep, to: OnboardingStep, model: OnboardingModel, settings: AppSettings) {
         guard from != to else { return }
         let action: TelemetryEvent.OnboardingAction
         if to < from {
             action = .back
-        } else if (from == .arc && to == .theme) || (from == .logins && model.logins == .skipped)
+        } else if (from == .arc && model.startedFresh) || (from == .logins && model.logins == .skipped)
+                    || (from == .passwordManager && model.pmOutcome == .skipped)
                     || (from == .defaultBrowser && settings.values.defaultBrowser.answer == .notNow) {
             action = .skip
         } else {
@@ -227,6 +228,7 @@ final class AppTelemetry {
         case .arc: .arc
         case .accounts: .accounts
         case .logins: .logins
+        case .passwordManager: .passwordManager
         case .theme: .theme
         case .defaultBrowser: .defaultBrowser
         case .done: .done

@@ -11,6 +11,7 @@ then writes DIR/work.html. Run from cron every few minutes; SSH attempts are cac
 import argparse, html, json, os, pathlib, re, subprocess
 from datetime import datetime, timezone
 from owner_versions import owner_versions
+from suite_status import panel
 from xctest_summary import FAILED
 from run_result import state as run_state, LABELS
 
@@ -206,12 +207,12 @@ footer{color:var(--faint);font-size:12px;margin-top:28px;text-align:center}
     for a in ag:
         main.append(f'<div class="card agent"><h3 class="rounded">{e(a["name"])}</h3><div class="meta">'
                     f'<span class="tag blue">{e(a.get("status", ""))}</span><span class="tag">{e(a.get("model", ""))}</span>'
-                    f'<span>· {e(elapsed(a.get("since", "")))}</span></div><p>{e(a["what"])}</p></div>')
+                    f'<span>· {e(elapsed(a.get("since", "")))}</span></div><p>{e(a.get("what", a.get("summary", "")))}</p></div>')
     main.append('</div>')
     done = state.get('done_today', [])
     if done:
         main.append(f'<h2>Finished today<span class="n">{len(done)}</span></h2><div class="card"><ul class="tl">'
-                    + ''.join(f'<li><span class="t">{e(d.get("at", ""))}</span><span><b>{e(d["name"])}</b> · {e(d["what"])}</span></li>'
+                    + ''.join(f'<li><span class="t">{e(d.get("at", ""))}</span><span><b>{e(d["name"])}</b> · {e(d.get("what", d.get("summary", "")))}</span></li>'
                               for d in done) + '</ul></div>')
     commits_html = ('<h2>Latest commits</h2><div class="card"><details><summary>Show the last 12</summary>'
                 + ''.join(f'<div class="commit"><span class="small">{e(t)}</span><code>{e(sha)}</code><span>{e(sub)}</span></div>'
@@ -253,6 +254,7 @@ footer{color:var(--faint);font-size:12px;margin-top:28px;text-align:center}
     h.append(f'<footer>State as of {e(state.get("updated", "?"))} · refreshes every minute</footer></div></body></html>')
     out = status / 'work.html'
     tmp = out.with_suffix('.tmp')
+    h.insert(1, panel(status))
     tmp.write_text('\n'.join(h))
     os.replace(tmp, out)
 

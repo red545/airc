@@ -7,6 +7,7 @@
 #ifndef AIRC_CORE_AIRC_PICTURE_IN_PICTURE_H_
 #define AIRC_CORE_AIRC_PICTURE_IN_PICTURE_H_
 
+#include <cstdint>
 #include <string>
 
 namespace content {
@@ -16,6 +17,9 @@ class WebContents;
 namespace airc {
 
 void StartPictureInPictureObserver();
+
+// UI thread only. Identifies an entry, even when the same tab reopens PiP.
+uint64_t PictureInPictureEntryGeneration();
 
 bool PictureInPictureTracing();
 void TracePictureInPicture(const std::string& line);

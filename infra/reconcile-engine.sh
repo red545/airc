@@ -12,7 +12,8 @@ flock 9
 [[ ! -e "$STATUS/release-staging" && ! -e "$STATUS/quiet-pending" ]] || exit 75
 REV=$(git -C "$ROOT" rev-parse HEAD)
 ready=$(awk 'NR==1 {print $1}' "$STATUS/buildmac-engine-ready" 2>/dev/null || true)
-if [[ $ready =~ ^[0-9a-f]{40}$ ]] && git -C "$ROOT" diff --quiet "$ready" "$REV" -- engine/core engine/patches ':(glob)engine/*.gn' ':(glob)engine/*.gni' ':(glob)engine/BUILD*' CHROMIUM_VERSION; then
+source "$ROOT/infra/engine-inputs.sh"
+if [[ $ready =~ ^[0-9a-f]{40}$ ]] && engine_inputs_diff "$ROOT" "$ready" "$REV" >/dev/null; then
   echo "engine already ready: $ready"; exit 0
 fi
 (set -C; printf 'buildmac-reconcile pid=%s revision=%s\n' "$$" "$REV" > "$STATUS/relink-pending")

@@ -107,6 +107,40 @@ final class TidyDownloadRulesTests: XCTestCase {
         XCTAssertEqual(back, r)
         XCTAssertEqual(back.entries["p1/abc"]?.from, "IMG_2041 (1).pdf")
     }
+
+    // tidydl (A04): Rename automatically.
+
+    func testAutomaticRenameSkipsSystemFilesAndArchives() {
+        for n in ["Airc-0.1.15.dmg", "IMG_2041.pkg", "Setup.mpkg", "download.app", "file.zip", "data.tar.gz", "x.tgz",
+                  "a.7z", "b.rar", "c.xz", "disk.iso", "Xcode.xip", "IMG_2041 (1).pdf.crdownload", "file.pdf.download",
+                  "video.part", ".DS_Store", "export.ZIP"] {
+            XCTAssertTrue(TidyDownloadRules.autoRenameSkips(n), n)
+        }
+        for n in ["IMG_2041 (1).pdf", "image.png", "export-20261107.csv", "scan0001.JPG", "README", "notes.txt"] {
+            XCTAssertFalse(TidyDownloadRules.autoRenameSkips(n), n)
+        }
+    }
+
+    func testAutomaticRenameKeepsTheExtensionAndAvoidsCollisions() {
+        let sources = "Quarterly sales 2026 example.test/reports Region,Q3"
+        let name = TidyDownloadRules.accept("Quarterly sales.xlsx", original: "export-20261107.CSV", sources: sources)
+        XCTAssertEqual(name, "Quarterly sales.CSV", "the original extension, as it was")
+        let taken: Set = ["Quarterly sales.CSV"]
+        XCTAssertEqual(TidyDownloadRules.unique(name ?? "") { taken.contains($0) }, "Quarterly sales 2.CSV")
+    }
+
+    func testUndoRestoresTheOriginalName() {
+        var r = TidyDownloadRenames()
+        r.set("p/1", path: "/d/Lisbon itinerary.pdf", name: "Lisbon itinerary.pdf", from: "IMG_2041 (1).pdf")
+        let back = r.undo("p/1") { _ in false }
+        XCTAssertEqual(back?.path, "/d/IMG_2041 (1).pdf")
+        XCTAssertEqual(back?.name, "IMG_2041 (1).pdf")
+        // The original name was taken since: the file gets a number rather than replacing the other file.
+        XCTAssertEqual(r.undo("p/1") { $0 == "IMG_2041 (1).pdf" }?.name, "IMG_2041 (1) 2.pdf")
+        XCTAssertNil(r.undo("p/2") { _ in false }, "a download that wasn't renamed has nothing to undo")
+        r.remove("p/1")
+        XCTAssertNil(r.undo("p/1") { _ in false })
+    }
 }
 
 @MainActor

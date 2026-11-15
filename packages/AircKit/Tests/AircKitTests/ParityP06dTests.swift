@@ -12,11 +12,15 @@ final class ParityP06dTests: XCTestCase {
 
     func testAnOptionCommandClickedLinkOpensInLittleArc() {
         XCTAssertTrue(opens())
+        XCTAssertTrue(opens(disposition: "split_view"), "Chromium maps a real ⌥⌘ click to split view")
         XCTAssertTrue(opens(disposition: "foreground_tab"), "⇧ held too: still ⌥⌘")
         XCTAssertTrue(opens("http://127.0.0.1:8080/la"), "a loopback page")
     }
 
     func testOnlyThatClickAndOnlyANewTabLink() {
+        XCTAssertFalse(opens(disposition: "split_view", held: false), "a split action without ⌥⌘ stays with the engine")
+        XCTAssertFalse(opens(disposition: "split_view", enabled: false))
+        XCTAssertFalse(opens(gesture: false, disposition: "split_view"))
         XCTAssertFalse(opens(held: false), "⌘ alone keeps the engine's background tab")
         XCTAssertFalse(opens(enabled: false), "the setting off")
         XCTAssertFalse(opens(gesture: false), "a page opening a link on its own")

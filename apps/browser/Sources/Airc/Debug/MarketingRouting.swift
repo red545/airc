@@ -13,6 +13,9 @@ extension SnapshotRunner {
             c.app?.settingsWindow?.window.setFrameOrigin(NSPoint(x: -6000, y: 200))
         }
         wait(0.9)
+        // Air Traffic Control is the page's last section, below Little Airc and Peek.
+        run { [self] in mkScrollSettings(.end) }   // MarketingSettingsScroll.swift
+        wait(0.5)
         run { [self] in
             guard let window = c.app?.settingsWindow?.window, let view = window.contentView,
                   let image = mkContentImage(window) else { return note("marketing: MISSING settings-links: no Settings window") }

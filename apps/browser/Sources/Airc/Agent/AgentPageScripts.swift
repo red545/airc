@@ -1,5 +1,4 @@
 // Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
-#if AIRC_TESTING // agentspike: a dev-build prototype (docs/agent-ready.md); public builds compile none of Agent/
 import Foundation
 
 /// The page reads agents get, the same script on both engines (each runs it where the page's own scripts can't reach
@@ -9,7 +8,11 @@ import Foundation
 enum AgentPageScripts {
     private static let library = """
     var SENS=/(^|\\s)(cc-|current-password|new-password|one-time-code)/;
-    function sensitive(e){var t=(e.getAttribute('type')||'').toLowerCase();var a=(e.getAttribute('autocomplete')||'').toLowerCase();return t==='password'||SENS.test(a);}
+    var SNAME=/pass(word|wd|code|phrase)?|pwd|secret|otp|totp|2fa|mfa|cvc|cvv|csc|card.?num|cc.?num|iban|ssn|\\bpin\\b/i;
+    function sensitive(e){var t=(e.getAttribute('type')||'').toLowerCase();var a=(e.getAttribute('autocomplete')||'').toLowerCase();
+      if(t==='password'||SENS.test(a))return true;
+      var n=(e.getAttribute('name')||'')+' '+(e.id||'')+' '+(e.getAttribute('aria-label')||'')+' '+(e.getAttribute('placeholder')||'');
+      return (t===''||t==='text'||t==='tel'||t==='number'||t==='search')&&SNAME.test(n);}
     function shown(e){var r=e.getBoundingClientRect();if(r.width<=0||r.height<=0)return false;var s=getComputedStyle(e);return s.visibility!=='hidden'&&s.display!=='none'&&parseFloat(s.opacity||'1')>0;}
     function role(e){var r=e.getAttribute('role');if(r)return r;var t=e.tagName.toLowerCase();
       if(t==='a')return'link';if(t==='button'||t==='summary')return'button';if(t==='select')return'combobox';if(t==='textarea')return'textbox';
@@ -18,30 +21,57 @@ enum AgentPageScripts {
         if(y==='button'||y==='submit'||y==='reset'||y==='image')return'button';if(y==='range')return'slider';return'textbox';}
       return t;}
     function name(e){var n=e.getAttribute('aria-label');if(n)return n;var l=e.getAttribute('aria-labelledby');
-      if(l){var x=document.getElementById(l);if(x)return x.innerText;}if(e.labels&&e.labels.length)return e.labels[0].innerText;
+      if(l){var x=l.split(/\\s+/).map(function(i){var d=document.getElementById(i);return d?(d.innerText||d.textContent||'').trim():'';}).filter(Boolean).join(' ');if(x)return x;}if(e.labels&&e.labels.length)return e.labels[0].innerText;
       n=e.getAttribute('alt')||e.getAttribute('title')||e.getAttribute('placeholder');if(n)return n;
       var t=e.tagName.toLowerCase();if(t==='input'){var y=(e.getAttribute('type')||'').toLowerCase();if(y==='submit'||y==='button'||y==='reset')return e.value;return e.getAttribute('name')||'';}
       return(e.innerText||e.textContent||'').trim();}
     var SEL='a[href],button,input:not([type=hidden]),textarea,select,summary,[role],[contenteditable=""],[contenteditable=true],[tabindex]:not([tabindex="-1"]),h1,h2,h3,h4,h5,h6,img[alt]';
     function elements(limit){var out=[],all=document.querySelectorAll(SEL),n=0;
-      for(var i=0;i<all.length&&out.length<limit;i++){var e=all[i];if(!shown(e))continue;n++;var r=e.getBoundingClientRect();
+      for(var i=0;i<all.length&&out.length<limit;i++){var e=all[i];if(!listed(e))continue;n++;var r=e.getBoundingClientRect();
         var o={ref:'e'+n,role:role(e),name:String(name(e)).replace(/\\s+/g,' ').slice(0,120),x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2),
           w:Math.round(r.width),h:Math.round(r.height)};
         if(r.bottom<0||r.top>innerHeight||r.right<0||r.left>innerWidth)o.offscreen=true;
         var t=e.tagName.toLowerCase();
         if(t==='input'||t==='textarea'||t==='select'){if(sensitive(e))o.value=e.value?'(hidden)':'';else if(e.type==='checkbox'||e.type==='radio')o.checked=e.checked;else o.value=String(e.value).slice(0,200);}
+        if(o.role==='heading'){var lv=level(e);if(lv)o.level=lv;}
         if(e.disabled)o.disabled=true;if(document.activeElement===e)o.focused=true;out.push(o);}
+      return out;}
+    function firstRole(e){return((e.getAttribute('role')||'').trim().split(/\\s+/)[0]||'').toLowerCase();}
+    function level(e){var t=e.tagName.toLowerCase(),r=firstRole(e),h=/^h[1-6]$/.test(t);
+      if(r?r!=='heading':!h)return 0;var a=parseInt(e.getAttribute('aria-level'),10);if(a>=1)return a;return h?+t[1]:2;}
+    function inTree(e){for(var n=e;n&&n.nodeType===1;n=n.parentElement){if(n.hidden||n.inert||n.getAttribute('aria-hidden')==='true')return false;}
+      if(e.checkVisibility)return e.checkVisibility({visibilityProperty:true});
+      return e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden';}
+    function landmark(e){for(var n=e.parentElement;n&&n!==document.body;n=n.parentElement){var r=firstRole(n),t=n.tagName.toLowerCase();
+        var named=n.hasAttribute('aria-label')||n.hasAttribute('aria-labelledby');
+        if(/^(main|navigation|complementary|search|banner|contentinfo|region|form)$/.test(r))return r;
+        if(r)continue;if(t==='main')return'main';if(t==='nav')return'navigation';if(t==='aside')return'complementary';if(t==='search')return'search';
+        if((t==='section'||t==='form')&&named)return t==='form'?'form':'region';
+        if((t==='header'||t==='footer')&&!n.parentElement.closest('article,aside,main,nav,section'))return t==='header'?'banner':'contentinfo';}
+      return null;}
+    // An element outline/find lists: shown, and a heading only when assistive technology has it too.
+    function listed(e){return shown(e)&&!(level(e)&&!inTree(e));}
+    function headings(limit){var out=[],all=document.querySelectorAll('h1,h2,h3,h4,h5,h6,[role]');
+      for(var i=0;i<all.length&&out.length<limit;i++){var e=all[i],l=level(e);if(!l||!inTree(e))continue;
+        var r=e.getBoundingClientRect(),o={level:l,text:String(name(e)).replace(/\\s+/g,' ').trim().slice(0,200)};if(!o.text)continue;
+        var m=landmark(e);if(m)o.landmark=m;o.x=Math.round(r.left+r.width/2);o.y=Math.round(r.top+r.height/2);
+        if(r.width<=1||r.height<=1)o.screenReaderOnly=true;else if(r.bottom<0||r.top>innerHeight||r.right<0||r.left>innerWidth)o.offscreen=true;
+        out.push(o);}
       return out;}
     function state(){return{title:document.title,url:location.href,readyState:document.readyState,visibility:document.visibilityState,
       focused:document.hasFocus(),scrollX:Math.round(scrollX),scrollY:Math.round(scrollY),viewport:[innerWidth,innerHeight],
       dpr:devicePixelRatio};}
     """
 
-    /// `mode` "text" (what the page shows) or "outline" (its interactive elements and headings).
+    /// `mode` "text" (what the page shows) or "outline" (its interactive elements and headings). Both carry the
+    /// page's headings in document order, as assistive technology sees them: h1–h6 and role=heading (aria-level, else
+    /// 2), their level, the landmark they're in (main, navigation, banner…), visually hidden ones marked
+    /// `screenReaderOnly`; display:none, visibility:hidden, `hidden`, inert and aria-hidden ones left out. Text alone
+    /// can't say which line is a heading (an agent once read example.com as having none).
     static func read(mode: String, maxChars: Int) -> String {
         """
         (function(){\(library)
-        var s=state();
+        var s=state();s.headings=headings(200);
         if(\(mode == "outline" ? "true" : "false")){s.elements=elements(400);}
         else{var t=(document.body?document.body.innerText:'')||'';s.length=t.length;s.text=t.slice(0,\(maxChars));s.truncated=t.length>\(maxChars);}
         return JSON.stringify(s);})()
@@ -58,7 +88,7 @@ enum AgentPageScripts {
         var q=\(q).toLowerCase(),sel=\(sel),want=\(r),out=[],all;
         if(sel){try{all=document.querySelectorAll(sel);}catch(x){return JSON.stringify({error:'bad selector'});}
           var keep=new Set(all);var list=elements(2000);var k=0;var raw=document.querySelectorAll(SEL);var idx=0;
-          for(var i=0;i<raw.length;i++){var e=raw[i];if(!shown(e))continue;var o=list[idx++];if(o&&keep.has(e))out.push(o);}
+          for(var i=0;i<raw.length;i++){var e=raw[i];if(!listed(e))continue;var o=list[idx++];if(o&&keep.has(e))out.push(o);}
           all.forEach(function(e){if(!e.matches(SEL)&&shown(e)){var b=e.getBoundingClientRect();out.push({ref:null,role:role(e),name:String(name(e)).slice(0,120),x:Math.round(b.left+b.width/2),y:Math.round(b.top+b.height/2),w:Math.round(b.width),h:Math.round(b.height)});}});}
         else{elements(2000).forEach(function(o){if((!q||o.name.toLowerCase().indexOf(q)>=0)&&(!want||o.role===want))out.push(o);});}
         var s=state();s.matches=out.slice(0,50);s.count=out.length;return JSON.stringify(s);})()
@@ -66,6 +96,34 @@ enum AgentPageScripts {
     }
 
     static let state = "(function(){\(library)return JSON.stringify(state());})()"
+
+    /// Watch's view of what an agent acts on (Agent/AgentActivity.swift): the visible label and frame of the control
+    /// at a point, or of the focused field, and whether it's a password field. Never a value or a field's text: a
+    /// field's label comes from its aria-label, <label>, placeholder or title only (a text area's or an editor's own
+    /// text never counts), and only buttons and links are named by what they show.
+    private static let label = """
+    function fieldName(e){var n=e.getAttribute('aria-label');if(n)return n;var l=e.getAttribute('aria-labelledby');
+      if(l){var x=document.getElementById(l.split(' ')[0]);if(x)return x.innerText;}if(e.labels&&e.labels.length)return e.labels[0].innerText;
+      return e.getAttribute('placeholder')||e.getAttribute('title')||'';}
+    function field(e){var t=e.tagName.toLowerCase();return t==='input'||t==='textarea'||t==='select'||e.isContentEditable;}
+    function describe(e){if(!e)return JSON.stringify({});
+      var c=e.closest?e.closest('a[href],button,input,textarea,select,summary,label,[role=button],[role=link],[role=menuitem],[role=tab],[role=checkbox],[role=textbox],[contenteditable=""],[contenteditable=true]'):null;
+      if(!c)return JSON.stringify({});if(c.tagName.toLowerCase()==='label'&&c.control)c=c.control;
+      var r=c.getBoundingClientRect(),f=field(c),nm='';
+      if(f){var y=(c.getAttribute('type')||'').toLowerCase();nm=(y==='submit'||y==='button'||y==='reset')?(c.getAttribute('aria-label')||c.value||''):fieldName(c);}
+      else nm=c.getAttribute('aria-label')||c.getAttribute('title')||(c.innerText||'').trim().split('\\n')[0];
+      return JSON.stringify({name:String(nm).replace(/\\s+/g,' ').slice(0,80),field:f&&!/^(submit|button|reset|checkbox|radio)$/.test((c.getAttribute('type')||'').toLowerCase()),
+        password:sensitive(c),x:r.left,y:r.top,w:r.width,h:r.height});}
+    """
+
+    static func describe(x: CGFloat, y: CGFloat) -> String {
+        "(function(){\(library)\(label)return describe(document.elementFromPoint(\(Double(x)),\(Double(y))));})()"
+    }
+
+    static let focusedField = """
+    (function(){\(library)\(label)var e=document.activeElement;while(e&&e.shadowRoot&&e.shadowRoot.activeElement)e=e.shadowRoot.activeElement;
+    return (e&&e!==document.body)?describe(e):JSON.stringify({});})()
+    """
 
     /// In an agent window's page (its own world): nothing an agent can't answer. alert, confirm and prompt return at
     /// once (an off-screen sheet would block the page and every later call), "Leave site?" is never asked, and no
@@ -86,4 +144,3 @@ enum AgentPageScripts {
         return String(text.dropFirst().dropLast())
     }
 }
-#endif

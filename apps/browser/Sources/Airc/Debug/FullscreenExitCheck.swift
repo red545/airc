@@ -6,7 +6,7 @@ import AircKit
 import WebKit
 
 /// `--script fullscreen-exit` (owner P0, 2026-11-06: Airc quit right after leaving full screen). One case per launch
-/// (`AIRC_FULLSCREEN_CASE`), under 50 s, with no screenshots, HID input or media devices. A real native full screen
+/// (`AIRC_FULLSCREEN_CASE`), normally under 50 s, with no screenshots, HID input or media devices. A real native full screen
 /// takes the display over (it is a Space of its own), so it runs only after three minutes without the owner's keyboard
 /// or mouse, stops as soon as they come back, and needs the app active (the investigator activates its scratch app).
 ///
@@ -18,8 +18,9 @@ import WebKit
 /// titlebar move count below shows a fight that a guard cut short.
 ///
 /// Cases:
-/// - `native`: five cycles, each left another way (Esc twice, View → Exit Full Screen, the green button,
+/// - `native`: six cycles, each left another way (Esc twice, View → Exit Full Screen, the green button, ⌃⌘F,
 ///   `toggleFullScreen`, FullScreenController.exit); `native-rapid`: leave while entering, enter while leaving;
+/// - `native-shortcut` and `native-escape`: ten cycles of that exit path, with a 100 s budget;
 /// - `native-esc`: one Esc in full screen stays (Arc); with the focus in a Chromium page, on the window, in a
 ///   Safari's-engine page; `webkit-esc`: the Safari's-engine part without a real full screen (daytime-safe);
 /// - `native-video`, `native-split`, `native-webkit` (a Safari's-engine page), `native-switch` (tab and Space switches
@@ -96,16 +97,19 @@ extension SnapshotRunner {
             }
             self?.finish()
         }
+        let attemptBudget: Double = mode == "native-shortcut" || mode == "native-escape" ? 100 : 44
         let deadline = DispatchWorkItem { [weak self] in
             guard let self else { return }
             if c.window.styleMask.contains(.fullScreen) { c.window.toggleFullScreen(nil) }
-            note("FAIL fullscreen exit: exceeded the 44 s attempt budget")
+            note("FAIL [independent] fullscreen exit: exceeded the \(Int(attemptBudget)) s attempt budget")
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.finish() }
         }
-        // The runner gives a launch 53 s; this leaves time to write the log.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 44, execute: deadline)
+        // The shared outer watchdog remains independent of this main-queue deadline.
+        DispatchQueue.main.asyncAfter(deadline: .now() + attemptBudget, execute: deadline)
         switch mode {
         case "native": fullscreenNativeCycles(permitted: permitted)
+        case "native-shortcut": fullscreenNativeCycles(ways: Array(repeating: .shortcut, count: 10), permitted: permitted)
+        case "native-escape": fullscreenNativeCycles(ways: Array(repeating: .escape, count: 10), permitted: permitted)
         case "native-rapid": fullscreenRapidToggles(permitted: permitted)
         default:
             #if canImport(AircCore)
@@ -213,6 +217,7 @@ extension SnapshotRunner {
         case escape = "Esc pressed twice"
         case menu = "View menu"
         case button = "green button"
+        case shortcut = "⌃⌘F"
         case toggle = "toggleFullScreen"
         case controller = "FullScreenController.exit"
     }
@@ -240,6 +245,15 @@ extension SnapshotRunner {
             }
         case .button:
             if let zoom = w.standardWindowButton(.zoomButton) { zoom.performClick(nil) } else { w.toggleFullScreen(nil) }
+        case .shortcut:
+            for type in [NSEvent.EventType.keyDown, .keyUp] {
+                if let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [.control, .command],
+                                               timestamp: ProcessInfo.processInfo.systemUptime,
+                                               windowNumber: w.windowNumber, context: nil, characters: "f",
+                                               charactersIgnoringModifiers: "f", isARepeat: false, keyCode: 3) {
+                    NSApp.postEvent(event, atStart: false)
+                }
+            }
         case .toggle: w.toggleFullScreen(nil)
         case .controller: c.fullScreen.exit()
         }
@@ -327,7 +341,7 @@ extension SnapshotRunner {
                 guard entered else { return }
                 if !seen.isEmpty, seen != ["willExit", "didExit"] { note("\(name): AppKit while leaving: \(seen.joined(separator: " "))") }
                 let w = c.window
-                check(!c.isFullscreen && !w.styleMask.contains(.fullScreen), "\(name): exited and still alive")
+                check(!c.isFullscreen && !w.styleMask.contains(.fullScreen), "\(name): exited full screen")
                 check(!w.titlebarAccessoryViewControllers.contains { $0 is FullScreenRevealAccessory },
                       "\(name): accessory removed after transition")
                 check(moves < 40, "\(name): the titlebar moved \(moves) times while leaving (no fight with AppKit)")

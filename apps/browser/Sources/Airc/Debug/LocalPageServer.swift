@@ -21,6 +21,15 @@ final class LocalPageServer {
     /// favicon that fails once). Set it before `start`.
     var handler: ((String) -> Page?)?
 
+    /// Redirect checks also need the request method and query, before the path-only fallback.
+    struct Request {
+        var method: String
+        var target: String
+        var headers: [String: String] = [:]
+        var path: String { String(target.split(separator: "?").first ?? "/") }
+    }
+    var requestHandler: ((Request) -> Page?)?
+
     private let listener: NWListener
     private let pages: [String: Page]
     private let queue = DispatchQueue(label: "airc.test.page-server")
@@ -77,7 +86,13 @@ final class LocalPageServer {
                     .flatMap { Int($0.split(separator: ":").last?.trimmingCharacters(in: .whitespaces) ?? "") } ?? 0
                 if buffer.count - end.upperBound < length, !complete, error == nil { return self.receive(connection, buffer) }
                 let target = head.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
-                self.respond(connection, path: String(target.split(separator: "?").first ?? "/"))
+                let method = head.split(separator: " ").first.map(String.init) ?? "GET"
+                var headers: [String: String] = [:]
+                for line in head.components(separatedBy: "\r\n").dropFirst() {
+                    let pair = line.split(separator: ":", maxSplits: 1)
+                    if pair.count == 2 { headers[pair[0].lowercased()] = pair[1].trimmingCharacters(in: .whitespaces) }
+                }
+                self.respond(connection, request: Request(method: method, target: target, headers: headers))
             } else if complete || error != nil || buffer.count > 65536 {
                 connection.cancel()
             } else {
@@ -86,8 +101,8 @@ final class LocalPageServer {
         }
     }
 
-    private func respond(_ connection: NWConnection, path: String) {
-        let page = handler?(path) ?? pages[path] ?? Page(status: "404 Not Found", body: "not found")
+    private func respond(_ connection: NWConnection, request: Request) {
+        let page = requestHandler?(request) ?? handler?(request.path) ?? pages[request.path] ?? Page(status: "404 Not Found", body: "not found")
         guard page.delay <= 0 else {
             var now = page
             now.delay = 0

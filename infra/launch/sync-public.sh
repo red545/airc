@@ -6,31 +6,95 @@
 #
 #   AIRC_PUBLIC_AUTHOR='Airc <hello@aircbrowser.com>' infra/launch/sync-public.sh [--dry-run]
 #
-# Env: AIRC_PUBLIC_DIR (the public clone; default ../public-airc beside the checkout), AIRC_PUBLIC_REMOTE (required:
+# The gate (this script, scan.sh, scan.py, the allowlists and exclude.txt) always runs as committed in the
+# revision being published: the copy cron starts only fetches, then re-runs infra/launch from origin/main.
+# So a fix to the scan rules lands with a normal push, whatever the checkout cron points at.
+#
+# Every real run writes $AIRC_STATUS_DIR/public-sync.state (key=value lines: status OK|FAIL, checked, src,
+# published, public, detail) for the lead's tick and the release checklist. When a run fails and the
+# failure is new (or its detail changed), it also appends an alert to $AIRC_SYNC_ALERT_FILE if set.
+#
+# Env: AIRC_PUBLIC_DIR (the public clone; default public-airc beside the main checkout), AIRC_PUBLIC_REMOTE (required:
 # the public repository's URL, checked against the clone's origin), AIRC_STATUS_DIR (default ../status, holds the
-# last published private revision in public-sync.rev). Cron runs it hourly; it does nothing when main hasn't moved.
+# last published private revision in public-sync.rev), AIRC_SYNC_ALERT_FILE (optional), AIRC_SYNC_GATE=local
+# (test this checkout's gate instead of origin/main's; with --dry-run only). Cron runs it hourly; it does
+# nothing when main hasn't moved.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
-ROOT=$(git -C "$HERE" rev-parse --show-toplevel)
-PUB=${AIRC_PUBLIC_DIR:-$(dirname "$ROOT")/public-airc}
+ROOT=${AIRC_PRIVATE_ROOT:-$(git -C "$HERE" rev-parse --show-toplevel)}
+# The folder beside the MAIN checkout, also when this runs from a linked worktree (cron's runner).
+BASE=$(dirname "$(dirname "$(cd "$ROOT" && cd "$(git rev-parse --git-common-dir)" && pwd)")")
+PUB=${AIRC_PUBLIC_DIR:-$BASE/public-airc}
 REMOTE=${AIRC_PUBLIC_REMOTE:?Set AIRC_PUBLIC_REMOTE to the public repository URL (the clone origin must match)}
-STATUS=${AIRC_STATUS_DIR:-$(dirname "$ROOT")/status}
-die() { echo "sync-public: $*" >&2; exit 2; }
+STATUS=${AIRC_STATUS_DIR:-$BASE/status}
+# scan.sh finds these beside the repository; the re-run gate lives in a temporary folder instead.
+export AIRC_PRIVATE_PATTERNS=${AIRC_PRIVATE_PATTERNS:-$BASE/private-patterns.txt}
+export AIRC_TOOLS_DIR=${AIRC_TOOLS_DIR:-$BASE/tools}
 dry=0; [[ ${1:-} == --dry-run ]] && dry=1
+src=${AIRC_SYNC_SRC:-}
+state_file=$STATUS/public-sync.state
+
+# key=value state for the lead's hourly tick and the release checklist. Dry runs never write it.
+write_state() { # status detail [public commit]
+  [[ $dry == 0 ]] || return 0
+  local published public prev_status prev_detail
+  published=$(cat "$STATUS/public-sync.rev" 2>/dev/null || true)
+  public=${3:-$(git -C "$PUB" rev-parse -q --verify 'origin/main^{commit}' 2>/dev/null || true)}
+  prev_status=$(sed -n 's/^status=//p' "$state_file" 2>/dev/null || true)
+  prev_detail=$(sed -n 's/^detail=//p' "$state_file" 2>/dev/null || true)
+  {
+    echo "status=$1"
+    echo "checked=$(date -u +%Y-%m-%dT%H:%MZ)"
+    echo "src=$src"
+    echo "published=$published"
+    echo "public=$public"
+    echo "detail=$2"
+  } >"$state_file.tmp"
+  mv "$state_file.tmp" "$state_file"
+  if [[ $1 == FAIL && -n ${AIRC_SYNC_ALERT_FILE:-} && ( $prev_status != FAIL || $prev_detail != "$2" ) ]]; then
+    printf '\n## public-sync %s: FAIL, public repo NOT synced\n- %s (origin/main %s; last published %s). Fix it in the private repo (docs/launch/public-repo.md) and push; state: %s\n' \
+      "$(date -u +%Y-%m-%dT%H:%MZ)" "$2" "${src:0:8}" "${published:0:8}" "$state_file" >>"$AIRC_SYNC_ALERT_FILE"
+  fi
+  state_written=1
+}
+state_written=0
+die() { echo "sync-public: $*" >&2; write_state FAIL "$*"; exit 2; }
+# Any other failure (network, git) is a FAIL too.
+cleanup=()
+trap 'rc=$?; rm -rf "${cleanup[@]}"; [[ $rc == 0 || $state_written == 1 ]] || write_state FAIL "sync-public exited $rc (see public-sync.log)"' EXIT
 
 author=${AIRC_PUBLIC_AUTHOR:-}
 re='^([^<>]*[^<> ])[ ]+<([^<>@ ]+@[^<> ]+\.[^<> ]+)>$'
 [[ "$author" =~ $re ]] || die "AIRC_PUBLIC_AUTHOR must look like \"Name <user@domain>\"."
 name=${BASH_REMATCH[1]} email=${BASH_REMATCH[2]}
 
-exec 9>"$STATUS/.public-sync.lock"
-flock -n 9 || { echo "sync-public: another sync is running"; exit 0; }
+if [[ -z ${AIRC_SYNC_LOCKED:-} ]]; then
+  exec 9>"$STATUS/.public-sync.lock"
+  flock -n 9 || { echo "sync-public: another sync is running"; state_written=1; exit 0; }
+fi
 
 # --- what to publish: the reviewed main, never the working tree or unpushed commits -------------
-git -C "$ROOT" fetch -q origin main
-src=$(git -C "$ROOT" rev-parse --verify 'origin/main^{commit}')
+if [[ -z $src ]]; then
+  git -C "$ROOT" fetch -q origin main
+  src=$(git -C "$ROOT" rev-parse --verify 'origin/main^{commit}')
+fi
 last=$(cat "$STATUS/public-sync.rev" 2>/dev/null || true)
-[[ "$src" != "$last" ]] || { echo "sync-public: up to date at ${src:0:7}"; exit 0; }
+if [[ "$src" == "$last" ]]; then
+  echo "sync-public: up to date at ${src:0:7}"
+  write_state OK "up to date"
+  exit 0
+fi
+
+# --- the gate as committed in $src (see the header); the lock (fd 9) stays held across exec -------
+if [[ -z ${AIRC_SYNC_GATE:-} ]]; then
+  gate=$(mktemp -d "${TMPDIR:-/tmp}/airc-sync-gate.XXXXXX")
+  git -C "$ROOT" archive --format=tar "$src" -- infra/launch | tar -x -C "$gate"
+  state_written=1  # the re-run copy owns the state from here
+  AIRC_SYNC_GATE=$gate AIRC_SYNC_GATE_TMP=1 AIRC_SYNC_LOCKED=1 AIRC_SYNC_SRC=$src AIRC_PRIVATE_ROOT=$ROOT \
+    AIRC_PUBLIC_DIR=$PUB AIRC_STATUS_DIR=$STATUS exec bash "$gate/infra/launch/sync-public.sh" "$@"
+fi
+[[ -z ${AIRC_SYNC_GATE_TMP:-} ]] || cleanup+=("$AIRC_SYNC_GATE")
+[[ $AIRC_SYNC_GATE != local || $dry == 1 ]] || die "AIRC_SYNC_GATE=local is for --dry-run only"
 
 # --- the public clone: its own history only -----------------------------------------------------
 [[ -d "$PUB/.git" ]] || die "no public clone at $PUB"
@@ -51,7 +115,7 @@ pathspec=(.)
 for path in "${excludes[@]}"; do pathspec+=(":(exclude,glob)$path"); done
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/airc-sync.XXXXXX")
-trap 'rm -rf "$work"' EXIT
+cleanup+=("$work")
 mkdir "$work/tree" "$work/meta"
 git -C "$ROOT" archive --format=tar "$src" -- "${pathspec[@]}" | tar -x -C "$work/tree"
 
@@ -66,6 +130,7 @@ tree=$(pub write-tree)
 if [[ "$tree" == "$(git -C "$PUB" rev-parse "$parent^{tree}")" ]]; then
   echo "sync-public: no file changes since the last public commit"
   [[ $dry == 1 ]] || echo "$src" >"$STATUS/public-sync.rev"
+  write_state OK "no file changes" "$parent"
   exit 0
 fi
 # Same blobs, modes and paths as the private revision minus the excludes.
@@ -86,15 +151,19 @@ commit=$(git --git-dir="$PUB/.git" commit-tree "$tree" -p "$parent" -F "$work/me
 git --git-dir="$PUB/.git" log -1 --format='%an%n%ae%n%cn%n%ce%n%B' "$commit" >"$work/meta/COMMIT-METADATA"
 site_emails=$(grep -oE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' "$work/tree/apps/marketing/src/lib/site.ts" 2>/dev/null | tr '\n' ' ')
 status=0
-"$HERE/scan.sh" "$work/tree" || status=1
-AIRC_PUBLIC_EMAILS="${AIRC_PUBLIC_EMAILS:-} $site_emails" "$HERE/scan.sh" "$work/meta" 2>/dev/null | sed 's/^/  /' || status=1
-[[ $status == 0 ]] || die "SCAN FAILED for ${src:0:7}: nothing published. Fix it in the private repo and push."
+"$HERE/scan.sh" "$work/tree" | tee "$work/scan.out" || status=1
+AIRC_PUBLIC_EMAILS="${AIRC_PUBLIC_EMAILS:-} $site_emails" "$HERE/scan.sh" "$work/meta" 2>/dev/null | sed 's/^/  /' | tee "$work/meta.out" || status=1
+if [[ $status != 0 ]]; then
+  summary=$(grep -h '^ *Privacy scan: FAIL' "$work/scan.out" "$work/meta.out" | sed 's/^ *Privacy scan: //' | paste -sd ';' -)
+  die "SCAN FAILED for ${src:0:7}: ${summary:-scan error}; nothing published. Fix it in the private repo and push."
+fi
 
 echo "sync-public: ${src:0:7} → public commit ${commit:0:7} on ${parent:0:7}"
-if [[ $dry == 1 ]]; then echo "sync-public: dry run, not pushed"; exit 0; fi
+if [[ $dry == 1 ]]; then echo "sync-public: dry run, not pushed (tree $tree)"; exit 0; fi
 # The push uses the machine's credentials again (the isolated config above has no credential helper).
 env -u GIT_CONFIG_GLOBAL -u GIT_CONFIG_NOSYSTEM git -C "$PUB" push -q origin "$commit:refs/heads/main"
 env -u GIT_CONFIG_GLOBAL -u GIT_CONFIG_NOSYSTEM git -C "$PUB" fetch -q origin main
 git -C "$PUB" reset -q --hard origin/main
 echo "$src" >"$STATUS/public-sync.rev"
+write_state OK "published ${src:0:8} as ${commit:0:8}" "$commit"
 echo "sync-public: pushed"

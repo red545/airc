@@ -154,4 +154,45 @@ final class SidebarTests: XCTestCase {
         XCTAssertEqual(favs[2].tabs.map(\.id), ["J"])
         XCTAssertEqual(try JSONDecoder().decode(ImportPlan.self, from: JSONEncoder().encode(p)), p)
     }
+
+    /// Arc's Today (the `unpinned` container) can hold folders: they come over as folders, in order and nested, with
+    /// their names and when Arc made them; a split inside one comes over as its tabs; `today` lists every tab flat.
+    func testTodayFoldersKeepOrderNestingAndNames() throws {
+        func tab(_ id: String, _ parent: String) -> [Any] {
+            [id, ["id": id, "parentID": parent, "data": ["tab": ["savedURL": "https://\(id.lowercased()).test/", "timeLastActiveAt": 800_000_000.0]]] as [String: Any]]
+        }
+        var items: [Any] = [
+            "PIN", ["id": "PIN", "childrenIds": [String]()],
+            "TODAY", ["id": "TODAY", "childrenIds": ["A", "F1", "B", "F3"]],
+            "F1", ["id": "F1", "parentID": "TODAY", "title": "Reading", "createdAt": 799_000_000.0, "childrenIds": ["C", "F2"], "data": ["list": [String: Any]()]],
+            "F2", ["id": "F2", "parentID": "F1", "title": "Later", "childrenIds": ["SV", "D"], "data": ["list": [String: Any]()]],
+            "SV", ["id": "SV", "parentID": "F2", "childrenIds": ["E", "G"], "data": ["splitView": [String: Any]()]],
+            "F3", ["id": "F3", "parentID": "TODAY", "title": NSNull(), "childrenIds": [String](), "data": ["list": [String: Any]()]],
+        ]
+        for (id, parent) in [("A", "TODAY"), ("B", "TODAY"), ("C", "F1"), ("D", "F2"), ("E", "SV"), ("G", "SV")] { items += tab(id, parent) }
+        let space: [String: Any] = ["id": "S", "containerIDs": ["pinned", "PIN", "unpinned", "TODAY"] as [Any]]
+        let main: [String: Any] = ["items": items, "spaces": [space]]
+        let raw: [String: Any] = ["sidebar": ["containers": [["global": [String: Any]()], main] as [Any]]]
+        let p = try parse(raw)
+        let today = p.spaces[0]
+        XCTAssertEqual(today.today.map(\.id), ["A", "C", "E", "G", "D", "B"], "flat, in order")
+        XCTAssertEqual(today.today.first?.lastActiveAt, 800_000_000)
+        func shape(_ items: [ImportedItem]) -> String {
+            items.map { i -> String in
+                switch i {
+                case .tab(let t): return t.id
+                case .folder(let f): return "[\(f.title): \(shape(f.children))]"
+                case .split(let x): return "{\(x.tabs.map(\.id).joined(separator: " "))}"
+                }
+            }.joined(separator: " ")
+        }
+        XCTAssertEqual(today.todayItems.map(shape), "A [Reading: C [Later: E G D]] B [Folder: ]")
+        guard case .folder(let reading)? = today.todayItems?[1] else { return XCTFail("no Reading folder") }
+        XCTAssertEqual(reading.createdAt, 799_000_000)
+        XCTAssertEqual(p.warnings.filter { $0.code == .splitView }.count, 1)
+        XCTAssertTrue(today.pinned.isEmpty)
+        XCTAssertEqual(try JSONDecoder().decode(ImportPlan.self, from: JSONEncoder().encode(p)), p)
+        // Without Today, nothing of it.
+        XCTAssertNil(try parse(raw, today: false).spaces[0].todayItems)
+    }
 }

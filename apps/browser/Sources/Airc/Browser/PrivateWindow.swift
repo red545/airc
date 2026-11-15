@@ -51,11 +51,13 @@ final class PrivateBrowsing {
                 self.sessionDownloads[profileID] = PrivateDownloads(engine: d, profile: profile)
             }
             self.askBeforeClosingWithDownloads(app: app)
+            let fullScreenSource = NewWindowFullScreen.source(fallback: source?.window ?? app.controller?.window)
             let w = PrivateWindowController(app: app, profileID: profileID, profile: profile,
                                             frame: self.nextFrame(app: app, after: source))
             self.windows.append(w)
             Telemetry.shared.record(.featureUsed(.privateWindowOpen))
             w.show()
+            NewWindowFullScreen.follow(w.window, from: fullScreenSource)
             completion?(w)
         }
     }
@@ -168,7 +170,7 @@ final class PrivateBrowsing {
 
     /// The main window's size, a little down and to the right of it (or of `source`), on its screen.
     private func nextFrame(app: AppDelegate, after source: PrivateWindowController?) -> NSRect {
-        let base = source?.window.frame ?? app.controller?.window.frame ?? NSRect(x: 80, y: 80, width: 1280, height: 820)
+        let base = (source?.window ?? app.controller?.window).map(NewWindowFullScreen.windowedFrame) ?? NSRect(x: 80, y: 80, width: 1280, height: 820)
         let screen = (source?.window.screen ?? app.controller?.window.screen ?? NSScreen.main)?.visibleFrame
         let step = CGFloat(windows.count % 6 + 1) * 26
         var f = NSRect(x: base.minX + step, y: base.minY - step, width: base.width, height: base.height)
@@ -263,6 +265,7 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
         w.isMovableByWindowBackground = false
         w.tabbingMode = .disallowed
         w.isRestorable = false
+        w.collectionBehavior.insert(.fullScreenPrimary)
         w.minSize = NSSize(width: 640, height: 420)
         w.title = "Private Window"
         // Menus, alerts and popovers over it are dark too.
@@ -289,7 +292,7 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
     }
 
     func show() {
-        if app?.options.isAutomated == true {
+        if app?.options.isAutomated == true, !LittleArcController.actsAsOwner {
             window.orderFront(nil)
         } else {
             window.makeKeyAndOrderFront(nil)
@@ -471,6 +474,8 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        // Closing may yield to engine unload/download confirmation before willClose.
+        CaptureSession.active(in: sender)?.cancel()
         // An engine that doesn't ask itself before cancelling downloads (WebKit): the app asks, then closes.
         if (app?.engine as? EngineDownloads)?.asksBeforeClosingWithDownloads == false, !confirmedClose, PrivateBrowsing.shared.isLastWindow(self),
            let n = downloads?.runningCount, n > 0 {
@@ -618,6 +623,7 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
         case "Save Page As…": savePage()
         case "Print…": printPage()
         case "Copy URL": copyURL()
+        case "Share": shareCurrent()   // H03 (Sharing/PrivateShare.swift): the page's link alone
         case "Capture…": startCapture()
         case "Reload Page": reloadOrStop()
         case "Reload Ignoring Cache": shownPage?.reloadIgnoringCache()
@@ -685,6 +691,18 @@ extension PrivateWindowController: EngineWindowDelegate {
 
 /// Nothing a page does here is recorded: these only redraw the window.
 extension PrivateWindowController: EngineTabDelegate {
+    /// C08: "Search <engine> for “…”" searches the profile's default in a new private tab.
+    func tab(_ tab: EngineTab, pageMenu context: [String: Any]) -> [[String: String]] {
+        SelectionSearchMenu.items(context, search: defaultSearch)
+    }
+    func tab(_ tab: EngineTab, pageMenuCommand id: String) {
+        guard let q = SelectionSearchMenu.query(fromID: id), pages.contains(where: { $0.tab === tab }) else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let url = SelectionSearch.url(q, search: self.defaultSearch) else { return }
+            _ = self.openPage(url)
+        }
+    }
+    func selectionSearchName(for tab: EngineTab) -> String? { defaultSearch.name }
     func tabDidChangeTitle(_ tab: EngineTab) { refresh() }
     func tabDidChangeURL(_ tab: EngineTab) {
         prompts.pageNavigated(tab)
@@ -723,11 +741,15 @@ extension PrivateWindowController: CommandBarHost {
     var commandBarAnchorsToURLField: Bool { true }
     var commandBarHistory: (store: HistoryStore, profileID: String)? { nil }
     var commandBarSuggestions: (engine: SearchEngine, profileID: String)? {
-        guard app?.settings.values.suggestionsEnabled ?? true else { return nil }
+        guard app?.settings.values.suggestionsEnabled ?? true,
+              app?.store.profile(profileID)?.includesSearchSuggestions ?? true,
+              defaultSearch.site == nil else { return nil }   // C08 (per profile), P07d (a site default has none)
         return (searchEngine, suggestionKey)
     }
 
     var searchEngine: SearchEngine { app?.store.profile(profileID)?.searchEngine ?? .google }
+    /// P07d: the profile's default search, a site search included.
+    var defaultSearch: DefaultSearch { app?.store.profile(profileID)?.defaultSearch ?? .engine(searchEngine) }
 
     private var openURLs: [String] { pages.compactMap { $0.tab.url?.absoluteString }.filter { !URLRules.isNewTab($0) } }
 
@@ -748,7 +770,7 @@ extension PrivateWindowController: CommandBarHost {
     private func siteRow(_ site: CommonSites.Site, matches: [Int]) -> CommandResult? {
         guard let url = URL(string: site.url) else { return nil }
         return CommandResult(title: site.name, subtitle: URLRules.displayURL(site.url), badge: "Open",
-                             icon: .symbol("globe"), matches: matches, action: .open(url))
+                             icon: .monogram(page: site.url), matches: matches, action: .open(url))
     }
 
     private func actions() -> [WindowController.CommandAction] {
@@ -794,7 +816,8 @@ extension PrivateWindowController: CommandBarHost {
             let title = p.tab.title.isEmpty ? URLRules.displayHost(url) : p.tab.title
             candidates.append(.init(id: p.id, kind: .openTab, title: title, subtitle: URLRules.displayURL(url), boost: -Double(i) * 0.01))
             rows[p.id] = CommandResult(title: title, subtitle: URLRules.displayHost(url), badge: "Switch to Tab",
-                                       icon: .favicon(image: p.tab.favicon, url: nil, page: nil), matches: [], action: .tab(p.id))
+                                       icon: p.tab.favicon.map { .favicon(image: $0, url: nil, page: nil) } ?? .monogram(page: url),
+                                       matches: [], action: .tab(p.id))
         }
         for a in acts {
             let id = "action:" + a.title
@@ -808,7 +831,7 @@ extension PrivateWindowController: CommandBarHost {
         }
         // P07d: the profile's default search, a site search included.
         let builtIn = searchEngine
-        let engine = app?.store.profile(profileID)?.defaultSearch ?? .engine(builtIn)
+        let engine = defaultSearch
         let search = { (text: String, subtitle: String) in
             CommandResult(title: text, subtitle: subtitle, badge: "Search", icon: .symbol("magnifyingglass"), matches: [],
                           action: .open(engine.url(for: text) ?? builtIn.searchURL(for: text)))
@@ -818,11 +841,11 @@ extension PrivateWindowController: CommandBarHost {
             out.append(row)
             out.append(search(q, AircCommandText.searchSubtitle(engine: engine.name)))
         } else if let m = inline, let url = URL(string: m.url) {
-            out.append(CommandResult(title: m.text, subtitle: "", badge: "Open", icon: .symbol("globe"),
+            out.append(CommandResult(title: m.text, subtitle: "", badge: "Open", icon: .monogram(page: m.url),
                                      matches: Array(0..<m.typedCount), action: .open(url)))
             out.append(search(q, AircCommandText.searchSubtitle(engine: engine.name)))
         } else if let u = URLRules.normalizeInput(q), let url = URL(string: u) {
-            out.append(CommandResult(title: q, subtitle: "", badge: "Open", icon: .symbol("globe"),
+            out.append(CommandResult(title: q, subtitle: "", badge: "Open", icon: .monogram(page: u),
                                      matches: [], action: .open(url)))
         } else {
             out.append(search(q, AircCommandText.searchSubtitle(engine: engine.name)))
@@ -894,7 +917,12 @@ final class PrivateSidebarView: NSView {
     private(set) var rows: [PrivateTabRow] = []
     /// The session's downloads (PrivateWindowExtras.swift), above the note.
     let downloads = PrivateDownloadsView()
-    var downloadRows = 0 { didSet { if downloadRows != oldValue { needsLayout = true } } }
+    var downloadRows = 0 {
+        didSet {
+            downloads.isHidden = downloadRows == 0
+            if downloadRows != oldValue { needsLayout = true }
+        }
+    }
     private let note = NSTextField(wrappingLabelWithString: "Airc doesn’t keep this window’s history. Its cookies and site data go when you close it.")
 
     var newTabActive = false { didSet { newTab.isSelected = newTabActive } }
@@ -923,6 +951,7 @@ final class PrivateSidebarView: NSView {
         scroll.borderType = .noBorder
         scroll.documentView = list
         addSubview(scroll)
+        downloads.isHidden = downloadRows == 0
         addSubview(downloads)
         note.font = AircFont.caption.appFont
         note.isSelectable = false

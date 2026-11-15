@@ -16,9 +16,10 @@ import AppKit
 /// - Timings as cblocal's: the keystroke's main-thread work and the time to its Core Animation commit, rows checked
 ///   before that commit.
 ///
-/// Keys are real key events through the app's own event path: `NSApp.sendEvent` (the app's key monitor, then the key
+/// With AIRC_REAL_KEYS=1, keys go once through the stable UI driver (layout-independent control keys).
+/// Otherwise keys are in-app events through the app's own event path: `NSApp.sendEvent` (the app's key monitor, then the key
 /// window, with the shortcuts check's key-window stand-in, since scripted runs are never key), and the window's own
-/// `sendEvent` when that didn't reach the field editor (a window off the active Space). Never HID events. Text goes in
+/// `sendEvent` when that didn't reach the field editor (a window off the active Space). This fallback never posts HID events. Text goes in
 /// through the field editor's `insertText`, as an input method commits it. A key that didn't arrive while the window
 /// was off the active Space, covered or locked is FAIL-ENV, with the evidence.
 extension SnapshotRunner {
@@ -33,6 +34,7 @@ extension SnapshotRunner {
         var bar: CommandBarView? { self.c.commandBar }
         /// Which path delivered each key ("app": NSApp.sendEvent; "window": the window's sendEvent).
         var keyPaths: [String: Int] = [:]
+        var pointerBeforeDeletionCase: CGPoint?
         func requested(_ p: String) -> Bool { requestLock.withLock { requests.contains(p) } }
 
         // MARK: Steps
@@ -69,6 +71,23 @@ extension SnapshotRunner {
                     guard let log = self.c.commandBar?.keyLog else { return true }   // Esc closed the bar
                     return log.dropFirst(before).contains { k.evidence.contains($0) }
                 }
+                if UIDriverClient.requested {
+                    let combo: String = switch k {
+                    case .tab: "tab"
+                    case .space: "space"
+                    case .backspace: "delete"
+                    case .shiftBackspace: "shift+delete"
+                    case .optionCommandBackspace: "opt+cmd+delete"
+                    case .escape: "esc"
+                    case .enter: "return"
+                    }
+                    UIDriverClient.press([combo], pid: getpid()) { ok, output in
+                        self.check(ok, "parityp07 real key \(k): driver delivered (\(output))")
+                        keyPaths["UI driver", default: 0] += ok ? 1 : 0
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: done)
+                    }
+                    return
+                }
                 NSApp.sendEvent(Self.keyEvent(k, window: c.window))
                 var path = "app"
                 if !arrived(), !k.monitorOnly {
@@ -104,7 +123,7 @@ extension SnapshotRunner {
                  + "input \(inputBlocked ?? "free"), layout \(Self.layoutName)")
             check(port != 0, "parityp07: loopback search site listens")
             app?.settings.values.suggestionsEnabled = false
-            Self.emulateKeyWindow(c) { [weak self] in self?.note($0) }
+            if !UIDriverClient.requested { Self.emulateKeyWindow(c) { [weak self] in self?.note($0) } }
             home = c.store.profile(ofSpace: c.currentSpaceID).id
             homeSpace = c.currentSpaceID
             do {
@@ -303,10 +322,28 @@ extension SnapshotRunner {
 
         // G: suggestion deletion. ⇧⌫ on the default highlight deletes text; ⌥⌘⌫ (Arc) removes the highlighted page.
         uiCase(window: { self.c.window }) {
+            run { [self] in
+                // Keep an unrelated stationary pointer out of the rows: this case tests an untouched highlight.
+                // Cursor positioning is fixture setup; the tested deletion itself uses the stable driver's keys.
+                if UIDriverClient.requested, NSApp.isActive, c.window.isKeyWindow, let screen = NSScreen.screens.first {
+                    let mouse = NSEvent.mouseLocation
+                    pointerBeforeDeletionCase = CGPoint(x: mouse.x, y: screen.frame.maxY - mouse.y)
+                    let corner = c.window.convertPoint(toScreen: NSPoint(x: 8, y: 8))
+                    CGWarpMouseCursorPosition(CGPoint(x: corner.x, y: screen.frame.maxY - corner.y))
+                }
+                // A retry must start with its deletable fixture still present.
+                if uiAttempt?.retry == true {
+                    app?.history.recordVisit(profileID: home, url: deletable, title: "P07 deletable quokka page", typed: true)
+                }
+            }
             openBar()
             typeText("P07 deletable quokka page")
             waitFor({ bar?.results.first?.historyURL == deletable })
             run { [self] in check(bar?.results.first?.historyURL == deletable, "parityp07 G: the page is the highlighted first row (\(bar?.resultTitles.prefix(2) ?? []))") }
+            run { [self] in
+                check(app?.history.entry(profileID: home, url: deletable) != nil && bar?.historySelectionIsExplicitForTesting == false,
+                      "parityp07 G: history exists and the highlight is not an explicit selection before ⇧⌫")
+            }
             key(.shiftBackspace)
             run { [self] in
                 check(app?.history.entry(profileID: home, url: deletable) != nil && bar?.query == "P07 deletable quokka pag",
@@ -333,6 +370,10 @@ extension SnapshotRunner {
                 ed.unmarkText()
             }
             closeBar()
+            run {
+                if let point = pointerBeforeDeletionCase { CGWarpMouseCursorPosition(point) }
+                pointerBeforeDeletionCase = nil
+            }
         }
 
         // H: the pill's menu, the Settings command, persistence.

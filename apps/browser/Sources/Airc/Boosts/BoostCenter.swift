@@ -143,6 +143,13 @@ final class BoostCenter {
         if !on, ranHere, let page { reloadWithNewScript(page) }
     }
 
+    /// BST-2's Turn On (a Boost installed off because it has code): on, and the site's page on screen loads again so the
+    /// code runs now (it runs once per page load).
+    func turnOn(domain: String, page: EngineTab?) {
+        store.update(domain: domain) { $0.enabled = true }
+        if let page, BoostDomain.key(for: page.url) == domain { reloadWithNewScript(page) }
+    }
+
     /// The engine takes the new script before the reload, so the reloaded page never paints the old Boost.
     private func reloadWithNewScript(_ page: EngineTab) {
         scripts.pushNow()

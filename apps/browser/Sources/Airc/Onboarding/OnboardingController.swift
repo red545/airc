@@ -48,6 +48,8 @@ final class OnboardingController {
         model.memberName = Self.memberName(settings: settings)
         model.memberNumber = Self.memberNumber(deviceID: store.deviceID)
         model.loginsAvailable = app.credentialSink.acceptsCredentials
+        model.siteStorageAvailable = app.credentialSink.acceptsCredentials && app.credentialSink.importKinds.contains(.localStorage)
+        model.extensionsAvailable = app.engine.supportsExtensions
         let browser = DefaultBrowser.shared
         browser.refresh()
         model.offersDefaultBrowser = browser.canAsk && !browser.isDefault
@@ -101,13 +103,21 @@ final class OnboardingController {
 
     private var startedAtImport = false
 
+    /// Starts at the password manager step (Settings → Import → Your password manager); leaving it closes the window.
+    func startAtPasswordManager() {
+        startedAtPasswordManager = true
+        go(.passwordManager)
+    }
+
+    private var startedAtPasswordManager = false
+
     /// A re-run (ON-3) can be left from every step: its ✕, ⌘W, and Esc on its first step. While the logins are being
     /// written into the profiles it can't (the ✕ is disabled and says why); everything else is safe to leave at any
     /// point, because the Spaces are written in one step and what follows (profiles, icons) finishes by itself. The
     /// first run only closes by finishing (ON-5); ⌘Q quits either way.
     func requestClose() {
         guard model.closable, !finished else { return }
-        guard model.closeBlockedReason == nil else { return NSSound.beep() }
+        guard model.closeBlockedReason == nil, !model.pmInstalling else { return NSSound.beep() }
         cancel()
     }
 
@@ -115,6 +125,7 @@ final class OnboardingController {
         guard mode == .rerun, !finished else { return }
         finished = true
         revealTimer?.invalidate()
+        endPasswordManagerReview()
         signIn?.close()
         signIn = nil
         accountProbe?.cancel()
@@ -198,7 +209,7 @@ final class OnboardingController {
             self.model.startedFresh = true
             self.model.choosing = false
             self.model.focusedSpace = 0
-            self.go(.theme)
+            self.go(.passwordManager)
         }
         model.onBackUpArc = { [weak self] in self?.backUpArc() }
         model.onLocateArc = { [weak self] in self?.locateArc() }
@@ -208,8 +219,16 @@ final class OnboardingController {
         model.onImportLogins = { [weak self] in self?.importLogins() }
         model.onSkipLogins = { [weak self] in
             self?.model.logins = .skipped
-            self?.go(.theme)
+            self?.go(.passwordManager)
         }
+        model.onPasswordManagerInstall = { [weak self] in self?.installPasswordManager() }
+        model.onPasswordManagerNotNow = { [weak self] in
+            guard let self, !self.model.pmInstalling else { return }
+            self.model.pmOutcome = .skipped
+            self.leavePasswordManager()
+        }
+        model.onPasswordManagerContinue = { [weak self] in self?.leavePasswordManager() }
+        model.onPasswordManagerOpenStore = { [weak self] pid in self?.openPasswordManagerStore(profileID: pid) }
         model.onThemeChange = { [weak self] in self?.updateWindowTheme(animated: true) }
         model.onMakeDefault = { [weak self] in self?.makeDefault() }
         model.onDefaultNotNow = { [weak self] in
@@ -224,7 +243,7 @@ final class OnboardingController {
         model.onDiscardPasswordsFile = { [weak self] in self?.discardPasswordsFile() }
         model.onPasswordsDone = { [weak self] in
             guard let self else { return }
-            if self.model.step == .logins { return self.go(.theme) }
+            if self.model.step == .logins { return self.go(.passwordManager) }
             if self.startedAtImport && self.mode == .rerun { return self.requestClose() }
             self.model.onStartFresh?()
         }
@@ -284,6 +303,7 @@ final class OnboardingController {
         updateWindowTheme(animated: true)
         if step == .arc { discover() }
         if step == .accounts { refreshAccounts() }
+        if step == .passwordManager { preparePasswordManager() }
     }
 
     func next() {
@@ -294,8 +314,11 @@ final class OnboardingController {
             else if model.source == .passwords, case .done = model.passwords { model.onPasswordsDone?() }
             else if model.source == .bookmarksFile || model.source == .passwords { return }
             else { model.onStartFresh?() }
-        case .accounts: go(model.offersLoginsStep ? .logins : .theme)
-        case .logins: go(.theme)
+        case .accounts: go(model.offersLoginsStep ? .logins : .passwordManager)
+        case .logins: go(.passwordManager)
+        case .passwordManager:
+            if model.pmResults != nil { model.onPasswordManagerContinue?() }
+            else if model.pmChoice != nil { model.onPasswordManagerInstall?() }
         case .theme: go(afterTheme)
         case .defaultBrowser: go(.done)
         case .done: finish()
@@ -311,13 +334,17 @@ final class OnboardingController {
             if model.choosing { model.choosing = false } else if startedAtImport { requestClose() } else { go(.welcome) }
         case .accounts: go(.arc)
         case .logins: go(.accounts)
-        case .theme:
-            if model.startedFresh {
+        case .passwordManager:
+            guard !model.pmInstalling else { return }
+            if startedAtPasswordManager {
+                requestClose()
+            } else if model.startedFresh {
                 model.startedFresh = false
                 go(.arc)
             } else {
                 go(model.offersLoginsStep && model.logins != .skipped ? .logins : .accounts)
             }
+        case .theme: go(.passwordManager)
         case .defaultBrowser: go(.theme)
         case .done: go(model.offersDefaultBrowser && !DefaultBrowser.shared.isDefault ? .defaultBrowser : .theme)
         }
@@ -751,6 +778,7 @@ final class OnboardingController {
             app?.history.importVisits(visits)
             model.historyImported = visits.count
             ArcExtensionChecklist.shared.merge(plan, profileIDs: mapped)
+            importSearchEngines(plan.mappedSearchEngines(profileIDs: mapped))
         }
         // Profiles: load each new one's engine profile (a real Chromium profile with the Chromium engine).
         let created = result.profilesCreated
@@ -801,6 +829,11 @@ final class OnboardingController {
         } else {
             model.historyImported = 0
         }
+        var engines: [String: ImportedSearchEngines] = [:]
+        for (key, e) in r.searchEngines where chosen.contains(key) {
+            if let pid = result.profileIDs[key] { engines[pid] = e }
+        }
+        importSearchEngines(engines)
         NSLog("[import] %@: %ld profiles, %ld Spaces, %ld pinned tabs, %ld folders, %ld history entries (%ld new or changed)",
               r.kind?.rawValue ?? "file", profiles.count, result.spacesCreated + result.spacesUpdated, result.pinnedTabs, result.folders,
               model.historyImported, added)
@@ -811,6 +844,12 @@ final class OnboardingController {
             model.passwordsProfile = pid
         }
         model.aircProfiles = store.orderedProfiles.map { ($0.id, $0.name) }
+    }
+
+    /// C08b: the imported profiles' default search engines and shortcuts (`SearchEngineImportAdapter`).
+    private func importSearchEngines(_ mapped: [String: ImportedSearchEngines]) {
+        guard let app, !mapped.isEmpty else { model.searchEnginesImported = nil; return }
+        model.searchEnginesImported = SearchEngineImportAdapter.describe(SearchEngineImportAdapter.apply(mapped, store: store, settings: app.settings))
     }
 
     /// Favicons of everything imported, fetched now so the first window has them.
@@ -898,7 +937,13 @@ final class OnboardingController {
             model.logins = .failed(CredentialImport.Unsupported().errorDescription!)
             return
         }
-        guard !LaunchOptions.current.isAutomated else {
+        #if AIRC_TESTING
+        // arcimport3: a check's scratch keychain item stands in for "Arc Safe Storage" (synthetic Arc only).
+        let testKeychain = TestArcKeychain.current != nil && Self.testArcDirectory != nil
+        #else
+        let testKeychain = false
+        #endif
+        guard !LaunchOptions.current.isAutomated || testKeychain else {
             model.logins = .failed("Automated runs never read Arc's logins.")
             return
         }
@@ -923,6 +968,128 @@ final class OnboardingController {
                     : (e as? LocalizedError)?.errorDescription ?? "Arc's logins couldn't be read.")
             }
         })
+    }
+
+    // MARK: Password manager (2b)
+
+    private var pmPreselected = false
+
+    /// The step appeared: the profiles to offer (the import's, else every profile), and once, the preselection (on
+    /// WebKit too, where the step says extensions need the Chromium engine).
+    private func preparePasswordManager() {
+        guard !model.pmInstalling, model.pmResults == nil else { return }
+        let ordered = store.orderedProfiles
+        model.pmProfiles = ordered.map { ($0.id, $0.name) }
+        var imported: Set<String> = []
+        if let r = model.result { imported = Set(model.profileRows.compactMap { r.profileIDs[$0.id] }) }
+        let all = Set(ordered.map(\.id))
+        model.pmChosenProfiles = imported.isEmpty ? all : imported.intersection(all)
+        guard !pmPreselected else { return }
+        pmPreselected = true
+        let checklist = Set(ArcExtensionChecklist.shared.rows.map(\.extensionInfo.id))
+        if let pick = PasswordManagerCatalog.preselect(home: BrowserImportLocator.home,
+                                                       systemApplications: !LaunchOptions.current.isAutomated,
+                                                       checklistIDs: checklist) {
+            model.pmChoice = pick.0.id
+            model.pmHint = pick.1
+        }
+    }
+
+    private var pmChosen: PasswordManager? { PasswordManagerCatalog.all.first { $0.id == model.pmChoice } }
+
+    /// Airc's own: nothing to install, nothing changed. Otherwise its extension into each chosen profile, one review
+    /// each (on this window), then the results; with the switch on, Airc stops offering to save passwords in the
+    /// profiles that have the extension now.
+    private func installPasswordManager() {
+        guard let app, let m = pmChosen, !model.pmInstalling, model.pmResults == nil else { return }
+        if m.isBuiltin {
+            model.pmOutcome = .builtin
+            return leavePasswordManager()
+        }
+        guard model.extensionsAvailable, let id = PasswordManagerCatalog.installID(m) else { return }
+        let pids = model.pmProfiles.map(\.id).filter { model.pmChosenProfiles.contains($0) }
+        guard !pids.isEmpty else { return }
+        model.pmInstalling = true
+        ExtensionInstallBatch.reviewer = { [weak self] prompt, resolve in
+            guard let self else { return resolve(false) }
+            self.review(prompt, resolve)
+        }
+        let turnOff = model.pmTurnOffSaving
+        ExtensionInstallBatch.run(app: app, pids.map { (id, $0) }, parent: window) { [weak self] results in
+            guard let self else { ExtensionInstallBatch.reviewer = nil; return }
+            self.endPasswordManagerReview()
+            let engine: BrowserEngine = app.engine
+            var rows: [PasswordManagerResult] = []
+            var off: [String] = []
+            for r in results {
+                let ep = app.profiles.engineProfile(for: r.profileID)
+                let present = r.message == "Installed" || r.message.hasPrefix("Already installed")
+                    || (ep.map { engine.installedExtensions(for: $0).contains { $0["id"] as? String == id } } ?? false)
+                if present, turnOff, let ep, engine.passwordsOffered(for: ep) != nil {
+                    engine.setPasswordsOffered(false, for: ep)
+                    off.append(r.profileID)
+                }
+                rows.append(.init(profileID: r.profileID, profileName: r.profileName, message: r.message, present: present))
+            }
+            self.model.pmSavingTurnedOff = off
+            self.model.pmOutcome = rows.contains(where: \.present) ? .installed : .notInstalled
+            self.model.pmResults = rows
+            self.model.pmInstalling = false
+            // Counts only: never which manager or profile.
+            NSLog("[onboarding] password manager: %ld of %ld profiles have it, saving offer off in %ld",
+                  rows.filter(\.present).count, rows.count, off.count)
+        }
+    }
+
+    /// One profile's review, on this window: the extension, what it can do and its profile (the browser's own card).
+    private func review(_ prompt: [String: Any], _ resolve: @escaping (Bool) -> Void) {
+        model.pmReview?.onAnswer?(false)
+        let directory = prompt["profileDirectory"] as? String
+        let profileName = store.orderedProfiles.first { $0.engineDirectory == directory }?.name ?? "chosen"
+        let r = ExtensionInstallModel(name: prompt["name"] as? String ?? pmChosen?.name ?? "this extension",
+                                      icon: app?.engine.extensionActionIcon(["icon": prompt["icon"] ?? ""]),
+                                      permissions: prompt["permissions"] as? [String] ?? [], profileName: profileName,
+                                      ui: windowTheme)
+        var answered = false
+        r.onAnswer = { [weak self] yes in
+            guard !answered else { return }
+            answered = true
+            if self?.model.pmReview === r { self?.model.pmReview = nil }
+            resolve(yes)
+            if yes { Telemetry.shared.record(.featureUsed(.extensionInstalled)) }
+        }
+        model.pmReview = r
+    }
+
+    /// Closes a review still open (Cancel) and gives the engine's prompts back to the browser windows.
+    private func endPasswordManagerReview() {
+        model.pmReview?.onAnswer?(false)
+        model.pmReview = nil
+        ExtensionInstallBatch.reviewer = nil
+    }
+
+    /// On to the colours, or (opened from Settings) closed. Records the outcome's kind.
+    private func leavePasswordManager() {
+        guard !model.pmInstalling else { return }
+        if let o = model.pmOutcome { Telemetry.shared.record(.featureUsed(.passwordManager(o))) }
+        if startedAtPasswordManager && mode == .rerun { return requestClose() }
+        go(.theme)
+    }
+
+    /// A profile the install didn't reach: the manager's Web Store page, in a Space of that profile.
+    private func openPasswordManagerStore(profileID: String) {
+        guard let app, let m = pmChosen, let id = PasswordManagerCatalog.installID(m),
+              let space = store.orderedSpaces.first(where: { $0.profileID == profileID }) else { return NSSound.beep() }
+        var url = WindowController.extensionStoreURL(id) ?? URL(string: "https://chromewebstore.google.com")!
+        #if AIRC_TESTING
+        if LaunchOptions.current.isAutomated, let base = ArcExtensionChecklist.testStoreBase {
+            url = base.appendingPathComponent("detail/" + id)
+        }
+        #endif
+        let c = app.controller ?? app.makeController()
+        c.switchToSpace(space.id, animated: false)
+        c.navigate(to: url, newTab: true)
+        if LaunchOptions.current.isAutomated { c.window.orderFront(nil) } else { c.window.makeKeyAndOrderFront(nil) }
     }
 
     // MARK: Back up Arc (IM-5)

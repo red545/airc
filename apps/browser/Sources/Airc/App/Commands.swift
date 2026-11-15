@@ -76,6 +76,8 @@ enum CommandMenus {
             BrowserCommand("New Note", "n", [.control, .shift], id: "file.newNote") { $0.newNote(source: .shortcut) },
             // Arc's New Note (in Split): beside the page on screen (Notes/NoteSplit.swift).
             BrowserCommand("New Note in Split", id: "file.newNoteInSplit") { $0.newNoteInSplit(source: .shortcut) }.enabled { $0.canAddNoteInSplit },
+            // P19a: Arc's New Easel, ⌃⇧E as in Arc's main menu (Easels/EaselCenter.swift).
+            BrowserCommand("New Easel", "e", [.control, .shift], id: "file.newEasel") { _ = $0.newEasel() },
             // WIN-7 (Browser/MultiWindow.swift): another window on this Space, with the Command Bar.
             BrowserCommand("New Window", "n", .command, id: "file.newWindow") { $0.app?.openNewWindow(from: $0) },
             // PW-1 (Browser/PrivateWindow.swift): in a private window, ⇧⌘N opens another one of the same profile.
@@ -100,6 +102,9 @@ enum CommandMenus {
             // Notes out and back in (Notes/NoteExport.swift); Export All is Arc's Help › Export Arc Notes.
             BrowserCommand("Export Note…", id: "file.exportNote") { $0.exportNote() }.enabled { $0.store.isNoteTab($0.shownTabID) },
             BrowserCommand("Export All Notes…", id: "file.exportAllNotes") { $0.exportAllNotes() },
+            // P19c: an Easel out of Airc (Easels/EaselSharing.swift): a PNG or a web page, and a read-only link.
+            BrowserCommand("Export Easel…", id: "file.exportEasel") { c in c.shownEasel?.export() ?? NSSound.beep() }.enabled { $0.shownEasel != nil },
+            BrowserCommand("Share Easel…", id: "file.shareEasel") { c in c.shownEasel?.shareLink() ?? NSSound.beep() }.enabled { $0.shownEasel != nil },
             BrowserCommand("Import Notes…", id: "file.importNotes") { $0.importNotes() },
             BrowserCommand("Print…", "p", .command, id: "file.print") { $0.printPage() },
             nil,
@@ -155,6 +160,8 @@ enum CommandMenus {
             // BST-1. Arc had no shortcut for its Boost editor, so neither does this.
             BrowserCommand("Boost This Site…", id: "view.boost") { $0.showBoostEditor() },
             BrowserCommand("History", "y", .command, id: "view.history") { $0.showHistory() },
+            // LIB-2: Arc's Archive › Clear Archive: the Library's question, with a choice of age (Library/LibraryPanel.swift).
+            BrowserCommand("Clear Archive…", id: "view.clearArchive") { $0.clearArchiveFromMenu() }.enabled { !$0.store.state.archive.isEmpty },
             nil,
             // DEV-1, Arc's ⌃D: Developer Mode on or off for the site on screen (Browser/DeveloperMode.swift).
             BrowserCommand("Developer Mode for This Site", "d", .control, id: "view.developerSite") { $0.toggleDeveloperModeForSite() },
@@ -205,7 +212,7 @@ enum CommandMenus {
             BrowserCommand("Expand Pinned Section", id: "tabs.expandPinned") { $0.setPinnedSectionCollapsed(false) }
                 .enabled { $0.store.space($0.currentSpaceID)?.pinnedCollapsed == true },
             BrowserCommand("Collapse Pinned Section", id: "tabs.collapsePinned") { $0.setPinnedSectionCollapsed(true) }
-                .enabled { $0.store.space($0.currentSpaceID)?.pinnedCollapsed == false },
+                .enabled { $0.store.space($0.currentSpaceID)?.pinnedCollapsed == false && $0.store.canFoldPinned(ofSpace: $0.currentSpaceID) },
             nil,
             BrowserCommand("Next Tab", BrowserCommand.down, [.command, .option], id: "tabs.next") { $0.selectAdjacentTab(1) },
             BrowserCommand("Previous Tab", BrowserCommand.up, [.command, .option], id: "tabs.previous") { $0.selectAdjacentTab(-1) },
@@ -247,6 +254,8 @@ enum CommandMenus {
         c.append(BrowserCommand("Search Tabs…", "a", [.command, .shift], id: "tabs.search") { $0.openCommandBar(mode: .newTab) })
         c.append(BrowserCommand("Library", "l", [.command, .shift], id: "tabs.library") { $0.showLibrary() })
         c.append(BrowserCommand("Join Next Meeting", "j", [.command, .control], id: "tabs.joinMeeting") { $0.joinNextMeeting() })
+        // S04, Arc's Peek Email… (⌘E in Arc; ⌘E is Extensions here, so no key): a sign-in code or link from your mail preview.
+        c.append(BrowserCommand("Peek Email…", id: "tabs.peekEmail") { $0.peekEmail() })
         return c
     }
 
@@ -314,6 +323,8 @@ final class CommandMenuItem: NSMenuItem, NSMenuItemValidation {
         // The shortcuts overview is the app's, whichever window is in front (or none).
         if command.id == "help.shortcuts" { return EssentialShortcutsWindow.show(over: NSApp.keyWindow) }
         if command.id == "help.taskManager" { return TaskManagerWindow.show(from: NSApp.keyWindow, app: app) }   // P20d
+        // Send Feedback… goes on whichever window is in front, a private one too (without its screenshot), or none.
+        if command.id == "help.feedback" { return FeedbackSheet.show(from: NSApp.keyWindow, app: app) }
         // WIN-7: the key browser window's command, else the one used last's; with none open, only the ones that open a
         // window run (AppDelegate.runWithoutWindow).
         let c = app.controller(for: NSApp.keyWindow) ?? app.controller
@@ -342,6 +353,7 @@ enum MainMenu {
     static func build(app: AppDelegate) -> NSMenu {
         ShortcutCenter.shared.attach(settings: app.settings)
         AppPersonalization.attach(settings: app.settings)   // P21b: the app icon, sounds and haptics
+        BundleReplacementMonitor.shared.start()
         UpdateCenter.shared.noteLaunchedVersion()   // "Updated!" after an update's restart
         let main = NSMenu()
 
@@ -614,14 +626,20 @@ enum KeyMonitor {
             }
             // WIN-7: the browser window the key is for.
             guard let c = app.controller(for: event.window) else { return event }
+            // P19a: an Easel's canvas or text with the keyboard keeps its own keys (⌘Z ⌘D ⌘G ⌘A ⌘±; Easels/EaselCanvas.swift).
+            if let owner = c.window.firstResponder as? EaselKeyOwner, owner.claims(event) { return event }
             if let bar = c.commandBar, bar.handleSuggestionKey(event) { return nil }
             // Full screen (Arc): Esc goes to the page; a second press, or holding it, leaves full screen.
             // Peek: Esc closes it. So does Site Controls (first: it's above the page).
+            // "Updated!" goes on Esc; the key still goes on (it isn't Esc's only user).
+            if event.keyCode == 53, mods.isEmpty { c.dismissUpdatedToast() }
             if event.keyCode == 53, mods.isEmpty, c.closeSiteControls() { return nil }
             // The Boost editor: Esc ends Zap, then closes it. ⌘S in its code view saves the code (not the sidebar).
             if event.keyCode == 53, mods.isEmpty, c.boostEditorHandlesEscape() { return nil }
             if mods == .command, event.charactersIgnoringModifiers?.lowercased() == "s", c.boostEditorSavesCode() { return nil }
             if event.keyCode == 53, mods.isEmpty, c.peek != nil { c.closePeek(); return nil }
+            // P19b: Esc ends using a live Capture's page on an Easel (Easels/LiveCapture.swift), before the page sees it.
+            if event.keyCode == 53, mods.isEmpty, let i = EaselInteraction.current, i.window === c.window { i.end(capture: true); return nil }
             // SB-36: rows selected in the sidebar (which has the keyboard then): Esc clears them, Delete archives them.
             if c.handleSelectionKey(event) { return nil }
             if event.keyCode == 53, mods.isEmpty, c.fullScreen.escapeDown(event) { return nil }
@@ -645,6 +663,22 @@ enum KeyMonitor {
             // the keyboard elsewhere gets the key first (Figma's canvas undoes itself); otherwise ⌘Z restores closed
             // tabs (SB-23, SB-40), or runs the command the user gave ⌘Z (Settings → Shortcuts).
             if chars == "z", mods == .command {
+                // L04: a file the Library just moved to the Trash comes back on ⌘Z only while the Library (open, its
+                // window key) or the "Moved to the Trash" toast offers it, and never while something editable has the
+                // keyboard: one of Airc's fields, or a page's text field or editable content. A page with the keyboard
+                // is asked what its focused element is; until it answers (at most 0.3 s) the key waits.
+                if !editingText, c.libraryOffersUndo {
+                    guard pageIsEditingText(page: c.focusedPage, in: c.window), let page = c.focusedPage else {
+                        c.undoLibraryTrash()
+                        return nil
+                    }
+                    let window = c.window
+                    LibraryFiles.focusedElementIsEditable(page) { [weak c] editable in
+                        guard let c else { return }
+                        if editable || !c.libraryOffersUndo { deliverToPage(event, in: window) } else { c.undoLibraryTrash() }
+                    }
+                    return nil
+                }
                 if editingText || pageIsEditingText(page: c.focusedPage, in: c.window) { return event }
                 if !ShortcutCenter.shared.owns(chars, mods) {
                     if offerToPage(reopenOnUndo, in: c) { deliverToPage(event, in: c.window); return nil }

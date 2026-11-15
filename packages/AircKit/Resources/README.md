@@ -10,5 +10,7 @@ effective_tld_names.dat` at the pinned `CHROMIUM_VERSION`). Boosts key sites by 
   unmodified, as its Source Code Form. It is not Apache-2.0 like the rest of the repo.
 - **In the app:** `scripts/build-app.sh` puts it in `Contents/Resources/public_suffix_list.dat.deflate` (raw DEFLATE,
   read with `NSData.decompressed(using: .zlib)`). Without it the app keys every Boost by its exact host.
+- **Snapshot:** 2026-11-06, Chromium 156.0.8078.88's copy (the refresh script rewrites this line). Peek's same-site
+  test, Air Traffic Control and Boosts all read this one file, so they agree with the engine on what a site is.
 - **Refresh:** `scripts/refresh-public-suffix-list.sh` (from the Chromium checkout, or `--upstream` from
   publicsuffix.org), then run the AircKit tests and commit the file.

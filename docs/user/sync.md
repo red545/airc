@@ -6,12 +6,18 @@ iCloud**. It's off until you turn it on. Both Macs need the same Apple Account, 
 ## What syncs, and what never does
 
 Synced: your Spaces (name, icon, colour, order and which profile each uses), pinned tabs and folders (their addresses,
-names and icons), Favorites, and the names of your profiles, so a Space finds its profile on the other Mac.
+names and icons), Favorites, pinned [notes](notes.md) with their pictures, pinned and Favorite splits (their pages in
+order, name, icon, and whether they're side by side or stacked, with their sizes), and the names of your profiles, so a
+Space finds its profile on the other Mac.
 
-Never synced: Today tabs and the Archive, history, passwords, cookies and logins, private windows and Little Airc,
-Boosts, splits, and which tab or Space you're on. [Notes](notes.md) stay on this Mac for now, pinned ones too, and
-nothing another Mac does moves or removes them. Each Mac signs in to sites in its own profiles. A profile that's new
-to a Mac starts there empty: sign in to its sites once.
+Never synced: Today tabs, their [folders](sidebar.md), splits in Today and the Archive, history, passwords, cookies and
+logins, private windows and Little Airc, Boosts, Easels, and which tab, pane or Space you're on. A note only in Today
+stays on this Mac. Each Mac signs in to sites in its own profiles. A profile that's new to a Mac starts there empty:
+sign in to its sites once.
+
+If two Macs change the same split at once, the later layout wins, and pages added or moved on either Mac both stay.
+Deleting a split on one Mac deletes it on the other, but a page the other Mac added to it meanwhile stays as a pinned
+tab. Older versions of Airc don't show synced splits until they're updated.
 
 It's end-to-end encrypted. The key is in your iCloud Keychain, so only your Macs can read what Airc keeps in iCloud.
 

@@ -34,20 +34,49 @@ final class ProfileHost {
         self.engine = engine
     }
 
-    func loadAll(completion: @escaping () -> Void) {
+    /// Loads every profile. `first` (the launch's visible profiles) load at once; the others start only when those
+    /// are ready, one after another, so their engine bring-up and blocking setup stay off the launch's critical path
+    /// (a page that asks for one sooner loads it then, `whenLoaded`). `completion` runs when all are ready.
+    func loadAll(first: Set<String> = [], completion: @escaping () -> Void) {
         // A restored backup can reuse a profile ID with a different engine directory.
         // Forget the binding, not the browser data; loading below binds the restored directory.
         loaded = loaded.filter { store.profile($0.key)?.engineDirectory == $0.value.directory }
         let profiles = store.orderedProfiles
         var remaining = profiles.count
         guard remaining > 0 else { return completion() }
-        for p in profiles {
-            load(p) { _ in
-                remaining -= 1
-                if remaining == 0 { completion() }
+        let one: (EngineProfile?) -> Void = { _ in
+            remaining -= 1
+            if remaining == 0 { completion() }
+        }
+        let early = profiles.filter { first.contains($0.id) }
+        guard !early.isEmpty, early.count < profiles.count else { return profiles.forEach { load($0, one) } }
+        var later = profiles.filter { !first.contains($0.id) }
+        func next() {
+            guard !later.isEmpty else { return }
+            let p = later.removeFirst()
+            // A main-queue turn between profiles: input and frames go first.
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                LaunchTimeline.mark("background profile \(p.name)")
+                self.load(p) { e in one(e); next() }
+            }
+        }
+        var earlyLeft = early.count
+        for p in early {
+            load(p) { e in
+                one(e)
+                earlyLeft -= 1
+                if earlyLeft == 0 { next() }
             }
         }
     }
+
+    /// Each profile once it is ready to use (its blocking rules installed), by its Airc profile ID: windows opened
+    /// before then show their page (AppDelegate.profileBecameReady).
+    func onReady(_ block: @escaping (String) -> Void) { readyObservers.append(block) }
+    private var readyObservers: [(String) -> Void] = []
+    /// Whether the profile's engine profile is loaded and ready.
+    func isReady(_ profileID: String) -> Bool { loaded[profileID] != nil }
 
     func engineProfile(for profileID: String) -> EngineProfile? { loaded[profileID] }
 
@@ -72,7 +101,9 @@ final class ProfileHost {
             return
         }
         waiting[p.id] = [done]
+        let engineLoad = LaunchTimeline.begin("profile engine load \(p.name)")
         engine.loadProfile(directory: p.engineDirectory) { [weak self] e in
+            engineLoad()
             guard let self else { return }
             guard let e else {
                 let blocks = self.waiting.removeValue(forKey: p.id) ?? []
@@ -83,12 +114,15 @@ final class ProfileHost {
     }
 
     private func finishLoading(_ e: EngineProfile, id: String) {
+        let gate = LaunchTimeline.begin("profile gate \(store.profile(id)?.name ?? id)")
         let ready = { [weak self] in
+            gate()
             guard let self else { return }
             self.loaded[id] = e
             self.keepLoaded?(e); self.didLoad?(e)
             let blocks = self.waiting.removeValue(forKey: id) ?? []
             blocks.forEach { $0(e) }
+            self.readyObservers.forEach { $0(id) }
         }
         if let beforeUse { beforeUse(e, id, ready) } else { ready() }
     }

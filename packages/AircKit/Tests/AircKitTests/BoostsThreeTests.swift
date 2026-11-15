@@ -6,6 +6,21 @@ import JavaScriptCore
 /// boosts3: Boosts stay out of private windows (the engine's third install argument), and a zap made inside a frame
 /// is the frames' only, in the store, in shared files and in the content digest.
 final class BoostsThreeTests: XCTestCase {
+    private var previousSuffixes: PublicSuffixList!
+
+    override func setUp() {
+        super.setUp()
+        // Parallel XCTest workers do not run another test class's fixture setup.
+        previousSuffixes = PublicSuffixList.shared
+        TestSuffixes.install()
+    }
+
+    override func tearDown() {
+        PublicSuffixList.use(previousSuffixes)
+        previousSuffixes = nil
+        super.tearDown()
+    }
+
     /// The script as the engine wraps it for a private profile's processes (engine/core/airc_page_script.cc).
     static func privately(_ script: String) -> String {
         "(function (install) {\n  return typeof install !== 'function' ? install\n"

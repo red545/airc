@@ -16,35 +16,48 @@ import Security
 protocol CredentialSink: AnyObject {
     /// False on an engine that can't take Chromium logins (WebKit): the import doesn't start, nothing is decrypted.
     var acceptsCredentials: Bool { get }
+    /// P22b: what the engine takes beyond website passwords and unpartitioned cookies (HTTP authentication, federated
+    /// sign-ins, partitioned cookies, sites' localStorage). Kinds it lacks are skipped with why, never decrypted.
+    var importKinds: ImportKinds { get }
     /// Called once per Airc profile, on the main thread. The values are plaintext: hand them over and drop them.
     /// `completion` gets the engine's own counts.
     func receive(_ credentials: ImportedCredentials, forProfile profileID: String,
                  completion: @escaping (CredentialImport.EngineResult) -> Void)
 }
 
-/// The engine's stores: `AircProfile importLogins:/importCookies:` through `ChromiumEngine.importCredentials`.
+extension CredentialSink {
+    var importKinds: ImportKinds { [] }
+}
+
+/// The engine's stores: `AircProfile importLogins:/importCookies:` through `ChromiumEngine.importCredentials`, and
+/// (P22b) `importLocalStorage:` (EngineSiteStorage.swift).
 final class EngineCredentialSink: CredentialSink {
-    typealias Importer = (_ logins: [[String: Any]], _ cookies: [[String: Any]], _ profile: EngineProfile,
-                          _ completion: @escaping ([String: Any], [String: Any]) -> Void) -> Void
+    typealias Importer = (_ logins: [[String: Any]], _ cookies: [[String: Any]], _ sites: [[String: Any]], _ profile: EngineProfile,
+                          _ completion: @escaping ([String: Any], [String: Any], [String: Any]) -> Void) -> Void
     private let profiles: ProfileHost
     private let importer: Importer?
+    let importKinds: ImportKinds
     /// How long to wait for the engine's answer before counting the profile as failed (its callbacks can be dropped
     /// when the engine shuts down).
     var timeout: TimeInterval = 90
 
     var acceptsCredentials: Bool { importer != nil }
 
-    init(profiles: ProfileHost, importer: Importer?) {
+    init(profiles: ProfileHost, importKinds: ImportKinds = [], importer: Importer?) {
         self.profiles = profiles
+        self.importKinds = importKinds
         self.importer = importer
     }
 
     static func make(engine: BrowserEngine, profiles: ProfileHost) -> EngineCredentialSink {
         #if canImport(AircCore)
         if let chromium = engine as? ChromiumEngine {
-            return EngineCredentialSink(profiles: profiles) { [weak chromium] logins, cookies, profile, done in
-                guard let chromium else { return done(["error": "engine stopped"], ["error": "engine stopped"]) }
-                chromium.importCredentials(logins: logins, cookies: cookies, into: profile, completion: done)
+            return EngineCredentialSink(profiles: profiles, importKinds: EngineSiteStorage.importKinds) { [weak chromium] logins, cookies, sites, profile, done in
+                let stopped = ["error": "engine stopped"]
+                guard let chromium else { return done(stopped, stopped, stopped) }
+                chromium.importCredentials(logins: logins, cookies: cookies, into: profile) { l, c in
+                    EngineSiteStorage.importLocalStorage(sites, into: profile) { done(l, c, $0) }
+                }
             }
         }
         #endif
@@ -53,7 +66,7 @@ final class EngineCredentialSink: CredentialSink {
 
     func receive(_ credentials: ImportedCredentials, forProfile profileID: String,
                  completion: @escaping (CredentialImport.EngineResult) -> Void) {
-        let sent = (logins: credentials.logins.count, cookies: credentials.cookies.count)
+        let sent = (logins: credentials.logins.count, cookies: credentials.cookies.count, sites: credentials.siteData.count)
         // Nothing stored: every row failed, for the same reason.
         func failure(_ why: String) -> CredentialImport.EngineResult {
             var r = CredentialImport.EngineResult.failed(sent, why)
@@ -61,7 +74,9 @@ final class EngineCredentialSink: CredentialSink {
             r.rows = CredentialImport.rows(
                 logins: credentials.logins, loginResults: credentials.logins.indices.map { ["index": $0, "status": "failed", "reason": reason] },
                 cookies: credentials.cookies, cookieResults: credentials.cookies.indices.map { ["index": $0, "status": "rejected", "reason": "store unavailable"] },
-                profileID: profileID).map { var row = $0; row.status = .failed; row.reason = reason; return row }
+                profileID: profileID, sites: credentials.siteData,
+                siteResults: credentials.siteData.indices.map { ["index": $0, "status": "rejected", "reason": "store unavailable"] })
+                .map { var row = $0; row.status = .failed; row.reason = reason; return row }
             return r
         }
         guard let importer else { return completion(failure("this engine can't take Chromium logins")) }
@@ -74,29 +89,39 @@ final class EngineCredentialSink: CredentialSink {
         profiles.whenLoaded(profileID, { engineProfile in
             // The engine's dictionary form (PROFILE-SERVICES.md). Built here, dropped when the engine answers.
             let logins: [[String: Any]] = credentials.logins.map {
-                ["origin": $0.origin, "signonRealm": $0.signonRealm, "actionURL": $0.actionURL,
-                 "username": $0.username, "password": $0.password]
+                var row: [String: Any] = ["origin": $0.origin, "signonRealm": $0.signonRealm, "actionURL": $0.actionURL,
+                                          "username": $0.username, "password": $0.password]
+                // P22b: only to an engine that takes them (the read skipped them otherwise).
+                if !$0.scheme.isEmpty { row["scheme"] = $0.scheme }
+                if !$0.federationOrigin.isEmpty { row["federationOrigin"] = $0.federationOrigin }
+                return row
             }
             let cookies: [[String: Any]] = credentials.cookies.map {
                 ["host": $0.host, "name": $0.name, "path": $0.path, "value": $0.value,
                  "expiresUTC": NSNumber(value: $0.expiresUTC), "secure": $0.secure, "httpOnly": $0.httpOnly,
                  "sameSite": $0.sameSite, "metadata": $0.metadata]
             }
-            importer(logins, cookies, engineProfile) { l, c in
-                let error = (l["error"] as? String) ?? (c["error"] as? String)
+            // P22b: sites' localStorage, the bytes as Chromium's own database holds them. Dropped with the rest.
+            let sites: [[String: Any]] = credentials.siteData.map { site in
+                ["origin": site.origin, "items": site.items.map { ["key": $0.key, "value": $0.value] }]
+            }
+            importer(logins, cookies, sites, engineProfile) { l, c, s in
+                let error = (l["error"] as? String) ?? (c["error"] as? String) ?? (sites.isEmpty ? nil : s["error"] as? String)
                 // Only what the password store kept and read back counts (engine pass 8: "saved"; an existing login
                 // is "skipped" and keeps the stored one). Submission alone is not an import.
                 let saved = l["saved"] as? Int ?? 0
-                if let error, saved + (c["accepted"] as? Int ?? 0) == 0 {
+                if let error, saved + (c["accepted"] as? Int ?? 0) + (s["imported"] as? Int ?? 0) == 0 {
                     return finish(failure(error))
                 }
                 var r = CredentialImport.EngineResult(
                     loginsImported: saved, loginsRejected: l["rejected"] as? Int ?? 0, loginsSkipped: l["skipped"] as? Int ?? 0,
                     cookiesImported: c["accepted"] as? Int ?? 0, cookiesRejected: c["rejected"] as? Int ?? 0,
                     error: error)
+                r.siteDataImported = s["imported"] as? Int ?? 0
                 r.rows = CredentialImport.rows(logins: credentials.logins, loginResults: l["results"] as? [[String: Any]] ?? [],
                                                cookies: credentials.cookies, cookieResults: c["results"] as? [[String: Any]] ?? [],
-                                               profileID: profileID)
+                                               profileID: profileID, sites: credentials.siteData,
+                                               siteResults: s["results"] as? [[String: Any]] ?? [])
                 finish(r)
             }
         }, failed: {
@@ -122,18 +147,23 @@ enum CredentialImport {
         var error: String?
         var loginsFailed = 0
         var cookiesFailed = 0
-        /// One row per login, and per site for cookies (ResultRow).
+        /// P22b: sites whose localStorage the engine stored and read back, and ones sent when it stored nothing.
+        var siteDataImported = 0
+        var siteDataFailed = 0
+        /// One row per login, and per site for cookies and site data (ResultRow).
         var rows: [ResultRow] = []
 
-        static func failed(_ sent: (logins: Int, cookies: Int), _ why: String) -> EngineResult {
-            EngineResult(error: why, loginsFailed: sent.logins, cookiesFailed: sent.cookies)
+        static func failed(_ sent: (logins: Int, cookies: Int, sites: Int), _ why: String) -> EngineResult {
+            var r = EngineResult(error: why, loginsFailed: sent.logins, cookiesFailed: sent.cookies)
+            r.siteDataFailed = sent.sites
+            return r
         }
     }
 
     /// One line of the per-row results: a login (its site and username) or a site's cookies with the same outcome.
     /// Never a password or a cookie's value.
     struct ResultRow: Equatable, Identifiable {
-        enum Kind: String { case login, cookies }
+        enum Kind: String { case login, cookies, siteData }
         enum Status: String, CaseIterable { case imported, skipped, failed }
         var kind: Kind
         /// The host ("github.com"), or the origin as Arc stored it when it has none (an app login).
@@ -149,8 +179,13 @@ enum CredentialImport {
         /// P22: the whole of a profile's saved passwords or cookies (a database that couldn't be read, a profile
         /// folder, the engine's store); `count` is 0, since nobody knows how many rows it held.
         var whole = false
+        /// P22b: a federated sign-in's provider host ("accounts.google.com"), for the "sign in again" list.
+        var provider = ""
+        /// P22b: what kind of login or which of a site's data ("the browser's sign-in box", "from the app …",
+        /// "local storage · 5 items", "offline data").
+        var detail = ""
 
-        var id: String { [kind.rawValue, profileID, site, username, status.rawValue, reason, whole ? "whole" : ""].joined(separator: "\u{1f}") }
+        var id: String { [kind.rawValue, profileID, site, username, status.rawValue, reason, whole ? "whole" : "", detail].joined(separator: "\u{1f}") }
 
         static func host(_ origin: String) -> String {
             let h = URL(string: origin)?.host ?? origin.trimmingCharacters(in: CharacterSet(charactersIn: "."))
@@ -160,13 +195,24 @@ enum CredentialImport {
 
     /// The engine's per-row results in words. Logins keep their order; cookies are grouped by site and outcome.
     static func rows(logins: [ImportedLogin], loginResults: [[String: Any]], cookies: [ImportedCookie],
-                     cookieResults: [[String: Any]], profileID: String) -> [ResultRow] {
+                     cookieResults: [[String: Any]], profileID: String, sites: [ImportedSiteStorage] = [],
+                     siteResults: [[String: Any]] = []) -> [ResultRow] {
         var rows: [ResultRow] = []
         for r in loginResults {
             guard let i = (r["index"] as? NSNumber)?.intValue, logins.indices.contains(i) else { continue }
-            let (status, reason) = loginStatus(r["status"] as? String ?? "", reason: r["reason"] as? String ?? "")
-            rows.append(ResultRow(kind: .login, site: ResultRow.host(logins[i].origin), username: logins[i].username,
-                                  status: status, reason: reason, profileID: profileID))
+            let l = logins[i]
+            let (status, said) = loginStatus(r["status"] as? String ?? "", reason: r["reason"] as? String ?? "")
+            var reason = said
+            // An engine that doesn't know the kind refuses it as not a website login: say what it is (P22b).
+            if (r["reason"] as? String ?? "").contains("invalid HTTP(S)"), !l.scheme.isEmpty || !l.federationOrigin.isEmpty {
+                reason = l.scheme.isEmpty ? "Signs in through another account: this version of Airc can't store these"
+                    : "A password for the browser's own sign-in box (HTTP authentication): this version of Airc can't store these"
+            }
+            var row = ResultRow(kind: .login, site: ResultRow.host(l.origin), username: l.username, status: status, reason: reason,
+                                profileID: profileID)
+            row.provider = URL(string: l.federationOrigin)?.host ?? ""
+            row.detail = loginDetail(l)
+            rows.append(row)
         }
         var grouped: [String: ResultRow] = [:]
         var order: [String] = []
@@ -178,13 +224,38 @@ enum CredentialImport {
             if grouped[row.id] == nil { order.append(row.id); grouped[row.id] = row }
             grouped[row.id]?.count += 1
         }
-        return rows + order.compactMap { grouped[$0] }
+        rows += order.compactMap { grouped[$0] }
+        for r in siteResults {
+            guard let i = (r["index"] as? NSNumber)?.intValue, sites.indices.contains(i) else { continue }
+            let (status, reason) = siteStatus(r["status"] as? String ?? "", reason: r["reason"] as? String ?? "")
+            var row = ResultRow(kind: .siteData, site: ResultRow.host(sites[i].origin), status: status, reason: reason, profileID: profileID)
+            row.detail = "local storage · " + (sites[i].items.count == 1 ? "1 item" : "\(sites[i].items.count.formatted()) items")
+            rows.append(row)
+        }
+        return rows
+    }
+
+    /// What kind of login a row is, when it isn't a website's own password form (P22b).
+    static func loginDetail(_ l: ImportedLogin) -> String {
+        if !l.androidApp.isEmpty { return "from the Android app " + l.androidApp }
+        if !l.scheme.isEmpty { return "the browser's sign-in box" }
+        if let host = URL(string: l.federationOrigin)?.host { return "with " + providerName(host) }
+        return ""
+    }
+
+    /// A sign-in provider's name for people ("Google" for accounts.google.com), else its host.
+    static func providerName(_ host: String) -> String {
+        let names = ["accounts.google.com": "Google", "www.facebook.com": "Facebook", "facebook.com": "Facebook",
+                     "appleid.apple.com": "Apple", "github.com": "GitHub", "login.microsoftonline.com": "Microsoft",
+                     "login.live.com": "Microsoft", "twitter.com": "X", "x.com": "X", "www.linkedin.com": "LinkedIn"]
+        return names[host.lowercased()] ?? host
     }
 
     /// Failures of Airc's own stores, which may pass on another try ("Try again" redoes them).
     static let storeFailures: Set<String> = [
         "Airc's password store wasn't available", "Airc's password store couldn't be read", "Airc's password store didn't keep it",
         "The cookie store wasn't available", "The cookie store couldn't keep it",
+        "Airc's site storage wasn't available", "Airc's site storage didn't keep it",
     ]
 
     /// saved → imported; an existing login → skipped; a login Chromium doesn't take (not a web login) → skipped; one the
@@ -198,6 +269,12 @@ enum CredentialImport {
         case "rejected" where reason.contains("store read failed"): return (.failed, "Airc's password store couldn't be read")
         case "rejected" where reason.contains("did not persist") || reason.contains("readback mismatch"):
             return (.failed, "Airc's password store didn't keep it")
+        case "rejected" where reason.contains("invalid HTTP authentication realm"):
+            return (.skipped, "Its sign-in box isn't one Airc can store (not the site's own address)")
+        case "rejected" where reason.contains("invalid federated login"):
+            return (.skipped, "Its sign-in through another account isn't one Airc can store")
+        case "rejected" where reason.contains("unsupported login scheme"):
+            return (.skipped, "A kind of login this version of Airc can't store")
         default: return (.failed, reason.isEmpty ? "Couldn't be stored" : reason.prefix(1).uppercased() + reason.dropFirst())
         }
     }
@@ -209,6 +286,9 @@ enum CredentialImport {
         if reason.contains("store unavailable") { return (.failed, "The cookie store wasn't available") }
         if reason.contains("EXCLUDE_FAILURE_TO_STORE") { return (.failed, "The cookie store couldn't keep it") }
         let rules: [(String, String)] = [
+            // P22b: an engine that takes partitioned cookies refuses only these.
+            ("partitioned cookie without Secure", "Partitioned without Secure, which Chromium refuses"),
+            ("invalid partition key", "Partitioned for a site address that isn't valid"),
             ("partitioned", "Partitioned (a site's cookie kept only inside one other site's pages): Airc can't import these yet"),
             ("expired", "Already expired in Arc"),
             ("invalid domain", "Not for a valid site address"),
@@ -228,6 +308,20 @@ enum CredentialImport {
         return (.skipped, "Refused by Chromium's cookie rules")
     }
 
+    /// P22b: a site's localStorage (PROFILE-SERVICES.md): stored and read back → imported; storage Airc already had
+    /// for the site (kept) or more than a site may hold → skipped; the store not keeping it → failed.
+    static func siteStatus(_ status: String, reason: String) -> (ResultRow.Status, String) {
+        switch status {
+        case "imported": return (.imported, "")
+        case "skipped-existing": return (.skipped, "Airc already has this site's storage, and keeps it")
+        case "rejected" where reason.contains("quota"): return (.skipped, "More than 10 MB, over a site's limit: it stays in Arc")
+        case "rejected" where reason.contains("invalid"): return (.skipped, "Not a site Airc can keep storage for")
+        case "rejected" where reason.contains("store unavailable"): return (.failed, "Airc's site storage wasn't available")
+        case "rejected": return (.failed, "Airc's site storage didn't keep it")
+        default: return (.failed, reason.isEmpty ? "Couldn't be stored" : reason.prefix(1).uppercased() + reason.dropFirst())
+        }
+    }
+
     /// Rows that didn't come over at read time (Arc's never-save entries, kinds Airc doesn't take, rows that couldn't
     /// be decrypted).
     static func rows(notes: [ImportedCredentials.RowNote], profileID: String) -> [ResultRow] {
@@ -237,8 +331,16 @@ enum CredentialImport {
             let reason = n.reason.prefix(1).uppercased() + n.reason.dropFirst()
             switch n.kind {
             case .login:
-                rows.append(ResultRow(kind: .login, site: ResultRow.host(n.site), username: n.username,
-                                      status: n.skipped ? .skipped : .failed, reason: reason, profileID: profileID))
+                var row = ResultRow(kind: .login, site: ResultRow.host(n.site), username: n.username,
+                                    status: n.skipped ? .skipped : .failed, reason: reason, profileID: profileID)
+                row.provider = n.provider
+                row.detail = n.provider.isEmpty ? "" : "with " + providerName(n.provider)
+                rows.append(row)
+            case .siteData:
+                var row = ResultRow(kind: .siteData, site: n.count > 1 || !n.site.contains("://") ? n.site : ResultRow.host(n.site),
+                                    count: n.count, status: n.skipped ? .skipped : .failed, reason: reason, profileID: profileID)
+                row.detail = n.detail
+                rows.append(row)
             case .cookie:
                 let row = ResultRow(kind: .cookies, site: ResultRow.host(n.site), count: 0, status: n.skipped ? .skipped : .failed,
                                     reason: reason, profileID: profileID)
@@ -268,6 +370,9 @@ enum CredentialImport {
         var retryReason: String?
         /// Every encrypted value of the part failed to decrypt: the Keychain's key isn't Arc's. Not retryable.
         var keyMismatch = false
+        /// arcimport3: never read because macOS didn't give Airc Arc's key (denied, locked, no item), in words. The
+        /// rest of the import still ran; Try Again asks macOS again.
+        var locked: String?
         /// Why things failed, with counts (never a value).
         var problems: [String: Int] = [:]
     }
@@ -284,6 +389,16 @@ enum CredentialImport {
         func count(_ status: ResultRow.Status) -> Int { rows.filter { $0.status == status }.reduce(0) { $0 + $1.count } }
         var loginsImported: Int { rows.filter { $0.kind == .login && $0.status == .imported }.reduce(0) { $0 + $1.count } }
         var cookiesImported: Int { rows.filter { $0.kind == .cookies && $0.status == .imported }.reduce(0) { $0 + $1.count } }
+        /// P22b: sites whose localStorage came over.
+        var siteDataImported: Int { rows.filter { $0.kind == .siteData && $0.status == .imported }.reduce(0) { $0 + $1.count } }
+        /// P22b: federated sign-ins by provider, for "sign in again with …" (most sites first).
+        var federated: [(provider: String, sites: [String])] {
+            var sites: [String: [String]] = [:]
+            for r in rows where r.kind == .login && !r.provider.isEmpty && !(sites[r.provider]?.contains(r.site) ?? false) {
+                sites[r.provider, default: []].append(r.site)
+            }
+            return sites.map { ($0.key, $0.value) }.sorted { $0.sites.count != $1.sites.count ? $0.sites.count > $1.sites.count : $0.provider < $1.provider }
+        }
         /// Arc's "never save" entries, kinds Airc doesn't take, and rows Chromium refuses.
         var skipped: Int { count(.skipped) }
         /// Rows that couldn't be read, decrypted or stored.
@@ -305,9 +420,13 @@ enum CredentialImport {
             sections.filter(\.keyMismatch).map(\.part.profileID).reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
         }
 
+        /// arcimport3: why logins and cookies weren't read (macOS didn't give Airc Arc's key), nil when they were.
+        var keychainProblem: String? { sections.compactMap(\.locked).first }
+
         /// Nothing came over and something went wrong: shown as a failure, never as "ready".
         var isFailure: Bool {
-            loginsImported + cookiesImported == 0 && (failed > 0 || sections.contains { $0.wholeFailure != nil })
+            loginsImported + cookiesImported + siteDataImported == 0
+                && (failed > 0 || sections.contains { $0.wholeFailure != nil || $0.locked != nil })
         }
 
         /// What didn't come over, grouped by reason, most first: "3 cookies · Partitioned (…)".
@@ -323,8 +442,12 @@ enum CredentialImport {
         }
 
         var summary: String {
-            var parts = ["\(loginsImported.formatted()) \(loginsImported == 1 ? "login" : "logins") and "
-                         + "\(cookiesImported.formatted()) \(cookiesImported == 1 ? "cookie" : "cookies") imported."]
+            let logins = "\(loginsImported.formatted()) \(loginsImported == 1 ? "login" : "logins")"
+            let cookies = "\(cookiesImported.formatted()) \(cookiesImported == 1 ? "cookie" : "cookies")"
+            // P22b: with sites' storage read, the sentence counts it too.
+            var parts = [sections.contains { $0.part.kind == .siteData }
+                ? "\(logins), \(cookies) and \(siteDataImported.formatted()) \(siteDataImported == 1 ? "site's" : "sites'") storage imported."
+                : "\(logins) and \(cookies) imported."]
             if skipped > 0 { parts.append("\(skipped.formatted()) skipped.") }
             if failed > 0 { parts.append("\(failed.formatted()) couldn't be read.") }
             let failedProfiles = failedProfiles
@@ -332,13 +455,14 @@ enum CredentialImport {
                 parts.append(failedProfiles.count == 1 ? "One profile couldn't be read." : "\(failedProfiles.count) profiles couldn't be read.")
             }
             // A part that failed whole in a profile that otherwise came over.
-            for kind in [ResultRow.Kind.login, .cookies] {
+            for kind in [ResultRow.Kind.login, .cookies, .siteData] {
                 let n = Set(sections.filter { $0.part.kind == kind && $0.wholeFailure != nil && !failedProfiles.contains($0.part.profileID) }
                     .map(\.part.profileID)).count
                 guard n > 0 else { continue }
-                let what = kind == .login ? "saved passwords" : "cookies"
+                let what = kind == .login ? "saved passwords" : kind == .cookies ? "cookies" : "site storage"
                 parts.append(n == 1 ? "One profile's \(what) couldn't be read." : "\(n) profiles' \(what) couldn't be read.")
             }
+            if let why = keychainProblem { parts.append("Logins and cookies weren't read: " + why) }
             let mismatch = keyMismatchProfiles.count
             if mismatch > 0 {
                 parts.append((mismatch == 1 ? "One profile's" : "\(mismatch) profiles'")
@@ -376,21 +500,23 @@ enum CredentialImport {
         let notes = rows(notes: c.notes, profileID: profileID)
         return kinds.map { kind in
             var s = Section(part: Part(directory: directory, profileID: profileID, kind: kind))
-            let database = kind == .login ? "Login Data" : "Cookies"
+            let database = kind == .login ? "Login Data" : kind == .cookies ? "Cookies" : "Local Storage"
             s.rows = notes.filter { $0.kind == kind } + (r?.rows.filter { $0.kind == kind } ?? [])
-            for (k, v) in c.problems where k.hasPrefix(kind == .login ? "login" : "cookie") || k.hasPrefix(database) { s.problems[k, default: 0] += v }
+            let prefix = kind == .login ? "login" : kind == .cookies ? "cookie" : database
+            for (k, v) in c.problems where k.hasPrefix(prefix) || k.hasPrefix(database) { s.problems[k, default: 0] += v }
             if c.failedDatabases.contains(database) {
                 let why = c.databaseReasons[database] ?? "It couldn't be read."
                 s.wholeFailure = why
                 s.retryReason = why
-                s.rows.insert(ResultRow(kind: kind, site: kind == .login ? "All saved passwords" : "All cookies", count: 0,
-                                        status: .failed, reason: "Arc's " + (kind == .login ? "password" : "cookie") + " database: " + why,
+                s.rows.insert(ResultRow(kind: kind, site: Self.everything(kind), count: 0,
+                                        status: .failed, reason: "Arc's " + (kind == .login ? "password" : kind == .cookies ? "cookie" : "site storage")
+                                            + " database: " + why,
                                         profileID: profileID, whole: true), at: 0)
             }
             if let r, let error = r.error {
                 s.problems["engine: " + error, default: 0] += 1
-                let sent = kind == .login ? r.loginsFailed : r.cookiesFailed
-                if r.loginsImported + r.cookiesImported == 0, sent > 0 {
+                let sent = kind == .login ? r.loginsFailed : kind == .cookies ? r.cookiesFailed : r.siteDataFailed
+                if r.loginsImported + r.cookiesImported + r.siteDataImported == 0, sent > 0 {
                     s.wholeFailure = "Airc couldn't store them: " + error
                     s.retryReason = s.wholeFailure
                 }
@@ -399,8 +525,17 @@ enum CredentialImport {
                 s.retryReason = "Airc's store didn't keep some of them"
             }
             // A wrong key: every encrypted value failed (logins and cookies share the key, so both parts say so).
-            s.keyMismatch = c.keyMismatch && s.rows.contains { $0.status == .failed && !$0.whole }
+            s.keyMismatch = kind != .siteData && c.keyMismatch && s.rows.contains { $0.status == .failed && !$0.whole }
             return s
+        }
+    }
+
+    /// The row for a whole part.
+    static func everything(_ kind: ResultRow.Kind) -> String {
+        switch kind {
+        case .login: "All saved passwords"
+        case .cookies: "All cookies"
+        case .siteData: "All sites' storage"
         }
     }
 
@@ -411,7 +546,7 @@ enum CredentialImport {
         else { why = "Arc's profile folder couldn't be read." }
         return kinds.map { kind in
             Section(part: Part(directory: directory, profileID: profileID, kind: kind),
-                    rows: [ResultRow(kind: kind, site: kind == .login ? "All saved passwords" : "All cookies", count: 0, status: .failed,
+                    rows: [ResultRow(kind: kind, site: everything(kind), count: 0, status: .failed,
                                      reason: why, profileID: profileID, whole: true)],
                     wholeFailure: why, retryReason: why,
                     problems: ["profile: " + ((error as? LocalizedError)?.errorDescription ?? "\(error)"): 1])
@@ -452,10 +587,28 @@ enum CredentialImport {
     /// before reading the next. `profiles` maps Arc profile directories to Airc profile IDs.
     static func run(arcDirectory: URL, profiles: [(directory: String, profileID: String)], sink: CredentialSink,
                     progress: @escaping (Double) -> Void, completion: @escaping (Result<Outcome, Error>) -> Void) {
+        #if AIRC_TESTING
+        // arcimport3: a check's scratch keychain item stands in for "Arc Safe Storage" (TestArcKeychain).
+        if let test = TestArcKeychain.current {
+            return start(arcDirectory: arcDirectory, profiles: profiles, sink: sink, keySource: test.keySource,
+                         progress: progress, completion: completion)
+        }
+        #endif
         precondition(!LaunchOptions.current.isAutomated, "credentials are never read in automated runs")
         start(arcDirectory: arcDirectory, profiles: profiles, sink: sink,
               keySource: { try ArcSafeStorage.deriveKey(password: ArcSafeStorage.readPassword()) },
               progress: progress, completion: completion)
+    }
+
+    /// arcimport3: what to say when macOS didn't give Airc Arc's key; nil for a failure that isn't the Keychain's answer.
+    static func keychainReason(_ error: Error) -> String? {
+        switch error as? ImportError {
+        case .keychainDeclined?: "Keychain access to “Arc Safe Storage” was denied, so Arc's saved passwords and cookies stayed locked. Try Again and choose Allow."
+        case .keychainLocked?: "your login keychain is locked, so macOS couldn't unlock Arc's key (“Arc Safe Storage”). Unlock it and Try Again."
+        case .keychainNotFound?: "Arc's key (“Arc Safe Storage”) isn't in this Mac's Keychain, so Arc's saved passwords and cookies can't be unlocked here."
+        case .keychainUnavailable?: "Arc's key (“Arc Safe Storage”) couldn't be read from Keychain. Try Again."
+        default: nil
+        }
     }
 
     #if AIRC_TESTING
@@ -492,7 +645,9 @@ enum CredentialImport {
         session.keySource = keySource
         session.progress = progress
         session.completion = completion
-        let parts = profiles.flatMap { p in [ResultRow.Kind.login, .cookies].map { Part(directory: p.directory, profileID: p.profileID, kind: $0) } }
+        // P22b: sites' localStorage too, with an engine that takes it.
+        let kinds: [ResultRow.Kind] = sink.importKinds.contains(.localStorage) ? [.login, .cookies, .siteData] : [.login, .cookies]
+        let parts = profiles.flatMap { p in kinds.map { Part(directory: p.directory, profileID: p.profileID, kind: $0) } }
         read(parts, previous: nil)
     }
 
@@ -519,27 +674,48 @@ enum CredentialImport {
             if !kinds[p.profileID]!.kinds.contains(p.kind) { kinds[p.profileID]!.kinds.append(p.kind) }
         }
         let plan = order.map { (directory: kinds[$0]!.directory, profileID: $0, kinds: kinds[$0]!.kinds) }
+        let importKinds = sink.importKinds
         Task.detached(priority: .userInitiated) {
             do {
-                let key = try keySource()
+                // arcimport3: without Arc's key (macOS denied it, the keychain is locked, no item), logins and cookies
+                // stay unread and say why; sites' storage, which isn't encrypted, still comes over.
+                var key = Data(count: 16)
+                var locked: String?, retry = true
+                do { key = try keySource() } catch {
+                    guard let why = keychainReason(error) else { throw error }
+                    locked = why
+                    // No item: asking again can't help.
+                    retry = (error as? ImportError) != .keychainNotFound
+                }
                 var fresh: [Section] = []
                 for (i, p) in plan.enumerated() {
                     let dir = arcDirectory.appendingPathComponent("User Data").appendingPathComponent(p.directory)
+                    let readKinds = locked == nil ? p.kinds : p.kinds.filter { $0 == .siteData }
+                    if let locked {
+                        fresh += p.kinds.filter { $0 != .siteData }.map { kind in
+                            Section(part: Part(directory: p.directory, profileID: p.profileID, kind: kind),
+                                    rows: [ResultRow(kind: kind, site: everything(kind), count: 0, status: .skipped,
+                                                     reason: locked.prefix(1).uppercased() + locked.dropFirst(), profileID: p.profileID, whole: true)],
+                                    retryReason: retry ? locked : nil, locked: locked)
+                        }
+                    }
+                    guard !readKinds.isEmpty else { continue }
                     do {
                         let creds = try await ArcCredentialImporter.read(profileDirectory: dir, key: key,
-                                                                         includeLogins: p.kinds.contains(.login),
-                                                                         includeCookies: p.kinds.contains(.cookies))
+                                                                         includeLogins: readKinds.contains(.login),
+                                                                         includeCookies: readKinds.contains(.cookies),
+                                                                         includeSiteData: readKinds.contains(.siteData), kinds: importKinds)
                         var engine: EngineResult?
-                        if !(creds.logins.isEmpty && creds.cookies.isEmpty) {
+                        if !(creds.logins.isEmpty && creds.cookies.isEmpty && creds.siteData.isEmpty) {
                             engine = await withCheckedContinuation { (cont: CheckedContinuation<EngineResult, Never>) in
                                 Task { @MainActor in sink.receive(creds, forProfile: p.profileID) { cont.resume(returning: $0) } }
                             }
                         }
-                        fresh += sections(directory: p.directory, profileID: p.profileID, kinds: p.kinds, read: creds, engine: engine)
+                        fresh += sections(directory: p.directory, profileID: p.profileID, kinds: readKinds, read: creds, engine: engine)
                     } catch is CancellationError {
                         throw CancellationError()
                     } catch {
-                        fresh += unreadable(directory: p.directory, profileID: p.profileID, kinds: p.kinds, error: error)
+                        fresh += unreadable(directory: p.directory, profileID: p.profileID, kinds: readKinds, error: error)
                     }
                     let done = Double(i + 1) / Double(max(1, plan.count))
                     await MainActor.run { progress?(done) }

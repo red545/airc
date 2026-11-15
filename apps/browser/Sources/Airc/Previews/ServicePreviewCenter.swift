@@ -7,9 +7,12 @@ import AppKit
 ///
 /// - Notion, Confluence, Figma and Linear: the pages recently visited there, from the profile's own history
 ///   (HistoryRecentsProvider), as Arc listed them. Nothing is fetched; private windows keep no history.
-/// - Mail and calendars need an account (Arc signed in to each). Airc has no real provider yet (packages P11b/c, with
-///   the owner): their pinned tabs and Favorites keep the page-picture card. Scripted runs register a fake provider
-///   on loopback fixtures (Debug/ParityP11aCheck.swift) to exercise every state.
+/// - Gmail and Outlook: the unread mail of the account's own page, loaded in its profile (PageMailProvider, S04), as
+///   Arc read it from the signed-in site. No account or sign-in of Airc's.
+/// - Google Calendar and Outlook calendar: today's and tomorrow's events from the account's own calendar page, loaded
+///   in its profile (the same PageMailProvider, calprev), where Arc signed in to each with OAuth. They also feed Live
+///   Calendar on a Calendar Favorite (PreviewCalendarAccounts). Scripted runs can register a fake provider on loopback
+///   fixtures (Debug/ParityP11aCheck.swift) to exercise every state.
 protocol ServicePreviewProvider: AnyObject {
     var services: Set<PreviewService> { get }
     /// Whether answering means asking the network (an account). The center never asks such a provider about an
@@ -29,10 +32,20 @@ final class ServicePreviewCenter {
     static let changed = Notification.Name("AircServicePreviewChanged")
     /// A card being shown asks again when what it has is older than this (Arc had a minimum fetch interval). Nothing
     /// polls: only a card on screen, or Live Calendar for its Favorite's account, asks.
+    #if AIRC_TESTING
+    static var refreshAfter: TimeInterval = 60
+    #else
     static let refreshAfter: TimeInterval = 60
+    #endif
 
     private var providers: [PreviewService: ServicePreviewProvider] = [:]
     private let history = HistoryRecentsProvider()
+    let pageMail = PageMailProvider()
+    /// Settings → Appearance → Site Previews: whether a service's card is on (Arc's per-site switches). Off, its pinned
+    /// tabs and Favorites keep the page-picture card and nothing of it is read.
+    var isEnabled: (PreviewService) -> Bool = { s in
+        !((NSApp.delegate as? AppDelegate)?.settings.values.servicePreviewsOff.contains(s.rawValue) ?? false)
+    }
     private(set) var cache = PreviewCache()
     private var inFlight: Set<PreviewAccount> = []
     /// Bumped when a profile is forgotten: answers still on their way for it are dropped.
@@ -66,6 +79,29 @@ final class ServicePreviewCenter {
 
     private init() {
         for s in history.services { providers[s] = history }
+        for s in pageMail.services { providers[s] = pageMail }
+        pageMail.center = self
+        pageMail.start()
+        // Live Calendar's account seam (M08): the calendar pages' events join its meetings. After this init, since the
+        // calendar center asks back here.
+        DispatchQueue.main.async {
+            if CalendarCenter.shared.accounts == nil { CalendarCenter.shared.accounts = PreviewCalendarAccounts.shared }
+        }
+    }
+
+    /// Airc's own provider for `s`, if it has one.
+    private func builtIn(_ s: PreviewService) -> ServicePreviewProvider? {
+        if history.services.contains(s) { return history }
+        if pageMail.services.contains(s) { return pageMail }
+        return nil
+    }
+
+    /// A service's previews turned on or off in Settings: its cards and rows follow, and an off service's answers go.
+    func enabledChanged() {
+        for s in pageMail.services where !isEnabled(s) { pageMail.cancel(s) }
+        for a in cache.accounts where !isEnabled(a.service) { cache.forget(a) }
+        inFlight = inFlight.filter { isEnabled($0.service) }
+        NotificationCenter.default.post(name: Self.changed, object: nil)
     }
 
     func register(_ p: ServicePreviewProvider) {
@@ -76,11 +112,11 @@ final class ServicePreviewCenter {
         if p.services.contains(where: { $0.family == .calendar }) { CalendarCenter.shared.accounts = PreviewCalendarAccounts.shared }
     }
 
-    /// Back to Airc's own providers for `services` (the recents from history; nothing for mail and calendars).
+    /// Back to Airc's own providers for `services` (recents from history, mail and calendars from their pages).
     func unregister(_ services: Set<PreviewService>) {
         registration += 1
         inFlight = inFlight.filter { !services.contains($0.service) }
-        for s in services { providers[s] = history.services.contains(s) ? (history as ServicePreviewProvider) : nil }
+        for s in services { providers[s] = builtIn(s) }
         for a in cache.accounts where services.contains(a.service) { cache.forget(a) }
         opened = opened.filter { !services.contains($0.service) }
         NotificationCenter.default.post(name: Self.changed, object: nil)
@@ -88,11 +124,20 @@ final class ServicePreviewCenter {
 
     func provider(for s: PreviewService) -> ServicePreviewProvider? { providers[s] }
 
+    /// pageread (owner, 2026-11-15): a calendar Favorite of a site Airc reads (Google Calendar, Outlook's calendar)
+    /// shows its account's own card, the page's events or "Open Google Calendar", never Live Calendar's card of the
+    /// Mac's calendars (which may be another calendar altogether). Live Calendar's card stays for calendar Favorites
+    /// Airc doesn't read (Proton, Fastmail).
+    func showsPageCard(forFavoriteURL url: String?) -> Bool {
+        guard let url, let s = PreviewService.detect(url), s.family == .calendar else { return false }
+        return providers[s] != nil
+    }
+
     /// The card for a pinned tab or Favorite showing `url` in `profileID`: its account, when the service has a
     /// provider. An account provider's card needs the site to have been opened in the profile; until then the row
     /// keeps the page-picture card (a hover never tells a service about a page you haven't opened).
     func account(for url: String, profileID: String) -> PreviewAccount? {
-        guard let a = PreviewAccount(url: url, profileID: profileID), let p = providers[a.service] else { return nil }
+        guard let a = PreviewAccount(url: url, profileID: profileID), isEnabled(a.service), let p = providers[a.service] else { return nil }
         if p.fetchesRemotely, !hasOpened(a) {
             #if AIRC_TESTING
             stats.refusedUnopened.append(a)
@@ -103,6 +148,11 @@ final class ServicePreviewCenter {
     }
 
     func state(_ a: PreviewAccount) -> PreviewState? { cache.entry(a)?.state }
+
+    /// A page of `a` is loaded in a normal window: its history may have it now, so a "not opened" answer is read again.
+    func recheckOpened(_ a: PreviewAccount) {
+        if !opened.contains(a) { notOpened[a] = nil }
+    }
 
     /// Whether the profile has opened `a`'s site (its history has a page of that service under that account). Private
     /// windows keep no history, so they never open one.
@@ -162,7 +212,7 @@ final class ServicePreviewCenter {
     /// A card for `a` is up (or Live Calendar wants its meetings): the cache answers at once, and the provider is asked
     /// again if the answer is older than `refreshAfter` (or `force`). Never for an account that wasn't opened.
     func refresh(_ a: PreviewAccount, force: Bool = false) {
-        guard let p = providers[a.service] else { return }
+        guard let p = providers[a.service], isEnabled(a.service) else { return }
         if p.fetchesRemotely, !hasOpened(a) { return }
         // The profile's history is read each time (it's in memory); an account at most once a minute.
         let interval = p.fetchesRemotely ? Self.refreshAfter : 0
@@ -179,7 +229,8 @@ final class ServicePreviewCenter {
         p.fetch(a) { [weak self] state in
             guard let self else { return }
             self.inFlight.remove(a)
-            guard self.registration == reg, self.generation[a.profileID, default: 0] == gen, self.providers[a.service] === p else { return }
+            guard self.registration == reg, self.generation[a.profileID, default: 0] == gen, self.providers[a.service] === p,
+                  self.isEnabled(a.service) else { return }
             self.cache.store(state, for: a, at: self.now())
             self.notify(a)
         }
@@ -187,6 +238,7 @@ final class ServicePreviewCenter {
 
     /// An answer for `a` that came outside `refresh` (Peek Email asks at once).
     func storeAnswer(_ state: PreviewState, for a: PreviewAccount) {
+        guard isEnabled(a.service) else { return }
         cache.store(state, for: a, at: now())
         notify(a)
     }

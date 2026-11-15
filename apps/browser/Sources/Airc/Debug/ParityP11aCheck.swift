@@ -129,8 +129,10 @@ final class FakeServiceProvider: ServicePreviewProvider {
 ///   - accounts and profiles never mix: another profile's Gmail shows its own mail, a second account (/u/1/) that was
 ///     never opened keeps the picture card and is never fetched;
 ///   - recent pages from the profile's history (Notion, Linear), newest first, opening in a new tab; an empty Figma;
-///   - the calendar card: overlapping meetings side by side, a meeting given in another time zone at its local hour,
-///     a big Join for the one moments away (a loopback call), "+" and a meeting opening the calendar in its item;
+///   - the calendar card (Arc's hour grid, calgrid): opened a quarter hour before now with the now line there,
+///     overlapping meetings side by side, a meeting given in another time zone at its moment, the all-day event in the
+///     strip above the hours, a big Join for the one moments away with a call (a loopback call), "+" and a meeting
+///     opening the calendar in its item;
 ///   - M08: with EventKit not allowed, the Calendar Favorite's account drives Live Calendar (countdown, Join prompt,
 ///     ⌃⌘J's target among overlapping meetings) and signing out stops it; Live Calendar's own card is that Favorite's
 ///     only card;
@@ -210,15 +212,45 @@ extension SnapshotRunner {
             guard let v else { return movePointer(to: centre(c.card), over: nil) }
             movePointer(to: centre(v), over: v)
         }
+        // Real input (UI driver, a dedicated foreground session with the app key and active) when allowed; else posted
+        // events, which on the build Mac never reach the cards' buttons in a background window (the click probe below
+        // says why). The log counts each; with the driver requested, a posted one is a FAIL-ENV.
+        var realHovers = 0, postedHovers = 0, realClicks = 0, postedClicks = 0, secondClicks = 0
+        func realInput() -> Bool {
+            UIDriverClient.available && ProcessInfo.processInfo.environment["AIRC_UI_DEDICATED_SESSION"] == "1"
+                && NSApp.isActive && c.window.isKeyWindow && c.window.isOnActiveSpace
+        }
+        func screenPoint(_ p: NSPoint) -> (x: Double, y: Double) {
+            let g = c.window.convertPoint(toScreen: p), top = NSScreen.screens.first?.frame.maxY ?? 0
+            return (Double(g.x), Double(top - g.y))
+        }
+        /// A real pointer move (20 steps over 200 ms, delivered to this app): the row's own tracking area sees it.
+        func realMove(_ p: NSPoint, targeted: Bool = true, _ done: @escaping (Bool, String) -> Void) {
+            let s = screenPoint(p)
+            // `--pid` delivers only to a foreground target (the driver refuses a background one): untargeted when we aren't in front.
+            UIDriverClient.run(["--move", String(s.x), String(s.y), "--steps", "20", "--duration", "200"]
+                               + (targeted ? ["--pid", String(ProcessInfo.processInfo.processIdentifier)] : []), done)
+        }
+        func realClick(_ p: NSPoint, _ done: @escaping (Bool, String) -> Void) {
+            let s = screenPoint(p)
+            UIDriverClient.run(["--click", String(s.x), String(s.y)], done)
+        }
         /// The pointer comes to `v` from off the sidebar, and the card has had time to show (and its account to answer).
         func hoverFresh(_ v: @escaping () -> NSView?, settle: Double = 0.9) {
-            run { [self] in
-                hover(nil)
+            step { [self] done in
                 tp().hide()
                 clearAnchors()
+                guard realInput() else { hover(nil); return done() }
+                realMove(centre(c.card)) { _, _ in done() }
             }
             wait(0.45)   // past the "warm" return
-            run { hover(v()) }
+            step { [self] done in
+                guard realInput(), let target = v() else { hover(v()); postedHovers += 1; return done() }
+                realMove(centre(target)) { [self] ok, out in
+                    if ok { realHovers += 1 } else { note("p11a: driver move failed (\(out)); posted hover"); hover(target); postedHovers += 1 }
+                    done()
+                }
+            }
             wait(settle)
         }
         var card: ServicePreviewCardView? { tp().serviceCard?.superview != nil ? tp().serviceCard : nil }
@@ -234,15 +266,115 @@ extension SnapshotRunner {
         func clickCard(_ anchor: String, until ok: @escaping () -> Bool) {
             step { [self] done in
                 guard let h = card?.hostingView else { check(false, "p11a: click \(anchor): no card"); return done() }
-                clickAnchor(anchor, in: h) {
-                    self.waitUntil(ok, timeout: 1.5) {
-                        guard !ok(), let h = card?.hostingView else { return done() }
-                        // Posted clicks on SwiftUI buttons miss now and then (a ScrollView's first click): once more.
-                        self.note("p11a: \(anchor) missed (\(TestAnchors.lastHit[anchor] ?? "-")), clicking again")
-                        self.clickAnchor(anchor, in: h) { self.waitUntil(ok, timeout: 1.5) { done() } }
+                guard realInput(), let p = anchorPoint(anchor, in: h) else {
+                    postedClicks += 1
+                    if UIDriverClient.requested { note("FAIL-ENV p11a: real click on \(anchor) unavailable (driver \(UIDriverClient.available), key \(c.window.isKeyWindow), active \(NSApp.isActive)); posted instead") }
+                    return clickAnchor(anchor, in: h) {
+                        self.waitUntil(ok, timeout: 1.5) {
+                            guard !ok(), let h = card?.hostingView else { return done() }
+                            self.note("p11a: posted \(anchor) missed (\(TestAnchors.lastHit[anchor] ?? "-")), clicking again")
+                            self.clickAnchor(anchor, in: h) { self.waitUntil(ok, timeout: 1.5) { done() } }
+                        }
+                    }
+                }
+                TestAnchors.lastHit[anchor] = String(format: "(%.0f, %.0f)", p.x, p.y)
+                realClick(p) { [self] okay, out in
+                    if okay { realClicks += 1 } else { note("p11a: driver click on \(anchor) failed: \(out)") }
+                    waitUntil(ok, timeout: 2) { [self] in
+                        // A real click that missed is reported, never hidden: one more, counted.
+                        guard !ok(), let h = card?.hostingView, let p = anchorPoint(anchor, in: h) else { return done() }
+                        note("p11a: real click on \(anchor) missed (\(TestAnchors.lastHit[anchor] ?? "-")), clicking again")
+                        secondClicks += 1
+                        realClick(p) { _, _ in self.waitUntil(ok, timeout: 2) { done() } }
                     }
                 }
             }
+        }
+        /// Why posted clicks miss: one posted click on the mail card's "+" in the state the run is in, then (real input
+        /// only) the same with the app deactivated and a real click, which is what a person does with another app in front.
+        /// Logs what the click reached, whether it fired, and whether the card survived.
+        func clickProbe(_ anchor: String, fired: @escaping () -> Bool, reset: @escaping () -> Void, row target: @escaping () -> NSView?) {
+            var describe = ""
+            func state() -> String { "key \(c.window.isKeyWindow), active \(NSApp.isActive), card \(card != nil ? "shown" : "gone"), pressed \(NSEvent.pressedMouseButtons)" }
+            step { [self] done in
+                guard let h = card?.hostingView else { note("p11a: probe: no card"); return done() }
+                describe = state()
+                clickAnchor(anchor, in: h) { [self] in
+                    waitUntil(fired, timeout: 1.5) { [self] in
+                        note("p11a: probe: POSTED click on \(anchor) in the window state (\(describe)): fired \(fired()); after it: \(state()); it reached \(TestAnchors.lastHit[anchor] ?? "-")")
+                        reset()
+                        done()
+                    }
+                }
+            }
+            hoverFresh(target, settle: 0.5)
+            step { [self] done in
+                guard UIDriverClient.available, ProcessInfo.processInfo.environment["AIRC_UI_DEDICATED_SESSION"] == "1", realInput() else {
+                    note("p11a: probe: inactive-app real click skipped (real input unavailable)")
+                    return done()
+                }
+                // Another app (Finder, shown again; the preflight hid it) in front: the pointer comes to the row (HID,
+                // delivered to this app), then the card's button. Our window always gets key again afterwards.
+                func restore(_ then: @escaping () -> Void) {
+                    NSApp.activate(ignoringOtherApps: true)
+                    c.window.makeKeyAndOrderFront(nil)
+                    waitUntil({ NSApp.isActive && self.c.window.isKeyWindow }, timeout: 3) { then() }
+                }
+                let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first
+                finder?.unhide()
+                if let finder { NSApp.yieldActivation(to: finder); _ = finder.activate(from: NSRunningApplication.current, options: []) }
+                else { NSApp.deactivate() }
+                waitUntil({ !NSApp.isActive }, timeout: 3) { [self] in
+                    guard !NSApp.isActive else {
+                        note("FAIL-ENV p11a: probe: the app would not deactivate (Finder \(finder != nil))")
+                        return restore { done() }
+                    }
+                    guard let v = target() else { note("p11a: probe: no row"); return restore { done() } }
+                    tp().hide(); clearAnchors()
+                    // Off the row first (the pointer is still on it from the hover above), then back onto it.
+                    realMove(centre(c.card), targeted: false) { [self] _, _ in
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [self] in
+                    realMove(centre(v), targeted: false) { [self] moved, out in
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [self] in
+                            guard let h = card?.hostingView, let p = anchorPoint(anchor, in: h) else {
+                                note("FAIL-ENV p11a: probe: with the app inactive the hover showed no card (move \(moved ? "ok" : "failed: " + out); \(state()))")
+                                return restore { done() }
+                            }
+                            let sp = c.window.convertPoint(toScreen: p)
+                            let top = NSWindow.windowNumber(at: sp, belowWindowWithWindowNumber: 0)
+                            if top != c.window.windowNumber {
+                                // Another process's window (a stray Finder window the owner or an earlier run left) covers the card's button:
+                                // the click would land on it, so nothing about our card is learned. Not run, with the evidence.
+                                let info = (CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(top)) as? [[String: Any]])?.first
+                                let owner = (info?[kCGWindowOwnerName as String] as? String) ?? "?"
+                                let bounds = (info?[kCGWindowBounds as String] as? [String: Any]).map { "\($0)" } ?? "?"
+                                note("SKIP p11a: probe: inactive-app real click not run: window \(top) of \(owner) \(bounds) covers the button at \(sp) (front app \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"))")
+                                return restore { done() }
+                            }
+                            describe = state() + ", front app \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"), "
+                                + (top == c.window.windowNumber ? "our window is the top one at the click point" : "window \(top) is on top at the click point, not ours")
+                            realClick(p) { [self] ok1, out1 in
+                                waitUntil(fired, timeout: 2.5) { [self] in
+                                    let first = fired()
+                                    let afterFirst = state() + ", front app \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "?")"
+                                    // A swallowed first click is characterized: does a second one act?
+                                    func finishProbe(_ second: Bool?) {
+                                        note("p11a: probe: REAL click on \(anchor) with the app inactive (\(describe); driver \(ok1 ? "ok" : "failed: " + out1)): fired \(first); after it: \(afterFirst)"
+                                             + (second.map { "; a second real click then fired \($0)" } ?? ""))
+                                        check(first, "p11a: a real first click on a service card's button works with another app in front (it activates and acts)")
+                                        reset()
+                                        restore { done() }
+                                    }
+                                    guard !first, let h2 = card?.hostingView, let p2 = anchorPoint(anchor, in: h2) else { return finishProbe(nil) }
+                                    realClick(p2) { [self] _, _ in waitUntil(fired, timeout: 2) { finishProbe(fired()) } }
+                                }
+                            }
+                        }
+                    }
+                    }
+                    }
+                    }
+                }
         }
         func iconPNG(_ color: NSColor, _ letter: String) -> Data {
             let img = NSImage(size: NSSize(width: 32, height: 32), flipped: false) { r in
@@ -382,11 +514,17 @@ extension SnapshotRunner {
             fake.set(aGmail) { $0.delay = 0 }
         }
         capture("p11a-mail")
-        clickCard("svc.mail.a1") { opened.contains { $0.1 == gmail } }
+        // Why posted clicks miss, and that a real first click works with another app in front (the probe resets `opened`).
+        clickProbe("svc.action", fired: { !opened.isEmpty }, reset: { opened = [] }, row: { row(gmail) })
+        hoverFresh({ row(gmail) }, settle: 0.6)
+        clickCard("svc.mail.a1") { !peeked.isEmpty || opened.contains { $0.1 == gmail } }
         run { [self] in
-            check(opened.last.map { $0.0.absoluteString == "https://mail.google.com/mail/u/0/#inbox/a1" && $0.1 == gmail } ?? false,
-                  "p11a: a message opens in the Gmail item itself (\(opened.last.map { "\($0.0) in \($0.1)" } ?? "nothing"))")
+            // No page of the account's profile is in front here (and the account's own page isn't loaded), so Peek Email
+            // (S04, ParityS04Check) has no page to peek from: the message opens in the item's own tab.
+            check(opened.last.map { $0.0.absoluteString == "https://mail.google.com/mail/u/0/#inbox/a1" && $0.1 == gmail } ?? false && peeked.isEmpty,
+                  "p11a: a message opens in the Gmail item itself when no page of its profile is in front (\(opened.last.map { "\($0.0) in \($0.1)" } ?? "nothing"); peeked \(peeked.map(\.absoluteString)))")
             opened = []
+            peeked = []
         }
         hoverFresh({ row(gmail) }, settle: 0.5)
         clickCard("svc.action") { !opened.isEmpty }
@@ -637,17 +775,35 @@ extension SnapshotRunner {
         wait(0.4)
         run { [self] in
             let f = TestAnchors.frames
+            // calgrid: Arc's hour grid. Standup (4–19) and pairing (10–50) overlap, so they share the width; review
+            // (30–70) overlaps pairing only and takes standup's column again.
             let s = f["svc.event.standup"], p = f["svc.event.pairing"], r = f["svc.event.review"]
-            check(s != nil && p != nil && r != nil && abs((s?.width ?? 0) - (p?.width ?? 1)) < 1 && (s?.minX ?? 0) < (p?.minX ?? 0)
+            check(s != nil && p != nil && r != nil && abs((s?.width ?? 0) - (p?.width ?? 1)) < 1 && (s?.maxX ?? 0) <= (p?.minX ?? 0) + 1
                   && abs((r?.minX ?? -1) - (s?.minX ?? 0)) < 1,
                   "p11a: overlapping meetings side by side (standup and pairing share the width; review takes standup's column again)")
-            let w = PreviewTimeline.window(now: model?.now ?? Date())
-            let la = ISO8601DateFormatter().date(from: tzEvent) ?? Date()
-            let want = CGFloat(la.timeIntervalSince(w.start) / 3600) * PreviewTimelineView.hourHeight
-            let laTop = (f["svc.event.la"]?.minY ?? 0) - (f["svc.event.standup"]?.minY ?? 0)
-            let standupTop = CGFloat((model?.now ?? Date()).addingTimeInterval(4 * 60).timeIntervalSince(w.start) / 3600) * PreviewTimelineView.hourHeight
-            check(f["svc.event.la"] != nil && abs(laTop - (want - standupTop)) < 2,
-                  String(format: "p11a: a meeting given in Los Angeles time sits at its hour here (%.1f pt below standup, want %.1f)", laTop, want - standupTop))
+            let shown: [CalendarEvent] = { if case .calendar(let e)? = model?.state.content { return e }; return [] }()
+            let laEvent = shown.first { $0.id == "la" }, standup = shown.first { $0.id == "standup" }
+            // calcard: the hour height the card fits Arc's six hours with (PreviewTimelineTests checks the arithmetic).
+            let layout = PreviewTimeline.CardLayout(shown, now: model?.now ?? Date(), cardHeight: Double(model?.cardHeight ?? 0))
+            let hourHeight = CGFloat(layout.hourHeight)
+            check(laEvent?.start == ISO8601DateFormatter().date(from: tzEvent),
+                  "p11a: a meeting given in Los Angeles time is at its moment here (\(laEvent.map { CalendarCard.timeRange($0, now: Date()) } ?? "-"))")
+            let want = CGFloat((laEvent?.start ?? Date()).timeIntervalSince(standup?.start ?? Date()) / 3600) * hourHeight
+            let laTop = (f["svc.event.la"]?.minY ?? 0) - (s?.minY ?? 0)
+            check(f["svc.event.la"] != nil && abs(laTop - want) < 2,
+                  String(format: "p11a: and sits at its hour in the grid (%.1f pt below standup, want %.1f)", laTop, want))
+            let grid = f["svc.grid"], now = f["svc.nowLine"]
+            let nowFromTop = (now?.midY ?? 0) - (grid?.minY ?? 0)
+            let wantNow = CGFloat(PreviewTimeline.lead / 3600) * hourHeight + CalendarHourGrid.topInset
+            check(grid != nil && now != nil && abs(nowFromTop - wantNow) < 3,
+                  String(format: "p11a: the grid opens a quarter hour before now: the now line %.1f pt below its top (want %.1f, Arc's 15 min)", nowFromTop, wantNow))
+            let sixHours = CalendarHourGrid.topInset + 6 * hourHeight
+            check(layout.join && layout.allDay && (grid?.height ?? 0) >= sixHours - 1,
+                  String(format: "p11a: with the Join and the all-day strip, Arc's six hours show without scrolling (grid %.0f pt, six hours %.0f)",
+                         grid?.height ?? 0, sixHours))
+            check((now?.midY ?? 1) < (s?.minY ?? 0), "p11a: standup, 4 minutes away, sits just under the now line")
+            check(f["svc.allDay.holiday"].map { $0.maxY <= (grid?.minY ?? 0) + 1 } ?? false && f["svc.day.Tomorrow"] == nil,
+                  "p11a: the all-day event in the strip above the hours; nothing tomorrow, so no Tomorrow list")
             check(f["svc.join.standup"] != nil && f["svc.join.review"] == nil, "p11a: a big Join for the meeting moments away with a call, only that one")
             check(TestAnchors.frames["svc.settings"] != nil && TestAnchors.frames["svc.action"] != nil, "p11a: the calendar's gear and \"+\"")
             let line = rowLines(row(gcal))
@@ -703,8 +859,10 @@ extension SnapshotRunner {
         }
         hoverFresh({ tile(calFav) }, settle: 0.7)
         run { [self] in
-            check(!tp().isShowing && CalendarCard.shared.panel != nil,
-                  "p11a: the Calendar Favorite shows Live Calendar's card only, never a second card")
+            // pageread (owner, 2026-11-15): an Outlook or Google calendar Favorite shows its account's own card (its
+            // page's day), never Live Calendar's card of the Mac's calendars, even with Live Calendar on.
+            check(tp().isShowing && tp().thumbnail == .service && model?.account?.service == .outlookCalendar && CalendarCard.shared.panel == nil,
+                  "p11a: the Outlook calendar Favorite shows its account's card, not Live Calendar's, and only one card")
             CalendarCard.shared.hide()
             hover(nil)
         }
@@ -845,6 +1003,11 @@ extension SnapshotRunner {
         wait(0.2)
         run { [self] in
             check(!rowLines(row(gmail)).contains { $0.hasSuffix("Recent") }, "p11a: with no mail provider (as in release builds) the row has no line")
+            note("p11a: hovers: \(realHovers) real driver pointer moves, \(postedHovers) posted enter events; card clicks: \(realClicks) real driver clicks (\(secondClicks) needed a second click), \(postedClicks) posted")
+            if UIDriverClient.requested {
+                check(postedHovers == 0 && postedClicks == 0 && secondClicks == 0,
+                      "p11a: with the UI driver, every hover and card click was real input, and each real click worked the first time (\(postedHovers) posted hovers, \(postedClicks) posted clicks, \(secondClicks) second clicks)")
+            }
             server?.stop()
         }
     }

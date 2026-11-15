@@ -9,6 +9,10 @@ trap 'rm -f "$ROOT/build/release.env"; rmdir "$ROOT/build/.release-running"' EXI
 export AIRC_TELEMETRY_ENABLED=0 AIRC_MEDIA_PROMPT_CHECKS=0
 out="$ROOT/build/stable-stage"
 mkdir -p "$out/evidence"
+if [[ ${AIRC_RELEASE_FAST_GATE:-0} == 1 ]]; then
+ python3 scripts/release/fast_gate_proof.py build/fast-gate-result.json "$AIRC_SOURCE_REV"
+ cp build/fast-gate-result.json "$out/evidence/fast-gate-result.json"
+fi
 [[ -f "$out/started-at" ]] || date +%s > "$out/started-at"
 start=$(cat "$out/started-at")
 if [[ ! -f "$out/package.done" ]]; then

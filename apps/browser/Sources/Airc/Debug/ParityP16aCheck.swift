@@ -17,6 +17,7 @@ extension SnapshotRunner {
         var media: MediaCenter? { MediaLibrary.shared.media }
         let calls = MediaLibrary.shared.calls
         var foreground: pid_t?
+        var initiallyActive = false
         func page(_ id: String) -> EngineTab? { MediaLibrary.shared.page(for: id) }
         func controls() -> PiPControlsView? { (calls.window as? CallPanel)?.view.controls }
         func verdict(_ ok: Bool, _ message: String, window: NSWindow? = nil) {
@@ -61,6 +62,7 @@ extension SnapshotRunner {
         }
         run { [self] in
             main = c; foreground = NSWorkspace.shared.frontmostApplication?.processIdentifier
+            initiallyActive = NSApp.isActive
             ProtectedMedia.shared.testHosts = ["localhost"]
             CallWindowController.followsWindowVisibility = false
             note("parityp16a: active=\(NSApp.isActive), Space=\(owner.window.isOnActiveSpace), visible=\(owner.window.occlusionState.contains(.visible))")
@@ -188,7 +190,11 @@ extension SnapshotRunner {
             }
         }
         run { [self] in
-            verdict(!NSApp.isActive && NSWorkspace.shared.frontmostApplication?.processIdentifier == foreground,
+            // Dedicated-session preflight starts us in front. Preserve the
+            // starting state; the owner's background runs still must stay out.
+            let currentForeground = NSWorkspace.shared.frontmostApplication?.processIdentifier
+            note("parityp16a focus: active \(initiallyActive) → \(NSApp.isActive), foreground \(String(describing: foreground)) → \(String(describing: currentForeground))")
+            verdict(NSApp.isActive == initiallyActive && currentForeground == foreground,
                     "all commands preserve foreground application")
             note("IMPOSSIBLE parityp16a: native fullscreen, app switching and moving between desktops require activation/Space changes forbidden for unattended checks")
             owner.closeTab(first); owner.closeTab(other)
@@ -285,15 +291,72 @@ extension SnapshotRunner {
         }
         wait(0.6)
         expect("sidebar restores hidden video") { window()?.isVisible == true && page().map { !HiddenMiniPlayers.isHidden($0) } == true }
-        run {
-            guard let v = controls(), let w = window() else { return }
-            // The actual responder method, never posted to the owner's HID queue.
-            let idle = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: CGEventType(rawValue: ~0)!)
-            guard idle >= 120 else { self.note("IMPOSSIBLE parityp16a video: space key deferred; HID idle below 120 seconds"); return }
-            if let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                        windowNumber: w.windowNumber, context: nil, characters: " ", charactersIgnoringModifiers: " ", isARepeat: false, keyCode: 49) { v.keyDown(with: e) }
+        // Space on the Mini Player. With AIRC_REAL_KEYS=1 (a dedicated session): a real click on the player's video
+        // (away from its buttons), as a person focuses it, then a real Space from the UI driver through the HID queue.
+        // Without: the controls' own responder method, called directly (nothing reaches the HID queue, so no idle
+        // wait: suitereds, the suite's runs came here seconds after other checks' real input and skipped the press).
+        var spaceHow = "the controls' responder, no UI driver"
+        step { [self] done in
+            guard let v = controls(), let w = window() else { verdict(false, "space: the Mini Player is there"); return done() }
+            guard UIDriverClient.available, ProcessInfo.processInfo.environment["AIRC_UI_DEDICATED_SESSION"] == "1" else {
+                if let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                            windowNumber: w.windowNumber, context: nil, characters: " ", charactersIgnoringModifiers: " ",
+                                            isARepeat: false, keyCode: 49) { v.keyDown(with: e) }
+                return done()
+            }
+            NSApp.activate(ignoringOtherApps: true)
+            w.makeKeyAndOrderFront(nil)
+            waitUntil({ NSApp.isActive && w.isKeyWindow }, timeout: 3) {
+                guard NSApp.isActive, w.isKeyWindow, w.isOnActiveSpace, let primary = NSScreen.screens.first else {
+                    self.note("FAIL-ENV parityp16a video: real Space needs the Mini Player key (active \(NSApp.isActive), key \(w.isKeyWindow), "
+                              + "on active Space \(w.isOnActiveSpace))")
+                    return done()
+                }
+                // A point on the video that none of the player's controls take (they hit-test only their buttons and
+                // scrubber): where a person clicks to put the Mini Player in front, the press only focuses it.
+                v.flashControls()
+                v.layoutSubtreeIfNeeded()
+                func onChrome(_ p: NSPoint) -> Bool {
+                    guard let sv = v.superview else { return false }
+                    return v.hitTest(v.convert(p, to: sv)) == nil
+                }
+                var spot: NSPoint?
+                outer: for fy in [0.5, 0.35, 0.65, 0.25, 0.75, 0.15, 0.85] as [CGFloat] {
+                    for fx in [0.5, 0.3, 0.7, 0.2, 0.8, 0.1, 0.9] as [CGFloat] {
+                        let p = NSPoint(x: v.bounds.width * fx, y: v.bounds.height * fy)
+                        if onChrome(p) { spot = p; break outer }
+                    }
+                }
+                guard let spot else {
+                    let mid = NSPoint(x: v.bounds.midX, y: v.bounds.midY)
+                    let hit = v.superview.flatMap { v.hitTest(v.convert(mid, to: $0)) }
+                    self.note("parityp16a video: no free spot on the Mini Player (\(Int(v.bounds.width))×\(Int(v.bounds.height)), "
+                              + "centre hits \(hit.map { String(describing: type(of: $0)) } ?? "nothing"))")
+                    verdict(false, "space: a spot on the Mini Player's chrome"); return done()
+                }
+                let screen = w.convertPoint(toScreen: v.convert(spot, to: nil))
+                let before = MediaLibrary.shared.media?.sessions[tab]?.session.playback
+                let x = String(Double(screen.x)), y = String(Double(primary.frame.maxY - screen.y))
+                // As a person does: the pointer comes onto the player (its controls show), then clicks.
+                UIDriverClient.run(["--move", x, y]) { _, _ in
+                UIDriverClient.run(["--click", x, y]) { ok, out in
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        let after = MediaLibrary.shared.media?.sessions[tab]?.session.playback
+                        self.note("parityp16a video: real click on the Mini Player at \(Int(spot.x)),\(Int(spot.y)): driver \(ok) \(out.prefix(60)); "
+                                  + "focused \(w.firstResponder === v), playback \(before.map { "\($0)" } ?? "-") → \(after.map { "\($0)" } ?? "-")")
+                        UIDriverClient.press(["space"]) { ok, out in
+                            spaceHow = ok && w.isKeyWindow ? "a real Space from the UI driver" : "the UI driver failed (\(out.prefix(60)))"
+                            done()
+                        }
+                    }
+                }
+                }
+            }
         }
-        expect("space responder pauses video") { MediaLibrary.shared.media?.sessions[tab]?.session.playback == .paused }
+        step { [self] done in
+            let paused = { MediaLibrary.shared.media?.sessions[tab]?.session.playback == .paused }
+            waitUntil(paused, timeout: 8) { self.note("parityp16a video: Space by \(spaceHow)"); verdict(paused(), "space responder pauses video"); done() }
+        }
         run { controls()?.actions.seek(1, true) }
         wait(0.3)
         step { done in page()?.evaluate("v.paused && Math.abs(v.currentTime - 1) < 0.3") { value in

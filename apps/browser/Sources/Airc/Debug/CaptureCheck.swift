@@ -389,6 +389,91 @@ extension SnapshotRunner {
         }
         wait(0.6)
 
+        let native = NSView(frame: NSRect(x: 40, y: 40, width: 80, height: 80))
+        let transient = ToastView(frame: .zero)
+        run { [self] in
+            native.wantsLayer = true
+            native.layer?.backgroundColor = NSColor.red.cgColor
+            c.root.addSubview(native)
+            c.root.addSubview(transient)
+            transient.show("expiring", palette: c.currentPalette, in: native.frame, duration: 0.01)
+            let png = CaptureSession.picture(of: native).flatMap { CaptureSession.png($0, scale: c.window.backingScaleFactor) }
+            try? png?.write(to: dir.appendingPathComponent("capture-native-subtree.png"))
+            let colored = decode(png).map { d in
+                let i = ((d.h / 2) * d.w + d.w / 2) * 4
+                return d.px[i] > 240 && d.px[i + 1] < 10 && d.px[i + 2] < 10 && d.px[i + 3] == 255
+            } == true
+            check(colored, "capture native: overlapping sibling chrome excluded from red subtree PNG")
+            check(png != nil, "capture native: supported layer renderer produces actual PNG")
+            check(transient.superview === c.root && !transient.isHidden,
+                  "capture native: sibling toast hierarchy and visibility unchanged")
+        }
+        wait(1.0)
+        run { [self] in
+            check(transient.isHidden, "capture native: toast expires normally after rendering")
+            transient.removeFromSuperview()
+            _ = CaptureSession.picture(of: native)
+        }
+        wait(0.2)
+        run { [self] in
+            check(transient.superview == nil, "capture native: expired removed toast is never resurrected")
+            native.removeFromSuperview()
+        }
+
+        // Hold real engine replies to exercise cancellation before pixels arrive.
+        for notification in [NSWindow.didResizeNotification, NSWindow.didChangeBackingPropertiesNotification] {
+            run { [self] in
+                CaptureSession.pictureRequest = { _, _ in }
+                c.startCapture()
+                let old = active()
+                check(old != nil && old?.picturesReady == false, "capture lifecycle: pending before notification")
+                NotificationCenter.default.post(name: notification, object: c.window)
+                check(old?.isEnded == true && active() == nil, "capture lifecycle: notification cancels pending session")
+                old?.cancel()
+                check(active() == nil, "capture lifecycle: repeated cleanup is idempotent")
+                CaptureSession.pictureRequest = nil
+            }
+            wait(0.3)
+        }
+        var switchedSession: CaptureSession?
+        run { [self] in
+            var reply: ((NSImage?) -> Void)?
+            CaptureSession.pictureRequest = { _, completion in reply = completion }
+            c.startCapture()
+            switchedSession = active()
+            check(switchedSession != nil && switchedSession?.picturesReady == false,
+                  "capture lifecycle: image pending before actual Space switch")
+            c.switchSpace(offset: 1)
+            reply?(nil)
+            CaptureSession.pictureRequest = nil
+        }
+        wait(0.3)
+        run { [self] in
+            check(switchedSession?.isEnded == true && active() == nil,
+                  "capture lifecycle: actual content switch rejects stale image reply")
+            c.switchSpace(offset: -1)
+            switchedSession = nil
+        }
+        wait(0.6)
+        var lateReply: ((NSImage?) -> Void)?
+        run { [self] in
+            CaptureSession.pictureRequest = { _, reply in lateReply = reply }
+            c.startCapture()
+            let old = active()
+            let staleReply = lateReply
+            c.startCapture()
+            c.startCapture()
+            let fresh = active()
+            old?.cancel()
+            staleReply?(nil)
+            check(old?.isEnded == true && fresh != nil && fresh !== old && active() === fresh,
+                  "capture lifecycle: rapid restart owns a distinct generation")
+            fresh?.cancel()
+            CaptureSession.pictureRequest = nil
+            lateReply = nil
+        }
+        wait(0.3)
+
         // 8. A private window captures, and nothing is counted.
         step { [self] done in
             guard let app else { return done() }
@@ -436,7 +521,15 @@ extension SnapshotRunner {
             let d = decode(board.data(forType: .png))
             check(board.changeCount != n && d?.w == Int(p.card.frame.width * p.window.backingScaleFactor), "capture: private window: Copy works (\(d.map { "\($0.w)×\($0.h)" } ?? "-") px)")
             check(used.count == countBefore, "capture: private window: nothing counted")
+            CaptureSession.pictureRequest = { _, _ in }
+            p.startCapture()
+            let pending = CaptureSession.active(in: p.window)
+            check(pending != nil && pending?.picturesReady == false, "capture lifecycle: private image reply pending before actual close")
             p.closeWindow()
+            check(pending?.isEnded == true && CaptureSession.active(in: p.window) == nil,
+                  "capture lifecycle: actual private window close cancels pending capture")
+            pending?.cancel()
+            CaptureSession.pictureRequest = nil
         }
         wait(0.5)
 

@@ -76,7 +76,7 @@ extension SnapshotRunner {
                 #text{position:absolute;top:140px;left:40px;width:600px}</style>
                 <a id=top href="/followed">The page's top bar: a link</a><input id=field value="a field in the strip">
                 <p id=text>Some text below the strip to select with a drag.</p>
-                <script>var downs=0,clicks=0;document.addEventListener('mousedown',function(){downs++});
+                <script>var downs=0,clicks=0;document.addEventListener('mousedown',function(e){downs++;window.lastDown=e.clientX+','+e.clientY+' on '+e.target.id});
                 document.addEventListener('click',function(e){clicks++;if(e.target.id=='top')e.preventDefault()});</script>
                 """
             server = LocalPageServer(pages: ["/w07": page, "/followed": "<!doctype html><title>followed</title>followed"])
@@ -269,12 +269,30 @@ extension SnapshotRunner {
                 }
             }
             step { done in
-                let a = self.c.card.convert(NSPoint(x: 42, y: self.c.card.bounds.height - 150), to: nil)
-                press({ a }, to: { NSPoint(x: a.x + 160, y: a.y) }) { done() }
+                // Inside the text: its <p> has a 16 px top margin, so the first line starts 156 px down.
+                PageTopDragStrip.last = nil   // the link click above went through the strip
+                let a = self.c.card.convert(NSPoint(x: 42, y: self.c.card.bounds.height - 165), to: nil)
+                // A dedicated session with the stable UI driver: a real drag (posted drags don't select in a key WebKit
+                // window). Otherwise posted, as before.
+                guard ProcessInfo.processInfo.environment["AIRC_UI_DEDICATED_SESSION"] == "1",
+                      FileManager.default.isExecutableFile(atPath: UIDriverClient.path) else {
+                    return press({ a }, to: { NSPoint(x: a.x + 160, y: a.y) }) { done() }
+                }
+                let top = NSScreen.screens.first?.frame.maxY ?? 0
+                let s = self.c.window.convertPoint(toScreen: a)
+                let f = { (v: CGFloat) in String(format: "%.1f", v) }
+                UIDriverClient.run(["--drag", f(s.x), f(top - s.y), f(s.x + 160), f(top - s.y)]) { ok, out in
+                    let top = NSWindow.windowNumber(at: s, belowWindowWithWindowNumber: 0)
+                    self.note("parityw07: the selection drag is real (driver \(ok ? "ok" : out)), from screen \(NSStringFromPoint(s)), window "
+                              + "\(NSStringFromRect(self.c.window.frame)) (top window there ours \(top == self.c.window.windowNumber))")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: done)
+                }
             }
             step { [self] done in
-                evaluate("String(window.getSelection())") { v in
-                    let s = (v as? String) ?? ""
+                evaluate("String(window.getSelection()) + '\\u0001' + (window.lastDown || '-')") { v in
+                    let parts = ((v as? String) ?? "").components(separatedBy: "\u{1}")
+                    self.note("parityw07: the last press on the page: \(parts.count > 1 ? parts[1] : "-")")
+                    let s = parts.first ?? ""
                     self.check(s.count >= 5 && PageTopDragStrip.last == nil,
                                "parityw07: a drag below the strip selects the page's text, the strip not involved (“\(s)”)")
                     done()

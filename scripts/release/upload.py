@@ -69,6 +69,10 @@ def verify(stage):
         log=(stage/f'evidence/sparkle-{kind}.log').read_text()
         if 'PASS installed and relaunched 0.0.2' not in log or 'PASS installed Developer ID signature' not in log:
             raise ValueError('Sparkle proof incomplete')
+    if m.get("qualification") == "fast-gate-v1":
+        from fast_gate_proof import verify as verify_fast_gate
+        verify_fast_gate(stage/"evidence/fast-gate-result.json", m["revision"])
+        if not m["qualified"]: raise ValueError("Fast gate must be qualified")
     return m, item
 
 def read_back(url, tries=12, wait=5):

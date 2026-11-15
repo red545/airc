@@ -343,8 +343,13 @@ extension SnapshotRunner {
         }
         run { [self] in
             guard let source = calendar.source as? SyntheticCalendarSource else { return note("marketing: MISSING calendar: not the synthetic calendar") }
+            // M08: the card's Today and Tomorrow. The clock reads 15:55 local, whenever the shot is taken, so the day
+            // list is the same in every run (only the calendar's clock moves; the synthetic source stands in for the
+            // macOS Calendar route, EventKit).
+            let cal = Calendar.current
+            let t0 = cal.date(bySettingHour: 15, minute: 55, second: 0, of: Date()) ?? Date()
+            offset = t0.timeIntervalSinceNow
             calendar.now = { Date().addingTimeInterval(offset) }
-            let t0 = Date()
             start = t0.addingTimeInterval(5 * 60)
             func at(_ m: Double) -> Date { t0.addingTimeInterval(m * 60) }
             source.set([
@@ -352,7 +357,10 @@ extension SnapshotRunner {
                               link: MeetingLink(url: URL(string: "https://meet.google.com/abc-mnop-xyz")!, service: .meet)),
                 CalendarEvent(id: "sync", title: "1:1 with Jonas", start: at(50), end: at(80),
                               link: MeetingLink(url: URL(string: "https://zoom.us/j/5550100")!, service: .zoom)),
-                CalendarEvent(id: "lunch", title: "Lunch at Time Out Market", start: at(110), end: at(170)),
+                CalendarEvent(id: "dinner", title: "Dinner at Time Out Market", start: at(155), end: at(245)),
+                CalendarEvent(id: "standup", title: "Team standup", start: at(17 * 60 + 35), end: at(17 * 60 + 50),
+                              link: MeetingLink(url: URL(string: "https://meet.google.com/qrs-tuvw-xyz")!, service: .meet)),
+                CalendarEvent(id: "launch", title: "Launch planning", start: at(19 * 60 + 5), end: at(20 * 60 + 5)),
             ])
             calendarItem = c.store.favorites(ofProfile: d.personal).first { CalendarSites.isCalendarFavorite($0.savedURL ?? "") }?.id ?? ""
             calendar.setEnabled(true)
@@ -366,6 +374,9 @@ extension SnapshotRunner {
             CalendarCard.shared.show(beside: t)
         }
         wait(0.6)
+        run { [self] in
+            note("marketing: calendar card days: " + TestAnchors.frames.keys.filter { $0.hasPrefix("calendar.day.") }.sorted().joined(separator: " "))
+        }
         mkWindowShot("calendar")
         run { [self] in
             CalendarCard.shared.hide()
@@ -395,6 +406,20 @@ extension SnapshotRunner {
         wait(0.3)
 
         mkDownloads(d)
+    }
+
+    func mkBundleReplacementShot(_ d: MarketingDemo) {
+        mkShow(d, "personal", "apple")
+        run { [self] in
+            let identity = BundleReplacementMonitor.Identity(["CFBundleIdentifier": "org.airc.marketing",
+                "CFBundleShortVersionString": "0.1.5", "CFBundleVersion": "209901010000"])!
+            let update = BundleReplacementUpdate(identity: identity, restart: {})
+            UpdateCenter.shared.setReady(update)
+            c.showToast(update.restartNotice!)
+        }
+        wait(0.6)
+        mkWindowShot("update-replaced")
+        run { UpdateCenter.shared.setReady(nil) }
     }
 
     // MARK: calls: picture in picture with Airc's controls, a call's PiP, Meet's Document PiP bar, the call window
@@ -706,7 +731,7 @@ extension SnapshotRunner {
         mkShow(d, "personal", "apple")
         wait(0.4)
         let pages: [(SettingsPage, String, Bool)] = [(.appearance, "settings-appearance-light", false), (.appearance, "settings-appearance-dark", true),
-                                                     (.privacy, "settings-privacy", false)]
+                                                     (.privacy, "settings-privacy", false)]   // settings-agents: MarketingAgents.swift
         for (page, name, dark) in pages {
             run { [self] in
                 NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
@@ -814,7 +839,16 @@ extension SnapshotRunner {
             o?.model.onNext?()
         }
         wait(0.7)
-        run { o?.model.onSkipLogins?() }
+        run {
+            // The password manager step: a synthetic 1Password.app in the fixture home preselects it (only the folder).
+            if let h = BrowserImportLocator.testHome {
+                try? FileManager.default.createDirectory(at: h.appendingPathComponent("Applications/1Password.app"), withIntermediateDirectories: true)
+            }
+            o?.model.onSkipLogins?()
+        }
+        wait(1.0)
+        mkOnboardingShot("onboarding-password-manager", { o })
+        run { o?.model.onPasswordManagerNotNow?() }
         wait(0.7)
         run {
             guard let m = o?.model, m.previewSpaces.count > 2 else { return }

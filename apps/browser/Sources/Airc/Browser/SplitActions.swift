@@ -53,6 +53,7 @@ extension WindowController {
     /// Bottom Split (`leading`: before the anchor).
     func newSplitView(axis: SplitAxis = .horizontal, anchor: String? = nil, leading: Bool = false) {
         guard let anchor = anchor ?? shownTabID, store.tab(anchor) != nil else { return openCommandBar(mode: .newTab) }
+        guard store.canBeSplitPane(anchor) else { return NSSound.beep() }   // P19b: an Easel is never a pane
         if let x = store.split(containing: anchor), x.tabIDs.count >= Split.maxPanes { return showToast(Self.splitFullMessage) }
         if anchor != shownTabID { show(anchor, focus: false) }
         closeCommandBar()
@@ -146,6 +147,7 @@ extension WindowController {
     func splitDropZone(for source: DragSource, at p: NSPoint) -> SplitDropZone? {
         let shownSplit = store.split(shownSplitID)
         guard case .tab(let id) = source, store.tab(id)?.isToday == true, let shown = shownTabID, id != shown,
+              !store.isEaselTab(id), !store.isEaselTab(shown),   // P19a: Easels are never panes; a drop on one is a link card
               shownSplit?.tabIDs.contains(id) != true, (shownSplit?.tabIDs.count ?? 1) < Split.maxPanes,
               card.frame.insetBy(dx: 24, dy: 24).contains(p), !sidebar.frame.contains(p) else {
             hideSplitDropPreview()
@@ -208,15 +210,19 @@ extension WindowController {
         default: break
         }
         guard let shown = shownTabID, store.tab(shown) != nil else { return activate(entry: entry) }
+        // P19b: an Easel is never a pane: ⌥-click on one, or while one is on screen, just shows the row.
+        if !store.canBeSplitPane(shown) || entry.liveTab.map({ !store.canBeSplitPane($0.id) }) == true { return activate(entry: entry) }
+        if case .pinned(let item, _, _) = entry, EaselURL.isEasel(item.savedURL) { return activate(entry: entry) }
         let x = store.split(containing: shown)
         var id: String?
         switch entry {
         case .today(let t):
             if t.id != shown, x?.tabIDs.contains(t.id) == true { return focusSplitPane(t.id) }
             if let x, x.tabIDs.count >= Split.maxPanes { return showToast(Self.splitFullMessage) }
-            id = t.id == shown ? (try? store.duplicateTab(t.id))?.id : t.id
+            // The note on screen isn't copied beside itself (a copy would be a second note); it beeps (P13b).
+            id = t.id == shown ? (NoteURL.isNote(t.url) ? nil : (try? store.duplicateTab(t.id))?.id) : t.id
         case .pinned(let item, _, _), .favorite(let item, _):
-            guard item.kind == .tab, !NoteURL.isNote(item.savedURL) else { return activate(entry: entry) }
+            guard item.kind == .tab else { return activate(entry: entry) }
             if let t = store.liveTab(forItem: item.id), x?.tabIDs.contains(t.id) == true { return focusSplitPane(t.id) }
             if let x, x.tabIDs.count >= Split.maxPanes { return showToast(Self.splitFullMessage) }
             id = (try? store.openItem(item.id, inSpace: currentSpaceID, activate: false))?.id
@@ -227,14 +233,17 @@ extension WindowController {
         addPane(id, nextTo: x?.focusedTabID ?? shown, axis: x?.axis ?? .horizontal)
     }
 
-    /// Whether ⌥-click on `entry` is Arc's: a tab, pinned tab or Favorite opens in a split; a split separates. Not a note or
-    /// folder.
+    /// Whether ⌥-click on `entry` is Arc's: a tab, pinned tab or Favorite opens in a split (a note's too, P13b); a split
+    /// separates. Not a folder.
     func optionClickSplits(_ entry: SidebarEntry) -> Bool {
+        // P19b: an Easel's row never splits (no "Open in Split View" on it).
+        if let t = entry.liveTab, !store.canBeSplitPane(t.id) { return false }
+        if let item = entry.item, EaselURL.isEasel(item.savedURL) { return false }
         switch entry {
-        case .today(let t): return !NoteURL.isNote(t.url)
+        case .today: return true
         case .split: return true
         case .pinned(let item, _, _), .favorite(let item, _):
-            return item.kind == .split || (item.kind == .tab && !NoteURL.isNote(item.savedURL))
+            return item.kind == .split || item.kind == .tab
         default: return false
         }
     }
@@ -242,7 +251,7 @@ extension WindowController {
     /// Arc's split entries in the Command Bar: Add Left / Right / Top / Bottom Split (the two along a split's axis in
     /// one), and in a split Separate Tab from Split and Close Split View Pane for the focused pane.
     func splitCommandActions() -> [CommandAction] {
-        guard let shown = shownTabID, store.tab(shown) != nil else { return [] }
+        guard let shown = shownTabID, store.tab(shown) != nil, store.canBeSplitPane(shown) else { return [] }   // P19b: not on an Easel
         var a: [CommandAction] = []
         let full = (store.split(containing: shown)?.tabIDs.count ?? 1) >= Split.maxPanes
         if !full {

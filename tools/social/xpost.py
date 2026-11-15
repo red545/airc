@@ -9,6 +9,7 @@ apart under its first post), posted through X's API only once the owner has appr
     python3 tools/social/xpost.py unapprove <id…> | --all
     python3 tools/social/xpost.py start --by "<the owner's words, where, when>"    allow real runs (stop: pause)
     python3 tools/social/xpost.py drop <id…>                   take queued posts out (never posted ones only)
+    python3 tools/social/xpost.py move <id> <YYYY-MM-DDTHH:MM> a queued post (and its replies) to another time (UTC)
     python3 tools/social/xpost.py refresh <pack>               queued posts take the pack's edited text and media
     python3 tools/social/xpost.py preview                      check every queued post as run would, without posting
     python3 tools/social/xpost.py run [--dry]                  post what's approved and due (every few minutes)
@@ -156,7 +157,13 @@ def cmd_plan(args):
     have = {i["post"] for i in q["items"] if i["pack"] == pack["slug"]}
     start = dt.date.fromisoformat(opts.get("--start", now().date().isoformat()))
     slots = [tuple(int(x) for x in t.split(":")) for t in opts.get("--slots", "09:00,15:00,21:00").split(",")]
-    tag = re.sub(r"[^a-z0-9]", "", pack["slug"].split("-", 3)[-1])[:10] or "pack"
+    tag = re.sub(r"[^a-z0-9]", "", pack["slug"].split("-", 3)[-1])[:12] or "pack"
+    # Ids are unique across packs: a prefix another pack already uses (release-0.1.16 and release-0.1.17 once both cut
+    # to "release011") gets the next free number on the end.
+    taken_tags = {i["id"].rsplit("-", 1)[0] for i in q["items"] if i["pack"] != pack["slug"]}
+    base, n = tag, 2
+    while tag in taken_tags:
+        tag, n = f"{base}{n}", n + 1
     # Each top-level post takes the next free slot (none in the past, none another pack already has).
     taken = {i["due"] for i in q["items"] if not i["reply_to"]}
 
@@ -292,6 +299,35 @@ def cmd_refresh(args):
     save_queue(q)
     log(f"refreshed from {pack['slug']}: {', '.join(changed) or 'nothing changed'}")
     print(f"refreshed {len(changed)}: {' '.join(changed)}")
+
+
+def cmd_move(args):
+    """A queued post to another time (UTC), its thread's replies with it. Keeps approval and review (neither vouches for
+    a time); refuses the past and a day that would go over MAX_PER_DAY top-level posts."""
+    if len(args) != 2:
+        raise SystemExit("move <id> <YYYY-MM-DDTHH:MM> (UTC)")
+    q = load_queue()
+    top = next((i for i in q["items"] if i["id"] == args[0] and i["status"] == "queued"), None)
+    if top is None:
+        raise SystemExit(f"{args[0]}: no queued post")
+    if top.get("reply_to"):
+        raise SystemExit(f"{args[0]} is a reply: move its thread's first post")
+    when = dt.datetime.fromisoformat(args[1]).replace(tzinfo=dt.timezone.utc)
+    if when <= now():
+        raise SystemExit("that's in the past")
+    day = when.date().isoformat()
+    others = [i for i in q["items"] if not i.get("reply_to") and i is not top and i["status"] != "dropped"
+              and i["due"][:10] == day and (i["status"] == "posted" or i.get("approved"))]
+    if len(others) + 1 > MAX_PER_DAY:
+        raise SystemExit(f"{day} already has {len(others)} top-level posts")
+    thread = [top] + [i for i in q["items"] if i.get("reply_to") and i["pack"] == top["pack"] and i["due"] == top["due"]
+                      and i["status"] == "queued"]
+    old = top["due"]
+    for i in thread:
+        i["due"] = when.isoformat()
+    save_queue(q)
+    log(f"moved {', '.join(i['id'] for i in thread)} from {old} to {when.isoformat()}")
+    print(f"moved {len(thread)}: {old[:16]} → {when.isoformat()[:16]}")
 
 
 def cmd_drop(args):
@@ -592,6 +628,8 @@ def main(argv):
         cmd_approve(args, False)
     elif cmd == "drop":
         cmd_drop(args)
+    elif cmd == "move":
+        cmd_move(args)
     elif cmd == "refresh":
         cmd_refresh(args)
     elif cmd == "review":

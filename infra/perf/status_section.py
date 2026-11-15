@@ -6,27 +6,37 @@ import json
 import math
 
 def render(runs_dir):
+    # Nightly runs (runs/<run>/results.json) and repeated runs combined by aggregate.py (perf/<name>/results.json),
+    # oldest to newest by measurement time. A repeated run's headline values are medians; `spread` has min–max.
     history = []
-    for path in sorted(runs_dir.glob('*/results.json'))[-30:]:
+    for path in [*runs_dir.glob('*/results.json'), *(runs_dir.parent / 'perf').glob('*/results.json')]:
         try:
             data = json.loads(path.read_text())
             if data.get('schema_version') == 1: history.append((path, data))
         except (OSError, ValueError, AttributeError):
             continue
+    history = sorted(history, key=lambda item: str(item[1].get('timestamp', '')))
+    webkit = [h for h in history if h[1].get('engine') == 'webkit']
+    history = [h for h in history if h[1].get('engine') != 'webkit'][-30:]
     gaps = render_gaps(runs_dir)
     if not history: return '<p>No reference performance runs yet.</p>' + gaps
     path, latest = history[-1]
     esc = lambda x: html.escape(str(x))
     def num(value):
         return f'{value:.2f}' if isinstance(value,(int,float)) and math.isfinite(value) else 'unavailable'
+    def cell(side, key, data=None):
+        data = latest if data is None else data
+        value = data.get(side,{}).get('metrics',{}).get(key)
+        s = data.get(side,{}).get('spread',{}).get(key)
+        return num(value) + (f' <span class="dim">({s["min"]:.2f}–{s["max"]:.2f})</span>' if s and s.get('n',0) > 1 else '')
+    href = lambda p: esc(p.relative_to(runs_dir.parent).as_posix())
     # Like for like: Chrome with the same 8 pages as Airc's reference run, when the run has it (older runs: 30 tabs).
     chrome = 'chrome_8' if 'chrome_8' in latest else 'chrome'
     rows = []
     for key, title in [('first_window_ms','First window observed (ms; proxy)'),('early_main_mb','Early main footprint (MB; diagnostic)'),('main_mb','Main physical footprint at 60 s (MB)'),
                        ('total_mb','All-process physical footprint (MB)'),('idle_cpu_percent','Idle CPU (%)'),
                        ('space_layout_ms','Space synchronous layout (ms; proxy)')]:
-        values = [latest.get(n,{}).get('metrics',{}).get(key) for n in ['airc',chrome]]
-        rows.append(f'<tr><td>{title}</td><td>{num(values[0])}</td><td>{num(values[1])}</td><td>{num(latest.get("ratios",{}).get(key))}</td></tr>')
+        rows.append(f'<tr><td>{title}</td><td>{cell("airc",key)}</td><td>{cell(chrome,key)}</td><td>{num(latest.get("ratios",{}).get(key))}</td></tr>')
     gap_data = read_gaps(runs_dir)
     overrides = {b['id']: b for b in gap_data.get('budgets', []) if b.get('status') != 'unknown'}
     latest = dict(latest, budgets=[dict(b, status=overrides[b['id']]['status'] + ' (separate gap probe; see below)') if b['id'] in overrides else b for b in latest.get('budgets', [])])
@@ -55,11 +65,42 @@ def render(runs_dir):
                           f'<td>{num(r.get("ratio"))}</td><td>{esc(r.get("airc_pages_loaded"))}, {esc(r.get("chrome_pages_loaded"))} of {esc(n)}</td>'
                           f'<td>{num(r.get("airc_cpu_percent"))}, {num(r.get("chrome_cpu_percent"))}</td></tr>'
                           for n, r in latest['mem4'].items()) + '</table>')
+    extra = ''
+    timing = [('interactive_ms','Launch to interactive'),('space_frame_ms','Space switch frame'),('tab_paint_ms','Loaded tab painted'),
+              ('sidebar_ready_ms','Sidebar ready'),('new_space_ms','New Space'),('command_frame_first_ms','First Command Bar frame'),
+              ('command_frame_ms','Command Bar frame'),('command_local_ms','Command Bar local results'),('command_suggestions_ms','Suggestions')]
+    if latest.get('foreground'):
+        f = {'foreground': latest['foreground']}
+        extra += ('<table><tr><th>Airc timings, ms</th><th>Dedicated foreground session</th><th>Background (hidden window)</th></tr>'
+                  + ''.join(f'<tr><td>{t}</td><td>{cell("foreground",k,f)}</td><td>{cell("airc",k)}</td></tr>' for k,t in timing) + '</table>')
+    for label, side in (latest.get('ab') or {}).items():
+        g = {'ab': side}
+        extra += (f'<table><tr><th>Airc A/B: {esc(label)} ({esc(" ".join(side.get("app_args") or []) or "no extra arguments")}; '
+                  f'n={esc(side.get("launches"))})</th><th>{esc(label)}</th><th>Reference</th></tr>'
+                  + ''.join(f'<tr><td>{t}</td><td>{cell("ab",k,g)}</td><td>{cell("airc",k)}</td></tr>'
+                            for k,t in [('total_mb','All-process footprint (MB)'),('main_mb','Main footprint (MB)'),
+                                        ('idle_cpu_percent','Idle CPU (%)'),('interactive_ms','Launch to interactive (ms)'),
+                                        ('leak_ratio','MEM-5 leak ratio')]) + '</table>')
+    if webkit:
+        wpath, w = webkit[-1]
+        wc = 'chrome_8' if 'chrome_8' in w else 'chrome'
+        extra += (f'<h3>WebKit engine</h3><p>{esc(w.get("timestamp",""))} · <a href="{href(wpath)}">JSON</a></p>'
+                  '<table><tr><th>Metric</th><th>Airc (WebKit)</th><th>Chrome (same 8 pages)</th><th>Airc/Chrome</th></tr>'
+                  + ''.join(f'<tr><td>{t}</td><td>{cell("airc",k,w)}</td><td>{cell(wc,k,w)}</td><td>{num(w.get("ratios",{}).get(k))}</td></tr>'
+                            for k,t in [('main_mb','Main physical footprint (MB)'),('total_mb','All-process physical footprint (MB)'),
+                                        ('idle_cpu_percent','Idle CPU (%)')])
+                  + ''.join(f'<tr><td>{t} (ms)</td><td>{cell("airc",k,w)}</td><td></td><td></td></tr>' for k,t in timing[:5]) + '</table>'
+                  + '<table>' + ''.join(f'<tr><td>{esc(b["id"])}</td><td>{esc(b["budget"])}</td><td>{esc(b["status"])}</td></tr>'
+                                        for b in w.get('budgets', [])) + '</table>')
+    m = latest.get('machine') or {}
+    machine = ' · '.join(esc(x) for x in [m.get('cpu'), m.get('macos') and 'macOS ' + m['macos'],
+                                           m.get('airc_revision') and 'Airc ' + m['airc_revision'][:10],
+                                           m.get('chrome_version') and 'Chrome ' + m['chrome_version']] if x)
     return (f'<p>{esc(latest.get("timestamp",""))} · <b>{"Complete" if latest.get("complete") else "Incomplete / diagnostic only"}</b> · '
-            f'<a href="runs/{esc(path.parent.name)}/results.json">JSON</a></p>'
+            f'<a href="{href(path)}">JSON</a>' + (f' · {machine}' if machine else '') + '</p>'
             + ''.join(f'<p class="dim">{esc(n)}</p>' for n in latest.get('notes',[]))
             + f'<table><tr><th>Metric</th><th>Airc</th><th>Chrome{" (same 8 pages)" if chrome == "chrome_8" else ""}</th><th>Airc/Chrome</th></tr>'+''.join(rows)+'</table>'
-            + fair + svg+'<table>'+budget_rows+'</table>' + gaps)
+            + fair + svg+'<table>'+budget_rows+'</table>' + extra + gaps)
 
 
 def read_gaps(runs_dir):
@@ -87,6 +128,9 @@ def render_gaps(runs_dir):
             elif value: metrics.append(f'{key}: {value}')
         rows.append(f"<tr><td>{esc(b['id'])}</td><td>{esc(b['status'])}</td><td>{esc('; '.join(metrics) or 'unmeasured')}</td><td>{esc(b['reason'])}</td></tr>")
     return (f"<h3>Separate gap probes</h3><p>{esc(data.get('timestamp'))} · <a href='perf-gaps/gaps.json'>JSON</a> · "
-            f"binary <code>{esc(data.get('binary_sha256', '')[:12])}</code>. Medians (min–max); sources and scopes below. "
+            f"binary <code>{esc(data.get('binary_sha256', '')[:12])}</code>"
+            + (' · dedicated foreground session' if data.get('dedicated_session') else ' · background windows')
+            + (f" · Airc {esc(' '.join(data['app_args']))}" if data.get('app_args') else '')
+            + ". Medians (min–max); sources and scopes below. "
             "These results do not replace the reference workload above.</p>"
             + '<table><tr><th>Budget</th><th>Status</th><th>Measurement</th><th>Method / limits</th></tr>' + ''.join(rows) + '</table>')

@@ -2,7 +2,7 @@
 # Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
 """Privacy gate for an exported tree. Prints `file:line: kind`, never a matched value.
 
-    scan.py <dir> --patterns FILE [--allowlist FILE] [--gitleaks-report FILE] [--public-email ADDR]...
+    scan.py <dir> --patterns FILE [--allowlist FILE] [--synthetic FILE] [--gitleaks-report FILE] [--public-email ADDR]...
 
 Kinds:
   <pattern kind>   a value from the operator's private pattern file (tailnet-host, username, ...)
@@ -10,10 +10,17 @@ Kinds:
   external-symlink a symlink that points outside the tree
   gitleaks:<rule>  a secret found by gitleaks (read from its redacted JSON report)
 
+A text line's hit of a regex kind (private-ip, tailnet-domain) is approved without an allowlist
+entry when every value that kind matched on the line is a made-up value from --synthetic
+(scan-synthetic.txt): <path glob><TAB><kind><TAB>net:<CIDR> | text:<exact><TAB><reason>.
+Literal kinds (the operator's real values) can never be approved that way, and the gate refuses a
+synthetic entry that would cover one of them.
+
 Exit status: 0 when every hit is allowlisted, 1 on any unapproved hit, 2 on bad input.
 """
 import argparse
 import fnmatch
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -47,7 +54,7 @@ def load_patterns(path):
             rx = re.compile(value)
         else:
             raise ValueError(f'pattern file line {number}: unknown mode')
-        patterns.append((kind, rx))
+        patterns.append((kind, rx, mode, value if mode == 'literal' else None))
     if not patterns:
         raise ValueError('pattern file has no patterns')
     return patterns
@@ -67,6 +74,62 @@ def load_allowlist(path):
     return entries
 
 
+def as_ip(text):
+    """The address a private-ip match names (zone and brackets dropped), or None."""
+    try:
+        return ipaddress.ip_address(text.strip('[]').split('%')[0])
+    except ValueError:
+        return None
+
+
+def load_synthetic(path, patterns):
+    entries = []
+    if not path:
+        return entries
+    regex_kinds = {kind for kind, _, mode, _ in patterns if mode == 'regex'}
+    literal_kinds = {kind for kind, _, mode, _ in patterns if mode == 'literal'}
+    literals = [(kind, value) for kind, _, mode, value in patterns if mode == 'literal']
+    for number, line in enumerate(Path(path).read_text(encoding='utf8').splitlines(), 1):
+        if not line.strip() or line.startswith('#'):
+            continue
+        parts = line.split('\t')
+        if len(parts) != 4 or not all(p.strip() for p in parts):
+            raise ValueError(f'synthetic line {number}: expected <path glob><TAB><kind><TAB>net:|text:<value><TAB><reason>')
+        glob, kind, spec = (p.strip() for p in parts[:3])
+        if kind in literal_kinds or (regex_kinds and kind not in regex_kinds):
+            raise ValueError(f'synthetic line {number}: kind {kind} is not a regex kind; real values are never approvable')
+        mode, _, value = spec.partition(':')
+        if mode == 'net':
+            net = ipaddress.ip_network(value, strict=True)
+            if net.version == 4 and net.prefixlen < 24 or net.version == 6 and net.prefixlen < 112:
+                raise ValueError(f'synthetic line {number}: network too wide (at most a /24 or an IPv6 /112)')
+            match = lambda text, net=net: (ip := as_ip(text)) is not None and ip in net
+        elif mode == 'text':
+            match = lambda text, value=value.lower(): text.lower() == value
+        else:
+            raise ValueError(f'synthetic line {number}: expected net: or text:')
+        # A made-up value must never cover one of the operator's real values.
+        for lit_kind, lit in literals:
+            ip = as_ip(lit)
+            if (ip is not None and match(str(ip))) or (ip is None and mode == 'text' and lit.lower() in value.lower()):
+                raise ValueError(f'synthetic line {number}: covers a private {lit_kind} value')
+        entries.append({'glob': glob, 'kind': kind, 'match': match, 'line': number, 'used': 0})
+    return entries
+
+
+def synthetic_ok(rel, kind, values, synthetic):
+    """True when every matched value is a made-up one approved for this file."""
+    if not values:
+        return False
+    for value in values:
+        entry = next((e for e in synthetic if e['kind'] == kind and fnmatch.fnmatchcase(rel, e['glob'])
+                      and e['match'](value)), None)
+        if not entry:
+            return False
+        entry['used'] += 1
+    return True
+
+
 def public_emails(root, extra):
     emails = {e.lower() for e in extra}
     site = root / 'apps/marketing/src/lib/site.ts'
@@ -84,15 +147,20 @@ def email_ok(address, domain, public):
 
 
 def scan_text(text, patterns, public, check_email):
-    """Yield (line, kind) for every hit. Line numbers start at 1."""
+    """Yield (line, kind, matched values) for every hit. Line numbers start at 1. The values stay
+    in memory for synthetic approval and are never printed."""
     for number, line in enumerate(text.splitlines(), 1):
-        for kind, rx in patterns:
-            if rx.search(line):
-                yield number, kind
+        values = {}
+        for kind, rx, _, _ in patterns:
+            found = [m.group(0) for m in rx.finditer(line)]
+            if found:
+                values.setdefault(kind, []).extend(found)
+        for kind, found in values.items():
+            yield number, kind, tuple(found)
         if check_email:
             for m in EMAIL.finditer(line):
                 if not email_ok(m.group(0), m.group(1), public):
-                    yield number, 'email'
+                    yield number, 'email', ()
 
 
 def scan_file(path, patterns, public):
@@ -105,10 +173,10 @@ def scan_file(path, patterns, public):
     views += [data[s:].decode(enc, 'ignore') for s in (0, 1) for enc in ('utf-16-le', 'utf-16-be')]
     found = set()
     for view in views:
-        for kind, rx in patterns:
+        for kind, rx, _, _ in patterns:
             if kind not in found and rx.search(view):
                 found.add(kind)
-                yield 0, kind
+                yield 0, kind, ()
 
 
 def walk(root):
@@ -123,6 +191,7 @@ def main():
     ap.add_argument('dir')
     ap.add_argument('--patterns', required=True)
     ap.add_argument('--allowlist')
+    ap.add_argument('--synthetic')
     ap.add_argument('--gitleaks-report')
     ap.add_argument('--public-email', action='append', default=[])
     ap.add_argument('--show-allowed', action='store_true')
@@ -133,28 +202,34 @@ def main():
         raise ValueError('not a directory')
     patterns = load_patterns(args.patterns)
     allow = load_allowlist(args.allowlist)
+    synthetic = load_synthetic(args.synthetic, patterns)
     public = public_emails(root, args.public_email)
 
     hits = []  # (relative path or label, line, kind)
+    synthetic_lines = 0
     redacted = 0
     for path in walk(root):
         rel = path.relative_to(root).as_posix()
         label = rel
-        path_kinds = [k for k, rx in patterns if rx.search(rel)]
+        path_kinds = [k for k, rx, _, _ in patterns if rx.search(rel)]
         if path_kinds:
             redacted += 1
             label = f'<redacted path {redacted}>'
             hits += [(label, 0, 'path:' + k) for k in path_kinds]
         if path.is_symlink():
             target = os.readlink(path)
-            hits += [(label, 0, k) for k, rx in patterns if rx.search(target)]
+            hits += [(label, 0, k) for k, rx, _, _ in patterns if rx.search(target)]
             try:
                 path.resolve().relative_to(root)
             except ValueError:
                 hits.append((label, 0, 'external-symlink'))
             continue
         if path.is_file():
-            hits += [(label, line, kind) for line, kind in scan_file(path, patterns, public)]
+            for line, kind, values in scan_file(path, patterns, public):
+                if not path_kinds and synthetic_ok(rel, kind, values, synthetic):
+                    synthetic_lines += 1
+                else:
+                    hits.append((label, line, kind))
 
     if args.gitleaks_report:
         text = Path(args.gitleaks_report).read_text(encoding='utf8').strip()
@@ -164,7 +239,7 @@ def main():
                 rel = file.resolve().relative_to(root).as_posix()
             except ValueError:
                 rel = file.as_posix()
-            if any(rx.search(rel) for _, rx in patterns):
+            if any(rx.search(rel) for _, rx, _, _ in patterns):
                 rel = '<redacted path>'
             hits.append((rel, int(finding.get('StartLine', 0)), 'gitleaks:' + finding.get('RuleID', 'unknown')))
 
@@ -192,13 +267,16 @@ def main():
     for e in allow:
         if not e['used']:
             print(f'warning: allowlist line {e["line"]} matched nothing; remove it if stale', file=sys.stderr)
+    for e in synthetic:
+        if not e['used'] and e['glob'] != '*':
+            print(f'warning: synthetic line {e["line"]} matched nothing; remove it if stale', file=sys.stderr)
 
     counts = {}
     for _, _, kind in failed:
         counts[kind] = counts.get(kind, 0) + 1
     summary = ', '.join(f'{k} {v}' for k, v in sorted(counts.items())) or 'none'
     print(f'Privacy scan: {"FAIL" if failed else "PASS"}: {len(failed)} unapproved ({summary}), '
-          f'{len(allowed)} allowlisted, {len(public)} public mailbox(es)')
+          f'{len(allowed)} allowlisted, {synthetic_lines} synthetic, {len(public)} public mailbox(es)')
     return 1 if failed else 0
 
 

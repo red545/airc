@@ -537,6 +537,15 @@ typedef NS_ENUM(NSInteger, AircSavePageFormat) {
                                NSString* _Nullable error))completion;
 @end
 
+// Main-thread, per-profile tab capture snapshots. Each entry contains capturerID,
+// sharedTabID, capturing, switchable and state (capturing/switched/stopped).
+// callShares returns active sessions; callbacks include stopped tombstones. Callback is
+// asynchronous and never reports a requested switch before Chromium starts it.
+@interface AircProfile (CallSharing)
+- (NSArray<NSDictionary<NSString*, id>*>*)callShares;
+- (void)observeCallShares:(nullable void (^)(NSArray<NSDictionary<NSString*, id>*>*))handler;
+@end
+
 @interface AircTab (Media)
 @property(readonly, nullable) NSString* mediaCaptureSourceId;
 - (void)copyPicture:(NSTimeInterval)timeout completion:(void (^)(CGImageRef _Nullable picture))completion;

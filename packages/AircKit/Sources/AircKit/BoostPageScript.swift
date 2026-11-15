@@ -247,6 +247,10 @@ public enum BoostPageScript {
         var generated = null, custom = null, zapped = null, cursor = null, hasFilter = false;
         // Every sheet this part made, and the imports' tree: each node's own sheet comes after the sheets it imports.
         var made = [], imports = { kids: [], sheet: null }, customText = null, importCount = 0, reported = { __proto__: null };
+        // Scripted checks identify our sheets by object identity: a document can
+        // also adopt valid blocking rules, a Space palette and its own sheets.
+        // The app enables this only for the synthetic Boost scenarios.
+        if (TRUST_SYNTHETIC) Object.defineProperty(win, '__aircBoostSheets', { value: made, configurable: true });
         // What the imports reported before this document said ready (the app knows no document until then).
         var readySaid = false, held = [];
 

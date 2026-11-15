@@ -147,7 +147,7 @@ final class NotesTests: XCTestCase {
         XCTAssertEqual(s.note(forTab: back.id)?.document.title, "Keep me")
     }
 
-    func testATodayNoteIsAPaneOfATodaySplitOnly() throws {
+    func testANoteIsAPaneOfAnySplitAsAPageIs() throws {
         let s = try makeStore()
         let space = s.selectedSpace.id
         let page = try s.openTab(url: "https://example.com/", inSpace: space)
@@ -160,39 +160,35 @@ final class NotesTests: XCTestCase {
         XCTAssertEqual(s.split(x.id)?.focusedTabID, note.id)
         try s.addToSplit(x.id, tabID: other.id)
         XCTAssertEqual(s.split(x.id)?.tabIDs.count, 3)
-        // A pinned note is never a pane, and a split holding a note is never pinned or a Favorite.
-        XCTAssertThrowsError(try s.createSplit([other.id, pinnedNote.id], inSpace: space))
+        // P13b: a pinned note is a pane too, as a pinned page is (its row stays pinned).
         let third = try s.openTab(url: "https://example.net/", inSpace: space)
-        let y = try s.createSplit([other.id, third.id], inSpace: space)
-        XCTAssertThrowsError(try s.addToSplit(y.id, tabID: pinnedNote.id))
-        XCTAssertThrowsError(try s.move(.split(x.id), to: .pinned(spaceID: space, parentID: nil, index: 0)))
-        XCTAssertThrowsError(try s.move(.split(x.id), to: .favorites(profileID: s.defaultProfile.id, index: 0)))
-        XCTAssertNil(s.split(x.id)?.itemID)
-        XCTAssertTrue(s.split(x.id)?.tabIDs.contains(note.id) == true)
-        // Drags still don't put a note in a split, nor onto a note's row.
+        let y = try s.createSplit([third.id, pinnedNote.id], inSpace: space)
+        XCTAssertEqual(s.split(y.id)?.tabIDs, [third.id, pinnedNote.id])
+        XCTAssertNotNil(s.tab(pinnedNote.id)?.itemID)
+        // A drag onto a row puts a note in a split, and a page onto a note's row.
         let loose = try s.createNote(inSpace: space, pinned: false)
-        XCTAssertThrowsError(try s.move(.tab(loose.id), to: .split(spaceID: space, target: page.id, leading: false)))
-        XCTAssertThrowsError(try s.move(.tab(loose.id), to: .split(spaceID: space, target: note.id, leading: false)))
+        try s.move(.tab(loose.id), to: .split(spaceID: space, target: page.id, leading: false))
+        let withLoose = try XCTUnwrap(s.split(containing: page.id)?.tabIDs)
+        XCTAssertEqual(withLoose.firstIndex(of: loose.id), withLoose.firstIndex(of: page.id).map { $0 + 1 }, "next to the row it was dropped on")
+        try s.removeFromSplit(loose.id)
+        let lone = try s.openTab(url: "https://example.edu/", inSpace: space)
+        try s.move(.tab(lone.id), to: .split(spaceID: space, target: loose.id, leading: true))
+        XCTAssertEqual(s.split(containing: loose.id)?.tabIDs, [lone.id, loose.id])
         // Separate All Tabs: the note is a Today row of its own again, as it was.
         try s.separateSplit(x.id)
         XCTAssertNil(s.split(containing: note.id))
         XCTAssertTrue(s.tab(note.id)?.isToday == true && s.note(forTab: note.id) != nil)
     }
 
-    func testNotesStayOutOfFavoritesAndSplitsAndCopiesGetTheirOwnNote() throws {
+    func testNotesStayOutOfFavoritesAndCopiesGetTheirOwnNote() throws {
         let s = try makeStore()
         let space = s.selectedSpace.id
-        let page = try s.openTab(url: "https://example.com/", inSpace: space)
         let note = try s.createNote(inSpace: space, pinned: false)
         let noteID = try XCTUnwrap(NoteURL.noteID(note.url))
         s.updateNote(noteID, document: NoteDocument(lines: ["Original"]))
         let profile = s.defaultProfile.id
         XCTAssertThrowsError(try s.move(.tab(note.id), to: .favorites(profileID: profile, index: 0)))
         XCTAssertThrowsError(try s.copy(.tab(note.id), to: .favorites(profileID: profile, index: 0)))
-        // Drags never make a split of a note (New Note in Split does: testATodayNoteIsAPaneOfATodaySplitOnly).
-        XCTAssertThrowsError(try s.move(.tab(note.id), to: .split(spaceID: space, target: page.id, leading: true)))
-        XCTAssertThrowsError(try s.move(.tab(page.id), to: .split(spaceID: space, target: note.id, leading: true)))
-        XCTAssertTrue(s.state.splits.isEmpty)
         XCTAssertTrue(s.favorites(ofProfile: profile).isEmpty)
 
         // ⌥-drag, Duplicate (Today and pinned) and a duplicated folder: each copy is a note of its own.
@@ -269,6 +265,148 @@ final class NotesTests: XCTestCase {
         XCTAssertEqual(s.note(forTab: tabID)?.document, d)
         XCTAssertEqual(s.tab(tabID)?.title, "Persisted")
         XCTAssertTrue(s.unreadableRows.isEmpty)
+    }
+
+    // MARK: A note's own title (P13b)
+
+    func testANoteHasATitleOfItsOwnAndAnEmptyOneFallsBackToTheFirstLine() throws {
+        let s = try makeStore()
+        let space = s.selectedSpace.id
+        let t = try s.createNote(inSpace: space)
+        let id = try XCTUnwrap(NoteURL.noteID(t.url))
+        let item = try XCTUnwrap(t.itemID)
+        s.updateNote(id, document: NoteDocument(lines: ["Groceries", "milk"]))
+        XCTAssertNil(s.note(id)?.title)
+        XCTAssertEqual(s.note(id)?.displayTitle, "Groceries", "no title: the first line names it")
+
+        var changes: [StoreChange] = []
+        let o = s.observe { changes.append($0) }
+        try s.setNoteTitle(id, "  Weekend\nshopping  ", deferred: true)
+        s.removeObserver(o)
+        XCTAssertEqual(s.note(id)?.title, "Weekend shopping", "one line, trimmed")
+        XCTAssertEqual(s.tab(t.id)?.title, "Weekend shopping")
+        XCTAssertEqual(s.item(item)?.displayTitle, "Weekend shopping", "the sidebar row follows at once")
+        XCTAssertTrue(changes.allSatisfy(\.contentOnly) && !changes.isEmpty, "typing a title never rebuilds the sidebar")
+        XCTAssertFalse(s.canUndo, "the editor undoes the title with the text; the store's undo stays the sidebar's")
+        s.updateNote(id, document: NoteDocument(lines: ["Changed first line"]))
+        XCTAssertEqual(s.tab(t.id)?.title, "Weekend shopping", "a title outranks the first line")
+
+        try s.setNoteTitle(id, String(repeating: "y", count: 400))
+        XCTAssertEqual(s.note(id)?.title?.count, NoteDocument.maxTitleLength)
+        for empty in ["", "   ", "\n", nil] as [String?] {
+            try s.setNoteTitle(id, "Set")
+            try s.setNoteTitle(id, empty)
+            XCTAssertNil(s.note(id)?.title)
+            XCTAssertEqual(s.tab(t.id)?.title, "Changed first line", "an empty title falls back to the first line")
+            XCTAssertEqual(s.item(item)?.displayTitle, "Changed first line")
+        }
+        XCTAssertThrowsError(try s.setNoteTitle("missing", "x"))
+    }
+
+    func testRenamingANoteRowSetsItsTitle() throws {
+        let s = try makeStore()
+        let space = s.selectedSpace.id
+        let t = try s.createNote(inSpace: space)
+        let id = try XCTUnwrap(NoteURL.noteID(t.url))
+        let item = try XCTUnwrap(t.itemID)
+        s.updateNote(id, document: NoteDocument(lines: ["First line"]))
+        try s.renameItem(item, to: "Renamed")
+        XCTAssertEqual(s.note(id)?.title, "Renamed", "the row and the title field say the same")
+        XCTAssertNil(s.item(item)?.title, "no separate row name that could drift from the note's")
+        XCTAssertEqual(s.item(item)?.displayTitle, "Renamed")
+        XCTAssertEqual(s.tab(t.id)?.title, "Renamed")
+        try s.renameItem(item, to: "  ")
+        XCTAssertNil(s.note(id)?.title)
+        XCTAssertEqual(s.item(item)?.displayTitle, "First line")
+        try s.renameItem(item, to: "First line")
+        XCTAssertNil(s.note(id)?.title, "confirming the name it showed keeps following the first line")
+        // A page's row still renames as before.
+        let page = try s.openTab(url: "https://example.com/", inSpace: space)
+        try s.togglePin(page.id, inSpace: space)
+        let pageItem = try XCTUnwrap(s.tab(page.id)?.itemID)
+        try s.renameItem(pageItem, to: "Example")
+        XCTAssertEqual(s.item(pageItem)?.title, "Example")
+    }
+
+    func testANoteRowNamedBeforeTitlesGivesTheNoteThatName() throws {
+        let s = try makeStore()
+        let space = s.selectedSpace.id
+        let t = try s.createNote(inSpace: space)
+        let id = try XCTUnwrap(NoteURL.noteID(t.url))
+        let item = try XCTUnwrap(t.itemID)
+        s.updateNote(id, document: NoteDocument(lines: ["Body"]))
+        // As a build from before P13b left it: a name on the row, none on the note.
+        try s.perform(nil) { var i = s.item(item)!; i.title = "Old name"; s.put(i) }
+        XCTAssertTrue(s.adoptNoteRowName(id))
+        XCTAssertEqual(s.note(id)?.title, "Old name")
+        XCTAssertNil(s.item(item)?.title)
+        XCTAssertEqual(s.item(item)?.displayTitle, "Old name")
+        XCTAssertFalse(s.adoptNoteRowName(id), "once")
+    }
+
+    func testATitledNoteIsntEmptyAndCopiesAndExportKeepTheTitle() throws {
+        let s = try makeStore()
+        let space = s.selectedSpace.id
+        let t = try s.createNote(inSpace: space, pinned: false)
+        let id = try XCTUnwrap(NoteURL.noteID(t.url))
+        try s.setNoteTitle(id, "Only a title")
+        XCTAssertFalse(s.note(id)!.isEmpty)
+        guard case .archived(let entry) = try s.closeTab(t.id) else { return XCTFail("a note with a title is archived, not deleted") }
+        XCTAssertEqual(s.state.archive[entry]?.title, "Only a title")
+        let back = try s.restoreArchived(entry, fallbackSpaceID: space)
+        let copy = try s.duplicateTab(back.id)
+        let copyID = try XCTUnwrap(NoteURL.noteID(copy.url))
+        XCTAssertNotEqual(copyID, id)
+        XCTAssertEqual(s.note(copyID)?.title, "Only a title")
+
+        s.updateNote(id, document: NoteDocument(lines: ["Body text"]))
+        let exported = try XCTUnwrap(s.note(id)).exportDocument
+        XCTAssertEqual(exported.blocks.first?.kind, .heading1)
+        XCTAssertEqual(exported.title, "Only a title", "the file says what the note was called")
+        XCTAssertEqual(exported.plainText, "Only a title\nBody text")
+        try s.setNoteTitle(id, nil)
+        XCTAssertEqual(s.note(id)?.exportDocument, s.note(id)?.document, "no title: the text as it is")
+    }
+
+    func testOldNotesReadWithoutATitleAndTitlesAndNoteSplitsSurviveRelaunch() throws {
+        let untitled = try JSONEncoder().encode(Note(document: NoteDocument(lines: ["x"])))
+        XCTAssertFalse(String(decoding: untitled, as: UTF8.self).contains("\"title\""), "no title, no key: an older build reads the row as before")
+        XCTAssertNil(try JSONDecoder().decode(Note.self, from: untitled).title, "a row from before P13b reads without one")
+
+        let (dir, path) = storePath()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var noteTab = "", page = "", splitItem = ""
+        do {
+            let s = try SpacesStore(path: path)
+            let space = s.selectedSpace.id
+            let p = try s.openTab(url: "https://example.com/", inSpace: space)
+            let note = try s.createNote(inSpace: space, pinned: false)
+            page = p.id
+            noteTab = note.id
+            try s.setNoteTitle(NoteURL.noteID(note.url)!, "Beside the page")
+            // A drag of the note's row onto the page's row: a Today split.
+            try s.move(.tab(note.id), to: .split(spaceID: space, target: p.id, leading: false))
+            // A pinned split holding a note.
+            let p2 = try s.openTab(url: "https://example.org/", inSpace: space)
+            let n2 = try s.createNote(inSpace: space, pinned: false)
+            try s.setNoteTitle(NoteURL.noteID(n2.url)!, "Pinned beside")
+            let x = try s.createSplit([p2.id, n2.id], inSpace: space)
+            _ = try s.move(.split(x.id), to: .pinned(spaceID: space, parentID: nil, index: 0))
+            splitItem = try XCTUnwrap(s.pinnedRoots(ofSpace: space).first { $0.kind == .split }?.id)
+            try s.flush()
+        }
+        let s = try SpacesStore(path: path)
+        XCTAssertEqual(s.note(forTab: noteTab)?.title, "Beside the page")
+        XCTAssertEqual(s.tab(noteTab)?.title, "Beside the page")
+        XCTAssertEqual(s.split(containing: page)?.tabIDs, [page, noteTab])
+        let panes = s.panes(ofSplitItem: splitItem)
+        XCTAssertEqual(panes.count, 2)
+        XCTAssertTrue(panes.contains { NoteURL.isNote($0.savedURL) && $0.displayTitle == "Pinned beside" })
+        XCTAssertTrue(s.unreadableRows.isEmpty)
+        // Out again: the note's tab leaves the split for Today, a note of its own row.
+        try s.removeFromSplit(noteTab)
+        XCTAssertNil(s.split(containing: noteTab))
+        XCTAssertTrue(s.tab(noteTab)?.isToday == true)
     }
 
     // MARK: Schema 2, only with notes (lead, 2026-11-07): going back to 0.1.2 stays safe until a note is made

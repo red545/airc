@@ -33,7 +33,7 @@ extension WindowController {
         lead.submenu = times
         lead.isEnabled = center.shows(.joinLink, for: item.id)
         m.addItem(lead)
-        m.add("Turn Off Live Calendar") { center.setEnabled(false) }
+        m.add("Disable Live Calendar") { center.setEnabled(false) }
     }
 }
 

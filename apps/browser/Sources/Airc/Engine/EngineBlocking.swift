@@ -29,21 +29,30 @@ extension ChromiumEngine: EngineBlocking {
         let current = BlockingInstallation.begin(profile)
         // Prepare WK rules before applying either side's new policy. A failed
         // conversion leaves both sides on their previous compiled snapshot.
+        let wkStep = LaunchTimeline.begin("blocking webkit rules \(profile.directory)")
         WebKitBlocking.prepare(text: text, policy: policy, privateSession: native.offTheRecord) { [self] prepared in
+            wkStep()
             guard current(), let prepared else { return completion(false) }
-            core.setBlockingLists(text, enabled: policy.enabled, profile: native) { [self] installed in
-                guard current(), installed else { return completion(false) }
-                let old = ChromiumBlockingPolicy.state(for: profile)
-                for host in old.exceptions.subtracting(policy.exceptions) {
-                    _ = core.setBlockingException(false, site: "https://" + host + "/", profile: native)
+            let videoStep = LaunchTimeline.begin("blocking video scriptlets \(profile.directory)")
+            WebKitBlocking.prepareVideo(text: text, prepared: prepared) { [self] prepared in
+                videoStep()
+                guard current(), let prepared else { return completion(false) }
+                let coreStep = LaunchTimeline.begin("blocking chromium lists \(profile.directory)")
+                core.setBlockingLists(text, enabled: policy.enabled, profile: native) { [self] installed in
+                    coreStep()
+                    guard current(), installed else { return completion(false) }
+                    let old = ChromiumBlockingPolicy.state(for: profile)
+                    for host in old.exceptions.subtracting(policy.exceptions) {
+                        _ = core.setBlockingException(false, site: "https://" + host + "/", profile: native)
+                    }
+                    for host in policy.exceptions {
+                        _ = core.setBlockingException(true, site: "https://" + host + "/", profile: native)
+                    }
+                    old.exceptions = policy.exceptions
+                    old.cookieManaged = !core.setThirdPartyCookiesBlocked(policy.blockThirdPartyCookies, profile: native)
+                    WebKitBlocking.install(prepared, profile: wk)
+                    completion(true)
                 }
-                for host in policy.exceptions {
-                    _ = core.setBlockingException(true, site: "https://" + host + "/", profile: native)
-                }
-                old.exceptions = policy.exceptions
-                old.cookieManaged = !core.setThirdPartyCookiesBlocked(policy.blockThirdPartyCookies, profile: native)
-                WebKitBlocking.install(prepared, profile: wk)
-                completion(true)
             }
         }
     }

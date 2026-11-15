@@ -34,5 +34,17 @@ if cmp -s "$tmp" "$dest"; then
   exit 0
 fi
 cp "$tmp" "$dest"
+# The snapshot's date and source, in the resource README (the file itself has no date in Chromium's copy).
+if [[ ${1:-} == --upstream ]]; then what="publicsuffix.org's list"; else what="Chromium $(cat "$ROOT/CHROMIUM_VERSION")'s copy"; fi
+readme="$ROOT/packages/AircKit/Resources/README.md"
+python3 - "$readme" "$(date -u +%Y-%m-%d)" "$what" <<'PY'
+import os, re, sys
+path, day, what = sys.argv[1:4]
+text = open(path, encoding="utf-8").read()
+new = re.sub(r"^- \*\*Snapshot:\*\* [^,]+, [^(]+\(", f"- **Snapshot:** {day}, {what} (", text, count=1, flags=re.M)
+tmp = path + ".tmp"
+open(tmp, "w", encoding="utf-8").write(new)
+os.replace(tmp, path)
+PY
 echo "public suffix list: $rules rules from $from"
 echo "next: swift test --package-path packages/AircKit --filter 'PublicSuffixListTests|BoostTests', then commit the file"

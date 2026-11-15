@@ -17,7 +17,7 @@ final class ParityP21bTests: XCTestCase {
         let newer = try JSONDecoder().decode(PersonalizationPreferences.self, from: Data(#"{"appIcon":"neon","playsSounds":false}"#.utf8))
         XCTAssertEqual(newer.appIcon, .holographic, "a newer build's icon reads as the default")
         XCTAssertFalse(newer.playsSounds)
-        XCTAssertEqual(PersonalizationPreferences.AppIcon.allCases.map(\.title), ["Holographic", "Outline"])
+        XCTAssertEqual(PersonalizationPreferences.AppIcon.allCases.map(\.title), ["Holographic", "Outline", "Sunset", "Ocean", "Midnight", "Graphite"])
     }
 
     func testAnUpdateRestartsByItselfOnlyWhenNothingWouldBeInterrupted() {
@@ -52,6 +52,7 @@ final class ParityP21bTests: XCTestCase {
         XCTAssertEqual(blocked { $0.playing = true; $0.appActive = true }, [.active, .media], "every reason, in order")
         XCTAssertEqual(blocked { $0.editedForms = 1; $0.idleSeconds = 0 }.count, 2)
         XCTAssertEqual(IdleUpdatePolicy().cheapBlockers, [.turnedOff, .notReady, .recentInput], "nothing asks the pages first")
-        XCTAssertEqual(IdleUpdatePolicy.Blocker.allCases.count, 16)
+        XCTAssertEqual(blocked { $0.unanswered = 1 }, [.unanswered], "a page that didn't answer might hold typed text")
+        XCTAssertEqual(IdleUpdatePolicy.Blocker.allCases.count, 17)
     }
 }

@@ -28,6 +28,10 @@ final class SyncCenter: ObservableObject {
     /// The backup the first sync saved, shown under the status.
     @Published private(set) var lastBackup: URL?
     @Published private(set) var isEnabled = false
+    /// Pinned notes whose text is too large to sync (Settings → Sync says so).
+    @Published private(set) var notesTooLarge = 0
+    /// iCloud doesn't take notes yet (their record types aren't deployed): they wait (Settings → Sync says so).
+    @Published private(set) var notesHeld = false
     private(set) var backend: Backend = .none
     private(set) var engine: SyncEngine?
     /// The real-iCloud test (test builds, `--sync-cloudkit-test-zone AircSidebarTest…`): its own zone, subscription and
@@ -121,7 +125,7 @@ final class SyncCenter: ObservableObject {
         }
         keyStore = keys
         let store = app.store!
-        let environment = SyncEngine.Environment(
+        var environment = SyncEngine.Environment(
             transport: transport, keys: keys,
             stateURL: AppPaths.dataDirectory.appendingPathComponent("Sync", isDirectory: true).appendingPathComponent("sync-state.json"),
             deviceName: deviceName, machine: Self.machine,
@@ -141,6 +145,9 @@ final class SyncCenter: ObservableObject {
                 guard let app else { throw StoreError.notFound }
                 return try store.writeBackup(to: app.settings.backupDirectory, purpose: .beforeICloud)
             })
+        // Notes' pictures: the data folder's Notes/Images (NoteImages). One that arrives shows in the open notes at once.
+        environment.notePictures = SyncNotePictureFolder(folder: NoteImages.folder)
+        environment.picturesArrived = { _ in NoteCenter.shared.picturesArrived() }
         let engine = MainActor.assumeIsolated { SyncEngine(store: store, environment: environment) }
         self.engine = engine
         #if AIRC_TESTING
@@ -255,7 +262,11 @@ final class SyncCenter: ObservableObject {
 
     private func refresh() {
         guard let engine else { return }
-        let (status, devices, lastSynced, enabled) = MainActor.assumeIsolated { (engine.status, engine.devices, engine.lastSynced, engine.isEnabled) }
+        let (status, devices, lastSynced, enabled, tooLarge, held) = MainActor.assumeIsolated {
+            (engine.status, engine.devices, engine.lastSynced, engine.isEnabled, engine.notesTooLarge, engine.notesHeld)
+        }
+        if notesTooLarge != tooLarge { notesTooLarge = tooLarge }
+        if notesHeld != held { notesHeld = held }
         if self.status != status { self.status = status }
         if self.devices != devices { self.devices = devices }
         if self.lastSynced != lastSynced { self.lastSynced = lastSynced }

@@ -103,7 +103,9 @@ private struct LibraryDownloadRow: View {
                         .lineLimit(1).truncationMode(.middle)
                         .testAnchor("library.tidy.\(d.id)")
                 } else {
-                    Text([DownloadCenter.status(item), profileName].compactMap { $0 }.joined(separator: " · "))
+                    // tidydl: a file Tidy Downloads renamed shows the name it had.
+                    Text([DownloadCenter.status(item), profileName, TidyDownloadsFeature.originalName(item).map { "was “\($0)”" }]
+                            .compactMap { $0 }.joined(separator: " · "))
                         .aircFont(AircFont.caption)
                         .foregroundStyle((d.dangerous ? AircColor.downloadWarning : theme.textTertiary).color)
                         .lineLimit(1)
@@ -168,6 +170,9 @@ private struct LibraryDownloadRow: View {
         if let name = suggestedName {
             Button("Rename to “\(name)”") { TidyDownloadsFeature.rename(item, center: center) }
             Button("Keep This Name") { TidyDownloadsFeature.dismiss(item) }
+        }
+        if let original = TidyDownloadsFeature.originalName(item) {
+            Button("Revert to “\(original)”") { TidyDownloadsFeature.undo(item, center: center) }
         }
         if d.state == .inProgress, !d.dangerous {
             Button(d.paused ? "Resume" : "Pause") { center.perform(d.paused ? .resume : .pause, item) }

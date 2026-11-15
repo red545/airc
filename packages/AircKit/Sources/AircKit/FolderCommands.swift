@@ -25,6 +25,7 @@ extension SpacesStore {
     /// Every row inside folder `id`. A tab's link is its saved URL (the one its row stands for), its title the row's.
     public func folderLinks(_ id: String) -> [FolderLink] {
         guard let f = item(id), f.kind == .folder else { return [] }
+        if f.isTodayFolder { return todayFolderLinks(id) }   // its tabs' pages (TodayFolders.swift)
         var out: [FolderLink] = []
         func walk(_ parent: String, depth: Int) {
             for c in children(of: f.container, parent: parent) {
@@ -40,7 +41,7 @@ extension SpacesStore {
             }
         }
         func add(_ i: Item, depth: Int) {
-            guard let u = i.savedURL, !NoteURL.isNote(u) else { return }
+            guard let u = i.savedURL, !LocalDocumentURL.isLocal(u) else { return }
             out.append(FolderLink(title: i.displayTitle, kind: .link(url: u), depth: depth))
         }
         walk(id, depth: 0)
@@ -71,7 +72,7 @@ extension SpacesStore {
                               clean: (String) -> String = { $0 }) -> String {
         var lines: [String] = []
         func link(_ title: String, _ url: String) {
-            guard !NoteURL.isNote(url) else { return }
+            guard !LocalDocumentURL.isLocal(url) else { return }
             lines.append("- " + URLRules.markdownLink(title: title, url: clean(url)))
         }
         func add(tab t: LiveTab) {

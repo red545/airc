@@ -11,7 +11,10 @@ import Foundation
 /// screenshot, JPEG or PNG), and the settings Airc added since (`colors.saturation`, `font.case`). Version 1 files
 /// still open, with exactly version 1's keys.
 public struct BoostFile: Codable, Equatable, Sendable {
+    /// The whole file, its picture included.
     public static let maximumBytes = 512 * 1024
+    /// Everything but the picture: name, settings and code (BST-2).
+    public static let maximumContentBytes = 256 * 1024
     /// A preview picture, decoded.
     public static let maximumPreviewBytes = 300 * 1024
     public static let version = 2
@@ -50,7 +53,8 @@ public struct BoostFile: Codable, Equatable, Sendable {
     }
 
     public enum Invalid: String, Error, LocalizedError {
-        case size = "This Boost is too large. Files may be at most 512 KB; CSS and JavaScript at most 128 KB each."
+        case size = "This Boost is too large. A Boost may be at most 256 KB, not counting its picture."
+        case remoteScript = "This Boost loads code from another website. Airc only installs Boosts whose code is all in the file."
         case format = "This is not a valid Airc Boost file. Check its fields and settings."
         case version = "This Boost was made by a newer version of Airc. Update Airc to open it."
         case domain = "This Boost must name a registrable site, not an address, public suffix or subdomain."
@@ -108,7 +112,29 @@ public struct BoostFile: Codable, Equatable, Sendable {
         guard id.map(Self.validID) ?? true, revision.map({ (1...1_000_000).contains($0) }) ?? true, (id == nil) == (revision == nil),
               author.map({ Self.plainLine($0, max: 60) }) ?? true, about.map({ Self.plainLine($0, max: 280) }) ?? true,
               preview.map({ Self.previewImage($0) != nil }) ?? true else { throw Invalid.format }
+        guard Self.remoteScript(js: js, css: css) == nil else { throw Invalid.remoteScript }
         return self
+    }
+
+    /// How the code would load more code from somewhere else, if it does (BST-2: a Boost's code is all in its file, so
+    /// the review shows everything that runs). The review is the real defence; this refuses the plain ways to fetch
+    /// code that the review couldn't show: script elements and modules, workers, and addresses of script files.
+    public static func remoteScript(js: String, css: String) -> String? {
+        let rules: [(String, String)] = [
+            (#"<\s*script\b"#, "writes a <script> element"),
+            (#"createElement(?:NS)?\s*\([^)]*?(["'`])\s*script\s*\1"#, "creates a <script> element"),
+            (#"\bimport\s*\("#, "imports a module"),
+            (#"(?m)^\s*import\s*(?:[\w*{\s,}]+\s*from\s*)?["'`]"#, "imports a module"),
+            (#"\bimportScripts\b"#, "imports scripts into a worker"),
+            (#"\b(?:Shared)?Worker\s*\(|\bserviceWorker\s*\.\s*register\b|\baudioWorklet\b|\bpaintWorklet\b"#, "starts a worker from a file"),
+            (#"(?i)(?:https?:)?//[^\s"'`()<>]+\.m?js(?:[?#][^\s"'`()<>]*)?(?=[\s"'`()<>]|$)"#, "names a script file on the web"),
+            (#"(?i)\bjavascript\s*:"#, "uses a javascript: address"),
+        ]
+        for (pattern, why) in rules where js.range(of: pattern, options: .regularExpression) != nil { return why }
+        if css.range(of: #"(?i)javascript\s*:|expression\s*\(|-moz-binding|(?<![-\w])behavior\s*:"#, options: .regularExpression) != nil {
+            return "its CSS uses a script hook"
+        }
+        return nil
     }
     /// The preview's bytes, if it's a JPEG or a PNG of at most 300 KB.
     public static func previewImage(_ base64: String) -> Data? {
@@ -123,7 +149,7 @@ public struct BoostFile: Codable, Equatable, Sendable {
         var f = try validated()
         f.version = Self.version
         let data = try JSONEncoder.boosts.encode(f)
-        guard data.count <= Self.maximumBytes else { throw Invalid.size }
+        guard data.count <= Self.maximumBytes, data.count - (f.preview?.utf8.count ?? 0) <= Self.maximumContentBytes else { throw Invalid.size }
         return data
     }
     public static func read(_ url: URL) throws -> BoostFile {
@@ -157,7 +183,10 @@ public struct BoostFile: Codable, Equatable, Sendable {
                 let z = try keys(zap, required: ["selector", "label"], optional: two ? ["frame"] : [])
                 if let f = z["frame"], (f as? Bool) != true { throw Invalid.format }
             }
-            return try JSONDecoder.boosts.decode(Self.self, from: data).validated()
+            let file = try JSONDecoder.boosts.decode(Self.self, from: data)
+            // The picture has its own limit (300 KB); everything else counts toward 256 KB.
+            guard data.count - ((root["preview"] as? String)?.utf8.count ?? 0) <= maximumContentBytes else { throw Invalid.size }
+            return try file.validated()
         } catch let error as Invalid { throw error }
         catch { throw Invalid.format }
     }
@@ -275,14 +304,25 @@ extension BoostStore {
     /// keeps it (and its revision) as the installed Boost's origin, so a later revision updates it.
     public func install(_ file: BoostFile, replacing: Bool = false, gallery: Bool = false, now: Date = Date()) throws {
         let file = try file.validated()
-        guard replacing || boost(domain: file.site) == nil else { throw BoostFile.Invalid.exists }
+        let before = boost(domain: file.site)
+        guard replacing || before == nil else { throw BoostFile.Invalid.exists }
         update(domain: file.site) {
             $0 = file.boost
+            $0.enabled = Self.installsOn(file, replacing: before)
             if let id = file.id {
                 $0.origin = BoostOrigin(id: id, revision: file.revision ?? 1, kind: .installed, author: file.author,
                                         digest: $0.contentDigest, date: now, gallery: gallery)
             }
         }
+    }
+
+    /// BST-2: a Boost with JavaScript from someone else is installed off; its code first runs when the person turns it
+    /// on. Style-only Boosts are on at once (as in Arc). Reinstalling the very code a Boost that is on already runs (an
+    /// update that changes only its style, say) keeps it on.
+    public static func installsOn(_ file: BoostFile, replacing old: Boost?) -> Bool {
+        if file.js.isEmpty { return true }
+        guard let old, old.enabled else { return false }
+        return old.js == file.js && old.scriptHost == file.scriptHost
     }
 
     /// The file to share `domain`'s Boost as, with the name and author the person gave. Its origin decides the id: the

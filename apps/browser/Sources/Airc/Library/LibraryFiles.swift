@@ -22,6 +22,13 @@ final class LibraryFiles: ObservableObject {
     @Published private(set) var media: [LibraryFile] = []
     /// The newest downloads and Captures of any type (LibraryMedia.recentLimit).
     @Published private(set) var recent: [LibraryFile] = []
+    /// L04: the "Moved to the Trash" toast's text while it offers ⌘Z (the Library closed).
+    var undoToastText: String?
+    static let undoToastDuration: TimeInterval = 8
+    /// L04: the Media tile last clicked (Space shows it in Quick Look, Delete moves it to the Trash).
+    @Published var selected: LibraryFile?
+    /// L04: Media's type filter (Arc's "Images", "Videos"; Captures), nil for everything.
+    @Published var filter: LibraryMedia.Filter?
     /// The file last moved to the Trash while Undo can still put it back.
     @Published private(set) var trashed: Trashed?
     /// Bumped when a refresh lands (the scripted check waits for it).
@@ -42,6 +49,8 @@ final class LibraryFiles: ObservableObject {
     static var trash: (URL, @escaping (URL?) -> Void) -> Void = { url, done in
         NSWorkspace.shared.recycle([url]) { moved, error in done(error == nil ? moved[url] : nil) }
     }
+    /// Arc's "AirDrop" and "Send via iMessage" (the hover's rows): nil is the system's sharing service.
+    static var share: ((_ service: NSSharingService.Name, _ url: URL) -> Void)?
     static var recordsURL: URL { AppPaths.dataDirectory.appendingPathComponent("Captures.json") }
 
     /// Files a private window wrote this run: never listed, never written down.
@@ -67,6 +76,10 @@ final class LibraryFiles: ObservableObject {
         if activeObserver == nil {
             activeObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
                                                                     queue: .main) { [weak self] _ in self?.refresh() }
+        }
+        // The hover's Media lists the shown folders too: their watches start without Library › Media having shown.
+        if LibraryFolderSources.shared.settings.hover.media, !LibraryFolderSources.shared.settings.grants.isEmpty {
+            LibraryFolderSources.shared.start()
         }
         if foldersWatch == nil {
             // @Published sends before the property changes: read it a turn later, when it has.
@@ -150,10 +163,15 @@ final class LibraryFiles: ObservableObject {
         connect()
         collectPrivateDownloads()
         let sources = LibraryFolderSources.shared.settings
-        let own = (sources.showDownloads ? downloadFiles : []) + (sources.showCaptures ? captures.files : [])
         let excluded = privatePaths.union(sources.hidden)
-        let own_ = own.filter { !excluded.contains(($0.path as NSString).standardizingPath) }
-        let all = own_ + LibraryFolderSources.shared.files.filter { !excluded.contains($0.path) }
+        let keep = { (f: LibraryFile) in !excluded.contains((f.path as NSString).standardizingPath) }
+        let folderFiles = LibraryFolderSources.shared.files.filter(keep)
+        let own = ((sources.showDownloads ? downloadFiles : []) + (sources.showCaptures ? captures.files : [])).filter(keep)
+        let all = own + folderFiles
+        // L04: the hover has its own "Show media from:" (the Library button's right-click), as in Arc.
+        let h = sources.hover
+        let hoverFiles = ((h.downloads ? downloadFiles : []) + (h.captures ? captures.files : [])).filter(keep)
+            + (h.media ? folderFiles : [])
         generation += 1
         let gen = generation
         queue.async { [weak self] in
@@ -165,8 +183,7 @@ final class LibraryFiles: ObservableObject {
                 return e
             }
             let media = LibraryMedia.media(all, exists: exists)
-            // The hover list stays Airc's own: the newest downloads and Captures.
-            let recent = LibraryMedia.recent(own_, exists: exists)
+            let recent = LibraryMedia.recent(hoverFiles, exists: exists)
             DispatchQueue.main.async {
                 guard let self else { return }
                 if gen == self.generation {
@@ -183,6 +200,9 @@ final class LibraryFiles: ObservableObject {
 
     /// A click on a tile: Quick Look, ⌘-click Show in Finder, a double-click opens it in its app.
     func activate(_ file: LibraryFile, in list: [LibraryFile], clickCount: Int, command: Bool, from host: LibraryPanelHost?) {
+        selected = file
+        // The Library's host takes the keys: Space for Quick Look, Delete for the Trash, ⌘Z to put it back.
+        if let host, let w = host.window, w.firstResponder !== host { w.makeFirstResponder(host) }
         if command { return Self.reveal([file.url]) }
         if clickCount >= 2 {
             LibraryQuickLook.shared.close()
@@ -192,14 +212,38 @@ final class LibraryFiles: ObservableObject {
         quickLook(urls, index: list.firstIndex(of: file) ?? 0, from: host)
     }
 
+    /// Space in Library › Media: Quick Look of the selected tile (the first one when none is), or closes it.
+    func toggleQuickLook(in list: [LibraryFile], from host: LibraryPanelHost?) {
+        if LibraryQuickLook.shared.isOpen { return LibraryQuickLook.shared.close() }
+        if let hook = Self.quickLookClose, Self.quickLookOpen { Self.quickLookOpen = false; return hook() }
+        guard let file = selected.flatMap({ s in list.first { $0.path == s.path } }) ?? list.first else { return NSSound.beep() }
+        selected = file
+        quickLook(list.map(\.url), index: list.firstIndex(of: file) ?? 0, from: host)
+    }
+
+    /// Scripted runs: Quick Look "open" (the hook stands in for the panel) and how it closes.
+    static var quickLookOpen = false
+    static var quickLookClose: (() -> Void)?
+
     func quickLook(_ urls: [URL], index: Int, from host: LibraryPanelHost?) {
-        if let hook = Self.quickLook { return hook(urls, index) }
+        if let hook = Self.quickLook { Self.quickLookOpen = true; return hook(urls, index) }
         LibraryQuickLook.shared.show(urls, index: index, from: host)
     }
 
     func open(_ file: LibraryFile) { Self.open(file.url) }
 
     func showInFinder(_ file: LibraryFile) { Self.reveal([file.url]) }
+
+    /// Arc's "AirDrop" / "Send via iMessage": the system's sharing service, with the file.
+    func share(_ file: LibraryFile, via name: NSSharingService.Name) {
+        if let hook = Self.share { return hook(name, file.url) }
+        NSSharingService(named: name)?.perform(withItems: [file.url])
+    }
+
+    static func canShare(via name: NSSharingService.Name, _ file: LibraryFile) -> Bool {
+        if share != nil { return true }
+        return NSSharingService(named: name)?.canPerform(withItems: [file.url]) ?? false
+    }
 
     func copy(_ file: LibraryFile) {
         let pb = NSPasteboard.general
@@ -209,13 +253,15 @@ final class LibraryFiles: ObservableObject {
 
     /// Delete: to the Trash, with Undo while it's offered (the Library's bar, about 15 s). A file someone puts back
     /// later from the Trash comes back to the list too: it's the same path.
-    func moveToTrash(_ file: LibraryFile, failed: @escaping (String) -> Void) {
+    func moveToTrash(_ file: LibraryFile, moved done: (() -> Void)? = nil, failed: @escaping (String) -> Void) {
         if LibraryQuickLook.shared.isShowing(file.url) { LibraryQuickLook.shared.close() }
         Self.trash(file.url) { [weak self] moved in
             DispatchQueue.main.async {
                 guard let self else { return }
                 guard let moved else { return failed("Couldn’t move “\(file.name)” to the Trash") }
                 self.trashed = Trashed(file: file, trashURL: moved)
+                if self.selected?.path == file.path { self.selected = nil }
+                done?()
                 self.trashExpiry?.cancel()
                 let work = DispatchWorkItem { [weak self] in self?.trashed = nil }
                 self.trashExpiry = work
@@ -229,17 +275,28 @@ final class LibraryFiles: ObservableObject {
     /// of that name is there again).
     @discardableResult
     func undoTrash() -> Bool {
+        #if AIRC_TESTING
+        undoCalls += 1
+        #endif
         guard let t = trashed else { return false }
         trashed = nil
         trashExpiry?.cancel()
         do {
             try FileManager.default.moveItem(at: t.trashURL, to: t.file.url)
         } catch {
+            #if AIRC_TESTING
+            lastUndoError = "\(error)"
+            #endif
             return false
         }
         refresh()
         return true
     }
+
+    #if AIRC_TESTING
+    var undoCalls = 0
+    var lastUndoError: String?
+    #endif
 
     func forgetTrash() {
         trashExpiry?.cancel()
@@ -316,6 +373,10 @@ final class LibraryQuickLook: NSObject, QLPreviewPanelDataSource, QLPreviewPanel
         }
     }
 
+    var isOpen: Bool {
+        QLPreviewPanel.sharedPreviewPanelExists() && QLPreviewPanel.shared().isVisible && QLPreviewPanel.shared().dataSource === self
+    }
+
     func isShowing(_ url: URL) -> Bool {
         QLPreviewPanel.sharedPreviewPanelExists() && QLPreviewPanel.shared().isVisible && urls.contains(url)
     }
@@ -343,5 +404,58 @@ final class LibraryQuickLook: NSObject, QLPreviewPanelDataSource, QLPreviewPanel
 
     func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! {
         urls.indices.contains(index) ? urls[index] as NSURL : nil
+    }
+}
+
+// MARK: - ⌘Z for a file moved to the Trash (L04)
+
+extension LibraryFiles {
+    /// Is the page's focused element editable (a text field, a text area, editable content, or a frame, which may hold
+    /// one)? A page that doesn't answer in 0.3 s counts as editing: the key goes to it, as it would without the Library.
+    static func focusedElementIsEditable(_ page: EngineTab, _ done: @escaping (Bool) -> Void) {
+        var answered = false
+        let finish = { (v: Bool) in
+            guard !answered else { return }
+            answered = true
+            done(v)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { finish(true) }
+        page.evaluate("""
+        (function(){var e=document.activeElement;while(e&&e.shadowRoot&&e.shadowRoot.activeElement)e=e.shadowRoot.activeElement;
+        if(!e)return false;if(e.isContentEditable)return true;var t=e.tagName;
+        if(t==='IFRAME'||t==='FRAME'||t==='EMBED'||t==='OBJECT')return true;
+        if(t==='TEXTAREA')return !e.readOnly&&!e.disabled;
+        if(t==='INPUT'){var y=(e.getAttribute('type')||'text').toLowerCase();
+        return ['text','search','email','url','tel','password','number','date','datetime-local','month','time','week'].indexOf(y)>=0&&!e.readOnly&&!e.disabled}
+        return false})()
+        """) { v in DispatchQueue.main.async { finish((v as? Bool) ?? true) } }
+    }
+}
+
+extension WindowController {
+    /// The Library offers its Undo now: open with its window key, or (closed) the "Moved to the Trash" toast is up.
+    var libraryOffersUndo: Bool {
+        let files = LibraryFiles.shared
+        guard files.trashed != nil else { return false }
+        if library != nil { return window.isKeyWindow }
+        guard let text = files.undoToastText else { return false }
+        return toast.shownText == text
+    }
+
+    /// Puts the Library's file back (⌘Z, or the toast's Undo).
+    func undoLibraryTrash() {
+        let files = LibraryFiles.shared
+        guard let t = files.trashed else { return }
+        if let text = files.undoToastText, toast.shownText == text { toast.dismiss() }
+        files.undoToastText = nil
+        if !files.undoTrash() { showToast("Couldn’t put “\(t.file.name)” back") }
+    }
+
+    /// After the recent files moved a file to the Trash: the toast with Undo, which ⌘Z also answers while it's up.
+    func showLibraryTrashToast(_ file: LibraryFile) {
+        let text = "Moved “\(file.name)” to the Trash. ⌘Z to undo."
+        LibraryFiles.shared.undoToastText = text
+        toast.show(text, palette: currentPalette, in: card.frame, duration: LibraryFiles.undoToastDuration,
+                   action: ("Undo", { [weak self] in self?.undoLibraryTrash() }))
     }
 }

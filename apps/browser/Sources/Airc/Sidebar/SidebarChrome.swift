@@ -2,6 +2,7 @@
 import AppKit
 import AircDesign
 import AircKit
+import Combine
 import CoreImage
 
 /// Header row (SB-1): sidebar toggle next to the traffic lights; back, forward, reload right-aligned. With the sidebar
@@ -44,6 +45,7 @@ final class SidebarHeaderView: NSView {
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true } // W07c: see RootView
 
     func configure(palette: Palette, canGoBack: Bool, canGoForward: Bool, loading: Bool, hasPage: Bool) {
         for b in [toggle, back, forward, reload] {
@@ -155,6 +157,7 @@ final class SpacePagerView: NSView {
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true } // W07c: see RootView
 
     var pageWidth: CGFloat { max(bounds.width, 1) }
     var currentPage: Int { Int(position.rounded()) }
@@ -499,11 +502,20 @@ final class SpacePagerView: NSView {
     }
 }
 
-/// The footer (SB-50/51): Library, one icon per Space, "+".
+/// The footer (SB-50/51): Library, Send Feedback (feedback2), one icon per Space, "+".
 final class SpaceBarView: NSView {
-    weak var controller: WindowController?
+    weak var controller: WindowController? { didSet { if controller !== oldValue { observeFeedbackSetting() } } }
     private let library = GlyphButton(symbol: "archivebox", size: 15)
     private let plus = GlyphButton(symbol: "plus", size: 15)
+    /// Send Feedback (docs/user/feedback.md): a quiet speech bubble after Library. Right-click › Hide; Settings ›
+    /// Appearance › Sidebar brings it back. Left out while the Space icons would get narrower than 24 pt for it.
+    private let feedback = GlyphButton(symbol: "bubble.left", size: 14)
+    private var feedbackObserver: AnyCancellable?
+    private var feedbackEnabled: Bool { controller?.app?.settings?.values.sidebarFeedbackButton ?? true }
+    /// Whether the Feedback button shows now (the checks read it).
+    var showsFeedback: Bool { !feedback.isHidden }
+    var feedbackButton: NSView { feedback }
+    private var visibleSpaces = 0
     private var cells: [SpaceCell] = []
     private var spaceIDs: [String] = []
     /// While a cell is dragged, layout leaves the cells where the drag puts them.
@@ -607,6 +619,7 @@ final class SpaceBarView: NSView {
         override func mouseEntered(with event: NSEvent) { hover.backgroundColor = hoverColor }
         override func mouseExited(with event: NSEvent) { hover.backgroundColor = nil }
         override func mouseDown(with event: NSEvent) {
+            if openContextMenuForControlClick(event) { return }
             controller?.switchToSpace(spaceID, animated: true)
             bar?.beginReorder(self, event: event)
         }
@@ -665,9 +678,9 @@ final class SpaceBarView: NSView {
 
     /// Where each cell goes for `count` cells with `current` the wide one (the layout's own arithmetic).
     private func slotFrames(count: Int, current: Int) -> [NSRect] {
-        let span = SpaceBarLayout.span(sidebarWidth: Double(bounds.width))
-        let widths = SpaceBarLayout.cellWidths(count: count, current: current, span: span)
-        var x = (bounds.width - CGFloat(widths.reduce(0, +))) / 2
+        let region = SpaceBarLayout.region(sidebarWidth: Double(bounds.width), feedback: showsFeedback)
+        let widths = SpaceBarLayout.cellWidths(count: count, current: current, span: region.span)
+        var x = CGFloat(region.x) + (CGFloat(region.span) - CGFloat(widths.reduce(0, +))) / 2
         return widths.map { w in
             defer { x += CGFloat(w) }
             return NSRect(x: x, y: (bounds.height - 34) / 2, width: CGFloat(w), height: 34)
@@ -700,12 +713,46 @@ final class SpaceBarView: NSView {
         plus.toolTip = "New…"
         library.action = { [weak self] in self?.controller?.showLibrary() }
         library.onHover = { [weak self] inside in self?.controller?.recentFiles.buttonHover(inside) }
+        library.contextMenuProvider = { [weak self] in self?.controller?.recentFiles.sourcesMenu() }
         plus.menuProvider = { [weak self] in self?.controller?.plusMenu() }
+        addSubview(feedback)
+        feedback.toolTip = "Send Feedback"
+        feedback.isHidden = true
+        feedback.setAccessibilityElement(true)
+        feedback.setAccessibilityRole(.button)
+        feedback.setAccessibilityLabel("Send Feedback")
+        feedback.action = { [weak self] in
+            guard let self, let c = self.controller, let app = c.app else { return }
+            FeedbackSheet.show(from: c.window, app: app)
+        }
+        feedback.contextMenuProvider = { [weak self] in self?.feedbackMenu() }
+    }
+
+    /// Right-click on the Feedback button.
+    private func feedbackMenu() -> NSMenu {
+        let m = NSMenu()
+        m.add("Send Feedback…") { [weak self] in self?.feedback.action?() }
+        m.addItem(.separator())
+        m.add("Hide Feedback Button") { [weak self] in self?.hideFeedbackButton() }
+        return m
+    }
+
+    func hideFeedbackButton() {
+        guard let c = controller, let settings = c.app?.settings else { return }
+        settings.values.sidebarFeedbackButton = false
+        c.showToast("Feedback button hidden. Turn it back on in Settings › Appearance.")
+    }
+
+    /// Every window's footer follows the setting at once.
+    private func observeFeedbackSetting() {
+        feedbackObserver = controller?.app?.settings?.$values.map(\.sidebarFeedbackButton).removeDuplicates()
+            .receive(on: DispatchQueue.main).sink { [weak self] _ in self?.needsLayout = true }
     }
 
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true } // W07c: see RootView
 
     /// `provisional`: while Create a Space is open, its cell (icon, or "" for the dot) after the others, as current.
     func configure(spaces: [Space], profiles: [String: Profile], palette: Palette, multipleProfiles: Bool,
@@ -735,6 +782,9 @@ final class SpaceBarView: NSView {
         plus.tint = palette.glyph
         library.hoverFill = palette.hover
         plus.hoverFill = palette.hover
+        // Quieter than Library and "+": it's there when wanted, not asking for attention.
+        feedback.tint = palette.textSecondary
+        feedback.hoverFill = palette.hover
         spaceIDs = spaces.map(\.id)
         while cells.count < spaces.count {
             let c = SpaceCell()
@@ -775,6 +825,7 @@ final class SpaceBarView: NSView {
         }
         // Hidden when there is only one Space (Arc ref §2.9).
         cells.forEach { $0.isHidden = spaces.count < 2 }
+        visibleSpaces = spaces.count < 2 ? 0 : spaces.count
         needsLayout = true
         applyPosition(hasProvisional ? Double(spaces.count - 1) : spacePosition)
     }
@@ -804,11 +855,15 @@ final class SpaceBarView: NSView {
         let y = (bounds.height - b) / 2
         library.frame = Self.libraryButtonFrame(columnHeight: bounds.height)
         plus.frame = NSRect(x: bounds.width - AircMetrics.Footer.buttonInset - b, y: y, width: b, height: b)
+        let shows = feedbackEnabled && !hasProvisional
+            && SpaceBarLayout.showsFeedback(sidebarWidth: Double(bounds.width), spaces: visibleSpaces)
+        feedback.isHidden = !shows
+        feedback.frame = NSRect(x: library.frame.maxX + CGFloat(SpaceBarLayout.feedbackButton) - b, y: y, width: b, height: b)
         guard !reordering else { return }
-        let span = CGFloat(SpaceBarLayout.span(sidebarWidth: Double(bounds.width)))
-        let widths = SpaceBarLayout.cellWidths(count: cells.count, current: Int(position.rounded()), span: Double(span))
+        let region = SpaceBarLayout.region(sidebarWidth: Double(bounds.width), feedback: shows)
+        let widths = SpaceBarLayout.cellWidths(count: cells.count, current: Int(position.rounded()), span: region.span)
         let total = widths.reduce(0, +)
-        var x = (bounds.width - CGFloat(total)) / 2
+        var x = CGFloat(region.x) + (CGFloat(region.span) - CGFloat(total)) / 2
         for (c, w) in zip(cells, widths) {
             c.frame = NSRect(x: x, y: (bounds.height - 34) / 2, width: CGFloat(w), height: 34)
             x += CGFloat(w)
@@ -826,6 +881,8 @@ final class SidebarView: NSView {
     let tray = SidebarTrayView()
     /// "New Airc Version Available", just above the footer (Browser/UpdateButton.swift).
     let update = UpdateButtonView()
+    /// The Agents folder, above the tray, while agents work in this window's profile (Sidebar/SidebarAgents.swift).
+    let agents = SidebarAgentsView()
     private(set) var hovered = false
 
     override init(frame: NSRect) {
@@ -836,11 +893,13 @@ final class SidebarView: NSView {
         addSubview(footer)
         addSubview(tray)
         addSubview(update)
+        addSubview(agents)
     }
 
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true } // W07c: see RootView
 
     func connect(_ c: WindowController) {
         controller = c
@@ -848,6 +907,8 @@ final class SidebarView: NSView {
         pager.controller = c
         footer.controller = c
         update.controller = c
+        c.installQuotePill()   // C06: Share Quote under the URL field (Browser/SelectionShare.swift)
+        agents.connect(c)
     }
 
     override func layout() {
@@ -859,7 +920,9 @@ final class SidebarView: NSView {
         update.frame = NSRect(x: 0, y: h - AircMetrics.Footer.height - u, width: w, height: u)
         let t = tray.height
         tray.frame = NSRect(x: 0, y: h - AircMetrics.Footer.height - u - t, width: w, height: t)
-        pager.frame = NSRect(x: 0, y: AircMetrics.Sidebar.urlFieldTop, width: w, height: max(0, h - AircMetrics.Sidebar.urlFieldTop - AircMetrics.Footer.height - u - t))
+        let a = agents.height
+        agents.frame = NSRect(x: 0, y: h - AircMetrics.Footer.height - u - t - a, width: w, height: a)
+        pager.frame = NSRect(x: 0, y: AircMetrics.Sidebar.urlFieldTop, width: w, height: max(0, h - AircMetrics.Sidebar.urlFieldTop - AircMetrics.Footer.height - u - t - a))
     }
 
     override func updateTrackingAreas() {
@@ -880,4 +943,71 @@ final class SidebarView: NSView {
     override func scrollWheel(with event: NSEvent) { pager.scrollWheel(with: event) }
 
     override func otherMouseDown(with event: NSEvent) { pager.otherMouseDown(with: event) }
+
+    // MARK: W07: the inactive window's sidebar dims (Arc: "the sidebar dims slightly"; its glyphs "all dim")
+
+    private var mainObservers: [NSObjectProtocol] = []
+    private var accessibilityObservers: [NSObjectProtocol] = []
+    /// What the sidebar's content shows at now: 1, or `inactiveOpacity` while the window isn't main.
+    private(set) var dimmedTo: CGFloat = 1
+    private var opacityCache: (ResolvedTheme, Bool, CGFloat)?
+
+    /// How far the content fades while the window isn't main. Arc only says "dims slightly"; Airc's dim starts at the ink
+    /// model's inactive share (0.85, `ResolvedTheme.inactiveInkFactor`) and is clamped per Space: the lowest opacity at
+    /// which every sidebar ink role (text 4.5:1, secondary ink and icons 3:1, tertiary 2.4:1, the design system's
+    /// floors) still meets its floor on the window and the selected and hovered rows, however the fade composites
+    /// (`ResolvedTheme.sidebarInactiveOpacity`). Saturated Spaces, whose ink sits just above its floor, therefore dim
+    /// only a little; light ones dim more. Under Increase Contrast nothing dims. Text, glyphs, icons and the selected row
+    /// fade together, as Arc's do; the window background goes opaque and its grain to ¼ on its own (SpaceBackgroundView).
+    static func inactiveOpacity(for theme: ResolvedTheme, increaseContrast: Bool = false) -> CGFloat {
+        CGFloat(theme.sidebarInactiveOpacity(increaseContrast: increaseContrast))
+    }
+
+    private var inactiveOpacity: CGFloat {
+        guard let theme = controller?.currentPalette.resolved else { return CGFloat(ResolvedTheme.inactiveInkFactor) }
+        let increase = AircTranslucency.systemIncreasesContrast
+        if let (t, i, v) = opacityCache, t == theme, i == increase { return v }
+        let v = Self.inactiveOpacity(for: theme, increaseContrast: increase)
+        opacityCache = (theme, increase, v)
+        return v
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        mainObservers.forEach(NotificationCenter.default.removeObserver)
+        mainObservers = []
+        accessibilityObservers.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
+        accessibilityObservers = []
+        guard let window else { return }
+        for name in [NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification] {
+            mainObservers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.updateInactiveDim(animated: true) }
+            })
+        }
+        // Increase Contrast switched on or off while the window is in the background.
+        accessibilityObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateInactiveDim(animated: false) }
+        })
+        updateInactiveDim(animated: false)
+    }
+
+    /// Fades the content to the window's state on the background's timing (0.2 s ease-out), at once under Reduce
+    /// Motion.
+    func updateInactiveDim(animated: Bool) {
+        let main = window?.isMainWindow ?? true
+        let target = main ? 1 : inactiveOpacity
+        guard abs(target - dimmedTo) > 0.001 else { return }
+        dimmedTo = target
+        let views: [NSView] = [header, pager, footer, tray, update, agents]
+        if animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.2
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                views.forEach { $0.animator().alphaValue = target }
+            }
+        } else {
+            views.forEach { $0.alphaValue = target }
+        }
+    }
 }

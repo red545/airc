@@ -131,6 +131,7 @@ extension SnapshotRunner {
             ob.model.onNext?()
             waitUntil({ if case .notFound = ob.model.arc { true } else { false } }, timeout: 3) {
                 ob.model.onStartFresh?()
+                ob.model.onPasswordManagerNotNow?()
                 ob.model.onNext?()
                 self.check(ob.model.step == .defaultBrowser, "default browser: the step follows the theme (\(ob.model.step))")
                 done()
@@ -181,6 +182,7 @@ extension SnapshotRunner {
             ob.model.onNext?()
             waitUntil({ if case .notFound = ob.model.arc { true } else { false } }, timeout: 3) {
                 ob.model.onStartFresh?()
+                ob.model.onPasswordManagerNotNow?()
                 ob.model.onNext?()
                 self.check(!ob.model.offersDefaultBrowser && ob.model.dots == 5 && ob.model.step == .done
                                && settings?.values.defaultBrowser.answer == .alreadyDefault,

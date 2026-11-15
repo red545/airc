@@ -23,6 +23,16 @@ extension SnapshotRunner {
         var base: String { "http://127.0.0.1:\(port)" }
         var sid = "", workID = "", todayID = "", pinnedItem = "", favoriteItem = ""
         var wrap: ((String) -> String)?
+        func scriptRun(_ action: @escaping () -> Void) {
+            step { done in
+                CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {
+                    action()
+                    done()
+                }
+                CFRunLoopWakeUp(CFRunLoopGetMain())
+            }
+        }
+
         func page(_ title: String, _ extra: String = "") -> String {
             "<title>\(title)</title><body style='font:18px -apple-system;margin:40px'><h1>\(title)</h1>\(extra)</body>"
         }
@@ -34,7 +44,7 @@ extension SnapshotRunner {
         }
 
         // The dictionary: Arc's names and codes, as Cocoa loaded them.
-        run { [self] in
+        scriptRun { [self] in
             let registry = NSScriptSuiteRegistry.shared()
             func cls(_ code: String) -> NSScriptClassDescription? { registry.classDescription(withAppleEventCode: k07Code(code)) }
             let classes = [("window", "WiND"), ("tab", "tAbB"), ("space", "sPaC")]
@@ -62,7 +72,7 @@ extension SnapshotRunner {
         }
 
         // A Space with a Favorite, a pinned tab and a Today tab, and a second Space.
-        run { [self] in
+        scriptRun { [self] in
             sid = c.currentSpaceID
             let profile = c.store.profile(ofSpace: sid)
             workID = (try? c.store.createSpace(name: "K07 Work", profileID: profile.id, after: sid))?.id ?? ""
@@ -81,7 +91,7 @@ extension SnapshotRunner {
         waitForPage()
 
         // How scripts reach the app: this bundle's terms, sent to the current application.
-        run { [self] in
+        scriptRun { [self] in
             let bundle = Bundle.main.bundleURL as CFURL
             let hfs = CFURLPathStyle(rawValue: 1).map { CFURLCopyFileSystemPath(bundle, $0) as String } ?? ""   // kCFURLHFSPathStyle
             let candidates: [(String, (String) -> String)] = [
@@ -98,7 +108,7 @@ extension SnapshotRunner {
         func script(_ body: String) -> K07Result { wrap.map { k07Run($0(body)) } ?? K07Result(error: -1, message: "no way to run scripts") }
 
         // Windows, spaces, tabs.
-        run { [self] in
+        scriptRun { [self] in
             guard wrap != nil else { return }
             let name = script("name of front window"), id = script("id of front window"), index = script("index of front window")
             check(name.text == c.window.title && id.text == String(c.window.windowNumber) && index.int == 1,
@@ -126,7 +136,7 @@ extension SnapshotRunner {
         }
 
         // A Raycast-shaped script (its Arc extension's tab list): properties of every tab, as JSON text.
-        run { [self] in
+        scriptRun { [self] in
             guard wrap != nil else { return }
             let r = script("""
             set _output to ""
@@ -144,7 +154,7 @@ extension SnapshotRunner {
         }
 
         // select, make new tab in a window and in a space, focus.
-        run { [self] in
+        scriptRun { [self] in
             guard wrap != nil else { return }
             _ = script("tell (first tab of front window whose id is \"\(pinnedItem)\") to select")
             check(c.store.tab(c.shownTabID)?.itemID == pinnedItem, "parityk07: select shows a pinned tab, loading it")
@@ -164,31 +174,31 @@ extension SnapshotRunner {
         }
         waitForPage()
         // set URL, reload, go back and forward.
-        run { [self] in
+        scriptRun { [self] in
             guard wrap != nil else { return }
             _ = script("set URL of active tab of front window to \"\(base)/b\"")
         }
         step { [self] done in waitUntil({ self.c.engineTab(for: todayID)?.url?.path == "/b" && self.c.engineTab(for: todayID)?.isLoading == false }, timeout: 6) { done() } }
-        run { [self] in
+        scriptRun { [self] in
             check(c.engineTab(for: todayID)?.url?.absoluteString == base + "/b" && script("loading of active tab of front window").bool == false,
                   "parityk07: set URL of the active tab loads it in place")
             _ = script("go back active tab of front window")
         }
         // Back done loading before forward (WebKit ignores a forward while the back is still under way).
         step { [self] done in waitUntil({ self.c.engineTab(for: todayID)?.url?.path == "/a" && self.c.engineTab(for: todayID)?.isLoading == false }, timeout: 6) { done() } }
-        run { [self] in
+        scriptRun { [self] in
             check(c.engineTab(for: todayID)?.url?.path == "/a", "parityk07: go back")
             _ = script("go forward active tab of front window")
         }
         step { [self] done in waitUntil({ self.c.engineTab(for: todayID)?.url?.path == "/b" }, timeout: 6) { done() } }
-        run { [self] in
+        scriptRun { [self] in
             check(c.engineTab(for: todayID)?.url?.path == "/b", "parityk07: go forward")
             _ = script("set URL of active tab of front window to \"\(base)/a\"")
         }
         step { [self] done in waitUntil({ self.c.engineTab(for: todayID)?.title == "Alpha" && self.c.engineTab(for: todayID)?.isLoading == false }, timeout: 6) { done() } }
 
         // execute javascript: off by default, the menu's checkmark, then on.
-        run { [self] in
+        scriptRun { [self] in
             guard wrap != nil, let app else { return }
             let item = k07MenuItem("Allow JavaScript from Apple Events")
             item?.menu?.update()
@@ -201,7 +211,7 @@ extension SnapshotRunner {
             item?.menu?.update()
             check(app.settings.values.appleEventsJavaScript && item?.state == .on, "parityk07: the menu item turns it on, checked")
         }
-        run { [self] in
+        scriptRun { [self] in
             guard wrap != nil else { return }
             let title = script("execute active tab of front window javascript \"document.title\"")
             let sum = script("tell active tab of front window to execute javascript \"6 * 7\"")
@@ -214,7 +224,7 @@ extension SnapshotRunner {
 
         // Private windows: made by script, scriptable, never running JavaScript.
         var privateID = ""
-        run { [self] in
+        scriptRun { [self] in
             guard wrap != nil else { return }
             let before = PrivateBrowsing.shared.windows.count
             let made = script("make new window with properties {incognito:true}")
@@ -231,7 +241,7 @@ extension SnapshotRunner {
         step { [self] done in
             waitUntil({ PrivateBrowsing.shared.windows.last?.shownPage.map { $0.title == "Gamma" && !$0.isLoading } ?? false }, timeout: 8) { done() }
         }
-        run { [self] in
+        scriptRun { [self] in
             guard wrap != nil else { return }
             let url = script("URL of active tab of window id \"\(privateID)\""), count = script("count tabs of window id \"\(privateID)\"")
             let spaces = script("count spaces of window id \"\(privateID)\"")
@@ -249,7 +259,7 @@ extension SnapshotRunner {
 
         // A Little Arc from `make new tab` at the application; closing a Today tab.
         var extra = ""
-        run { [self] in
+        scriptRun { [self] in
             guard wrap != nil, let app else { return }
             let before = app.littleArcs.count
             let made = script("make new tab with properties {URL:\"\(base)/b\"}")
@@ -264,7 +274,7 @@ extension SnapshotRunner {
             done()
         } }
         // The switch back off, as it was.
-        run { [self] in
+        scriptRun { [self] in
             app?.settings.values.appleEventsJavaScript = false
             if c.store.space(workID) != nil { try? c.store.deleteSpace(workID) }
             server?.stop()

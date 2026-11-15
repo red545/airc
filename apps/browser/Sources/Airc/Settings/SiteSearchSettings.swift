@@ -56,6 +56,8 @@ struct SiteSearchSettingsPage: View {
                     .testAnchor("sitesearch.default")
                 }
             }
+            // P07b: Arc Max's ChatGPT in the Command Bar, this profile's chat site (CommandBar/ChatGPTCommand.swift).
+            AskAISettingsSection(model: model, profileID: profileID)
             SettingsSection(title: "Sites", help: "In a site search, Backspace on an empty search or Esc goes back to the Command Bar.") {
                 ForEach(searches) { s in siteRow(s) }
                 if searches.isEmpty {
@@ -106,6 +108,9 @@ struct SiteSearchSettingsPage: View {
             let ids = Set(profiles.map(\.id))
             if model.settings.values.siteSearch.profiles.keys.contains(where: { !ids.contains($0) }) {
                 model.settings.values.siteSearch.prune(keeping: ids)
+            }
+            if model.settings.values.askAI.profiles.keys.contains(where: { !ids.contains($0) }) {
+                model.settings.values.askAI.prune(keeping: ids)
             }
         }
     }

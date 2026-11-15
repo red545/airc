@@ -179,13 +179,25 @@ extension WindowController {
 
     /// ⌘Z after a reset (WindowController.undo): the store has the tabs' addresses from before again; each page that
     /// is still at its saved URL goes back to its own, through its history when that's where it came from.
-    func pagesFollowUndoneReset() {
+    func pagesFollowUndoneReset(previousURLs: [String: String]) {
+        // Resolve every destination before loading any page: engine callbacks may
+        // synchronously update the shared store during a grouped navigation.
+        var targets: [(WindowController, EngineTab, URL, Bool)] = []
         for w in app?.controllers ?? [self] {
             for (id, page) in w.pages where !page.isClosed {
-                guard let t = store.tab(id), let saved = store.item(t.itemID)?.savedURL, let have = page.url?.absoluteString,
-                      t.url != have, !URLRules.isDrifted(saved: saved, current: have), let u = URL(string: t.url) else { continue }
-                if page.history.back.first?.url == t.url { page.goBack() } else { w.engineWindow.load(u, in: page) }
+                guard let t = store.tab(id), previousURLs[id] != t.url,
+                      let saved = store.item(t.itemID)?.savedURL, let have = page.url?.absoluteString,
+                      let u = URL(string: t.url) else { continue }
+                // A reset can still be provisional when Undo arrives. Its old
+                // live URL already equals the restored URL, but the pending load
+                // must be replaced or it will commit the reset after Undo.
+                let pendingReset = page.isLoading && previousURLs[id] == saved
+                guard pendingReset || (t.url != have && !URLRules.isDrifted(saved: saved, current: have)) else { continue }
+                targets.append((w, page, u, !page.isLoading && page.history.back.first?.url == t.url))
             }
+        }
+        for (w, page, url, back) in targets where !page.isClosed {
+            if back { page.goBack() } else { w.engineWindow.load(url, in: page) }
         }
     }
 
@@ -218,7 +230,10 @@ extension WindowController {
 
     func toggleFolder(_ id: String) { try? store.toggleFolder(id) }
 
+    /// P02 (Arc, R §2.4): the header's press, ←/→ on it, the Tabs menu and the Command Bar fold here. Only a named
+    /// Space folds; any Space unfolds.
     func togglePinnedCollapsed(_ spaceID: String) {
+        guard let s = store.space(spaceID), s.pinnedCollapsed || store.canFoldPinned(ofSpace: spaceID) else { return }
         try? store.updateSpace(spaceID) { $0.pinnedCollapsed.toggle() }
     }
 
@@ -450,7 +465,11 @@ extension WindowController {
     func renameSpace(_ spaceID: String, to text: String) {
         let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard store.space(spaceID)?.name != name else { return }
-        try? store.updateSpace(spaceID) { $0.name = name }
+        // P02: an unnamed Space can't fold its pinned section (R §2.4), so losing the name opens it.
+        try? store.updateSpace(spaceID) {
+            $0.name = name
+            if name.isEmpty { $0.pinnedCollapsed = false }
+        }
     }
 
     func renameCurrentSpace() {
@@ -475,7 +494,10 @@ extension WindowController {
             m.add("Rename…") { [weak self] in self?.renameTodayTab(t.id) }
             m.add(t.isMuted ? "Unmute" : "Mute") { [weak self] in self?.toggleMute(t.id) }
             addCustomizePage(to: m, tabID: t.id)
-            m.add("Add Split View", ShortcutCenter.hint("tabs.newSplit", "⌃⇧+")) { [weak self] in self?.newSplitView(anchor: t.id) }
+            // P19c (L05): an Easel's row can't be a split's pane (P19b), so it has no Add Split View.
+            if store.canBeSplitPane(t.id) {
+                m.add("Add Split View", ShortcutCenter.hint("tabs.newSplit", "⌃⇧+")) { [weak self] in self?.newSplitView(anchor: t.id) }
+            }
             m.add("Duplicate") { [weak self] in _ = try? self?.store.duplicateTab(t.id) }
             m.addItem(moveToMenu(tabID: t.id))
             // WIN-7 (Arc's "Move to New Window"): its page moves into a new window on this Space.
@@ -493,50 +515,62 @@ extension WindowController {
             m.add("Archive Tab", ShortcutCenter.hint("file.closeTab", "⌘W")) { [weak self] in self?.closeTab(t.id) }
             m.add("Archive Tabs Below") { [weak self] in self?.archiveBelow(t.id) }.isEnabled = !tabsBelow(t.id).isEmpty
         case .pinned(let item, _, let t), .favorite(let item, let t):
-            // Arc's pinned tab and Favorite menus: the Today tab's actions that make sense for a saved row, then its
-            // saved URL ("Edit Pinned Page ›", "Back to Pinned URL") and what keeps or removes the row.
+            // Arc 1.171's tab menu in its code order (SidebarMenu+TabContextMenu, decoded from the binary for S09; see
+            // docs/user/parity-p01.md): a Calendar Favorite's Live Calendar entries and Show Hover Preview · Copy Link ·
+            // Share › · Show Unread Badge · Change Icon… · Rename… · Mute · Edit Pinned Page › · Open in Split View ·
+            // Duplicate · Move to › · what keeps or removes the row (Arc: Close Tab / Close Favorite, Remove Pin /
+            // Remove Favorite) · Customize Page…. Unpin / Unfavorite and Add to Favorites are Airc's (Arc has them on ⌘D
+            // and in the Command Bar).
             let isFav = item.isFavorite
             let drifted = t.map { store.isDrifted($0.id) } ?? false
             let live = t.flatMap { engineTab(for: $0.id) }
+            addCalendarItems(to: m, item: item)   // Live Calendar (Calendar/CalendarMenu.swift), with its own lines
+            // Arc's per-row "Show Hover Preview", with Settings' "Show tab previews" on. A Calendar Favorite with Live
+            // Calendar on has it among the calendar's entries instead (CalendarMenu.swift).
+            if app?.settings.values.tabPreviews != false,
+               !(isFav && CalendarCenter.shared.preferences.enabled && CalendarTileFace.isCalendar(item)) {
+                let on = app?.settings.values.sidebarItems.showsHoverPreview(item.id) ?? true
+                m.add("Show Hover Preview") { [weak self] in self?.setHoverPreview(!on, item: item) }.state = on ? .on : .off
+                m.addItem(.separator())
+            }
+            if m.items.first?.isSeparatorItem == true { m.removeItem(at: 0) }
             m.add("Copy Link", ShortcutCenter.hint("edit.copyURL", "⇧⌘C")) { [weak self] in self?.copyLink(ofItem: item.id) }
             let md = m.add("Copy Link as Markdown") { [weak self] in self?.copyLinkMarkdown(ofItem: item.id) }
             md.isAlternate = true
             md.keyEquivalentModifierMask = .option
             if let share = SelectionShare([itemLink(item.id)].compactMap { $0 }) { m.addItem(share.menuItem()) }
+            m.addItem(.separator())
+            // Arc's per-Favorite switch for the sites that count unread items in their title (Gmail, Slack, X…).
+            if isFav, URLRules.showsUnreadBadge(item.savedURL ?? "") {
+                let on = showsUnreadBadge(item)
+                m.add("Show Unread Badge") { [weak self] in self?.setUnreadBadge(!on, item: item) }.state = on ? .on : .off
+                m.addItem(.separator())
+            }
             m.add("Change Icon…") { [weak self] in self?.changeItemIcon(item.id) }
             if !isFav { m.add("Rename…") { [weak self] in self?.renameItemFromMenu(item.id) } }
+            if let t, live != nil {
+                m.add(t.isMuted ? "Unmute" : "Mute") { [weak self] in self?.toggleMute(t.id) }
+            }
             let pinnedURL = NSMenuItem(title: "Edit Pinned Page", action: nil, keyEquivalent: "")
             let sub = NSMenu()
-            sub.add("Replace Pinned URL with Current") { [weak self] in self?.replacePinnedURL(item.id) }.isEnabled = drifted
             sub.add("Edit…") { [weak self] in self?.editSavedURL(item.id) }
+            sub.add("Replace Pinned URL with Current") { [weak self] in self?.replacePinnedURL(item.id) }.isEnabled = drifted
             pinnedURL.submenu = sub
             m.addItem(pinnedURL)
             if let t, drifted {
                 m.add("Back to Pinned URL") { [weak self] in self?.resetToSaved(t.id, keepCurrent: false) }
             }
-            if let t, live != nil {
-                m.add(t.isMuted ? "Unmute" : "Mute") { [weak self] in self?.toggleMute(t.id) }
-                addCustomizePage(to: m, tabID: t.id)
-            }
+            m.addItem(.separator())
             // Arc's "Open item in split view": this row beside the page on screen, as ⌥-click does (SplitActions.swift).
             if optionClickSplits(entry) {
                 m.add("Open in Split View") { [weak self] in self?.optionClickSplit(entry) }.isEnabled =
                     shownTabID != nil && t?.id != shownTabID
             }
-            // Arc's per-Favorite switch for the sites that count unread items in their title (Gmail, Slack, X…).
-            if isFav, URLRules.showsUnreadBadge(item.savedURL ?? "") {
-                let on = showsUnreadBadge(item)
-                m.add("Show Unread Badge") { [weak self] in self?.setUnreadBadge(!on, item: item) }.state = on ? .on : .off
-            }
-            if !isFav {
-                m.add("Duplicate") { [weak self] in _ = try? self?.store.duplicateItem(item.id) }
-                m.addItem(moveItemMenu(item.id))
-            } else if let move = moveFavoriteMenu(item.id) {
-                m.addItem(move)   // P01c: Arc moves a Favorite to another profile's Favorites
-            }
+            if !isFav { m.add("Duplicate") { [weak self] in _ = try? self?.store.duplicateItem(item.id) } }
+            m.addItem(moveRowMenu(item.id))   // S09: Spaces, then other profiles (Favorites: their Favorites too)
             m.addItem(.separator())
             if isFav {
-                m.add("Remove from Favorites") { [weak self] in
+                m.add("Unfavorite") { [weak self] in
                     guard let self else { return }
                     self.performDrop(.item(item.id), to: .today(spaceID: self.currentSpaceID, index: 0))
                 }
@@ -550,41 +584,85 @@ extension WindowController {
                     self?.performDrop(.item(item.id), to: .favorites(profileID: pid, index: 99))
                 }.isEnabled = store.favorites(ofProfile: pid).count < SpacesStore.maxFavorites
             }
-            if let t { m.add(isFav ? "Close and Keep in Favorites" : "Close and Keep Pinned") { [weak self] in self?.closeTab(t.id) } }
-            addCalendarItems(to: m, item: item)   // Live Calendar (Calendar/CalendarMenu.swift)
-            m.add(isFav ? "Delete Favorite" : "Delete") { [weak self] in
+            // Arc's WindowData+SidebarItemContextMenus titles: the page closes, the row stays.
+            if let t { m.add(isFav ? "Close Favorite" : "Close Tab") { [weak self] in self?.closeTab(t.id) } }
+            addLiveRowItems(to: m, item: item)   // Live Folders: Keep in Folder (LiveFolders/LiveFolderMenus.swift)
+            m.add(isFav ? "Remove Favorite" : "Remove Pin") { [weak self] in
                 guard let self else { return }
                 if let t { self.forgetPage(t.id, close: true) }
                 try? self.store.deleteItem(item.id)
             }
+            if let t, live != nil {
+                m.addItem(.separator())
+                addCustomizePage(to: m, tabID: t.id)
+            }
         case .split:
             return menu(for: entry, pane: nil)
+        case .folder(let item, _) where item.isTodayFolder:
+            return todayFolderMenu(item)   // a folder in Today (todayFolderMenu below)
         case .folder(let item, _):
-            // Arc's folder menu: Rename, Change Icon, its links (plain and as Markdown, nested folders included),
-            // Duplicate, New Nested Folder, Delete.
+            // Arc 1.171's folder menu in its code order (SidebarMenu+ListContextMenu, decoded for S11): Share Folder… ·
+            // New Nested Folder… · Turn “‹name›” into Space · Copy All Links · Copy All Links as Markdown · Change Icon… ·
+            // Rename… · Duplicate · Move to › · Archive/Delete. Reset Folder is Airc's (Arc resets only a whole Space).
+            addLiveFolderItems(to: m, folder: item)   // a live folder's state, Refresh, filters (LiveFolders/)
             let links = store.folderLinks(item.id).compactMap(\.url)
-            m.add("Rename…") { [weak self] in self?.renameItemFromMenu(item.id) }
-            m.add("Change Icon…") { [weak self] in self?.changeFolderIcon(item.id) }
+            // H02 (Sharing/): a link to the folder's titles and addresses on aircbrowser.com.
+            m.add("Share Folder…") { [weak self] in self?.shareFolder(item.id) }.isEnabled = !links.isEmpty
             m.addItem(.separator())
-            m.add("Copy All Links") { [weak self] in self?.copyFolderLinks(item.id, markdown: false) }.isEnabled = !links.isEmpty
-            m.add("Copy All Links as Markdown") { [weak self] in self?.copyFolderLinks(item.id, markdown: true) }.isEnabled = !links.isEmpty
-            m.addItem(.separator())
-            m.add("Duplicate") { [weak self] in _ = try? self?.store.duplicateItem(item.id) }
-            m.add("New Nested Folder") { [weak self] in
+            m.add("New Nested Folder…") { [weak self] in
                 guard let self else { return }
                 if self.store.item(item.id)?.isCollapsed == true { try? self.store.toggleFolder(item.id) }
                 guard let f = try? self.store.createFolder(inSpace: self.currentSpaceID, parentID: item.id) else { return }
                 DispatchQueue.main.async { self.renameItemFromMenu(f.id) }
             }
-            // P01c: Arc's reset while the folder is focused, Move to ›, and Turn into Space (its newSpaceFromFolder).
-            m.add("Reset all tabs in this Folder") { [weak self] in self?.resetFolder(item.id) }.isEnabled =
+            m.add(Self.turnIntoSpaceTitle(item)) { [weak self] in self?.turnFolderIntoSpace(item.id) }
+            m.add("Copy All Links") { [weak self] in self?.copyFolderLinks(item.id, markdown: false) }.isEnabled = !links.isEmpty
+            m.add("Copy All Links as Markdown") { [weak self] in self?.copyFolderLinks(item.id, markdown: true) }.isEnabled = !links.isEmpty
+            m.addItem(.separator())
+            m.add("Change Icon…") { [weak self] in self?.changeFolderIcon(item.id) }
+            m.add("Rename…") { [weak self] in self?.renameItemFromMenu(item.id) }
+            m.addItem(.separator())
+            m.add("Duplicate") { [weak self] in _ = try? self?.store.duplicateItem(item.id) }
+            m.addItem(moveRowMenu(item.id))   // S11: the whole folder, nesting intact, to a Space of any profile
+            m.add("Reset Folder") { [weak self] in self?.resetFolder(item.id) }.isEnabled =
                 !store.driftedPinnedTabs(inFolder: item.id).isEmpty
-            m.addItem(moveItemMenu(item.id))
-            m.add("Turn into Space") { [weak self] in self?.turnFolderIntoSpace(item.id) }
             m.addItem(.separator())
             m.add("Delete Folder") { [weak self] in self?.deleteItemWithPages(item.id) }
         }
         return m
+    }
+
+    /// A Today folder's menu (AircKit's TodayFolders.swift): Arc's folder menu for what a Today folder holds (its tabs'
+    /// pages), plus Ungroup, which puts its rows back in Today where it was. Delete sends its tabs to the Archive (⌘Z
+    /// brings them back).
+    private func todayFolderMenu(_ item: Item) -> NSMenu {
+        let m = NSMenu()
+        let links = store.folderLinks(item.id).compactMap(\.url)
+        m.add("Rename…") { [weak self] in self?.renameItemFromMenu(item.id) }
+        m.add("Change Icon…") { [weak self] in self?.changeFolderIcon(item.id) }
+        m.addItem(.separator())
+        m.add("Copy All Links") { [weak self] in self?.copyFolderLinks(item.id, markdown: false) }.isEnabled = !links.isEmpty
+        m.add("Copy All Links as Markdown") { [weak self] in self?.copyFolderLinks(item.id, markdown: true) }.isEnabled = !links.isEmpty
+        m.addItem(.separator())
+        m.add("New Nested Folder") { [weak self] in
+            guard let self, let sid = item.spaceID else { return }
+            if self.store.item(item.id)?.isCollapsed == true { try? self.store.toggleFolder(item.id) }
+            let at = self.store.todayFolderContents(item.id).count
+            guard let f = try? self.store.createTodayFolder(inSpace: sid, parentID: item.id, index: at) else { return }
+            DispatchQueue.main.async { self.renameItemFromMenu(f.id) }
+        }
+        m.add("Ungroup") { [weak self] in try? self?.store.ungroupTodayFolder(item.id) }
+        m.addItem(moveRowMenu(item.id))
+        m.addItem(.separator())
+        m.add("Delete Folder") { [weak self] in self?.deleteItemWithPages(item.id) }
+        return m
+    }
+
+    /// New Folder in Today (Space menu): an empty folder at the top of Today, its name ready to type. Drag tabs in.
+    func newTodayFolder(spaceID: String) {
+        if spaceID != currentSpaceID { switchToSpace(spaceID, animated: true) }
+        guard let f = try? store.createTodayFolder(inSpace: spaceID) else { return NSSound.beep() }
+        DispatchQueue.main.async { self.renameItemFromMenu(f.id) }
     }
 
     /// Arc's "Customize Page…" (its Boost editor) for a tab's website, loaded or not: the tab comes to the front first.
@@ -651,87 +729,108 @@ extension WindowController {
         guard (try? store.setAllFolders(collapsed: collapsed, inSpace: currentSpaceID)) ?? 0 > 0 else { return NSSound.beep() }
     }
 
-    /// A pinned row's "Move to ›": the other Spaces (it stays pinned there), then New Space….
-    private func moveItemMenu(_ itemID: String) -> NSMenuItem {
+    /// S09/S11 "Move to ›" for a pinned row, a folder or a Favorite (AircKit's MoveToPlan): its profile's Spaces, then
+    /// each other profile under its name (a Favorite's with that profile's Favorites first), then this Space's folders
+    /// (Browser/MenuMoveAndBulk.swift), then New Space…. Rows of another profile say in their tooltip that the page
+    /// reopens with that profile's cookies.
+    func moveRowMenu(_ itemID: String) -> NSMenuItem {
         let item = NSMenuItem(title: "Move to", action: nil, keyEquivalent: "")
         let sub = NSMenu()
-        for s in store.orderedSpaces where s.id != store.item(itemID)?.spaceID {
-            sub.add(s.iconLabel + "  " + s.name) { [weak self] in self?.moveItem(itemID, toSpace: s.id) }
+        addMovePlan(store.moveToPlan(forItem: itemID), to: sub) { [weak self] target in self?.moveRows([itemID], to: target) }
+        if let it = store.item(itemID), let sid = it.spaceID, !it.isFavorite {
+            addMoveFolderRows(to: sub, source: .item(itemID), spaceID: sid, excluding: it.kind == .folder ? itemID : nil, parent: it.parentID)
         }
-        sub.addItem(.separator())
+        if !sub.items.isEmpty { sub.addItem(.separator()) }
         sub.add("New Space…") { [weak self] in self?.openNewSpacePanel() }
         item.submenu = sub
         return item
     }
 
-    /// A pinned tab moves to the top of another Space's pinned section. Into another profile's Space its page reloads
-    /// with that profile's logins, so it asks first (as a Today tab's Move to does).
-    func moveItem(_ itemID: String, toSpace spaceID: String) {
-        guard let target = store.space(spaceID), let item = store.item(itemID) else { return }
-        let tab = store.liveTab(forItem: itemID)
-        let go = { [weak self] in
-            guard let self else { return }
-            let wasShown = tab.map { self.visibleTabIDs.contains($0.id) } ?? false
-            let next = wasShown ? tab.flatMap { self.store.tabToSelect(afterClosing: $0.id, inSpace: self.currentSpaceID) } : nil
-            do { self.reloadPagesInNewProfile(try self.store.move([.item(itemID)], toSpace: spaceID)) } catch { return NSSound.beep() }
-            if wasShown { if let next { self.show(next.id) } else { self.showEmpty() } }
-        }
-        if tab != nil, store.profile(ofSpace: item.spaceID ?? currentSpaceID).id != target.profileID {
-            confirmInterProfileMove(title: "Move this tab to “\(target.name)”?",
-                                    message: "This page reloads with the other Profile’s logins and data, so it may look different.",
-                                    confirm: "Move it", then: go)
-        } else {
-            go()
-        }
-    }
-
-    // MARK: P01c: Favorites to other profiles, folder commands, the Space header, Shared Quotes
-
-    /// A Favorite's "Move to ›" (Arc's "Submenu to chose which profile to move Favorite(s) to"): the other profiles that
-    /// have a Space. Nil with only one.
-    private func moveFavoriteMenu(_ itemID: String) -> NSMenuItem? {
-        guard case .favorites(let pid)? = store.item(itemID)?.container else { return nil }
-        let others = store.orderedProfiles.filter { $0.id != pid && !store.spaces(usingProfile: $0.id).isEmpty }
-        guard !others.isEmpty else { return nil }
-        let item = NSMenuItem(title: "Move to", action: nil, keyEquivalent: "")
-        let sub = NSMenu()
-        for p in others {
-            let row = sub.add(p.name) { [weak self] in self?.moveFavorite(itemID, toProfile: p.id) }
-            row.image = ProfileAvatarImage.image(p, size: 16)
-        }
-        item.submenu = sub
-        return item
-    }
-
-    /// The Favorite goes to the end of `profileID`'s Favorites, as one ⌘Z (a single row's store move isn't undoable on its
-    /// own). Its page reloads with that profile's logins, so a loaded one asks first (as a pinned tab's move to another
-    /// profile's Space does). A full grid says so.
-    func moveFavorite(_ itemID: String, toProfile profileID: String) {
-        guard let p = store.profile(profileID) else { return }
-        let go = { [weak self] in
-            guard let self else { return }
-            do {
-                let reload = try self.store.perform("Move Favorite", undoable: true) {
-                    try self.store.move(.item(itemID), to: .favorites(profileID: profileID, index: self.store.favorites(ofProfile: profileID).count))
+    /// A MoveToPlan's rows: the first section as is, each other profile after a line under its name and avatar.
+    func addMovePlan(_ plan: MoveToPlan, to sub: NSMenu, _ pick: @escaping (MoveToPlan.Target) -> Void) {
+        for (i, section) in plan.sections.enumerated() {
+            if i > 0 { sub.addItem(.separator()) }
+            if let h = section.header {
+                let head = NSMenuItem(title: h, action: nil, keyEquivalent: "")
+                head.isEnabled = false
+                if let p = store.profile(section.profileID) { head.image = ProfileAvatarImage.image(p, size: 16) }
+                sub.addItem(head)
+            }
+            for r in section.rows {
+                let title: String
+                switch r.target {
+                case .space(let sid): title = store.space(sid).map { $0.iconLabel.isEmpty ? $0.name : "\($0.iconLabel)  \($0.name)" } ?? r.title
+                case .favorites: title = r.title
                 }
-                self.reloadPagesInNewProfile(reload)
-            } catch StoreError.favoritesFull {
-                self.showToast("Favorites are full (12)")
-            } catch {
-                NSSound.beep()
+                let row = sub.add(title) { pick(r.target) }
+                if case .favorites = r.target { row.image = NSImage(systemSymbolName: "star", accessibilityDescription: nil) }
+                if section.header != nil { row.indentationLevel = 1 }
+                if r.crossProfile { row.toolTip = MoveToPlan.crossProfileTooltip }
             }
         }
-        if let t = store.liveTab(forItem: itemID), engineTab(for: t.id) != nil {
-            confirmInterProfileMove(title: "Move this Favorite to “\(p.name)”?",
-                                    message: "This page reloads with the other Profile’s logins and data, so it may look different.",
-                                    confirm: "Move it", then: go)
+    }
+
+    /// A pinned row moves to the end of another Space's pinned section (with everything inside it).
+    func moveItem(_ itemID: String, toSpace spaceID: String) { moveRows([itemID], to: .space(spaceID)) }
+
+    /// Move to ›'s action for rows (pinned rows, folders, Favorites), as one ⌘Z: into a Space's pinned section, or (only
+    /// Favorites) another profile's Favorites. Loaded pages that would reopen in another profile ask first; after the
+    /// move a toast says they reopened there. The tab on screen, if it went, gives way to the next one.
+    func moveRows(_ itemIDs: [String], to target: MoveToPlan.Target, fromSpace: String? = nil) {
+        let sources = itemIDs.map { DragSource.item($0) }
+        var pid = "", name = ""
+        switch target {
+        case .space(let sid):
+            guard let s = store.space(sid) else { return }
+            pid = s.profileID
+            name = s.name
+        case .favorites(let p):
+            guard let pr = store.profile(p) else { return }
+            pid = p
+            name = "\(pr.name)’s Favorites"
+        }
+        let moving = Set(store.liveTabs(of: sources).map(\.id))
+        let go = { [weak self] in
+            guard let self else { return }
+            if let fromSpace { self.pageView(for: fromSpace)?.clearSelection() }
+            let shown = self.shownTabID
+            let wasShown = shown.map(moving.contains) ?? false
+            let next = wasShown ? shown.flatMap { self.store.tabToSelect(afterClosing: $0, inSpace: self.currentSpaceID) } : nil
+            do {
+                let reload: [String]
+                switch target {
+                case .space(let sid): reload = try self.store.moveRows(sources, toSpace: sid)
+                case .favorites: reload = try self.store.moveFavorites(itemIDs, to: target)
+                }
+                self.reloadPagesInNewProfile(reload)
+                if !reload.isEmpty { self.showToast("Moved to “\(TextLimits.clip(name))”, in its Profile’s logins and cookies") }
+            } catch StoreError.favoritesFull {
+                return self.showToast("Favorites are full (\(SpacesStore.maxFavorites))")
+            } catch {
+                return NSSound.beep()
+            }
+            if wasShown, self.store.tab(shown ?? "")?.spaceID != self.currentSpaceID {
+                if let next { self.show(next.id) } else { self.showEmpty() }
+            }
+        }
+        let loaded = store.tabsReopening(sources, inProfile: pid).filter { engineTab(for: $0.id) != nil }
+        if !loaded.isEmpty {
+            let what = itemIDs.count == 1 ? (store.item(itemIDs[0])?.kind == .folder ? "this folder" : "this tab") : "\(itemIDs.count) items"
+            confirmInterProfileMove(title: "Move \(what) to “\(name)”?",
+                                    message: "\(loaded.count == 1 ? "Its page reopens" : "Their pages reopen") with the other Profile’s logins and cookies, so \(loaded.count == 1 ? "it" : "they") may look different. ⌘Z moves \(itemIDs.count == 1 ? "it" : "them") back.",
+                                    confirm: "Move", then: go)
         } else {
             go()
         }
     }
 
-    /// "Reset all tabs in this Folder": the folder's pinned tabs away from their saved URLs go back, as Reset all tabs
-    /// in this Space does (one question for pages with unsaved changes, one ⌘Z).
+    /// Arc's folder item `Turn “‹name›” into Space`.
+    static func turnIntoSpaceTitle(_ folder: Item) -> String {
+        "Turn “\(TextLimits.clip(folder.displayTitle))” into Space"
+    }
+
+    /// "Reset Folder": the folder's pinned tabs away from their saved URLs go back, as Reset all tabs in this Space does
+    /// (one question for pages with unsaved changes, one ⌘Z).
     func resetFolder(_ folderID: String) {
         let ids = store.driftedPinnedTabs(inFolder: folderID).map(\.id)
         guard !ids.isEmpty else { return NSSound.beep() }
@@ -778,10 +877,14 @@ extension WindowController {
         m.addItem(profileItem)
         m.addItem(.separator())
         m.add("New Folder…") { [weak self] in _ = try? self?.store.createFolder(inSpace: spaceID) }
+        addNewLiveFolderItem(to: m, spaceID: spaceID)   // Arc: Live Folder › right after New Folder
+        m.add("New Folder in Today") { [weak self] in self?.newTodayFolder(spaceID: spaceID) }   // TodayFolders.swift
         // WIN-7: this Space in a window of its own.
         m.add("Open in New Window") { [weak self] in self?.openSpaceInNewWindow(spaceID) }
         // P04 (Import/SidebarExport.swift): its tabs, folders and Favorites as Markdown or HTML another app can read.
         m.add("Export Space…") { [weak self] in self?.exportSpace(spaceID) }
+        // H01 (Sharing/): a link to the Space's pinned titles and addresses on aircbrowser.com.
+        m.add("Share Space…") { [weak self] in self?.shareSpace(spaceID) }
         m.addItem(.separator())
         m.add("Manage Spaces…") { [weak self] in self?.showManageSpaces() }
         m.addItem(.separator())
@@ -813,6 +916,7 @@ extension WindowController {
             guard let self else { return }
             _ = try? self.store.createFolder(inSpace: self.currentSpaceID)
         }
+        addNewLiveFolderItem(to: m, spaceID: currentSpaceID)   // LiveFolders/LiveFolderMenus.swift
         // Arc's order: New Space, New Folder, New Note, New Tab (Notes/NoteCenter.swift).
         addNewNoteItems(to: m)   // and New Airc Note when another app is chosen (Notes/NoteExport.swift)
         m.add("New Tab", "⌘T") { [weak self] in self?.openCommandBar(mode: .newTab) }
@@ -822,6 +926,7 @@ extension WindowController {
         // P04 (Import/SidebarFileImport.swift): Arc's "Add Files" — files and folders into this Space.
         m.addItem(.separator())
         m.add("Add Files…") { [weak self] in self?.addFiles() }
+        addConnectClaudeItem(to: m)   // until an AI app has connected (Agent/AgentsConnect.swift)
         return m
     }
 
@@ -831,6 +936,8 @@ extension WindowController {
         for s in store.orderedSpaces where s.id != store.tab(tabID)?.spaceID {
             sub.add(s.iconLabel + "  " + s.name) { [weak self] in self?.moveTab(tabID, to: s.id) }
         }
+        // S09: then this Space's folders (Browser/MenuMoveAndBulk.swift).
+        if let sid = store.tab(tabID)?.spaceID { addMoveFolderRows(to: sub, source: .tab(tabID), spaceID: sid, parent: store.tab(tabID).flatMap(store.shownTodayFolderID)) }
         sub.addItem(.separator())
         sub.add("New Space…") { [weak self] in self?.openNewSpacePanel() }
         item.submenu = sub
@@ -868,7 +975,7 @@ extension WindowController {
         writeLinks(r.url, toast: LinkCopyPolicy.toast(count: 1, removedTrackers: r.removedTrackers, single: "Copied Link"))
     }
 
-    private func renameTodayTab(_ tabID: String) {
+    func renameTodayTab(_ tabID: String) {
         // A Today tab gets a name by pinning it in Arc; we keep it simple: pin, then rename.
         try? store.togglePin(tabID, inSpace: currentSpaceID)
         if let itemID = store.tab(tabID)?.itemID {
@@ -922,6 +1029,8 @@ extension WindowController {
             for c in store.state.items.values where c.parentID == id { collect(c.id) }
         }
         collect(itemID)
+        // A Today folder's tabs go to the Archive with it: their pages close first.
+        if store.todayFolder(itemID) != nil { ids += store.todayFolderTabs(itemID).map(\.id) }
         ids.forEach { forgetPage($0, close: true) }
         try? store.deleteItem(itemID)
     }
@@ -1063,6 +1172,13 @@ extension WindowController {
         for w in app?.controllers ?? [self] { w.reloadAll(animated: false) }
     }
 
+    /// "Show Hover Preview" switched for `item` (S16); a card up for it goes.
+    func setHoverPreview(_ on: Bool, item: Item) {
+        guard let settings = app?.settings else { return }
+        settings.values.sidebarItems.setHoverPreview(on, for: item.id, existing: Set(store.state.items.keys))
+        if !on { for w in app?.controllers ?? [self] where w.tabPreview.shownEntry?.item?.id == item.id { w.tabPreview.hide() } }
+    }
+
     /// Edit Theme Color… (TH-1): swatches, intensity, grain and appearance; recolours live. The Space is shown while it's
     /// edited; the picker sits beside its header, or beside `anchor` (Manage Spaces' row).
     func editTheme(_ spaceID: String, anchor: (view: NSView, rect: NSRect)? = nil) {
@@ -1089,13 +1205,13 @@ extension WindowController {
         let folders = store.folders(inSpace: sid)
         if folders.contains(where: \.isCollapsed) {
             a.append(.init(title: "Expand All Folders", symbol: "folder", hint: ShortcutCenter.hint("tabs.expandFolders", ""),
-                           keywords: ["folders", "open", "show", "reveal"]) { [weak self] in self?.setAllFolders(collapsed: false) })
+                           keywords: ["folders", "open", "show", "reveal", "reveal all folders", "open all folders"]) { [weak self] in self?.setAllFolders(collapsed: false) })
         }
         if folders.contains(where: { !$0.isCollapsed }) {
             a.append(.init(title: "Collapse All Folders", symbol: "folder", hint: ShortcutCenter.hint("tabs.collapseFolders", ""),
-                           keywords: ["folders", "close", "hide"]) { [weak self] in self?.setAllFolders(collapsed: true) })
+                           keywords: ["folders", "close", "hide", "close all folders", "clean up folders"]) { [weak self] in self?.setAllFolders(collapsed: true) })
         }
-        if let s = store.space(sid), !store.pinnedRoots(ofSpace: sid).isEmpty {
+        if let s = store.space(sid), !store.pinnedRoots(ofSpace: sid).isEmpty, s.pinnedCollapsed || store.canFoldPinned(ofSpace: sid) {
             // Arc's Expand / Collapse Pinned Section (Sidebar/SidebarKeyboard.swift).
             let collapsed = s.pinnedCollapsed
             a.append(.init(title: collapsed ? "Expand Pinned Section" : "Collapse Pinned Section", symbol: "pin", hint: "",
@@ -1111,6 +1227,7 @@ extension WindowController {
             a.append(.init(title: "Reset all tabs in this Space", symbol: "arrow.uturn.backward", hint: ShortcutCenter.hint("tabs.resetSpace", ""),
                            keywords: ["reset", "pinned", "back", "saved", "url"]) { [weak self] in self?.resetAllTabsInSpace() })
         }
+        a += liveFolderCommandActions()   // New Live Folder…, Refresh (LiveFolders/LiveFolderMenus.swift)
         // P04: files into the sidebar, and the Spaces out as a file.
         a.append(.init(title: "Add Files…", symbol: "doc.badge.plus", hint: "", keywords: ["files", "add", "import", "upload", "folder", "documents"]) { [weak self] in
             self?.addFiles()
@@ -1122,6 +1239,7 @@ extension WindowController {
         })
         a.append(.init(title: "Export All Spaces…", symbol: "square.and.arrow.up.on.square", hint: ShortcutCenter.hint("file.exportSpaces", ""),
                        keywords: ["export", "save", "markdown", "html", "backup", "spaces", "all"]) { [weak self] in self?.exportSpace(nil) })
+        a.append(contentsOf: shareCommandActions())   // H01: Share This Space… (Sharing/ShareLinkActions.swift)
         // P01c: Arc's Disable / Enable Shared Quotes.
         if let app {
             let on = app.settings.values.sharedQuotes

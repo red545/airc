@@ -1,5 +1,5 @@
 // Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
-#if AIRC_TESTING && canImport(AircCore) // agentspike: dev builds with the Chromium engine
+#if canImport(AircCore) // the Chromium engine
 import AppKit
 import AircCore
 
@@ -72,6 +72,59 @@ final class ChromiumAgentDriver: AgentPageDriver {
     }
 
     func release(_ tab: EngineTab) { kept.remove(ObjectIdentifier(tab)) }
+
+    func watchFrame(_ tab: EngineTab, maxPixels: CGSize, completion: @escaping (CGImage?) -> Void) {
+        // A copy of the compositor's surface (the page is kept visible, so it's live): no DevTools call, no PNG.
+        guard let core = core(tab), !tab.isClosed else { return completion(nil) }
+        core.snapshot(withMaxSize: maxPixels) { image in
+            completion(image.flatMap { $0.cgImage(forProposedRect: nil, context: nil, hints: nil) })
+        }
+    }
+
+    // MARK: Watch without copies
+
+    /// Chromium draws a window's pages in the GPU process, into a CAContext the window hosts with a CALayerHost (its
+    /// own out-of-process display, ui/accelerated_widget_mac). The agent window is ours, so that layer is in its tree:
+    /// a second CALayerHost on the same context ID shows the same output, drawn by the render server, at no cost to
+    /// the app or the agent. QuartzCore's CALayerHost is SPI (Chromium uses it the same way): looked up by name, and
+    /// nil when missing, so Watch falls back to copies.
+    static func hostLayers(_ l: CALayer) -> [CALayer] {
+        (NSStringFromClass(type(of: l)) == "CALayerHost" ? [l] : []) + (l.sublayers ?? []).flatMap(hostLayers)
+    }
+
+    /// The page's host: the largest (an open DevTools or a popup would be smaller).
+    private static func pageHost(in window: NSWindow) -> CALayer? {
+        guard let root = window.contentView?.layer else { return nil }
+        return hostLayers(root).max { $0.bounds.width * $0.bounds.height < $1.bounds.width * $1.bounds.height }
+    }
+
+    func liveContextID(in window: NSWindow) -> UInt32? {
+        (Self.pageHost(in: window)?.value(forKey: "contextId") as? NSNumber)?.uint32Value
+    }
+
+    func liveLayer(_ tab: EngineTab, in window: NSWindow) -> (layer: CALayer, id: UInt32, flipped: Bool)? {
+        guard let cls = NSClassFromString("CALayerHost") as? CALayer.Type, let original = Self.pageHost(in: window),
+              let id = (original.value(forKey: "contextId") as? NSNumber)?.uint32Value, id != 0 else { return nil }
+        let host = cls.init()
+        host.setValue(NSNumber(value: id), forKey: "contextId")
+        // The hosted tree expects the same flip as where Chromium put it.
+        return (host, id, original.superlayer?.contentsAreFlipped() ?? false)
+    }
+
+    /// For the report: the window's host layers, their sizes and context IDs.
+    static func describeHosts(in window: NSWindow) -> String {
+        guard let root = window.contentView?.layer else { return "no layer" }
+        let hosts = hostLayers(root)
+        return hosts.isEmpty ? "no CALayerHost" : hosts.map { "\(Int($0.bounds.width))x\(Int($0.bounds.height)) ctx \(($0.value(forKey: "contextId") as? NSNumber)?.stringValue ?? "?")" }.joined(separator: ", ")
+    }
+
+    func handBack(_ tab: EngineTab) {
+        // The endless promise stays pending until the next navigation and then isn't renewed (`kept` no longer holds
+        // the tab); focus and drags go back to the engine now.
+        kept.remove(ObjectIdentifier(tab))
+        call(tab, "Emulation.setFocusEmulationEnabled", ["enabled": false]) { _, _ in }
+        call(tab, "Input.setInterceptDrags", ["enabled": false]) { _, _ in }
+    }
 
     func capture(_ tab: EngineTab, completion: @escaping (Result<CGImage, AgentDriverError>) -> Void) {
         call(tab, "Page.captureScreenshot", ["format": "png", "fromSurface": true, "optimizeForSpeed": true], timeout: 10) { r, error in

@@ -39,7 +39,7 @@ extension ArcImporter {
     /// WAL-only visits cannot be recovered under this contract: ask the user to quit Arc and reimport.
     static func readProfileData(into plan: inout ImportPlan, at root: URL, tempRoot: URL, now: Date,
                                 progress: ProgressHandler?) throws {
-        plan.history = [:]; plan.extensions = [:]
+        plan.history = [:]; plan.extensions = [:]; plan.searchEngines = [:]
         let fm = FileManager.default
         let userData = root.appendingPathComponent("User Data").resolvingSymlinksInPath()
         for (index, p) in plan.profiles.enumerated() where p.isAvailable {
@@ -78,6 +78,7 @@ extension ArcImporter {
             } else if walSize > 32 {
                 plan.warnings.append(checkpoint)
             }
+            readSearchEngines(into: &plan, profileID: p.id, folder: folder, tempRoot: tempRoot)
             progress?(.init(stage: .extensions, completed: index, total: plan.profiles.count))
             var settings: [String: Any] = [:]
             for name in ["Preferences", "Secure Preferences"] {
@@ -122,7 +123,32 @@ extension ArcImporter {
     }
 }
 
+extension ArcImporter {
+    /// C08b: the profile's search engines (`ChromiumSearchEngines`), from a private copy of `Web Data`.
+    static func readSearchEngines(into plan: inout ImportPlan, profileID: String, folder: URL, tempRoot: URL) {
+        do {
+            guard let engines = try ChromiumSearchEngines.read(profile: folder, tempRoot: tempRoot) else { return }
+            plan.searchEngines?[profileID] = engines
+            for _ in 0..<engines.rejected {
+                plan.warnings.append(.init(code: .unsafeSearchEngine, message: "A search engine whose address isn't a safe https search page was left out."))
+            }
+        } catch {
+            plan.warnings.append(.init(code: .unreadableSearchEngines, message: "A profile's search engines couldn't be read. Quit Arc and import again."))
+        }
+    }
+}
+
 extension ImportPlan {
+    /// C08b: each mapped Arc profile's search engines, keyed by Airc profile ID (same mapping as `mappedHistory`).
+    public func mappedSearchEngines(profileIDs: [String: String]) -> [String: ImportedSearchEngines] {
+        var mapped: [String: ImportedSearchEngines] = [:]
+        for p in profiles {
+            guard let destination = profileIDs["arc-profile:" + p.directory], let e = searchEngines?[p.id], !e.isEmpty else { continue }
+            mapped[destination] = e
+        }
+        return mapped
+    }
+
     /// Same directory-based source keys as the Spaces blueprint. Missing/unselected destinations are never guessed.
     public func mappedHistory(profileIDs: [String: String]) -> [String: [ImportedVisit]] {
         var mapped: [String: [ImportedVisit]] = [:]

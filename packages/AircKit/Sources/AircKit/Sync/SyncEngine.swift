@@ -101,6 +101,10 @@ public final class SyncEngine {
         /// A backup of this Mac's sidebar before the first sync changes it; returns the file.
         public var backup: () throws -> URL
         public var sleep: @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) }   // await-ok: a clock
+        /// Where note pictures are (the data folder's Notes/Images). nil: notes sync without their pictures.
+        public var notePictures: SyncNotePictureFolder?
+        /// Pictures that arrived from another Mac (the app redraws open notes).
+        public var picturesArrived: (([String]) -> Void)?
 
         public init(transport: @escaping (UUID) -> SyncGroupTransport, keys: SyncKeyStore, stateURL: URL, deviceName: String,
                     machine: String? = nil, createProfile: @escaping (String, String) throws -> String,
@@ -138,6 +142,8 @@ public final class SyncEngine {
         /// Batches that couldn't be read (kept to retry, for example after an update), and unparseable record names.
         var quarantine: [SyncEnvelope] = []
         var malformed: Set<String> = []
+        /// Notes: what this Mac knows, shows and owes of each (NoteSyncPayload.swift).
+        var notes = SyncNoteState()
 
         init(device: UUID = UUID(), machine: String?) {
             self.device = device; self.machine = machine
@@ -146,7 +152,7 @@ public final class SyncEngine {
 
         private enum CodingKeys: String, CodingKey {
             case version, enabled, device, machine, group, joined, replica, adapter, outbox, checkpoint, account, lastSynced
-            case published, uploaded, recovery, applyMode, quarantine, malformed
+            case published, uploaded, recovery, applyMode, quarantine, malformed, notes
         }
 
         init(from decoder: Decoder) throws {
@@ -169,6 +175,8 @@ public final class SyncEngine {
             applyMode = try c.decodeIfPresent(ApplyMode.self, forKey: .applyMode)
             quarantine = try c.decodeIfPresent([SyncEnvelope].self, forKey: .quarantine) ?? []
             malformed = try c.decodeIfPresent(Set<String>.self, forKey: .malformed) ?? []
+            // A state file from before notes synced: the next capture sends this Mac's pinned notes.
+            notes = try c.decodeIfPresent(SyncNoteState.self, forKey: .notes) ?? SyncNoteState()
         }
     }
 
@@ -181,6 +189,8 @@ public final class SyncEngine {
     /// can't make every cycle slower without bound.
     public static let quarantineRetryCount = 32
     public static let quarantineRetryBytes = 1024 * 1024
+    /// Seconds after typing in a note stops before its text is sent.
+    public static let noteDebounce: Double = 3
 
     private struct Joining {
         var group: SyncGroupRecord
@@ -234,7 +244,15 @@ public final class SyncEngine {
     public var replica: SyncReplica { state.replica }
     /// Whether a transport (with its CloudKit objects) exists: only while sync is on.
     public var hasTransport: Bool { transport != nil }
-    public var unreadableBatches: Int { state.quarantine.count + state.malformed.count }
+    public var unreadableBatches: Int { state.quarantine.count + state.malformed.count + state.notes.unreadable.count }
+    /// Pinned notes whose text is too large to sync (SyncNotes.maxNoteBytes): their rows sync, their text doesn't.
+    public var notesTooLarge: Int { state.notes.tooLarge.count }
+    /// iCloud refused notes in the last cycle (their record types aren't deployed in this container yet, docs/sync.md
+    /// "Deploying the schema"): they wait, and everything else syncs.
+    public private(set) var notesHeld = false { didSet { if notesHeld != oldValue { onChange?() } } }
+    private var holdingNotes = false
+    /// Notes this Mac syncs (pinned here, or known from another Mac and not removed).
+    public var syncedNotes: Int { state.notes.entries.values.filter { !$0.removed }.count }
     public var needsRecovery: Bool { state.recovery }
 
     public init(store: SpacesStore, environment: Environment) {
@@ -252,10 +270,19 @@ public final class SyncEngine {
             loaded.checkpoint = nil
             loaded.outbox = []
             loaded.uploaded = []
+            loaded.notes.outbox = [:]
+            loaded.notes.picturesUp = []
+            loaded.notes.pictureOutbox = []
         }
         state = loaded
         observer = store.observe { [weak self] change in
-            guard let self, !self.applying, !change.contentOnly else { return }
+            guard let self, !self.applying else { return }
+            if change.contentOnly {
+                // Typing in a note (its text or title): sent a little after the typing stops. Other content-only changes
+                // (page titles, favicons) don't sync.
+                if change.touches(.note) { self.localChanged(after: Self.noteDebounce) }
+                return
+            }
             self.localChanged()
         }
         if state.enabled { status = .connecting }
@@ -292,9 +319,11 @@ public final class SyncEngine {
     }
 
     /// The store changed (its observer): send it shortly.
-    public func localChanged() {
+    public func localChanged() { localChanged(after: debounce) }
+
+    func localChanged(after seconds: Double) {
         guard state.enabled, state.joined, automatic else { return }
-        schedule(after: debounce)
+        schedule(after: max(debounce, seconds))
     }
 
     // MARK: Sessions
@@ -423,10 +452,10 @@ public final class SyncEngine {
         failures = 0
         state.lastSynced = env.now()
         trySave()
-        if state.quarantine.isEmpty && state.malformed.isEmpty {
+        if state.quarantine.isEmpty && state.malformed.isEmpty && state.notes.unreadable.isEmpty {
             status = .upToDate
         } else {
-            let n = state.quarantine.count + state.malformed.count
+            let n = unreadableBatches
             status = .incomplete("\(n) change\(n == 1 ? "" : "s") from another Mac can't be read here (damaged, or from a newer Airc). Airc keeps them and tries again; updating Airc may help.")
         }
     }
@@ -440,6 +469,7 @@ public final class SyncEngine {
         try await upload(t, gen); try live(gen)
         let envelopes = try await t.read(); try live(gen)
         let report = await t.takeReadReport(); try live(gen)
+        let notes = await t.takeNotes(); try live(gen)
         if report.zoneRecreated || (report.full && !state.uploaded.isSubset(of: report.own)) {
             state.recovery = true
             try save()
@@ -452,7 +482,8 @@ public final class SyncEngine {
             state.malformed.subtract(report.valid.union(report.deleted))
             state.malformed.formUnion(report.malformed)
         }
-        if merge(envelopes, retrying: quarantineSlice(), group: group, key: key) { try apply(replace: false) }
+        let changed = merge(envelopes, retrying: quarantineSlice(), group: group, key: key)
+        try integrate(notes, rowsChanged: changed, group: group, key: key)
         try save()
         // Only now: everything this read brought is in the saved replica and the store.
         await t.acknowledge(); try live(gen)
@@ -460,6 +491,11 @@ public final class SyncEngine {
         try live(gen)
         state.checkpoint = checkpoint
         try save()
+        // What notes here still need (their latest text, their pictures), then what this cycle made (a conflicted copy, a
+        // note kept against a removal) goes up.
+        try await fetchNotes(t, group: group, key: key, gen: gen); try live(gen)
+        try await fetchPictures(t, group: group, key: key, gen: gen); try live(gen)
+        try await upload(t, gen); try live(gen)
         try? await publishDevice(t, group: group, key: key, gen: gen)
         try live(gen)
         await refreshDevices(t, group: group, key: key, gen: gen); try live(gen)
@@ -513,6 +549,7 @@ public final class SyncEngine {
                 throw SyncError.cancelled
             }
             state.outbox = try seal(state.replica.log.filter { $0.stamp.device == state.device }, group: group, key: key)
+            try recoverNotes(group: group, key: key)
             state.uploaded = []
             state.published = nil
             try save()
@@ -578,6 +615,7 @@ public final class SyncEngine {
         state.adapter = SyncStoreAdapter()
         state.outbox = []
         state.uploaded = []
+        state.notes = SyncNoteState()
         self.key = key
         try capture()
         // What another Mac sent meanwhile (it can join as soon as the record exists) is merged like any other change.
@@ -658,6 +696,7 @@ public final class SyncEngine {
         state.group = found.group
         state.replica = replica
         state.adapter = adapter
+        state.notes = SyncNoteState()
         state.outbox = try seal(local, group: found.group, key: key)
         state.uploaded = []
         state.quarantine = joining.quarantine
@@ -671,6 +710,10 @@ public final class SyncEngine {
         if choice == .replace {
             // Profiles that stay only on this Mac still describe themselves for Spaces moved to them later.
             state.adapter.forgetProfileDescriptions()
+            // This Mac's pinned notes stayed (SyncMaterializer): they, their folders and Spaces go to the group.
+            var adapter = state.adapter
+            adapter.resurrect(items: SyncNotes.pinnedNotes(store.state).values.flatMap { $0 }, in: store.state, replica: state.replica)
+            state.adapter = adapter
             try capture()
         }
         status = .syncing
@@ -754,8 +797,11 @@ public final class SyncEngine {
         let ops = try adapter.capture(store.state, into: &replica, now: millis)
         state.adapter = adapter
         state.replica = replica
-        guard !ops.isEmpty else { return }
-        state.outbox += try seal(ops, group: group, key: key)
+        // Notes after rows: a removal's stamp is later than its row's tombstone (see restoreNotes).
+        let notesBefore = state.notes
+        try captureNotes()
+        guard !ops.isEmpty || state.notes != notesBefore else { return }
+        if !ops.isEmpty { state.outbox += try seal(ops, group: group, key: key) }
         try save()
     }
 
@@ -782,6 +828,9 @@ public final class SyncEngine {
         for change in result.profileChanges { env.applyProfileChange(change.space, change.profile) }
         adapter.rebase(store.state)
         state.adapter = adapter
+        // Notes the group pinned or unpinned here: a baseline too, never sent back as this Mac's removal or pin.
+        let pinned = SyncNotes.pinnedNotes(store.state)
+        for id in state.notes.entries.keys { state.notes.entries[id]?.pinned = pinned[id] != nil }
         state.applyMode = nil
         try save()
     }
@@ -795,6 +844,23 @@ public final class SyncEngine {
     /// Batches of at most `maxBatchBytes` of operations (and `maxBatchOperations`). An operation that alone is too big
     /// (impossible after the adapter's caps) stays out rather than block the outbox for good.
     private func seal(_ ops: [SyncOperation], group: UUID, key: SymmetricKey) throws -> [SyncEnvelope] {
+        // A note's row goes in a version 2 batch, which builds from before notes synced keep unread (SyncEnvelope).
+        func isNoteRow(_ op: SyncOperation) -> Bool {
+            guard op.record.kind == .row else { return false }
+            if case .text(let url)? = op.fields[.url] ?? state.replica.records[op.record]?[.url] { return NoteURL.isNote(url) }
+            return false
+        }
+        // A split's or a pane's goes in a version 3 batch (a note in a split too), which builds from before splits synced
+        // keep unread in the same way.
+        let splits = ops.filter { SyncSplits.isSplitOperation($0, in: state.replica) }
+        let rest = ops.filter { !SyncSplits.isSplitOperation($0, in: state.replica) }
+        let notes = rest.filter(isNoteRow)
+        let others = rest.filter { !isNoteRow($0) }
+        return try seal(others, version: 1, group: group, key: key) + seal(notes, version: 2, group: group, key: key)
+            + seal(splits, version: SyncSplits.envelopeVersion, group: group, key: key)
+    }
+
+    private func seal(_ ops: [SyncOperation], version: Int, group: UUID, key: SymmetricKey) throws -> [SyncEnvelope] {
         // Counted as sealed: the JSON array's brackets and commas, and AES-GCM's 12-byte nonce and 16-byte tag.
         let overhead = 2 + 28
         var batches: [[SyncOperation]] = []
@@ -810,10 +876,22 @@ public final class SyncEngine {
             batch.append(op); bytes += size
         }
         if !batch.isEmpty { batches.append(batch) }
-        return try batches.map { try SyncEnvelope.seal($0, group: group, device: state.device, key: key) }
+        return try batches.map { try SyncEnvelope.seal($0, group: group, device: state.device, key: key, version: version) }
     }
 
+    /// Pictures first (a note never arrives before them), then note removals, then the batches (rows), then notes' text:
+    /// a Mac that reads a row's tombstone has its note's removal too (restoreNotes), and one that reads a note's text has
+    /// its row.
     private func upload(_ t: SyncGroupTransport, _ gen: Int) async throws {
+        holdingNotes = false
+        try await uploadPictures(t, gen); try live(gen)
+        try await uploadNotes(t, gen, removals: true); try live(gen)
+        try await uploadBatches(t, gen); try live(gen)
+        try await uploadNotes(t, gen, removals: false); try live(gen)
+        notesHeld = holdingNotes
+    }
+
+    private func uploadBatches(_ t: SyncGroupTransport, _ gen: Int) async throws {
         while let envelope = state.outbox.first {
             try live(gen)
             // The outbox goes up only once it's on disk: after a failed save, save again first (or stop here).
@@ -826,6 +904,324 @@ public final class SyncEngine {
             state.uploaded.insert(envelope.id)
             try save()
         }
+    }
+
+    // MARK: Notes
+
+    /// This Mac's note changes since the last capture (after the rows'): a version for each pinned note whose text or
+    /// title changed here, or that was pinned again here after a removal; a removal for each that stopped being pinned
+    /// here by a local change. What another Mac changed is never sent back (`apply` and `integrate` update the baseline).
+    private func captureNotes() throws {
+        guard state.joined, state.group != nil, key != nil else { return }
+        let pinned = SyncNotes.pinnedNotes(store.state)
+        for id in pinned.keys.sorted() {
+            guard let note = store.state.notes[id] else { continue }
+            guard let e = state.notes.entries[id] else { try ownVersion(id); continue }
+            // A newer text from another Mac that isn't here yet: only an edit made on what's here is sent (a conflict).
+            let unseen = !e.removed && e.shown != e.known
+            // The digest decides, never `updatedAt` alone: two edits in one clock tick (or a clock set back) look the same.
+            let edited = e.digest != SyncNotes.digest(note) && !(unseen && note.isEmpty)
+            if edited || (e.removed && !e.pinned) {
+                try ownVersion(id)
+            } else {
+                if unseen { state.notes.refetch.insert(id) }
+                if !e.pinned { state.notes.entries[id]?.pinned = true }
+            }
+        }
+        for (id, e) in state.notes.entries.sorted(by: { $0.key < $1.key }) where e.pinned && pinned[id] == nil {
+            if e.removed { state.notes.entries[id]?.pinned = false } else { try ownVersion(id, removed: true) }
+        }
+    }
+
+    /// A new version of note `id` by this Mac (its text from the store, or a removal), queued for upload. It builds on
+    /// what this Mac has seen: a newer text it doesn't show yet isn't in its vector, so that edit stays a conflict.
+    private func ownVersion(_ id: String, removed: Bool = false) throws {
+        guard let group = state.group, let key else { return }
+        let note = store.state.notes[id]
+        guard removed || note != nil else { return }
+        let old = state.notes.entries[id]
+        let base = old.map { !$0.removed && $0.shown != $0.known ? ($0.shown ?? SyncNoteVector()) : $0.known } ?? SyncNoteVector()
+        let vector = base.incremented(state.device)
+        let stamp = try state.replica.tick(now: millis)
+        let version = SyncNoteVersion(note: id, stamp: stamp, vector: vector, removed: removed, title: note?.title,
+                                      document: note?.document, created: note?.createdAt, updated: note?.updatedAt)
+        var e = old ?? SyncNoteState.Entry(known: vector, head: stamp, headVector: vector, removed: removed)
+        e.known = e.known.merged(vector)
+        e.head = stamp
+        e.headVector = vector
+        e.removed = removed
+        e.pinned = !removed
+        if !removed, let note {
+            e.shown = e.known
+            e.digest = SyncNotes.digest(note)
+            e.updated = note.updatedAt
+        }
+        state.notes.entries[id] = e
+        try queue(version, group: group, key: key)
+    }
+
+    private func queue(_ version: SyncNoteVersion, group: UUID, key: SymmetricKey) throws {
+        let id = version.note
+        let record = try SyncNoteRecord.seal(version, group: group, device: state.device, key: key)
+        guard record.sealed.count <= SyncNotes.maxNoteBytes else {
+            // Far past any real note (pictures don't count): its row syncs, its text stays here; Settings says so.
+            state.notes.tooLarge.insert(id)
+            state.notes.outbox[id] = nil
+            return
+        }
+        state.notes.tooLarge.remove(id)
+        state.notes.outbox[id] = .init(record: record, removed: version.removed)
+        for file in version.document?.imageFiles.sorted() ?? [] where !state.notes.picturesUp.contains(file) {
+            state.notes.pictureOutbox.insert(file)
+        }
+    }
+
+    /// What a read brought for notes, in one step with the rows (no await in between, so nothing local slips through):
+    /// this Mac's edits are captured first, other Macs' versions decided against them, notes kept against a removal
+    /// they didn't see are re-created, the rows applied, then the winning texts, then the conflicted copies.
+    private func integrate(_ records: [SyncNoteRecord], rowsChanged: Bool, group: UUID, key: SymmetricKey) throws {
+        try capture()
+        let work = receiveNotes(records, group: group, key: key)
+        if !work.restore.isEmpty { try restoreNotes(work.restore) }
+        if rowsChanged || !work.restore.isEmpty { try apply(replace: false, captureFirst: false) }
+        try applyNoteText(work.text)
+        for copy in work.copies {
+            try store.createConflictedCopy(of: copy.id, title: copy.title, document: copy.document, device: env.deviceName)
+        }
+        if !work.copies.isEmpty { try capture() }
+    }
+
+    private struct NoteWork {
+        /// The winning version whose text goes into the store, per note.
+        var text: [String: SyncNoteVersion] = [:]
+        /// This Mac's texts that lost a conflict: they become notes of their own.
+        var copies: [(id: String, title: String?, document: NoteDocument)] = []
+        /// This Mac's notes another Mac removed without seeing their latest edit: kept, and sent again.
+        var restore: Set<String> = []
+    }
+
+    /// Decides each other Mac's version against what this Mac has (docs/sync.md, "Conflicts"). Last writer wins per note
+    /// (the later stamp); an edit wins over a removal it didn't see, whatever the stamps; the Mac whose own text lost
+    /// keeps it as a conflicted copy, so no text is ever lost. Every Mac decides alike, so they all end with one text.
+    private func receiveNotes(_ records: [SyncNoteRecord], group: UUID, key: SymmetricKey) -> NoteWork {
+        var work = NoteWork()
+        var versions: [SyncNoteVersion] = []
+        for record in records where record.device != state.device {
+            if let version = try? record.open(group: group, key: key) {
+                versions.append(version)
+                state.notes.unreadable.remove(record.name)
+            } else if record.group == group {
+                // Damaged, or from a newer Airc: fetched again every cycle (an update may read it), and reported.
+                state.notes.unreadable.insert(record.name)
+            }
+        }
+        let pinned = SyncNotes.pinnedNotes(store.state)
+        for v in versions.sorted(by: { $0.stamp < $1.stamp }) {
+            let id = v.note
+            // Edits made after this one stamp later (a row re-created for a kept note beats the removal's tombstone).
+            try? state.replica.observe(v.stamp, now: millis)
+            guard var e = state.notes.entries[id] else {
+                var entry = SyncNoteState.Entry(known: v.vector, head: v.stamp, headVector: v.vector, removed: v.removed)
+                entry.pinned = pinned[id] != nil
+                state.notes.entries[id] = entry
+                if !v.removed { work.text[id] = v }
+                continue
+            }
+            switch v.vector.compare(e.known) {
+            case .same, .older:
+                // Known already; still the text this Mac lacks (a fetch for a note whose text didn't come with it).
+                if v.stamp == e.head, !v.removed, e.shown != e.known { work.text[id] = v }
+                continue
+            case .newer:
+                e.known = v.vector
+                e.head = v.stamp
+                e.headVector = v.vector
+                e.removed = v.removed
+                if !v.removed { work.text[id] = v } else { work.text[id] = nil }
+            case .concurrent:
+                let merged = e.known.merged(v.vector)
+                let theirsWins = e.removed != v.removed ? !v.removed : e.head < v.stamp
+                if theirsWins {
+                    // This Mac's own text lost: it stays, as a note of its own (only its author makes the copy).
+                    if !e.removed, e.head.device == state.device, e.shown == e.known, let note = store.state.notes[id],
+                       SyncNotes.digest(note) == e.digest, v.digest != e.digest {
+                        work.copies.append((id, note.title, note.document))
+                    }
+                    e.known = merged
+                    e.head = v.stamp
+                    e.headVector = v.vector
+                    e.removed = false
+                    work.text[id] = v
+                } else {
+                    if e.shown == e.known { e.shown = merged }
+                    e.known = merged
+                    // A removal that didn't see this Mac's edit: the edit wins; its author keeps the note pinned, everywhere.
+                    if !e.removed, v.removed, e.head.device == state.device { work.restore.insert(id) }
+                }
+            }
+            state.notes.entries[id] = e
+        }
+        return work
+    }
+
+    /// Notes another Mac removed without seeing this Mac's edit: their rows (with their folders and Space, if those went
+    /// too) are sent again with newer stamps, and a new version of each, so every Mac keeps them.
+    private func restoreNotes(_ ids: Set<String>) throws {
+        let pinned = SyncNotes.pinnedNotes(store.state)
+        var adapter = state.adapter
+        adapter.resurrect(items: ids.flatMap { pinned[$0] ?? [] }, in: store.state, replica: state.replica)
+        state.adapter = adapter
+        for id in ids.sorted() {
+            // Its row went here already (an older read): pinned again, at the bottom of the first Space.
+            if pinned[id] == nil, store.state.notes[id] != nil { try store.repinNote(id) }
+            try ownVersion(id)
+        }
+        try capture()
+    }
+
+    /// The winners' texts into the store, for notes this Mac shows (a pinned row, a Today tab, the Archive). Others wait
+    /// until a row comes; then the text is fetched by name (`refetch`).
+    private func applyNoteText(_ text: [String: SyncNoteVersion]) throws {
+        let referenced = store.referencedNoteIDs
+        applying = true
+        defer { applying = false }
+        for (id, v) in text.sorted(by: { $0.key < $1.key }) {
+            guard var e = state.notes.entries[id], !e.removed, e.head == v.stamp, let document = v.document,
+                  referenced.contains(id) else { continue }
+            try store.applySyncedNote(id, title: v.title, document: document, created: v.created, updated: v.updated)
+            e.shown = e.known
+            e.digest = v.digest
+            e.updated = store.state.notes[id]?.updatedAt
+            state.notes.entries[id] = e
+            state.notes.refetch.remove(id)
+            for file in document.imageFiles.sorted() where env.notePictures?.has(file) == false && !state.notes.picturesWanted.contains(file) {
+                state.notes.picturesWanted.append(file)
+            }
+        }
+        for (id, e) in state.notes.entries where !e.removed && e.shown != e.known && referenced.contains(id) {
+            state.notes.refetch.insert(id)
+        }
+        state.notes.refetch = state.notes.refetch.filter { id in
+            state.notes.entries[id].map { !$0.removed && $0.shown != $0.known } ?? false
+        }
+    }
+
+    /// The zone was lost: this Mac uploads again what it holds of every note (its latest version, whoever made it) and
+    /// every picture of them.
+    private func recoverNotes(group: UUID, key: SymmetricKey) throws {
+        state.notes.outbox = [:]
+        state.notes.picturesUp = []
+        for (id, e) in state.notes.entries.sorted(by: { $0.key < $1.key }) {
+            if e.removed {
+                if e.head.device == state.device {
+                    try queue(SyncNoteVersion(note: id, stamp: e.head, vector: e.headVector, removed: true), group: group, key: key)
+                }
+                continue
+            }
+            guard e.shown == e.known, let note = store.state.notes[id], SyncNotes.digest(note) == e.digest else { continue }
+            try queue(SyncNoteVersion(note: id, stamp: e.head, vector: e.headVector, removed: false, title: note.title,
+                                      document: note.document, created: note.createdAt, updated: note.updatedAt), group: group, key: key)
+        }
+    }
+
+    private func uploadPictures(_ t: SyncGroupTransport, _ gen: Int) async throws {
+        guard let group = state.group, let key, !state.notes.pictureOutbox.isEmpty else { return }
+        guard let pictures = env.notePictures else { state.notes.pictureOutbox = []; return }
+        for file in state.notes.pictureOutbox.sorted() {
+            try live(gen)
+            // Gone from this Mac, or too large: it stays out; other Macs show "Picture not on this Mac".
+            guard let data = pictures.data(file), data.count <= SyncNotes.maxPictureBytes else {
+                state.notes.pictureOutbox.remove(file)
+                continue
+            }
+            if unsaved { try save() }
+            let asset = try SyncNoteAsset.seal(data, file: file, group: group, key: key)
+            do {
+                try await t.saveAsset(asset)
+                try live(gen)
+            } catch let failure as SyncCloudFailure where Self.holdsNotes(failure) {
+                try live(gen)
+                holdingNotes = true
+                return
+            }
+            state.notes.pictureOutbox.remove(file)
+            state.notes.picturesUp.insert(file)
+            try save()
+        }
+    }
+
+    private func uploadNotes(_ t: SyncGroupTransport, _ gen: Int, removals: Bool) async throws {
+        for (id, outgoing) in state.notes.outbox.sorted(by: { $0.key < $1.key }) where outgoing.removed == removals {
+            try live(gen)
+            if unsaved { try save() }
+            do {
+                try await t.saveNote(outgoing.record)
+                try live(gen)
+            } catch let failure as SyncCloudFailure where Self.holdsNotes(failure) {
+                try live(gen)
+                holdingNotes = true
+                return
+            }
+            // A newer version queued meanwhile stays queued.
+            if state.notes.outbox[id] == outgoing { state.notes.outbox[id] = nil }
+            try save()
+        }
+    }
+
+    /// A failure that keeps notes waiting without stopping the rest of sync: iCloud refusing the note record types (not
+    /// deployed in this container yet), or a record it won't take. Network, account, quota and zone failures go to
+    /// `handle` as for any upload.
+    static func holdsNotes(_ failure: SyncCloudFailure) -> Bool {
+        switch failure {
+        // A missing type can come back as a permission failure: the entitlement itself was checked before any upload.
+        case .other, .limitExceeded, .notFound, .serverRecordChanged, .missingEntitlement: true
+        default: false
+        }
+    }
+
+    /// Texts this Mac needs (a row here, the latest text not) and records it couldn't read, by name; then decided and
+    /// applied like a read.
+    private func fetchNotes(_ t: SyncGroupTransport, group: UUID, key: SymmetricKey, gen: Int) async throws {
+        let unreadable = Array(state.notes.unreadable.sorted().prefix(32))
+        var names = Set(unreadable)
+        for id in state.notes.refetch.sorted().prefix(32) {
+            for device in state.notes.entries[id]?.known.devices ?? [] where device != state.device {
+                names.insert(SyncCloudSchema.noteName(device: device, note: id))
+            }
+        }
+        guard !names.isEmpty else { return }
+        let records = try await t.fetchNotes(names.sorted())
+        try live(gen)
+        // A record that isn't there any more can't be read either.
+        let found = Set(records.map(\.name))
+        for name in unreadable where !found.contains(name) { state.notes.unreadable.remove(name) }
+        try integrate(records, rowsChanged: false, group: group, key: key)
+        try save()
+    }
+
+    /// Pictures the notes here show that aren't on this Mac: fetched, opened, checked against their names, kept.
+    private func fetchPictures(_ t: SyncGroupTransport, group: UUID, key: SymmetricKey, gen: Int) async throws {
+        guard let pictures = env.notePictures else { state.notes.picturesWanted = []; return }
+        state.notes.picturesWanted.removeAll { pictures.has($0) }
+        let batch = Array(state.notes.picturesWanted.prefix(SyncNotes.picturesPerCycle))
+        guard !batch.isEmpty else { return }
+        var files: [String: String] = [:]
+        for file in batch { files[SyncNoteAsset.name(for: file, key: key)] = file }
+        let assets = try await t.fetchAssets(files.keys.sorted())
+        try live(gen)
+        var arrived: [String] = []
+        for asset in assets {
+            guard let file = files[asset.name], let data = try? asset.open(file: file, group: group, key: key) else { continue }
+            try pictures.save(data, file: file)
+            state.notes.picturesUp.insert(file)
+            arrived.append(file)
+        }
+        // Those that didn't come (not uploaded yet, too large on their Mac) go to the back: every one gets its turn.
+        let missing = batch.filter { !arrived.contains($0) }
+        state.notes.picturesWanted.removeAll { batch.contains($0) }
+        state.notes.picturesWanted += missing
+        try save()
+        if !arrived.isEmpty { env.picturesArrived?(arrived) }
     }
 
     // MARK: Devices
@@ -941,4 +1337,47 @@ public final class SyncEngine {
 
     /// Where a failed save can't lose anything (the switch, a stop): the next cycle saves again or starts over.
     private func trySave() { try? save() }
+}
+
+/// Notes in sync (NoteSyncPayload.swift): per note what this Mac knows, shows and owes. In the engine's state file.
+struct SyncNoteState: Codable, Equatable {
+    struct Entry: Codable, Equatable {
+        /// Every version of the note this Mac has seen or made, merged.
+        var known: SyncNoteVector
+        /// The version that won (its author is `head.device`), its own vector, and whether it's a removal.
+        var head: SyncStamp
+        var headVector: SyncNoteVector
+        var removed: Bool
+        /// The version the store's text is (nil: the store doesn't have it), that text's digest and the note's
+        /// `updatedAt` then (a quick check before the digest).
+        var shown: SyncNoteVector?
+        var digest: String?
+        var updated: Date?
+        /// Pinned here at the last capture or apply: a removal is sent only when a local change unpins it.
+        var pinned = false
+
+        init(known: SyncNoteVector, head: SyncStamp, headVector: SyncNoteVector, removed: Bool) {
+            self.known = known; self.head = head; self.headVector = headVector; self.removed = removed
+        }
+    }
+
+    struct Outgoing: Codable, Equatable {
+        var record: SyncNoteRecord
+        var removed: Bool
+    }
+
+    var entries: [String: Entry] = [:]
+    /// This Mac's records waiting for upload: the latest per note. Survives a quit.
+    var outbox: [String: Outgoing] = [:]
+    /// Pictures to upload, and pictures known to be in iCloud (uploaded or fetched).
+    var pictureOutbox: Set<String> = []
+    var picturesUp: Set<String> = []
+    /// Pictures notes here show that aren't on this Mac yet, in the order they're fetched.
+    var picturesWanted: [String] = []
+    /// Notes with a row here whose latest text isn't: fetched by name.
+    var refetch: Set<String> = []
+    /// Note records that can't be read here (damaged, or a newer format): fetched again, and reported.
+    var unreadable: Set<String> = []
+    /// Notes whose text is too large to sync (SyncNotes.maxNoteBytes).
+    var tooLarge: Set<String> = []
 }

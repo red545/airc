@@ -8,9 +8,16 @@ extension WebKitEngine: EngineBlocking {
                            completion: @escaping (Bool) -> Void) {
         guard let profile = profile as? WebKitProfile else { return completion(false) }
         let current = BlockingInstallation.begin(profile)
+        let wkStep = LaunchTimeline.begin("blocking webkit rules \(profile.directory)")
         WebKitBlocking.prepare(text: text, policy: policy, privateSession: profile.privateSession) { prepared in
+            wkStep()
             guard current(), let prepared else { return completion(false) }
-            WebKitBlocking.install(prepared, profile: profile); completion(true)
+            let videoStep = LaunchTimeline.begin("blocking video scriptlets \(profile.directory)")
+            WebKitBlocking.prepareVideo(text: text, prepared: prepared) { prepared in
+                videoStep()
+                guard current(), let prepared else { return completion(false) }
+                WebKitBlocking.install(prepared, profile: profile); completion(true)
+            }
         }
     }
     func blockedRequests(in tab: EngineTab) -> Int? { (tab as? WebKitTab).flatMap(WebKitBlocking.count) }
@@ -24,6 +31,7 @@ final class WebKitBlocking {
         let ads: WKContentRuleList?
         let cookies: WKContentRuleList?
         let policy: EngineBlockingPolicy
+        var videoScript: WKUserScript? = nil
     }
     private final class ProfileState {
         weak var profile: WebKitProfile?
@@ -46,6 +54,43 @@ final class WebKitBlocking {
     static var supportsPerPagePolicy: Bool { WKWebpagePreferences().responds(to: enableSelector) }
     static var supportsCounts: Bool { (NSClassFromString("_WKContentRuleListAction") as? NSObject.Type)?.instancesRespond(to: NSSelectorFromString("blockedLoad")) == true }
 
+    static func prepareVideo(text: String, prepared: Prepared, completion: @escaping (Prepared?) -> Void) {
+        var hosts = ["youtube.com", "www.youtube.com", "m.youtube.com",
+                     "youtube-nocookie.com", "www.youtube-nocookie.com"]
+        #if AIRC_TESTING
+        if LaunchOptions.current.script == "ytads" ||
+            (LaunchOptions.current.script == "marketing" && ProcessInfo.processInfo.environment["AIRC_MARKETING_PART"] == "video-blocking") {
+            hosts += ["localhost", "127.0.0.1"]
+        }
+        #endif
+        let sites = hosts
+        Task { @MainActor in
+            var result = prepared
+            do {
+                if prepared.policy.enabled && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    let filter = try await SharedBlockingFilters.filter(text: text, digest: BlockingListStore.digest(Data(text.utf8)))
+                    let scripts = try await Task.detached(priority: .userInitiated) {
+                        Dictionary(uniqueKeysWithValues: sites.map {
+                            ($0, filter.scriptlet(url: "https://" + $0 + "/"))
+                        })
+                    }.value
+                    let branches = scripts.keys.sorted().filter { !prepared.policy.exceptions.contains($0) }.map { host in
+                        "if (host === '\(host)') { \(scripts[host]!)\n }"
+                    }.joined(separator: "\n")
+                    let source = """
+                    (() => {
+                      if (window.top !== window || !/^https?:$/.test(location.protocol)) return;
+                      const host = location.hostname.toLowerCase().replace(/\\.$/, '');
+                      \(branches)
+                    })();
+                    """
+                    result.videoScript = WKUserScript(source: source, injectionTime: .atDocumentStart,
+                                                      forMainFrameOnly: true, in: .page)
+                }
+                completion(result)
+            } catch { completion(nil) }
+        }
+    }
     static func prepare(text: String, policy: EngineBlockingPolicy, privateSession: Bool,
                         completion: @escaping (Prepared?) -> Void) {
         guard supportsPerPagePolicy else { return completion(nil) }
@@ -79,13 +124,16 @@ final class WebKitBlocking {
         store.lookUpContentRuleList(forIdentifier: identifier) { list, _ in
             if let list { return finish(identifier, .rules(list)) }
             queue.async {
+                // The conversion and its text (megabytes) off the main thread.
                 let json = try? makeJSON()
+                let text = json.flatMap { String(data: $0, encoding: .utf8) }
+                let empty = json == Data("[]".utf8)
                 DispatchQueue.main.async {
-                    guard let json, let text = String(data: json, encoding: .utf8) else { return finish(identifier, .failed) }
+                    guard let text else { return finish(identifier, .failed) }
                     // Our converter serializes an empty result as this compact
                     // array. WebKit rejects it, but it is a valid selection:
                     // cosmetics and native-only network rules still apply.
-                    if json == Data("[]".utf8) { return finish(identifier, .empty) }
+                    if empty { return finish(identifier, .empty) }
                     store.compileContentRuleList(forIdentifier: identifier, encodedContentRuleList: text) { list, _ in
                         finish(identifier, list.map(Compilation.rules) ?? .failed)
                     }
@@ -103,7 +151,13 @@ final class WebKitBlocking {
         if let previous = profiles[id]?.prepared {
             if let ads = previous.ads { profile.userContent.remove(ads) }
             if let cookies = previous.cookies { profile.userContent.remove(cookies) }
+            if let script = previous.videoScript {
+                let others = profile.userContent.userScripts.filter { $0 !== script }
+                profile.userContent.removeAllUserScripts()
+                others.forEach(profile.userContent.addUserScript)
+            }
         }
+        if let script = prepared.videoScript { profile.userContent.addUserScript(script) }
         if let ads = prepared.ads { profile.userContent.add(ads) }
         if let cookies = prepared.cookies { profile.userContent.add(cookies) }
         profiles[id] = ProfileState(profile, prepared)

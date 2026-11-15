@@ -62,7 +62,8 @@ extension SnapshotRunner {
             help?.update()
             let helpTitles = help?.items.filter { !$0.isSeparatorItem }.map(\.title) ?? []
             check(help != nil && NSApp.helpMenu === help
-                  && helpTitles == ["Getting Started", "Essential Keyboard Shortcuts", "Release Notes", "Privacy Policy", "Troubleshooting"]
+                  && helpTitles == ["Getting Started", "Essential Keyboard Shortcuts", "Release Notes", "Send Feedback…", "Use Airc with Claude…",
+                                 "Privacy Policy", "Troubleshooting"]
                   && help?.items.filter { !$0.isSeparatorItem }.allSatisfy(\.isEnabled) == true,
                   "parityp01b: Help is the app's Help menu (macOS adds its search) with \(helpTitles)")
             check(ParityCommandCatalog.releaseNotes.host == "aircbrowser.com" && ParityCommandCatalog.privacyPolicy.path == "/privacy",

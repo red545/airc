@@ -38,7 +38,8 @@ extension SnapshotRunner {
                     INSERT INTO logins VALUES('android://hash@com.example.app/','','android://hash@com.example.app/','synthetic-3',X'\(try blob(Data("pw-3".utf8)))',0);
                     INSERT INTO logins VALUES('https://v11.example/','','https://v11.example/','synthetic-4',X'7631310000000000000000000000000000000000',0);
                     """, keepOpen: true)
-                // Cookies: two that come over, one partitioned (refused rather than flattened), one with a bad digest.
+                // Cookies: two that come over, one partitioned (refused rather than flattened by an engine before P22b,
+                // into its partition after), one with a bad digest.
                 let far = Int64((Date().timeIntervalSince1970 + 11_644_473_600 + 86_400 * 30) * 1_000_000)
                 func cookieBlob(_ host: String, _ value: String) throws -> String { try blob(ArcSafeStorage.digest(host) + Data(value.utf8)) }
                 _ = try Self.sqlite(profileDir.appendingPathComponent("Cookies"), """
@@ -67,20 +68,23 @@ extension SnapshotRunner {
                     check(e is CredentialImport.Unsupported && copies() == copiesBefore,
                           "credentials (no Chromium engine): nothing read — \(e.localizedDescription)")
                 case (true, .success(let o)):
-                    check(o.loginsImported == 2 && o.cookiesImported == 2 && o.skipped == 3 && o.failed == 2
+                    // P22b: an engine that takes partitioned cookies stores three.example's in its partition.
+                    let partitioned = app.credentialSink.importKinds.contains(.partitionedCookies)
+                    let cookiesIn = partitioned ? 3 : 2, skips = partitioned ? 2 : 3
+                    check(o.loginsImported == 2 && o.cookiesImported == cookiesIn && o.skipped == skips && o.failed == 2
                           && o.failedProfiles.isEmpty && !o.isFailure,
-                          "credentials: Arc running, into the engine in \(ms) ms — \(o.summary) (expected 2 and 2 imported, 3 skipped, 2 failed)")
+                          "credentials: Arc running, into the engine in \(ms) ms — \(o.summary) (expected 2 and \(cookiesIn) imported, \(skips) skipped, 2 failed)")
                     check(copies() == copiesBefore, "credentials: the private copies are deleted")
                     // Engine pass 8: a result for every row, with its site, its username and why.
                     let got = Set(o.rows.map { "\($0.kind.rawValue) \($0.site) \($0.username) \($0.status.rawValue)" })
                     let expected: Set<String> = [
                         "login one.example synthetic-1 imported", "login two.example synthetic-2 imported",
                         "login never.example  skipped", "login com.example.app synthetic-3 skipped", "login v11.example synthetic-4 failed",
-                        "cookies one.example  imported", "cookies two.example  imported", "cookies three.example  skipped",
+                        "cookies one.example  imported", "cookies two.example  imported", "cookies three.example  \(partitioned ? "imported" : "skipped")",
                         "cookies four.example  failed",
                     ]
                     let reasons = o.rows.allSatisfy { $0.status == .imported ? $0.reason.isEmpty : !$0.reason.isEmpty }
-                    check(got == expected && reasons && o.count(.imported) == 4 && o.count(.skipped) == 3 && o.count(.failed) == 2,
+                    check(got == expected && reasons && o.count(.imported) == 2 + cookiesIn && o.count(.skipped) == skips && o.count(.failed) == 2,
                           "credentials: per-row results (\(o.rows.count) rows, every skip and failure with a reason \(reasons))"
                           + (got == expected ? "" : "; missing \(expected.subtracting(got).sorted()), extra \(got.subtracting(expected).sorted())"))
                     note("credentials: reasons: " + o.rows.filter { !$0.reason.isEmpty }.map { "\($0.site): \($0.reason)" }.joined(separator: " · "))

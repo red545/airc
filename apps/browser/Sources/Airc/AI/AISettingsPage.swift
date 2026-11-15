@@ -65,13 +65,29 @@ struct AIPage: View {
                     .testAnchor("ai.linkPreviewNever")
                 }
             }
+            // P07c: Arc Max's Instant Links (CommandBar/InstantLinks.swift).
+            SettingsSection(title: "Command Bar",
+                            help: "Your words go to your search engine, as a search does. Its results page loads in the background in the same profile and only its links are read, on this Mac; the model sees only their titles. Private windows never use it. ChatGPT in the Command Bar is in Site Search.") {
+                AircToggleRow("Instant Links",
+                              subtitle: "Type what you're looking for and press ⇧↵ to open the best result directly, or “top 3 …” for three. You see what will open first; Esc cancels.",
+                              isOn: toggle(\.instantLinks) { InstantLinksFeature.set($0, settings: $1) })
+                    .disabled(!availability.isAvailable)
+                    .testAnchor("ai.instantLinks")
+            }
             SettingsSection(title: "Downloads",
-                            help: "Suggestions come from the page a file came from and the start of its text, read on this Mac. Nothing is renamed until you click Rename.") {
+                            help: "Names come from the page a file came from and the start of its text, read on this Mac. Unless Rename automatically is on, nothing is renamed until you click Rename. Private windows' downloads are never renamed.") {
                 AircToggleRow("Tidy downloads",
-                              subtitle: "Finished downloads with names like “IMG_2041 (1).pdf” get a clean name to choose, like “Lisbon itinerary.pdf”, in Library › Downloads. The file keeps its type.",
+                              subtitle: "Finished downloads with names like “IMG_2041 (1).pdf” get a clean name, like “Lisbon itinerary.pdf”, in Library › Downloads. The file keeps its type.",
                               isOn: toggle(\.tidyDownloads) { AIFeatures.shared.setTidyDownloads($0, settings: $1) })
                     .disabled(!availability.isAvailable)
                     .testAnchor("ai.tidyDownloads")
+                // tidydl: Arc's Tidy Downloads renames each download by itself, with Undo in a toast.
+                AircToggleRow("Rename automatically",
+                              subtitle: autoSubtitle,
+                              isOn: Binding(get: { availability.isAvailable && model.settings.values.tidyDownloads && model.settings.values.tidyDownloadsAuto },
+                                            set: { AIFeatures.shared.setTidyDownloadsAuto($0, settings: model.settings) }))
+                    .disabled(!availability.isAvailable || !model.settings.values.tidyDownloads)
+                    .testAnchor("ai.tidyDownloadsAuto")
             }
         }
         .onAppear {
@@ -81,6 +97,14 @@ struct AIPage: View {
         .onReceive(NotificationCenter.default.publisher(for: AIFeatures.availabilityChanged)) { _ in
             availability = AIFeatures.shared.availability
         }
+    }
+
+    /// Rename automatically's line: what it does, or why it can't be turned on now.
+    private var autoSubtitle: String {
+        let what = "Each finished download gets its clean name at once, and “Renamed to …” shows with Undo. Disk images, installers, apps and archives keep their names, and a file still being written or open in another app is left alone."
+        if !availability.isAvailable { return "Unavailable: \(availability.detail)" }
+        if !model.settings.values.tidyDownloads { return "Turn on Tidy downloads first. " + what }
+        return what
     }
 
     /// System Settings → Apple Intelligence & Siri (only from the button: never from a scripted run).

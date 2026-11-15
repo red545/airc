@@ -325,6 +325,21 @@ URLs still needed by clients, but do not deploy that folder or the marker.
 Archive/delta EdDSA signing is enabled; feed signing is not. HTTPS protects feed
 and notes transport. Do not change payloads after appcast generation.
 
+**Public repo synced to the release cut.** The site says Airc is Apache-2.0 and all of it open source, so
+every release's source must be in the public repository when the release goes out. Once the cut is on
+`origin/main`, the release agent runs, from the Linux checkout:
+
+```sh
+infra/launch/public-sync-check.sh <cut commit>   # must end "public-sync-check: PASS"
+```
+
+It checks `../status/public-sync.state` (last sync OK), that the published private revision contains the cut,
+and that GitHub's public `main` is the commit that sync recorded. If it fails because the hourly sync hasn't run
+since the cut, run the sync as cron does (the `sync-public.sh` line in `crontab -l`) and check again. If the
+sync's privacy scan fails, the release waits: fix the finding in the private repo
+([public-repo.md](launch/public-repo.md), "Made-up addresses"), push, sync, check. Record the PASS output
+with the release evidence.
+
 Test N−1 → N with real signed builds, both full and delta download, relaunch and
 profile/settings preservation. Upload immutable DMGs, deltas and notes first;
 verify their HTTPS downloads, then atomically publish the feed. Re-fetch and test
@@ -407,6 +422,31 @@ Verified 2026-11-05:
   visual presentation still needs an unlocked Finder check before distribution.
 - Developer ID signing, passkeys, Gatekeeper acceptance and production hosting
   remain unqualified pending owner setup. Nothing was published.
+
+### Stalled downloads: one retry
+
+On some routes an update download stops mid-body: the far end drops the flow, and nothing arrives until the request
+times out. Sparkle never retries; a failed delta falls back to the full archive once, then the update aborts.
+`AircUpdateDelegate` adds two things (decision logic in AircKit `UpdateDownloadRetry`, unit-tested):
+
+- Update downloads give up after 20 s without bytes (`URLRequest.timeoutInterval`, set in `willDownloadUpdate`)
+  instead of 60 s.
+- One background check 5 s after a cycle that ended in a download error caused by a timeout or a lost connection.
+  Signature, validation, disk, HTTP and offline errors never retry, the retry's own failure never retries, and nothing
+  retries while Sparkle's automatic checks or downloads are off. `Updates.log` gets one `download stalled (…):
+  retrying once in 5 s` line per retry. A check the person started still shows Sparkle's error first; a successful
+  retry then offers the update as usual.
+
+Real updater proof (on the build Mac, under the UI lock): `infra/updates/retry-proof.py` updates a copy of a build
+with the retry to a published archive, with its published signature, from a loopback appcast. `infra/updates/staller.py`
+serves the archive and stalls the first GET mid-body. Its test is `infra/updates/test_staller.py`.
+Run it inside `infra/release/update-proof.py --domain com.aircbrowser.Airc`: cfprefsd keeps `SULastCheckTime`
+outside `CFFIXED_USER_HOME`, and without the wrapper the next proof's check is skipped for an hour.
+
+Verified 2026-11-15 on the build Mac: a Developer ID signed public build of this change, stamped 0.1.0 (202611010000),
+updated to the published 0.1.16 archive. The first GET stalled after 1 MiB; Sparkle failed it after 20 s, one retry
+followed 5 s later, the update was ready 37 s after launch, installed on quit and relaunched. With every GET stalling,
+it logged exactly one retry and then aborted with Sparkle's usual error.
 
 References: [Sparkle setup](https://sparkle-project.org/documentation/),
 [publishing](https://sparkle-project.org/documentation/publishing/),
@@ -526,6 +566,15 @@ the update installs at the next quit. There is no download progress (Sparkle tel
 starts and ends); failures appear in `Updates.log` only. Telemetry: `update.ready_shown` once per version,
 `update.restart_clicked` per click. `--script updatebutton` tests it all on a fake `ReadyUpdate`, never the real
 updater or feed.
+
+**The pill's highlight lines** come from the appcast item's `<airc:highlights>` (at most three: title, lead-in,
+SF Symbol). `scripts/release/manifest.py` writes them with `whatsnew.appcast_lines`, from the first WhatsNew.json that
+has the release: the staged app's (`stage/package/Airc.app` while worker.sh runs), then the tooling tree's
+`apps/browser/Resources/WhatsNew.json` (a regeneration on Linux). So the icons are the ones picked for What's New.
+Without an entry for the release, the lines come from the notes' "New since" section, and each takes the icon of a
+WhatsNew.json line with the same lead-in or title; only a line nobody picked an icon for gets `icon_for`'s guess.
+Until promptic, every appcast (0.1.13 on) carried the guesses, because manifest.py looked for the app at
+`stage/Airc.app`, which never exists; 0.1.15, 0.1.16 and 0.1.17 differed from their What's New icons.
 
 **Publishing.** Package tests and Chromium snapshot checks gate `--ship`.
 `prepare-mac.sh` signs the tested copy and runs its launch smoke. `publish.py` runs

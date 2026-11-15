@@ -227,6 +227,9 @@ extension SnapshotRunner {
         /// methods by selector (AppKit never needs the protocol declared, and the engines' views don't all declare it).
         func requestor(send: NSPasteboard.PasteboardType, back: NSPasteboard.PasteboardType?) -> NSObject? {
             let first = c.window.firstResponder
+            if let client = first as? NSTextInputClient {
+                note("parityk05 (\(tag)): native selection range \(client.selectedRange()), first is engine view \(first === engineView())")
+            }
             // As AppKit asks: each registered type in turn (Chromium answers the modern one, WebKit the legacy one).
             let legacy = NativeEditingMenus.legacyString
             let raw = (first?.validRequestor(forSendType: send, returnType: back)
@@ -254,7 +257,63 @@ extension SnapshotRunner {
         wait(0.8)
         run { [self] in if let v = engineView() { c.window.makeFirstResponder(v) }; page()?.focus() }
         wait(0.5)
-        js("(function () { var r = document.createRange(); r.selectNodeContents(document.getElementById('plain')); var s = getSelection(); s.removeAllRanges(); s.addRange(r); return true })()")
+        // Find visited child frames. A native view becoming first responder
+        // doesn't move DOM focus out of a frame; click the selection's own
+        // element before asking the native Services responder chain.
+        func clickElement(_ id: String) {
+            step { [self] done in
+                guard let p = page() else { return done() }
+                p.evaluate("JSON.stringify({active:document.activeElement.tagName,selection:getSelection().toString(),focused:document.hasFocus()})") { [self] value in
+                    note("parityk05 (\(tag)): before \(id) click \(value ?? "nil")")
+                    p.evaluate("(function(){var e=document.getElementById('\(id)');e.scrollIntoView({block:'center'});var r=e.getBoundingClientRect();return [r.left+12,r.top+r.height/2]})()") { [self] value in
+                        guard let xy = value as? [Double], xy.count == 2 else {
+                            check(false, "parityk05 (\(tag)): \(id) click geometry")
+                            return done()
+                        }
+                        let view = p.view
+                        let point = view.convert(NSPoint(x: xy[0], y: view.isFlipped ? xy[1] : view.bounds.height - xy[1]), to: nil)
+                        click(at: point, in: c.window, done)
+                    }
+                }
+            }
+        }
+        clickElement("plain")
+        // Select through the native input path. Script-only DOM selection does
+        // not update Chromium's NSTextInputClient selection cache after Find.
+        step { [self] done in
+            guard let p = page() else { return done() }
+            p.evaluate("(function(){var r=document.createRange();r.selectNodeContents(document.getElementById('plain'));var b=r.getBoundingClientRect();return [b.left,b.top+b.height/2,b.right]})()") { [self] value in
+                guard let bounds = value as? [Double], bounds.count == 3 else {
+                    check(false, "parityk05 (\(tag)): paragraph selection geometry")
+                    return done()
+                }
+                let view = p.view
+                func point(_ x: Double) -> NSPoint {
+                    view.convert(NSPoint(x: x, y: view.isFlipped ? bounds[1] : view.bounds.height - bounds[1]), to: nil)
+                }
+                let start = point(bounds[0]), end = point(bounds[2])
+                let window = c.window
+                func post(_ type: NSEvent.EventType, at point: NSPoint) {
+                    guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                        context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1) else { return }
+                    NSApp.postEvent(event, atStart: false)
+                }
+                post(.leftMouseDown, at: start)
+                // Common modes deliver the entire gesture even if AppKit starts
+                // a tracking loop for the selection before mouse-up arrives.
+                for tick in 1...9 {
+                    let timer = Timer(timeInterval: Double(tick) * 0.025, repeats: false) { _ in
+                        let fraction = CGFloat(min(tick, 8)) / 8
+                        let location = NSPoint(x: start.x + (end.x - start.x) * fraction, y: start.y)
+                        post(tick == 9 ? .leftMouseUp : .leftMouseDragged, at: location)
+                        if tick == 9 { DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: done) }
+                    }
+                    RunLoop.main.add(timer, forMode: .common)
+                }
+            }
+        }
+        expectJS("getSelection().toString()", "main-frame selection is the entire paragraph") { $0 == "findme in plain text" }
         wait(0.8)
         run { [self] in
             let req = requestor(send: .string, back: nil)
@@ -280,7 +339,12 @@ extension SnapshotRunner {
         }
         run { [self] in if let v = engineView() { c.window.makeFirstResponder(v) }; page()?.focus() }
         wait(0.5)
-        js("(function () { var e = document.getElementById('name'); e.focus(); e.setSelectionRange(6, 11); return true })()")
+        clickElement("name")
+        key("\u{f702}", 123, .command) // Beginning of the focused input.
+        for _ in 0..<6 { key("\u{f703}", 124) }
+        for _ in 0..<5 { key("\u{f703}", 124, .shift) }
+        expectJS("JSON.stringify([document.activeElement.id,document.getElementById('name').selectionStart,document.getElementById('name').selectionEnd])",
+                 "the editable Services selection is focused and selected") { $0 == "[\"name\",6,11]" }
         wait(0.8)
         run { [self] in
             let req = requestor(send: .string, back: .string)

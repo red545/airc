@@ -66,7 +66,9 @@ export default async function handler(req: Req, res: any) {
     // HEAD requests (link checkers, unfurlers) aren't downloads.
     if (req.method !== "HEAD") await count(req, String(latest.version));
     res.setHeader("Cache-Control", "no-store");
-    res.redirect(307, `${base}${url.pathname}`);
+    // Same-origin path: vercel.json proxies /releases/* to Blob through aircbrowser.com's anycast edge, so the DMG
+    // doesn't come from the Blob host's single regional address (artifacts/updstall, artifacts/relproxy).
+    res.redirect(307, url.pathname);
   } catch {
     res.status(503).send("The download is not available yet. Please try again shortly.");
   }

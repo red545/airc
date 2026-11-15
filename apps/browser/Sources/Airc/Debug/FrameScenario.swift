@@ -25,6 +25,11 @@ extension SnapshotRunner {
         func wanted(_ name: String) -> Bool { only == nil || only == name }
         if only == "mem3" { gapMemoryScenario(); return }
         seedFramesWorkload()
+        // cmdfast: `AIRC_FRAMES_ATTACH_WAIT=<s>` gives a profiler (xctrace --attach) time to attach before anything is timed.
+        if let s = env["AIRC_FRAMES_ATTACH_WAIT"].flatMap(Double.init), s > 0 {
+            run { [self] in note(String(format: "frames: waiting %.0f s for a profiler to attach (pid %d)", s, getpid())) }
+            wait(s)
+        }
         run { [self] in clock.start(on: c.root) }
         if FrameProbe.enabled {
             run { [self] in
@@ -176,6 +181,9 @@ extension SnapshotRunner {
                 report[key] = FrameSample.json(samples, budget: 8.0)
                 report[key + "_tab_switches"] = tabSwitches
                 note("frames: \(key) " + FrameSample.text(samples))
+                let st = CommandBarView.sessionStats
+                report[key + "_deferred_sessions"] = ["timer": st.startedByTimer, "key": st.startedByKey]
+                note("frames: \(key) deferred editing sessions started by the timer \(st.startedByTimer), by a key \(st.startedByKey)")
             }
         }
 
@@ -260,9 +268,11 @@ extension SnapshotRunner {
             var rows: [[String: Any]] = []
             run { [self] in
                 let profile = c.store.profile(ofSpace: c.currentSpaceID).id
+                // keyframe: "gap1k", not "gap1": no seed's name starts with another's, so with 30 keys each key's own tab and
+                // history row are in its 8 rows ("gap1" also matched gap10…gap19).
                 for i in 0..<runs {
-                    app?.history.recordVisit(profileID: profile, url: "https://history.example/gap\(i)", title: "gap\(i) history", typed: true)
-                    _ = try? c.store.openTab(url: Self.page("gap\(i) tab"), inSpace: c.currentSpaceID, activate: false, title: "gap\(i) tab")
+                    app?.history.recordVisit(profileID: profile, url: "https://history.example/gap\(i)k", title: "gap\(i)k history", typed: true)
+                    _ = try? c.store.openTab(url: Self.page("gap\(i)k tab"), inSpace: c.currentSpaceID, activate: false, title: "gap\(i)k tab")
                 }
                 c.reloadAll(animated: false); c.openCommandBar(mode: .newTab)
             }
@@ -273,16 +283,27 @@ extension SnapshotRunner {
                     var historyAt: Double?
                     var tabFound = false
                     c.commandBar?.onHistoryApplied = { n in if n > 0 { historyAt = CACurrentMediaTime() } }
+                    FrameProbe.begin("cbkey \(i)", tag: 500 + i)
                     presented(clock, {
-                        start = CACurrentMediaTime(); self.c.commandBar?.type("gap\(i)")
-                        tabFound = self.c.commandBar?.results.contains { if case .tab = $0.action { return $0.title == "gap\(i) tab" }; return false } == true
+                        start = CACurrentMediaTime(); self.c.commandBar?.type("gap\(i)k")
+                        tabFound = self.c.commandBar?.results.contains { if case .tab = $0.action { return $0.title == "gap\(i)k tab" }; return false } == true
                     }) { sample in
                         keys.append(sample)
                         let results = self.c.commandBar?.results ?? []
-                        rows.append(["history_ms": historyAt.map { ($0 - start) * 1000 } ?? NSNull(),
+                        // keyframe2: the rows and completion shown are the old path's for this query.
+                        // Opt-in (AIRC_FRAMES_PARITY=1): the old path walks every menu now, which timing runs mustn't pay.
+                        let parity = ProcessInfo.processInfo.environment["AIRC_FRAMES_PARITY"] == "1"
+                            ? self.c.commandBar?.keyframe2ParityForTesting() ?? "no bar" : ""
+                        if !parity.isEmpty { self.note("frames: cbkey \(i) rows differ from the old path: \(parity)") }
+                        if ProcessInfo.processInfo.environment["AIRC_FRAMES_PARITY"] == "1" {
+                            // Compared across the A/B arms (keyframe2): the same pixels per row.
+                            self.note("frames: cbkey \(i) row images " + (self.c.commandBar?.rowImageHashesForTesting().joined(separator: " ") ?? "-"))
+                        }
+                        rows.append(["rows_match_old": ProcessInfo.processInfo.environment["AIRC_FRAMES_PARITY"] == "1" ? parity.isEmpty as Any : NSNull(),
+                                     "history_ms": historyAt.map { ($0 - start) * 1000 } ?? NSNull(),
                                      "history_before_commit": historyAt.map { $0 <= start + sample.commit / 1000 } ?? false,
                                      "tab_found": tabFound,
-                                     "history_found": results.contains { $0.historyURL == "https://history.example/gap\(i)" }])
+                                     "history_found": results.contains { $0.historyURL == "https://history.example/gap\(i)k" }])
                         done()
                     }
                 }
@@ -993,15 +1014,32 @@ enum LayoutCounter {
         installed = true
         swizzle(AircFadingLabel.self, #selector(NSView.layout)) { layouts[part(of: $0), default: 0] += 1 }
         swizzle(NSTextField.self, #selector(NSView.draw(_:)), rect: true) { draws[part(of: $0), default: 0] += 1 }
+        // keyframe: every layer AppKit redisplays (a view's backing layer: drawRect or updateLayer), by view class, with ms.
+        if let cls = NSClassFromString("NSViewBackingLayer"), let m = class_getInstanceMethod(cls, #selector(CALayer.display)) {
+            typealias F = @convention(c) (CALayer, Selector) -> Void
+            let f = unsafeBitCast(method_getImplementation(m), to: F.self)
+            let block: @convention(block) (CALayer) -> Void = { l in
+                let t = CACurrentMediaTime()
+                f(l, #selector(CALayer.display))
+                let key = (l.delegate as? NSView).map { String(describing: type(of: $0)) + ($0.isHidden ? " (hidden)" : "") } ?? "?"
+                let old = displays[key] ?? (0, 0)
+                displays[key] = (old.0 + 1, old.1 + (CACurrentMediaTime() - t) * 1000)
+            }
+            method_setImplementation(m, imp_implementationWithBlock(block))
+        }
     }
 
-    static func reset() { layouts = [:]; draws = [:] }
+    nonisolated(unsafe) static var displays: [String: (Int, Double)] = [:]
+
+    static func reset() { layouts = [:]; draws = [:]; displays = [:] }
 
     static var summary: String {
         func fmt(_ d: [String: Int]) -> String {
             "\(d.values.reduce(0, +)) [" + d.sorted { $0.value > $1.value }.map { "\($0.key) \($0.value)" }.joined(separator: ", ") + "]"
         }
-        return "label layouts " + fmt(layouts) + "; text draws " + fmt(draws)
+        let shown = displays.sorted { $0.value.1 > $1.value.1 }.map { String(format: "%@ ×%d %.2f ms", $0.key, $0.value.0, $0.value.1) }
+        return "label layouts " + fmt(layouts) + "; text draws " + fmt(draws) + String(format: "; layer displays %.2f ms [", displays.values.reduce(0) { $0 + $1.1 })
+            + shown.joined(separator: ", ") + "]"
     }
 
     private static func part(of v: NSView) -> String {

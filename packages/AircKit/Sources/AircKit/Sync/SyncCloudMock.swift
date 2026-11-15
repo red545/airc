@@ -109,6 +109,7 @@ public actor SyncMockCloudDatabase: SyncCloudDatabase {
     public private(set) var state = SyncMockCloudState()
     private var faults: [Call: [SyncCloudFailure]] = [:]
     private var recordFaults: [String: SyncCloudFailure] = [:]
+    private var typeFaults: [String: SyncCloudFailure] = [:]
     public private(set) var calls: [Call] = []
 
     public init() {}
@@ -119,6 +120,9 @@ public actor SyncMockCloudDatabase: SyncCloudDatabase {
     /// Until cleared, fetches return these records as failed entries of their page (CloudKit's per-record errors).
     public func failRecords(_ names: Set<String>, with failure: SyncCloudFailure) { for n in names { recordFaults[n] = failure } }
     public func clearRecordFaults() { recordFaults = [:] }
+    /// Until cleared (nil), saves of records of `type` fail with `failure`, per record: a Production container without
+    /// that record type deployed.
+    public func refuse(type: String, with failure: SyncCloudFailure?) { typeFaults[type] = failure }
     public func count(_ call: Call) -> Int { calls.filter { $0 == call }.count }
 
     private func enter(_ call: Call) throws {
@@ -141,7 +145,10 @@ public actor SyncMockCloudDatabase: SyncCloudDatabase {
         return changes
     }
     public func save(_ records: [SyncCloudRecord], zone: String, mode: SyncSaveMode) throws -> [String: Result<SyncCloudRecord, SyncCloudFailure>] {
-        try enter(.save); return try state.save(records, zone: zone, mode: mode)
+        try enter(.save)
+        var results = try state.save(records.filter { typeFaults[$0.type] == nil }, zone: zone, mode: mode)
+        for r in records { if let f = typeFaults[r.type] { results[r.name] = .failure(f) } }
+        return results
     }
     public func fetch(_ names: [String], zone: String) throws -> [SyncCloudRecord] { try enter(.fetch); return try state.fetch(names, zone: zone) }
     public func subscribe(zone: String, id: String) throws { try enter(.subscribe); try state.subscribe(zone: zone, id: id) }

@@ -10,9 +10,10 @@ import SwiftUI
 // playing, a call, a running download or a page that would ask "Leave site?" (in any window) gets a calm question first.
 // Left alone, the update installs when Airc quits; with Arc's "Automatically update my Arc" turned on (off by default,
 // Settings › General › Automatic Updates) it restarts by itself after 30 minutes without input on the Mac, when
-// nothing would be interrupted (IdleUpdatePolicy). The
-// pill's menu and the question offer the update's release notes ("See What's New"); after the restart a toast says
-// it's updated. Sparkle's delegate (App/AircUpdateDelegate.swift) drives it; checks inject a fake.
+// nothing would be interrupted (IdleUpdatePolicy). The pill's menu and the question offer the update's release notes
+// ("See What's New"); after the restart a toast says it's updated, with See What's New for that version's notes (saved
+// with the version before the restart). Sparkle's delegate (App/AircUpdateDelegate.swift) drives it; checks inject a
+// fake.
 
 // MARK: - The state
 
@@ -23,6 +24,11 @@ protocol ReadyUpdate: AnyObject {
     var version: String { get }
     /// The update's own release notes (its appcast item's), if it has them.
     var releaseNotesURL: URL? { get }
+    var restartNotice: String? { get }
+    var pillTitles: [String] { get }
+    /// What the update brings, its first lines (the appcast item's `<airc:highlights>`): shown under the pill. Older
+    /// feeds have none, and the pill is the plain pill then.
+    var highlights: [WhatsNewHighlight] { get }
     /// Installs it and relaunches Airc. Sparkle quits the app the usual way (state is saved, pages may still ask
     /// "Leave site?"); if the quit is cancelled the update stays ready and this can run again.
     func installAndRelaunch()
@@ -30,6 +36,9 @@ protocol ReadyUpdate: AnyObject {
 
 extension ReadyUpdate {
     var releaseNotesURL: URL? { nil }
+    var restartNotice: String? { nil }
+    var pillTitles: [String] { UpdateButtonView.titles }
+    var highlights: [WhatsNewHighlight] { [] }
 }
 
 /// The one ready update, if any. Event-driven: Sparkle's callbacks set it, the sidebars listen for `changed`.
@@ -54,6 +63,9 @@ final class UpdateCenter {
             Telemetry.shared.record(.featureUsed(.updateReadyShown))
         }
         if update == nil { dismissConfirm() }
+        // What "Updated!" offers after the restart into it, whichever way it installs (a restart here, or Sparkle at
+        // quit): this version's own notes, kept with it.
+        if let update { Self.saveNotes(UpdateNotes(version: update.version, notes: update.releaseNotesURL?.absoluteString)) }
         scheduleIdleCheck()
         NotificationCenter.default.post(name: Self.changed, object: self)
     }
@@ -123,18 +135,20 @@ final class UpdateCenter {
             // A quit cancelled by "Leave site?" asks again next time.
             DispatchQueue.main.asyncAfter(deadline: .now() + 15) { engine.downloadsCloseConfirmation = previous }
         }
+        // E12: the restart brings the windows back, whatever "When Airc starts" says (Browser/MultiWindow.swift).
+        (NSApp.delegate as? AppDelegate)?.restoreWindowsAfterRestart()
         update.installAndRelaunch()
     }
 
     /// Every browser window's risks together (WIN-7: a call in another window counts too); downloads are the app's.
-    static func risksInEveryWindow(_ done: @escaping (UpdateRestartRisks) -> Void) {
+    static func risksInEveryWindow(answerTime: TimeInterval = UpdateRestartRisks.answerTime, _ done: @escaping (UpdateRestartRisks) -> Void) {
         let controllers = (NSApp.delegate as? AppDelegate)?.controllers ?? []
         var total = UpdateRestartRisks()
         total.downloads = MediaLibrary.shared.downloads?.runningCount ?? 0
         var waiting = controllers.count
         guard waiting > 0 else { return done(total) }
         for c in controllers {
-            c.updateRestartRisks { r in
+            c.updateRestartRisks(answerTime: answerTime) { r in
                 total.merge(r)
                 waiting -= 1
                 if waiting == 0 { done(total) }
@@ -146,6 +160,8 @@ final class UpdateCenter {
 
     /// How often a ready update looks whether it may restart by itself (only while one is ready and the setting is on).
     static let idleCheckInterval: TimeInterval = 60
+    /// How long each page has to answer before restarting by itself (Restart to Update waits `answerTime`).
+    static let idleAnswerTime: TimeInterval = 5
     #if AIRC_TESTING
     /// The check's fake idle clock (HID idle seconds, Airc in front): with it set, `checkIdleRestart` runs in the
     /// scripted run; without it an automated run never restarts by itself. The timer never runs in one either way.
@@ -208,9 +224,11 @@ final class UpdateCenter {
         p.dialogOpen = Self.dialogOnScreen
         guard p.cheapBlockers.isEmpty else { return idleResult(p.blockers, done) }
         asking = true
-        let probe = riskProbe ?? { _, done in Self.risksInEveryWindow(done) }
+        // Nobody waits for this one: the pages get longer to answer, and one that doesn't still holds it back.
+        let answerWait = Self.idleAnswerTime
+        let probe = riskProbe ?? { _, done in Self.risksInEveryWindow(answerTime: answerWait, done) }
         let gather: (@escaping (UpdateRestartRisks) -> Void) -> Void = { finish in
-            guard let c = (NSApp.delegate as? AppDelegate)?.controller else { return Self.risksInEveryWindow(finish) }
+            guard let c = (NSApp.delegate as? AppDelegate)?.controller else { return Self.risksInEveryWindow(answerTime: answerWait, finish) }
             probe(c, finish)
         }
         gather { [weak self] risks in
@@ -227,6 +245,7 @@ final class UpdateCenter {
             p.leaveSite = risks.leaveSite
             p.editedForms = risks.editedForms
             p.developerMode = risks.developerMode
+            p.unanswered = risks.unanswered
             guard p.restartsNow else { return self.idleResult(p.blockers, done) }
             self.idleTried = update.version
             self.log("restarts by itself: no input for \(Int(idle / 60)) min, nothing would be interrupted")
@@ -270,32 +289,248 @@ final class UpdateCenter {
 
     /// The version this data folder ran last, in its own file (UserDefaults are the bundle ID's, shared with other copies).
     static var lastVersionFile: URL { AppPaths.dataDirectory.appendingPathComponent("LastVersion") }
+    #if AIRC_TESTING
+    /// The paritywhatsnew check runs a test build (always 0.1.0) as a released version.
+    static var runningVersionOverride: String?
+    #endif
     static var runningVersion: String {
+        #if AIRC_TESTING
+        if let v = runningVersionOverride { return v }
+        #endif
         let info = Bundle.main.infoDictionary ?? [:]
         return "\(info["CFBundleShortVersionString"] ?? "?") (\(info["CFBundleVersion"] ?? "?"))"
     }
-    static func updatedMessage(_ version: String) -> String { "Updated! Airc \(version). Help › Release Notes has what’s new." }
+    static func updatedMessage(_ version: String) -> String { "Updated! Airc \(version)" }
+
+    /// The ready update's version and notes link, saved before the restart ("UpdateNotes.json" in the data folder):
+    /// after it, "Updated!" opens exactly that version's notes.
+    struct UpdateNotes: Codable, Equatable {
+        var version: String
+        var notes: String?
+    }
+    static var notesFile: URL { AppPaths.dataDirectory.appendingPathComponent("UpdateNotes.json") }
+    static func saveNotes(_ n: UpdateNotes) {
+        guard let data = try? JSONEncoder().encode(n) else { return }
+        try? data.write(to: notesFile, options: .atomic)
+    }
+    static var savedNotes: UpdateNotes? { (try? Data(contentsOf: notesFile)).flatMap { try? JSONDecoder().decode(UpdateNotes.self, from: $0) } }
+
+    /// The notes for `version`: the link its update came with (https only), else Airc's release notes.
+    static func notesURL(for version: String) -> URL {
+        guard let saved = savedNotes, saved.version == version, let link = saved.notes.flatMap(URL.init(string:)),
+              link.scheme == "https" || (LaunchOptions.current.isScripted && link.scheme == "http") else {
+            return ParityCommandCatalog.releaseNotes
+        }
+        return link
+    }
 
     /// At launch (MainMenu.build): another version than the last run's means the update went in; the first window says
-    /// so. Scripted runs skip it (their snapshots stay as they are) unless a check asks.
+    /// so, with See What's New for that version's notes. Scripted runs skip it (their snapshots stay as they are)
+    /// unless a check asks.
     func noteLaunchedVersion(inScriptedRun: Bool = false) {
         guard inScriptedRun || !LaunchOptions.current.isScripted else { return }
         let now = Self.runningVersion
         let before = (try? String(contentsOf: Self.lastVersionFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
         if before != now { try? Data(now.utf8).write(to: Self.lastVersionFile, options: .atomic) }
+        // The "What's new" card (Browser/WhatsNewCard.swift): never on a fresh install (no LastVersion), up to three
+        // launches after an update. When it shows, it says what "Updated!" would, so the toast stays away.
+        let card = WhatsNewCenter.shared.noteLaunch(previous: before.flatMap { $0.isEmpty ? nil : $0 }, current: now)
         guard let before, !before.isEmpty, before != now else { return }
-        log("updated from \(before)")
-        announceUpdated(now, tries: 20)
+        let notes = Self.notesURL(for: now)
+        log("updated from \(before); what's new: \(notes.absoluteString)\(card ? " (the What's New card)" : "")")
+        if !card { announceUpdated(now, notes: notes, tries: 20) }
     }
 
-    private func announceUpdated(_ version: String, tries: Int) {
+    /// Waits for the first window to be on screen with its page card laid out (right after launch it can still be
+    /// zero-sized, which put the toast in the window's top-left corner in 0.1.4), then shows "Updated!" on it.
+    private func announceUpdated(_ version: String, notes: URL, tries: Int) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let c = (NSApp.delegate as? AppDelegate)?.controller, c.window.isVisible else {
-                if tries > 0 { self?.announceUpdated(version, tries: tries - 1) }
+            guard let c = (NSApp.delegate as? AppDelegate)?.controller, c.window.isVisible, c.hasLaidOutCard else {
+                if tries > 0 { self?.announceUpdated(version, notes: notes, tries: tries - 1) }
                 return
             }
-            c.showToast(Self.updatedMessage(version))
+            c.showUpdatedToast(Self.updatedMessage(version), notes: notes)
         }
+    }
+}
+
+// MARK: - "Updated!"
+
+/// The toast after an update's restart, as Arc's "Updated!" notice: the version, and See What's New, which opens that
+/// version's notes in a new tab. Nothing opens by itself. Centred at the top of the page card, and it stays there while
+/// the window resizes or the sidebar slides (WindowController.layoutRoot calls `follow`). It's up for
+/// `UpdatedToastView.duration`, longer while the pointer rests on it, and goes on See What's New or Esc.
+final class UpdatedToastView: NSView {
+    /// Arc's "Updated!" banner has a button to reach, so it stays far longer than a plain toast (2.4 s). Arc's own
+    /// time isn't recorded anywhere we can read (its strings carry only the copy), so 8 s.
+    static let duration: Double = 8
+    /// After the pointer leaves it, it stays this much longer.
+    static let afterHover: Double = 1.5
+
+    let label = NSTextField(labelWithString: "")
+    let button = NSButton(title: UpdateConfirmModel.whatsNewTitle, target: nil, action: nil)
+    /// The notes See What's New opens.
+    private(set) var notes: URL?
+    var onWhatsNew: ((URL) -> Void)?
+    private var hideWork: DispatchWorkItem?
+    /// Bumped on every show and hide, so a hide's late `isHidden = true` never hides a newer show.
+    private var generation = 0
+    /// The pointer rests on it (tracking area; the checks set it through mouseEntered/mouseExited).
+    private(set) var isHovered = false
+    /// What it says while it shows, else nil (the checks read it).
+    var shownText: String? { isHidden || hiding ? nil : label.stringValue }
+    private var hiding = false
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.cornerRadius = AircRadius.toast
+        layer?.cornerCurve = .continuous
+        layer?.apply(.toast)
+        label.font = AircFont.body.weight(.medium).appFont
+        button.isBordered = false
+        button.font = AircFont.body.weight(.semibold).appFont
+        button.target = self
+        button.action = #selector(whatsNew)
+        button.setAccessibilityLabel("See what's new in this version")
+        addSubview(label)
+        addSubview(button)
+        // Keeps its place against the top-centre between layout passes; layoutRoot then places it exactly.
+        autoresizingMask = [.minXMargin, .maxXMargin, .maxYMargin]
+        isHidden = true
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+        hideWork?.cancel()
+    }
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        if !isHidden, !hiding { scheduleHide(after: Self.afterHover) }
+    }
+
+    private func scheduleHide(after seconds: Double) {
+        hideWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            // Still under the pointer (it was there before the toast came, so no mouseEntered): wait for it to leave.
+            if self.isHovered || self.pointerIsInside { return self.scheduleHide(after: Self.afterHover) }
+            self.hide()
+        }
+        hideWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+    }
+
+    private var pointerIsInside: Bool {
+        guard let window, window.isVisible, !isHidden else { return false }
+        return bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
+    }
+
+    @objc func whatsNew() {
+        guard let notes else { return }
+        hide()
+        onWhatsNew?(notes)
+    }
+
+    /// Its frame for a page card at `card` (its superview's flipped coordinates): centred, `Toast.topInset` below the
+    /// card's top, on whole points.
+    func placement(in card: NSRect) -> NSRect {
+        let size = frame.size
+        return NSRect(x: (card.midX - size.width / 2).rounded(), y: (card.minY + AircMetrics.Toast.topInset).rounded(),
+                      width: size.width, height: size.height)
+    }
+
+    /// The page card moved or resized (window resize, sidebar slide, Library): keep the toast centred on it.
+    func follow(_ card: NSRect) {
+        guard !isHidden, !card.isEmpty else { return }
+        let f = placement(in: card)
+        if frame != f { frame = f }
+    }
+
+    func show(_ text: String, notes: URL, palette: Palette, in card: NSRect, duration: Double = UpdatedToastView.duration) {
+        generation += 1
+        hiding = false
+        self.notes = notes
+        label.stringValue = text
+        label.textColor = palette.panelText
+        button.contentTintColor = palette.resolved.accentText.nsColor
+        layer?.backgroundColor = palette.panelBackground.cgColor
+        layer?.borderWidth = 0.5
+        layer?.borderColor = palette.panelBorder.cgColor
+        label.sizeToFit()
+        button.sizeToFit()
+        let h = AircMetrics.Toast.height, gap = AircSpacing.m
+        let w = (AircSpacing.l + label.frame.width + gap + button.frame.width + AircSpacing.l).rounded(.up)
+        frame.size = NSSize(width: w, height: h)
+        frame = placement(in: card)
+        label.frame.origin = NSPoint(x: AircSpacing.l, y: ((h - label.frame.height) / 2).rounded())
+        button.frame.origin = NSPoint(x: label.frame.maxX + gap, y: ((h - button.frame.height) / 2).rounded())
+        isHidden = false
+        if let layer {
+            // In: from 0.7 scale on Arc's pop spring, fading in. The scale runs about the toast's centre as a transform
+            // (whatever anchor AppKit gave the layer). The anchor and position stay AppKit's: moving them shifted the
+            // drawn toast away from its frame.
+            let pivot = CGPoint(x: w * (0.5 - layer.anchorPoint.x), y: h * (0.5 - layer.anchorPoint.y))
+            var from = CATransform3DMakeTranslation(pivot.x, pivot.y, 0)
+            from = CATransform3DScale(from, 0.7, 0.7, 1)
+            from = CATransform3DTranslate(from, -pivot.x, -pivot.y, 0)
+            layer.removeAnimation(forKey: "in")
+            layer.add(AircSpring.pop.caAnimation(keyPath: "transform", from: NSValue(caTransform3D: from),
+                                                 to: NSValue(caTransform3D: CATransform3DIdentity)), forKey: "in")
+            layer.fade(from: 0, to: 1, duration: AircCurve.previewIn.duration)
+        }
+        scheduleHide(after: duration)
+    }
+
+    func hide() {
+        hideWork?.cancel()
+        guard !isHidden, !hiding else { return }
+        hiding = true
+        generation += 1
+        let g = generation
+        layer?.fade(from: 1, to: 0, duration: AircCurve.toastOut.duration)
+        DispatchQueue.main.asyncAfter(deadline: .now() + AircCurve.toastOut.duration) { [weak self] in
+            guard let self, self.generation == g else { return }
+            self.hiding = false
+            self.isHidden = true
+        }
+    }
+}
+
+extension WindowController {
+    /// The "Updated!" toast over this window's page, if it has been made.
+    var updatedToast: UpdatedToastView? { root.subviews.first { $0 is UpdatedToastView } as? UpdatedToastView }
+
+    /// The page card has its real frame (laid out at least once, wide enough for a toast).
+    var hasLaidOutCard: Bool {
+        root.layoutSubtreeIfNeeded()
+        return card.frame.width >= 200 && card.frame.height >= 100
+    }
+
+    func showUpdatedToast(_ text: String, notes: URL) {
+        let v = updatedToast ?? {
+            let v = UpdatedToastView()
+            root.addSubview(v, positioned: .below, relativeTo: toast)
+            return v
+        }()
+        v.onWhatsNew = { [weak self] url in self?.openHelpPage(url) }
+        // Never from a card that hasn't been laid out yet (its frame is zero then).
+        if !hasLaidOutCard { layoutRoot() }
+        v.show(text, notes: notes, palette: currentPalette, in: card.frame)
+    }
+
+    /// Esc: "Updated!" goes (the key still goes on to the page and the window).
+    func dismissUpdatedToast() {
+        guard let t = updatedToast, t.shownText != nil else { return }
+        t.hide()
     }
 }
 
@@ -321,6 +556,10 @@ struct UpdateRestartRisks: Equatable {
     var editedForms = 0
     /// Pages in Developer Mode (a local server's page, its console and state).
     var developerMode = 0
+    /// Pages that didn't answer in time: what they hold is unknown (restarting by itself waits for them).
+    var unanswered = 0
+    /// How long each page has to answer when the person clicked Restart to Update.
+    static let answerTime: TimeInterval = 0.5
 
     /// Another window's pages (downloads are the app's, counted once).
     mutating func merge(_ r: UpdateRestartRisks) {
@@ -333,6 +572,7 @@ struct UpdateRestartRisks: Equatable {
         leaveSite += r.leaveSite
         editedForms += r.editedForms
         developerMode += r.developerMode
+        unanswered += r.unanswered
     }
 
     /// Nothing the question names: Restart to Update installs at once.
@@ -340,7 +580,7 @@ struct UpdateRestartRisks: Equatable {
 
     /// Nothing at all a restart would interrupt (restarting by itself needs this; the question only names what's lost).
     var nothingInterrupted: Bool {
-        isEmpty && !pausedMedia && !pictureInPicture && loading == 0 && developerMode == 0
+        isEmpty && !pausedMedia && !pictureInPicture && loading == 0 && developerMode == 0 && unanswered == 0
     }
 
     /// The question's lines, most serious first.
@@ -359,7 +599,7 @@ struct UpdateRestartRisks: Equatable {
 
     var logText: String {
         "call \(call), screen \(screenSharing), playing \(playing), paused \(pausedMedia), pip \(pictureInPicture), downloads \(downloads), "
-            + "loading \(loading), leave site \(leaveSite), edited \(editedForms), developer mode \(developerMode)"
+            + "loading \(loading), leave site \(leaveSite), edited \(editedForms), developer mode \(developerMode), unanswered \(unanswered)"
     }
 
     /// A page in a call or capturing (muted or silent too).
@@ -396,8 +636,8 @@ struct UpdateRestartRisks: Equatable {
 extension WindowController {
     /// Calls, screen sharing, music or video (playing, paused part-way, in picture in picture), running downloads,
     /// loading pages, pages that would ask "Leave site?" or have changed form fields, and Developer Mode pages (each
-    /// page answers itself, 0.5 s at most).
-    func updateRestartRisks(_ done: @escaping (UpdateRestartRisks) -> Void) {
+    /// page answers itself within `answerTime`; one that doesn't counts as `unanswered`).
+    func updateRestartRisks(answerTime: TimeInterval = UpdateRestartRisks.answerTime, _ done: @escaping (UpdateRestartRisks) -> Void) {
         var risks = UpdateRestartRisks()
         risks.downloads = MediaLibrary.shared.downloads?.runningCount ?? 0
         let site = app?.engine as? EngineSiteControls, media = app?.engine as? EngineMedia
@@ -430,7 +670,11 @@ extension WindowController {
                 if waiting == 0 { finish() }
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { finish() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + answerTime) {
+            // The pages still quiet now: unknown, never "nothing to lose".
+            if !finished { risks.unanswered = waiting }
+            finish()
+        }
     }
 }
 
@@ -438,28 +682,73 @@ extension WindowController {
 
 /// Above the footer (SidebarView), in the docked and the revealed sidebar alike: a 34 pt pill on a Favorites tile's
 /// fill with a hint of the theme's accent, the app icon, "New Airc Version Available" ("Restart to Update" under the
-/// pointer) and a restart glyph. With no update it takes no space; it rises on the row spring.
+/// pointer) and a restart glyph. When the update's feed says what it brings, its first lines sit under the pill on the
+/// same plate (one line each, with its symbol), and the whole card restarts. With no update it takes no space; it rises
+/// on the row spring.
+///
+/// The same spot and plate show "What's new" after an update (Browser/WhatsNewCard.swift): "Airc 0.1.13 is here", up
+/// to five lines, "And more", See All (the changelog in a new tab) and × to dismiss. A ready update takes the spot
+/// while there is one; the card comes back after it.
 final class UpdateButtonView: NSView {
     static let pillHeight: CGFloat = 34
     static let topInset: CGFloat = 6
     static let bottomInset: CGFloat = 2
+    /// A highlight line: callout text on a 20 pt row, its symbol centred under the app icon. A title too long for one
+    /// line (the 26-character titles fit one at the default 228 pt sidebar; at the 164 pt minimum some don't) wraps to
+    /// a second, which adds `wrapHeight`; past two lines it ends in "…".
+    static let lineHeight: CGFloat = 20
+    static let wrapHeight: CGFloat = 15
+    static let maxTitleLines = 2
+    /// The text column: after the icon column (inset 8 + 9 + 18 + 8) to 10 pt before the plate's right edge.
+    static func textWidth(forViewWidth w: CGFloat) -> CGFloat { max(0, w - 2 * AircMetrics.Sidebar.inset - 9 - 18 - 8 - 10) }
+    static let lineFont = AircFont.callout.appFont
+    /// Lines (1 or 2) a title takes in a text column `width` wide.
+    static func titleLines(_ title: String, width: CGFloat) -> Int {
+        guard width > 0 else { return 1 }
+        let one = ceil(lineFont.ascender - lineFont.descender + lineFont.leading)
+        let r = (title as NSString).boundingRect(with: NSSize(width: width, height: 1000), options: [.usesLineFragmentOrigin],
+                                                 attributes: [.font: lineFont])
+        return min(maxTitleLines, max(1, Int((ceil(r.height) / one).rounded())))
+    }
+    /// Where the first line starts under the pill's top (the pill's lower 4 pt are the card's spacing).
+    static let linesTop: CGFloat = 30
+    static let linesBottom: CGFloat = 6
     /// Longest first: the first that fits the sidebar's width.
     static let titles = ["New Airc Version Available", "New Version Available", "Update Airc"]
     static let hoverTitle = "Restart to Update"
+    static let seeAllTitle = "See All"
+    static let moreTitle = "And more"
+
+    /// What the spot shows.
+    enum Mode: Equatable {
+        case none
+        case update
+        case whatsNew(WhatsNewContent)
+    }
 
     weak var controller: WindowController?
     /// The height the sidebar gives it now (animated).
     private(set) var height: CGFloat = 0
     private var target: CGFloat = 0
+    private(set) var mode: Mode = .none
     var palette: Palette? { didSet { if palette?.resolved != oldValue?.resolved { style() } } }
     private let plate = CALayer()
     private let tint = CALayer()
     private let icon = CALayer()
     private let glyph = CALayer()
     let title = NSTextField(labelWithString: "")
+    /// The highlight lines under the pill (update) or the title (What's new), and their symbols.
+    private(set) var lineLabels: [NSTextField] = []
+    private var lineIcons: [CALayer] = []
+    private var lines: [WhatsNewHighlight] = []
+    /// Each line's row count at the current width (1 or 2).
+    private(set) var rowLines: [Int] = []
+    let moreLabel = NSTextField(labelWithString: UpdateButtonView.moreTitle)
+    let seeAll = NSButton(title: UpdateButtonView.seeAllTitle, target: nil, action: nil)
+    let close = NSButton(title: "", target: nil, action: nil)
     private(set) var hovered = false { didSet { if hovered != oldValue { style(); needsLayout = true } } }
     private var pressed = false { didSet { if pressed != oldValue { style() } } }
-    private var observer: NSObjectProtocol?
+    private var observers: [NSObjectProtocol] = []
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -481,40 +770,167 @@ final class UpdateButtonView: NSView {
         title.lineBreakMode = .byClipping
         title.maximumNumberOfLines = 1
         addSubview(title)
+        moreLabel.font = AircFont.callout.appFont
+        moreLabel.lineBreakMode = .byTruncatingTail
+        moreLabel.setAccessibilityElement(false)
+        addSubview(moreLabel)
+        seeAll.isBordered = false
+        seeAll.font = AircFont.callout.weight(.semibold).appFont
+        seeAll.alignment = .left
+        seeAll.target = self
+        seeAll.action = #selector(seeAllClicked)
+        seeAll.setAccessibilityLabel("See what’s new, explained")
+        addSubview(seeAll)
+        close.isBordered = false
+        close.imagePosition = .imageOnly
+        close.target = self
+        close.action = #selector(closeClicked)
+        close.setAccessibilityLabel("Dismiss What’s New")
+        close.toolTip = "Dismiss"
+        addSubview(close)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
-        observer = NotificationCenter.default.addObserver(forName: UpdateCenter.changed, object: nil, queue: .main) { [weak self] _ in
-            self?.readyChanged()
+        for name in [UpdateCenter.changed, WhatsNewCenter.changed] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.contentChanged()
+            })
         }
-        readyChanged(animated: false)
+        contentChanged(animated: false)
     }
 
     required init?(coder: NSCoder) { fatalError() }
-    deinit { if let observer { NotificationCenter.default.removeObserver(observer) } }
+    deinit { observers.forEach(NotificationCenter.default.removeObserver) }
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    /// The update pill (or card) shows: what the restart question, the downloads card and the checks anchor to.
     var isShowing: Bool { target > 0 }
-    /// The pill, in this view.
+    var showsUpdate: Bool { mode == .update && isShowing }
+    var whatsNew: WhatsNewContent? { if case .whatsNew(let c) = mode { return c } else { return nil } }
+
+    /// The plate: the pill, and the lines under it when there are any.
     var pillRect: NSRect {
         let inset = AircMetrics.Sidebar.inset
-        return NSRect(x: inset, y: bounds.height - Self.bottomInset - Self.pillHeight, width: max(0, bounds.width - 2 * inset),
-                      height: Self.pillHeight)
+        let h = Self.cardHeight(mode: mode, rows: rowLines)
+        return NSRect(x: inset, y: bounds.height - Self.bottomInset - h, width: max(0, bounds.width - 2 * inset), height: h)
     }
 
-    private func readyChanged(animated: Bool = true) {
+    /// The plate's height for a mode and its lines' row counts.
+    static func cardHeight(mode: Mode, rows: [Int]) -> CGFloat {
+        let body = rows.reduce(0) { $0 + lineHeight + CGFloat($1 - 1) * wrapHeight }
+        switch mode {
+        case .none: return pillHeight
+        case .update: return rows.isEmpty ? pillHeight : linesTop + body + linesBottom
+        case .whatsNew(let c): return linesTop + body + CGFloat((c.more ? 1 : 0) + 1) * lineHeight + linesBottom + 2
+        }
+    }
+
+    /// The width the sidebar gives it (before its first layout, the sidebar's, else the default).
+    private var layoutWidth: CGFloat {
+        if bounds.width > 0 { return bounds.width }
+        if let w = superview?.bounds.width, w > 0 { return w }
+        return AircMetrics.Sidebar.defaultWidth
+    }
+
+    private func measureRows(width: CGFloat) -> [Int] {
+        // 4 pt under the column: the text field's own line padding.
+        lines.map { Self.titleLines($0.title, width: Self.textWidth(forViewWidth: width) - 4) }
+    }
+
+    private var targetHeight: CGFloat {
+        mode == .none ? 0 : Self.topInset + Self.cardHeight(mode: mode, rows: rowLines) + Self.bottomInset
+    }
+
+    /// The sidebar was resized: titles may wrap differently, so the card takes its new height at once.
+    override func setFrameSize(_ newSize: NSSize) {
+        let widthChanged = newSize.width != frame.width
+        super.setFrameSize(newSize)
+        guard widthChanged, newSize.width > 0, mode != .none else { return }
+        let rows = measureRows(width: newSize.width)
+        guard rows != rowLines else { return }
+        rowLines = rows
+        target = targetHeight
+        height = target
+        needsLayout = true
+        superview?.needsLayout = true
+    }
+
+    private func contentChanged(animated: Bool = true) {
         let ready = UpdateCenter.shared.ready
-        toolTip = ready.map { "Restart Airc to update to \($0.version)" }
-        setAccessibilityLabel(ready.map { _ in "New Airc version available. Restart to update" })
+        let card = WhatsNewCenter.shared.content
+        let newMode: Mode = ready != nil ? .update : card.map { .whatsNew($0) } ?? .none
+        let incoming = WhatsNewCenter.shared.isEnabled ? Array((ready?.highlights ?? []).prefix(WhatsNewAppcast.maxLines)) : []
+        if newMode != mode {
+            mode = newMode
+            switch newMode {
+            case .none: lines = []
+            case .update: lines = incoming
+            case .whatsNew(let c): lines = c.lines
+            }
+            rebuildLines()
+        } else if case .update = newMode, incoming != lines {
+            lines = incoming
+            rebuildLines()
+        }
+        switch mode {
+        case .none, .update:
+            setAccessibilityRole(.button)
+            let lineText = lines.isEmpty ? "" : ". What’s new: " + lines.map(\.spoken).joined(separator: "; ")
+            toolTip = ready.map { ($0.restartNotice ?? "Restart Airc to update to \($0.version)") + (lines.isEmpty ? "" : "\n" + lines.map { "• " + $0.spoken }.joined(separator: "\n")) }
+            setAccessibilityLabel(ready.map { ($0.restartNotice ?? "New Airc version available. Restart to update") + lineText })
+        case .whatsNew(let c):
+            hovered = false
+            setAccessibilityRole(.group)
+            setAccessibilityLabel(WhatsNewCenter.title(c) + ". " + c.lines.map(\.spoken).joined(separator: "; ") + (c.more ? "; and more" : ""))
+            toolTip = nil
+        }
+        seeAll.isHidden = whatsNew == nil
+        close.isHidden = whatsNew == nil
+        moreLabel.isHidden = whatsNew?.more != true
+        glyph.isHidden = whatsNew != nil
         if ready == nil { hovered = false }
-        let h: CGFloat = ready == nil ? 0 : Self.topInset + Self.pillHeight + Self.bottomInset
+        rowLines = measureRows(width: layoutWidth)
+        let h = targetHeight
+        style()
+        needsLayout = true
         guard h != target else { return }
         target = h
-        needsLayout = true
-        guard animated, let c = controller, window != nil, !isHiddenOrHasHiddenAncestor else { return setHeight(h) }
+        guard animated, !AircMotion.prefersReducedMotion, let c = controller, window != nil, !isHiddenOrHasHiddenAncestor else {
+            if animated, AircMotion.prefersReducedMotion, window != nil {
+                // Reduce Motion: nothing rises or slides; the sidebar cross-fades the change in 150 ms.
+                (superview?.layer ?? layer)?.add(AircMotion.crossfadeTransition(), forKey: kCATransition)
+            }
+            return setHeight(h)
+        }
         c.animator.spring("update-button", from: Double(height), to: Double(h), velocity: 0, spring: Spring(AircSpring.row),
                           update: { [weak self] v in self?.setHeight(CGFloat(v)) }, completion: { [weak self] in self?.setHeight(h) })
+    }
+
+    private func rebuildLines() {
+        while lineLabels.count < lines.count {
+            let l = NSTextField(labelWithString: "")
+            l.font = AircFont.callout.appFont
+            l.lineBreakMode = .byWordWrapping
+            l.cell?.wraps = true
+            l.cell?.truncatesLastVisibleLine = true
+            l.maximumNumberOfLines = Self.maxTitleLines
+            l.setAccessibilityElement(false)
+            addSubview(l)
+            lineLabels.append(l)
+            let i = CALayer()
+            i.actions = LayerImage.noActions
+            i.contentsGravity = .center
+            layer?.addSublayer(i)
+            lineIcons.append(i)
+        }
+        for (i, l) in lineLabels.enumerated() {
+            let shown = i < lines.count
+            l.isHidden = !shown
+            lineIcons[i].isHidden = !shown
+            l.stringValue = shown ? lines[i].title : ""
+            l.toolTip = shown && lines[i].spoken != lines[i].title ? lines[i].spoken : nil
+        }
     }
 
     private func setHeight(_ h: CGFloat) {
@@ -535,6 +951,18 @@ final class UpdateButtonView: NSView {
         CATransaction.commit()
         title.textColor = palette.textPrimary
         LayerImage.set(LayerImage.symbol("arrow.clockwise", size: 11, weight: .semibold, color: r.accent.nsColor), on: glyph, in: self)
+        for (i, l) in lineLabels.enumerated() {
+            l.textColor = palette.textSecondary
+            guard i < lines.count else { continue }
+            let image = LayerImage.symbol(lines[i].icon, size: 11, weight: .medium, color: r.accent.nsColor)
+                ?? LayerImage.symbol("sparkles", size: 11, weight: .medium, color: r.accent.nsColor)
+            LayerImage.set(image, on: lineIcons[i], in: self)
+        }
+        moreLabel.textColor = palette.textSecondary
+        seeAll.contentTintColor = r.accentText.nsColor
+        seeAll.attributedTitle = NSAttributedString(string: Self.seeAllTitle, attributes: [
+            .font: AircFont.callout.weight(.semibold).appFont, .foregroundColor: r.accentText.nsColor])
+        close.image = LayerImage.symbol("xmark", size: 9, weight: .bold, color: palette.textSecondary)
         // Pressed: the plate shrinks to 0.99 over 70 ms, like a tab's (Arc ref §2.8).
         CATransaction.begin()
         CATransaction.setAnimationDuration(0.07)
@@ -543,22 +971,73 @@ final class UpdateButtonView: NSView {
         CATransaction.commit()
     }
 
+    /// The header row: the pill's 34 pt at the plate's top.
+    private var headerRect: NSRect {
+        let p = pillRect
+        return NSRect(x: p.minX, y: p.minY, width: p.width, height: Self.pillHeight)
+    }
+
+    /// Line `i`'s row (0-based; the "And more" and See All rows follow the lines).
+    func lineRect(_ i: Int) -> NSRect {
+        let p = pillRect
+        func h(_ k: Int) -> CGFloat { Self.lineHeight + CGFloat((k < rowLines.count ? rowLines[k] : 1) - 1) * Self.wrapHeight }
+        let y = (0..<i).reduce(p.minY + Self.linesTop) { $0 + h($1) }
+        return NSRect(x: p.minX, y: y, width: p.width, height: h(i))
+    }
+
+    /// × in the header's right, where the restart glyph sits on the pill.
+    var closeRect: NSRect {
+        let hr = headerRect
+        return NSRect(x: hr.maxX - 6 - 22, y: hr.midY - 11, width: 22, height: 22)
+    }
+
+    var seeAllRect: NSRect { lineRect(lines.count + (whatsNew?.more == true ? 1 : 0)) }
+
     override func layout() {
         super.layout()
-        let p = pillRect
+        let p = pillRect, hr = headerRect
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         plate.frame = p
         tint.frame = p
-        icon.frame = NSRect(x: p.minX + 9, y: p.midY - 9, width: 18, height: 18)
-        glyph.frame = NSRect(x: p.maxX - 10 - 14, y: p.midY - 7, width: 14, height: 14)
+        icon.frame = NSRect(x: hr.minX + 9, y: hr.midY - 9, width: 18, height: 18)
+        glyph.frame = NSRect(x: hr.maxX - 10 - 14, y: hr.midY - 7, width: 14, height: 14)
+        let textX = icon.frame.maxX + 8
+        for (i, l) in lineLabels.enumerated() where i < lines.count {
+            // The symbol sits on the first line; a second line runs under the first, in the text column.
+            let row = lineRect(i), first = row.minY + Self.lineHeight / 2
+            lineIcons[i].frame = NSRect(x: icon.frame.midX - 8, y: first - 8, width: 16, height: 16)
+            let one = ceil(Self.lineFont.ascender - Self.lineFont.descender + Self.lineFont.leading)
+            let n = CGFloat(i < rowLines.count ? rowLines[i] : 1)
+            let th = one + (n - 1) * Self.wrapHeight + 1
+            l.frame = NSRect(x: textX, y: floor(first - one / 2), width: max(0, p.maxX - 10 - textX), height: th)
+        }
         CATransaction.commit()
-        let x = icon.frame.maxX + 8, end = glyph.frame.minX - 6
+        if whatsNew != nil {
+            let more = lineRect(lines.count)
+            let mh = ceil(moreLabel.intrinsicContentSize.height)
+            moreLabel.frame = NSRect(x: textX, y: floor(more.midY - mh / 2), width: max(0, p.maxX - 10 - textX), height: mh)
+            let sa = seeAllRect
+            seeAll.sizeToFit()
+            seeAll.frame = NSRect(x: textX - 1, y: floor(sa.midY - seeAll.frame.height / 2), width: seeAll.frame.width, height: seeAll.frame.height)
+            close.frame = closeRect
+        }
+        let x = textX, end = (whatsNew != nil ? closeRect.minX : glyph.frame.minX) - 6
         let available = max(0, end - x)
-        let text = hovered ? Self.hoverTitle : Self.titles.first { fits($0, in: available) } ?? Self.titles.last!
+        let text: String
+        if let c = whatsNew {
+            // "Airc 0.1.12 is here", or just "Airc 0.1.12" in a narrow sidebar: never cut off.
+            let titles = WhatsNewCenter.titles(c)
+            text = titles.first { fits($0, in: available) } ?? titles.last!
+            title.lineBreakMode = .byTruncatingTail
+        } else {
+            let titles = UpdateCenter.shared.ready?.pillTitles ?? Self.titles
+            text = hovered ? Self.hoverTitle : titles.first { fits($0, in: available) } ?? titles.last!
+            title.lineBreakMode = .byClipping
+        }
         if title.stringValue != text { title.stringValue = text }
         let th = ceil(title.intrinsicContentSize.height)
-        title.frame = NSRect(x: x, y: floor(p.midY - th / 2), width: available, height: th)
+        title.frame = NSRect(x: x, y: floor(hr.midY - th / 2), width: available, height: th)
     }
 
     private func fits(_ s: String, in width: CGFloat) -> Bool {
@@ -577,12 +1056,18 @@ final class UpdateButtonView: NSView {
     override func mouseExited(with event: NSEvent) { hovered = false }
 
     private func updateHover(_ event: NSEvent) {
-        hovered = isShowing && pillRect.contains(convert(event.locationInWindow, from: nil))
+        hovered = showsUpdate && pillRect.contains(convert(event.locationInWindow, from: nil))
     }
 
-    /// Outside the pill (its top inset) clicks go through to the sidebar.
+    /// Outside the plate (its top inset) clicks go through to the sidebar. On What's new the buttons take theirs, and
+    /// the rest of the card is just the card (no window drag, no click through to the list under it).
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard isShowing, let s = superview, pillRect.contains(convert(point, from: s)) else { return nil }
+        guard isShowing, let s = superview else { return nil }
+        let local = convert(point, from: s)
+        guard pillRect.contains(local) else { return nil }
+        if whatsNew != nil {
+            for b in [close, seeAll] where !b.isHidden && b.frame.insetBy(dx: -4, dy: -3).contains(local) { return b }
+        }
         return self
     }
 
@@ -592,6 +1077,8 @@ final class UpdateButtonView: NSView {
     #endif
 
     override func mouseDown(with event: NSEvent) {
+        if whatsNew != nil { return }   // whatsnew2: the card's body opens the What's new tab on mouse-up
+        guard showsUpdate else { return }
         pressed = true
         #if AIRC_TESTING
         presses.down += 1
@@ -599,6 +1086,11 @@ final class UpdateButtonView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if whatsNew != nil {
+            if pillRect.contains(convert(event.locationInWindow, from: nil)) { WhatsNewCenter.shared.seeAll(from: controller) }
+            return
+        }
+        guard showsUpdate else { return }
         pressed = false
         #if AIRC_TESTING
         presses.up += 1
@@ -608,13 +1100,21 @@ final class UpdateButtonView: NSView {
     }
 
     override func accessibilityPerformPress() -> Bool {
+        guard showsUpdate else { return false }
         UpdateCenter.shared.restart(from: controller)
         return true
     }
 
-    /// Right-click: Restart to Update and See What's New.
+    override func accessibilityChildren() -> [Any]? {
+        whatsNew == nil ? super.accessibilityChildren() : [seeAll, close]
+    }
+
+    @objc private func seeAllClicked() { WhatsNewCenter.shared.seeAll(from: controller) }
+    @objc private func closeClicked() { WhatsNewCenter.shared.dismiss() }
+
+    /// Right-click: Restart to Update and See What's New (the update only).
     override func menu(for event: NSEvent) -> NSMenu? {
-        guard isShowing, pillRect.contains(convert(event.locationInWindow, from: nil)) else { return nil }
+        guard showsUpdate, pillRect.contains(convert(event.locationInWindow, from: nil)) else { return nil }
         return pillMenu()
     }
 
@@ -671,7 +1171,7 @@ struct UpdateConfirmCard: View {
                 Text("Your Spaces and tabs come back as they are.").aircFont(AircFont.callout)
                     .foregroundStyle(ui.surfaceTextSecondary.color).fixedSize(horizontal: false, vertical: true)
                 Button(UpdateConfirmModel.whatsNewTitle) { model.onWhatsNew?() }.buttonStyle(.plain)
-                    .aircFont(AircFont.callout.weight(.medium)).foregroundStyle(ui.accent.color)
+                    .aircFont(AircFont.callout.weight(.medium)).foregroundStyle(ui.accentText.color)
                     .padding(.top, 2).testAnchor("update.whatsNew")
             }
             .padding(.top, 10)
@@ -764,6 +1264,25 @@ final class UpdateConfirmView: NSView {
 
 // MARK: - Settings › General
 
+/// whatsnew2: the words of Settings › General › Automatic Updates › After an update.
+enum WhatsNewSettingsText {
+    static func title(_ s: WhatsNewStyle) -> String {
+        switch s {
+        case .tab: "Open a tab"
+        case .card: "Show a card"
+        case .off: "Don’t show"
+        }
+    }
+
+    static func subtitle(_ s: WhatsNewStyle) -> String {
+        switch s {
+        case .tab: "A What’s new tab opens once, explaining each new thing and where to find it. Restart to Update shows the first lines too."
+        case .card: "A small card above the sidebar’s footer lists what’s new for three launches; click it for the What’s new tab. Restart to Update shows the first lines too."
+        case .off: "Airc only says it was updated, with a link to the release notes."
+        }
+    }
+}
+
 /// E13, Arc's "Automatically update my Arc" (its Settings › General › Updates, off until the person turns it on):
 /// whether a downloaded update may restart Airc by itself while the person is away (IdleUpdatePolicy).
 struct UpdateWhenIdleSection: View {
@@ -775,6 +1294,14 @@ struct UpdateWhenIdleSection: View {
                           subtitle: "Off, an update waits until you click Restart to Update or quit. On, Airc restarts into it after 30 minutes without use, never while music or video plays or is paused part-way, during a call or screen sharing, a download, a page with changes or typed text, or with a private window or a dialog open. Your windows, Spaces and tabs come back as they were.",
                           isOn: Binding(get: { model.settings.values.restartToUpdateWhenIdle },
                                         set: { model.settings.values.restartToUpdateWhenIdle = $0; UpdateCenter.shared.scheduleIdleCheck() }))
+            // whatsnew2: one choice for both the tab and the card (Browser/WhatsNewPage.swift, WhatsNewCard.swift).
+            SettingsRow(title: "After an update", subtitle: WhatsNewSettingsText.subtitle(model.settings.values.whatsNewStyle)) {
+                AircSegmented(selection: Binding(get: { model.settings.values.whatsNewStyle },
+                                                 set: { model.settings.values.whatsNewStyle = $0; WhatsNewCenter.shared.settingChanged($0) }),
+                              segments: WhatsNewStyle.allCases.map { .init(value: $0, title: WhatsNewSettingsText.title($0)) })
+                    .frame(width: 270)
+            }
+            .testAnchor("settings.whatsNew")
         }
     }
 }

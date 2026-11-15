@@ -43,3 +43,24 @@ browse, type or name. Turn it off, or see exactly what is sent, in Settings → 
 ## Licence
 
 Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+### What's in this repository
+
+Everything Airc adds to Chromium is here, under Apache-2.0:
+
+- the app, its packages and the homepage (`apps/`, `packages/`);
+- the engine layer `//airc/core` and **every patch Airc applies to Chromium**, in order
+  (`engine/core/`, `engine/patches/series`), against the Chromium version in [CHROMIUM_VERSION](CHROMIUM_VERSION);
+- the build, test, release and update scripts (`engine/build.sh`, `scripts/`, `infra/`), and the agent playbook
+  ([AGENTS.md](AGENTS.md)).
+
+Third-party code keeps its own licence and is listed in [NOTICE](NOTICE): Chromium itself (BSD-3-Clause and others,
+fetched from upstream at the pinned version, not copied here), ArdiaCore (Apache-2.0), Brave's adblock-rust and its
+crates (MPL-2.0 and others, with their source in `engine/core/blocking-rust`), the Public Suffix List (MPL-2.0) and
+EasyList/EasyPrivacy (CC BY-SA).
+
+Not open source, and not in this repository or the app download: Google's **Widevine** module for DRM video, which
+Chromium's component updater downloads and verifies from Google, and Apple's system frameworks (AppKit, and WebKit
+with FairPlay for the streaming sites in [docs/user/protected-media.md](docs/user/protected-media.md)). Builds use Chromium's proprietary-codec setting (H.264/AAC through Chromium's FFmpeg).
+Signing certificates, update-signing keys and other credentials stay private. This repository is a snapshot of the
+development repository, synced from its reviewed main (one commit per sync), without its history.

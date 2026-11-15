@@ -38,8 +38,8 @@ private func everyResolvedTheme() -> [ResolvedTheme] {
             let bg = r.background
             #expect(r.dropLine.over(bg).contrast(on: bg) >= 3, "\(r.theme)")
             if r.isDark {
-                #expect(abs(r.selectedHoverFill.alpha - 0.36) < 1e-9)
-                #expect(r.text.over(r.selectedHoverFill.over(bg)).contrast(on: r.selectedHoverFill.over(bg)) >= 3)
+                #expect(abs(r.selectedHoverFill.alpha - AircMetrics.Row.selectedHoverAlphaDark) < 1e-9)
+                #expect(r.text.over(r.selectedHoverFill.over(bg)).contrast(on: r.selectedHoverFill.over(bg)) >= 4.5)
             }
         }
     }

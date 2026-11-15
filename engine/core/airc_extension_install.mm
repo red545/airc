@@ -60,6 +60,8 @@ class ProfileStoreInstaller : public extensions::WebstoreInstallWithPrompt {
 };
 using Done = void (^)(NSDictionary<NSString*, NSString*>*);
 void Finish(Done done, NSString* status, NSString* reason = @"") {
+  if ([status isEqualToString:@"failed"] && !reason.length)
+    reason = @"Chromium did not provide further error details.";
   done(@{@"status": status, @"reason": reason});
 }
 bool Ready(Profile* profile, NSString* identifier, Done done) {
@@ -90,7 +92,10 @@ bool Ready(Profile* profile, NSString* identifier, Done done) {
         NSString* status = success ? @"installed" :
             result == USER_CANCELLED ? @"denied" :
             result == BLOCKED_BY_POLICY ? @"blockedByPolicy" : @"failed";
-        Finish(completion, status, base::SysUTF8ToNSString(reason));
+        NSString* detail = reason.empty() && result == ABORTED
+            ? @"Installation was interrupted before completion."
+            : base::SysUTF8ToNSString(reason);
+        Finish(completion, status, detail);
       }, done));
   installer->BeginInstall();
 }
@@ -102,10 +107,13 @@ bool Ready(Profile* profile, NSString* identifier, Done done) {
   }
   Profile* profile = self.chromeProfile;
   if (!Ready(profile, identifier, done)) return;
-  auto installer = extensions::CrxInstaller::Create(profile,
-      std::make_unique<ExtensionInstallPrompt>(profile, gfx::NativeWindow(window),
-          std::make_unique<extensions::InstallPromptData>(
-              extensions::InstallPromptData::INSTALL_PROMPT)));
+  auto prompt = std::make_unique<ExtensionInstallPrompt>(profile, gfx::NativeWindow(window),
+      std::make_unique<extensions::InstallPromptData>(
+          extensions::InstallPromptData::UNSET_PROMPT_TYPE));
+  // CrxInstaller sets the prompt type when it asks for consent. The app shows
+  // the result, so it does not need Chromium's post-install bubble as well.
+  prompt->SetSkipPostInstallUI(true);
+  auto installer = extensions::CrxInstaller::Create(profile, std::move(prompt));
   installer->set_expected_id(base::SysNSStringToUTF8(identifier));
   installer->set_off_store_install_allow_reason(
       extensions::CrxInstaller::OffStoreInstallAllowedFromSettingsPage);

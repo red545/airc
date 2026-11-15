@@ -13,14 +13,40 @@ public struct CalendarEvent: Sendable, Equatable, Identifiable {
     public var isAllDay: Bool
     /// The video call to join, if the event has one (MeetingLink.find).
     public var link: MeetingLink?
+    /// The person's own answer to the invitation (Arc reads the `self` attendee's `responseStatus`).
+    public var response: Response
+    /// What sort of event it is (Arc reads Google's `eventType`): only meetings count down or get a Join.
+    public var kind: Kind
+    /// The event's own page in its web calendar, when the source knows it (calprev: a calendar card's row opens it).
+    public var url: URL?
 
-    public init(id: String, title: String, start: Date, end: Date, isAllDay: Bool = false, link: MeetingLink? = nil) {
+    /// The person's answer to an invitation. `none`: not an invitation (their own event, or the source doesn't say).
+    public enum Response: String, Sendable, Equatable {
+        case none, accepted, tentative, declined, needsAction
+    }
+
+    /// Google's event types (Outlook's "Away" and "Working elsewhere" map to the last two).
+    public enum Kind: String, Sendable, Equatable {
+        case meeting, focusTime, outOfOffice, workingLocation
+    }
+
+    public init(id: String, title: String, start: Date, end: Date, isAllDay: Bool = false, link: MeetingLink? = nil,
+                response: Response = .none, kind: Kind = .meeting, url: URL? = nil) {
         self.id = id
         self.title = title
         self.start = start
         self.end = max(start, end)
         self.isAllDay = isAllDay
         self.link = link
+        self.response = response
+        self.kind = kind
+        self.url = url
+    }
+
+    /// Whether Live Calendar shows it (Arc's rules): a timed event the person hasn't declined that isn't an
+    /// out-of-office or working-location block. Tentative and unanswered invitations count, as in Arc.
+    public var isLive: Bool {
+        !isAllDay && response != .declined && kind != .outOfOffice && kind != .workingLocation
     }
 }
 
@@ -28,6 +54,8 @@ public struct CalendarEvent: Sendable, Equatable, Identifiable {
 public struct MeetingLink: Sendable, Equatable {
     public enum Service: String, Sendable, CaseIterable {
         case meet, zoom, teams, webex
+        /// Around (`around.co/r/…`), one of the four call links Arc recognised in an event's text.
+        case around
         /// Not a known video service: the event's own URL or a link in its location.
         case web
     }
@@ -67,6 +95,7 @@ public struct MeetingLink: Sendable, Equatable {
         if host == "teams.microsoft.com" || host == "teams.live.com" {
             return path.hasPrefix("/l/meetup-join/") || path.hasPrefix("/meet/") ? .teams : nil
         }
+        if host == "around.co" || host == "www.around.co" { return path.hasPrefix("/r/") && path.count > 3 ? .around : nil }
         if on("webex.com") {
             return path.count > 1 && (path.contains("/meet/") || path.contains("j.php") || path.contains("/join")
                                       || path.contains("/wbxmjs/") || path.contains("/webappng/")) ? .webex : nil
@@ -97,7 +126,9 @@ public struct MeetingLink: Sendable, Equatable {
 /// Which Favorite is the Calendar Favorite: a web calendar the person keeps in Favorites.
 public enum CalendarSites {
     public static func isCalendarFavorite(_ url: String) -> Bool {
-        guard let c = URLComponents(string: url), let host = c.host?.lowercased() else { return false }
+        guard let c = URLComponents(string: url), let raw = c.host?.lowercased() else { return false }
+        // The checks' look-alike hosts (PreviewService.fixtureHosts, empty outside them) stand for the real ones.
+        let host = PreviewService.fixtureHosts[raw] ?? raw
         let path = c.path.lowercased()
         switch host {
         case "calendar.google.com", "calendar.proton.me": return true
@@ -182,9 +213,10 @@ public enum MeetingSchedule {
     /// The hover card's Join is the big (primary) one from this long before the start ("a meeting moments away").
     public static let soonJoin: TimeInterval = 10 * 60
 
-    /// Timed events only, in order of start (then end, then ID, so ties are stable).
+    /// The events Live Calendar shows (CalendarEvent.isLive: timed, not declined, not out of office), in order of
+    /// start (then end, then ID, so ties are stable).
     static func timed(_ events: [CalendarEvent]) -> [CalendarEvent] {
-        events.filter { !$0.isAllDay }.sorted { ($0.start, $0.end, $0.id) < ($1.start, $1.end, $1.id) }
+        events.filter(\.isLive).sorted { ($0.start, $0.end, $0.id) < ($1.start, $1.end, $1.id) }
     }
 
     /// The meeting the tile counts down to: the first that starts within the hour, or started in the last five
@@ -194,6 +226,16 @@ public enum MeetingSchedule {
             let r = e.start.timeIntervalSince(now)
             return r > 0 ? r <= countdownLead : (-r < lateJoin && now < e.end)
         }
+    }
+
+    /// S03b: the Calendar Favorite's "meeting soon" badge comes this long before the countdown's meeting starts, and
+    /// stays while it's on (the five late minutes).
+    public static let soonBadge: TimeInterval = 5 * 60
+
+    /// Whether the countdown's meeting is soon (or on now): the tile's countdown then sits on Arc's bright subtitle pill.
+    public static func isSoon(_ events: [CalendarEvent], now: Date) -> Bool {
+        guard let e = countdownEvent(events, now: now) else { return false }
+        return e.start.timeIntervalSince(now) <= soonBadge
     }
 
     /// The tile's countdown: "in 5m" (minutes rounded up, so "in 1m" until it starts), "in 1h" at exactly an hour,

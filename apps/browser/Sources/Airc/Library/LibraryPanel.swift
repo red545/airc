@@ -11,7 +11,7 @@ import SwiftUI
 /// It sits on the window's theme like the sidebar it covers.
 final class LibraryModel: ObservableObject {
     enum Section: String, CaseIterable, Identifiable {
-        case archive = "Archived Tabs", media = "Media", downloads = "Downloads", notes = "Notes", spaces = "Spaces"
+        case archive = "Archived Tabs", media = "Media", downloads = "Downloads", notes = "Notes", easels = "Easels", spaces = "Spaces"
         var id: String { rawValue }
     }
 
@@ -33,17 +33,28 @@ final class LibraryModel: ObservableObject {
     private(set) var archiveConfirmation: NSAlert?
     private(set) var lastArchiveBackup: URL?
 
+    /// LIB-2: the one Clear Archive that its toast's Undo can still put back; dropped when the toast goes.
+    private(set) var pendingUndo: ClearedArchive?
+    private var undoGeneration = 0
+    /// The age Clear Archive offered last (the confirmation remembers it while the app runs).
+    private(set) var clearAge: ArchiveClearAge = .everything
+    private var agePicker: ArchiveAgePicker?
+
+    /// "Clear Archive…" (the Archive's button and menus, View › Clear Archive…): Arc's question, with a choice of
+    /// everything or only tabs older than 7 or 30 days, from every Space and profile. A recovery backup comes first;
+    /// a toast offers one Undo. `entryID`: Remove from Archive…, one entry, permanently, as before.
     func requestClearArchive(entryID: String? = nil) {
+        if entryID == nil { return requestClearArchiveByAge() }
         guard let c = controller, let settings = c.app?.settings,
               c.window.attachedSheet == nil else { return }
         let ids = Set(c.store.archivedEntries.filter { entryID == nil || $0.id == entryID }.map(\.id))
         guard !ids.isEmpty else { return }
         let alert = NSAlert()
         alert.messageText = "Remove \(ids.count) archived \(ids.count == 1 ? "tab" : "tabs")? This can't be undone."
-        alert.informativeText = "\(entryID == nil ? "All Spaces and profiles, including tabs hidden by search." : "Only this archived tab, in its original Space and profile.") A recovery backup will be saved first in your backup folder (\(settings.backupDirectory.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))). ⌘Z won't restore these tabs."
+        alert.informativeText = "Only this archived tab, in its original Space and profile. A recovery backup will be saved first in your backup folder (\(settings.backupDirectory.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))). ⌘Z won't restore these tabs."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: entryID == nil ? "Clear Archive" : "Remove from Archive")
+        alert.addButton(withTitle: "Remove from Archive")
         alert.buttons[1].hasDestructiveAction = true
         archiveConfirmation = alert
         alert.beginSheetModal(for: c.window) { [weak self, weak c] response in
@@ -55,13 +66,86 @@ final class LibraryModel: ObservableObject {
                     self.lastArchiveBackup = try settings.backUp(c.store, purpose: .archiveRemoval)
                 }
                 self.revision += 1
-            } catch {
-                let failure = NSAlert()
-                failure.messageText = "Couldn't remove archived tabs"
-                failure.informativeText = "The archive was kept. Check that your backup folder is available and try again. \(error.localizedDescription)"
-                failure.beginSheetModal(for: c.window)
-            }
+            } catch { self.clearFailed(error, in: c) }
         }
+    }
+
+    /// Entries each age would clear, frozen when asking: a tab archived while the question is open stays.
+    private func clearCandidates(_ c: WindowController) -> [ArchiveClearAge: Set<String>] {
+        let now = c.store.now(), all = c.store.archivedEntries
+        return Dictionary(uniqueKeysWithValues: ArchiveClearAge.allCases.map { age in
+            (age, Set(all.filter { age.includes($0, now: now) }.map(\.id)))
+        })
+    }
+
+    private func requestClearArchiveByAge() {
+        guard let c = controller, let settings = c.app?.settings, c.window.attachedSheet == nil else { return }
+        let candidates = clearCandidates(c)
+        guard candidates[.everything]?.isEmpty == false else { return }
+        let alert = NSAlert()
+        // Arc's title; its "This action is permanent." becomes what's true here: one Undo, then permanent.
+        alert.messageText = "Are you sure you'd like to Clear Archive?"
+        alert.informativeText = "Archived tabs from every Space and profile are removed. You can undo this right after; then it's permanent. A recovery backup is saved first in your backup folder (\(settings.backupDirectory.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")))."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Clear Archive")
+        alert.buttons[1].hasDestructiveAction = true
+        let picker = ArchiveAgePicker(counts: candidates.mapValues(\.count), selected: clearAge, clearButton: alert.buttons[1])
+        agePicker = picker
+        alert.accessoryView = picker.view
+        archiveConfirmation = alert
+        alert.beginSheetModal(for: c.window) { [weak self, weak c] response in
+            guard let self, let c else { return }
+            self.archiveConfirmation = nil
+            self.agePicker = nil
+            guard response == .alertSecondButtonReturn else { return }
+            let age = picker.age
+            self.clearAge = age
+            self.clearArchive(age: age, ids: candidates[age] ?? [], in: c, settings: settings)
+        }
+    }
+
+    /// Picks an age in the open confirmation (the checks; the person uses its pop-up).
+    func selectClearAge(_ age: ArchiveClearAge) { agePicker?.select(age) }
+
+    private func clearArchive(age: ArchiveClearAge, ids: Set<String>, in c: WindowController, settings: AppSettings) {
+        guard !ids.isEmpty else { return }
+        do {
+            let cleared = try c.store.clearArchive(age: age, entryIDs: ids) {
+                self.lastArchiveBackup = try settings.backUp(c.store, purpose: .archiveRemoval)
+            }
+            revision += 1
+            guard cleared.count > 0 else { return }
+            // One Undo: a newer Clear Archive replaces it, and it's gone when the toast is.
+            pendingUndo = cleared
+            undoGeneration += 1
+            let generation = undoGeneration
+            c.showActionToast("Cleared \(cleared.count) archived \(cleared.count == 1 ? "tab" : "tabs")",
+                              action: ("Undo", { [weak self] in self?.undoClear() }))
+            DispatchQueue.main.asyncAfter(deadline: .now() + AircMetrics.Toast.fullScreenDuration + AircCurve.toastOut.duration) { [weak self] in
+                guard let self, self.undoGeneration == generation else { return }
+                self.pendingUndo = nil
+            }
+        } catch { clearFailed(error, in: c) }
+    }
+
+    /// The toast's Undo: what that Clear Archive removed comes back, once.
+    func undoClear() {
+        guard let c = controller, let cleared = pendingUndo else { return }
+        pendingUndo = nil
+        undoGeneration += 1
+        do {
+            let n = try c.store.restoreCleared(cleared)
+            revision += 1
+            c.showToast("Restored \(n) archived \(n == 1 ? "tab" : "tabs")")
+        } catch { c.showToast("Couldn't restore the archived tabs") }
+    }
+
+    private func clearFailed(_ error: Error, in c: WindowController) {
+        let failure = NSAlert()
+        failure.messageText = "Couldn't remove archived tabs"
+        failure.informativeText = "The archive was kept. Check that your backup folder is available and try again. \(error.localizedDescription)"
+        failure.beginSheetModal(for: c.window)
     }
 
     struct Day: Identifiable {
@@ -128,6 +212,7 @@ struct LibraryView: View {
             case .media: LibraryMediaView(files: LibraryFiles.shared, theme: theme, host: model.controller?.library) { model.controller?.showToast($0) }
             case .downloads: downloads
             case .notes: LibraryNotesView(controller: model.controller, theme: theme, revision: model.revision, onOpened: onClose)
+            case .easels: LibraryEaselsView(controller: model.controller, theme: theme, revision: model.revision, onOpened: onClose)
             case .spaces: spaces
             }
         }
@@ -214,9 +299,11 @@ struct LibraryView: View {
                     .font(.system(size: 12, weight: .medium))
                 Text(filterSummary).aircFont(AircFont.callout.weight(.medium))
             }
-            .foregroundStyle((f.isActive ? theme.accent : theme.textSecondary).color)
+            .foregroundStyle((f.isActive ? theme.accentText : theme.textSecondary).color)
         }
         .menuStyle(.borderlessButton)
+        // A borderless menu draws its label in the tint (the accent, near 3:1 on dark Spaces), not its foreground style.
+        .tint((f.isActive ? theme.accentText : theme.textSecondary).color)
         .menuIndicator(.hidden)
         .fixedSize()
         .help("Filter Archived Tabs")
@@ -331,7 +418,7 @@ private struct ArchiveRow: View {
             }
             Spacer(minLength: 6)
             if hovered {
-                Text("Restore").aircFont(AircFont.callout.weight(.medium)).foregroundStyle(theme.accent.color)
+                Text("Restore").aircFont(AircFont.callout.weight(.medium)).foregroundStyle(theme.accentText.color)
             } else {
                 Text(entry.archivedAt.formatted(date: .omitted, time: .shortened)).aircFont(AircFont.mono).foregroundStyle(theme.textTertiary.color)
             }
@@ -378,6 +465,28 @@ final class LibraryPanelHost: NSView {
     override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
     override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) { LibraryQuickLook.shared.begin(panel) }
     override func endPreviewPanelControl(_ panel: QLPreviewPanel!) { LibraryQuickLook.shared.end(panel) }
+
+    // L04: Library › Media's keys, as Finder's: Space toggles Quick Look of the selected tile, Delete (⌘⌫ too) moves it
+    // to the Trash, ⌘Z puts it back while Undo is offered.
+    override func keyDown(with event: NSEvent) {
+        let files = LibraryFiles.shared
+        guard model.section == .media else { return super.keyDown(with: event) }
+        let mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        let list = LibraryMedia.filtered(files.media, by: files.filter)
+        switch event.keyCode {
+        case 49 where mods.isEmpty:
+            files.toggleQuickLook(in: list, from: self)
+        case 51 where mods.isEmpty || mods == .command, 117 where mods.isEmpty:
+            guard let f = files.selected, list.contains(where: { $0.path == f.path }) else { return NSSound.beep() }
+            files.moveToTrash(f, moved: { [weak self] in
+                // The grid redraws without the tile: the Library keeps the keyboard (Space, Delete, ⌘Z).
+                guard let self, let w = self.window else { return }
+                DispatchQueue.main.async { if w.firstResponder !== self { w.makeFirstResponder(self) } }
+            }, failed: { [weak self] message in self?.controller?.showToast(message) })
+        default:
+            super.keyDown(with: event)
+        }
+    }
 
     override func layout() {
         super.layout()
@@ -442,5 +551,50 @@ extension WindowController {
             self.layoutRoot()
             self.positionTrafficLights()
         })
+    }
+}
+
+/// LIB-2: Clear Archive's choice of age, under Arc's question: three choices, each with how many tabs it removes.
+/// Clear Archive is off when the choice removes none.
+final class ArchiveAgePicker: NSObject {
+    let view: NSView
+    private var buttons: [NSButton] = []
+    private let counts: [ArchiveClearAge: Int]
+    private weak var clearButton: NSButton?
+    private(set) var age: ArchiveClearAge
+
+    init(counts: [ArchiveClearAge: Int], selected: ArchiveClearAge, clearButton: NSButton) {
+        self.counts = counts
+        self.clearButton = clearButton
+        age = selected
+        let row: CGFloat = 24
+        view = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: row * CGFloat(ArchiveClearAge.allCases.count)))
+        super.init()
+        for (i, a) in ArchiveClearAge.allCases.enumerated() {
+            let n = counts[a] ?? 0
+            let b = NSButton(radioButtonWithTitle: "\(a.title) (\(n) \(n == 1 ? "tab" : "tabs"))", target: self, action: #selector(changed(_:)))
+            b.tag = a.rawValue
+            b.frame = NSRect(x: 0, y: view.frame.height - row * CGFloat(i + 1), width: 260, height: row)
+            view.addSubview(b)
+            buttons.append(b)
+        }
+        select(selected)
+    }
+
+    func select(_ a: ArchiveClearAge) {
+        for b in buttons { b.state = b.tag == a.rawValue ? .on : .off }
+        age = a
+        clearButton?.isEnabled = (counts[a] ?? 0) > 0
+    }
+
+    @objc private func changed(_ sender: NSButton) { select(ArchiveClearAge(rawValue: sender.tag) ?? .everything) }
+}
+
+extension WindowController {
+    /// View › Clear Archive… (Arc's Archive › Clear Archive): the Library's Archive, then its question.
+    func clearArchiveFromMenu() {
+        if library == nil { toggleLibrary() }
+        library?.model.section = .archive
+        library?.model.requestClearArchive()
     }
 }

@@ -1,0 +1,268 @@
+# Airc 0.1.4 on Stable (2026-11-10 13:51 UTC, build 202611101310, source f35bc013). Every claim is from its approved
+# notes (docs/release-notes-beta.md, d5b58289; aircbrowser.com/changelog).
+slug = "2026-11-10-release-0.1.4"
+title = "Airc 0.1.4 release pack"
+kind = "release"
+since = "0.1.4"
+# 0.1.4's own source: its shots as they were in the cut, and its videos built from it (tools/social/mac-frames.sh
+# --rev f35bc013).
+shots_rev = "f35bc013"
+tag = "New in Airc 0.1.4"
+end_title = "Airc 0.1.4"
+end_line = "Free for Mac · aircbrowser.com"
+summary = """
+Airc 0.1.4 shipped on Stable on 2026-11-10. This pack covers it: an announcement image, cards for its headline items,
+videos rendered frame by frame by the app from 0.1.4's own source (Capture in Portrait Mode, Developer Mode's toolbar,
+site previews), a launch thread and standalone posts. It replaces the coming-soon teasers for the features that shipped.
+"""
+order = """
+1. Post 1 (the announcement) on its own, then the thread's replies under it, a few minutes apart. No links in any post.
+2. Then the standalone posts, one per slot, in the order below.
+"""
+checked = """
+- 0.1.4's approved notes (docs/release-notes-beta.md, "New since 0.1.3" and "Also improved"): every feature named here
+  is there; nothing else is claimed.
+- Not claimed: automatic updates from 0.1.3 (the upgrade proof failed on the build Mac's network and isn't proven);
+  live Captures, freehand drawing, export, sharing or sync of Easels; iCloud Keychain passkeys; Cast on a real TV.
+- Kept true from "Please know": Safe Browsing is off (not in a teaser post, and nothing says otherwise); Cast was tested
+  without a real receiver (its card shows the picker with no devices, and its post says so); passkeys are local to
+  the profile; Tidy Tabs needs Apple Intelligence; Ask ChatGPT sends nothing until Return.
+- Shots from the cut (f35bc013) only, on demo data. Left out: the extension results shot (it shows the sidebar's Sign
+  in to Google card), the update shot (a person's face on apple.com), the cut's developer-mode still (the older strip;
+  the toolbar comes from the 0.1.4 video), easel-live (live Captures aren't in 0.1.4).
+"""
+
+# ---------------------------------------------------------------- images
+
+[[image]]
+id = "announce"
+shot = "easel"
+hero = true
+title = "Airc 0.1.4"
+line = "Easels, ad and tracker blocking, passkeys, Cast and GitHub Live Folders, in the Arc-style browser for Mac."
+alt = "Airc 0.1.4. An Easel in Airc's Travel Space: a board called Lisbon, March with a four-day plan on a coloured card, an arrow to a Capture of the trip page, a link card for Wikipedia's Lisbon article and a round Book it! label."
+
+[[image]]
+id = "easel"
+shot = "easel"
+title = "Easels."
+line = "⌃⇧E: text, pictures, shapes, arrows, links and Captures on one canvas."
+focus = [0, 0, 900, 560]
+alt = "An Easel in Airc's Travel Space, on demo data: a board called Lisbon, March with a four-day plan on a coloured card, an arrow pointing to a Capture of the trip page, a link card for Wikipedia's Lisbon article, a round Book it! label and the Easel's toolbar."
+
+[[image]]
+id = "blocking"
+shot = "blocking"
+title = "Ads and trackers, blocked."
+line = "On by default. Turn it off for a site in Site Controls."
+focus = [0, 0, 780, 520]
+alt = "Site Controls in Airc on a demo page called Field Notes, served on this Mac: Block Ads & Trackers is on, with 8 blocked on this page, above the site's other controls and permissions."
+
+[[image]]
+id = "cast"
+shot = "cast-picker"
+title = "Cast."
+line = "View › Cast… finds Chromecast and Google TV on your network."
+focus = [0, 0, 720, 480]
+alt = "Airc's Cast picker below the address on Wikipedia's Lisbon article. No TV was on this network, so it says No devices found and offers Try Again."
+
+[[image]]
+id = "live-folders"
+shot = "live-folders"
+title = "GitHub Live Folders."
+line = "A folder of pull requests that keeps itself up to date."
+focus = [0, 0, 780, 540]
+alt = "A Pull Requests folder in Airc's Work Space that fills itself from GitHub: five pull requests listed as rows, from a demo GitHub served on this Mac with made-up pull requests."
+
+[[image]]
+id = "tidy-tabs"
+shot = "tidy-tabs"
+title = "Tidy Tabs."
+line = "Today's tabs grouped into folders, on your Mac, with Apple Intelligence."
+focus = [0, 0, 880, 560]
+alt = "Airc's Personal Space after Tidy: Today's tabs grouped into folders by topic, Japan, Typography and Travel, with a message that six tabs went into three folders and ⌘Z undoes it."
+
+[[image]]
+id = "share-space"
+shot = "share-space"
+title = "Share a Space."
+line = "A link that opens in any browser. You choose what's in it, and can revoke it."
+focus = [500, 225, 760, 560]
+focus_1x1 = [480, 170, 800, 640]
+alt = "Share Space Travel in Airc: the sheet lists exactly what the link will hold, four tabs in one folder, says what's left out, Today's tabs, Favorites and history, and has Create Link."
+
+[[image]]
+id = "ask-chatgpt"
+shot = "command-bar-ask-chatgpt"
+title = "Ask ChatGPT, from ⌘T."
+line = "Type gpt, press Tab, ask. Nothing is sent until you press Return."
+focus = [200, 130, 700, 320]
+alt = "Airc's Command Bar over Wikipedia's Lisbon article in ChatGPT mode: the question Plan a relaxed day in Lisbon by tram, with a long lunch, and a row to ask ChatGPT in a new tab."
+
+[[image]]
+id = "portrait"
+shot = "capture-portrait"
+title = "Capture in Portrait Mode."
+line = "Frame a page on a colour, ready to share."
+alt = "Capture in Portrait Mode in Airc: a demo trip page, Lisbon, four days, framed on a cyan background with the Airc mark, the colour slider under it, then Copy, Save and Share."
+
+[[image]]
+id = "app-icon"
+shot = "settings-app-icon"
+mode = "plate"
+title = "Your app icon."
+line = "Holographic or Outline, in Settings → Appearance."
+alt = "Airc's Settings, Appearance: the App Icon section with two choices, Holographic (selected) and Outline, above the window option for dragging from the top of a page."
+
+# ---------------------------------------------------------------- videos (rendered from f35bc013)
+
+[[video]]
+id = "portrait-video"
+motion = "portrait"
+tag = "New in Airc 0.1.4"
+title = "Capture in Portrait Mode."
+line = "Frame a page on a colour, ready to share."
+alt = "An animation rendered frame by frame by Airc 0.1.4 on demo data: Capture in Portrait Mode frames the trip page Lisbon, four days on a colour; the colour slider moves from cyan to yellow, then to the website's own colour; then Copy, Save and Share."
+
+[[video]]
+id = "devtoolbar-video"
+motion = "devtoolbar"
+web = "developer-mode-toolbar"
+tag = "New in Airc 0.1.4"
+title = "Developer Mode's toolbar."
+line = "Inspect, Network, Reload and the console errors."
+captions = { local = "On by itself for localhost: Inspect, Network, Reload and the console errors.", site = "Any other site…", ctrld = "…is one ⌃D away.", controls = "Or switch it in Site Controls." }
+fade_frames = 10
+alt = "An animation rendered frame by frame by Airc 0.1.4 on demo data: a local preview page with Developer Mode's toolbar under the address, Inspect, Network, Reload and a count of console errors; then swift.org, where ⌃D turns it on; then Site Controls with its Developer Mode switch."
+
+[[video]]
+id = "sitepreview-video"
+motion = "sitepreview"
+web = "site-previews"
+tag = "New in Airc 0.1.4"
+title = "Site previews."
+line = "Rest on a pinned Linear, Figma or Notion and jump back in."
+captions = { page = "Your work tools, pinned.", linear = "Rest on Linear: the pages you were just on, newest first.", figma = "Figma’s files…", notion = "…and Notion’s pages, from your own history." }
+fade_frames = 10
+alt = "An animation rendered frame by frame by Airc 0.1.4 on demo data: the Work Space on the demo's shared folder; resting on the pinned Linear Favorite shows a card of the Linear pages visited there, newest first, with + for a new issue; then Figma's card with recent files, then the pinned Notion page's card with recent Notion pages."
+
+# ---------------------------------------------------------------- posts
+
+[[post]]
+label = "Announcement (the thread's first post)"
+media = ["announce:16x9"]
+text = """
+Airc 0.1.4 is out.
+
+New: Easels, built-in ad and tracker blocking, passkeys on this Mac, Cast, GitHub Live Folders, Tidy Tabs and sharing a Space as a link. Plus Ask ChatGPT from ⌘T.
+
+Free, for Macs with Apple silicon. The download is on our profile.
+"""
+
+[[post]]
+label = "Easels"
+reply = true
+media = ["easel:16x9"]
+text = """
+⌃⇧E opens an Easel: a canvas for text, pictures, shapes, arrows, links and Captures. Arrange, resize, group and snap them into place.
+
+Undo survives a relaunch. Your boards are in Library › Easels, and they stay on your Mac.
+"""
+
+[[post]]
+label = "Ad and tracker blocking"
+reply = true
+media = ["blocking:16x9"]
+text = """
+Ad and tracker blocking is built in and on by default, including in profiles that hadn't chosen yet.
+
+Turn it off for a site in Site Controls, or for a whole profile in Settings. A choice you've made is kept.
+"""
+
+[[post]]
+label = "Passkeys"
+reply = true
+text = """
+Passkeys on this Mac: signed builds of Airc can save them in your profile, using the Mac's secure storage.
+
+Each profile keeps its own. Delete the profile and its passkeys go with it. iCloud Keychain passkeys aren't in this release.
+"""
+
+[[post]]
+label = "Cast"
+reply = true
+media = ["cast:16x9"]
+text = """
+View › Cast… opens a picker for Chromecast and Google TV on your network, and the sidebar shows what's casting.
+
+Honest note: we've tested it without a real TV so far. Sites that play in Safari's engine use AirPlay instead.
+"""
+
+[[post]]
+label = "GitHub Live Folders"
+reply = true
+media = ["live-folders:16x9"]
+text = """
+GitHub Live Folders follow a repository's pull requests, or yours, or your review requests. New ones arrive, merged and closed ones leave.
+
+Public repositories work without an account.
+"""
+
+[[post]]
+label = "Also in 0.1.4 (four images)"
+reply = true
+media = ["tidy-tabs:16x9", "share-space:16x9", "ask-chatgpt:16x9", "portrait:16x9"]
+text = """
+Also new: Tidy Tabs groups Today's tabs into folders with Apple Intelligence, Share Space… makes a link anyone can open, ⌘T can ask ChatGPT, and Capture has a Portrait Mode.
+"""
+
+[[post]]
+label = "Capture in Portrait Mode (video)"
+media = ["portrait-video:16x9"]
+text = """
+Capture in Portrait Mode frames a page on a colour, ready to share. It's in View and in Site Controls. New in Airc 0.1.4.
+"""
+
+[[post]]
+label = "Developer Mode's toolbar (video)"
+media = ["devtoolbar-video:16x9"]
+text = """
+Developer Mode's toolbar now has Inspect, Network, Console, and Clear data and reload. It's on by itself for localhost, and ⌃D away anywhere else. New in 0.1.4.
+"""
+
+[[post]]
+label = "Site previews (video)"
+media = ["sitepreview-video:16x9"]
+text = """
+Rest your pointer on a pinned Linear, Figma or Notion and see the pages you were just on. It comes from your own history on your Mac. New in Airc 0.1.4.
+"""
+
+[[post]]
+label = "Ask ChatGPT from ⌘T"
+media = ["ask-chatgpt:16x9"]
+text = """
+In ⌘T, type gpt and press Tab. Return opens your question on ChatGPT in a new tab; Perplexity and Claude are choices too.
+
+Turn on Ask AI in Settings → Site Search. Nothing is sent until you press Return. New in 0.1.4.
+"""
+
+[[post]]
+label = "Tidy Tabs"
+media = ["tidy-tabs:16x9"]
+text = """
+Too many tabs in Today? Click Tidy and Apple Intelligence groups them into folders on your Mac. ⌘Z puts them back. New in Airc 0.1.4.
+"""
+
+[[post]]
+label = "Share a Space"
+media = ["share-space:16x9"]
+text = """
+Share Space… makes a link to a Space that opens in any browser. You pick what's in it, and you can revoke it later. New in 0.1.4.
+"""
+
+[[post]]
+label = "Your app icon"
+media = ["app-icon:16x9"]
+text = """
+Airc 0.1.4 lets you pick its icon in Settings → Appearance: Holographic or Outline. There are sound and haptic controls too.
+"""

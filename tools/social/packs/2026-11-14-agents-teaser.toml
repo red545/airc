@@ -1,0 +1,39 @@
+# The 0.1.13 connector's own post (2026-11-14), ahead of the agent campaign (2026-11-agents-campaign.toml) that waits
+# for agentview to ship. Its video is the homepage's "For AI agents" loop as a 16:9 MP4: the frames of mcp1's scripted
+# run of the real app (`--script agentspike --agent-demo`, AgentsDemo.swift, run m1-chromium-fdemo, 2026-11-13 15:29Z,
+# the connector as it shipped in 0.1.13 that evening) on the synthetic Pastelaria Aurora site, each held as the homepage
+# holds it, then the studio's version-free end card. Built by hand (artifacts/social/2026-11-14-agents-teaser/list.txt),
+# so pack.json lists it directly.
+slug = "2026-11-14-agents-teaser"
+title = "Let Claude use your browser: the 0.1.13 connector"
+kind = "release"
+since = "0.1.13"
+tag = ""
+summary = """
+One post for the MCP connector that shipped in 0.1.13, with the homepage's demo as a video. Nothing about agentview
+(the Agents folder, Watch, Take over): it hasn't shipped.
+"""
+order = """
+1. The one post.
+"""
+checked = """
+- Text from 0.1.13's notes ("Let Claude use your browser": Claude Desktop, Claude Code and other AI apps; open pages,
+  read, click and type in signed-in sites, in windows of their own; asks once per app; never shows saved passwords;
+  never into private windows). Claude Desktop: the notes name it and the owner confirmed it on a signed build (the
+  lead, 2026-11-14); Please know says only Claude Code and test apps were tested on the build Mac.
+- The video is a scripted run: the client is named Claude but is Airc's own test client ("Started by Airc itself" in
+  the ask), and the conversation panel is drawn from the run's real tool calls. The alt text says so; the post doesn't
+  call it a recording of Claude Desktop.
+- Synthetic site and person (Ada Example) only.
+"""
+
+[[post]]
+label = "Let Claude use your browser (0.1.13, video)"
+media = ["agents-video:16x9"]
+text = """
+Let Claude use your browser.
+
+Since Airc 0.1.13, Claude Desktop, Claude Code and other MCP apps can open pages, click and type in sites you're signed in to, in windows of their own.
+
+Airc asks once per app, never shows it your saved passwords, and keeps it out of private windows.
+"""

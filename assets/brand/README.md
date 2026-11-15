@@ -9,6 +9,7 @@ crisp at every size.
 | `airc-holographic.svg` / `.png` | **App icon** (macOS squircle, holographic ring), 1024px PNG |
 | `airc-outline-squircle.svg` / `.png` | Plain outline icon on white, 1024px PNG |
 | `airc-mark-outline.svg` | The bare outline mark (monochrome contexts, menu bar, favicons) |
+| `app-icons/AppIcon-*.icns` | Settings › Appearance › App Icon's other five icons (outline, sunset, ocean, midnight, graphite): the holographic icon recoloured by `alticons.py`, rendered by `alticons.sh` on the Mac like `appicon.sh` |
 | `airc-color.svg` / `.png` | Flat-colour mark. **On hold:** older proportions and a placeholder palette, to be redone |
 
 Final proportions: element thickness 138, outline 16px and border 12px on the 600px icon canvas.

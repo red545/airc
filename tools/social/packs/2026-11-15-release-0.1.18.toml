@@ -1,0 +1,64 @@
+# Airc 0.1.18 (cut 4e1e2eb0, release/0.1.18-cut; build revision 4c62b0bf adds only notes, What's New, two .heic, catalog
+# and changelog). Claims from its approved notes (docs/release-notes-beta.md at 4c62b0bf, "New since 0.1.17"). NOT TO
+# POST before release030 posts LIVE for 0.1.18 in briefs/queue.md: plan and approve only then.
+slug = "2026-11-15-release-0.1.18"
+title = "Airc 0.1.18: Airc from your other devices"
+kind = "release"
+since = "0.1.18"
+shots_rev = "4e1e2eb0"
+tag = "New in Airc 0.1.18"
+end_title = "Airc 0.1.18"
+end_line = "Free for Mac · aircbrowser.com"
+summary = """
+Two single posts: Airc from your other devices (the agent campaign's cross-device post, now shipped) and calendar
+previews fitting Arc's six hours, both cards from the cut's own shots.
+"""
+order = """
+1. Other devices at 10:30 UTC (the best slot) on the first day it's free after LIVE; the calendar post a day later.
+2. At LIVE: if 0.1.17's calendar post (release0117-02, 17 Nov 13:00) hasn't gone out, hold it: this one supersedes it.
+"""
+checked = """
+- 0.1.18's notes, item 1: Claude Code or another AI app on another computer on your Tailscale network can use Airc on
+  this Mac; off until you turn it on in Settings › Agents › Other devices; Pair a Device, a one-time code per device,
+  Revoke any time; the same one-time approval as an app on the Mac; Airc listens only on the Mac's Tailscale
+  addresses. Please know: tested with Claude Code on a Linux computer over Tailscale and with test devices on the
+  build Mac, so the post names Claude Code on Linux.
+- Item 2: calendar previews show six hours without scrolling; a Google or Outlook calendar Favorite shows that
+  calendar's own day.
+- Left out: "Update downloads come straight from aircbrowser.com" (no update claims: the standing rule, and
+  release029's STOP on the updater from 0.1.16); page headings for AI apps and the Command Bar's lighter typing (small).
+- Shots: settings-agents-devices clipped to Other devices (made-up device names, tailnet address, pairing code and
+  100.x addresses); calendar-preview clipped to the card (synthetic events).
+"""
+
+[[image]]
+id = "devices"
+shot = "settings-agents-devices"
+title = "Airc from your other devices."
+line = "Over Tailscale, paired once, revoked any time."
+clip = [222, 648, 535, 410]
+alt = "Settings › Agents › Other devices in Airc, with made-up names and addresses: Allow other devices on your Tailscale network is on, listening only on the Tailscale network; a one-time pairing code with the command to paste in Terminal on the other device, which pairs and adds Airc to Claude Code; two paired devices, travel-laptop and studio-mini, each with Revoke."
+
+[[image]]
+id = "calendar"
+shot = "calendar-preview"
+title = "Six hours, no scrolling."
+line = "Rest on your pinned calendar."
+clip = [237, 388, 234, 334]
+alt = "Airc's preview of a pinned Google Calendar tab, on synthetic events: Join Design review, an all-day Lisbon trip, an hour grid from 16:00 to 21:00 with Design review and 1:1 with Jonas side by side, a line at the current time, Write the launch notes, Tram 28 to Alfama and Dinner at Time Out Market, and tomorrow's Team standup on one line."
+
+[[post]]
+label = "Airc from your other devices"
+media = ["devices:16x9"]
+text = """
+Claude Code on your Linux box can now use Airc on your Mac, over Tailscale.
+
+Turn on Settings › Agents › Other devices, pair each device once with a one-time code, and revoke it any time. Airc listens only on your Tailscale network. New in Airc 0.1.18.
+"""
+
+[[post]]
+label = "Calendar: six hours, no scrolling"
+media = ["calendar:16x9"]
+text = """
+Rest on a pinned Google Calendar or Outlook tab and Airc shows Arc's six hours without scrolling: overlapping meetings side by side, a line at the current time, tomorrow on one line. New in Airc 0.1.18.
+"""

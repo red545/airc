@@ -14,7 +14,7 @@ import AircKit
 ///   - in a Little Airc page, ⌥⌘ opens another Little Airc window in the same Space;
 ///   - links from other apps, as real GURL Apple events right after a ⌥⌘ click: Settings → Links decides, as in Arc
 ///     (Most recent Space: a tab in the main window; Little Airc: a Little Airc window);
-///   - a real ⌥⌘-click on the page's link (posted press and release) opens it in Little Airc. The page takes it only in
+///   - a ⌥⌘-click on the page's link (driver with AIRC_REAL_KEYS=1, otherwise posted press and release) opens it in Little Airc. The page takes it only in
 ///     a key window, so scripted runs, which never activate the app, report FAIL-ENV; AIRC_REAL_CLICKS=1 runs it.
 extension SnapshotRunner {
     func parityP06dScenario() {
@@ -181,12 +181,21 @@ extension SnapshotRunner {
         }
 
         // A real ⌥⌘-click on the page's link.
+        var originalRouter: ((EngineLinkRequest) -> Bool)?
+        run { [self] in
+            originalRouter = app?.engine.linkRouter
+            app?.engine.linkRouter = { [weak self] request in
+                self?.note("parityp06d: engine link disposition \(request.disposition), gesture \(request.userGesture)")
+                return originalRouter?(request) ?? false
+            }
+        }
         closeLittleArcs()
         var link: NSPoint?
         step { [self] done in
-            c.show(tab, focus: false)
+            c.show(tab, focus: true)
+            c.root.layoutSubtreeIfNeeded()
             guard let view = mainPage()?.view else { return done() }
-            mainPage()?.evaluate("(function(){var r=document.getElementById('link').getBoundingClientRect();return [r.left+r.width/2,r.top+r.height/2]})()") { v in
+            mainPage()?.evaluate("(function(){window.__p06dInput=[];for(const type of ['mousedown','mouseup','click'])document.addEventListener(type,e=>window.__p06dInput.push([e.type,e.target.id,e.clientX,e.clientY,e.metaKey,e.altKey]),true);var r=document.getElementById('link').getBoundingClientRect();return [r.left+r.width/2,r.top+r.height/2]})()") { v in
                 if let xy = (v as? [Any])?.compactMap({ ($0 as? NSNumber)?.doubleValue }), xy.count == 2 {
                     link = view.convert(NSPoint(x: xy[0], y: view.isFlipped ? xy[1] : Double(view.bounds.height) - xy[1]), to: nil)
                 }
@@ -197,27 +206,68 @@ extension SnapshotRunner {
             step { [self] done in
                 guard let p = link else { check(false, "parityp06d: the page's link is on screen"); return done() }
                 uiAttempt?.point = p
+                note("parityp06d: click point \(p), page bounds \(mainPage()?.view.bounds ?? .zero), target key \(c.window.isKeyWindow)")
                 func post(_ type: NSEvent.EventType) {
                     guard let e = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [.command, .option],
                                                      timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: c.window.windowNumber,
                                                      context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1) else { return }
                     NSApp.postEvent(e, atStart: false)
                 }
-                post(.leftMouseDown)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
-                    post(.leftMouseUp)
+                let input = UIDriverClient.requested ? "real driver" : "in-app posted"
+                func verify() {
                     self.waitUntil({ littleArc(at: "/target") != nil }, timeout: 4) {
                         let l = littleArc(at: "/target")
                         self.check(l != nil && mainPage()?.url?.path == "/p6",
-                                   "parityp06d: a real ⌥⌘-click on the page's link opens it in Little Airc, and the page stays (window \(l != nil), "
+                                   "parityp06d: a \(input) ⌥⌘-click on the page's link opens it in Little Airc, and the page stays (window \(l != nil), "
                                    + "page \(mainPage()?.url?.path ?? "-"))")
-                        done()
+                        guard let current = mainPage() else { return done() }
+                        current.evaluate("JSON.stringify(window.__p06dInput || [])") { value in
+                            self.note("parityp06d: delivered page events \(value ?? "none")")
+                            done()
+                        }
                     }
+                }
+                if UIDriverClient.requested {
+                    UIDriverClient.click(p, in: c.window, mods: "opt,cmd") { ok, output in
+                        self.check(ok, "parityp06d: real driver completed: \(output)")
+                        verify()
+                    }
+                } else {
+                    post(.leftMouseDown)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { post(.leftMouseUp); verify() }
                 }
             }
         }
         closeLittleArcs()
+        if UIDriverClient.requested {
+            var second = ""
+            run { [self] in
+                second = (try? c.store.openTab(url: page("/target"), inSpace: home, activate: false, title: "Modifier selection"))?.id ?? ""
+                c.reloadAll(animated: false)
+                c.show(tab, focus: true)
+                c.pageView(for: home)?.clearSelection()
+            }
+            wait(0.3)
+            uiCase(window: { self.c.window }) {
+                step { [self] done in
+                    guard let page = c.pageView(for: home), let row = page.rows[second] else {
+                        check(false, "parityp06d: sidebar selection row exists"); return done()
+                    }
+                    let point = row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), to: nil)
+                    uiAttempt?.point = point
+                    UIDriverClient.click(point, in: c.window, mods: "cmd") { ok, output in
+                        self.check(ok, "parityp06d: sidebar real driver completed: \(output)")
+                        self.waitUntil({ page.selection.contains(tab) && page.selection.contains(second) }, timeout: 3) {
+                            self.check(page.selection.contains(tab) && page.selection.contains(second),
+                                       "parityp06d: real driver ⌘-click multi-selects the sidebar tab with the shown tab")
+                            done()
+                        }
+                    }
+                }
+            }
+        }
         run { [self] in
+            app?.engine.linkRouter = originalRouter
             app?.settings.values.externalLinks = external
             app?.settings.values.littleArcGlobal.opensOptionCommandClicks = true
             server?.stop()

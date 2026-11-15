@@ -31,6 +31,35 @@ native popup, including mixed password/passkey lists. Previously the host's pass
 rows. Chromium's normal dialog says “Your Airc profile” through Airc's two explicit profile-label overrides (the upstream strings say Chrome even in unbranded builds).
 It offers Touch ID and macOS device-password user verification without an Airc authentication bypass.
 
+`035-passkeys-touch-id.patch` (user verification, every time):
+
+- `device/fido/mac/util.mm`: `ProfileAuthenticatorWillDoUserVerification` is always true. Upstream verifies only when
+  the site says `required` or Touch ID is ready, so on a Mac without Touch ID (or lid closed, or Touch ID locked out)
+  a `preferred`/`discouraged` request was one click on "Continue" and signed with no check at all. Now create, modal
+  sign-in and conditional (autofill) sign-in all run `TouchIdContext::PromptTouchId`:
+  `LAContext evaluateAccessControl` for `LAAccessControlOperationUseKeySign` with
+  `kSecAccessControlPrivateKeyUsage | kSecAccessControlUserPresence`, which is Touch ID with the Mac password as
+  fallback (and the password alone on Macs without a sensor). The UV flag is set in every response.
+- `device/fido/mac/credential_store.mm`: new keys carry the same `UserPresence` access control, so the Secure
+  Enclave itself refuses to sign without an LAContext that passed it. Upstream's V4 keys have only
+  `PrivateKeyUsage` (the browser alone enforced the check). `biometryCurrentSet` is deliberately not used: it has no
+  password fallback, and re-enrolling a finger would destroy every passkey. Keys made before this patch keep
+  working and are still verified by the browser.
+- `chrome/browser/ui/webauthn/sheet_models.cc`: the profile sheets (create, the one-passkey sheet, the account
+  picker before verification) say **Use Touch ID**, or **Use password** when biometrics aren't available, instead of
+  "Continue". They already show the site and the account. `airc_strings.cc` replaces "This passkey will only be
+  saved on this device" with a line naming the Airc profile, this Mac, Touch ID and the password.
+
+## The WebKit engine
+
+WebKit's own WebAuthn (WKWebView) needs `com.apple.developer.web-browser.public-key-credential` (or associated
+domains for the site). Measured on the build Mac with a focused, key window, a secure loopback page and a user
+gesture (`engine/host/passkeys/webkit-probe.swift`, `run-webkit.py`): `isUserVerifyingPlatformAuthenticatorAvailable`
+and `isConditionalMediationAvailable` are false, and `create`, `get` and conditional `get` fail at once with
+`NotAllowedError`, with no system sheet. So without the entitlement, nothing works in WebKit pages and sites see no
+passkey support (their other sign-in methods stay). With it, WebKit hands requests to Apple's own passkey sheet
+(iCloud Keychain, security keys, phones), which does its own Touch ID; Airc profile passkeys stay Chromium-only.
+
 `airc_passkeys.mm` removes local credentials before `AircEngine.deleteProfile` schedules deletion of the profile
 folder. Work runs off the UI thread, retains the profile until completion, and uses its original metadata secret.
 A real Keychain error returns failure and preserves the profile instead of discarding the secret. Cleanup includes
@@ -102,6 +131,19 @@ localhost certificate (SAN `DNS:localhost`). On a real signed build, use a fresh
 3. Delete the first profile through Airc, recreate it, and confirm the credential is gone while the second
    profile's credential remains. The fixture does not persist accounts or validate server-side sessions.
 4. After Apple approval, repeat with **iCloud Keychain**. Deleting the Airc profile must not delete that synced key.
+
+User-verification checks without a person (all under the agent build lock, outputs in `out/AircRelease`):
+
+- `airc/core:passkeys_uv_test`: Chromium's own LocalAuthentication seam (`ScopedTouchIdTestEnvironment`, fake
+  keychain, `ScopedBiometricsOverride`). For Touch ID present/absent × UV discouraged/preferred/required it checks
+  that create, picker sign-in and autofill sign-in ask first, save/sign nothing on cancel, and set UV on success.
+  No prompt, no signing, no real Keychain item.
+- `airc/core:passkeys_store_test` (signed, as above) now proves the presence binding on a real Secure Enclave key:
+  signing through an `LAContext` with `interactionNotAllowed` must be refused. It never shows UI; an unbound key
+  would sign there.
+- `run-virtual.py SIGNED_HOST OUT sheet` opens the real "Create a passkey" sheet in the Developer ID signed host,
+  captures the host's own windows and cancels from the page. Nobody presses the button, so no macOS prompt
+  appears and no key is made.
 
 No unattended Touch ID/device-password dialog, Apple authorization prompt, Bluetooth pairing, or owner data
 is used by these probes. Marketing screenshots and native picker/autofill presentation need the attended run;

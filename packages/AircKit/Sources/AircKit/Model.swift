@@ -111,8 +111,12 @@ public enum ArchiveInterval: String, Codable, Hashable, Sendable, CaseIterable {
     }
 }
 
+/// A profile's built-in search engine (Settings → Profiles → Search engine; Arc's "Default Search Engine"). Arc listed
+/// its Chromium's prepopulated engines; these are Chromium 156's choices across regions (Google, DuckDuckGo, Brave,
+/// Bing, Ecosia; Yahoo, Startpage and Perplexity in some) plus Kagi. Declared in the picker's order; the raw values are
+/// what's stored, so never rename one. An older build reads a newer engine as Google (`init(from:)` below).
 public enum SearchEngine: String, Codable, Hashable, Sendable, CaseIterable {
-    case google, duckDuckGo, bing, kagi, ecosia
+    case google, bing, duckDuckGo, ecosia, brave, yahoo, startpage, perplexity, kagi
 
     public var name: String {
         switch self {
@@ -121,21 +125,65 @@ public enum SearchEngine: String, Codable, Hashable, Sendable, CaseIterable {
         case .bing: "Bing"
         case .kagi: "Kagi"
         case .ecosia: "Ecosia"
+        case .brave: "Brave"
+        case .yahoo: "Yahoo"
+        case .startpage: "Startpage"
+        case .perplexity: "Perplexity"
         }
     }
 
-    public func searchURL(for query: String) -> URL {
-        var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove(charactersIn: "&+=?#")
-        let q = query.addingPercentEncoding(withAllowedCharacters: allowed) ?? query
-        let base: String = switch self {
+    /// The results page's address up to the query (Chromium's prepopulated search_url, its tracking parameters left out).
+    var searchBase: String {
+        switch self {
         case .google: "https://www.google.com/search?q="
         case .duckDuckGo: "https://duckduckgo.com/?q="
         case .bing: "https://www.bing.com/search?q="
         case .kagi: "https://kagi.com/search?q="
         case .ecosia: "https://www.ecosia.org/search?q="
+        case .brave: "https://search.brave.com/search?q="
+        case .yahoo: "https://search.yahoo.com/search?p="
+        case .startpage: "https://www.startpage.com/sp/search?q="
+        case .perplexity: "https://www.perplexity.ai/search?q="
         }
-        return URL(string: base + q)!
+    }
+
+    /// The suggestion endpoint up to the query (Chromium's prepopulated suggest_url; every one answers with OpenSearch
+    /// suggestions JSON, `["query", ["s1", …]]`).
+    var suggestBase: String {
+        switch self {
+        case .google: "https://suggestqueries.google.com/complete/search?client=firefox&q="
+        case .duckDuckGo: "https://duckduckgo.com/ac/?type=list&q="
+        case .bing: "https://api.bing.com/osjson.aspx?query="
+        case .ecosia: "https://ac.ecosia.org/autocomplete?type=list&q="
+        case .kagi: "https://kagisuggest.com/api/autosuggest?q="
+        case .brave: "https://search.brave.com/api/suggest?q="
+        case .yahoo: "https://search.yahoo.com/sugg/chrome?output=fxjson&appid=crmas_sfp&command="
+        case .startpage: "https://www.startpage.com/osuggestions?q="
+        case .perplexity: "https://suggest.perplexity.ai/suggest?q="
+        }
+    }
+
+    /// The query as a URL query value.
+    static func encode(_ query: String) -> String {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?#")
+        return query.addingPercentEncoding(withAllowedCharacters: allowed) ?? query
+    }
+
+    public func searchURL(for query: String) -> URL {
+        URL(string: SearchEngineStandIn.route(searchBase) + Self.encode(query))!
+    }
+}
+
+/// Test builds' loopback stand-in for every engine (C08): set, every engine's search and suggestion addresses go to
+/// `origin` + "/" + the engine's host + its path, so a check sees which engine was asked and nothing leaves the Mac.
+/// Only test code sets it (the app's `AIRC_TESTING` checks).
+public enum SearchEngineStandIn {
+    nonisolated(unsafe) public static var origin: String?
+
+    static func route(_ base: String) -> String {
+        guard let origin, let r = base.range(of: "://") else { return base }
+        return origin + "/" + base[r.upperBound...]
     }
 }
 
@@ -150,6 +198,9 @@ public struct Profile: Codable, Hashable, Sendable, Identifiable {
     public var engineDirectory: String
     public var archiveAfter: ArchiveInterval
     public var searchEngine: SearchEngine
+    /// Arc's per-profile "Include search engine suggestions" (C08): nil (never changed) is on. The app-wide switch
+    /// (Settings → Privacy) still turns every profile's off.
+    public var searchSuggestions: Bool?
     /// Signed-in Google account, for display only (SB-22).
     public var googleAccount: String?
     /// SP-12: local, per-profile setup progress; nil for profiles saved by older versions.
@@ -176,6 +227,11 @@ public struct Profile: Codable, Hashable, Sendable, Identifiable {
         self.createdAt = createdAt
         self.sourceID = sourceID
     }
+}
+
+extension Profile {
+    /// Whether the Command Bar asks this profile's search engine for suggestions (Arc's per-profile switch, on by default).
+    public var includesSearchSuggestions: Bool { searchSuggestions ?? true }
 }
 
 // MARK: - Spaces
@@ -232,6 +288,10 @@ public enum ItemKind: String, Codable, Hashable, Sendable {
 public enum ItemContainer: Codable, Hashable, Sendable {
     case pinned(spaceID: String)
     case favorites(profileID: String)
+    /// A folder in a Space's Today list (Arc's unpinned folders, TodayFolders.swift): only `kind == .folder`. Its tabs
+    /// are Today tabs with `LiveTab.folderID`; a Today folder can hold Today folders (`parentID`), as in Arc. Schema 3: a
+    /// build before it can't read the row and hides it, keeping it on disk (H4), and shows its tabs loose in Today.
+    case today(spaceID: String)
 }
 
 /// A persistent sidebar row that exists without a loaded page (SB-30).
@@ -285,9 +345,18 @@ public struct Item: Codable, Hashable, Sendable, Identifiable {
         return false
     }
 
+    /// The Space a pinned item or Today folder is in.
     public var spaceID: String? {
-        if case .pinned(let id) = container { return id }
-        return nil
+        switch container {
+        case .pinned(let id), .today(let id): id
+        case .favorites: nil
+        }
+    }
+
+    /// A folder in a Space's Today list (TodayFolders.swift).
+    public var isTodayFolder: Bool {
+        if case .today = container { return true }
+        return false
     }
 
     public var profileID: String? {
@@ -331,6 +400,10 @@ public struct LiveTab: Codable, Hashable, Sendable, Identifiable {
     /// A Today tab's own icon (an emoji, Arc's "Change Icon…" on a Today tab); a pinned tab's is its item's. Older files
     /// have none, and a tab without one encodes as before.
     public var icon: String?
+    /// The Today folder (an `Item` in `.today(spaceID:)`) this Today tab is in; nil = loose in Today. Only on a Today
+    /// tab of that folder's Space (`repair` and `tidyTodayFolders` clear it otherwise). Encoded only when set, so a tab
+    /// outside a folder reads and writes as before; an older build keeps it on disk (H4 merge) and shows the tab loose.
+    public var folderID: String?
 
     public init(id: String = newID(), profileID: String, spaceID: String?, itemID: String? = nil, url: String,
                 title: String = "", faviconURL: String? = nil, order: Double = 0, openerID: String? = nil,

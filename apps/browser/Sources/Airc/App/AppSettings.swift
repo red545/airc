@@ -55,6 +55,10 @@ final class AppSettings: ObservableObject {
         var peekEnabled = true
         /// SB-45: a card with the page's picture beside a sidebar tab under the pointer (Settings → Appearance).
         var tabPreviews = true
+        /// feedback2: the sidebar footer's Send Feedback button (Settings → Appearance → Sidebar; its right-click › Hide).
+        var sidebarFeedbackButton = true
+        /// S04: services whose site previews are off (PreviewService raw values; Settings → Appearance → Site Previews).
+        var servicePreviewsOff: [String] = []
         /// Settings → AI → "Tidy tab titles" (AI/AIFeatures.swift, docs/user/ai.md): off until the person turns it on.
         var tidyTitles = false
         /// Settings → AI → "Ask on Page" (AI/AskPageCard.swift): off until turned on.
@@ -65,6 +69,9 @@ final class AppSettings: ObservableObject {
         var linkPreviewNever: [String] = []
         /// Settings → AI → "Tidy downloads" (AI/TidyDownloadsFeature.swift): off until turned on.
         var tidyDownloads = false
+        /// Settings → AI → "Rename automatically" (tidydl, Arc's Tidy Downloads): with Tidy downloads on, a finished
+        /// download takes its suggested name at once, with Undo. Off until turned on.
+        var tidyDownloadsAuto = false
         /// Settings → Privacy → "Play DRM sites with Safari's engine" (docs/user/protected-media.md): Spotify, Netflix
         /// and the other services whose DRM needs more than Chromium's Widevine open in a WebKit page. On by default.
         var webKitProtectedMedia = true
@@ -84,11 +91,27 @@ final class AppSettings: ObservableObject {
         var sidebarItems = SidebarItemPreferences()
         /// Settings › Appearance › App Icon, General › Sounds and Haptics (Settings/AppPersonalization.swift).
         var personalization = PersonalizationPreferences()
+        /// Settings › General › When Airc starts (E12): the windows and tabs from last time (WIN-7, as before) or one new
+        /// window. A crash or an update's restart always brings them back (Browser/MultiWindow.swift's restoreWindows).
+        var startupWindows: StartupWindows = .lastSession
         /// Settings › General › Automatic Updates, Arc's "Automatically update my Arc" (off, as Arc's): a downloaded update
         /// restarts Airc by itself once you've been away a while and nothing would be interrupted (Browser/UpdateButton.swift).
         var restartToUpdateWhenIdle = false
+        /// Settings › General › Automatic Updates: the "What's new" card after an update and the highlights on Restart to
+        /// Update (Browser/WhatsNewCard.swift). On by default. whatsnew2: kept equal to `whatsNewStyle != .off` (older
+        /// builds read it).
+        var showWhatsNewAfterUpdates = true
+        /// whatsnew2, Settings › General › Automatic Updates › After an update: the What's new tab (the default), the
+        /// sidebar's small card, or nothing. A file from before it reads `showWhatsNewAfterUpdates` (off: nothing).
+        var whatsNewStyle: WhatsNewStyle = .tab { didSet { showWhatsNewAfterUpdates = whatsNewStyle != .off } }
         /// Settings → Site Search: each profile's sites for the Command Bar's Site Search (AircKit's SiteSearchSettings).
         var siteSearch = SiteSearchSettings()
+        /// Settings → Site Search → Ask AI (P07b, CommandBar/ChatGPTCommand.swift): each profile's chat site, off
+        /// until chosen, as Arc Max's ChatGPT in the Command Bar.
+        var askAI = AskAISettings()
+        /// Settings → AI → Instant Links (P07c, CommandBar/InstantLinks.swift): ⇧↵ opens the best result. Off until turned
+        /// on, as Arc Max's; needs Apple Intelligence.
+        var instantLinks = false
 
         /// Settings → General → Notes: what New Note makes (Notes/NoteExport.swift, AircKit's NoteApp). Airc's own notes
         /// unless the person chooses another app; a value from a newer build reads as Airc's.
@@ -128,11 +151,14 @@ final class AppSettings: ObservableObject {
             sharedQuotes = (try? c.decodeIfPresent(Bool.self, forKey: .sharedQuotes)) ?? d.sharedQuotes
             peekEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .peekEnabled)) ?? d.peekEnabled
             tabPreviews = (try? c.decodeIfPresent(Bool.self, forKey: .tabPreviews)) ?? d.tabPreviews
+            sidebarFeedbackButton = (try? c.decodeIfPresent(Bool.self, forKey: .sidebarFeedbackButton)) ?? d.sidebarFeedbackButton
+            servicePreviewsOff = (try? c.decodeIfPresent([String].self, forKey: .servicePreviewsOff)) ?? []
             tidyTitles = (try? c.decodeIfPresent(Bool.self, forKey: .tidyTitles)) ?? d.tidyTitles
             askPage = (try? c.decodeIfPresent(Bool.self, forKey: .askPage)) ?? d.askPage
             linkPreviews = (try? c.decodeIfPresent(Bool.self, forKey: .linkPreviews)) ?? d.linkPreviews
             linkPreviewNever = (try? c.decodeIfPresent([String].self, forKey: .linkPreviewNever)) ?? []
             tidyDownloads = (try? c.decodeIfPresent(Bool.self, forKey: .tidyDownloads)) ?? d.tidyDownloads
+            tidyDownloadsAuto = (try? c.decodeIfPresent(Bool.self, forKey: .tidyDownloadsAuto)) ?? d.tidyDownloadsAuto
             defaultBrowser = (try? c.decodeIfPresent(DefaultBrowserState.self, forKey: .defaultBrowser)) ?? d.defaultBrowser
             calendar = (try? c.decodeIfPresent(CalendarPreferences.self, forKey: .calendar)) ?? d.calendar
             librarySources = (try? c.decodeIfPresent(LibrarySourceSettings.self, forKey: .librarySources)) ?? d.librarySources
@@ -140,8 +166,14 @@ final class AppSettings: ObservableObject {
             shortcuts = (try? c.decodeIfPresent([String: String].self, forKey: .shortcuts)) ?? [:]
             sidebarItems = (try? c.decodeIfPresent(SidebarItemPreferences.self, forKey: .sidebarItems)) ?? d.sidebarItems
             personalization = (try? c.decodeIfPresent(PersonalizationPreferences.self, forKey: .personalization)) ?? d.personalization
+            startupWindows = (try? c.decodeIfPresent(StartupWindows.self, forKey: .startupWindows)) ?? d.startupWindows
             restartToUpdateWhenIdle = (try? c.decodeIfPresent(Bool.self, forKey: .restartToUpdateWhenIdle)) ?? d.restartToUpdateWhenIdle
+            showWhatsNewAfterUpdates = (try? c.decodeIfPresent(Bool.self, forKey: .showWhatsNewAfterUpdates)) ?? d.showWhatsNewAfterUpdates
+            whatsNewStyle = (try? c.decodeIfPresent(WhatsNewStyle.self, forKey: .whatsNewStyle)) ?? (showWhatsNewAfterUpdates ? .tab : .off)
+            showWhatsNewAfterUpdates = whatsNewStyle != .off
             siteSearch = (try? c.decodeIfPresent(SiteSearchSettings.self, forKey: .siteSearch)) ?? d.siteSearch
+            askAI = (try? c.decodeIfPresent(AskAISettings.self, forKey: .askAI)) ?? d.askAI
+            instantLinks = (try? c.decodeIfPresent(Bool.self, forKey: .instantLinks)) ?? d.instantLinks
             newNoteApp = (try? c.decodeIfPresent(NoteApp.self, forKey: .newNoteApp)) ?? d.newNoteApp
         }
     }

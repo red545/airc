@@ -47,6 +47,9 @@ address as a property. Airc's events are built from fixed lists in the code (`pa
 Telemetry/TelemetryEvent.swift`), so none of these can reach them: there is no event that takes text. A unit test
 serialises every event and fails on any property or value outside a strict list.
 
+Feedback isn't telemetry: Help › Send Feedback… sends only what you write and tick, when you click Send, to
+aircbrowser.com rather than PostHog, and shows it all first ([feedback.md](feedback.md)).
+
 PostHog receives each batch over HTTPS from your Mac's internet connection, so like any web server it sees the
 address the request comes from. Airc asks it not to look up a location from it (`$geoip_disable`) and marks every
 event anonymous (`$process_person_profile: false`), so PostHog keeps no profile of you.

@@ -110,10 +110,6 @@ import Foundation
         // Disabled profiles and site exceptions do one policy handshake only:
         // no DOM walk, mutation observer or stylesheet in the off baseline.
         if (!value.enabled) { observer.disconnect(); pending = []; walker = null; return; }
-        if (!sheet) {
-          try { sheet = new CSSStyleSheet(); document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet]; }
-          catch (_) { return; }
-        }
         if (!observing) {
           observing = true;
           observer.observe(document, {subtree:true, childList:true, attributes:true, attributeFilter:['class','id']});
@@ -125,11 +121,16 @@ import Foundation
             // Parse as a selector before stylesheet insertion: braces, at-rules
             // or declarations must never execute before post-insert validation.
             selectorParser.querySelector(selector);
+            if (!sheet) sheet = new CSSStyleSheet();
             const index = sheet.insertRule(selector + '{display:none!important}', sheet.cssRules.length);
             const rule = sheet.cssRules[index];
             if (!(rule instanceof CSSStyleRule) || rule.style.length !== 1 || rule.style.display !== 'none') {
               sheet.deleteRule(index); continue;
             }
+            // Adopt only after a valid rule exists. Empty replies still start
+            // token observation, but must not mutate the document's sheets.
+            if (!document.adoptedStyleSheets.includes(sheet))
+              document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
             seen.add(selector);
           } catch (_) {}
         }

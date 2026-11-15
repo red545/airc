@@ -67,28 +67,41 @@ public enum LinkRouting {
         return left == right
     }
 
-    public enum PageTarget: Equatable { case engine, peek, space(String) }
+    /// `newTab`: a new foreground tab in the opener's Space (a meeting link a pinned tab would have Peeked).
+    public enum PageTarget: Equatable { case engine, peek, newTab, space(String) }
 
     /// Air Traffic Control also routes Peek links, as in Arc: a user-followed link leaving its site that would open in
     /// Peek, or one followed inside Peek, goes to the first matching rule's Space instead. Other page links never
     /// consult the rules; same-site links keep the engine's behavior (or an explicitly requested Peek).
+    /// Meeting links (Meet, Zoom, Teams, Webex, Around) skip Peek, as in Arc: a call doesn't belong in a card. A ⇧-click
+    /// (`explicitPeek`) still Peeks them.
     public static func pageTarget(from origin: URL?, to url: URL, userGesture: Bool,
-                                  wantsPeek: Bool, fromPeek: Bool = false, rules: [LinkRule], existingSpaces: Set<String>,
-                                  suffixes: PublicSuffixList = .shared) -> PageTarget {
+                                  wantsPeek: Bool, explicitPeek: Bool = false, fromPeek: Bool = false, rules: [LinkRule],
+                                  existingSpaces: Set<String>, suffixes: PublicSuffixList = .shared) -> PageTarget {
         guard userGesture, BoostDomain.webHost(of: url) != nil else { return .engine }
         if wantsPeek || fromPeek, !sameSite(origin, url, suffixes: suffixes),
            let id = space(for: url, rules: rules, existingSpaces: existingSpaces) { return .space(id) }
+        if wantsPeek, !explicitPeek, MeetingLink.service(of: url) != nil { return .newTab }
         return wantsPeek ? .peek : .engine
     }
 
     /// P06d: Arc's "Open Little Arc when clicking on links with ⌥⌘ held" (optionCommandClickLittleArcEntryPointEnabled,
     /// on by default). A web link a person followed with ⌥⌘ held opens in Little Arc, ahead of Peek and the rules: they
-    /// asked for it. Only a link the engine would open in a new tab (⌥⌘ is ⌘'s background tab to both engines), so the
+    /// asked for it. Only a new-tab or split-view link (Chromium reports ⌥⌘ as split_view), so the
     /// page's own navigations and popups stay. Links from other apps never come here: Arc has no modifier for them.
     public static func opensInLittleArc(url: URL, userGesture: Bool, disposition: String, heldOptionCommand: Bool,
                                         enabled: Bool) -> Bool {
         enabled && heldOptionCommand && userGesture && BoostDomain.webHost(of: url) != nil
-            && ["background_tab", "foreground_tab"].contains(disposition)
+            && ["background_tab", "foreground_tab", "split_view"].contains(disposition)
+    }
+
+    /// The engine disposition of a WebKit link click, named as Chromium names it, so Peek and the rules see one request
+    /// shape on both engines: ⇧ alone is Chromium's ⇧-click ("window", which Airc opens in Peek), ⌘ a background tab,
+    /// ⌘⇧ a foreground tab, a target=_blank link a foreground tab, anything else the page's own frame.
+    public static func webKitDisposition(newFrame: Bool, command: Bool, shift: Bool) -> String {
+        if command { return shift ? "foreground_tab" : "background_tab" }
+        if shift { return "window" }
+        return newFrame ? "foreground_tab" : "current_tab"
     }
 
     /// The Space the first matching rule names (rules whose Space is gone are passed over), else nil.

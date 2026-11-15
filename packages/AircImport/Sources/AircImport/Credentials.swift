@@ -10,6 +10,29 @@ public struct ImportedLogin: Codable, Sendable, Equatable {
     public var signonRealm: String
     public var username: String
     public var password: String
+    /// P22b: "" for a web page's form; "basic", "digest" or "other" for HTTP authentication (the browser's own sign-in
+    /// box), whose realm is the origin plus the server's realm name.
+    public var scheme = ""
+    /// P22b: a federated sign-in's provider ("https://accounts.google.com"). It has no password.
+    public var federationOrigin = ""
+    /// P22b: the Android app this login was saved for, when Arc's affiliations link the app to this website.
+    public var androidApp = ""
+}
+/// What the destination engine's import takes beyond website passwords and unpartitioned cookies (P22b), from the
+/// engine's own list (`AircProfile.importKinds`). An engine without the list takes none of them.
+public struct ImportKinds: OptionSet, Sendable, Hashable {
+    public let rawValue: Int
+    public init(rawValue: Int) { self.rawValue = rawValue }
+    public static let httpAuthLogins = ImportKinds(rawValue: 1)
+    public static let federatedLogins = ImportKinds(rawValue: 2)
+    public static let partitionedCookies = ImportKinds(rawValue: 4)
+    public static let localStorage = ImportKinds(rawValue: 8)
+    public static let all: ImportKinds = [.httpAuthLogins, .federatedLogins, .partitionedCookies, .localStorage]
+    public init(names: [String]) {
+        let known: [String: ImportKinds] = ["httpAuthLogins": .httpAuthLogins, "federatedLogins": .federatedLogins,
+                                            "partitionedCookies": .partitionedCookies, "localStorage": .localStorage]
+        self = ImportKinds(names.compactMap { known[$0] })
+    }
 }
 public struct ImportedCookie: Codable, Sendable, Equatable {
     public var host: String
@@ -26,6 +49,8 @@ public struct ImportedCookie: Codable, Sendable, Equatable {
 public struct ImportedCredentials: Sendable {
     public var logins: [ImportedLogin]
     public var cookies: [ImportedCookie]
+    /// P22b: the localStorage of the sites visited most (SiteStorage.swift).
+    public var siteData: [ImportedSiteStorage] = []
     /// Arc's "never save" entries, which aren't brought over.
     public var skippedLogins = 0
     /// Rows that couldn't be read or decrypted. One bad row never stops the rest of the profile (code review H2).
@@ -48,22 +73,32 @@ public struct ImportedCredentials: Sendable {
     public var notes: [RowNote] = []
 
     public struct RowNote: Sendable, Equatable {
-        public enum Kind: String, Sendable { case login, cookie }
+        public enum Kind: String, Sendable { case login, cookie, siteData }
         public var kind: Kind
-        /// A login's origin, a cookie's host.
+        /// A login's origin, a cookie's host, a site's origin (site data).
         public var site: String
         /// A login's username ("" for a cookie or a never-save entry).
         public var username: String
         /// Skipped on purpose (Arc's never-save entries); otherwise the row couldn't be read.
         public var skipped: Bool
         public var reason: String
+        /// P22b: a federated sign-in's provider host ("accounts.google.com").
+        public var provider = ""
+        /// P22b: what of a site's data this is ("local storage", "offline data").
+        public var detail = ""
+        /// P22b: how many it stands for (sites beyond the most visited ones are one note).
+        public var count = 1
 
-        public init(kind: Kind, site: String, username: String = "", skipped: Bool, reason: String) {
+        public init(kind: Kind, site: String, username: String = "", skipped: Bool, reason: String, provider: String = "",
+                    detail: String = "", count: Int = 1) {
             self.kind = kind
             self.site = site
             self.username = username
             self.skipped = skipped
             self.reason = reason
+            self.provider = provider
+            self.detail = detail
+            self.count = count
         }
     }
 
@@ -79,15 +114,27 @@ public enum ArcSafeStorage {
     /// Keychain's lookup, replaceable so tests can give any status without the real Keychain (P22).
     public typealias Lookup = (_ query: CFDictionary, _ result: UnsafeMutablePointer<CFTypeRef?>?) -> OSStatus
 
-    /// Explicit opt-in only. This may display the system Keychain consent prompt.
-    public static func readPassword(lookup: Lookup = SecItemCopyMatching) throws -> Data {
-        let query: [String: Any] = [
+    /// The Keychain item Arc keeps its key in: generic password "Arc Safe Storage", account "Arc", in the login
+    /// keychain. Checks name a scratch item instead (arcimport3); the app reads only `.arc`.
+    public struct Item: Sendable, Equatable {
+        public var service: String
+        public var account: String
+        public init(service: String, account: String) { self.service = service; self.account = account }
+        public static let arc = Item(service: "Arc Safe Storage", account: "Arc")
+    }
+
+    /// Explicit opt-in only. This may display the system Keychain consent prompt. `searchList` limits the lookup to
+    /// those keychains (a check's scratch keychain); nil searches the user's keychains as macOS does.
+    public static func readPassword(item: Item = .arc, searchList: [AnyObject]? = nil,
+                                    lookup: Lookup = SecItemCopyMatching) throws -> Data {
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "Arc Safe Storage",
-            kSecAttrAccount as String: "Arc",
+            kSecAttrService as String: item.service,
+            kSecAttrAccount as String: item.account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
+        if let searchList { query[kSecMatchSearchList as String] = searchList }
         var result: CFTypeRef?
         let status = lookup(query as CFDictionary, &result)
         if let error = error(for: status) { throw error }
@@ -247,7 +294,11 @@ public enum ArcCredentialImporter {
     /// Works while Arc runs: it reads private copies (`DatabaseCopy`). A row that can't be decrypted is counted in
     /// `failedLogins`/`failedCookies` and the rest still comes over; a database that can't be read at all is listed in
     /// `failedDatabases`. Throws only for cancellation or an unreadable profile folder.
+    /// P22b: `kinds` are what the destination engine takes beyond website passwords (HTTP authentication and federated
+    /// logins come through only then, otherwise they're skipped with why and never decrypted); `includeSiteData` reads
+    /// the most visited sites' localStorage (SiteStorage.swift).
     public static func read(profileDirectory: URL, key: Data, includeLogins: Bool = true, includeCookies: Bool = true,
+                            includeSiteData: Bool = false, kinds: ImportKinds = [],
                             progress: ProgressHandler? = nil,
                             tempRoot: URL = FileManager.default.temporaryDirectory) async throws -> ImportedCredentials {
         try await Task.detached {
@@ -287,7 +338,12 @@ public enum ArcCredentialImporter {
             let loginURL = profileDirectory.appendingPathComponent("Login Data")
             if includeLogins, try exists(loginURL) {
                 do {
-                    for r in try DatabaseCopy(loginURL, tempRoot: tempRoot).rows("SELECT * FROM logins") {
+                    let rows = try DatabaseCopy(loginURL, tempRoot: tempRoot).rows("SELECT * FROM logins")
+                    // Android logins come over for the websites Arc's affiliations link to their app (P22b).
+                    let apps = rows.contains { string($0, "signon_realm").hasPrefix("android://") }
+                        ? Self.affiliations(profileDirectory, tempRoot: tempRoot) : [:]
+                    var mapped: [ImportedLogin] = []
+                    for r in rows {
                         try Task.checkCancellation()
                         if string(r, "blacklisted_by_user") == "1" {
                             out.skippedLogins += 1
@@ -295,31 +351,53 @@ public enum ArcCredentialImporter {
                                                    reason: "Arc was set to never save passwords here"))
                             continue
                         }
-                        // Kinds of login Airc doesn't take, said precisely (P22) and never decrypted.
-                        if let why = Self.unsupportedLogin(r, string) {
+                        let site = string(r, "origin_url"), username = string(r, "username_value")
+                        // Kinds of login Airc doesn't take, said precisely (P22) and never decrypted. P22b: the ones the
+                        // engine takes come through; a federated one needs no decrypting (it has no password).
+                        let kind = Self.loginKind(r, string, kinds: kinds, apps: apps)
+                        switch kind {
+                        case .skip(let why, let provider):
                             out.skippedLogins += 1
-                            out.notes.append(.init(kind: .login, site: string(r, "origin_url"), username: string(r, "username_value"),
-                                                   skipped: true, reason: why))
+                            out.notes.append(.init(kind: .login, site: site, username: username, skipped: true, reason: why, provider: provider))
                             continue
+                        case .federated(let provider):
+                            out.logins.append(.init(origin: site, actionURL: string(r, "action_url"), signonRealm: string(r, "signon_realm"),
+                                                    username: username, password: "", federationOrigin: provider))
+                            continue
+                        case .password, .httpAuth, .android: break
                         }
                         do {
                             let encrypted = r["password_value"] ?? Data()
                             let password = encrypted.isEmpty ? "" : try text(decrypt(encrypted))
                             guard !password.isEmpty else {
                                 out.skippedLogins += 1
-                                out.notes.append(.init(kind: .login, site: string(r, "origin_url"), username: string(r, "username_value"),
+                                out.notes.append(.init(kind: .login, site: site, username: username,
                                                        skipped: true, reason: "Arc saved a username here but no password"))
                                 continue
                             }
-                            out.logins.append(.init(origin: string(r, "origin_url"), actionURL: string(r, "action_url"),
-                                                    signonRealm: string(r, "signon_realm"), username: string(r, "username_value"),
-                                                    password: password))
+                            switch kind {
+                            case .android(let app, let websites):
+                                // After the profile's own website logins, so a website's own password for the same
+                                // username wins (the engine keeps the first; this one is then "Already saved").
+                                for w in websites {
+                                    mapped.append(.init(origin: w, actionURL: "", signonRealm: w, username: username, password: password,
+                                                        androidApp: app))
+                                }
+                            case .httpAuth(let scheme):
+                                out.logins.append(.init(origin: site, actionURL: "", signonRealm: string(r, "signon_realm"),
+                                                        username: username, password: password, scheme: scheme))
+                            default:
+                                out.logins.append(.init(origin: site, actionURL: string(r, "action_url"),
+                                                        signonRealm: string(r, "signon_realm"), username: username,
+                                                        password: password))
+                            }
                         } catch let p as RowProblem {
                             out.failedLogins += 1; out.fail("login: " + p.reason)
                             out.notes.append(.init(kind: .login, site: string(r, "origin_url"), username: string(r, "username_value"),
                                                    skipped: false, reason: p.reason))
                         }
                     }
+                    out.logins += mapped
                 } catch is CancellationError { throw CancellationError() }
                 catch {
                     out.failedDatabases.append("Login Data"); out.fail("Login Data: \(error)")
@@ -365,27 +443,82 @@ public enum ArcCredentialImporter {
                     out.databaseReasons["Cookies"] = databaseReason(error)
                 }
             }
+            if includeSiteData { try Self.readSiteData(profileDirectory, tempRoot: tempRoot, into: &out) }
             progress?(.init(stage: .complete, completed: 2, total: 2))
             return out
         }.value
     }
 
-    /// Why a login is of a kind Airc doesn't import, from Chromium's `logins` columns, or nil for a website's
-    /// password. Android app logins, federated sign-ins (no password: "Sign in with Google"), and HTTP authentication
-    /// (the browser's own sign-in box, Chromium's schemes 1–3) or username-only entries (scheme 4).
-    static func unsupportedLogin(_ r: [String: Data], _ string: ([String: Data], String) -> String) -> String? {
+    /// What a login row is, from Chromium's `logins` columns (P22, P22b): a website's password; HTTP authentication
+    /// (the browser's own sign-in box, Chromium's schemes 1–3) or a federated sign-in ("Sign in with Google", no
+    /// password) when the engine takes them; an Android app's login for the websites linked to it; or skipped, with
+    /// why (an Android app no website is linked to, a proxy's sign-in, a username-only entry, or what the engine
+    /// doesn't take yet).
+    enum LoginKind: Equatable {
+        case password
+        case httpAuth(scheme: String)
+        case federated(provider: String)
+        case android(app: String, websites: [String])
+        case skip(String, provider: String)
+    }
+
+    static func loginKind(_ r: [String: Data], _ string: ([String: Data], String) -> String, kinds: ImportKinds,
+                          apps: [String: [String]]) -> LoginKind {
         let realm = string(r, "signon_realm"), origin = string(r, "origin_url")
         if realm.hasPrefix("android://") || origin.hasPrefix("android://") {
-            return "An Android app's login: Airc takes website logins only"
+            let facet = realm.hasPrefix("android://") ? realm : origin
+            let app = String(facet.split(separator: "@", maxSplits: 1).last ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            if let websites = apps[facet.hasSuffix("/") ? String(facet.dropLast()) : facet], !websites.isEmpty {
+                return .android(app: app, websites: websites)
+            }
+            return .skip("An Android app's login" + (app.isEmpty ? "" : " (\(app))")
+                         + ": no website is linked to the app, so it can't be imported", provider: "")
         }
-        if realm.hasPrefix("federation://") || !string(r, "federation_url").isEmpty {
-            return "Signs in through another account (such as Google), so Arc had no password for it: use that sign-in on the site"
+        let federation = string(r, "federation_url")
+        if realm.hasPrefix("federation://") || !federation.isEmpty {
+            let provider = URL(string: federation)?.host ?? String(realm.dropFirst("federation://".count).split(separator: "/").dropFirst().first ?? "")
+            if kinds.contains(.federatedLogins), federation.hasPrefix("https://") { return .federated(provider: federation) }
+            return .skip("Signs in through another account (such as Google), so Arc had no password for it: use that sign-in on the site",
+                         provider: provider)
         }
-        switch Int(string(r, "scheme")) ?? 0 {
-        case 1, 2, 3: return "A password for the browser's own sign-in box (HTTP authentication): Airc can't import these yet"
-        case 4: return "Arc saved a username here but no password"
-        default: return nil
+        let scheme = Int(string(r, "scheme")) ?? 0
+        switch scheme {
+        case 1, 2, 3:
+            // Chromium's realm for a site's sign-in box is its origin plus the server's realm name; a proxy's is
+            // host:port, which Airc doesn't take.
+            let site = URL(string: origin).flatMap { u in u.scheme.flatMap { s in u.host.map { "\(s)://\($0)" + (u.port.map { ":\($0)" } ?? "") + "/" } } }
+            guard let site, origin.hasPrefix("http"), realm.hasPrefix(site), realm.count > site.count else {
+                return .skip("A proxy server's sign-in (HTTP authentication): Airc takes websites' only", provider: "")
+            }
+            guard kinds.contains(.httpAuthLogins) else {
+                return .skip("A password for the browser's own sign-in box (HTTP authentication): Airc can't import these yet", provider: "")
+            }
+            return .httpAuth(scheme: scheme == 1 ? "basic" : scheme == 2 ? "digest" : "other")
+        case 4: return .skip("Arc saved a username here but no password", provider: "")
+        default: return .password
         }
+    }
+
+    /// Arc's affiliations (Chromium's "Affiliation Database"): each Android app's facet ("android://<hash>@<package>")
+    /// and the HTTPS websites in its class, as login origins ("https://example.com/"), at most three. Empty when Arc has
+    /// none or it can't be read.
+    static func affiliations(_ profileDirectory: URL, tempRoot: URL) -> [String: [String]] {
+        let url = profileDirectory.appendingPathComponent("Affiliation Database")
+        guard FileManager.default.fileExists(atPath: url.path),
+              let rows = try? DatabaseCopy(url, tempRoot: tempRoot).rows("""
+                  SELECT a.facet_uri AS app, w.facet_uri AS web FROM eq_class_members a
+                  JOIN eq_class_members w ON a.set_id = w.set_id
+                  WHERE a.facet_uri LIKE 'android://%' AND w.facet_uri LIKE 'https://%' ORDER BY w.id
+                  """) else { return [:] }
+        var out: [String: [String]] = [:]
+        for r in rows {
+            guard let app = r["app"].flatMap({ String(data: $0, encoding: .utf8) }),
+                  let web = r["web"].flatMap({ String(data: $0, encoding: .utf8) }),
+                  let u = URL(string: web), u.scheme == "https", let host = u.host, !host.isEmpty else { continue }
+            let site = "https://" + host.lowercased() + (u.port.map { ":\($0)" } ?? "") + "/"
+            if out[app, default: []].count < 3, !out[app, default: []].contains(site) { out[app, default: []].append(site) }
+        }
+        return out
     }
 
     /// Removes private copies a crash left behind (only folders named like `DatabaseCopy`'s, in `tempRoot`).

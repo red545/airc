@@ -124,7 +124,12 @@ def measure(name, app, args, marker, out, instrumented=False, tag='', expect=(8,
     events = out/f'events{tag}.jsonl'
     try:
         start = time.monotonic()
-        launch = ['open','-g','-j','-n', '--env', f'CFFIXED_USER_HOME={out / (name+tag+"-home")}']
+        # --foreground (Airc only): a normal activating launch in a dedicated UI session, so the window is key while
+        # the timed actions run (timings can differ from hidden background windows). Chrome always stays background.
+        front = FOREGROUND and name == 'airc'
+        launch = ['open','-n'] if front else ['open','-g','-j','-n']
+        launch += ['--env', f'CFFIXED_USER_HOME={out / (name+tag+"-home")}']
+        if front: launch += ['--env', 'AIRC_UI_DEDICATED_SESSION=1']
         for setting in launch_env: launch += ['--env', setting]
         command([*launch, app, '--args', *args])
         deadline = start + 20
@@ -133,7 +138,7 @@ def measure(name, app, args, marker, out, instrumented=False, tag='', expect=(8,
             if instance.pid: break
             time.sleep(.02)
         if not instance.pid: raise RuntimeError('launch PID not found within 20 s')
-        command([out / 'window', str(instance.pid)], 22)
+        command([out / 'window', str(instance.pid), *(['keep'] if front else [])], 22)
         m['first_window_ms'] = (time.monotonic()-start)*1000
         # This is external first-window observation, NOT cold interactive launch.
         observed = []
@@ -148,6 +153,15 @@ def measure(name, app, args, marker, out, instrumented=False, tag='', expect=(8,
             raise RuntimeError('app did not confirm the reference workload')
         result['reference_verified'] = bool(ready)
         if ready: result['ready_seconds'] = time.monotonic()-start
+        if not front:
+            # Hide again once the workload is up: the first hide (at the first window) can come before the browser
+            # window exists, which then opens on screen and draws its page while Chrome's stay hidden. Checked, and
+            # recorded with the result, before the settle and every sample.
+            for _ in range(3):
+                state = command([out / 'window', str(instance.pid), 'hide'], 10).strip()
+                if state == 'hidden': break
+            result['hidden_for_sample'] = state == 'hidden'
+            if state != 'hidden': result['errors'].append('window still on screen after hiding: samples not like for like')
         time.sleep(60 if instrumented else max(0, start+(sample_at or 60)-time.monotonic()))
         if instrumented:
             # The app's own page check (title, URL, visibility, animation frames), emitted once its loads are done.
@@ -284,6 +298,23 @@ def mem4(data):
         rows[label] = row
     return rows
 
+FOREGROUND = False
+
+def machine(app):
+    """What the numbers were measured on: hardware, macOS, and the two browsers' versions (from their Info.plist)."""
+    def plist(bundle, key):
+        try: return command(['/usr/libexec/PlistBuddy','-c',f'Print :{key}',Path(bundle)/'Contents/Info.plist']).strip()
+        except Exception: return None
+    def sysctl(name):
+        try: return command(['sysctl','-n',name]).strip()
+        except Exception: return None
+    try: macos = command(['sw_vers','-productVersion']).strip()
+    except Exception: macos = None
+    return {'cpu':sysctl('machdep.cpu.brand_string'),'cores':sysctl('hw.ncpu'),
+            'memory_gb':round(int(sysctl('hw.memsize') or 0)/2**30) or None,'macos':macos,
+            'airc_version':plist(app,'CFBundleShortVersionString'),'airc_revision':plist(app,'AircRevision'),
+            'chrome_version':plist('/Applications/Google Chrome.app','CFBundleShortVersionString')}
+
 # Spec 2.12: cold launch ≤500 ms on the WebKit dev engine, ≤1 s with Chromium and all profiles loaded.
 LAUNCH_LIMIT_MS = 500
 
@@ -321,9 +352,15 @@ def main():
     parser.add_argument('--instrumented',action='store_true',help='requires the app perf hook described in infra/perf/README.md')
     parser.add_argument('--no-30',dest='thirty',action='store_false',help='skip the all-30-loaded MEM-4 variant (Airc and Chrome)')
     parser.add_argument('--airc-only',action='store_true',help='only the Airc reference run (before/after iteration; no MEM-4)')
+    parser.add_argument('--foreground',action='store_true',help='Airc launches activate (run inside AIRC_UI_DEDICATED_SESSION=1 '
+                        'scripts/ui-check-lock.py): the window is key during the timed actions; Chrome stays background')
     parser.add_argument('--app-arg',action='append',default=[],help='extra Airc argument for A/B runs, e.g. --app-arg=--airc-switches=aperitifHelpers=off')
     options = parser.parse_args()
-    global LAUNCH_LIMIT_MS
+    # The apps get these paths as arguments and start with / as their directory: a relative --output silently
+    # gives them nowhere to write their events (every launch then fails at the window probe).
+    options.output, options.app = options.output.resolve(), options.app.resolve()
+    global LAUNCH_LIMIT_MS, FOREGROUND
+    FOREGROUND = options.foreground
     LAUNCH_LIMIT_MS = 1000 if 'Chromium' in options.app.name else 500
     if sys.platform != 'darwin': parser.error('requires the build Mac')
     signal.alarm(WATCHDOG_S)
@@ -340,6 +377,13 @@ def main():
         'CPU uses process CPU-time deltas, one-core percent; phys_footprint uses vmmap, decimal MB.',
         'Page waits: Airc ≤20 s per page then stops loading; a page counts as loaded when its title is not its address.'],
         'workload':json.loads((ROOT/'infra/perf/workload.json').read_text())}
+    data['machine'] = machine(options.app)
+    data['engine'] = 'chromium' if 'Chromium' in options.app.name else 'webkit'
+    data['app_args'] = options.app_arg
+    data['foreground'] = options.foreground
+    if options.foreground:
+        data['notes'][0] = ('Airc in a dedicated foreground session (window key; AIRC_UI_DEDICATED_SESSION=1), Chrome in '
+                            'hidden background windows. Single launch; caches not flushed.')
     if options.app_arg: data['notes'].append('A/B: Airc launched with ' + ' '.join(options.app_arg))
     urls = [t['url'] for t in data['workload']['tabs']]
     recent = [t['url'] for t in data['workload']['tabs'] if t.get('recent')]
@@ -378,7 +422,8 @@ def main():
                 data['airc_30'] = measure('airc', options.app.resolve(), airc('-30', ['--perf-load', 'all']),
                                           out/'airc-30-data', out, True, tag='-30', expect=(30, 0, 3, 6), leak=False)
                 write(data, out, options.output)
-            data['chrome'] = chrome('', urls, age('airc_30'))
+            # Chrome with all 30 pairs with airc_30; --no-30 skips both (as documented, ~4 minutes less).
+            if options.thirty: data['chrome'] = chrome('', urls, age('airc_30'))
     except (Exception, Deadline) as e: data['error'] = str(e)
     summary = write(data, out, options.output)
     print(summary)

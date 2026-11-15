@@ -2,6 +2,8 @@
 #if AIRC_TESTING // test builds only: public builds compile nothing in Debug/ (App/TestingGate.swift)
 import AircKit
 import AppKit
+import SwiftUI
+import AircDesign
 #if canImport(AircCore)
 import AircCore
 #endif
@@ -52,6 +54,28 @@ extension SnapshotRunner {
             return [MarketingStudio.Layer(image: image, frame: NSRect(x: frame.minX + r.maxX + 6 - size.width, y: frame.minY + r.minY - 8 - size.height,
                                                                       width: size.width, height: size.height),
                                           radius: 12, dark: mkIsDark(), shadow: .panel)]
+        }
+        mkWindowShot("extension-profile-results") { [self] frame in
+            let view = NSHostingView(rootView: ExtensionProfileResults(name: "Reading List", results: [
+                .init(profileID: "personal", profileName: "Personal", message: "Already installed — skipped", tabID: nil),
+                .init(profileID: "work", profileName: "Work", message: "Installed", tabID: nil),
+                .init(profileID: "research", profileName: "Research", message: "Denied — not installed", tabID: nil)
+            ], done: {}).aircTheme(DesignTheme.default.resolved(systemIsDark: false)))
+            view.setFrameSize(view.fittingSize)
+            view.layoutSubtreeIfNeeded()
+            guard let image = render(view) else { return [] }
+            return [MarketingStudio.Layer(image: image, frame: NSRect(x: frame.midX - image.size.width / 2, y: frame.midY - image.size.height / 2,
+                width: image.size.width, height: image.size.height), radius: 12, dark: false, shadow: .panel)]
+        }
+        mkWindowShot("capture-page-menu") { [self] frame in
+            guard let tab = c.engineTab(for: c.shownTabID ?? "") else { return [] }
+            let menu = NSMenu()
+            for item in c.tab(tab, pageMenu: [:]) {
+                menu.addItem(withTitle: item["title"] ?? "", action: nil, keyEquivalent: "")
+            }
+            guard let image = Self.mkMenuImage(menu, highlighted: "Capture in Portrait Mode", dark: false) else { return [] }
+            return [MarketingStudio.Layer(image: image, frame: NSRect(x: frame.midX, y: frame.midY,
+                width: image.size.width, height: image.size.height), radius: Self.mkMenuRadius, dark: false, shadow: .panel)]
         }
         run { [self] in
             note("marketing: toolbar extensions: \(c.pageToolbar?.extensionButtons.map(\.toolTip) ?? [])")

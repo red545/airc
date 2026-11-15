@@ -1,0 +1,89 @@
+# Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
+--- a/device/fido/mac/util.mm
++++ b/device/fido/mac/util.mm
+@@ -195,8 +195,11 @@
+ bool ProfileAuthenticatorWillDoUserVerification(
+     device::UserVerificationRequirement requirement,
+     bool platform_has_biometrics) {
+-  return requirement == device::UserVerificationRequirement::kRequired ||
+-         platform_has_biometrics;
++  // Airc: always verify the user with Touch ID, or with the Mac's password
++  // when Touch ID is missing or unavailable (lid closed, locked out). Upstream
++  // only verifies when the site requires it or biometrics are ready, which
++  // turns a "preferred" request on such a Mac into a single click.
++  return true;
+ }
+ 
+ std::optional<bool>& GetBiometricOverride() {
+--- a/device/fido/mac/credential_store.mm
++++ b/device/fido/mac/credential_store.mm
+@@ -219,8 +219,10 @@
+   private_key_params[CFToNSPtrCast(kSecAttrIsPermanent)] = @YES;
+ 
+   // The credential can only be used for signing, and the device needs to be in
+-  // an unlocked state.
+-  auto flags = kSecAccessControlPrivateKeyUsage;
++  // an unlocked state. Airc: the Secure Enclave also signs only for a context
++  // in which the user passed Touch ID or the Mac's password (the same flags
++  // TouchIdContext evaluates), so no code path can sign without the user.
++  auto flags = kSecAccessControlPrivateKeyUsage | kSecAccessControlUserPresence;
+   base::apple::ScopedCFTypeRef<SecAccessControlRef> access_control(
+       SecAccessControlCreateWithFlags(
+           kCFAllocatorDefault, kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+--- a/chrome/browser/ui/webauthn/sheet_models.cc
++++ b/chrome/browser/ui/webauthn/sheet_models.cc
+@@ -57,6 +57,18 @@
+ 
+ constexpr int kGpmArbitraryPinMinLength = 4;
+ 
++// Airc: the button that starts the macOS check for a passkey saved in the
++// Airc profile names it, as Arc and Chrome do: Touch ID, or the Mac's
++// password where Touch ID can't be used right now.
++std::u16string AircProfilePasskeyButtonLabel() {
++#if BUILDFLAG(IS_MAC)
++  return device::fido::mac::DeviceHasBiometricsAvailable() ? u"Use Touch ID"
++                                                           : u"Use password";
++#else
++  return l10n_util::GetStringUTF16(IDS_WEBAUTHN_CONTINUE);
++#endif
++}
++
+ bool IsLocalPasskeyOrEnclaveAuthenticatorOrPassword(
+     const AuthenticatorRequestDialogModel::Mechanism& mech) {
+   return (std::holds_alternative<CredentialMech>(mech.type) &&
+@@ -1243,6 +1255,12 @@
+ 
+ std::u16string AuthenticatorSelectAccountSheetModel::GetAcceptButtonLabel()
+     const {
++  if (user_verification_mode_ == kPreUserVerification &&
++      selected_ < dialog_model()->creds.size() &&
++      dialog_model()->creds[selected_].source ==
++          device::AuthenticatorType::kTouchID) {
++    return AircProfilePasskeyButtonLabel();
++  }
+   return l10n_util::GetStringUTF16(IDS_WEBAUTHN_CONTINUE);
+ }
+ 
+@@ -1406,7 +1424,7 @@
+ std::u16string
+ AuthenticatorChromeProfileCreatePasskeySheetModel::GetAcceptButtonLabel()
+     const {
+-  return l10n_util::GetStringUTF16(IDS_WEBAUTHN_CONTINUE);
++  return AircProfilePasskeyButtonLabel();
+ }
+ 
+ void AuthenticatorChromeProfileCreatePasskeySheetModel::OnAccept() {
+@@ -1561,6 +1579,13 @@
+ 
+ std::u16string AuthenticatorPriorityMechanismSheetModel::GetAcceptButtonLabel()
+     const {
++  const auto& mechanism =
++      dialog_model()->mechanisms[*dialog_model()->priority_mechanism_index];
++  if (const auto* credential = std::get_if<CredentialMech>(&mechanism.type);
++      credential &&
++      credential->value().source == device::AuthenticatorType::kTouchID) {
++    return AircProfilePasskeyButtonLabel();
++  }
+   return l10n_util::GetStringUTF16(IDS_WEBAUTHN_CONTINUE);
+ }
+ 

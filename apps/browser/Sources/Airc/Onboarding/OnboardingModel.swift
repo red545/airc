@@ -6,9 +6,10 @@ import Foundation
 import SwiftUI
 
 /// The first-run flow's steps (spec §2.13, design §7 "Onboarding window"). Logins is the Keychain explainer (2a); it
-/// shares the accounts step's dot. Default browser (5) shows only while Airc isn't the default.
+/// shares the accounts step's dot, and so does the password manager (2b), the import's last step. Default browser (5)
+/// shows only while Airc isn't the default.
 enum OnboardingStep: Int, CaseIterable, Comparable {
-    case welcome, arc, accounts, logins, theme, defaultBrowser, done
+    case welcome, arc, accounts, logins, passwordManager, theme, defaultBrowser, done
 
     static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
 
@@ -17,7 +18,7 @@ enum OnboardingStep: Int, CaseIterable, Comparable {
         switch self {
         case .welcome: 1
         case .arc: 2
-        case .accounts, .logins: 3
+        case .accounts, .logins, .passwordManager: 3
         case .theme: 4
         case .defaultBrowser: 5
         case .done: 6
@@ -106,6 +107,8 @@ final class OnboardingModel: ObservableObject {
     @Published var result: ImportResult?
     @Published var startedFresh = false
     @Published var logins: LoginsState = .idle
+    /// arcimport3: the engine also takes sites' localStorage (P22b), so the Logins step brings it too.
+    @Published var siteStorageAvailable = false
     /// False on WebKit: logins come over with the Chromium engine, and nothing is read (code review H1).
     @Published var loginsAvailable = true
     /// How many Spaces of the plan the preview shows so far (they slide in one by one).
@@ -165,6 +168,8 @@ final class OnboardingModel: ObservableObject {
     @Published var importedSource: ImportSource?
     /// History entries the last browser import brought.
     @Published var historyImported = 0
+    /// C08b: "1 default search engine · 3 search shortcuts"; nil when the import brought none.
+    @Published var searchEnginesImported: String?
     @Published var arcReadProgress = "Reading Arc’s sidebar"
     weak var importApp: AppDelegate?
     @Published var passwords: PasswordsState = .idle
@@ -178,6 +183,29 @@ final class OnboardingModel: ObservableObject {
     /// Airc's profiles, for the passwords file's "Into" menu: ID and name.
     @Published var aircProfiles: [(id: String, name: String)] = []
     @Published var memberName = ""
+
+    // The password manager step (2b).
+    /// The picked manager's ID (PasswordManagerCatalog), or nil.
+    @Published var pmChoice: String?
+    /// Why it was picked for the person, or nil.
+    @Published var pmHint: PasswordManagerCatalog.Hint?
+    /// Airc's profiles to offer, in order.
+    @Published var pmProfiles: [(id: String, name: String)] = []
+    /// The profiles the extension goes into: by default the ones the import brought (or every profile).
+    @Published var pmChosenProfiles: Set<String> = []
+    /// Turn off Airc's "Offer to save passwords" in the profiles that got the extension.
+    @Published var pmTurnOffSaving = true
+    @Published var pmInstalling = false
+    /// One line per profile once the installs are done.
+    @Published var pmResults: [PasswordManagerResult]?
+    /// Profiles whose offer to save passwords was turned off here.
+    @Published var pmSavingTurnedOff: [String] = []
+    /// The engine's permission review being shown on the step.
+    @Published var pmReview: ExtensionInstallModel?
+    /// What happened on it, for telemetry: the kind only, never which manager.
+    var pmOutcome: TelemetryFeature.PasswordManagerOutcome?
+    /// Chrome extensions run (the Chromium engine). WebKit says so on the step and offers only Airc's own.
+    @Published var extensionsAvailable = true
     @Published var memberNumber = 1
     let systemDark: Bool
     let today = Date()
@@ -207,6 +235,11 @@ final class OnboardingModel: ObservableObject {
     var onDiscardPasswordsFile: (() -> Void)?
     /// The passwords source's Done: on to the colours (first run) or closed (a re-run opened on import).
     var onPasswordsDone: (() -> Void)?
+    var onPasswordManagerInstall: (() -> Void)?
+    var onPasswordManagerNotNow: (() -> Void)?
+    var onPasswordManagerContinue: (() -> Void)?
+    /// A profile the install didn't reach: its Web Store page, in that profile.
+    var onPasswordManagerOpenStore: ((String) -> Void)?
 
     init(systemDark: Bool) {
         self.systemDark = systemDark

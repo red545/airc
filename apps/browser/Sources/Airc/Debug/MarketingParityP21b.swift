@@ -8,7 +8,7 @@ import AppKit
 /// parityp21b`), on a fake ready update (nothing installs):
 ///   - update-whats-new: Personal on apple.com, the update pill's menu open with See What's New under the pointer.
 ///   - update-playing: the question a restart asks while music plays in another tab, with See What's New.
-///   - settings-app-icon: Settings › Appearance at its end: App Icon (Holographic, Outline).
+///   - settings-app-icon: Settings › Appearance at its end: App Icon, all six of Airc's icons.
 extension SnapshotRunner {
     func mkParityP21bShots(_ d: MarketingDemo) {
         let fake = FakeReadyUpdate(version: "1.1 (202611200100)")

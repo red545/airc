@@ -48,11 +48,14 @@ public struct ImportBlueprint: Sendable, Equatable {
         public var sourceID: String
         public var title: String
         public var children: [Node]
+        /// When the source made it (a Today folder left empty goes once it's older than the archive interval).
+        public var createdAt: Date?
 
-        public init(sourceID: String, title: String, children: [Node]) {
+        public init(sourceID: String, title: String, children: [Node], createdAt: Date? = nil) {
             self.sourceID = sourceID
             self.title = title
             self.children = children
+            self.createdAt = createdAt
         }
     }
 
@@ -115,10 +118,14 @@ public struct ImportBlueprint: Sendable, Equatable {
         public var theme: SpaceTheme
         public var profileSourceID: String
         public var pinned: [Node]
+        /// Today's tabs, in order, its folders' tabs included.
         public var today: [Tab]
+        /// Today with its folders (Arc's unpinned folders: nested, in order), when it has any. Where set, it's what's
+        /// imported, and `today` lists the same tabs flat. Its splits are tabs (Today's splits aren't imported).
+        public var todayNodes: [Node]?
 
         public init(sourceID: String, name: String, icon: SpaceIcon? = nil, theme: SpaceTheme = .neutral,
-                    profileSourceID: String, pinned: [Node] = [], today: [Tab] = []) {
+                    profileSourceID: String, pinned: [Node] = [], today: [Tab] = [], todayNodes: [Node]? = nil) {
             self.sourceID = sourceID
             self.name = name
             self.icon = icon
@@ -126,7 +133,11 @@ public struct ImportBlueprint: Sendable, Equatable {
             self.profileSourceID = profileSourceID
             self.pinned = pinned
             self.today = today
+            self.todayNodes = todayNodes
         }
+
+        /// What Today imports as: its nodes (folders kept), else its tabs.
+        public var todayEntries: [Node] { todayNodes ?? today.map { .tab($0) } }
 
         public var pinnedTabCount: Int { pinned.reduce(0) { $0 + $1.tabCount } }
     }
@@ -175,6 +186,8 @@ public struct ImportResult: Sendable, Equatable {
     public var folders = 0
     public var favorites = 0
     public var todayTabs = 0
+    /// Folders in Today (Arc's unpinned folders), nested ones included.
+    public var todayFolders = 0
     /// Favorites past the 12 a profile can hold.
     public var favoritesSkipped = 0
     /// SV-2: splits imported as splits (pinned and Favorites).
@@ -195,6 +208,7 @@ public struct ImportResult: Sendable, Equatable {
         folders += o.folders
         favorites += o.favorites
         todayTabs += o.todayTabs
+        todayFolders += o.todayFolders
         favoritesSkipped += o.favoritesSkipped
         splits += o.splits
         profileIDs.merge(o.profileIDs) { $1 }
@@ -356,24 +370,68 @@ extension SpacesStore {
                 r.spaceIDs[s.sourceID] = space.id
                 applyPinned(s.pinned, spaceID: space.id, parentID: nil, itemIDs: &itemIDs, placed: &placed, result: &r)
                 if options.includeToday {
-                    for (i, t) in s.today.enumerated() {
-                        if var existing = tab(tabIDs[t.sourceID]) {
-                            existing.url = t.url
-                            if let title = t.title ?? t.pageTitle { existing.title = title }
-                            put(existing)
-                        } else {
-                            let active = t.lastActiveAt ?? now()
-                            let live = LiveTab(profileID: pid, spaceID: space.id, url: t.url, title: t.title ?? t.pageTitle ?? "",
-                                               order: Double(i), createdAt: active, lastActiveAt: active, sourceID: t.sourceID)
-                            put(live)
-                            tabIDs[t.sourceID] = live.id
-                        }
-                        r.todayTabs += 1
-                    }
+                    applyToday(s.todayEntries, spaceID: space.id, profileID: pid, folderID: nil, tabIDs: &tabIDs,
+                               itemIDs: &itemIDs, placed: &placed, result: &r)
                 }
             }
         }
         return r
+    }
+
+    /// Today's tabs and folders (Arc's unpinned folders), in order, inside `folderID` (nil: Today's top level). A tab
+    /// keeps the last-active time Arc had, so it auto-archives when it would have there; a folder goes with its last
+    /// tab, or (left empty) once it's older than the archive interval, as Arc's Today folders do (TodayFolders.swift).
+    /// A second import updates what the first made (source IDs) and puts it where Arc has it now.
+    private func applyToday(_ nodes: [ImportBlueprint.Node], spaceID: String, profileID pid: String, folderID: String?,
+                            tabIDs: inout [String: String], itemIDs: inout [String: String], placed: inout Set<String>,
+                            result r: inout ImportResult) {
+        for (i, node) in nodes.enumerated() {
+            switch node {
+            case .tab(let t):
+                if var existing = tab(tabIDs[t.sourceID]) {
+                    existing.url = t.url
+                    if let title = t.title ?? t.pageTitle { existing.title = title }
+                    // Into the folder Arc has it in, if it's still a Today tab of this Space (else where it is now).
+                    if existing.isToday, existing.spaceID == spaceID,
+                       !state.splits.values.contains(where: { $0.tabIDs.contains(existing.id) }) {
+                        existing.folderID = folderID
+                        if folderID != nil { existing.order = Double(i) }
+                    }
+                    put(existing)
+                } else {
+                    let active = t.lastActiveAt ?? now()
+                    var live = LiveTab(profileID: pid, spaceID: spaceID, url: t.url, title: t.title ?? t.pageTitle ?? "",
+                                       order: Double(i), createdAt: active, lastActiveAt: active, sourceID: t.sourceID)
+                    live.folderID = folderID
+                    put(live)
+                    tabIDs[t.sourceID] = live.id
+                }
+                r.todayTabs += 1
+            case .split(let x):
+                applyToday(x.tabs.map { .tab($0) }, spaceID: spaceID, profileID: pid, folderID: folderID, tabIDs: &tabIDs,
+                           itemIDs: &itemIDs, placed: &placed, result: &r)
+            case .folder(let f):
+                let id: String
+                if var existing = item(itemIDs[f.sourceID]), existing.kind == .folder, existing.isTodayFolder,
+                   existing.spaceID == spaceID, !placed.contains(existing.id) {
+                    existing.parentID = folderID
+                    existing.order = Double(i)
+                    existing.title = f.title
+                    put(existing)
+                    id = existing.id
+                } else {
+                    let folder = Item(kind: .folder, container: .today(spaceID: spaceID), parentID: folderID, order: Double(i),
+                                      title: f.title, createdAt: f.createdAt ?? now(), sourceID: f.sourceID)
+                    put(folder)
+                    itemIDs[f.sourceID] = folder.id
+                    id = folder.id
+                }
+                placed.insert(id)
+                r.todayFolders += 1
+                applyToday(f.children, spaceID: spaceID, profileID: pid, folderID: id, tabIDs: &tabIDs, itemIDs: &itemIDs,
+                           placed: &placed, result: &r)
+            }
+        }
     }
 
     private func applyPinned(_ nodes: [ImportBlueprint.Node], spaceID: String, parentID: String?,

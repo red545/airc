@@ -42,6 +42,9 @@ offline. Selected lists refresh directly from their authors’ HTTPS hosts every
 four days, or later if a list’s expiry asks Airc to wait. Airc uses ETag or
 Last-Modified validators when available. **Update Now** requests a refresh sooner.
 A failed download or compilation keeps the previous working rules.
+Downloads use HTTPS, and cached lists are checked for integrity. The list feed
+does not currently provide digital signatures; adding a signed feed is a
+separate follow-up.
 
 These requests reveal your IP address to the list hosts. They contain no browsing
 history, site-exception list, or blocked-request log. They use no account, cookies,
@@ -75,16 +78,36 @@ and some request types/options are omitted. Cosmetics are handled separately by
 Rust on both engines, so WebKit’s CSS conversion cannot override cosmetic
 exceptions or generic-hide exceptions. WebKit evaluates first/third-party context
 against the top page; Chromium uses the requesting frame’s initiator. A request
-inside a cross-site iframe can therefore receive a different decision. Airc does not run
-list-supplied scriptlets or procedural cosmetic actions on either engine, and
-ships no uBlock scriptlet/resource bundle. Generic cosmetic discovery is bounded
-to protect page responsiveness. A list’s presence does not guarantee every rule
-in that list applies to every page.
+inside a cross-site iframe can therefore receive a different decision. Procedural
+cosmetic actions remain unsupported. Airc ships only its own YouTube scriptlet,
+without uBlock's resource library or downloaded JavaScript. Generic cosmetic
+discovery is bounded to protect page responsiveness. A list’s presence does not
+guarantee every rule in that list applies to every page.
 
 Counts cover requests the engine can attribute to the page. Browser background
 traffic and work without a live page cannot always be attributed to a tab. The
 WebKit count is based on WebKit’s confirmed blocking callbacks, not failed loads
-or predicted matches. Airc has no special YouTube exception.
+or predicted matches.
+
+### YouTube protection in the next release
+
+Airc removes supported ad fields from YouTube player responses and hides known
+ad slots. This protection follows the profile's blocking setting and the exact
+hostname exceptions in Site Controls, in both Chromium and Safari's engine.
+Reload an open video page after changing the profile's blocking setting or
+selected lists. Site Controls reloads the current page automatically.
+
+Signed-out checks on five videos that previously served ads found no ads during
+short playback samples on either engine. Local checks cover pre-roll and mid-roll
+response shapes, playback, seeking, captions and picture in picture. These checks
+do not establish ad-free playback throughout a long video. Embedded players,
+server-side inserted ads and other streaming services are not covered by this
+change. YouTube changes frequently, so a future page or response format may need
+another update.
+
+The protection uses original Airc resources delivered with app updates. It does
+not download uBlock Origin's GPL scriptlets or quick-fixes. Existing list downloads
+and integrity checks are unchanged. See the [qualification notes](../../infra/ytads/README.md).
 
 ## Attribution and converted rules
 

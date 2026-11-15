@@ -3,6 +3,7 @@
 """Sign real files inside out; never traverse framework symlink aliases."""
 import os, pathlib, plistlib, stat, subprocess, sys, tempfile
 from entitlement_policy import is_cdm_helper_bundle
+import helper_ids
 import icloud
 import passkeys
 app = pathlib.Path(sys.argv[1]).resolve()
@@ -40,6 +41,11 @@ if app.suffix == '.dmg':
     sign(app)
     subprocess.run(['codesign', '--verify', '--strict', str(app)], check=True)
     sys.exit(0)
+
+# Helpers carry the final app identifier ('<app id>.helper', as Chrome's do), so call recorders can tell whose
+# audio service is using the microphone (helper_ids.py). Before any signature is made.
+for name, old, new in helper_ids.follow_app(app):
+    print(f'{name}: {old} -> {new}')
 
 embedded = app / 'Contents/embedded.provisionprofile'
 profile = None

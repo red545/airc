@@ -18,8 +18,11 @@ extension WindowController {
 }
 
 /// Arc's Library button hover (Arc ref §2.9): the pointer resting on the footer's Library button for `dwell` brings a
-/// small card just above it with the last five downloads and Captures (icon, name, time). A click opens a file in its
-/// app; a row drags out as the file. The card stays while the pointer goes from the button to it.
+/// small card just above it with the last five files (icon, name, time): downloads, Captures and the pictures and videos
+/// of the folders Library › Media shows, each switchable in the button's right-click "Show media from:" (L04, as Arc). A
+/// click opens a file in its app; a row drags out as the file; its right-click menu opens it, shows it in Finder, copies
+/// it, sends it by AirDrop or iMessage, or moves it to the Trash (⌘Z puts it back). The card stays while the pointer goes
+/// from the button to it, and while a row's menu is open.
 ///
 /// Like the tab preview card (TabPreview.swift): the button's own enter and exit events drive it, nothing runs on a mouse
 /// move, and the event monitor exists only while the pointer is on the button or the card is up. It grows from the
@@ -41,6 +44,8 @@ final class RecentFilesHover {
     /// No card until the pointer leaves the button (it was clicked).
     private var suppressed = false
     private var menuOpen = false
+    /// A row's own right-click menu is open: the card stays under it.
+    private var cardMenuOpen = false
     private var dwellWork: DispatchWorkItem?
     private var hideWork: DispatchWorkItem?
     private var monitor: Any?
@@ -56,11 +61,18 @@ final class RecentFilesHover {
         let nc = NotificationCenter.default
         menuObservers = [
             nc.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { [weak self] _ in
-                self?.menuOpen = true
-                self?.hide()
+                guard let self else { return }
+                self.menuOpen = true
+                if self.cardMenuOpen, self.isShowing { self.hideWork?.cancel(); return }
+                self.hide()
             },
             nc.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main) { [weak self] _ in
-                self?.menuOpen = false
+                guard let self else { return }
+                self.menuOpen = false
+                guard self.cardMenuOpen else { return }
+                self.cardMenuOpen = false
+                // The menu's item ran (it may have hidden the card) or it was dismissed: the pointer decides.
+                if self.isShowing, !self.overButton, !self.overCard { self.scheduleHide() }
             },
         ]
     }
@@ -101,7 +113,7 @@ final class RecentFilesHover {
     private func scheduleHide() {
         hideWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            guard let self, !self.overButton, !self.overCard else { return }
+            guard let self, !self.overButton, !self.overCard, !self.cardMenuOpen else { return }
             // A row being dragged out: the card stays under the drag until the button comes up.
             if NSEvent.pressedMouseButtons != 0 { return self.scheduleHide() }
             self.hide()
@@ -187,6 +199,7 @@ final class RecentFilesHover {
             self?.hide()
             LibraryFiles.shared.open(f)
         }
+        v.onAction = { [weak self] action, f in self?.perform(action, f) }
         card = v
         return v
     }
@@ -225,6 +238,59 @@ final class RecentFilesHover {
         layer.fade(from: 0, to: 1, duration: AircCurve.previewIn.duration)
     }
 
+    // MARK: Menus (L04)
+
+    /// The Library button's right-click: Arc's "Show media from:" for this card (Captures, Downloads, Media).
+    func sourcesMenu() -> NSMenu {
+        hide()
+        let m = NSMenu()
+        let title = NSMenuItem(title: "Show media from:", action: nil, keyEquivalent: "")
+        title.isEnabled = false
+        m.addItem(title)
+        let h = LibraryFolderSources.shared.settings.hover
+        func toggle(_ name: String, _ on: Bool, _ set: @escaping (inout LibrarySourceSettings.HoverSources) -> Void) {
+            let item = m.add(name) {
+                var s = LibraryFolderSources.shared.settings
+                set(&s.hover)
+                LibraryFolderSources.shared.settings = s
+                LibraryFiles.shared.refresh()
+            }
+            item.state = on ? .on : .off
+        }
+        toggle("Captures", h.captures) { $0.captures.toggle() }
+        toggle("Downloads", h.downloads) { $0.downloads.toggle() }
+        toggle("Media", h.media) { $0.media.toggle() }
+        m.addItem(.separator())
+        m.add("Open Library") { [weak self] in self?.c?.showLibrary() }
+        #if AIRC_TESTING
+        lastSourcesMenu = m.items.map { ($0.state == .on ? "✓" : "") + $0.title }
+        #endif
+        return m
+    }
+
+    enum RowAction: String { case showInFinder, copy, airDrop, iMessage, trash }
+
+    private func perform(_ action: RowAction, _ f: LibraryFile) {
+        let files = LibraryFiles.shared
+        switch action {
+        case .showInFinder:
+            hide()
+            files.showInFinder(f)
+        case .copy:
+            files.copy(f)
+            c?.showToast("Copied “\(f.name)”")
+        case .airDrop:
+            hide()
+            files.share(f, via: .sendViaAirDrop)
+        case .iMessage:
+            hide()
+            files.share(f, via: .composeMessage)
+        case .trash:
+            files.moveToTrash(f, moved: { [weak self] in self?.c?.showLibraryTrashToast(f) },
+                              failed: { [weak self] message in self?.c?.showToast(message) })
+        }
+    }
+
     // MARK: Events
 
     private func arm() {
@@ -244,6 +310,7 @@ final class RecentFilesHover {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
             // The card's own rows (a click opens, a press may start a drag).
             if isShowing, let card, e.window === c?.window, card.cardRect.contains(card.convert(e.locationInWindow, from: nil)) {
+                if e.type == .rightMouseDown || (e.type == .leftMouseDown && e.modifierFlags.contains(.control)) { cardMenuOpen = true }
                 return e
             }
             if overButton { suppressed = true }
@@ -266,6 +333,9 @@ final class RecentFilesHover {
     var shownFiles: [LibraryFile] { isShowing ? card?.files ?? [] : [] }
     /// The card's hover, as its tracking area would report it.
     func testCardHover(_ inside: Bool) { cardHover(inside) }
+    /// The last "Show media from:" menu, as titles ("✓" when on).
+    private(set) var lastSourcesMenu: [String] = []
+    func testPerform(_ action: RowAction, _ f: LibraryFile) { perform(action, f) }
     #endif
 }
 
@@ -285,6 +355,7 @@ final class RecentFilesCardView: NSView {
 
     var onHover: ((Bool) -> Void)?
     var onOpen: ((LibraryFile) -> Void)?
+    var onAction: ((RecentFilesHover.RowAction, LibraryFile) -> Void)?
     private(set) var files: [LibraryFile] = []
     private let ambient = CALayer()
     private let plate = CALayer()
@@ -349,7 +420,8 @@ final class RecentFilesCardView: NSView {
             }
             CATransaction.commit()
         }
-        let list = RecentFilesList(files: files, theme: t) { [weak self] in self?.onOpen?($0) }
+        let list = RecentFilesList(files: files, theme: t, onOpen: { [weak self] in self?.onOpen?($0) },
+                                   onAction: { [weak self] a, f in self?.onAction?(a, f) })
         if let host {
             host.rootView = list
         } else {
@@ -385,13 +457,26 @@ struct RecentFilesList: View {
     let files: [LibraryFile]
     let theme: ResolvedTheme
     let onOpen: (LibraryFile) -> Void
+    var onAction: (RecentFilesHover.RowAction, LibraryFile) -> Void = { _, _ in }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Recent").aircFont(AircFont.caption.weight(.medium)).foregroundStyle(theme.surfaceTextTertiary.color)
                 .padding(.horizontal, 14)
                 .frame(height: RecentFilesCardView.header, alignment: .center)
-            ForEach(files) { f in RecentFileRow(file: f, theme: theme) { onOpen(f) } }
+            ForEach(files) { f in
+                RecentFileRow(file: f, theme: theme) { onOpen(f) }
+                    .contextMenu {
+                        Button("Open") { onOpen(f) }
+                        Button("Show in Finder") { onAction(.showInFinder, f) }
+                        Button("Copy") { onAction(.copy, f) }
+                        Divider()
+                        if LibraryFiles.canShare(via: .sendViaAirDrop, f) { Button("AirDrop") { onAction(.airDrop, f) } }
+                        if LibraryFiles.canShare(via: .composeMessage, f) { Button("Send via iMessage") { onAction(.iMessage, f) } }
+                        Divider()
+                        Button("Move to Trash", role: .destructive) { onAction(.trash, f) }
+                    }
+            }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, RecentFilesCardView.inset)
@@ -434,7 +519,12 @@ private struct RecentFileRow: View {
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
         .onTapGesture(perform: onOpen)
-        .onDrag { NSItemProvider(contentsOf: file.url) ?? NSItemProvider() }
+        .onDrag {
+            #if AIRC_TESTING
+            LibraryMediaView.dragsStarted += 1
+            #endif
+            return NSItemProvider(contentsOf: file.url) ?? NSItemProvider()
+        }
         .help(file.name)
         .testAnchor("library.recent.\(file.name)")
         .task(id: "\(file.id)|\(file.date.timeIntervalSince1970)") {

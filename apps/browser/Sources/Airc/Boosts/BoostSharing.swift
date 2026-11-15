@@ -117,9 +117,20 @@ final class BoostImportReview: ObservableObject {
             center.setPreview(nil, domain: file.site)
             try center.store.install(file, replacing: existing != nil, gallery: source.isGallery)
             close()
-            // As in Arc, the site opens with the Boost on (unless a page of it is on screen already).
+            // As in Arc, the site opens (unless a page of it is on screen already).
             showSite(open: true)
-            controller?.showToast(relationUpdates ? "Boost updated" : "Boost added")
+            let site = file.site
+            if center.store.boost(domain: site)?.enabled == false {
+                // BST-2: a Boost with code is installed off. The toast offers to turn it on; so do the editor and Settings.
+                controller?.showActionToast(relationUpdates ? "Boost updated. It's off until you turn it on." : "Boost installed. It's off until you turn it on.",
+                                      action: ("Turn On", { [weak center, weak controller] in
+                                          let page = controller?.shownTabID.flatMap { controller?.engineTab(for: $0) }
+                                          center?.turnOn(domain: site, page: page)
+                                          controller?.showToast("Boost turned on")
+                                      }))
+            } else {
+                controller?.showToast(relationUpdates ? "Boost updated" : "Boost installed!")
+            }
         } catch { close(); BoostSharing.error(error.localizedDescription, on: parent) }
     }
 
@@ -127,7 +138,7 @@ final class BoostImportReview: ObservableObject {
 
     var installTitle: String {
         switch relation {
-        case .new: file.js.isEmpty ? "Add Boost" : "Add and Allow Code"
+        case .new: "Add Boost"
         case .update: "Update"
         case .reinstall, .older, .replace, .own: "Replace"
         }
@@ -150,6 +161,19 @@ struct BoostReviewView: View {
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    // BST-2: code first, where nobody can miss it; the look and the rest follow.
+                    if !file.js.isEmpty {
+                        Label("This Boost runs code on \(file.scriptHost ?? file.site)\(file.scriptHost == nil ? " and its subdomains" : "").",
+                              systemImage: "exclamationmark.triangle.fill")
+                            .font(.headline).foregroundStyle(.orange).testAnchor("boost.import.codeWarning")
+                        Text("Its JavaScript can read and change those pages, see what you type there, and send it to other websites. Add it only if you trust who made it and understand the code below. Trying it on never runs it.")
+                        Text(BoostStore.installsOn(file, replacing: review.existing)
+                             ? "It's the same code your Boost runs now, so it stays on."
+                             : "It's added turned off. Its code runs only after you turn it on.")
+                            .foregroundStyle(.secondary).testAnchor("boost.import.installsOff")
+                        code("JavaScript · executable code", file.js, warning: true, language: .javaScript)
+                            .testAnchor("boost.import.js")
+                    }
                     preview
                     if let author = file.author {
                         Label("By \(author). Names aren't verified: anyone can type any name.", systemImage: "person.crop.circle")
@@ -173,23 +197,18 @@ struct BoostReviewView: View {
                     if !file.css.isEmpty {
                         Text("CSS can load images, fonts and other resources from other websites. Install styles only from sources you trust.")
                             .foregroundStyle(.secondary).testAnchor("boost.import.cssNetworkWarning")
-                        code("CSS", file.css, warning: false)
+                        code("CSS", file.css, warning: false, language: .css).testAnchor("boost.import.css")
                     }
-                    if !file.js.isEmpty {
-                        Label("JavaScript will run on \(file.scriptHost ?? "all of " + file.site)", systemImage: "exclamationmark.triangle.fill")
-                            .font(.headline).foregroundStyle(.orange)
-                        Text("This code can read and change pages, access information you enter, and send data to other websites. Install only if you trust and understand the full code below. Trying it on never runs it.")
-                        code("JavaScript · executable code", file.js, warning: true)
-                    } else { Text("No JavaScript in this Boost.").foregroundStyle(.secondary) }
+                    if file.js.isEmpty { Text("No JavaScript in this Boost.").foregroundStyle(.secondary) }
                     if let old = review.existing, !review.relationUpdates {
                         Divider()
                         Text("Your Boost for \(old.domain) now").font(.headline)
                         Text("\(old.name ?? old.domain) · \(old.enabled ? "On" : "Off")\(old.needsSite ? " · paused" : ""). "
                              + BoostFile(boost: old).summary)
-                        if !old.css.isEmpty { code("Its CSS", old.css, warning: false) }
+                        if !old.css.isEmpty { code("Its CSS", old.css, warning: false, language: .css) }
                         if !old.js.isEmpty {
                             Text("Its JavaScript runs on \(old.scriptHost ?? "all of " + old.domain). Code already run in open pages can't be undone; reload them after replacing.")
-                            code("Its JavaScript", old.js, warning: true)
+                            code("Its JavaScript", old.js, warning: true, language: .javaScript)
                         }
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled).padding(.trailing, 8)
@@ -267,14 +286,36 @@ struct BoostReviewView: View {
         }
     }
 
-    private func code(_ title: String, _ source: String, warning: Bool) -> some View {
+    private func code(_ title: String, _ source: String, warning: Bool, language: BoostCodeTokens.Language) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title).font(.caption.weight(.semibold)).foregroundStyle(warning ? Color.orange : Color.secondary)
-            // Full source, wrapping rather than clipping or truncating. Never evaluated by the review UI.
-            Text(source.isEmpty ? "None" : source).font(.system(size: 12, design: .monospaced))
+            // Full source, coloured (BoostCodeTokens covers every character once), wrapping rather than clipping or
+            // truncating. Never evaluated by the review UI.
+            Text(source.isEmpty ? AttributedString("None") : Self.highlighted(source, language)).font(.system(size: 12, design: .monospaced))
                 .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
         }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
             .background(warning ? Color.orange.opacity(0.08) : Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// Calm colours that read in light and dark; calls a reviewer should look at first get a tinted background.
+    static func highlighted(_ source: String, _ language: BoostCodeTokens.Language) -> AttributedString {
+        var out = AttributedString()
+        for t in BoostCodeTokens.tokens(source, language) {
+            var run = AttributedString(t.text)
+            switch t.kind {
+            case .plain: break
+            case .keyword: run.foregroundColor = Color(nsColor: .systemPurple); run.font = .system(size: 12, weight: .semibold, design: .monospaced)
+            case .string: run.foregroundColor = Color(nsColor: .systemRed)
+            case .comment: run.foregroundColor = Color(nsColor: .secondaryLabelColor); run.font = .system(size: 12, design: .monospaced).italic()
+            case .number: run.foregroundColor = Color(nsColor: .systemBlue)
+            case .atRule, .property: run.foregroundColor = Color(nsColor: .systemTeal)
+            case .sensitive:
+                run.foregroundColor = Color(nsColor: .systemOrange); run.font = .system(size: 12, weight: .bold, design: .monospaced)
+                run.backgroundColor = Color.orange.opacity(0.16)
+            }
+            out += run
+        }
+        return out
     }
 }
 
@@ -427,7 +468,7 @@ final class BoostShareSheet: ObservableObject {
         let probe = center.store.shareFile(domain: domain, name: b.name ?? domain, author: nil)
         revision = probe?.revision ?? 1
         sharedBefore = b.origin?.kind == .shared
-        sheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 520), styleMask: [.titled], backing: .buffered, defer: false)
+        sheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 540), styleMask: [.titled], backing: .buffered, defer: false)
         sheet.title = "Share Boost"
         sheet.isReleasedWhenClosed = false
         sheet.contentView = onMain { NSHostingView(rootView: BoostShareView(share: self)) }
@@ -527,6 +568,27 @@ final class BoostShareSheet: ObservableObject {
         } catch { message = error.localizedDescription }
     }
 
+    /// Submit to the Gallery (B03): the Boost, with its screenshot if it's included, goes to the gallery on
+    /// aircbrowser.com. It's checked there, then a person reviews it before it's listed for everyone.
+    @Published private(set) var submitting = false
+    @Published private(set) var submitted: String?
+
+    func submitToGallery() {
+        guard !submitting, submitted == nil, let f = file(withPicture: true) else { return NSSound.beep() }
+        submitting = true
+        message = nil
+        Task { @MainActor in
+            defer { submitting = false }
+            do {
+                submitted = try await SharingCenter.shared.service.submit(f)
+                center.store.noteShared(f)
+                remember()
+            } catch {
+                message = error.localizedDescription
+            }
+        }
+    }
+
     #if AIRC_TESTING
     /// Scripted checks: Save File… without the panel (the encoded file, noted as shared).
     func saveForCheck(to url: URL) throws {
@@ -582,9 +644,16 @@ struct BoostShareView: View {
                 Label("It includes JavaScript. Whoever installs it sees the code and has to allow it.", systemImage: "exclamationmark.triangle.fill")
                     .font(.callout).foregroundStyle(.orange)
             }
-            if let m = share.message { Text(m).foregroundStyle(.red) }
+            if let m = share.message { Text(m).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true).testAnchor("boost.share.message") }
+            if let sent = share.submitted {
+                Label(sent, systemImage: "checkmark.circle.fill").font(.callout).foregroundStyle(.green).testAnchor("boost.share.submitted")
+            }
             Spacer(minLength: 0)
             HStack {
+                Button(share.submitting ? "Sending…" : "Submit to the Gallery", action: share.submitToGallery)
+                    .disabled(!share.validName || share.submitting || share.submitted != nil)
+                    .help("Sends it to the Boost Gallery on aircbrowser.com. A person reviews it before it’s listed for everyone.")
+                    .testAnchor("boost.share.gallery")
                 if case .failure = share.link { Text("Too big for a link: save a file.").font(.caption).foregroundStyle(.secondary) }
                 Spacer()
                 Button("Cancel", action: share.close).keyboardShortcut(.cancelAction).testAnchor("boost.share.cancel")
@@ -593,7 +662,7 @@ struct BoostShareView: View {
                     .disabled(!share.validName || { if case .failure = share.link { return true }; return false }())
                     .testAnchor("boost.share.link")
             }
-        }.padding(24).frame(width: 520, height: 520).background(.background)
+        }.padding(24).frame(width: 560, height: 540).background(.background)
     }
 }
 
@@ -632,11 +701,77 @@ final class BoostGalleryWindow: NSObject, NSWindowDelegate {
         if !app.options.isAutomated { c.window.makeKeyAndOrderFront(nil) }
         BoostImportReview(file: entry.file, source: .gallery(entry), parent: c.window, controller: c, center: center).present()
     }
+
+    /// B03: the community's Boosts from aircbrowser.com, approved by a person before they're listed. Airc's own
+    /// are always there too, so the gallery works offline.
+    let community = CommunityGallery()
+
+    /// Get for a community Boost: its file is fetched and checked, then the same review as a link's.
+    func get(_ entry: SharingService.GalleryEntry) {
+        Task { @MainActor in
+            do {
+                let file = try await SharingCenter.shared.service.galleryFile(id: entry.id)
+                guard let center = BoostCenter.shared, let app, let c = app.browserWindow() else { return }
+                if !app.options.isAutomated { c.window.makeKeyAndOrderFront(nil) }
+                BoostImportReview(file: file, source: .link, parent: c.window, controller: c, center: center).present()
+            } catch {
+                community.message = error.localizedDescription
+            }
+        }
+    }
+}
+
+/// The gallery's community Boosts: loaded once each time the window opens, with their pictures as they arrive.
+final class CommunityGallery: ObservableObject {
+    enum Phase: Equatable { case loading, loaded, unavailable }
+    @Published private(set) var phase = Phase.loading
+    @Published private(set) var entries: [SharingService.GalleryEntry] = []
+    @Published private(set) var pictures: [String: NSImage] = [:]
+    @Published private(set) var reported: Set<String> = []
+    @Published var message: String?
+    let service: SharingService
+
+    init(service: SharingService = SharingCenter.shared.service) {
+        self.service = service
+        load()
+    }
+
+    func load() {
+        phase = .loading
+        Task { @MainActor in
+            do {
+                entries = try await service.galleryEntries()
+                phase = .loaded
+                for e in entries where e.preview {
+                    if let data = await service.galleryPreview(id: e.id), let image = NSImage(data: data) { pictures[e.id] = image }
+                }
+            } catch {
+                phase = .unavailable
+            }
+        }
+    }
+
+    func report(_ e: SharingService.GalleryEntry, _ reason: SharingService.ReportReason) {
+        Task { @MainActor in
+            do {
+                try await service.report(id: e.id, reason: reason, note: nil)
+                reported.insert(e.id)
+            } catch {
+                message = error.localizedDescription
+            }
+        }
+    }
 }
 
 struct BoostGalleryView: View {
     let gallery: BoostGalleryWindow
+    @ObservedObject var community: CommunityGallery
     @State private var installed: [String: Boost] = Self.installedByID()
+
+    init(gallery: BoostGalleryWindow) {
+        self.gallery = gallery
+        community = gallery.community
+    }
 
     static func installedByID() -> [String: Boost] {
         var map: [String: Boost] = [:]
@@ -649,11 +784,31 @@ struct BoostGalleryView: View {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Boost Gallery").font(.system(size: 26, weight: .semibold, design: .rounded))
-                    Text("Starter Boosts made by Airc: colors, fonts and a little CSS, no code. Try one on before you add it. Boosts from friends come as links and files.")
+                    Text("Boosts made by Airc and by people who use it. Each one is reviewed before it’s listed, and you see what it changes before you add it.")
                         .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
+                Text("From Airc").font(.title3.weight(.semibold))
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 250, maximum: 360), spacing: 16)], spacing: 16) {
                     ForEach(BoostGallery.entries) { entry in card(entry) }
+                }
+                HStack {
+                    Text("From the community").font(.title3.weight(.semibold))
+                    Spacer()
+                    if community.phase == .loading { ProgressView().controlSize(.small) }
+                }.padding(.top, 8)
+                if let m = community.message { Text(m).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
+                switch community.phase {
+                case .unavailable:
+                    HStack {
+                        Text("Airc couldn’t reach the gallery on aircbrowser.com. Airc’s own Boosts are above.").foregroundStyle(.secondary)
+                        Button("Try Again", action: community.load).controlSize(.small)
+                    }.testAnchor("boost.gallery.offline")
+                case .loaded where community.entries.isEmpty:
+                    Text("Nothing here yet. Share one of yours: File › Share Boost…, then Submit to the Gallery.").foregroundStyle(.secondary)
+                default:
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 250, maximum: 360), spacing: 16)], spacing: 16) {
+                        ForEach(community.entries) { entry in communityCard(entry) }
+                    }
                 }
             }
             .padding(28)
@@ -661,6 +816,55 @@ struct BoostGalleryView: View {
         .frame(minWidth: 620, minHeight: 480)
         .background(.background)
         .onReceive(NotificationCenter.default.publisher(for: BoostCenter.didChange)) { _ in installed = Self.installedByID() }
+    }
+
+    private func communityCard(_ entry: SharingService.GalleryEntry) -> some View {
+        let have = installed[entry.fileID ?? ""]
+        return VStack(alignment: .leading, spacing: 0) {
+            Group {
+                if let image = community.pictures[entry.id] {
+                    Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
+                } else {
+                    Rectangle().fill(Color.primary.opacity(0.05))
+                        .overlay(Text(entry.site.prefix(1).uppercased()).font(.system(size: 40, weight: .semibold)).foregroundStyle(.tertiary))
+                }
+            }
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 150, maxHeight: 150, alignment: .top).clipped()
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text(entry.name).font(.headline).lineLimit(1)
+                    Spacer()
+                    if have != nil {
+                        Label("Added", systemImage: "checkmark.circle.fill").labelStyle(.titleAndIcon).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Text(entry.code ? "\(entry.site) · includes code" : entry.site).font(.caption).foregroundStyle(.secondary)
+                Text(entry.about ?? "").font(.callout).foregroundStyle(.secondary).lineLimit(2, reservesSpace: true)
+                HStack {
+                    Text(entry.author.map { "by \($0) (not verified)" } ?? "").font(.caption).foregroundStyle(.tertiary).lineLimit(1)
+                    Spacer()
+                    if community.reported.contains(entry.id) {
+                        Text("Reported").font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Menu("Report") {
+                            ForEach(SharingService.ReportReason.allCases, id: \.self) { r in
+                                Button(r.title) { community.report(entry, r) }
+                            }
+                        }
+                        .menuStyle(.borderlessButton).fixedSize().controlSize(.small)
+                        .testAnchor("boost.gallery.report.\(entry.id)")
+                    }
+                    // A later revision of one installed from the gallery is an Update, as Airc's own are.
+                    Button(entry.action(installed: have).rawValue) { gallery.get(entry) }
+                        .buttonStyle(.borderedProminent).controlSize(.small)
+                        .testAnchor("boost.gallery.get.\(entry.id)")
+                }
+            }
+            .padding(12)
+        }
+        .background(Color.primary.opacity(0.035))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.primary.opacity(0.07), lineWidth: 1))
     }
 
     private func card(_ entry: BoostGallery.Entry) -> some View {
@@ -698,9 +902,9 @@ struct BoostGalleryView: View {
 // MARK: - Entry points
 
 enum BoostSharing {
-    /// A Boost file, or a Boost link (BoostLink).
+    /// A Boost file, a Boost link (BoostLink), or a shared Space's or folder's link (ShareLinkImport, H01/H02).
     static func accepts(_ url: URL) -> Bool {
-        (url.isFileURL && url.pathExtension.lowercased() == "airc-boost") || BoostLink.isLink(url)
+        (url.isFileURL && url.pathExtension.lowercased() == "airc-boost") || BoostLink.isLink(url) || ShareLinkImport.accepts(url)
     }
     static func error(_ message: String, on window: NSWindow) {
         let alert = NSAlert(); alert.messageText = "Couldn’t open Boost"; alert.informativeText = message
@@ -708,10 +912,15 @@ enum BoostSharing {
     }
     /// A file, or a link from another app: the review on `window`.
     @discardableResult static func open(_ url: URL, on window: NSWindow) -> Bool {
-        guard let center = BoostCenter.shared else { return false }
-        guard window.attachedSheet == nil else { NSSound.beep(); return false }
         let app = NSApp.delegate as? AppDelegate
         let controller = app?.controllers.first { $0.window === window } ?? app?.browserWindow()
+        if ShareLinkImport.accepts(url) {
+            guard let controller else { return false }
+            ShareLinkImport.open(url, in: controller)
+            return true
+        }
+        guard let center = BoostCenter.shared else { return false }
+        guard window.attachedSheet == nil else { NSSound.beep(); return false }
         do {
             let link = !url.isFileURL
             let file = link ? try BoostLink.file(from: url) : try BoostFile.read(url)
@@ -730,6 +939,10 @@ enum BoostSharing {
 }
 
 extension WindowController {
+    /// A toast with one action (Turn On after installing a Boost with code; the Library's Undo), up long enough to reach.
+    func showActionToast(_ text: String, action: (title: String, run: () -> Void)) {
+        toast.show(text, palette: currentPalette, in: card.frame, duration: AircMetrics.Toast.fullScreenDuration, action: action)
+    }
     func openBoostFile() {
         let panel = NSOpenPanel(); panel.allowedContentTypes = [.aircBoost]; panel.allowsMultipleSelection = false
         panel.beginSheetModal(for: window) { [weak self] response in
@@ -791,7 +1004,8 @@ struct BoostsSettingsPage: View {
             HStack {
                 Button("Browse Gallery…") { if let app = model.app { BoostGalleryWindow.show(app: app) } }
                     .testAnchor("settings.boosts.gallery")
-                Button("Open Boost File…") { model.app?.browserWindow()?.openBoostFile() }
+                Button("Import…") { model.app?.browserWindow()?.openBoostFile() }
+                    .help("Review and add a Boost file (.airc-boost)").testAnchor("settings.boosts.import")
                 Spacer()
             }
             if boosts.isEmpty { Text("No Boosts yet. Choose New Boost from the sidebar’s + menu, or get one from the gallery.") }

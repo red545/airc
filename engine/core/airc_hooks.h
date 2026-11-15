@@ -71,6 +71,9 @@ namespace web_app {
 class AppBrowserController;
 }
 
+class TabSharingUI;
+extern void (*g_airc_call_share)(TabSharingUI*, content::WebContents*, content::WebContents*, bool);
+
 extern bool g_airc_embedder;
 
 extern ui::ResourceBundle::Delegate* g_airc_resource_bundle_delegate;

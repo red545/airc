@@ -36,6 +36,7 @@ final class SidebarTrayView: NSView {
         self.library = library
         self.controller = controller
         model.library = library
+        model.controller = controller
         if host == nil {
             let h = AircFirstClickHostingView(rootView: TrayContent(model: model))
             h.safeAreaRegions = []
@@ -122,6 +123,7 @@ final class TrayModel: ObservableObject {
     @Published var plan = TrayPlan()
     @Published var theme = DesignTheme.default.resolved(systemIsDark: false)
     weak var library: MediaLibrary?
+    weak var controller: WindowController?
 }
 
 struct TrayContent: View {
@@ -143,7 +145,7 @@ struct TrayContent: View {
             }
             ForEach(Array(model.plan.players.enumerated()), id: \.element.id) { i, p in
                 let more = i == model.plan.players.count - 1 ? model.plan.morePlayers : []
-                MediaPlayerRow(player: p, more: more, library: model.library)
+                MediaPlayerRow(player: p, more: more, library: model.library, controller: model.controller)
                     .transition(.opacity.combined(with: .offset(y: 8)))
             }
             ForEach(model.plan.downloads) { d in
@@ -270,6 +272,7 @@ struct MediaPlayerRow: View {
     /// Players beyond this row (a menu of them on the "+N" chip).
     let more: [MediaCenter.Player]
     weak var library: MediaLibrary?
+    weak var controller: WindowController?
     @State private var hovered = false
     @Environment(\.aircTheme) private var theme
 
@@ -353,6 +356,7 @@ struct MediaPlayerRow: View {
 
     @ViewBuilder private var callControls: some View {
         HStack(spacing: 0) {
+            CallToolsView(id: player.tabID, compact: true, targetPage: { [weak controller] in controller?.promptShownPage })
             if s.actions.contains("togglemicrophone") {
                 TrayButton(symbol: s.microphoneOn ? "mic.fill" : "mic.slash.fill", help: s.microphoneOn ? "Mute Microphone" : "Unmute Microphone",
                            tint: s.microphoneOn ? nil : AircColor.destructive.color, anchor: "tray.mic.\(player.tabID)") {

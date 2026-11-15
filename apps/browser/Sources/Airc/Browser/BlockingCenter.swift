@@ -13,7 +13,6 @@ import AircKit
     @Published private(set) var failures: [String: String] = [:]
     private var contexts: [ObjectIdentifier: Context] = [:]
     private var filters: [String: BlockingFilter] = [:]
-    private var compiling: [String: Task<BlockingFilter, Error>] = [:]
     private var timer: Timer?
     private var subscription: AnyCancellable?
     private final class Context {
@@ -50,6 +49,10 @@ import AircKit
                     $0.selectedLists = ["easylist", "easyprivacy", "check-fixture"]
                 }
             }
+        }
+        // Launch timeline comparisons (artifacts/fastlaunch): every profile without blocking.
+        if app.options.isScripted, ProcessInfo.processInfo.environment["AIRC_BLOCKING_OFF"] == "1" {
+            for id in app.store.orderedProfiles.map(\.id) { settings.update(id) { $0.enabled = false } }
         }
         #endif
         Self.shared = self
@@ -221,34 +224,41 @@ import AircKit
             exceptions: context.privatePolicy?.exceptions(regular: config) ?? config.exceptions,
             blockThirdPartyCookies: config.blockThirdPartyCookies)
         let text: String
-        do { text = config.enabled ? try lists.text(for: config.selectedLists) : "" }
+        let name = profileName(context.id)
+        let reading = LaunchTimeline.begin("blocking list text \(name)")
+        defer { reading() }
+        do { text = config.enabled ? try lists.text(for: config.selectedLists) : ""; reading() }
         catch { failures[context.id] = "Blocking lists couldn’t be loaded."; finishApply(context, revision: revision); return }
+        let digesting = LaunchTimeline.begin("blocking digest \(name)")
         let digest = BlockingListStore.digest(Data(text.utf8))
+        digesting()
         Task { @MainActor in
+            // The engine compiles and installs its rules while the filter (cosmetics, the page script's selectors)
+            // compiles here: at once, not one after the other. Both parse the same text with the same library.
+            let compileStep = LaunchTimeline.begin("blocking filter \(name)")
+            let filterTask = Task { @MainActor () throws -> BlockingFilter in
+                if let cached = self.filters[digest] { return cached }
+                return try await SharedBlockingFilters.filter(text: text, digest: digest)
+            }
+            guard context.revision == revision else { return }
+            guard contexts[ObjectIdentifier(profile)] === context else { finishApply(context, revision: revision); return }
+            let configuring = LaunchTimeline.begin("blocking engine install \(name)")
+            let ok = await withCheckedContinuation { resume in
+                blocking.configureBlocking(text: text, policy: policy, profile: profile) { resume.resume(returning: $0) }
+            }
+            configuring()
             let filter: BlockingFilter
-            do {
-                if let cached = filters[digest] { filter = cached }
-                else {
-                    let task = compiling[digest] ?? Task.detached(priority: .userInitiated) { try BlockingFilter.compile(text) }
-                    compiling[digest] = task
-                    do { filter = try await task.value } catch { compiling[digest] = nil; throw error }
-                    filters[digest] = filter; compiling[digest] = nil
-                }
-            } catch {
+            do { filter = try await filterTask.value; filters[digest] = filter } catch {
+                compileStep()
                 guard context.revision == revision else { return }
                 failures[context.id] = "Protection couldn’t start. Your previous rules are still in use."
                 finishApply(context, revision: revision); return
             }
+            compileStep()
             guard context.revision == revision else { return }
-            guard contexts[ObjectIdentifier(profile)] === context else { finishApply(context, revision: revision); return }
-            blocking.configureBlocking(text: text, policy: policy, profile: profile) { [weak self, weak context] ok in
-                MainActor.assumeIsolated {
-                    guard let self, let context, context.revision == revision else { return }
-                    if ok { context.filter = filter; self.failures[context.id] = blocking.blockingConfigurationWarning(in: profile) }
-                    else { self.failures[context.id] = "Protection couldn’t be updated. Your previous rules are still in use." }
-                    self.pruneFilters(); self.objectWillChange.send(); self.finishApply(context, revision: revision)
-                }
-            }
+            if ok { context.filter = filter; failures[context.id] = blocking.blockingConfigurationWarning(in: profile) }
+            else { failures[context.id] = "Protection couldn’t be updated. Your previous rules are still in use." }
+            pruneFilters(); objectWillChange.send(); finishApply(context, revision: revision)
         }
     }
     private func finishApply(_ context: Context, revision: Int) {

@@ -1,8 +1,13 @@
 // Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
 import AppKit
 
+LaunchTimeline.mark("main")
 AppPaths.prepare(LaunchOptions.current)
+// The blocking lists' integrity scan, off the main thread while the engine starts (BlockingListStore.load takes it).
+BlockingListStore.preload(directory: AppPaths.dataDirectory, seeds: Bundle.main.resourceURL?.appendingPathComponent("BlockingLists"))
 CrashLog.install()
+// linklaunch: the launch's Apple event (a link from another app, or a plain launch), whichever engine runs NSApp.
+LaunchEvent.shared.observe()
 
 #if canImport(AircCore)
 if LaunchOptions.current.engine == "chromium" {
@@ -14,7 +19,9 @@ if LaunchOptions.current.engine == "chromium" {
     // this one comes later (URLEvents.swift).
     let before = URLEventHandler.shared.install()
     var delegate: AppDelegate?
+    AppDelegate.chromiumRunning = true
     let status = ChromiumRuntime.run(arguments: AppPaths.chromiumArguments(LaunchOptions.current)) {
+        LaunchTimeline.mark("engine started")
         CrashLog.install() // Chromium startup can install its own signal handlers.
         delegate = AppDelegate()
         NSApp.delegate = delegate
@@ -23,6 +30,10 @@ if LaunchOptions.current.engine == "chromium" {
         LinkLog.write("launch: GURL handler before the engine \(before), at engine start \(URLEventHandler.shared.install())")
         if let delegate { URLEventHandler.shared.attach(delegate) }
     }
+    #if AIRC_TESTING
+    QuitDiagnostics.mark("engine returned")
+    #endif
+    AppDelegate.chromiumRunning = false // Chromium's shutdown is done: willTerminate may now delete an --ephemeral folder.
     delegate?.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
     exit(status)
 }

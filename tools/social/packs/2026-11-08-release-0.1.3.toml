@@ -403,6 +403,9 @@ title = "Sidebar on the right."
 line = "Settings → Appearance → Sidebar position."
 captions = { left = "Left, like Arc.", right = "Or on the right.", swipe = "Everything works there: swipe between Spaces." }
 fade_frames = 12
+# The whole window, so the sidebar on its right edge stays in frame (at the default scale it ran off the canvas).
+scale_16x9 = 0.76
+scale_1x1 = 0.65
 alt = "An animation rendered frame by frame by Airc: the Travel Space in sky blue on Wikipedia's Lisbon article with the sidebar on the left; the sidebar moves to the right-hand side, then a two-finger swipe there moves to the Studio Space in peach, on colour theory."
 
 [[video]]
@@ -632,3 +635,35 @@ If you have Reduce Motion on, Airc 0.1.3 cross-fades the sidebar and long Space 
 title = "The four-image set"
 about = "Post 7's images, in this order (X fills its 2 × 2 grid left to right, top to bottom)."
 media = ["dev-mode", "toolbar-extensions", "boost-gallery", "theme-palette"]
+
+# Added 2026-11-10 from the first day's numbers: ⌘T's posts led, so more keys and quick moves, each a 0.1.3 card.
+
+[[post]]
+label = "Notes beside the page (⌃⇧N)"
+media = ["notes-split:16x9"]
+text = """
+⌃⇧N gives you a note pinned in your sidebar, saved as you type.
+
+New Note in Split puts one right beside the page you're reading. New in Airc 0.1.3.
+"""
+
+[[post]]
+label = "A link to what you copied"
+media = ["quote-link:16x9"]
+text = """
+Copy a few words on a page and Airc offers a link straight to that text, so whoever opens it lands right there. New in 0.1.3.
+"""
+
+[[post]]
+label = "Drop files on the sidebar"
+media = ["sidebar-files:16x9"]
+text = """
+Drop files, folders, links or text on Airc's sidebar. A Finder folder comes in as a pinned folder, its files as tabs. New in 0.1.3.
+"""
+
+[[post]]
+label = "Try a Boost on"
+media = ["boost-try-on:16x9"]
+text = """
+Someone shares a Boost with you. Before you add it, Try It On shows it on the real site, and the card lists what it changes. New in 0.1.3.
+"""

@@ -19,4 +19,5 @@ interface AircPage {
   PictureInPictureDocument() => (string? document);
   EnterPictureInPictureForUser(string document) => (bool opened);
   SetPageColor(string color);
+  SetBlockingScript(string script);
 };

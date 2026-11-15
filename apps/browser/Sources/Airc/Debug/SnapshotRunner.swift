@@ -14,7 +14,9 @@ final class SnapshotRunner {
     let dir: URL
     let script: String
     private var steps: [(@escaping () -> Void) -> Void] = []
-    private var log: [String] = []
+    private var stepCounter = 0
+    private let watchdog: SnapshotWatchdog
+    private var log: [String] { watchdog.lines }
     var spaces: [String: String] = [:]   // name → ID
     var onboarding: OnboardingController?
     var uiAttempt: UICheckAttempt?
@@ -27,18 +29,29 @@ final class SnapshotRunner {
         dir = directory
         self.script = script
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        watchdog = SnapshotWatchdog(directory: directory, script: script)
+        // linklaunch: windows and Space changes from the launch on (LinkLaunchCheck.swift).
+        if script.hasPrefix("linklaunch") { LinkLaunchProbe.shared.start(app: app) }
     }
 
     /// The browser window opened (every scenario but onboarding starts here).
     func windowDidOpen(_ controller: WindowController) {
         guard script != "onboarding", script != "onboarding-e2e" else { return }
-        if script == "perf" { PerfLaunch.windowOpened() }
+        if script == "perf" || script == "cbperf" { PerfLaunch.windowOpened() }   // cbperf: launch to first paint
+        start()
+    }
+
+    /// linklaunch: the app was launched for a link to Little Airc and opened no browser window (by design).
+    private(set) var launchedByLinkWithoutWindow = false
+    func launchedWithoutWindow() {
+        guard script != "onboarding", script != "onboarding-e2e" else { return }
+        launchedByLinkWithoutWindow = true
         start()
     }
 
     /// The onboarding window is up (`--script onboarding`).
     func onboardingDidStart(_ o: OnboardingController) {
-        guard script == "onboarding" || script == "onboarding-e2e", onboarding == nil else { return }
+        guard script == "onboarding" || script == "onboarding-e2e" || script == "linklaunch-onboarding", onboarding == nil else { return }
         onboarding = o
         start()
     }
@@ -47,29 +60,82 @@ final class SnapshotRunner {
         guard !started else { return }
         started = true
         note("engine: \(app?.engine.name ?? "?")")
+        if ProcessInfo.processInfo.environment["AIRC_UI_DEDICATED_SESSION"] == "1", launchedByLinkWithoutWindow || script == "linklaunch-onboarding" {
+            // A link launch's Little Airc (or onboarding) must stay over the app that sent the link: no activation here.
+            note("UI preflight: none (launched by a link, the app's own activation only)")
+        } else if ProcessInfo.processInfo.environment["AIRC_UI_DEDICATED_SESSION"] == "1" {
+            step { [self] done in
+                guard let window = (onboarding?.window as NSWindow?) ?? app?.controller?.window else {
+                    note("FAIL-ENV UI preflight: no target window")
+                    return done()
+                }
+                let deadline = Date().addingTimeInterval(5)
+                var attempts = 0
+                func activate() {
+                    attempts += 1
+                    // Launch Services activation can arrive before startup has
+                    // finished, or lose to the previous app's termination. Retry
+                    // the actual target, only on the dedicated agent console.
+                    NSApp.unhide(nil)
+                    NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+                    window.makeKeyAndOrderFront(nil)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                        let ready = NSApp.isActive && window.isKeyWindow && window.isOnActiveSpace
+                        if ready || Date() >= deadline {
+                            let front = NSWorkspace.shared.frontmostApplication
+                            self.note("\(ready ? "PASS" : "FAIL-ENV") UI preflight: app active \(NSApp.isActive), target key \(window.isKeyWindow), active Space \(window.isOnActiveSpace), attempts \(attempts), frontmost pid \(front?.processIdentifier ?? 0), own pid \(getpid())")
+                            done()
+                        } else { activate() }
+                    }
+                }
+                activate()
+            }
+        }
         switch script {
+        case "watchdog-block-main", "watchdog-block-main-external":
+            run { [self] in
+                note("watchdog smoke: deliberately blocking the main thread")
+                DispatchSemaphore(value: 0).wait()
+            }
+        case "watchdog-step-stall", "watchdog-step-block":
+            // scripts/step-watchdog-check.py: a step that never finishes (main thread free, or blocked in a semaphore).
+            // The per-step bound (4 s here, SnapshotWatchdog.swift) ends the run with a FAIL-ENV or FAIL line, exit 70.
+            run { [self] in note("watchdog smoke: a step that never finishes (\(script))") }
+            step { [self] _ in
+                if script == "watchdog-step-block" { DispatchSemaphore(value: 0).wait() }
+            }
+        case "watchdog-smoke":
+            run { [self] in check(true, "watchdog smoke: subsequent launch runs and finishes") }
         case "profilesignin": profileSignInScenario()
         case "arcbits": arcbitsScenario()
         case "showcase": showcase()
         case "onboarding": onboardingScenario()
         case "onboarding-e2e": onboardingE2EScenario()
         case "arcimport2": arcImport2Scenario()
+        case "pwmanager": passwordManagerScenario()   // onboarding's password manager step (PasswordManagerCheck.swift)
         case "arcaccept": importAcceptanceScenario()
+        case "arcimport3": arcImport3Scenario()
         case "importux": importUXScenario()
         case "import-browsers": importBrowsersScenario()
         case "persist-write": persistWrite()
         case "persist-read": persistRead()
+        case "quitdata-write": quitDataWrite()   // QuitDataCheck.swift (quitflush)
+        case "quitdata-read": quitDataRead()
         case "split-write": splitPersistWrite()
         case "split-read": splitPersistRead()
         case "events": eventsScenario()
         case "routing": routingCheck()
+        case "launchtimeline": launchTimelineScenario()   // fastlaunch: window before blocking, first page protected (LaunchTimelineCheck.swift)
+        case "peekrules": peekRulesScenario()   // PK-1/AT-1: eTLD+1 same-site, rules for Peek links, real clicks (PeekRulesCheck.swift)
         case "shortcuts": shortcutsScenario()
         case "shortcutremap": shortcutRemapScenario()
         case "littlearc": littleArcLinkScenario()
         case "littlearc-cold": littleArcColdStartScenario()
+        case "linklaunch", "linklaunch-seed", "linklaunch-onboarding": linkLaunchScenario()   // LinkLaunchCheck.swift
         case "littlearc-look": littleArcLookScenario()
         case "drmsettings": protectedContentSettingsScenario()
         #if canImport(AircCore)
+        case "redirects": redirectsScenario()
         case "drmwebkit": drmWebKitScenario(read: false)
         case "drmwebkit-read": drmWebKitScenario(read: true)
         case "fairplay": fairPlayScenario()
@@ -78,6 +144,8 @@ final class SnapshotRunner {
         case "perf": perfScenario()
         case "callspace": callSpaceScenario()
         case "devmode": developerModeScenario()
+        case "ytads-live": videoAdsLiveScenario()
+        case "ytads": videoAdsScenario()
         case "parityp20c", "parityp20c-probe", "parityp20c-memory-off", "parityp20c-memory-on": parityP20cScenario()
         case "devtoolscommands": devToolsCommandsScenario()
         case "sitecontrols": siteControlsScenario()
@@ -90,11 +158,19 @@ final class SnapshotRunner {
         case "themeparity": themeParityScenario()
         case "medialib", "medialib-downloads", "medialib-media", "medialib-call": mediaLibScenario()
         case "pipcontrols", "pipcontrols-media2": pipControlsScenario()
+        #if canImport(AircCore)
+        case "parityp16b-capture": parityP16bCaptureScenario()
+        #endif
+        case "parityp16b": parityP16bScenario()
         case "media2": media2Scenario()
         case "parityp16a", "parityp16a-video": parityP16aScenario()
         case "webkitmedia": webKitMediaScenario()
-        case "pipreturn", "pipreturn-tray", "pipreturn-return", "pipreturn-aspect": pipReturnScenario()
+        case "pipreturn", "pipreturn-tray", "pipreturn-return", "pipreturn-aspect", "pipreturn-rapid": pipReturnScenario()
+        case "histsugg": historySuggestionsCheck()
+        case "histsuggcap": historyCapCheck()
+        case "histsuggbrowse": historyCapCheck(keepBrowsing: true)
         case "cbperf": commandBarHistoryPerf()
+        case "cmdtrust": cmdTrustScenario()   // Command Bar icons, the official-sites mark, row kinds (CmdTrustCheck)
         case "parityp09": parityP09Scenario()   // P09: pinned extensions in the toolbar, their popups
         case "parityp07": parityP07Scenario()   // P07a: Site Search, suggestion deletion, input methods
         case "frames": framesScenario()
@@ -125,6 +201,7 @@ final class SnapshotRunner {
         case "followups": followupsScenario()
         case "splitparity": splitParityScenario()
         case "parityk07": parityK07Scenario()   // K07: Arc's AppleScript dictionary, in-process (Scripting/)
+        case "callrecorders": callRecordersScenario()   // what call recorders read: CoreAudio, AX, AppleScript
         case "followups3": followups3Scenario()
         case "private": privateWindowScenario()
         case "windows": windowsScenario()
@@ -137,25 +214,61 @@ final class SnapshotRunner {
         case "managespaces": manageSpacesScenario()
         case "previews": previewsScenario()
         case "p11a": parityP11aScenario()
+        case "s04": parityS04Scenario()
+        case "paritycalprev": parityCalPrevScenario()   // calprev: calendar cards from the signed-in page
         case "favretry": faviconRetryScenario()
+        case "parityfavbacking": parityFavBackingScenario()   // favbacking: light plates behind dark icons on dark surfaces
         case "parityp10", "parityp10-relaunch": parityP10Scenario()
         case "parityp03", "parityp03-relaunch", "parityp03-relaunch2": parityP03Scenario()
         case "parityp03b": parityP03bScenario()   // P03b: Cycle Tab, Esc's order, ⌥⌘⌫ remap and ✕, international brackets
         case "parityp04": parityP04Scenario()   // P04: files, folders, links and text into the sidebar; the export
         case "parityp06b": parityP06bScenario()   // P06b: Little Arc from any app, Show/Close all, archiving
+        case "v06": parityV06Scenario()   // V06: Little Arc's global actions through the real hot key and menus
         case "parityp06d": parityP06dScenario()   // P06d: links clicked with ⌥⌘ open in Little Airc
+        case "paritylinkspaces": parityLinkSpacesScenario()   // SP-31 Open Link in Space ›, V06 ⌥⌘-click, real input
         case "parityp06c": parityP06cScenario()   // P06c: Split View extras (Expand Current Split, Separate Page, ⌥-click)
         case "paritycast": parityCastScenario()
+        case "taskcpu": taskCPUStartupScenario()
         case "parityp20d": parityP20dScenario()   // P20d: developer commands in the menu bar, the Task Manager
+        case "s16": parityS16Scenario()   // S16: tab previews with real hovers and clicks (ParityS16Check.swift)
+        case "parityw10", "parityw10-read", "parityw10-fallback": parityW10Scenario()
+        case "parityp02": parityP02Scenario()   // P02: Space header states (ParityP02Check.swift)
+        case "parityp02-relaunch": parityP02RelaunchScenario()
         case "parityw07": parityW07Scenario()   // W07: the window drags from the top of the page
+        case "parityw07b": parityW07bScenario()   // W07: margins drag, inactive dimming, double-click (real input)
+        case "parityw10drag": parityW10DragScenario()   // W10: tear-out, drops, ⌥ copy, Esc (real driver drags)
+        case "ownerfs": ownerFullScreenScenario()   // new windows from full screen open in their own full-screen Space (OwnerFixesCheck.swift)
+        case "paritysmallgaps": paritySmallGapsScenario()   // C06 Share Quote under the URL, K03 Edit/Help remaps and layout brackets
+        case "ownerquote": ownerQuoteScenario()   // C06 Shared Quotes with a real ⌘C, and the page menu's Copy Link to Highlight
+        case "parityS09S11": parityS09S11Scenario()   // S09/S11: Move to › folders, a selection's Archive Tabs Below / Other Tabs, Command Bar
         case "parityp01c": parityP01cScenario()   // P01c: Move to ›, folder reset and Turn into Space, the Space header, Shared Quotes
+        case "parityp09b": parityP09bScenario()
+        case "paritycontextmenu": parityContextMenuScenario()
+        case "menulang": menuLanguageScenario()   // English-only app strings under a German test locale (MenuLanguageCheck)
         case "parityp08c": parityP08cScenario()   // P08c: Capture in Portrait Mode in View and the Site Control Center
+        case "parityp12", "parityp12-relaunch": parityP12Scenario()   // P12: GitHub Live Folders on a local fake GitHub
+        case "parityp19a", "parityp19a-relaunch", "parityp19a-perf": parityP19aScenario()   // P19a: Easels (ParityP19aCheck.swift)
+        case "parityp19b", "parityp19b-relaunch", "parityp19b-ui": parityP19bScenario()   // P19b: live Captures (ParityP19bCheck.swift)
+        case "parityp19c": parityP19cScenario()   // P19c: Easel export and share links (ParityP19cCheck.swift)
+        case "parityp19d": parityP19dScenario()   // P19d: Add to Airc for a shared Easel link (ParityP19dCheck.swift)
+        case "parityp12", "parityp12-relaunch": parityP12Scenario()   // P12: GitHub Live Folders on a local fake GitHub
         case "parityp07d": parityP07dScenario()   // P07d: a site search as the profile's default search engine
+        case "parityc08": parityC08Scenario()   // C08: engine picker, per-profile suggestions, menu search (ParityC08Check.swift)
+        case "parityc08b": parityC08bScenario()   // C08b: Arc/Chrome default and custom search engines imported (ParityC08bCheck.swift)
+        case "cbfirstkeys": commandBarFirstKeysScenario()   // cmdfast: no key lost at the Command Bar's first opening (CommandBarFirstKeysCheck.swift)
+        case "parityp07bc": parityP07bcScenario()   // P07b+P07c: ChatGPT in the Command Bar, Instant Links (ParityP07bcCheck.swift)
+        case "parityp07bc-real": parityP07bcRealSmoke()   // P07b+P07c manual smoke: real network and model, never in the suite
+        case "parityp07bc-tabprobe": parityP07bcTabProbe()   // diagnostic: Tab → site search, section by section
         case "aimax": MainActor.assumeIsolated { aimaxScenario() }
         case "aimax-write", "aimax-read": MainActor.assumeIsolated { aimaxRelaunchScenario(write: script == "aimax-write") }
         case "askpage": MainActor.assumeIsolated { askPageScenario() }
         case "linkpreview": MainActor.assumeIsolated { linkPreviewScenario() }
         case "tidydownloads": MainActor.assumeIsolated { tidyDownloadsScenario() }
+        case "paritytidydl": MainActor.assumeIsolated { parityTidyDownloadsScenario() }   // tidydl: Rename automatically, Undo (ParityTidyDownloadsCheck.swift)
+        case "parityp18b", "parityp18b-write", "parityp18b-read", "parityp18b-real":   // P18b: Tidy Tabs (ParityP18bCheck.swift)
+            MainActor.assumeIsolated { parityP18bScenario() }
+        case "paritytodayfolders", "paritytodayfolders-write", "paritytodayfolders-read":   // folders in Today (ParityTodayFoldersCheck.swift)
+            MainActor.assumeIsolated { parityTodayFoldersScenario() }
         case "sidebarright": sidebarRightScenario()
         case "multiselect": multiSelectScenario()
         case "sidebarpolish": sidebarPolishScenario()
@@ -164,16 +277,39 @@ final class SnapshotRunner {
         case "notescapture-read": notesCaptureReadScenario()
         case "notes": notesScenario()
         case "parityp01": parityP01Scenario()
+        case "s03badges": s03BadgesScenario()   // S03: Favorite unread dot, Show Unread Badge, sound badge, private window
+        case "s03badges-relaunch": s03BadgesRelaunchScenario()
+        case "s03bbadges": s03bBadgesScenario()   // S03b: X counts, Slack mentions, Calendar's soon pill, call badges
+        case "s03bbadges-relaunch": s03bBadgesRelaunchScenario()
+        case "parityh03": parityH03Scenario()   // H03: Share in a private window, the link alone, nothing kept (ParityH03Check.swift)
+        case "paritysharing": paritySharingScenario()   // H01, H02, B03: hosted share links, the Boost gallery (ParitySharingCheck.swift)
+        case "parityfeedback": parityFeedbackScenario()   // Help › Send Feedback…, real input, local server (ParityFeedbackCheck.swift)
+        case "paritylibpeek": parityLibPeekScenario()   // L05/N08: Library notes and Easels in Peek, Easel export, Delete Easel (ParityLibPeekCheck.swift)
+        case "paritieaselall", "parityeaselall": parityEaselAllScenario()   // N08/L05: Export All Easels, File › Export Easel…'s panel (ParityEaselAllCheck.swift)
+        case "paritymoveto": parityMoveToScenario()   // S09/S11: Move to › by profile, Reset Folder, Turn into Space, real input (ParityMoveToCheck.swift)
         case "parityp01b": parityP01bScenario()
         case "parityp21b": parityP21bScenario()
         case "p21b-write": p21bWrite()
         case "p21b-read": p21bRead()
+        case "parityprefs": parityPrefsScenario()   // E12/Q03, P21b re-verified: settings and reorder haptics with real input (ParityPrefsCheck.swift)
+        case let s where s.hasPrefix("prefs-"): prefsRelaunchScenario()   // When Airc starts across relaunches and a crash
+        case "updatedtoast": updatedToastScenario()   // "Updated!" placed, kept centred, timed (UpdatedToastCheck.swift)
+        case "paritywhatsnew", "paritywhatsnew-relaunch": parityWhatsNewScenario(relaunch: script.hasSuffix("-relaunch"))   // WhatsNewCheck.swift
         case "parityk05": parityK05Scenario()
+        case "parityarchboost": parityArchBoostScenario()   // LIB-2 Clear Archive by age + Undo, BST-2 Boost files (ParityArchBoostCheck.swift)
         case "notes-read": notesReadScenario()
+        case "parityp13b", "parityp13b-relaunch": parityP13bScenario()   // P13b: a note's title field, notes dragged into splits
         case "agentspike": agentSpikeScenario()   // the agent server end to end (AgentSpikeCheck.swift)
+        case "parityagentview": parityAgentViewScenario()   // the Agents folder, Watch, Take over, Stop (ParityAgentViewCheck.swift)
+        case "parityconnect": parityConnectScenario()   // every way to connect Claude (ParityConnectCheck.swift)
+        case "parityremote": parityRemoteScenario()   // Settings › Agents › Other devices, the tailnet listener (ParityRemoteCheck.swift)
+        case "hiddenpaint": hiddenPaintScenario()   // MEM-6: hidden pages draw nothing, by window state (HiddenPaintCheck.swift)
+        case "visiblecpu": visibleCPUScenario()   // a visible idle page draws only what changes (VisibleCPUCheck.swift)
         case "library2": library2Scenario()
+        case "l04": l04Scenario()   // L04LibraryCheck.swift: Library media and recent files, real input
         case "icloudsync", "icloudsync-second", "icloudsync-replace", "icloudsync-return", "icloudsync-unavailable": iCloudSyncScenario()
-        case "icloudsync-real-a", "icloudsync-real-b", "icloudsync-real-cleanup": iCloudRealScenario()
+        case "icloudsync-real-a", "icloudsync-real-b", "icloudsync-real-live-a", "icloudsync-real-live-b", "icloudsync-real-cleanup":
+            iCloudRealScenario()
         case "marketing": marketingScenario()   // product shots, not a check: scripts/marketing-shots.sh only
         case "social": socialScenario()   // video frames for the social studio, not a check: tools/social/mac-frames.sh only
         default:
@@ -182,19 +318,16 @@ final class SnapshotRunner {
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.next() }
-        // Never hang the build: quit after four minutes whatever happens (the perf harness allows 660 s).
-        let limit: Double = script == "perf" ? 660 : 240
-        DispatchQueue.main.asyncAfter(deadline: .now() + limit) {
-            // Held up by the Mac (our window off the active Space, the screen locked, another app's window over ours,
-            // or interference behind the latest cases): FAIL-ENV. With the window on screen and in front: a FAIL.
-            let left = "\(self.script): timed out after \(Int(limit)) s with \(self.steps.count) steps left"
-            self.finishForcing(self.timeoutInterference.map { "FAIL-ENV \(left) (\($0))" } ?? "FAIL \(left)")
-        }
+        // SnapshotWatchdog owns the same four-minute deadline on a background
+        // queue, including while the main thread is stuck in event tracking.
+
     }
 
     private func next() {
         guard !steps.isEmpty else { return finish() }
         let s = steps.removeFirst()
+        stepCounter += 1
+        watchdog.stepBegan(stepCounter)   // the off-main per-step bound (SnapshotWatchdog.swift)
         s { DispatchQueue.main.async { self.next() } }
     }
 
@@ -240,6 +373,8 @@ final class SnapshotRunner {
                         return done()
                     }
                     let action = caseSteps[index]
+                    stepCounter += 1
+                    watchdog.stepBegan(stepCounter)   // a case's own steps count for the per-step bound too
                     action { DispatchQueue.main.async { next(index + 1) } }
                 }
                 next(0)
@@ -304,9 +439,9 @@ final class SnapshotRunner {
         if s.hasPrefix("FAIL ") || s.hasPrefix("FAIL-ENV ")
             || s.hasPrefix("FAIL-INDEPENDENT ") || s.hasPrefix("ENGINE-FAIL ") {
             // Keep the instant of failure: a later lock in this scenario must not excuse it.
-            log.append("UI-FAIL-STATE \(Date().timeIntervalSince1970) \(locked ? "locked" : "unlocked")")
+            watchdog.record("UI-FAIL-STATE \(Date().timeIntervalSince1970) \(locked ? "locked" : "unlocked")")
         }
-        log.append(s)
+        watchdog.record(s)
         print("[snapshot] " + s)
     }
 
@@ -317,14 +452,19 @@ final class SnapshotRunner {
         note(message)
         if NSApp.modalWindow != nil { NSApp.abortModal() }
         for w in NSApp.windows { if let sheet = w.attachedSheet { w.endSheet(sheet) } }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 10) { exit(70) }
         finish()
     }
 
+    /// prefs-crash-write: the log on disk, then the process ends as a crash would (no quit, no willTerminate; `_exit`
+    /// leaves no crash report).
+    func finishAsIfCrashed() {
+        watchdog.finish()
+        _exit(0)
+    }
+
     func finish() {
-        let file = dir.appendingPathComponent("log.txt")
-        let previous = (try? String(contentsOf: file, encoding: .utf8)).map { $0 + "\n" } ?? ""
-        try? (previous + "[\(script)]\n" + log.joined(separator: "\n")).write(to: file, atomically: true, encoding: .utf8)
+        if script == "events" || ProcessInfo.processInfo.environment["AIRC_STEP_LIMIT"] != nil { note("\(script): \(watchdog.longestStepSummary)") }
+        watchdog.finish()
         NSApp.terminate(nil)
     }
 
@@ -757,7 +897,8 @@ final class SnapshotRunner {
                                       c.tabPreview.isShowing ? c.tabPreview.presentedCard : nil,
                                       c.recentFiles.isShowing ? c.recentFiles.card : nil,
                                       MainActor.assumeIsolated { BlockingNotices.overlay(in: c) },
-                                      CastPicker.shared?.host, c.toast.isHidden ? nil : c.toast, c.protectedMediaToast].compactMap { $0 }
+                                      CastPicker.shared?.host, c.toast.isHidden ? nil : c.toast, c.protectedMediaToast,
+                                      c.updatedToast.flatMap { $0.isHidden ? nil : $0 }].compactMap { $0 }
             overlays.forEach { $0.isHidden = true }
             let frameView = root.superview ?? root
             let base = render(frameView)
@@ -771,6 +912,12 @@ final class SnapshotRunner {
             let panes: [(id: String, rect: NSRect)] = c.shownSplitID == nil ? [] : c.splitContainer.panes.map {
                 ($0.tabID, root.convert($0.convert($0.bounds, to: nil), from: nil))
             }
+            // Native text controls are not retained in their AppKit layer contents.
+            // Use their live drawing, just as the engine provides its own page pixels.
+            let nativeImages: [(NSRect, NSImage)] = c.captureViews.compactMap { view in
+                guard let pixels = CaptureSession.picture(of: view) else { return nil }
+                return (root.convert(view.bounds, from: view), NSImage(cgImage: pixels, size: view.bounds.size))
+            }
             var paneImages: [(NSRect, NSImage)] = []
             let finish: (NSImage?) -> Void = { page in
                 let size = root.bounds.size
@@ -783,7 +930,7 @@ final class SnapshotRunner {
                 NSGraphicsContext.saveGraphicsState()
                 NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
                 base?.draw(in: NSRect(origin: .zero, size: size))
-                for (pr, img) in paneImages {
+                for (pr, img) in nativeImages + paneImages {
                     let r = NSRect(x: pr.minX, y: size.height - pr.maxY, width: pr.width, height: pr.height)
                     NSGraphicsContext.saveGraphicsState()
                     NSBezierPath(roundedRect: r, xRadius: AircMetrics.Window.cardRadius, yRadius: AircMetrics.Window.cardRadius).addClip()

@@ -1,6 +1,7 @@
 // Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
 
 import XCTest
+import Darwin
 @testable import AircKit
 
 /// Code review H5: the Command Bar's history work per keystroke, with a full history (20,000 entries, the per-profile
@@ -42,20 +43,32 @@ final class HistoryPerfTests: XCTestCase {
         var report = [String(format: "index build (off the main thread, once): %.1f ms", build)]
         var worstSearch = 0.0, worstInline = 0.0
         for q in ["g", "gi", "git", "site12", "page title", "s", "inbox 1", "xyzzy"] {
-            var search = Double.infinity, inline = Double.infinity
-            var hits: [HistoryMatch] = []
+            // Warm caches before sampling; fixture/index construction is outside the timed region.
+            let extra = [(url: "https://github.com/", weight: 2.0)]
             for _ in 0..<5 {
-                let a = CACurrentMediaTime()
-                hits = snap.search(q, limit: 8)
-                let b = CACurrentMediaTime()
-                _ = snap.inlineCompletion(for: q, extra: [("https://github.com/", 2)])
-                let c = CACurrentMediaTime()
-                search = min(search, (b - a) * 1000)
-                inline = min(inline, (c - b) * 1000)
+                _ = snap.search(q, limit: 8)
+                _ = snap.inlineCompletion(for: q, extra: extra)
             }
+            var timebase = mach_timebase_info_data_t()
+            mach_timebase_info(&timebase)
+            let millisecondsPerTick = Double(timebase.numer) / Double(timebase.denom) / 1_000_000
+            var searches: [Double] = [], completions: [Double] = []
+            var hits: [HistoryMatch] = []
+            // Median rejects occasional scheduler interruptions without hiding a consistently slow keystroke.
+            for _ in 0..<21 {
+                let a = mach_absolute_time()
+                hits = snap.search(q, limit: 8)
+                let b = mach_absolute_time()
+                _ = snap.inlineCompletion(for: q, extra: extra)
+                let c = mach_absolute_time()
+                searches.append(Double(b - a) * millisecondsPerTick)
+                completions.append(Double(c - b) * millisecondsPerTick)
+            }
+            let search = searches.sorted()[searches.count / 2]
+            let inline = completions.sorted()[completions.count / 2]
             worstSearch = max(worstSearch, search)
             worstInline = max(worstInline, inline)
-            report.append(String(format: "%-12@ search (off main) %6.2f ms, inline completion (main) %6.3f ms, %d hits",
+            report.append(String(format: "%-12@ median search (off main) %6.2f ms, median inline completion (main) %6.3f ms, %d hits",
                                  "“\(q)”" as NSString, search, inline, hits.count))
         }
         print("[history-perf]\n" + report.joined(separator: "\n"))

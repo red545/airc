@@ -1,5 +1,6 @@
 // Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
 #if canImport(Sparkle)
+import AircKit
 import AppKit
 import Sparkle
 
@@ -14,6 +15,11 @@ import Sparkle
 /// a call, a download or a page that would ask "Leave site?"); quitting installs it too, and so does, with Arc's
 /// "Automatically update my Arc" turned on (off by default), being away 30 minutes with nothing to interrupt (E13,
 /// UpdateCenter). What happened is appended to `Updates.log` in the data folder.
+///
+/// A download that stalls or loses its connection (updstall: a route that drops the flow mid-body) fails after 20 s
+/// without bytes instead of 60, and gets one quiet background retry a few seconds later while automatic checks and
+/// downloads are on (UpdateDownloadRetry). Sparkle itself never retries; if the retry fails too, nothing more happens
+/// until the next scheduled check.
 final class AircUpdateDelegate: NSObject, SPUUpdaterDelegate {
     static let readyMessage = "A new version of Airc is ready. Restart to update"
 
@@ -26,16 +32,19 @@ final class AircUpdateDelegate: NSObject, SPUUpdaterDelegate {
     private var whatsNewItem: NSMenuItem?
     private var observers: [NSObjectProtocol] = []
     private var wokeSinceActive = false
+    private var retryGate = UpdateDownloadRetry.Gate()
 
     /// Sparkle's "install now and relaunch", given once the update is downloaded and verified. Sparkle 2.3+ lets it run
     /// again when the quit it starts is cancelled (a page's "Leave site?" → Stay).
     private final class SparkleUpdate: ReadyUpdate {
         let version: String
         let releaseNotesURL: URL?
+        let highlights: [WhatsNewHighlight]
         let install: () -> Void
-        init(version: String, releaseNotesURL: URL?, install: @escaping () -> Void) {
+        init(version: String, releaseNotesURL: URL?, highlights: [WhatsNewHighlight], install: @escaping () -> Void) {
             self.version = version
             self.releaseNotesURL = releaseNotesURL
+            self.highlights = highlights
             self.install = install
         }
         func installAndRelaunch() { install() }
@@ -82,7 +91,31 @@ final class AircUpdateDelegate: NSObject, SPUUpdaterDelegate {
     func updater(_ updater: SPUUpdater, didDownloadUpdate item: SUAppcastItem) { log("downloaded \(item.versionString)") }
 
     func updater(_ updater: SPUUpdater, willDownloadUpdate item: SUAppcastItem, with request: NSMutableURLRequest) {
-        log("downloading \(item.versionString)")
+        // updretry: a stalled transfer fails after this many seconds without bytes (URLSession's idle timeout, 60 s by
+        // default), so the retry below comes quickly. Sparkle passes this request to SPUDownloader unchanged.
+        request.timeoutInterval = UpdateDownloadRetry.idleTimeout
+        log("downloading \(item.versionString) (idle timeout \(Int(request.timeoutInterval)) s)")
+    }
+
+    /// updretry: one background check after a cycle that ended in a timed-out or lost download, never after the retry's
+    /// own cycle, and only while Sparkle checks and downloads by itself, so the retry shows nothing. Sparkle has
+    /// already shown its error for a check the person started; a successful retry then offers the update as usual.
+    func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: (any Error)?) {
+        let automatic = updater.automaticallyChecksForUpdates && updater.automaticallyDownloadsUpdates
+        guard retryGate.cycleEnded(error: error, allowed: automatic), let error else { return }
+        let cause = UpdateDownloadRetry.rootCause(error)
+        log("download stalled (\(cause.domain) \(cause.code)): retrying once in \(Int(UpdateDownloadRetry.delay)) s")
+        DispatchQueue.main.asyncAfter(deadline: .now() + UpdateDownloadRetry.delay) { [weak self, weak updater] in
+            guard let self, let updater else { return }
+            let allowed = updater.automaticallyChecksForUpdates && updater.automaticallyDownloadsUpdates
+            guard self.retryGate.retryFiring(allowed: allowed) else { return self.log("retry skipped: automatic updates off") }
+            guard UpdateCenter.shared.ready == nil, !updater.sessionInProgress, updater.canCheckForUpdates else {
+                self.retryGate.retryNotStarted()
+                return self.log("retry skipped: updater busy or an update is ready")
+            }
+            self.log("retry: checking again")
+            updater.checkForUpdatesInBackground()
+        }
     }
 
     func updater(_ updater: SPUUpdater, failedToDownloadUpdate item: SUAppcastItem, error: Error) {
@@ -111,7 +144,11 @@ final class AircUpdateDelegate: NSObject, SPUUpdaterDelegate {
         if UpdateCenter.shared.ready?.version != version {
             // A web page of notes only: the feed's inline or Markdown notes have no address to open.
             let notes = [item.fullReleaseNotesURL, item.releaseNotesURL].compactMap { $0 }.first { $0.scheme == "https" }
-            UpdateCenter.shared.setReady(SparkleUpdate(version: version, releaseNotesURL: notes, install: immediateInstallHandler))
+            // What it brings: the item's <airc:highlights> (scripts/release/whatsnew.py); older feeds have none.
+            let highlights = WhatsNewAppcast.highlights(properties: item.propertiesDictionary)
+            log("highlights: \(highlights.count)")
+            UpdateCenter.shared.setReady(SparkleUpdate(version: version, releaseNotesURL: notes, highlights: highlights,
+                                                       install: immediateInstallHandler))
         }
         showReady()
         return true

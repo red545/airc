@@ -259,7 +259,8 @@ extension SnapshotRunner {
             if mapped { page()?.load(URL(string: "http://\(remoteHost):\(port)/")!) }
         }
         if mapped {
-            expect("a remote page loads, not in Developer Mode", { page()?.title == "Developer fixture" && strip()?.isHidden == true })
+            expect("a remote page loads, not in Developer Mode", { page()?.url?.host == remoteHost && page()?.isLoading == false
+                    && page()?.title == "Developer fixture" && strip()?.isHidden == true })
             native("a remote site that's off has no wrapper")
             controlD("remote on")
             expect("⌃D turns the remote site on: strip, counter and full URL", {

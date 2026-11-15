@@ -84,4 +84,46 @@ final class LibraryMediaTests: XCTestCase {
         XCTAssertEqual(r.entries.count, CaptureRecords.limit)
         XCTAssertEqual(r.entries.last?.path, "/scratch/\(CaptureRecords.limit + 4).png")
     }
+
+    // MARK: L04
+
+    func testTypeFilterKeepsOrder() {
+        let files = [file("a.png", 3), file("b.mov", 2), file("c.png", 1, source: .capture), file("d.mp4", 0, source: .folder)]
+        XCTAssertEqual(LibraryMedia.filtered(files, by: nil).map(\.name), ["a.png", "b.mov", "c.png", "d.mp4"])
+        XCTAssertEqual(LibraryMedia.filtered(files, by: .images).map(\.name), ["a.png", "c.png"])
+        XCTAssertEqual(LibraryMedia.filtered(files, by: .videos).map(\.name), ["b.mov", "d.mp4"])
+        XCTAssertEqual(LibraryMedia.filtered(files, by: .captures).map(\.name), ["c.png"])
+        XCTAssertEqual(LibraryMedia.Filter.allCases.map(\.title), ["Images", "Videos", "Captures"])
+    }
+
+    func testArcDayBuckets() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        cal.locale = Locale(identifier: "en_US")
+        cal.firstWeekday = 1
+        // Thursday 2026-11-12 15:00 UTC.
+        let now = cal.date(from: DateComponents(year: 2026, month: 11, day: 12, hour: 15))!
+        func d(_ m: Int, _ day: Int, _ y: Int = 2026) -> Date { cal.date(from: DateComponents(year: y, month: m, day: day, hour: 9))! }
+        XCTAssertEqual(LibraryMedia.bucket(d(11, 12), now: now, calendar: cal), "Today")
+        XCTAssertEqual(LibraryMedia.bucket(d(11, 11), now: now, calendar: cal), "Yesterday")
+        XCTAssertEqual(LibraryMedia.bucket(d(11, 9), now: now, calendar: cal), "Earlier This Week")
+        XCTAssertEqual(LibraryMedia.bucket(d(11, 7), now: now, calendar: cal), "November")
+        XCTAssertEqual(LibraryMedia.bucket(d(10, 30), now: now, calendar: cal), "October")
+        XCTAssertEqual(LibraryMedia.bucket(d(12, 24, 2025), now: now, calendar: cal), "December 2025")
+        let files = [d(11, 12), d(11, 12), d(11, 9), d(10, 2)].enumerated().map { i, date in
+            LibraryFile(id: "\(i)", path: "/scratch/\(i).png", name: "\(i).png", date: date, source: .download)
+        }
+        XCTAssertEqual(LibraryMedia.buckets(files, now: now, calendar: cal).map(\.title), ["Today", "Earlier This Week", "October"])
+        XCTAssertEqual(LibraryMedia.buckets(files, now: now, calendar: cal).map(\.files.count), [2, 1, 1])
+    }
+
+    func testHoverSourcesDecodeAndDefault() throws {
+        let old = try JSONDecoder().decode(LibrarySourceSettings.self, from: Data(#"{"showCaptures":false}"#.utf8))
+        XCTAssertEqual(old.hover, .init(captures: true, downloads: true, media: true))
+        var s = LibrarySourceSettings()
+        s.hover.downloads = false
+        let back = try JSONDecoder().decode(LibrarySourceSettings.self, from: JSONEncoder().encode(s))
+        XCTAssertEqual(back.hover, .init(captures: true, downloads: false, media: true))
+        XCTAssertTrue(LibrarySourceSettings.HoverSources(captures: false, downloads: false, media: false).isEmpty)
+    }
 }

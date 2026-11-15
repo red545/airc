@@ -52,18 +52,47 @@ public struct LibrarySourceSettings: Codable, Equatable, Sendable {
     public var declined: Set<String>
     /// Files hidden from the Library ("Hide from Library"), by path. The files stay where they are.
     public var hidden: Set<String>
+    /// L04: what the Library button's hover shows (Arc's right-click "Show media from:" on the button): Captures,
+    /// Downloads, and Media (the pictures and videos of the folders shown in Library › Media). Separate from Media's own
+    /// sources menu, as in Arc.
+    public var hover: HoverSources
+
+    public struct HoverSources: Codable, Equatable, Sendable {
+        public var captures: Bool
+        public var downloads: Bool
+        public var media: Bool
+
+        public init(captures: Bool = true, downloads: Bool = true, media: Bool = true) {
+            self.captures = captures
+            self.downloads = downloads
+            self.media = media
+        }
+
+        private enum CodingKeys: String, CodingKey { case captures, downloads, media }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            captures = (try? c.decodeIfPresent(Bool.self, forKey: .captures)) ?? true
+            downloads = (try? c.decodeIfPresent(Bool.self, forKey: .downloads)) ?? true
+            media = (try? c.decodeIfPresent(Bool.self, forKey: .media)) ?? true
+        }
+
+        /// Everything off: the hover shows nothing (and no card comes up).
+        public var isEmpty: Bool { !captures && !downloads && !media }
+    }
 
     public init(showCaptures: Bool = true, showDownloads: Bool = true, grants: [String: Grant] = [:], paused: Set<String> = [],
-                declined: Set<String> = [], hidden: Set<String> = []) {
+                declined: Set<String> = [], hidden: Set<String> = [], hover: HoverSources = HoverSources()) {
         self.showCaptures = showCaptures
         self.showDownloads = showDownloads
         self.grants = grants
         self.paused = paused
         self.declined = declined
         self.hidden = hidden
+        self.hover = hover
     }
 
-    private enum CodingKeys: String, CodingKey { case showCaptures, showDownloads, grants, paused, declined, hidden }
+    private enum CodingKeys: String, CodingKey { case showCaptures, showDownloads, grants, paused, declined, hidden, hover }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -74,6 +103,7 @@ public struct LibrarySourceSettings: Codable, Equatable, Sendable {
         paused = (try? c.decodeIfPresent(Set<String>.self, forKey: .paused)) ?? []
         declined = (try? c.decodeIfPresent(Set<String>.self, forKey: .declined)) ?? []
         hidden = (try? c.decodeIfPresent(Set<String>.self, forKey: .hidden)) ?? []
+        hover = (try? c.decodeIfPresent(HoverSources.self, forKey: .hover)) ?? HoverSources()
     }
 
     public func grant(_ f: LibraryFolder) -> Grant? { grants[f.rawValue] }

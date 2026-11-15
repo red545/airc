@@ -68,7 +68,8 @@ final class PiPOverlays {
         entries = entries.filter { $0.value.controls != nil || $0.value.bar != nil }
         let e = Entry(page: page)
         entries[ObjectIdentifier(page)] = e
-        if info["kind"] as? String == "document" {
+        if info["kind"] as? String == "document",
+           CallChat.pageOwnsControls(on: .documentPiP, url: page.url) {
             let h = (info["topBarHeight"] as? NSNumber).map { CGFloat($0.doubleValue) } ?? PiPLayout.topBarHeight
             let bar = PiPTopBarView(barHeight: max(h, 1))
             bar.host = URLRules.displayHost(page.url?.absoluteString ?? "")
@@ -107,6 +108,7 @@ final class PiPOverlays {
 
     private func refresh(_ e: Entry) {
         guard let page = e.page, let v = e.controls else { return }
+        v.callTabID = library?.controller?.tabID(for: page)
         v.miniPlayer.playbackPage = page
         v.mediaTitle = e.session.title.isEmpty ? page.title : e.session.title
         v.canSuppressSite = WindowController.canPersistMiniPlayerSite(for: page) && page.url.flatMap { MiniPlayerSite.origin($0.absoluteString) } != nil

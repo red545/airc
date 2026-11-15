@@ -172,13 +172,25 @@ bundle() {   # bundle APP BIN [chromium]
   [[ $DSYMS != 1 ]] || dsym "$bin" "$(basename "$app").dSYM"
   # ld's N_OSO debug records retain absolute object/module paths even with prefix maps.
   [[ "$CONFIG" != release ]] || xcrun strip -S "$app/Contents/MacOS/Airc"
+  # The agent helper (docs/user/agents.md): the stdio MCP server AI apps start, a pipe to the running Airc. Built on its
+  # own (HELPER_BIN, below: no engine, Sparkle or blocking libraries linked); signed here (hardened runtime, no
+  # entitlements) before the app is sealed, and again by sign.py.
+  if [[ -x "${HELPER_BIN:-}" ]]; then
+    mkdir -p "$app/Contents/Helpers"
+    cp "$HELPER_BIN" "$app/Contents/Helpers/airc-mcp"
+    [[ "$CONFIG" != release ]] || xcrun strip -S "$app/Contents/Helpers/airc-mcp"
+    codesign --force --options runtime --sign "${AIRC_SIGN_IDENTITY:--}" --timestamp=none "$app/Contents/Helpers/airc-mcp"
+  fi
   "$ROOT/scripts/release/copy-licenses.sh" "$app" "$CHROMIUM_OUT"
   python3 "$ROOT/scripts/bundle-blocking-lists.py" "$app"
   cp "$ROOT/apps/browser/Resources/Info.plist" "$app/Contents/Info.plist"
   # The app icon (assets/brand/README.md): Info.plist names it with CFBundleIconFile = AppIcon.
   cp "$ROOT/assets/brand/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
-  # Settings › Appearance › App Icon's Outline (Settings/AppPersonalization.swift puts it on the icon grid).
-  cp "$ROOT/assets/brand/airc-outline-squircle.png" "$app/Contents/Resources/AppIconOutline.png"
+  # Settings › Appearance › App Icon's other icons (assets/brand/alticons.sh, Settings/AppPersonalization.swift).
+  rm -f "$app/Contents/Resources/AppIconOutline.png"
+  cp "$ROOT"/assets/brand/app-icons/AppIcon-*.icns "$app/Contents/Resources/"
+  # A check that chose another icon may have left the bundle's Finder icon on it; codesign refuses that Finder info.
+  rm -f "$app/Icon"$'\r'; xattr -d com.apple.FinderInfo "$app" 2>/dev/null || true
   # The public suffix list for Boosts' sites (AircKit/PublicSuffixList.swift; packages/AircKit/Resources, MPL-2.0),
   # deflated: the bundle scan flags ".ts.net", and the list has Tailscale's public suffix (Chromium compiles it too).
   python3 - "$ROOT/packages/AircKit/Resources/public_suffix_list.dat" "$app/Contents/Resources/public_suffix_list.dat.deflate" <<'PY'
@@ -191,6 +203,12 @@ PY
   /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(date +%Y%m%d%H%M)" "$app/Contents/Info.plist"
   # K07: Arc's AppleScript dictionary (apps/browser/Resources/Airc.sdef, docs/user/scripting.md).
   cp "$ROOT/apps/browser/Resources/Airc.sdef" "$app/Contents/Resources/Airc.sdef"
+  # "What's new" after an update: each release's highlights (scripts/release/whatsnew.py, Browser/WhatsNewCard.swift).
+  cp "$ROOT/apps/browser/Resources/WhatsNew.json" "$app/Contents/Resources/WhatsNew.json"
+  # whatsnew2: the What's new tab's pictures (Browser/WhatsNewPage.swift), compressed HEIC.
+  rm -rf "$app/Contents/Resources/WhatsNew" && cp -R "$ROOT/apps/browser/Resources/WhatsNew" "$app/Contents/Resources/WhatsNew"
+  # English is the app's only localization (Info.plist CFBundleLocalizations, docs/localization.md).
+  cp -R "$ROOT/apps/browser/Resources/en.lproj" "$app/Contents/Resources/"
   /usr/libexec/PlistBuddy -c "Add :NSAppleScriptEnabled bool true" -c "Add :OSAScriptingDefinition string Airc.sdef" \
     "$app/Contents/Info.plist" 2>/dev/null || true
   /usr/libexec/PlistBuddy -c "Add :AircRevision string $GIT_REV" "$app/Contents/Info.plist" 2>/dev/null || true
@@ -271,6 +289,13 @@ echo "== blocking filter bridge (standalone WebKit)"
 "$ROOT/engine/core/blocking-rust/build-standalone.sh" "$ROOT/build/blocking"
 BLOCKING_MODULE=(-Xswiftc -I -Xswiftc "$ROOT/engine/core/blocking-rust/include")
 BLOCKING_LINK=(-Xlinker "$ROOT/build/blocking/target/release/libairc_blocking.a" -Xlinker -lresolv -Xlinker -liconv)
+# The agent helper alone, with no app linker flags: the app builds' flags (the engine framework, Sparkle) apply to every
+# product of the package, and a helper linking the engine would load it, under another team's signature checks.
+echo "== swift build ($CONFIG, airc-mcp helper)"
+HELPER_SCRATCH=(--scratch-path "$ROOT/build/.swiftpm-helper")
+swift_build --package-path "$ROOT/apps/browser" -c "$CONFIG" "${HELPER_SCRATCH[@]}" --product AircMCP \
+  || { echo "helper build failed" >&2; exit 1; }
+HELPER_BIN="$(swift build --package-path "$ROOT/apps/browser" -c "$CONFIG" "${HELPER_SCRATCH[@]}" --show-bin-path)/AircMCP"
 echo "== swift build ($CONFIG, WebKit)"
 swift_build --package-path "$ROOT/apps/browser" -c "$CONFIG" ${WEBKIT_SCRATCH[@]+"${WEBKIT_SCRATCH[@]}"} "${BLOCKING_MODULE[@]}" "${BLOCKING_LINK[@]}" \
   ${TESTING_FLAGS[@]+"${TESTING_FLAGS[@]}"} ${SPARKLE_FLAGS[@]+"${SPARKLE_FLAGS[@]}"} \
@@ -333,11 +358,13 @@ if [[ -n "$SNAPSHOTS" ]]; then
     local app="$APP"; [[ $engine == chromium ]] && app="$CHROMIUM_APP"
     # A scenario writes its log section when it finishes; none means the app crashed or never started.
     launch() {
-      ui_open -g -n -W --env "CFFIXED_USER_HOME=$home" --env "AIRC_SHIP_GATE=${AIRC_SHIP_GATE:-0}" "$app" --args --engine="$engine" --snapshot "$out" "$@"
+      ui_open -g -n -W --env "CFFIXED_USER_HOME=$home" --env "AIRC_SHIP_GATE=${AIRC_SHIP_GATE:-0}" --env "AIRC_YTADS_SOURCE=$ROOT" "$app" --args --engine="$engine" --snapshot "$out" "$@"
       grep -qx "\[$2\]" "$out/log.txt" 2>/dev/null || echo "FAIL $2: the app wrote no log (crashed or never started)" >> "$out/log.txt"
     }
     for pass in write read; do launch --script profilesignin --data-dir "$home/ProfileSignIn"; done
     launch --script showcase --ephemeral --data-dir "$home/Airc"
+    # YouTube-shaped responses on loopback only: no public-video dependency in CI.
+    launch --script ytads --ephemeral --data-dir "$home/VideoAds"
     # First run (ON-1…5) on a synthetic Arc import fixture: never the owner's Arc data or Keychain.
     launch --script onboarding --onboarding --ephemeral --data-dir "$home/Onboarding"
     # Onboarding end to end on a real-size synthetic Arc (OnboardingE2ECheck.swift): the first run from Welcome into the
@@ -369,6 +396,9 @@ if [[ -n "$SNAPSHOTS" ]]; then
     # Chromium's web-modal dialogs in our window (passkeys, HTTP auth, beforeunload), read through the engine's test
     # hook, which only answers on its scratch-data, mock-keychain test gate.
     if [[ $engine == chromium ]]; then
+      # Real server redirects with blocking on/off, including rewritten targets and a public URL.
+      launch --script redirects --data-dir "$home/Redirects"
+      python3 "$ROOT/scripts/check-redirect-history.py" "$home/Redirects" "$out/redirect-evidence.json" >> "$out/log.txt" || return 1
       mkdir -p "$home/Dialogs/Chromium"   # the gate compares real paths, so the folder must exist at launch
       launch --script dialogs --data-dir "$home/Dialogs" --airc-data-dir="$home/Dialogs" --airc-test=modalDialogs
       # SB-3: permission, password and address/card prompts drawn by the app, answered by real clicks (PromptScenario).
@@ -407,9 +437,15 @@ if [[ -n "$SNAPSHOTS" ]]; then
     # picture takes each video's own shape.
     launch --script pipreturn-tray --data-dir "$home/PiPReturnTray" --autoplay-policy=no-user-gesture-required
     launch --script pipreturn-return --data-dir "$home/PiPReturnBack" --autoplay-policy=no-user-gesture-required
+    # Require 20 real leave/reentries. The guarded 500 ms host-exit delay makes
+    # the stale-task ordering deterministic; the check samples after it expires.
+    mkdir -p "$home/PiPReturnRapid/Chromium"
+    launch --script pipreturn-rapid --data-dir "$home/PiPReturnRapid" --autoplay-policy=no-user-gesture-required \
+      --airc-data-dir="$home/PiPReturnRapid" --airc-test=pipExitRace --airc-trace=pip
     if [[ $engine == chromium ]]; then
       launch --script pipreturn-aspect --data-dir "$home/PiPReturnAspect" --autoplay-policy=no-user-gesture-required
     fi
+    launch --script parityp16b --data-dir "$home/ParityP16b" --autoplay-policy=no-user-gesture-required
     launch --script media2 --data-dir "$home/Media2" --autoplay-policy=no-user-gesture-required --disable-features=WebRtcHideLocalIpsWithMdns
     mkdir -p "$home/ParityP16a/Chromium"
     launch --script parityp16a --data-dir "$home/ParityP16a" --autoplay-policy=no-user-gesture-required --disable-features=WebRtcHideLocalIpsWithMdns --airc-data-dir="$home/ParityP16a" --airc-test=parityp16a
@@ -503,8 +539,14 @@ if [[ -n "$SNAPSHOTS" ]]; then
     # P01a: Arc's context menus on every row, Share with the chosen links, clean and Peek-aware copies, folder Markdown,
     # reset asks first, every action in the Command Bar (ParityP01Check.swift).
     launch --script parityp01 --ephemeral --data-dir "$home/ParityP01"
+    # H03: File › Share in a private window hands the picker the page's link alone, without trackers, and Airc keeps
+    # nothing of it (ParityH03Check.swift).
+    launch --script parityh03 --ephemeral --data-dir "$home/ParityH03"
     # K07: AppleScript with Arc's dictionary, sent in-process (no Automation prompt).
     launch --script parityk07 --ephemeral --data-dir "$home/ParityK07"
+    # What call recorders read while a page is in a call: CoreAudio's process and bundle ID, the web area's AXURL,
+    # Chrome's AppleScript terms and codes (CallRecordersCheck.swift; a silent sound, no microphone).
+    launch --script callrecorders --ephemeral --data-dir "$home/CallRecorders" --autoplay-policy=no-user-gesture-required
     # P07a: Command Bar Site Search (Tab/Space into a site, Backspace out, encoding, per-profile lists, input methods,
     # ⌥⌘⌫) (ParityP07Check.swift).
     launch --script parityp07 --data-dir "$home/ParityP07"
@@ -517,10 +559,23 @@ if [[ -n "$SNAPSHOTS" ]]; then
     # P01c: a Favorite's and a folder's Move to ›, Reset all tabs in this Folder, Turn into Space, the only unnamed
     # Space's header, Shared Quotes' switch (ParityP01cCheck.swift).
     launch --script parityp01c --ephemeral --data-dir "$home/ParityP01c"
+    launch --script parityS09S11 --ephemeral --data-dir "$home/ParityS09S11"
     # P08c: Capture in Portrait Mode in the View menu and the Site Control Center's Capture buttons (ParityP08cCheck.swift).
     launch --script parityp08c --ephemeral --data-dir "$home/ParityP08c"
     # P07d: a site search as the profile's default engine, in the URL field, with its fallback (ParityP07dCheck.swift).
     launch --script parityp07d --ephemeral --data-dir "$home/ParityP07d"
+    # C08: the profile's engine picker, its suggestions, the menu search, links and private windows on a loopback stand-in
+    # for every engine (ParityC08Check.swift); AIRC_REAL_KEYS=1 (dedicated session) makes ⌘L, typing and the Chromium right-click real.
+    # Chromium hands its page menu to the check through the engine's contextMenu test hook (its scratch gate).
+    mkdir -p "$home/ParityC08/Chromium"
+    launch --script parityc08 --data-dir "$home/ParityC08" --airc-data-dir="$home/ParityC08" --airc-test=contextMenu
+    # C08b: a synthetic Arc and Chrome import brings each profile's default and custom search engines (ParityC08bCheck.swift).
+    launch --script parityc08b --ephemeral --data-dir "$home/ParityC08b"
+    # P07b+P07c: ChatGPT in the Command Bar and Instant Links (⇧↵) on a loopback fake search site, a fake on-device
+    # model and a test Apple Intelligence override (ParityP07bcCheck.swift).
+    launch --script parityp07bc --ephemeral --data-dir "$home/ParityP07bc"
+    # P12: GitHub Live Folders on a loopback fake GitHub, then a relaunch on the same data (ParityP12Check.swift).
+    for p12 in parityp12 parityp12-relaunch; do launch --script "$p12" --data-dir "$home/ParityP12"; done
     # P03b: Arc's Cycle Tab (⌃⌘→ ⌃⌘←) in last-used order, Esc's order (Command Bar, Peek, find, full screen, sidebar),
     # ⌥⌘⌫ remapped and the history row's ✕, bracket keys on other layouts (ParityP03bCheck.swift).
     launch --script parityp03b --ephemeral --data-dir "$home/ParityP03b"
@@ -530,6 +585,8 @@ if [[ -n "$SNAPSHOTS" ]]; then
     # P06d: links clicked with ⌥⌘ open in Little Airc; links from other apps (GURL Apple events) follow Settings → Links
     # (ParityP06dCheck.swift).
     launch --script parityp06d --ephemeral --data-dir "$home/ParityP06d"
+    # V06: the real Carbon hot key (⌥⌘N, held a few seconds), File/Window menus and the Command Bar (Debug/ParityV06Check.swift).
+    launch --script v06 --ephemeral --data-dir "$home/V06"
     # P21b (ParityP21bCheck.swift): the app icon, sounds and haptics settings; on a fake ready update, what a restart
     # would interrupt (music too), restarting by itself while away, See What's New, a quit cancelled by "Leave site?"
     # (Chromium); then two windows, two Spaces and a split across the update's restart, with "Updated!".
@@ -542,9 +599,22 @@ if [[ -n "$SNAPSHOTS" ]]; then
     fi
     launch --script p21b-write --data-dir "$home/P21bSession"
     launch --script p21b-read --data-dir "$home/P21bSession"
+    # prefs (ParityPrefsCheck.swift; parityprefs itself needs the UI driver, so it runs by hand): across relaunches the
+    # icon stays, "Open a new window" opens one fresh window, last time's windows come back by default and after a crash.
+    for pass in restore fresh crash; do
+      launch --script prefs-$pass-write --data-dir "$home/Prefs-$pass"
+      launch --script prefs-$pass-read --data-dir "$home/Prefs-$pass"
+    done
     # K05: Find and Replace (⌥⌘F) in a focused field and across the page's editable fields and same-origin frame, never
     # a password field, with the page's own undo; Services through the requestor API (ParityK05Check.swift).
     launch --script parityk05 --ephemeral --data-dir "$home/ParityK05"
+    # One language until Airc is localized (MenuLanguageCheck.swift, docs/localization.md): under a German test locale
+    # the menu bar's AppKit items, a text field's menu, the page's menus, an alert and the Open panel are all English;
+    # region formats and the languages sites get stay the Mac's.
+    # Chromium hands its page menu to the check through the engine's contextMenu test hook (its scratch gate).
+    mkdir -p "$home/MenuLang/Chromium"
+    launch --script menulang --data-dir "$home/MenuLang" --airc-data-dir="$home/MenuLang" --airc-test=contextMenu \
+      -AppleLanguages '(de)' -AppleLocale de_AT
     # Tidy Titles (AIMaxCheck.swift, docs/user/ai.md) with a fake model on loopback pages: off by default, the
     # "Requires Apple Intelligence" state, short names in the sidebar, the page's own title on hover, hand-renamed
     # tabs and private windows never sent, a stuck model's timeout, the cache file, and off forgets. With Apple
@@ -585,6 +655,10 @@ if [[ -n "$SNAPSHOTS" ]]; then
     # Notes (docs/user/notes.md): the editor, then the same data folder after a relaunch.
     launch --script notes --data-dir "$home/Notes"
     launch --script notes-read --data-dir "$home/Notes"
+    # P13b (ParityP13bCheck.swift): a note's title field, a note's row dragged into Today, pinned and Favorite splits and
+    # out again, then the same data folder after a relaunch.
+    launch --script parityp13b --data-dir "$home/ParityP13b"
+    launch --script parityp13b-relaunch --data-dir "$home/ParityP13b"
     launch --script library2 --ephemeral --data-dir "$home/Library2"
     # DEV-1 (DeveloperModeCheck.swift). Chromium: a remote site mapped to the fixture, and a loopback CDP port in the
     # scratch profile for the console call-site checks (inspector closed and open).
@@ -596,6 +670,10 @@ if [[ -n "$SNAPSHOTS" ]]; then
       launch --script devmode --ephemeral --data-dir "$home/DeveloperMode"
     fi
     launch --script arcbits --ephemeral --data-dir "$home/Arcbits"
+    # Task Manager CPU must bypass the startup fence even with a busy first page.
+    if [[ $engine == chromium ]]; then
+      launch --script taskcpu --ephemeral --data-dir "$home/TaskCPU"
+    fi
     # Site Controls and Safari's-engine pages (Followups3Check.swift), on loopback pages: the location in use (the page
     # script's made-up position, never CoreLocation), macOS's privacy answers as a test override (never a prompt, never
     # System Settings), and on Chromium the blocked pop-ups and the WebKit pages ("localhost" plays a listed service):

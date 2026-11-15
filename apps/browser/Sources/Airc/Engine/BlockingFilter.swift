@@ -42,6 +42,17 @@ final class BlockingFilter: @unchecked Sendable {
         return []
         #endif
     }
+    func scriptlet(url: String) -> String {
+        #if canImport(AircBlocking)
+        let bytes = Data(url.utf8)
+        let result = bytes.withUnsafeBytes { b in airc_blocking_cosmetics(handle,
+            b.baseAddress?.assumingMemoryBound(to: UInt8.self), b.count) }
+        let object = (try? JSONSerialization.jsonObject(with: Self.take(result))) as? [String: Any]
+        return object?["injected_script"] as? String ?? ""
+        #else
+        return ""
+        #endif
+    }
     static func webKitRules(_ text: String) throws -> Data {
         #if canImport(AircBlocking)
         let bytes = Data(text.utf8)
@@ -59,4 +70,33 @@ final class BlockingFilter: @unchecked Sendable {
         return Data(bytes: data, count: value.len)
     }
     #endif
+}
+
+/// One compile per list text (by digest) at a time, shared by its users: the blocking center's filter for a profile
+/// and the YouTube scriptlets each profile's engine install builds (fastlaunch: each built its own, one full
+/// adblock-rust compile per profile on the launch's path). Finished filters are held weakly: memory stays with the
+/// profiles using them.
+@MainActor enum SharedBlockingFilters {
+    private final class Box { weak var filter: BlockingFilter? }
+    private static var finished: [String: Box] = [:]
+    private static var running: [String: Task<BlockingFilter, Error>] = [:]
+
+    static func filter(text: String, digest: String) async throws -> BlockingFilter {
+        if let f = finished[digest]?.filter { return f }
+        let task: Task<BlockingFilter, Error>
+        if let r = running[digest] { task = r } else {
+            task = Task.detached(priority: .userInitiated) { try BlockingFilter.compile(text) }
+            running[digest] = task
+        }
+        do {
+            let f = try await task.value
+            if running[digest] == task { running[digest] = nil }
+            finished = finished.filter { $0.value.filter != nil }
+            let box = Box(); box.filter = f; finished[digest] = box
+            return f
+        } catch {
+            if running[digest] == task { running[digest] = nil }
+            throw error
+        }
+    }
 }

@@ -124,7 +124,20 @@ class AircPageObserver : public content::RenderFrameObserver,
     return it == Observers().end() ? nullptr : it->second;
   }
 
+  void SetBlockingScript(const std::string& script) override {
+    blocking_script_ = script;
+  }
+
   void RunAtDocumentStart() {
+    if (IsWebDocument() && !blocking_script_.empty()) {
+      // Consume once per navigation; policy was selected in the browser from
+      // this tab's BrowserContext before commit. Never use a page handshake.
+      auto script = std::move(blocking_script_);
+      blocking_script_.clear();
+      auto alive = weak_factory_.GetWeakPtr();
+      render_frame()->GetWebFrame()->ExecuteScript(Source(script, "airc://video-blocking"));
+      if (!alive) return;
+    }
     if (installed_for_web_ || !IsWebDocument()) {
       return;
     }
@@ -425,6 +438,7 @@ class AircPageObserver : public content::RenderFrameObserver,
   std::map<int, EvaluateCallback> evaluations_;
   int last_evaluation_ = 0;
   std::string page_color_;
+  std::string blocking_script_;
   bool installed_for_web_ = false;
   bool installing_ = false;
   raw_ptr<content::RenderFrame> registered_frame_;

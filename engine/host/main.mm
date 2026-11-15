@@ -258,6 +258,7 @@ static NSString* Flag(NSString* key) {
   if ([Flag(@"--airc-smoke") isEqualToString:@"synthetic-extension"]) { [self syntheticExtension]; return; }
   if ([Flag(@"--airc-smoke") isEqualToString:@"features"]) { [self featuresStart]; return; }
   if ([Flag(@"--airc-smoke") isEqualToString:@"dialogs"]) { [self dialogStep:0 attempt:0]; return; }
+  if ([Flag(@"--airc-smoke") isEqual:@"p16b"]) { [self callShareCheck]; return; }
   if ([Flag(@"--airc-smoke") isEqual:@"pass13"]) { [self p13:0 attempt:0]; return; }
   if ([Flag(@"--airc-smoke") isEqual:@"pass13-read"]) { [self p13:13 attempt:0]; return; }
   if ([Flag(@"--airc-smoke") isEqual:@"pass12"]) { [self p12:0]; return; }
@@ -279,6 +280,7 @@ static NSString* Flag(NSString* key) {
 #include "features_checks.inc"
 #include "pass12_checks.inc"
 #include "pass13_checks.inc"
+#include "call_share_checks.inc"
 - (void)autofillForm:(int)form field:(NSUInteger)index attempt:(int)attempt {
   [self select:0]; AircTab* tab = self.tabs[0];
   if (attempt > 60) { [self finish:[NSString stringWithFormat:@"autofill form %d field %lu timed out",form,(unsigned long)index]]; return; }

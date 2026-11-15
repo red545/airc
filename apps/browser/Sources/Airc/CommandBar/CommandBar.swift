@@ -11,19 +11,32 @@ enum CommandBarMode: Equatable {
 }
 
 /// What the bar searches while a scope's pill leads the field (Arc's Site Search: "yt", Tab, then the query). Return
-/// searches the scope instead of the profile's engine, Backspace on an empty query or Esc leaves it. One kind today; a
-/// new kind (a ChatGPT prompt, package P07b) adds a case with its own name, placeholder and `results(for:)`.
+/// searches the scope instead of the profile's engine, Backspace on an empty query or Esc leaves it. `ask` (P07b,
+/// ChatGPTCommand.swift) asks a chat site instead: Return opens the question there in a new tab.
 enum CommandBarScope: Equatable {
     case site(SiteSearch)
+    case ask(AskAIProvider)
 
-    var name: String {
+    var name: String { site.name }
+
+    /// The site its pill and icon show.
+    var site: SiteSearch {
         switch self {
-        case .site(let s): s.name
+        case .site(let s): s
+        case .ask(let p): p.siteSearch
         }
     }
 
-    /// Arc's "Site Search placeholder where the wildcard is the name of the site".
-    var placeholder: String { "Search \(name)…" }
+    /// Arc's "Site Search placeholder where the wildcard is the name of the site"; "Ask ChatGPT…" for a chat site.
+    var placeholder: String { label + "…" }
+
+    /// "Search YouTube", "Ask ChatGPT".
+    var label: String {
+        switch self {
+        case .site: "Search \(name)"
+        case .ask: "Ask \(name)"
+        }
+    }
 }
 
 /// A window's site searches for its bar: its profile's (Settings → Site Search), and whether Space starts one too.
@@ -81,6 +94,10 @@ struct CommandResult {
     var historyURL: String?
     /// The "Search YouTube" row: choosing it (Return, a click) starts that site's search instead of running `action`.
     var startsScope: CommandBarScope?
+    /// Instant Links' hint row (P07c): choosing it finds the pages, as ⇧↵ does, instead of running `action`.
+    var startsInstantLinks = false
+    /// An Ask AI row (P07b): its page opens in a new tab even from ⌘L.
+    var opensInNewTab = false
 
     /// "⌥⇧⌘C" → ["⌥", "⇧", "⌘", "C"]: one keycap per modifier, then the key.
     static func keys(of hint: String) -> [String] {
@@ -93,11 +110,64 @@ struct CommandResult {
     }
 
     enum Icon {
+        /// A page's icon: `image` (an open tab's), else the caches' copy of `url` or of the page's site (SiteIcons: Airc's
+        /// store, the engine profile's favicon database), with the site's letter tile until one arrives.
         case favicon(image: NSImage?, url: String?, page: String?)
         /// A built-in site (CommonSites): its favicon, a letter tile until it arrives.
         case site(page: String, name: String)
+        /// A private window's site rows: the letter tile only (nothing read from or written to any icon store).
+        case monogram(page: String)
         case symbol(String)
         case emoji(String)
+    }
+
+    /// The same icon on screen: the same case and values, a tab's own favicon the same image.
+    static func sameIcon(_ a: Icon, _ b: Icon) -> Bool {
+        switch (a, b) {
+        case let (.favicon(i1, u1, p1), .favicon(i2, u2, p2)): return i1 === i2 && u1 == u2 && p1 == p2
+        case let (.site(p1, n1), .site(p2, n2)): return p1 == p2 && n1 == n2
+        case let (.monogram(x), .monogram(y)), let (.symbol(x), .symbol(y)), let (.emoji(x), .emoji(y)): return x == y
+        default: return false
+        }
+    }
+
+    /// The page this row shows or opens, if it's a site: what its trust mark is checked against.
+    var page: String? {
+        switch icon {
+        case .favicon(_, _, let page?), .site(let page, _), .monogram(let page): return page
+        default: break
+        }
+        if case .open(let url) = action { return url.absoluteString }
+        return nil
+    }
+
+    /// The row's kind in plain words, shown at its end when it isn't selected (Raycast's accessory): "Website",
+    /// "Open Tab", "Search"…; "" where the row already says what it is (a command's keycaps, "Search Google").
+    var kind: String {
+        if startsScope != nil || startsInstantLinks { return "" }
+        let k: String
+        switch badge {
+        case "Open": if case .open = action { k = "Website" } else { k = "" }
+        case "Switch to Tab": k = "Open Tab"
+        case "Pinned": k = "Pinned Tab"
+        case "Favorite": k = "Favorite"
+        case "Space": k = "Space"
+        case "Search": k = "Search"
+        case "Ask": k = "Ask AI"
+        case "Run": k = shortcut.isEmpty ? "Command" : ""
+        default: k = ""
+        }
+        return k.isEmpty || subtitle.hasPrefix(k) ? "" : k
+    }
+
+    /// The verified site (OfficialSites, Airc's bundled list) this row opens or shows; nil for searches, commands and
+    /// anything not on the list. Never from the page's content.
+    var trust: OfficialSites.Site? {
+        switch badge {
+        case "Open", "Switch to Tab", "Pinned", "Favorite": break
+        default: return nil
+        }
+        return page.flatMap(OfficialSites.match)
     }
 }
 
@@ -116,17 +186,39 @@ protocol CommandBarHost: AnyObject {
     func siteCompletion(for typed: String, history: [HistoryMatch]) -> CommonSites.Completion?
     func commandResults(for query: String, mode: CommandBarMode, inline: InlineCompletion.Match?,
                         inlineSite: CommonSites.Site?, suggestions: [String], history: [HistoryMatch]) -> [CommandResult]
+    /// The same, for the bar's own keystrokes: a host may answer from lists it prepared at idle (CommandIndex), as long
+    /// as they are what `commandResults` would make now.
+    func barCommandResults(for query: String, mode: CommandBarMode, inline: InlineCompletion.Match?,
+                           inlineSite: CommonSites.Site?, suggestions: [String], history: [HistoryMatch]) -> [CommandResult]
     func closeCommandBar()
     func performCommand(_ action: CommandResult.Action, newTab: Bool, typed: Bool)
     /// This window's site searches (its profile's); nil: none.
     var commandBarSiteSearches: CommandBarSiteSearches? { get }
     /// Whether rows may show (and, once chosen, fetch) site icons; a private window's never do.
     var commandBarShowsSiteIcons: Bool { get }
+    /// The engine profile's favicon database rows may read icons from (SiteIcons); nil: none (WebKit, private).
+    var commandBarFaviconDatabase: URL? { get }
+    /// P07b: the chat site this window's profile asks with "gpt" + Tab (ChatGPTCommand.swift); nil: off.
+    var commandBarAskAI: AskAIProvider? { get }
+    /// P07c: Instant Links, when on and Apple Intelligence can run (InstantLinks.swift); nil: ⇧↵ searches, no hint.
+    var commandBarInstantLinks: CommandBarInstantLinks? { get }
+    /// Opens Instant Links' pages, the first as ⌘T or ⌘L would open what's chosen.
+    func openInstantLinks(_ links: [InstantLink], newTab: Bool)
 }
 
 extension CommandBarHost {
+    func barCommandResults(for query: String, mode: CommandBarMode, inline: InlineCompletion.Match?,
+                           inlineSite: CommonSites.Site?, suggestions: [String], history: [HistoryMatch]) -> [CommandResult] {
+        commandResults(for: query, mode: mode, inline: inline, inlineSite: inlineSite, suggestions: suggestions, history: history)
+    }
     var commandBarSiteSearches: CommandBarSiteSearches? { nil }
     var commandBarShowsSiteIcons: Bool { true }
+    var commandBarFaviconDatabase: URL? { nil }
+    var commandBarAskAI: AskAIProvider? { nil }
+    var commandBarInstantLinks: CommandBarInstantLinks? { nil }
+    func openInstantLinks(_ links: [InstantLink], newTab: Bool) {
+        for (i, l) in links.enumerated() { performCommand(.open(l.url), newTab: newTab || i > 0, typed: false) }
+    }
 }
 
 /// A private window searches its profile's sites too (as Chrome's incognito keeps its profile's search engines), with
@@ -141,7 +233,21 @@ extension PrivateWindowController {
 /// The Command Bar (CB-1, Arc ref §5): a centred 765 pt panel, 64 pt input row, opens in one frame. ⌘L and a click on
 /// the URL field open it over the URL field instead, as Arc does. Typing completes known addresses inline
 /// (`InlineCompletion`); "/" or Tab on an empty field switches to actions only.
+/// The Command Bar's backing layer. AppKit owns a layer-backed view's layer geometry: when the bar's layer joins the
+/// window's layer tree (the spare bar, added parked at idle after launch, `WindowController.schedulePrewarm`), the next
+/// display cycle sets its transform back to identity (NSViewUpdateSubviewForAncestorLayerChange). That brought the
+/// parked bar back over the page, unclickable, until something refreshed it: after a relaunch onto a note in a split,
+/// for good (polish4). While the bar is parked, its park offset stands.
+final class CommandBarLayer: CALayer {
+    var parkedTransform: CATransform3D?
+    override var transform: CATransform3D {
+        get { super.transform }
+        set { super.transform = parkedTransform ?? newValue }
+    }
+}
+
 final class CommandBarView: NSView, NSTextFieldDelegate {
+    override func makeBackingLayer() -> CALayer { CommandBarLayer() }
     weak var host: CommandBarHost?
     private(set) var mode: CommandBarMode
     var palette: Palette { didSet { applyPalette() } }
@@ -151,6 +257,10 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     private let shadowView = NSView()
     private let ambientShadow = CALayer()
     private let input = CommandBarInputField()
+    /// The field's placeholder, drawn by a label behind it: setting a text field's own placeholder while its editor is
+    /// active in the key window costs AppKit 14–27 ms (Tab → site search in a foreground session, parityp07's timing),
+    /// a label's text well under one.
+    private let placeholderLabel = NSTextField(labelWithString: "")
     /// The edit in progress deletes text: don't complete it again (backspace over a completion removes it).
     private var deletingEdit = false
     private let glass = NSImageView()
@@ -183,12 +293,18 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     private(set) var inline: InlineCompletion.Match?
     /// The built-in site the inline completion came from, when nothing of yours completed what was typed.
     private(set) var inlineSite: CommonSites.Site?
+    /// Typed alone, Send Feedback's words: a built-in site doesn't complete them inline (feedback2).
+    static let feedbackWords: Set<String> = ["feed", "feedb", "feedba", "feedbac", "feedback", "bug", "report"]
     /// Site Search: the scope the field searches now, shown as a pill before the text; nil for the plain bar.
     private(set) var scope: CommandBarScope?
     /// What was typed before the scope began ("yt"): leaving it with Backspace puts it back.
     private var scopeOrigin = ""
     /// The site Tab would search for what's typed (its "Search YouTube" row is shown).
     private(set) var siteCandidate: SiteSearch?
+    /// P07b: the chat site Tab would ask ("gpt"), when no site search matches.
+    private(set) var askCandidate: AskAIProvider?
+    /// P07c: Instant Links finding pages for what's typed, or showing what will open.
+    private var instant: InstantState?
     private let scopePill = CommandBarScopePill()
 
     init(mode: CommandBarMode, palette: Palette, host: CommandBarHost) {
@@ -211,7 +327,6 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         input.isBordered = false
         input.drawsBackground = false
         input.focusRingType = .none
-        input.placeholderString = "Search or Enter URL…"
         input.delegate = self
         input.cell?.isScrollable = true
         input.cell?.wraps = false
@@ -219,6 +334,10 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         // one-time-code AutoFill heuristics on every opening (~1.4 ms, §2.12).
         input.contentType = .URL
         input.isAutomaticTextCompletionEnabled = false
+        placeholderLabel.font = AircFont.commandInput.appFont
+        placeholderLabel.lineBreakMode = .byTruncatingTail
+        placeholderLabel.setAccessibilityElement(false)   // the field says it (its accessibility placeholder)
+        panel.addSubview(placeholderLabel)   // behind the field, which draws no background
         panel.addSubview(input)
         chip.font = AircFont.caption.appFont
         chip.alignment = .center
@@ -249,6 +368,8 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         removedHistory = []
         deletingEdit = false
         siteCandidate = nil
+        askCandidate = nil
+        cancelInstant(restore: false)
         scopeOrigin = ""
         if scope != nil {
             scope = nil
@@ -276,6 +397,8 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
 
     func park() {
         isParked = true
+        sessionPending = false
+        cancelInstant(restore: false)
         // A parked bar's rows aren't under the pointer, whatever their tracking areas last heard.
         for r in rows { r.clearHover() }
         input.refusesFirstResponder = true
@@ -288,6 +411,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
 
     func unpark() {
         isParked = false
+        (layer as? CommandBarLayer)?.parkedTransform = nil
         input.refusesFirstResponder = false
         if Self.parksLayer {
             input.isParked = false
@@ -344,21 +468,110 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
             // The keyboard stays in the field (the ✕ never takes it).
             if self.window?.firstResponder !== self.input.currentEditor() { self.window?.makeFirstResponder(self.input) }
         }
-        r.onHover = { [weak self, weak r] in
+        r.onHover = { [weak self, weak r] forced in
             guard let self, !self.isParked, let r, let i = self.rows.firstIndex(where: { $0 === r }), i < self.results.count else { return }
+            // As native menus and Arc: only a pointer that moved picks a row. Rows that appear or change under a resting
+            // pointer (the bar opening over it, a keystroke, late results) get an enter event with no movement.
+            if !forced, let rest = self.restingPointer {
+                let p = NSEvent.mouseLocation
+                guard hypot(p.x - rest.x, p.y - rest.y) > 1 else { return }
+                self.restingPointer = nil
+            }
+            guard self.selected != i || self.userSelectedResult == nil else { return }
             self.select(i, userMoved: true)
         }
         panel.addSubview(r)
         return r
     }
 
+    /// Where the pointer was when the rows last appeared or changed (screen points); nil once it has moved since. Until it
+    /// moves, hovering doesn't select: ⌘T, typing and Return open the top match, not the row under a resting pointer.
+    private var restingPointer: NSPoint?
+
     func focus(with text: String) {
+        restingPointer = NSEvent.mouseLocation
         input.stringValue = text
         typed = text
-        window?.makeFirstResponder(input)
-        input.currentEditor()?.selectAll(nil)
+        if Self.defersSession, let w = window, w.isKeyWindow {
+            // cmdfast: starting the field's editing session inserts the editor into the field (`addSubview`,
+            // `setDocumentView`, its attributes and input context) and gives the commit its layout and drawing: 3–7 ms
+            // of ⌘T's frame in a key window. The bar takes the keyboard now (the page gives it up in this frame, as
+            // before) and the session starts in the next run-loop turn, after this frame's commit. A key that comes
+            // first starts it at once and goes on to the editor (`keyDown`, `performKeyEquivalent`), so nothing typed
+            // is lost or reordered (`--script cbfirstkeys`).
+            sessionPending = true
+            openingID &+= 1
+            let opening = openingID
+            Perf.time("cb.focus.defer") { _ = w.makeFirstResponder(self) }
+            if w.firstResponder === self {
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.pendingDelay) { [weak self] in
+                    // Only this opening's session: a later one sets its own timer.
+                    guard let self, self.openingID == opening else { return }
+                    if self.beginPendingSession() { Self.sessionStats.startedByTimer += 1 }
+                }
+                update(allowCompletion: false)
+                return
+            }
+            sessionPending = false
+        }
+        Perf.time("cb.focus.begin") { _ = window?.makeFirstResponder(input) }
+        selectAllText()
         update(allowCompletion: false)
     }
+
+    /// The whole text selected, as `selectAll(_:)` does, without the action: AppKit's input analytics vet every
+    /// `selectAll:` (~1.5 ms of ⌘T's frame, cmdfast's profile).
+    private func selectAllText() {
+        if let editor = input.currentEditor() as? NSTextView {
+            editor.setSelectedRange(NSRange(location: 0, length: (editor.string as NSString).length))
+        }
+    }
+
+    /// The bar holds the keyboard until its field's editing session starts (`focus(with:)`).
+    private var sessionPending = false
+    private var openingID = 0
+
+    /// The deferred session: a run-loop turn after the opening, or at once for a key that arrives first.
+    @discardableResult
+    private func beginPendingSession() -> Bool {
+        guard sessionPending else { return false }
+        sessionPending = false
+        guard !isParked, let w = window, w.firstResponder === self else { return false }
+        Perf.time("cb.focus.begin") { _ = w.makeFirstResponder(input) }
+        selectAllText()
+        return w.firstResponder === input.currentEditor()
+    }
+
+    override var acceptsFirstResponder: Bool { sessionPending }
+
+    override func keyDown(with event: NSEvent) {
+        if beginPendingSession(), let editor = window?.firstResponder, editor !== self {
+            Self.sessionStats.startedByKey += 1
+            return editor.keyDown(with: event)
+        }
+        super.keyDown(with: event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // ⌘V, ⌘A and the rest go to the menu bar after this; the editor must be first responder by then.
+        if sessionPending, beginPendingSession() { Self.sessionStats.startedByKey += 1 }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    /// Which deferred sessions the timer started and which a key did (cbfirstkeys asserts them).
+    struct SessionStats { var startedByTimer = 0, startedByKey = 0 }
+    static var sessionStats = SessionStats()
+
+    #if AIRC_TESTING
+    /// cmdfast A/B: `AIRC_CB_FOCUS_NOW=1` starts the session in ⌘T's own frame, as before.
+    static let defersSession = ProcessInfo.processInfo.environment["AIRC_CB_FOCUS_NOW"] != "1"
+    /// The deferred session starts this long after the opening (a timer: after the opening frame's commit). cbfirstkeys
+    /// holds it longer, so every real key after ⌘T arrives while the session is pending.
+    static var pendingDelay: TimeInterval = 0.001
+    #else
+    static let defersSession = true
+    static let pendingDelay: TimeInterval = 0.001
+    #endif
 
     /// Types `text` as the keyboard would (scenarios, perf): when it goes on from what was typed, each further character
     /// goes in through the field editor at its selection (over an inline completion), which tells the delegate as a key
@@ -385,7 +598,12 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     /// checks, no text replacement or inline predictions. The window's shared editor ran AppKit's text checking on
     /// every keystroke (§2.12), which an address field (Chrome's, Arc's) doesn't do.
     lazy var fieldEditor: NSTextView = {
-        let editor = NSTextView(frame: .zero)
+        // keyframe: TextKit 1. A TextKit 2 editor re-synchronised its layout manager, fixed up the selection, laid out
+        // its viewport and made a new fragment view (so a layer tree rebuild) for every keystroke: ~2 ms of the frame
+        // for one line of text.
+        _ = Self.keyframe2   // sets AircKit's switches (test builds) before the first ranking
+        let editor = Self.keyframe ? CommandBarFieldEditor(usingTextLayoutManager: false) : CommandBarFieldEditor(frame: .zero)
+        editor.bar = self
         editor.isFieldEditor = true
         editor.isContinuousSpellCheckingEnabled = false
         editor.isGrammarCheckingEnabled = false
@@ -398,8 +616,38 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         editor.isAutomaticTextCompletionEnabled = false
         editor.smartInsertDeleteEnabled = false
         if #available(macOS 14.0, *) { editor.inlinePredictionType = .no }
+        if Self.keyframe {
+            // keyframe: with every check above off, AppKit's text checking controller still annotated the text and
+            // the selection on every keystroke (~0.4 ms of its frame). An address field checks nothing.
+            editor.enabledTextCheckingTypes = 0
+            if #available(macOS 15.0, *) {
+                editor.writingToolsBehavior = .none
+                editor.mathExpressionCompletionType = .no
+            }
+        }
         return editor
     }()
+
+    #if AIRC_TESTING
+    /// keyframe A/B in one binary: `AIRC_CB_KEYFRAME=0` keeps the keystroke frame as it was before.
+    static let keyframe = ProcessInfo.processInfo.environment["AIRC_CB_KEYFRAME"] != "0"
+    #else
+    static let keyframe = true
+    #endif
+
+    /// keyframe2 A/B in one binary: `AIRC_CB_KEYFRAME2=0` keeps the keystroke's results as keyframe left them (the
+    /// command list made on every key, ranking without prepared texts or prefilters, inline targets parsed every key).
+    #if AIRC_TESTING
+    static let keyframe2: Bool = {
+        let on = ProcessInfo.processInfo.environment["AIRC_CB_KEYFRAME2"] != "0"
+        CommandSearch.prefilters = on
+        CommandSearch.memoizesPages = on
+        InlineCompletion.memoizesTargets = on
+        return on
+    }()
+    #else
+    static let keyframe2 = true
+    #endif
 
     func isInput(_ client: Any?) -> Bool { (client as AnyObject?) === input }
 
@@ -416,7 +664,9 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     /// The rows on screen, top to bottom (checks: the hover ✕).
     var visibleRows: [CommandRowView] { Array(rows.prefix(results.count)) }
     /// What the empty field shows ("Search YouTube…"); setting the attributed placeholder clears the plain one.
-    var placeholderText: String { input.placeholderAttributedString?.string ?? input.placeholderString ?? "" }
+    var placeholderText: String { placeholderLabel.stringValue }
+    /// Whether the placeholder is on screen (only while the field is empty).
+    var placeholderShown: Bool { !placeholderLabel.isHidden }
 
     private func applyPalette() {
         panel.layer?.backgroundColor = palette.panelBackground.cgColor
@@ -458,22 +708,34 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
 
     private func applyPlaceholder() {
         let text = scope?.placeholder ?? "Search or Enter URL…"
-        input.placeholderString = text
-        input.placeholderAttributedString = NSAttributedString(string: text, attributes: [
-            .foregroundColor: palette.panelSecondary, .font: AircFont.commandInput.appFont])
+        if placeholderLabel.stringValue != text {
+            placeholderLabel.stringValue = text
+            input.setAccessibilityPlaceholderValue(text)
+        }
+        if placeholderLabel.textColor != palette.panelSecondary { placeholderLabel.textColor = palette.panelSecondary }
+        updatePlaceholderVisibility()
+    }
+
+    /// The placeholder shows only while the field is empty (marked text from an input method counts as text).
+    private func updatePlaceholderVisibility() {
+        let empty = ((input.currentEditor() as? NSTextView)?.string ?? input.stringValue).isEmpty
+        if placeholderLabel.isHidden != !empty { placeholderLabel.isHidden = !empty }
     }
 
     // MARK: Site Search
 
     /// The pill, placeholder and glyph for the current scope (none: the plain bar).
     private func applyScope() {
-        if case .site(let s)? = scope {
-            scopePill.show(s, icons: host?.commandBarShowsSiteIcons ?? false)
+        Perf.time("cbs.pill") {
+            if let s = scope?.site {
+                scopePill.show(s, icons: host?.commandBarShowsSiteIcons ?? false)
+                if case .ask = scope { scopePill.setAccessibilityLabel("Asking \(s.name). Ask AI options") }
+            }
+            if scopePill.isHidden != (scope == nil) { scopePill.isHidden = scope == nil }
         }
-        if scopePill.isHidden != (scope == nil) { scopePill.isHidden = scope == nil }
-        applyPlaceholder()
-        input.setAccessibilityLabel(scope.map { "Search \($0.name)" })
-        if let sv = superview { layoutIn(sv.bounds, sidebarFrame: sidebarFrame, contentFrame: contentFrame) }
+        Perf.time("cbs.placeholder") { applyPlaceholder() }
+        Perf.time("cbs.axlabel") { input.setAccessibilityLabel(scope?.label) }
+        Perf.time("cbs.layout") { if let sv = superview { layoutIn(sv.bounds, sidebarFrame: sidebarFrame, contentFrame: contentFrame) } }
     }
 
     /// Tab (or Space after a shortcut, or the "Search YouTube" row): the field empties, the site's pill leads it and
@@ -485,15 +747,20 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         inline = nil
         inlineSite = nil
         siteCandidate = nil
+        askCandidate = nil
+        cancelInstant(restore: false)
         suggestions = []
         suggestionQuery = ""
         typed = ""
-        input.stringValue = ""
+        Perf.time("cbs.clear") { input.stringValue = "" }
         applyScope()
-        if case .site(let site) = s, host?.commandBarShowsSiteIcons == true { scopePill.fetchIcon(site) }
-        update(allowCompletion: false)
-        NSAccessibility.post(element: input, notification: .announcementRequested,
-                             userInfo: [.announcement: "Searching \(s.name)", .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        Perf.time("cbs.fetchIcon") { if host?.commandBarShowsSiteIcons == true { scopePill.fetchIcon(s.site) } }
+        Perf.time("cbs.update") { update(allowCompletion: false) }
+        let said = (s.label.hasPrefix("Ask ") ? "Asking " : "Searching ") + s.name
+        Perf.time("cbs.announce") {
+            NSAccessibility.post(element: input, notification: .announcementRequested,
+                                 userInfo: [.announcement: said, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        }
     }
 
     /// Back to the plain bar. Backspace and Esc put back what was typed before the scope ("yt"), then the query if there
@@ -514,6 +781,18 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
 
     /// A click on the pill: Arc's menu. Change Site Search › every site, Remove “…” Site Search (leaves it), Manage.
     private func scopeMenu() {
+        if case .ask(let p)? = scope {
+            // A chat site: leave it, or choose another in Settings.
+            let menu = NSMenu()
+            menu.add("Stop Asking \(p.name)") { [weak self] in self?.leaveScope(restoring: false) }
+            menu.addItem(.separator())
+            menu.add("Ask AI Settings…") { [weak self] in
+                self?.host?.closeCommandBar()
+                (NSApp.delegate as? AppDelegate)?.showSettings(page: .siteSearch)
+            }
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: scopePill.bounds.maxY + 4), in: scopePill)
+            return
+        }
         guard case .site(let current)? = scope else { return }
         let menu = NSMenu()
         let change = NSMenuItem(title: "Change Site Search", action: nil, keyEquivalent: "")
@@ -620,6 +899,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         if frame != placed { frame = placed }
         if Self.parksLayer, let layer {
             let transform = isParked ? CATransform3DMakeTranslation(-(bounds.width + 4000), 0, 0) : CATransform3DIdentity
+            (layer as? CommandBarLayer)?.parkedTransform = isParked ? transform : nil
             if !CATransform3DEqualToTransform(layer.transform, transform) {
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
@@ -660,6 +940,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         chip.frame = NSRect(x: width - 16 - chipW + 9, y: (AircMetrics.CommandBar.inputHeight - chip.frame.height) / 2,
                             width: chipW - 18, height: chip.frame.height)
         input.frame = NSRect(x: inputX, y: (AircMetrics.CommandBar.inputHeight - 26) / 2, width: width - inputX - 20 - chipW, height: 26)
+        if placeholderLabel.frame != input.frame { placeholderLabel.frame = input.frame }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         chipBackground.frame = NSRect(x: width - 16 - chipW, y: (AircMetrics.CommandBar.inputHeight - 24) / 2, width: chipW, height: 24)
@@ -687,8 +968,36 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         deletingEdit = false
     }
 
-    private func textDidChange(byDeleting deleting: Bool) {
-        let text = input.stringValue
+    /// Typing the next character of the inline completion: the completion's start moves on by it and the text stays
+    /// as it is (Chrome's omnibox does the same). The field then shows exactly what replacing the completion with the
+    /// character and completing again would (the old way: two edits of the field and a new selection, ~2 ms of each
+    /// such keystroke, cbfirstkey), and the rows are made the same way. Not with marked text (an input method), not a
+    /// space (it can start a site search), not the completion's last character.
+    func typeAheadIntoCompletion(_ string: String, replacementRange: NSRange, in editor: NSTextView) -> Bool {
+        let s = string as NSString
+        guard inline != nil, scope == nil, instant == nil, s.length == 1, string != " ", !editor.hasMarkedText(),
+              editor.selectedRanges.count == 1 else { return false }
+        let selection = editor.selectedRange()
+        let text = editor.string as NSString
+        guard selection.length > 1, NSMaxRange(selection) == text.length,
+              replacementRange.location == NSNotFound || replacementRange == selection,
+              text.substring(to: selection.location) == typed,
+              text.substring(with: NSRange(location: selection.location, length: 1)) == string else { return false }
+        editor.setSelectedRange(NSRange(location: selection.location + 1, length: selection.length - 1))
+        #if AIRC_TESTING
+        keyLog.append("text")
+        #endif
+        typingAhead = true
+        defer { typingAhead = false }
+        textDidChange(byDeleting: false, text: typed + string)
+        return true
+    }
+    private var typingAhead = false
+
+    private func textDidChange(byDeleting deleting: Bool, text typedText: String? = nil) {
+        cancelInstant(restore: false)
+        updatePlaceholderVisibility()
+        let text = typedText ?? input.stringValue
         let before = typed
         typed = text
         // "Space or Tab" (a profile's choice): a space typed right after a whole shortcut ("yt ") starts its search.
@@ -713,6 +1022,8 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
                 applyScope()
             }
         }
+        // A chat site turned off (or another profile's Space, with another choice) ends its question, keeping the words.
+        if case .ask(let p)? = scope, c.commandBarAskAI != p { return leaveScope(restoring: false) }
         let composing = isComposing
         // A bounded, prebuilt tier supplies local rows in this event, without waiting for the
         // history queue. The full index still refines later through identity-preserving replacement.
@@ -731,6 +1042,8 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         inline = Perf.time("cb.inline") { () -> InlineCompletion.Match? in
             guard allowCompletion && !isActionsMode && scope == nil && !composing else { return nil }
             if let m = c.inlineCompletion(for: q) { return m }
+            // feedback2: these words mean Send Feedback, not a built-in site ("feed" → Feedly): no site completes them.
+            if Self.feedbackWords.contains(q.trimmingCharacters(in: .whitespaces).lowercased()) { return nil }
             guard let s = c.siteCompletion(for: q, history: historyHits) else { return nil }
             site = s.site
             return s.match
@@ -740,11 +1053,35 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
             // The completion goes after the caret, selected so typing on replaces it (Chrome, Arc), drawn in the
             // theme's completion ink on its highlight, never the system selection colour (design §7, review #8).
             let r = palette.resolved
-            editor.selectedTextAttributes = inline == nil ? r.textSelectionAttributes : r.inlineCompletionAttributes
+            let attributes = inline == nil ? r.textSelectionAttributes : r.inlineCompletionAttributes
+            // Set only when they change: setting them redraws the selection (cbfirstkey, ~0.3 ms a keystroke).
+            if !(editor.selectedTextAttributes as NSDictionary).isEqual(to: attributes) { editor.selectedTextAttributes = attributes }
             if let m = inline {
-                input.stringValue = m.text
                 let start = (q as NSString).length
-                editor.selectedRange = NSRange(location: start, length: (m.text as NSString).length - start)
+                let text = m.text as NSString, shown = editor.string as NSString
+                if shown.length >= start, text.length >= start, shown.substring(to: start) == text.substring(to: start) {
+                    // What's typed is already there: only the completion after it changes. Setting the field's whole
+                    // value instead ends and restarts the field editor's text (cbfirstkey: ~1 ms of every completing
+                    // keystroke). The cell takes the editor's text, as setting the value would have left it.
+                    let rest = NSRange(location: start, length: shown.length - start)
+                    if shown.substring(with: rest) != text.substring(from: start) {
+                        editor.replaceCharacters(in: rest, with: text.substring(from: start))
+                    }
+                    input.validateEditing()
+                } else {
+                    input.stringValue = m.text
+                }
+                let selection = NSRange(location: start, length: text.length - start)
+                if editor.selectedRange() != selection { editor.selectedRange = selection }
+            } else if typingAhead {
+                // Typed on into a completion that no longer completes (typeAheadIntoCompletion): what's typed, alone,
+                // as replacing the completion with the character would have left it.
+                let shown = editor.string as NSString, start = (q as NSString).length
+                if shown.length > start, shown.substring(to: start) == q {
+                    editor.replaceCharacters(in: NSRange(location: start, length: shown.length - start), with: "")
+                    editor.setSelectedRange(NSRange(location: start, length: 0))
+                    input.validateEditing()
+                }
             }
         }
         let glyph = Symbols.image(isActionsMode ? "command" : "magnifyingglass", size: 17, weight: .medium)
@@ -753,12 +1090,15 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
             guard scope == nil, !isActionsMode, !composing, let sites else { return nil }
             return sites.index.match(q, host: inline?.url ?? inlineSite?.url)
         }
+        askCandidate = siteCandidate == nil && scope == nil && !isActionsMode && !composing
+            ? c.commandBarAskAI.flatMap { $0.matches(q) ? $0 : nil } : nil
         if suggestionQuery != q { suggestions = [] }
         results = Perf.time("cb.results") { composedResults(q, history: historyHits, suggestions: suggestions) }
         Perf.time("cb.rows") { reloadRows() }
         #if AIRC_TESTING
         if Self.localHistoryEnabled, !historyHits.isEmpty { onHistoryApplied?(historyHits.count) }
         #endif
+        updatePlaceholderVisibility()
         requestHistory(for: q)
         requestSuggestions(for: q)
     }
@@ -816,8 +1156,10 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     /// "Search YouTube" row second while a site matches what's typed.
     private func composedResults(_ q: String, history: [HistoryMatch], suggestions: [String]) -> [CommandResult] {
         guard let c = host else { return [] }
+        if instant != nil { return instantRows() }
         if case .site(let s)? = scope { return siteResults(q, site: s, history: history) }
-        var rows = c.commandResults(for: q, mode: mode, inline: inline, inlineSite: inlineSite, suggestions: suggestions, history: history)
+        if case .ask(let p)? = scope { return askResults(q, provider: p) }
+        var rows = c.barCommandResults(for: q, mode: mode, inline: inline, inlineSite: inlineSite, suggestions: suggestions, history: history)
         if let s = siteCandidate {
             // Arc's hint: "Tab", or "Space or Tab" where the profile lets Space start it too.
             let spaces = c.commandBarSiteSearches?.spaceTriggers == true
@@ -827,6 +1169,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
             rows.insert(row, at: min(1, rows.count))
             if rows.count > AircMetrics.CommandBar.maxRows { rows.removeLast() }
         }
+        addAIRows(&rows, q, host: c)
         return rows
     }
 
@@ -842,7 +1185,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
             guard let page = URL(string: h.entry.url) else { continue }
             let title = h.entry.title.isEmpty ? URLRules.displayURL(h.entry.url) : h.entry.title
             out.append(CommandResult(title: title, subtitle: URLRules.displayHost(h.entry.url), badge: "Open",
-                                     icon: icons ? .favicon(image: nil, url: nil, page: h.entry.url) : .symbol("globe"),
+                                     icon: icons ? .favicon(image: nil, url: nil, page: h.entry.url) : .monogram(page: h.entry.url),
                                      matches: CommandSearch.score(query, in: title)?.matches ?? [], action: .open(page),
                                      historyURL: h.entry.url))
         }
@@ -858,6 +1201,8 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     /// An explicit keyboard/hover choice survives late history and suggestions. Untouched selection
     /// follows the new top result. Query edits still reset normally, without changing inline completion.
     private func replaceAsyncResults(_ updated: [CommandResult]) {
+        // Instant Links' rows stay until it's done or cancelled.
+        guard instant == nil else { return }
         let identity = userSelectedResult, index = selected
         results = updated
         reloadRows()
@@ -869,15 +1214,75 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
 
     #if AIRC_TESTING
     func applyLateResultsForTesting(_ updated: [CommandResult]) { replaceAsyncResults(updated) }
+    var historySelectionIsExplicitForTesting: Bool { selectedHistoryURL != nil }
+    /// The rows on screen, in order (CmdTrustCheck).
+    var rowViewsForTesting: [CommandRowView] { Array(rows.prefix(results.count)) }
+    /// What the bar would show for what's typed now if every menu command were found and validated now (cbperf).
+    /// keyframe2: also without the session's command list, prepared texts, ranking prefilters or remembered inline
+    /// targets, so it is the path every key took before.
+    func resultsWithoutCommandIndexForTesting() -> [CommandResult] {
+        Self.withoutKeyframe2 { ParityCommandCatalog.bypassingIndex { composedResults(typed, history: historyHits, suggestions: suggestions) } }
+    }
+
+    /// keyframe2 (cbkey): the rows and the inline completion shown are the ones the path before keyframe2 makes for
+    /// what's typed now. Rows as cbperf compares them; "" when they match, else what differs.
+    func keyframe2ParityForTesting() -> String {
+        func rows(_ r: [CommandResult]) -> [String] {
+            r.map { "\($0.title)|\($0.subtitle)|\($0.badge)|\($0.shortcut.joined())|\($0.historyURL ?? "")|\($0.selectionID)" }
+        }
+        let shown = rows(results), old = rows(resultsWithoutCommandIndexForTesting())
+        let inlineNow = host?.inlineCompletion(for: typed)
+        let inlineOld = Self.withoutKeyframe2 { host?.inlineCompletion(for: typed) }
+        var out = ""
+        if shown != old { out += "rows shown \(shown) old \(old)" }
+        if inlineNow?.text != inlineOld?.text || inlineNow?.url != inlineOld?.url {
+            out += " inline \(inlineNow?.text ?? "-") old \(inlineOld?.text ?? "-")"
+        }
+        return out
+    }
+
+    /// keyframe2: each shown row as drawn (its layer tree, `render(in:)`, 2×), hashed: the A/B arms must give the same.
+    func rowImageHashesForTesting() -> [String] {
+        rows.prefix(results.count).map { row -> String in
+            guard let layer = row.layer, row.bounds.width > 0 else { return "-" }
+            let w = Int(row.bounds.width * 2), h = Int(row.bounds.height * 2)
+            guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return "-" }
+            ctx.scaleBy(x: 2, y: 2)
+            layer.render(in: ctx)
+            guard let data = ctx.data else { return "-" }
+            var hash: UInt64 = 0xcbf29ce484222325
+            let bytes = data.bindMemory(to: UInt8.self, capacity: w * h * 4)
+            for i in 0..<(w * h * 4) { hash = (hash ^ UInt64(bytes[i])) &* 0x100000001b3 }
+            return String(hash, radix: 16)
+        }
+    }
+
+    static func withoutKeyframe2<T>(_ body: () -> T) -> T {
+        let p = CommandSearch.prefilters, m = InlineCompletion.memoizesTargets, g = CommandSearch.memoizesPages
+        CommandSearch.prefilters = false
+        CommandSearch.memoizesPages = false
+        InlineCompletion.memoizesTargets = false
+        defer { CommandSearch.prefilters = p; CommandSearch.memoizesPages = g; InlineCompletion.memoizesTargets = m }
+        return body()
+    }
     #endif
 
     private func reloadRows() {
         userSelectedResult = nil
         selected = 0
+        // Typing (and late results) put the top match first again; the pointer has to move to pick another row.
+        restingPointer = NSEvent.mouseLocation
         while rows.count < results.count { rows.append(makeRow()) }
+        let icons = host?.commandBarShowsSiteIcons == true
+        CommandRowView.engineFavicons = icons ? host?.commandBarFaviconDatabase : nil
+        // Each row restyles only what differs from what it shows (CommandRowView.changes, cbrows): from key to key most
+        // rows keep their icon, seal, subtitle and kind; a row showing exactly its result is left as it is. Rows stay
+        // in their places (the subviews' order is VoiceOver's, and a row under the pointer keeps its hover).
+        Perf.time("cb.configure") { for (r, res) in zip(rows, results) { r.configure(res) } }
         // Rows beyond the results stay, hidden, for the next keystroke or opening.
         for (i, r) in rows.enumerated() where r.isHidden != (i >= results.count) { r.isHidden = i >= results.count }
-        Perf.time("cb.configure") { for (r, res) in zip(rows, results) { r.configure(res) } }
         selectedHistoryURL = nil
         Perf.time("cb.select") { select(0) }
         Perf.time("cb.layout") { if let sv = superview { layoutIn(sv.bounds, sidebarFrame: sidebarFrame, contentFrame: contentFrame) } }
@@ -920,8 +1325,19 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
             }
             return true
         }
+        // cmdfast: a key before the deferred editing session started starts it now, so everything below (and the key's
+        // own way on to the field) runs as it would have with the session started in ⌘T's frame.
+        if sessionPending, beginPendingSession() { Self.sessionStats.startedByKey += 1 }
         guard let editor = input.currentEditor() as? NSTextView, window?.firstResponder === editor, !editor.hasMarkedText()
         else { return false }
+        // ⇧↵ (P07c): Instant Links, or a normal search of what's typed where it's off.
+        if event.keyCode == 36 || event.keyCode == 76, mods == .shift {
+            #if AIRC_TESTING
+            keyLog.append("shiftReturn")
+            #endif
+            shiftReturn()
+            return true
+        }
         let key = ShortcutCenter.typed(event)
         let arcKey = key != nil && key == ShortcutCenter.shared.commandBarKey(ShortcutCenter.removeSuggestion.id)
         guard arcKey || (event.keyCode == 51 && mods == .shift && selectedHistoryURL != nil),
@@ -1002,6 +1418,10 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
                 enterScope(.site(s))
                 return true
             }
+            if let p = askCandidate {
+                enterScope(.ask(p))
+                return true
+            }
             if inline != nil {
                 textView.moveToEndOfDocument(nil)
                 typed = input.stringValue
@@ -1020,6 +1440,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
 
     /// Esc: a completion goes first, then a site search ends (what was typed before it comes back), then the bar closes.
     private func cancel() {
+        if instant != nil { return cancelInstant(restore: true) }
         if inline != nil {
             input.stringValue = typed
             inline = nil
@@ -1041,11 +1462,197 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         let r = results[selected]
         // "Search YouTube": the bar stays, now searching the site.
         if let s = r.startsScope { return enterScope(s) }
+        if r.startsInstantLinks { return startInstantLinks() }
         // Chosen: now its icon may come from the network (rows never ask for one while you type).
         CommandRowView.fetchIcon(of: r)
         host?.closeCommandBar()
-        host?.performCommand(r.action, newTab: mode == .newTab, typed: true)
+        host?.performCommand(r.action, newTab: mode == .newTab || r.opensInNewTab, typed: !r.opensInNewTab)
     }
+
+    // MARK: Ask AI (P07b)
+
+    /// "gpt" + Tab: the question, opening on the chat site in a new tab (whatever opened the bar).
+    private func askResults(_ q: String, provider p: AskAIProvider) -> [CommandResult] {
+        guard let url = AskAIRoute.url(p, q) else { return [] }
+        return [askRow(q.trimmingCharacters(in: .whitespacesAndNewlines), subtitle: "Ask \(p.name) in a new tab", provider: p, url: url)]
+    }
+
+    private func askRow(_ title: String, subtitle: String, provider p: AskAIProvider, url: URL) -> CommandResult {
+        var row = CommandResult(title: title, subtitle: subtitle, badge: "Ask", icon: siteIcon(p.siteSearch), matches: [], action: .open(url))
+        row.opensInNewTab = true
+        return row
+    }
+
+    /// The plain bar's AI rows: "Ask ChatGPT · Press Tab" for "gpt" (where no site search matches); Instant Links' hint
+    /// under the search row (⇧↵, only while it can run); Arc's "Ask GPT What You Typed" for a question, last.
+    private func addAIRows(_ rows: inout [CommandResult], _ q: String, host c: CommandBarHost) {
+        let limit = AircMetrics.CommandBar.maxRows
+        if let p = askCandidate {
+            var row = CommandResult(title: "Ask \(p.name)", subtitle: "Press Tab", badge: "Ask", icon: siteIcon(p.siteSearch),
+                                    matches: [], action: .run {})
+            row.startsScope = .ask(p)
+            rows.insert(row, at: min(1, rows.count))
+        }
+        let text = q.trimmingCharacters(in: .whitespacesAndNewlines)
+        if Self.isInstantQuery(text), c.commandBarInstantLinks != nil,
+           let i = rows.firstIndex(where: { $0.badge == "Search" && $0.title == text }) {
+            let n = InstantLinks.count(in: text)
+            var row = CommandResult(title: n == 1 ? "Open the Top Result" : "Open the Top \(n) Results", subtitle: "Instant Links",
+                                    badge: "Open", icon: .symbol("sparkles"), matches: [], action: .run {}, shortcut: ["⇧", "↩"])
+            row.startsInstantLinks = true
+            rows.insert(row, at: i + 1)
+        }
+        if scope == nil, askCandidate == nil, let p = c.commandBarAskAI, AskAIProvider.suggestsAsking(text), let url = AskAIRoute.url(p, text) {
+            if rows.count >= limit { rows.removeLast(rows.count - limit + 1) }
+            rows.append(askRow(text, subtitle: "Ask \(p.name)", provider: p, url: url))
+        }
+        if rows.count > limit { rows.removeLast(rows.count - limit) }
+    }
+
+    // MARK: Instant Links (P07c)
+
+    private enum InstantState {
+        /// Finding pages for `query`; Return searches it now.
+        case resolving(Task<Void, Never>, query: String, search: URL?, engine: String)
+        /// What will open: Return or ⇧↵ opens it, Esc goes back.
+        case preview(InstantLinksPlan, engine: String)
+    }
+
+    /// Text Instant Links can look for: words, not an address or a command.
+    static func isInstantQuery(_ q: String) -> Bool {
+        !q.isEmpty && !q.hasPrefix("/") && URLRules.normalizeInput(q) == nil
+    }
+
+    /// ⇧↵: open what the preview shows; else find the pages; where Instant Links is off (no Apple Intelligence, the
+    /// switch, a private window, a site search), a normal search of what's typed.
+    func shiftReturn() {
+        switch instant {
+        case .preview(let plan, _)?: return openInstantPlan(plan.links)
+        case .resolving?: return
+        case nil: break
+        }
+        let text = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        if scope == nil, Self.isInstantQuery(text), host?.commandBarInstantLinks != nil { return startInstantLinks() }
+        if scope == nil, let i = results.firstIndex(where: { $0.badge == "Search" && $0.title == text }) { select(i) }
+        execute()
+    }
+
+    /// Looks for the pages (AircKit's InstantLinksResolver) while the bar shows "Finding the best result…".
+    func startInstantLinks() {
+        guard instant == nil, scope == nil, !isComposing, let ctx = host?.commandBarInstantLinks else { return }
+        let q = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Self.isInstantQuery(q) else { return }
+        if inline != nil {
+            input.stringValue = typed
+            inline = nil
+            inlineSite = nil
+        }
+        let task = Task { @MainActor [weak self] in
+            let outcome = await ctx.resolver.resolve(q, search: ctx.search)
+            guard let self, !Task.isCancelled, case .resolving(_, let asked, _, _)? = self.instant, asked == q else { return }
+            InstantLinksFeature.lastOutcome = outcome
+            self.finishInstant(outcome)
+        }
+        instant = .resolving(task, query: q, search: ctx.search.url(for: q), engine: ctx.search.name)
+        results = instantRows()
+        reloadRows()
+        NSAccessibility.post(element: input, notification: .announcementRequested,
+                             userInfo: [.announcement: "Finding the best result", .priority: NSAccessibilityPriorityLevel.high.rawValue])
+    }
+
+    private func finishInstant(_ outcome: InstantLinksOutcome) {
+        guard case .resolving(_, _, _, let engine)? = instant else { return }
+        switch outcome {
+        case .open(let plan):
+            instant = .preview(plan, engine: engine)
+            results = instantRows()
+            reloadRows()
+            let n = plan.links.count
+            NSAccessibility.post(element: input, notification: .announcementRequested,
+                                 userInfo: [.announcement: n == 1 ? "\(plan.links[0].title). Return opens it" : "\(n) results. Return opens them",
+                                            .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        case .search(let url, _):
+            instant = nil
+            guard let url else { return update(allowCompletion: false) }
+            host?.closeCommandBar()
+            host?.performCommand(.open(url), newTab: mode == .newTab, typed: true)
+        case .cancelled:
+            instant = nil
+            update(allowCompletion: false)
+        }
+    }
+
+    /// Esc, typing, the bar closing: the search stops (nothing opens) and, with `restore`, the rows come back.
+    private func cancelInstant(restore: Bool) {
+        guard let state = instant else { return }
+        if case .resolving(let task, _, _, _) = state { task.cancel() }
+        instant = nil
+        if restore { update(allowCompletion: false) }
+    }
+
+    private func openInstantPlan(_ links: [InstantLink]) {
+        let newTab = mode == .newTab
+        host?.closeCommandBar()
+        host?.openInstantLinks(Array(links.prefix(InstantLinks.maxLinks)), newTab: newTab)
+    }
+
+    /// While finding: one row (Return searches now). The preview: "Open 3 Results" (⇧↵) over the pages (each opens on its
+    /// own), then the normal search.
+    private func instantRows() -> [CommandResult] {
+        let icons = host?.commandBarShowsSiteIcons == true
+        switch instant {
+        case .resolving(_, let q, let search, let engine)?:
+            let n = InstantLinks.count(in: q)
+            return [CommandResult(title: n == 1 ? "Finding the best result…" : "Finding the top \(n) results…",
+                                  subtitle: "Instant Links · \(engine) · Esc to cancel", badge: "Search", icon: .symbol("sparkles"),
+                                  matches: [], action: search.map(CommandResult.Action.open) ?? .run {})]
+        case .preview(let plan, let engine)?:
+            var rows: [CommandResult] = []
+            let links = Array(plan.links.prefix(InstantLinks.maxLinks))
+            if links.count > 1 {
+                let newTab = mode == .newTab
+                rows.append(CommandResult(title: "Open \(links.count) Results", subtitle: links.map(\.host).joined(separator: " · "),
+                                          badge: "Open All", icon: .symbol("square.stack"), matches: [],
+                                          action: .run { [weak host = self.host] in host?.openInstantLinks(links, newTab: newTab) },
+                                          shortcut: ["⇧", "↩"]))
+            }
+            for l in links {
+                // A Google result opens through Google's redirect: its site is what Google printed under it.
+                let subtitle = l.displaySite.map { "\($0) · as shown by \(engine)" } ?? l.host
+                let page = l.isRedirect ? "https://\(l.host)/" : l.url.absoluteString
+                rows.append(CommandResult(title: l.title, subtitle: subtitle, badge: "Open",
+                                          icon: icons ? .favicon(image: nil, url: nil, page: page) : .monogram(page: page),
+                                          matches: [], action: .open(l.url), shortcut: links.count == 1 ? ["⇧", "↩"] : []))
+            }
+            rows.append(CommandResult(title: plan.query, subtitle: "Search \(engine) instead", badge: "Search",
+                                      icon: .symbol("magnifyingglass"), matches: [], action: .open(plan.searchURL)))
+            return rows
+        case nil:
+            return []
+        }
+    }
+
+    #if AIRC_TESTING
+    /// Checks: "finding", "preview" or "".
+    var instantStateLabel: String {
+        switch instant {
+        case .resolving?: "finding"
+        case .preview?: "preview"
+        case nil: ""
+        }
+    }
+    var instantPreview: InstantLinksPlan? {
+        if case .preview(let p, _)? = instant { return p }
+        return nil
+    }
+    /// The marketing shot: a preview as the resolver would have made it.
+    func showInstantPreviewForTesting(_ plan: InstantLinksPlan, engine: String) {
+        cancelInstant(restore: false)
+        instant = .preview(plan, engine: engine)
+        results = instantRows()
+        reloadRows()
+    }
+    #endif
 }
 
 /// Site Search's pill at the start of the field (Arc's scoped-search pill): the site's icon and name on a soft accent
@@ -1141,6 +1748,18 @@ final class CommandBarScopePill: NSView {
 }
 
 /// The parked bar retains its in-window view geometry, so AppKit must not register an I-beam over the page.
+/// The bar's field editor: typing on into the inline completion keeps it (CommandBarView.typeAheadIntoCompletion).
+final class CommandBarFieldEditor: NSTextView {
+    weak var bar: CommandBarView?
+
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        if let text = string as? String, let bar, bar.typeAheadIntoCompletion(text, replacementRange: replacementRange, in: self) {
+            return
+        }
+        super.insertText(string, replacementRange: replacementRange)
+    }
+}
+
 private final class CommandBarInputField: NSTextField {
     var isParked = false
 
@@ -1201,14 +1820,12 @@ enum LetterTile {
     }
 
     private static func draw(_ name: String, in r: NSRect) {
-        let letter = name.first(where: { $0.isLetter || $0.isNumber }).map { String($0).uppercased() } ?? "•"
-        var h: UInt64 = 0xcbf29ce484222325
-        for b in name.utf8 { h = (h ^ UInt64(b)) &* 0x100000001b3 }
+        let letter = SiteMonogram.letter(for: name)
         let size = r.height * 11 / 18
         let base = NSFont.systemFont(ofSize: size, weight: .semibold)
         let font = base.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: size) } ?? base
         let text = NSAttributedString(string: letter, attributes: [.font: font, .foregroundColor: NSColor.white])
-        colors[Int(h % UInt64(colors.count))].setFill()
+        colors[SiteMonogram.colorIndex(for: name, count: colors.count)].setFill()
         NSBezierPath(roundedRect: r, xRadius: r.height / 4, yRadius: r.height / 4).fill()
         let t = text.size()
         text.draw(at: NSPoint(x: r.midX - t.width / 2, y: r.midY - t.height / 2 + r.height / 36))
@@ -1229,7 +1846,8 @@ final class CommandRowView: NSView {
     var palette: Palette? { didSet { restyle() } }
     var isSelected = false { didSet { if isSelected != oldValue { restyle() } } }
     var onClick: (() -> Void)?
-    var onHover: (() -> Void)?
+    /// The pointer entered or moved over the row; true: a check's stand-in for a real move (setHoveredForTesting).
+    var onHover: ((Bool) -> Void)?
     /// The ✕ a history row shows under the pointer (Arc's, 2023-05-18): the page leaves the history, as with ⌥⌘⌫.
     var onRemove: (() -> Void)?
     private(set) var isHovered = false { didSet { if isHovered != oldValue { updateRemoveButton() } } }
@@ -1242,8 +1860,18 @@ final class CommandRowView: NSView {
     private let tile = CALayer()
     private var tileKey: String?
     private var tileImage: NSImage?
-    /// The icon a `.favicon` row asked the caches for, so a late answer for a reused row's earlier result is dropped.
-    private var iconKey: String?
+    /// The engine profile's favicon database the rows read icons from (SiteIcons), set by the bar for its window before it
+    /// configures them; nil in private windows and on WebKit.
+    static var engineFavicons: URL?
+    /// The verified mark after the title of a row on Airc's list of official sites (OfficialSites).
+    private let seal = CALayer()
+    private var sealImage: NSImage?
+    /// The row's kind ("Website", "Open Tab"…) at its end while it isn't selected.
+    private let kindLabel = AircFadingLabel(style: AircFont.urlField)
+    private var shownKind: NSAttributedString?
+    private(set) var trust: OfficialSites.Site?
+    /// A `.favicon` row with no page to letter a tile from shows a globe.
+    private var showsGlobe = false
     private let emoji = NSTextField(labelWithString: "")
     private let title = AircFadingLabel(style: AircFont.row)
     private let subtitle = AircFadingLabel(style: AircFont.urlField)
@@ -1262,7 +1890,12 @@ final class CommandRowView: NSView {
         subtitle.lineBreakMode = .byClipping
         emoji.font = NSFont.systemFont(ofSize: AircMetrics.Footer.spaceEmoji)
         emoji.alignment = .center
-        for v in [icon, siteIcon, emoji, title, subtitle, action, removeButton] as [NSView] { addSubview(v) }
+        for v in [icon, siteIcon, emoji, title, subtitle, kindLabel, action, removeButton] as [NSView] { addSubview(v) }
+        kindLabel.lineBreakMode = .byClipping
+        seal.actions = LayerImage.noActions
+        seal.isHidden = true
+        seal.contentsGravity = .resizeAspect
+        layer?.addSublayer(seal)
         removeButton.isHidden = true
         removeButton.onPress = { [weak self] in self?.onRemove?() }
         siteIcon.isHidden = true
@@ -1275,15 +1908,46 @@ final class CommandRowView: NSView {
     override var isFlipped: Bool { true }
 
     func configure(_ r: CommandResult) {
+        let parts = changes(to: r)
+        let old = result
         result = r
-        restyle()
-        updateRemoveButton()
+        if parts.contains(.page) || old == nil { trust = r.trust }
+        if !parts.isEmpty { restyle(parts) }
+        if old?.historyURL != r.historyURL { updateRemoveButton() }
+    }
+
+    /// The parts of the row that showing `r` instead of the result it shows changes (cbrows: a keystroke restyles only
+    /// those; most rows keep their icon, seal, subtitle and kind from key to key). Everything when it shows nothing yet
+    /// or its theme changed since.
+    struct Parts: OptionSet {
+        let rawValue: Int
+        static let title = Parts(rawValue: 1), subtitle = Parts(rawValue: 2), kind = Parts(rawValue: 4)
+        static let shortcut = Parts(rawValue: 8), icon = Parts(rawValue: 16), page = Parts(rawValue: 32)
+        static let badge = Parts(rawValue: 64)
+        static let all = Parts(rawValue: 127)
+    }
+
+    func changes(to r: CommandResult) -> Parts {
+        // Every palette change restyles the whole row (`palette`'s didSet), so a row styled once is in its theme.
+        guard let old = result, palette != nil, shownTheme != nil else { return .all }
+        var parts: Parts = []
+        // The trust mark and a trusted row's subtitle come from the badge and the page.
+        if old.page != r.page || old.badge != r.badge { parts.insert([.page, .subtitle]) }
+        if old.title != r.title || old.matches != r.matches { parts.insert(.title) }
+        if old.subtitle != r.subtitle || (trust != nil && old.title != r.title) { parts.insert(.subtitle) }
+        if old.badge != r.badge { parts.insert(.badge) }
+        if old.kind != r.kind { parts.insert(.kind) }
+        if old.shortcut != r.shortcut { parts.insert(.shortcut) }
+        // A globe is a favicon not found when it was configured: looked up again, as a full restyle would.
+        if showsGlobe || !CommandResult.sameIcon(old.icon, r.icon) { parts.insert(.icon) }
+        return parts
     }
 
     /// The ✕ shows on a history row under the pointer (the row's other trailing parts move left of it).
     private func updateRemoveButton() {
         let show = isHovered && !isHidden && result?.historyURL != nil
-        removeButton.palette = palette
+        // keyframe2: only while it shows (setting it redraws the button, hidden or not: up to 9 hidden redraws a key).
+        if show || !CommandBarView.keyframe2 { removeButton.palette = palette }
         if removeButton.isHidden != !show {
             removeButton.isHidden = !show
             needsLayout = true
@@ -1298,101 +1962,118 @@ final class CommandRowView: NSView {
     /// same text again would measure and redraw it (§2.12). Long titles and URLs are cut to what one line can show.
     private var shownTitle: NSAttributedString?
     private var shownSubtitle: NSAttributedString?
+    /// The subtitle has no right-to-left script (natural alignment puts it at the left edge, whatever the width).
+    private var subtitleIsLTR = true
     private var shownTheme: ResolvedTheme?
 
-    private func restyle() {
+    private func restyle(_ parts: Parts = .all) {
         guard let p = palette, let r = result else { return }
         let theme = p.resolved
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer?.backgroundColor = isSelected ? p.panelSelection.cgColor : NSColor.clear.cgColor
-        CATransaction.commit()
+        if parts == .all {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer?.backgroundColor = isSelected ? p.panelSelection.cgColor : NSColor.clear.cgColor
+            CATransaction.commit()
+        }
         var changed = false
-        let titleText = TextLimits.clip(r.title)
-        let t = NSMutableAttributedString(string: titleText, attributes: theme.commandRowTitleAttributes)
-        let ns = titleText as NSString
-        for m in r.matches where m < ns.length {
-            t.addAttribute(.font, value: AircFont.row.weight(.semibold).appFont, range: NSRange(location: m, length: 1))
+        if parts.contains(.title) {
+            let titleText = TextLimits.clip(r.title)
+            let t = NSMutableAttributedString(string: titleText, attributes: theme.commandRowTitleAttributes)
+            let ns = titleText as NSString
+            for m in r.matches where m < ns.length {
+                t.addAttribute(.font, value: AircFont.row.weight(.semibold).appFont, range: NSRange(location: m, length: 1))
+            }
+            if shownTitle.map({ !$0.isEqual(to: t) }) ?? true {
+                shownTitle = t
+                title.attributedStringValue = t
+                changed = true
+            }
         }
-        if shownTitle.map({ !$0.isEqual(to: t) }) ?? true {
-            shownTitle = t
-            title.attributedStringValue = t
-            changed = true
+        if parts.contains(.subtitle) {
+            let sub = NSAttributedString(string: TextLimits.clip(subtitleText(r)), attributes: theme.commandRowSubtitleAttributes)
+            if shownSubtitle.map({ !$0.isEqual(to: sub) }) ?? true {
+                shownSubtitle = sub
+                subtitle.attributedStringValue = sub
+                subtitleIsLTR = !sub.string.unicodeScalars.contains { $0.value >= 0x0590 }
+                changed = true
+            }
         }
-        let sub = NSAttributedString(string: TextLimits.clip(r.subtitle), attributes: theme.commandRowSubtitleAttributes)
-        if shownSubtitle.map({ !$0.isEqual(to: sub) }) ?? true {
-            shownSubtitle = sub
-            subtitle.attributedStringValue = sub
-            changed = true
+        // keyframe2: the action shows only on the selected row; setting its title on the others redrew hidden views.
+        if action.title != r.badge, isSelected || !CommandBarView.keyframe2 { action.title = r.badge; changed = true }
+        // The kind shows where the action doesn't: on rows that aren't selected and aren't showing their ✕.
+        if parts.contains(.kind) || parts.contains(.badge) {
+            let kindText = isSelected && !r.badge.isEmpty ? "" : r.kind
+            let kind = NSAttributedString(string: kindText, attributes: theme.commandRowSubtitleAttributes)
+            if shownKind.map({ !$0.isEqual(to: kind) }) ?? true {
+                shownKind = kind
+                kindLabel.attributedStringValue = kind
+                kindLabel.isHidden = kindText.isEmpty
+                changed = true
+            }
         }
-        if action.title != r.badge { action.title = r.badge; changed = true }
+        if parts.contains(.page) {
+            let sealShown = trust != nil
+            if seal.isHidden == sealShown {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                seal.isHidden = !sealShown
+                CATransaction.commit()
+                changed = true
+            }
+            if sealShown, let img = LayerImage.symbol("checkmark.seal.fill", size: 12, weight: .semibold, color: theme.accent.nsColor),
+               img !== sealImage {
+                sealImage = img
+                LayerImage.set(img, on: seal, in: self)
+            }
+        }
         let themeChanged = shownTheme != theme
         shownTheme = theme
         if themeChanged { action.theme = theme }
         let actionSelected = isSelected && !r.badge.isEmpty
         if action.isSelected != actionSelected { action.isSelected = actionSelected; changed = true }
-        while keycaps.count < r.shortcut.count {
-            let k = AircKeycapView("", theme: theme)
-            addSubview(k)
-            keycaps.append(k)
+        if parts.contains(.shortcut) || themeChanged {
+            while keycaps.count < r.shortcut.count {
+                let k = AircKeycapView("", theme: theme)
+                addSubview(k)
+                keycaps.append(k)
+            }
+            for (i, k) in keycaps.enumerated() {
+                let hidden = i >= r.shortcut.count
+                if k.isHidden != hidden { k.isHidden = hidden; changed = true }
+                if i < r.shortcut.count, k.text != r.shortcut[i] { k.text = r.shortcut[i]; changed = true }
+                if themeChanged { k.theme = theme }
+            }
         }
-        for (i, k) in keycaps.enumerated() {
-            let hidden = i >= r.shortcut.count
-            if k.isHidden != hidden { k.isHidden = hidden; changed = true }
-            if i < r.shortcut.count, k.text != r.shortcut[i] { k.text = r.shortcut[i]; changed = true }
-            if themeChanged { k.theme = theme }
+        guard parts.contains(.icon) else {
+            if changed || themeChanged { needsLayout = true }
+            return
         }
-        if case .site = r.icon {} else {
-            showTile(nil)
-            if !siteIcon.isHidden { siteIcon.isHidden = true }
-        }
-        if case .favicon = r.icon {} else { iconKey = nil }
         // No row asks the network for an icon while you type, so the sites shown never learn what you might open: an
-        // icon in memory or in the disk cache, or the placeholder (a letter tile for a built-in site) until the row is
-        // chosen (`fetchIcon`).
+        // icon in memory, in the disk caches or in the engine profile's favicon database (SiteIcons), and the site's
+        // letter tile until then; the network only once the row is chosen (`fetchIcon`). Never a blank square.
+        var tiled = false, globe = false
+        defer { showsGlobe = globe }
         switch r.icon {
         case .favicon(let image, let url, let page):
-            icon.isHidden = false
             emoji.isHidden = true
             let key = image == nil ? url ?? page.flatMap(FaviconCache.guess(for:)) : nil
-            if let image {
-                icon.set(image: image, url: nil, fallbackPage: nil, palette: p)
-            } else if let img = FaviconCache.shared.cached(key) {
+            if let img = image ?? FaviconCache.shared.cached(key) ?? page.flatMap({ SiteIcons.shared.cached(page: $0) }) {
+                icon.isHidden = false
                 icon.set(image: img, url: nil, fallbackPage: nil, palette: p)
+            } else if let page, let name = SiteMonogram.name(forPage: page) {
+                tiled = true
+                showSiteIcon(page: page, name: name, key: key, lookups: true, palette: p)
             } else {
-                icon.set(image: nil, url: nil, fallbackPage: nil, palette: p)
-                if let key, iconKey != key {
-                    iconKey = key
-                    FaviconCache.shared.stored(key) { [weak self] img in
-                        guard let self, self.iconKey == key, let img, let palette = self.palette else { return }
-                        self.icon.set(image: img, url: nil, fallbackPage: nil, palette: palette)
-                    }
-                }
+                icon.isHidden = false
+                icon.set(image: nil, url: nil, fallbackPage: nil, palette: p, symbol: "globe")
+                globe = true
             }
-            if key == nil || FaviconCache.shared.cached(key) != nil { iconKey = nil }
         case .site(let page, let name):
-            icon.isHidden = true
-            siteIcon.isHidden = false
-            emoji.isHidden = true
-            // The row asks the caches itself and hands the favicon view only finished images: the view's own request
-            // isn't cleared by a cache hit, so a slower icon asked for by the row's previous site could land on this one
-            // ("sp" shows Spiegel, "spot" Spotify). The letter tile shows until the icon is there.
-            let key = FaviconCache.guess(for: page)
-            if let img = FaviconCache.shared.cached(key) {
-                siteIcon.set(image: img, url: nil, fallbackPage: nil, palette: p)
-                showTile(nil)
-            } else {
-                siteIcon.set(image: nil, url: nil, fallbackPage: nil, palette: p)
-                Perf.time("cb.tile") { showTile(LetterTile.image(for: name)) }
-                if let key, tileKey != key {
-                    tileKey = key
-                    FaviconCache.shared.stored(key) { [weak self] img in
-                        guard let self, self.tileKey == key, let img, let palette = self.palette else { return }
-                        self.siteIcon.set(image: img, url: nil, fallbackPage: nil, palette: palette)
-                        self.showTile(nil)
-                    }
-                }
-            }
+            tiled = true
+            showSiteIcon(page: page, name: name, key: FaviconCache.guess(for: page), lookups: true, palette: p)
+        case .monogram(let page):
+            tiled = true
+            showSiteIcon(page: page, name: SiteMonogram.name(forPage: page) ?? page, key: nil, lookups: false, palette: p)
         case .symbol(let s):
             icon.isHidden = false
             emoji.isHidden = true
@@ -1402,8 +2083,67 @@ final class CommandRowView: NSView {
             emoji.isHidden = false
             if emoji.stringValue != e { emoji.stringValue = e }
         }
+        if !tiled {
+            showTile(nil)
+            if !siteIcon.isHidden { siteIcon.isHidden = true }
+        }
         if changed || themeChanged { needsLayout = true }
     }
+
+    /// A trusted row's subtitle: the real host (or, when the title is the host, the site's name) and the list's label,
+    /// "chromewebstore.google.com · Supported in Airc". Others: the row's own.
+    private func subtitleText(_ r: CommandResult) -> String {
+        guard let t = trust, let host = r.page.flatMap({ URLComponents(string: $0)?.host?.lowercased() }) else { return r.subtitle }
+        let titleIsHost = r.title.lowercased().hasPrefix(host) || r.title.lowercased().hasPrefix(URLRules.displayHost("https://" + host))
+        return (titleIsHost ? t.name : host) + " · " + t.label
+    }
+
+    /// A site's icon in `siteIcon`: the caches' copy if it's in memory, else its letter tile at once and the icon when
+    /// a disk cache or the engine's database has it (`lookups`; a private window's rows keep the tile).
+    private func showSiteIcon(page: String, name: String, key: String?, lookups: Bool, palette p: Palette) {
+        icon.isHidden = true
+        siteIcon.isHidden = false
+        emoji.isHidden = true
+        // The row asks the caches itself and hands the favicon view only finished images: the view's own request isn't
+        // cleared by a cache hit, so a slower icon asked for by the row's previous site could land on this one ("sp"
+        // shows Spiegel, "spot" Spotify). The letter tile shows until the icon is there.
+        if lookups, let img = FaviconCache.shared.cached(key) ?? SiteIcons.shared.cached(page: page) {
+            siteIcon.set(image: img, url: nil, fallbackPage: nil, palette: p)
+            showTile(nil)
+            return
+        }
+        siteIcon.set(image: nil, url: nil, fallbackPage: nil, palette: p)
+        Perf.time("cb.tile") { showTile(LetterTile.image(for: name)) }
+        let token = (key ?? "") + "|" + page
+        guard lookups, tileKey != token else { return }
+        tileKey = token
+        let database = Self.engineFavicons
+        let land: (NSImage?) -> Bool = { [weak self] img in
+            guard let self, self.tileKey == token else { return true }
+            guard let img, let palette = self.palette else { return false }
+            self.siteIcon.set(image: img, url: nil, fallbackPage: nil, palette: palette)
+            self.showTile(nil)
+            return true
+        }
+        FaviconCache.shared.stored(key) { img in
+            if land(img) { return }
+            SiteIcons.shared.lookup(page: page, database: database) { _ = land($0) }
+        }
+    }
+
+    #if AIRC_TESTING
+    /// What the row's icon shows now (CmdTrustCheck): "image", "tile", "symbol", "emoji" or "placeholder".
+    var iconStateForTesting: String {
+        if !emoji.isHidden { return "emoji" }
+        if !siteIcon.isHidden { return tile.isHidden ? (siteIcon.shownImage != nil ? "image" : "placeholder") : "tile" }
+        if case .symbol? = result?.icon { return "symbol" }
+        if icon.isHidden { return "none" }
+        return icon.shownImage == nil ? "placeholder" : (showsGlobe ? "symbol" : "image")
+    }
+    var kindForTesting: String { kindLabel.isHidden ? "" : kindLabel.stringValue }
+    var subtitleForTesting: String { subtitle.stringValue }
+    var sealShownForTesting: Bool { !seal.isHidden && sealImage != nil }
+    #endif
 
     /// A chosen row's icon, from the network if no cache has it: the site is being opened now.
     static func fetchIcon(of r: CommandResult) {
@@ -1411,7 +2151,7 @@ final class CommandRowView: NSView {
         switch r.icon {
         case .favicon(let image, let url, let page): key = image == nil ? url ?? page.flatMap(FaviconCache.guess(for:)) : nil
         case .site(let page, _): key = FaviconCache.guess(for: page)
-        case .symbol, .emoji: key = nil
+        case .monogram, .symbol, .emoji: key = nil
         }
         if let key, FaviconCache.shared.cached(key) == nil { FaviconCache.shared.load(key) { _ in } }
     }
@@ -1467,22 +2207,55 @@ final class CommandRowView: NSView {
             x -= w
             action.frame = NSRect(x: x, y: (h - m.keycapHeight) / 2, width: w, height: m.keycapHeight)
         }
+        if !kindLabel.isHidden, removeButton.isHidden {
+            let w = ceil(Self.cellWidth(kindLabel))
+            x -= w
+            kindLabel.frame = NSRect(x: x, y: (h - 16) / 2 + 1, width: w, height: 16)
+            x -= 12
+        } else if !kindLabel.isHidden {
+            kindLabel.frame = .zero
+        }
         let right = x - AircMetrics.Row.titleFadeGap
-        let tw = min(title.fittingCellSize.width, (right - 46) * (subtitle.stringValue.isEmpty ? 1 : 0.62))
+        let sealW: CGFloat = seal.isHidden ? 0 : 18
+        let tw = min(Self.cellWidth(title), (right - 46 - sealW) * (subtitle.stringValue.isEmpty ? 1 : 0.62))
         title.frame = NSRect(x: 46, y: (h - 18) / 2, width: max(0, tw), height: 18)
-        let sx = title.frame.maxX + 10
-        subtitle.frame = NSRect(x: sx, y: (h - 16) / 2 + 1, width: max(0, right - sx), height: 16)
+        if !seal.isHidden {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            seal.frame = NSRect(x: title.frame.maxX + 4, y: (h - 13) / 2, width: 13, height: 13)
+            CATransaction.commit()
+        }
+        let sx = title.frame.maxX + sealW + 10
+        var sw = max(0, right - sx)
+        // keyframe2: the subtitle's width followed the title's, so a new title made every subtitle redraw its unchanged
+        // text (a resized layer redisplays). While its text fits (no fade either way) and runs left to right, the width
+        // stays at what the row has from the title's start: the same pixels, and moving a layer draws nothing.
+        if CommandBarView.keyframe2, subtitleIsLTR, subtitle.textWidth <= sw - 2 { sw = max(sw, right - 46 - sealW) }
+        subtitle.frame = NSRect(x: sx, y: (h - 16) / 2 + 1, width: sw, height: 16)
+    }
+
+    /// A label's width as `sizeToFit` would make it (its cell: the text and 2 pt each side). keyframe: from the text width
+    /// the label measures for its own layout anyway, so a changed title or kind is typeset once, not twice, per key.
+    static func cellWidth(_ label: AircFadingLabel) -> CGFloat {
+        CommandBarView.keyframe ? label.textWidth + 4 : label.fittingCellSize.width
     }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
+        // `.inVisibleRect` follows the row's visible rect by itself: one area for the row's life (keyframe), not a new one
+        // whenever AppKit asks after a geometry change.
+        if CommandBarView.keyframe, trackingAreas.count == 1 { return }
         trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))
     }
 
     override func mouseEntered(with event: NSEvent) {
         isHovered = true
-        onHover?()
+        onHover?(false)
+    }
+    /// A pointer that rested on the row when it appeared picks it once it moves (the bar decides, see `restingPointer`).
+    override func mouseMoved(with event: NSEvent) {
+        if isHovered, !isSelected { onHover?(false) }
     }
     override func mouseExited(with event: NSEvent) { isHovered = false }
     func clearHover() { isHovered = false }
@@ -1492,7 +2265,7 @@ final class CommandRowView: NSView {
     /// ParityP03bCheck: the pointer over the row (posted mouse moves never reach tracking areas).
     func setHoveredForTesting(_ on: Bool) {
         isHovered = on
-        if on { onHover?() }
+        if on { onHover?(true) }
         layoutSubtreeIfNeeded()
     }
     #endif
@@ -1571,6 +2344,8 @@ extension WindowController: CommandBarHost {
     var commandBarSuggestions: (engine: SearchEngine, profileID: String)? {
         guard app?.settings.values.suggestionsEnabled ?? true else { return nil }
         let profile = store.profile(ofSpace: currentSpaceID)
+        // C08: Arc's per-profile "Include search engine suggestions".
+        guard profile.includesSearchSuggestions else { return nil }
         // P07d: a site search made the default has no suggestion service (as Chrome's custom engines without one).
         guard profile.defaultSearch.site == nil else { return nil }
         return (profile.searchEngine, profile.id)
@@ -1590,6 +2365,7 @@ extension WindowController: CommandBarHost {
             if same { return }
         }
         AppTelemetry.shared.commandBarOpened(mode)
+        Self.commandMemo = nil
         let bar = Perf.time("cb.open.make") { () -> CommandBarView in
             if let spare = spareCommandBar {
                 spareCommandBar = nil
@@ -1604,7 +2380,7 @@ extension WindowController: CommandBarHost {
         // The built-in sites' index, once per process, off the main thread (ready long before the first keystroke).
         CommonSitesIndex.shared.prepare()
         LetterTile.prewarm()
-        if app?.settings.values.suggestionsEnabled ?? true {
+        if commandBarSuggestions != nil {
             // After this frame's commit: the first opening per profile makes its URLSession here (milliseconds). Not
             // `async`: the main queue drains before the run loop's Core Animation commit, a 2 ms timer only after it.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.002) {
@@ -1631,6 +2407,7 @@ extension WindowController: CommandBarHost {
     func closeCommandBar() {
         guard let bar = commandBar else { return }
         commandBar = nil
+        Self.commandMemo = nil
         // A New Split View waiting for a pick: the pick (performCommand) comes right after this, in the same turn; a bar
         // closed without one (Esc, a click elsewhere) drops it.
         if let token = pendingSplit?.token {
@@ -1654,6 +2431,9 @@ extension WindowController: CommandBarHost {
     /// it (a tab shown or closed, a title or icon, a Space switch, the window's size, the bar closing), when nothing is
     /// moving, so its rows are drawn in an idle frame rather than in ⌘T's (§2.12).
     func scheduleSpareBarRefresh() {
+        // The same moments can change which commands work (a tab shown or closed, its page, a Space): the command index
+        // rebuilds at idle too (cbfirstkey).
+        commandIndex.invalidate()
         guard !spareRefreshScheduled, spareCommandBar != nil else { return }
         spareRefreshScheduled = true
         // A timer, not `async`: the main queue drains before the run loop's commit, and this belongs in a frame of its own.
@@ -1762,16 +2542,30 @@ extension WindowController: CommandBarHost {
         #endif
     }()
 
+    func barCommandResults(for query: String, mode: CommandBarMode, inline: InlineCompletion.Match?,
+                           inlineSite: CommonSites.Site?, suggestions: [String], history: [HistoryMatch]) -> [CommandResult] {
+        composeCommandResults(for: query, mode: mode, inline: inline, inlineSite: inlineSite, suggestions: suggestions,
+                              history: history, prepared: true)
+    }
+
     func commandResults(for query: String, mode: CommandBarMode, inline: InlineCompletion.Match? = nil,
                         inlineSite: CommonSites.Site? = nil, suggestions: [String] = [],
                         history: [HistoryMatch] = []) -> [CommandResult] {
+        composeCommandResults(for: query, mode: mode, inline: inline, inlineSite: inlineSite, suggestions: suggestions,
+                              history: history, prepared: false)
+    }
+
+    /// `prepared`: the bar's keystrokes (barCommandResults), which may take the menu commands CommandIndex prepared.
+    private func composeCommandResults(for query: String, mode: CommandBarMode, inline: InlineCompletion.Match?,
+                                       inlineSite: CommonSites.Site?, suggestions: [String],
+                                       history: [HistoryMatch], prepared: Bool) -> [CommandResult] {
         let q = query.trimmingCharacters(in: .whitespaces)
         let profile = store.profile(ofSpace: currentSpaceID)
 
         // "/" (or Tab on an empty field): actions only.
         if q.hasPrefix("/") {
             let rest = String(q.dropFirst()).trimmingCharacters(in: .whitespaces)
-            let actions = commandActions()
+            let actions = prepared ? sessionCommands().list : commandActions(prepared: prepared)
             let candidates = actions.enumerated().map { i, a in
                 CommandSearch.Candidate(id: "\(i)", kind: .action, title: a.title, keywords: a.keywords, boost: -Double(i) * 0.01)
             }
@@ -1787,6 +2581,8 @@ extension WindowController: CommandBarHost {
         var actions: [String: CommandResult] = [:]
         var urls = Set<String>()
         let now = Date()
+        // keyframe: every open tab, pinned page and history row is shown by its display URL and host on every key, each
+        // a URLComponents parse (~0.45 ms of a keystroke's frame): remembered per address (DisplayURLMemo).
 
         func addTab(_ t: LiveTab) {
             guard t.id != shownTabID else { return }
@@ -1794,8 +2590,8 @@ extension WindowController: CommandBarHost {
             let title = page?.title.isEmpty == false ? page!.title : t.displayTitle
             let id = "tab:" + t.id
             let recency = max(0, 3 - now.timeIntervalSince(t.lastActiveAt) / 3600)
-            candidates.append(.init(id: id, kind: .openTab, title: title, subtitle: URLRules.displayURL(t.url), boost: recency))
-            actions[id] = CommandResult(title: title, subtitle: URLRules.displayHost(t.url), badge: "Switch to Tab",
+            candidates.append(.init(id: id, kind: .openTab, title: title, subtitle: DisplayURLMemo.displayURL(t.url), boost: recency))
+            actions[id] = CommandResult(title: title, subtitle: DisplayURLMemo.displayHost(t.url), badge: "Switch to Tab",
                                         icon: .favicon(image: page?.favicon, url: t.faviconURL, page: t.url), matches: [],
                                         action: .tab(t.id))
             urls.insert(t.url)
@@ -1816,8 +2612,8 @@ extension WindowController: CommandBarHost {
             if live?.id == shownTabID { continue }
             let id = "item:" + item.id
             candidates.append(.init(id: id, kind: item.isFavorite ? .favorite : .pinned, title: item.displayTitle,
-                                    subtitle: URLRules.displayURL(saved)))
-            actions[id] = CommandResult(title: item.displayTitle, subtitle: URLRules.displayHost(saved),
+                                    subtitle: DisplayURLMemo.displayURL(saved)))
+            actions[id] = CommandResult(title: item.displayTitle, subtitle: DisplayURLMemo.displayHost(saved),
                                         badge: item.isFavorite ? "Favorite" : "Pinned",
                                         icon: .favicon(image: live.flatMap { engineTab(for: $0.id)?.favicon },
                                                        url: item.faviconURL, page: saved),
@@ -1830,32 +2626,49 @@ extension WindowController: CommandBarHost {
             actions[id] = CommandResult(title: s.name, subtitle: "Switch to Space", badge: "Space",
                                         icon: .emoji(s.iconLabel), matches: [], action: .space(s.id))
         }
-        for a in commandActions() {
-            let id = "action:" + a.title
-            candidates.append(.init(id: id, kind: .action, title: a.title, keywords: a.keywords))
-            actions[id] = CommandResult(title: a.title, subtitle: "", badge: "Run", icon: .symbol(a.symbol),
-                                        matches: [], action: .run(a.run), shortcut: CommandResult.keys(of: a.hint))
+        // The commands: ~400, nearly the same on every key. Their candidates are kept while the list's titles and words
+        // stay the same (CommandIndex.CommandBlock, the bar's keys only), and their rows are made only for the few that
+        // rank (cbrows). Each row is made from this key's list: its action and keycaps are always the current ones.
+        // The unindexed path (cbperf's parity rows, `ParityCommandCatalog.bypassingIndex`) keeps nothing either.
+        #if AIRC_TESTING
+        let reuses = prepared && !ParityCommandCatalog.bypassing
+        #else
+        let reuses = prepared
+        #endif
+        let session = reuses && CommandBarView.keyframe2 ? Perf.time("cb.commands") { sessionCommands() } : nil
+        let commandList = session?.list ?? Perf.time("cb.commands") { commandActions(prepared: prepared) }
+        let block = Perf.time("cb.block") {
+            session?.block ?? (reuses ? commandIndex.commandBlock(for: commandList) : CommandIndex.CommandBlock(commandList))
+        }
+        let stable = candidates.count..<(candidates.count + block.candidates.count)
+        candidates += block.candidates
+        func commandRow(_ id: String) -> CommandResult? {
+            guard let i = block.lastIndex[id] else { return nil }
+            let a = commandList[i]
+            return CommandResult(title: a.title, subtitle: "", badge: "Run", icon: .symbol(a.symbol),
+                                 matches: [], action: .run(a.run), shortcut: CommandResult.keys(of: a.hint))
         }
 
         if q.isEmpty {
             // ⌘T on its own: the most recent tabs of this profile first.
             let recent = CommandSearch.rank("", candidates.filter { $0.kind == .openTab }, limit: 6)
+            if reuses { block.narrowing = nil }
             return recent.compactMap { actions[$0.candidate.id] }
         }
 
         // History (this profile only, searched off the main thread), ranked by match and frecency; pages that are open
         // or pinned show once, as the tab. A built-in site's completion is its home page: the same page from history
         // doesn't show again under it.
-        let siteHome = inlineSite.map { URLRules.displayURL($0.url) }
+        let siteHome = inlineSite.map { DisplayURLMemo.displayURL($0.url) }
         do {
             for (i, r) in history.enumerated() where !urls.contains(r.entry.url) && r.entry.url != inline?.url
-                && URLRules.displayURL(r.entry.url) != siteHome {
+                && DisplayURLMemo.displayURL(r.entry.url) != siteHome {
                 let id = "history:\(i)"
-                let title = r.entry.title.isEmpty ? URLRules.displayURL(r.entry.url) : r.entry.title
+                let title = r.entry.title.isEmpty ? DisplayURLMemo.displayURL(r.entry.url) : r.entry.title
                 // History scores already include the match; boost so a page you live on outranks a weak tab match.
-                candidates.append(.init(id: id, kind: .history, title: title, subtitle: URLRules.displayURL(r.entry.url),
+                candidates.append(.init(id: id, kind: .history, title: title, subtitle: DisplayURLMemo.displayURL(r.entry.url),
                                         boost: min(12, 4 * log2(1 + r.entry.frecency(now: now)))))
-                actions[id] = CommandResult(title: title, subtitle: URLRules.displayHost(r.entry.url), badge: "Open",
+                actions[id] = CommandResult(title: title, subtitle: DisplayURLMemo.displayHost(r.entry.url), badge: "Open",
                                             icon: .favicon(image: nil, url: nil, page: r.entry.url), matches: [],
                                             action: .open(URL(string: r.entry.url)!), historyURL: r.entry.url)
             }
@@ -1863,7 +2676,13 @@ extension WindowController: CommandBarHost {
 
         // Well-known sites (CommonSites) you have never been to, below every result of yours that matches as well, one
         // or two of them (more for a site's exact name); not the one already completed inline, nor the address typed.
-        let personal = CommandSearch.rank(q, candidates, limit: 7)
+        let personal = Perf.time("cb.rank") { () -> [CommandSearch.Result] in
+            // Only the bar's own keys narrow: what another caller ranks must not change what the next key may skip.
+            guard reuses else { return CommandSearch.rank(q, candidates, limit: 7) }
+            var n = block.narrowing
+            defer { block.narrowing = n }
+            return CommandSearch.rank(q, candidates, limit: 7, stable: stable, narrowing: &n, prepared: session?.prepared)
+        }
         var sites: [CommonSites.Match] = []
         if let index = Self.commonSites {
             let typedURL = URLRules.normalizeInput(q)
@@ -1880,7 +2699,7 @@ extension WindowController: CommandBarHost {
         var ranked = blended.compactMap { b -> CommandResult? in
             switch b {
             case .personal(let r):
-                guard var res = actions[r.candidate.id] else { return nil }
+                guard var res = actions[r.candidate.id] ?? (r.candidate.kind == .action ? commandRow(r.candidate.id) : nil) else { return nil }
                 res.matches = r.titleMatches
                 return res
             case .site(let m):
@@ -1927,6 +2746,90 @@ extension WindowController: CommandBarHost {
         return Array(out.prefix(AircMetrics.CommandBar.maxRows))
     }
 
+    /// The bar's commands for this opening (keyframe2): made by its first key, then kept while nothing they are made from
+    /// changed. Every key used to make all ~400 again (the menus' prepared list, the window's and the context menus'
+    /// actions: ~0.6 ms of its frame) only to find them the same (CommandBlock.matches). What can change them bumps the
+    /// command index's generation (a store change, a shown tab, the key window, a menu); the rest of what titles them
+    /// is in `CommandListKey`. Dropped when the bar opens and closes.
+    struct CommandListKey: Equatable {
+        var owner: ObjectIdentifier
+        var generation: Int
+        var space: String
+        var shownTab: String?
+        var shownSplit: String?
+        var currentTab: String?
+        var isToday: Bool?
+        var drifted: Bool
+        var sidebarHidden: Bool
+        var toolbar: Bool
+        var askPage: Bool
+        var spaces: Int
+    }
+
+    struct SessionCommands {
+        var key: CommandListKey
+        var list: [CommandAction]
+        var block: CommandIndex.CommandBlock
+        /// Made after the first key's commit (that key ranks without it: same results), not in its frame.
+        var prepared: CommandSearch.PreparedRun?
+    }
+
+    static var commandMemo: SessionCommands?
+
+    private var commandListKey: CommandListKey {
+        let t = currentTab
+        return CommandListKey(owner: ObjectIdentifier(self), generation: commandIndex.generation, space: currentSpaceID,
+                              shownTab: shownTabID, shownSplit: shownSplitID, currentTab: t?.id, isToday: t?.isToday,
+                              drifted: t.map { !$0.isToday && store.isDrifted($0.id) } ?? false,
+                              sidebarHidden: sidebarHidden, toolbar: pageToolbar != nil,
+                              askPage: app?.settings.values.askPage == true, spaces: store.orderedSpaces.count)
+    }
+
+    /// This opening's commands, their candidate block and its prepared texts (the bar's own keys only).
+    func sessionCommands() -> SessionCommands {
+        let key = commandListKey
+        if let m = Self.commandMemo, m.key == key { return m }
+        let list = commandActions(prepared: true)
+        let block = commandIndex.commandBlock(for: list)
+        let prepared = Self.commandMemo.flatMap { $0.block === block ? $0.prepared : nil }
+        let made = SessionCommands(key: key, list: list, block: block, prepared: prepared)
+        Self.commandMemo = made
+        if prepared == nil {
+            // A timer, not `async`: the main queue drains before this frame's commit.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.002) {
+                guard let m = Self.commandMemo, m.block === block, m.prepared == nil else { return }
+                let run = Perf.time("cb.prepare") { CommandSearch.PreparedRun(block.candidates) }
+                if Self.commandMemo?.block === block { Self.commandMemo?.prepared = run }
+            }
+        }
+        return made
+    }
+
+    /// `URLRules.displayURL` and `displayHost`, remembered per address (keyframe). They depend on the address alone; the
+    /// table is dropped when it grows past 4,000 addresses.
+    enum DisplayURLMemo {
+        private static var urls: [String: String] = [:]
+        private static var hosts: [String: String] = [:]
+
+        static func displayURL(_ url: String) -> String {
+            guard CommandBarView.keyframe else { return URLRules.displayURL(url) }
+            if let hit = urls[url] { return hit }
+            if urls.count > 4000 { urls = [:] }
+            let v = URLRules.displayURL(url)
+            urls[url] = v
+            return v
+        }
+
+        static func displayHost(_ url: String) -> String {
+            guard CommandBarView.keyframe else { return URLRules.displayHost(url) }
+            if let hit = hosts[url] { return hit }
+            if hosts.count > 4000 { hosts = [:] }
+            let v = URLRules.displayHost(url)
+            hosts[url] = v
+            return v
+        }
+    }
+
     struct CommandAction {
         var title: String
         var symbol: String
@@ -1935,7 +2838,7 @@ extension WindowController: CommandBarHost {
         var run: () -> Void
     }
 
-    func commandActions() -> [CommandAction] {
+    func commandActions(prepared: Bool = false) -> [CommandAction] {
         var a: [CommandAction] = [
             .init(title: "New Boost…", symbol: "paintbrush.pointed", hint: ShortcutCenter.hint("file.newBoost", "⌃⇧B"), keywords: ["boost", "css", "customize"]) { [weak self] in self?.newBoost() },
             .init(title: "Boost Gallery", symbol: "square.grid.2x2", hint: "", keywords: ["boost", "gallery", "style", "theme"]) { [weak self] in self?.showBoostGallery() },
@@ -1963,6 +2866,15 @@ extension WindowController: CommandBarHost {
             },
         ]
         a += noteCommandActions()   // New Airc Note, Export and Import (Notes/NoteExport.swift)
+        a.append(.init(title: "Send Feedback", symbol: "bubble.left.and.text.bubble.right", hint: "",
+                       // feedback2: "feed", "bug", "report" put it first (an exact keyword outranks the search row).
+                       keywords: ["feedback", "contact the team", "bug", "bug report", "report", "report a problem", "issue",
+                                  "suggestion", "help"]) { [weak self] in
+            guard let self, let app = self.app else { return }
+            FeedbackSheet.show(from: self.window, app: app)
+        })
+        a += askAICommandActions()   // P07b: Arc's "New ChatGPT Message" (ChatGPTCommand.swift)
+        a += agentsCommandActions()   // Connect Claude and other AI apps… (Agent/AgentsConnect.swift)
         if currentTab != nil {
             a.append(.init(title: "Add Split View", symbol: "rectangle.split.2x1", hint: ShortcutCenter.hint("tabs.newSplit", "⌃⇧+"), keywords: ["split", "side", "pane"]) { [weak self] in
                 self?.newSplitView()
@@ -2008,8 +2920,9 @@ extension WindowController: CommandBarHost {
                 })
             }
         }
-        a += contextCommandActions()   // the menus' actions (Browser/WindowActions.swift)
-        a += menuCommandActions(excluding: Set(a.map(\.title)))   // the menu bar's (App/ParityCommandCatalog.swift)
+        a += Perf.time("cb.actions.context") { contextCommandActions() }   // the menus' actions (Browser/WindowActions.swift)
+        a += Perf.time("cb.actions.parity") { menuParityCommandActions() }   // S09: Mute All Tabs, Rename Current Tab, Pin to “Folder” (Browser/MenuMoveAndBulk.swift)
+        a += Perf.time("cb.actions.menu") { menuCommandActions(excluding: Set(a.map(\.title)), prepared: prepared) }   // the menu bar's (App/ParityCommandCatalog.swift)
         return a
     }
 }

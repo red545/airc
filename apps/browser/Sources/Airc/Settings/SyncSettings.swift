@@ -18,7 +18,7 @@ struct SyncSettingsPage: View {
             SettingsSection(title: "iCloud", help: sync.isAvailable
                 ? "End-to-end encrypted: the key is in your iCloud Keychain, so only your Macs can read what Airc keeps in iCloud."
                 : nil) {
-                AircToggleRow("Sync Spaces, pinned tabs and Favorites with iCloud",
+                AircToggleRow("Sync Spaces, pinned tabs, notes and Favorites with iCloud",
                               subtitle: sync.isAvailable ? "Between your Macs signed in to the same Apple Account." : SyncEngine.notSetUp,
                               isOn: Binding(get: { sync.isEnabled }, set: { sync.setEnabled($0) }))
                     .disabled(!sync.isAvailable)
@@ -34,6 +34,14 @@ struct SyncSettingsPage: View {
                             .buttonStyle(.airc(.secondary))
                             .disabled(syncingNow || sync.firstSync != nil)
                         }
+                    }
+                    if sync.notesHeld {
+                        SettingsRow(title: "Notes aren't syncing yet",
+                                    subtitle: "iCloud doesn't take Airc's notes yet. They wait on this Mac and go as soon as it does; everything else syncs.") { EmptyView() }
+                    }
+                    if sync.notesTooLarge > 0 {
+                        SettingsRow(title: sync.notesTooLarge == 1 ? "A note is too large to sync" : "\(sync.notesTooLarge) notes are too large to sync",
+                                    subtitle: "Over 8 MB of text: its place in the sidebar syncs, its text stays on this Mac.") { EmptyView() }
                     }
                     if let backup = sync.lastBackup {
                         SettingsRow(title: "Backup from before the first sync", subtitle: "This Mac's sidebar as it was, in Backups.") {
@@ -52,13 +60,14 @@ struct SyncSettingsPage: View {
             SettingsSection(title: "What syncs") {
                 SyncListRow(symbol: "square.stack", title: "Spaces", detail: "Name, icon, colour and order, and which profile each uses.")
                 SyncListRow(symbol: "pin", title: "Pinned tabs and folders", detail: "Their saved addresses, names, icons and order.")
+                SyncListRow(symbol: "note.text", title: "Notes",
+                            detail: "Pinned notes: their text, title and pictures. A note in Today stays on this Mac until you pin it.")
                 SyncListRow(symbol: "star", title: "Favorites", detail: "Each profile's, at the top of the sidebar.")
                 SyncListRow(symbol: "person.2", title: "Profile names",
                             detail: "So a Space finds its profile on your other Mac. A profile new to a Mac starts there empty.")
             }
             SettingsSection(title: "Never synced", help: "Each Mac signs in to sites in its own profiles; sync never copies logins or cookies.") {
                 SyncListRow(symbol: "clock", title: "Today tabs and the Archive", detail: "What's open stays on each Mac.")
-                SyncListRow(symbol: "note.text", title: "Notes", detail: "They stay on this Mac for now, pinned ones too, and what they say.")
                 SyncListRow(symbol: "key", title: "History, passwords, cookies and logins", detail: nil)
                 SyncListRow(symbol: "eye.slash", title: "Private windows and Little Airc", detail: nil)
                 SyncListRow(symbol: "paintbrush.pointed", title: "Boosts, splits and window layout", detail: "Nor which tab or Space you're on.")
@@ -197,7 +206,7 @@ struct SyncFirstSyncSheet: View {
                        detail: "Keeps everything from both Macs. Spaces that are on both show up twice.")
                 option(.replace, title: "Replace this Mac's sidebar with iCloud's",
                        detail: preview.complete
-                           ? "This Mac's Spaces, pinned tabs and Favorites are replaced; its Today tabs go to the Archive. Profiles and logins stay."
+                           ? "iCloud's Spaces, pinned tabs and Favorites take the place of this Mac's. Its pinned notes stay, with their folders and Spaces, and sync to your other Mac. Today tabs in Spaces that go move to the Archive. Profiles and logins stay."
                            : "Not now: some of iCloud's sidebar can't be read on this Mac (damaged, or from a newer Airc), so it isn't complete. Merge keeps this Mac's sidebar and adds the rest when it can be read.",
                        enabled: preview.complete)
             }

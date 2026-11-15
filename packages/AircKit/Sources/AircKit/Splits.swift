@@ -123,23 +123,17 @@ extension SpacesStore {
     /// A split's tabs, in pane order (tabs that are gone are left out).
     public func members(of split: Split) -> [LiveTab] { split.tabIDs.compactMap { tab($0) } }
 
-    /// A Space's Today list as rows, top first: its Today tabs that aren't in a split, and its splits (one row each).
+    /// A Space's Today list as rows, top first: its Today tabs that aren't in a split, its splits (one row each), and
+    /// its Today folders (`.folder`) each followed by its rows while it's open (TodayFolders.swift). Without Today
+    /// folders that's `todayRootRows`; indexes into Today count those.
     public func todayRows(ofSpace id: String) -> [SidebarEntry] {
-        let inSplits = Set(state.splits.values.flatMap(\.tabIDs))
-        var rows: [(order: Double, created: Date, id: String, entry: SidebarEntry)] = state.tabs.values
-            .filter { $0.itemID == nil && $0.spaceID == id && !inSplits.contains($0.id) }
-            .map { ($0.order, $0.createdAt, $0.id, .today($0)) }
-        for x in splits(ofSpace: id) {
-            let m = members(of: x)
-            guard m.count >= 2 else { continue }
-            rows.append((x.order, x.createdAt, x.id, .split(x, m)))
-        }
-        return rows.sorted { ($0.order, $0.created, $0.id) < ($1.order, $1.created, $1.id) }.map(\.entry)
+        todayRows(ofSpace: id, expandingCollapsed: false)
     }
 
-    /// The tabs a Space's Today list shows, top first, a split's in pane order (what Clear and Archive Tabs Below see).
+    /// The tabs a Space's Today list holds, top first, a split's in pane order, the tabs in Today folders (closed ones
+    /// too) where their folder is (what Clear and Archive Tabs Below see).
     public func todayRowTabs(ofSpace id: String) -> [LiveTab] {
-        todayRows(ofSpace: id).flatMap { e -> [LiveTab] in
+        todayRows(ofSpace: id, expandingCollapsed: true).flatMap { e -> [LiveTab] in
             switch e {
             case .split(_, let tabs): tabs.filter(\.isToday)
             default: e.liveTab.map { [$0] } ?? []
@@ -147,25 +141,25 @@ extension SpacesStore {
         }
     }
 
-    /// The Today order of a row (a tab's or a split's).
+    /// The Today order of a row (a tab's, a split's or a Today folder's).
     func rowOrder(_ e: SidebarEntry) -> Double {
         switch e {
         case .split(let x, _): x.order
+        case .folder(let f, _): f.order
         default: e.liveTab?.order ?? 0
         }
     }
 
     /// The order of the top of a Space's Today list.
     func topOfToday(_ spaceID: String, excluding id: String? = nil) -> Double {
-        Ordering.between(nil, todayRows(ofSpace: spaceID).first { $0.id != id }.map(rowOrder))
+        Ordering.between(nil, todayRootRows(ofSpace: spaceID).first { $0.id != id }.map(rowOrder))
     }
 
     // MARK: Making and changing splits
 
-    /// Whether `tabID` can be a pane of a Today split: any tab, and a note while it's in Today (New Note in Split,
-    /// Arc's "a new Note beside your current page"). A pinned note isn't one, and a split holding a note never becomes
-    /// a pinned or Favorite split (pinSplit); drags never put a note in a split (dropIntoSplit).
-    func canBeTodayPane(_ tabID: String) -> Bool { !isNoteTab(tabID) || tab(tabID)?.isToday == true }
+    /// Whether `tabID` can be a pane of a Today split: any tab, a page's or a note's, pinned or in Today. Notes go into
+    /// splits as pages do (New Note in Split, drags, ⌥-click; P13b), pinned and Favorite splits too.
+    func canBeTodayPane(_ tabID: String) -> Bool { canBeSplitPane(tabID) }   // P19b: never an Easel
 
     /// A split of `tabIDs` (2–4 distinct live tabs, in pane order) shown in `spaceID`'s Today list at `order` (default:
     /// where its first Today tab of that Space was, else the top). Tabs in another split leave it. One undo step.
@@ -270,9 +264,12 @@ extension SpacesStore {
     /// when `leading`); on a split (or a tab in one), the tab joins it next to its target. The dropped tab keeps its
     /// own Space and profile, so a tab dragged in from another Space keeps its logins (a cross-Space split).
     func dropIntoSplit(_ tabID: String, inSpace spaceID: String, onto target: String, leading: Bool) throws {
-        // Notes are never panes (Notes.swift): not dropped onto a row, and nothing dropped onto theirs.
-        guard tab(tabID) != nil, target != tabID, space(spaceID) != nil, !isNoteTab(tabID), !isNoteTab(target),
-              !NoteURL.isNote(item(target)?.savedURL) else { throw StoreError.invalidMove }
+        // A note drops onto a row, and takes a drop onto its own, as a page does (P13b).
+        guard tab(tabID) != nil, target != tabID, space(spaceID) != nil else { throw StoreError.invalidMove }
+        // P19b: an Easel is never a pane, and a drop onto an Easel's row makes no split.
+        guard canBeSplitPane(tabID), tab(target).map({ canBeSplitPane($0.id) }) ?? !EaselURL.isEasel(item(target)?.savedURL) else {
+            throw StoreError.invalidMove
+        }
         // SV-2: a pinned or Favorite split's pane leaves it for Today first, in the same undo step.
         if isItemSplitPane(tabID) {
             return try perform("Split View", undoable: true) {
@@ -308,7 +305,7 @@ extension SpacesStore {
         guard var x = split(splitID), case .today(let sid, let index) = destination, sid == x.spaceID else {
             throw StoreError.invalidMove
         }
-        let rows = todayRows(ofSpace: sid)
+        let rows = todayRootRows(ofSpace: sid)
         let others = rows.filter { $0.id != splitID }
         var adjusted = index
         if let si = rows.firstIndex(where: { $0.id == splitID }), si < index { adjusted -= 1 }
@@ -332,7 +329,7 @@ extension SpacesStore {
     private func placeInToday(_ tabIDs: [String], at x: Split, after: Bool = false) {
         let mine = tabIDs.compactMap { tab($0) }.filter { $0.isToday && $0.spaceID == x.spaceID }
         guard !mine.isEmpty else { return }
-        let orders = todayRows(ofSpace: x.spaceID).filter { e in
+        let orders = todayRootRows(ofSpace: x.spaceID).filter { e in
             if case .today(let t) = e { return !tabIDs.contains(t.id) }
             return e.id != x.id
         }.map(rowOrder)

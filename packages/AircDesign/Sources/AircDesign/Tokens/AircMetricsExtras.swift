@@ -31,8 +31,10 @@ extension AircMetrics.Row {
     public static let titleFade: CGFloat = 24
     /// While a trailing control shows (close, audio, Clear), the title's fade ends this far before it.
     public static let titleFadeGap: CGFloat = 4
-    /// Selected row under the pointer, dark themes (Arc 0.36).
-    public static let selectedHoverAlphaDark: Double = 0.36
+    /// Selected row under the pointer, dark themes. Arc draws 0.36, which leaves its white title near 3.2:1 on the
+    /// saturated dark Spaces; 0.26 still reads as a step above the 0.20 selection and keeps the title at WCAG AA
+    /// (darkmode, 2026-11-14).
+    public static let selectedHoverAlphaDark: Double = 0.26
     /// The drop line while dragging rows (Arc: 2 pt, 8 pt ring at its start).
     public static let dropLineWidth: CGFloat = 2
     public static let dropLineRing: CGFloat = 8

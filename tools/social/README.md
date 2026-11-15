@@ -64,7 +64,7 @@ browser's (onboarding, a private window) has its own corner radius in the frames
 (apps/marketing/src/data/catalog.ts) where one video covers a group.
 
 New motions (`AIRC_SOCIAL_MOTION`) go in the file of the release their feature came in, so a release's own source
-builds them: SocialMotions.swift (0.1.2 and before), SocialMotions013.swift (0.1.3), SocialNext.swift (no release yet).
+builds them: SocialMotions.swift (0.1.2 and before), SocialMotions013.swift (0.1.3), SocialMotions014.swift (0.1.4), SocialMotions015.swift (0.1.5), SocialNext.swift (no release yet; none just now).
 A later release's file says the commit it needs (`// social-needs: <commit>`) and goes into builds of that commit and
 after; SocialNext.swift only into builds of HEAD. When a release ships a feature, its motion moves to that release's
 file. Real interaction that can't be rendered this way (a drag between windows, a native menu) goes in the pack's

@@ -13,6 +13,9 @@ import xml.etree.ElementTree as ET
 NS = 'http://www.andymatuschak.org/xml-namespaces/sparkle'
 ET.register_namespace('sparkle', NS)
 def tag(name): return '{'+NS+'}'+name
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import whatsnew
+ET.register_namespace('airc', whatsnew.NS)
 
 def render(markdown):
     # Deliberately small safe Markdown subset used by the checked-in notes: no raw HTML.
@@ -44,7 +47,7 @@ def render(markdown):
         else: paragraph.append(line.strip())
     return '<!doctype html><html lang="en"><meta charset="utf-8"><title>Airc release notes</title><body>'+''.join(result)+'</body></html>\n'
 
-def generate(stage, notes, channel, qualified):
+def generate(stage, notes, channel, qualified, whatsnew_resources=None):
     info = plistlib.loads((stage/'Info.plist').read_bytes())
     version, build = str(info['CFBundleShortVersionString']), str(info['CFBundleVersion'])
     if channel not in ('stable', 'nightly') or not re.fullmatch(r'\d+\.\d+\.\d+', version) or not re.fullmatch(r'\d{12}', build):
@@ -59,8 +62,19 @@ def generate(stage, notes, channel, qualified):
     for key, val in [('title', f'Airc {version} ({channel})'), (tag('version'), build),
                      (tag('shortVersionString'), version), (tag('channel'), channel),
                      (tag('minimumSystemVersion'), info['LSMinimumSystemVersion']),
-                     (tag('releaseNotesLink'), prefix+'notes.html')]:
+                     (tag('releaseNotesLink'), f'https://aircbrowser.com/changelog#v{version}')]:
         ET.SubElement(item, key).text = val
+    # The Restart to Update card's lines (whatsnew.py): the release's WhatsNew.json entry with its hand-picked icons,
+    # from the staged app (worker.sh keeps it in package/ until manifest.py has run; before promptic this looked only at
+    # stage/Airc.app, so every release fell back to guessed icons), else from this tree's WhatsNew.json (a manifest
+    # regeneration on Linux), else the notes' "New since" section. Sparkle keeps unknown elements in the item's
+    # propertiesDictionary; older apps ignore it.
+    if whatsnew_resources is None:
+        whatsnew_resources = [stage/'package/Airc.app/Contents/Resources/WhatsNew.json',
+                              stage/'Airc.app/Contents/Resources/WhatsNew.json', whatsnew.RESOURCE]
+    lines = whatsnew.appcast_lines(version, notes.read_text(), whatsnew_resources)
+    if lines:
+        ET.SubElement(item, '{'+whatsnew.NS+'}highlights').text = whatsnew.appcast_text(lines)
     zipname = f'Airc-{version}.zip'
     ET.SubElement(item, 'enclosure', {'url': prefix+zipname, 'length': str(signature['size']),
                   'type': 'application/octet-stream', tag('edSignature'): signature['signature']})
@@ -81,6 +95,10 @@ def generate(stage, notes, channel, qualified):
     (stage/'SHA256SUMS').write_text(''.join(f'{v["sha256"]}  {n}\n' for n,v in inventory.items()))
     manifest = {'version': version, 'build': build, 'channel': channel, 'revision': info['AircRevision'],
                 'qualified': qualified, 'files': inventory}
+    if (stage/"evidence/fast-gate-result.json").exists():
+        from fast_gate_proof import verify
+        verify(stage/"evidence/fast-gate-result.json", info["AircRevision"])
+        manifest["qualification"] = "fast-gate-v1"
     (stage/'release.json').write_text(json.dumps(manifest, indent=2)+'\n')
 
 if __name__ == '__main__':

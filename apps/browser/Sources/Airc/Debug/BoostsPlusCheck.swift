@@ -71,6 +71,9 @@ extension SnapshotRunner {
             BoostSharing.open(fileURL, on: c.window)
             review()?.install()
             check(center.store.boost(domain: site)?.js == shared.js, "boostsplus: Install stores reviewed code")
+            // BST-2: a Boost with code is installed off; its toast's Turn On turns it on and reloads the page.
+            check(center.store.boost(domain: site)?.enabled == false, "boostsplus: a Boost with code is installed off")
+            center.turnOn(domain: site, page: c.engineTab(for: tabID))
         }
         step { [self] done in
             let deadline = Date().addingTimeInterval(6)

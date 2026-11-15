@@ -14,7 +14,33 @@ import AircCore
 /// Document PiP checks exercise the engine pre-show key policy. Native input requires AIRC_REAL_CLICKS=1.
 /// AIRC_PIP_FOREGROUND=1 separately qualifies deliberate foreground editing, only on an idle display.
 extension SnapshotRunner {
+    /// Runs on both engines, including WebKit where native Document PiP is unavailable.
+    func callControlOwnershipChecks() {
+        let url = URL(string: "https://meet.google.com/test")
+        let view = PiPControlsView(frame: NSRect(x: 0, y: 0, width: 400, height: 240))
+        var state = PiPControlsState()
+        state.call = true; state.hasMicrophone = true; state.hasCamera = true; state.canLeave = true
+        view.update(state)
+        view.updateChat(CallChat.State(available: true, open: false, unread: 3))
+        view.layoutSubtreeIfNeeded()
+        check(!view.mic.isHidden && !view.camera.isHidden && !view.leave.isHidden && !view.chat.isHidden,
+              "callcontrols: tile owns one native microphone/camera/leave set")
+        view.fullPage = true
+        view.layoutSubtreeIfNeeded()
+        check(view.mic.isHidden && view.camera.isHidden && view.leave.isHidden && view.chat.isHidden,
+              "callcontrols: full page has no native call-control set")
+        check(!view.close.isHidden && !view.hide.isHidden && !view.back.isHidden,
+              "callcontrols: full page retains only browser navigation")
+        for surface in [CallChat.Surface.fullPage, .documentPiP] {
+            check(CallChat.pageOwnsControls(on: surface, url: url), "callcontrols: page owns controls on \(surface)")
+        }
+        for surface in [CallChat.Surface.tile, .sidebar, .hiddenTab] {
+            check(!CallChat.pageOwnsControls(on: surface, url: url), "callcontrols: Airc owns controls on \(surface)")
+        }
+    }
+
     func pipControlsScenario() {
+        run { [self] in callControlOwnershipChecks() }
         #if canImport(AircCore)
         guard let chromium = app?.engine as? ChromiumEngine else {
             note("SKIP pipcontrols: the engine's picture in picture is Chromium's (WebKit uses the system's)")
@@ -305,9 +331,32 @@ extension SnapshotRunner {
         closePiP(id, chromium)
     }
 
+    /// Background cases establish their own precondition after the shared
+    /// foreground preflight. Finder belongs to the dedicated agent session.
+    /// Nothing reactivates it during the case: any PiP focus theft stays a FAIL.
+    private func prepareBackgroundPiP(_ x: PiPCheckContext) {
+        guard !PiPCheckContext.geometryOnly else { return }
+        step { [self] done in
+            guard ProcessInfo.processInfo.environment["AIRC_UI_DEDICATED_SESSION"] == "1" else { return done() }
+            guard let other = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == "com.apple.finder" }) else {
+                note("FAIL-ENV pipcontrols background setup: agent Finder is unavailable")
+                return done()
+            }
+            other.activate(options: [.activateIgnoringOtherApps])
+            waitUntil({ !NSApp.isActive && NSWorkspace.shared.frontmostApplication?.processIdentifier == other.processIdentifier }, timeout: 3) {
+                let ready = !NSApp.isActive && NSWorkspace.shared.frontmostApplication?.processIdentifier == other.processIdentifier
+                note("\(ready ? "PASS" : "FAIL-ENV") pipcontrols background setup: Airc inactive \(!NSApp.isActive), agent Finder frontmost \(NSWorkspace.shared.frontmostApplication?.processIdentifier == other.processIdentifier)")
+                x.foregroundPID = other.processIdentifier
+                x.backgroundKeyEvents = 0
+                done()
+            }
+        }
+    }
+
     // MARK: Video
 
     private func pipVideo(_ x: PiPCheckContext, _ chromium: ChromiumEngine) {
+        prepareBackgroundPiP(x)
         let id = { x.video }
         step { [self] done in waitUntil({ self.page(id())?.title.contains("ready") == true }, timeout: 12) { done() } }
         step { [self] done in gesture(id(), "start()", chromium, done) }
@@ -516,7 +565,7 @@ extension SnapshotRunner {
     /// Every visible control lies inside the window, 8 pt clear of its edge (the engine's resize band), and no two
     /// overlap.
     private func pipLayoutOK(_ v: PiPControlsView) -> Bool {
-        let shown: [NSView] = [v.hide, v.minimize, v.close, v.back, v.mute, v.previous, v.skipBack, v.play, v.skipAhead, v.next, v.mic, v.camera, v.leave]
+        let shown: [NSView] = [v.hide, v.minimize, v.close, v.back, v.mute, v.previous, v.skipBack, v.play, v.skipAhead, v.next, v.mic, v.camera, v.chat, v.leave]
             .filter { !$0.isHidden }
         let frames = shown.map { $0.convert($0.bounds, to: v) }
         let inside = v.bounds.insetBy(dx: 7.5, dy: 7.5)
@@ -529,6 +578,7 @@ extension SnapshotRunner {
     // MARK: A call in the video PiP
 
     private func pipCallVideo(_ x: PiPCheckContext, _ chromium: ChromiumEngine) {
+        prepareBackgroundPiP(x)
         let id = { x.call }
         run { [self] in c.show(x.call, focus: false) }
         step { [self] done in
@@ -554,6 +604,7 @@ extension SnapshotRunner {
     // MARK: Document PiP (Meet's own window)
 
     private func pipDocument(_ x: PiPCheckContext, _ chromium: ChromiumEngine) {
+        prepareBackgroundPiP(x)
         let id = { x.meet }
         func bar() -> PiPTopBarView? { page(id()).flatMap { PiPOverlays.shared.topBar(for: $0) } }
         run { [self] in c.show(x.meet, focus: false) }
@@ -648,6 +699,7 @@ extension SnapshotRunner {
                 note("pipfocus: Document window class=\(w.classForCoder), active=\(NSApp.isActive), key=\(w.isKeyWindow), canKey=\(w.canBecomeKey), foregroundSelf=\(NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier), independence=\(w.responds(to: NSSelectorFromString("activationIndependence")) ? String(describing: w.value(forKey: "activationIndependence") ?? "missing") : "unsupported")")
             }
             check(st?["appOverlay"] is PiPTopBarView, "pipcontrols: Meet's own Document PiP gets Airc's top bar")
+            check(controls(id()) == nil && bar() != nil, "callcontrols: Document PiP has only the site call controls below the browser bar")
             check(bar()?.barHeight == 34, "pipcontrols: the bar covers Chromium's 34 pt bar exactly (\(bar()?.barHeight ?? -1))")
         }
         step { [self] done in
@@ -740,6 +792,7 @@ extension SnapshotRunner {
                 }
             }
         }
+        prepareBackgroundPiP(x)
         openPiP(id, chromium, kind: "document")
         step { [self] done in
             guard let b = bar(), let w = b.window else { check(false, "pipcontrols: no top bar for ✕"); return done() }

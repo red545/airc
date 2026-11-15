@@ -111,6 +111,10 @@ enum BrowserImportAdapter {
             "The browser had saved these with no page address, so there was nothing to open.")
         add(.depthLimit, "folder nested too deep was cut short", "folders nested too deep were cut short",
             "Folders more than 64 levels down stop there.")
+        add(.unreadableSearchEngines, "profile's search engines couldn't be read", "profiles' search engines couldn't be read",
+            "Its default search engine and shortcuts stay as they are in Airc. Quitting the browser and importing again may help.")
+        add(.unsafeSearchEngine, "search engine was left out", "search engines were left out",
+            "Airc only keeps search engines whose address is an https search page with the search words in it.")
         return out
     }
 }

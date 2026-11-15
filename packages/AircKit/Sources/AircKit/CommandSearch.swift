@@ -49,6 +49,9 @@ public enum CommandSearch {
     static func score(_ q: Folded, in t: Folded) -> (score: Double, matches: [Int])? {
         guard q.count > 0 else { return (0, []) }
         guard t.count > 0 else { return nil }
+        // Every rule needs each of the query's characters somewhere in the text: one missing (by `mask`) is no match.
+        // Only where both compare by scalars: equal Characters can have different scalars (Å, Å).
+        if prefilters, q.units != nil, t.units != nil, q.mask & ~t.mask != 0 { return nil }
         if let qu = q.units, let tu = t.units { return match(qu, in: tu, wordStart: t.wordStart) }
         return match(q.chars, in: t.chars, wordStart: t.wordStart)
     }
@@ -94,12 +97,20 @@ public enum CommandSearch {
         let chars: [Character]
         let units: [UInt32]?
         let wordStart: [Bool]
+        /// Which scalars occur (bit: the value mod 64). When both texts are compared by scalars (`units`), a text whose
+        /// mask lacks a bit of the query's can't contain the query's characters, in any order (keyframe2).
+        let mask: UInt64
         var count: Int { chars.count }
 
         init(_ text: String) {
             chars = Array(CommandSearch.fold(text))
             var u: [UInt32] = []
             u.reserveCapacity(chars.count)
+            var bits: UInt64 = 0
+            for c in chars {
+                if let first = c.unicodeScalars.first { bits |= 1 << UInt64(first.value & 63) }
+            }
+            mask = bits
             for c in chars {
                 guard c.unicodeScalars.count == 1, let scalar = c.unicodeScalars.first else { u = []; break }
                 u.append(scalar.value)
@@ -115,15 +126,38 @@ public enum CommandSearch {
 
     private static let cache = FoldCache()
 
+    /// The character-mask prefilters (keyframe2). Results are the same either way; test builds turn them off to time
+    /// the old ranking in the same binary. Set once, at launch, before any ranking.
+    nonisolated(unsafe) public static var prefilters = true
+
     static func folded(_ text: String) -> Folded { cache.get(text) }
+
+    /// Folds `texts` now (call it off the main thread) and keeps them apart from the bounded cache, replacing the
+    /// previous set: the Command Bar's command titles and words, so its first keystroke folds none of them.
+    public static func prepare(_ texts: [String]) {
+        var made: [String: Folded] = [:]
+        made.reserveCapacity(texts.count)
+        for t in texts where made[t] == nil { made[t] = cache.peek(t) ?? Folded(t) }
+        cache.setPrepared(made)
+    }
 
     final class FoldCache: @unchecked Sendable {
         private var entries: [String: Folded] = [:]
+        private var prepared: [String: Folded] = [:]
         private let lock = NSLock()
+
+        func peek(_ text: String) -> Folded? {
+            lock.lock(); defer { lock.unlock() }
+            return prepared[text] ?? entries[text]
+        }
+
+        func setPrepared(_ p: [String: Folded]) {
+            lock.lock(); prepared = p; lock.unlock()
+        }
 
         func get(_ text: String) -> Folded {
             lock.lock()
-            if let hit = entries[text] { lock.unlock(); return hit }
+            if let hit = prepared[text] ?? entries[text] { lock.unlock(); return hit }
             lock.unlock()
             let made = Folded(text)
             lock.lock()
@@ -141,24 +175,139 @@ public enum CommandSearch {
 
     /// Ranked results. An empty query lists candidates by kind and boost (recent tabs first).
     public static func rank(_ query: String, _ candidates: [Candidate], limit: Int = 8) -> [Result] {
+        var none: Narrowing?
+        return rank(query, candidates, limit: limit, stable: 0..<0, narrowing: &none)
+    }
+
+    /// What a query matched in a stable run of candidates (the Command Bar's commands, the same list from key to key),
+    /// so the next query that extends it scores only those (cbrows). Matching is monotonic: every rule (prefix, word
+    /// prefix, substring, in-order characters) that a longer query meets, the query it extends meets too, so a candidate
+    /// the shorter query missed can never match the longer one. The order of what's scored is unchanged, so results are
+    /// identical to scoring every candidate.
+    public struct Narrowing: Sendable {
+        fileprivate let query: [UInt32]
+        fileprivate let matched: [Int]
+        /// Candidates of the stable run the last query matched (cbperf reports it).
+        public var count: Int { matched.count }
+    }
+
+    /// The stable run's texts folded once, with each candidate's characters (keyframe2): its title, subtitle and
+    /// keywords as `folded` gives them, so scoring them gives the same results without a cache lookup per text, and a
+    /// candidate none of whose texts has every character of the query is skipped without scoring.
+    public struct PreparedRun: Sendable {
+        fileprivate struct Item: Sendable {
+            let title: Folded
+            let subtitle: Folded?
+            let keywords: [Folded]
+            /// The union of the texts' masks; nil when one of them isn't compared by scalars (no prefilter then).
+            let mask: UInt64?
+        }
+        fileprivate let items: [Item]
+        public var count: Int { items.count }
+
+        public init(_ candidates: [Candidate]) {
+            items = candidates.map { c in
+                let title = CommandSearch.folded(c.title)
+                let subtitle = c.subtitle.isEmpty ? nil : CommandSearch.folded(c.subtitle)
+                let keywords = c.keywords.map { CommandSearch.folded($0) }
+                let texts = [title] + (subtitle.map { [$0] } ?? []) + keywords
+                let mask = texts.allSatisfy { $0.units != nil } ? texts.reduce(UInt64(0)) { $0 | $1.mask } : nil
+                return Item(title: title, subtitle: subtitle, keywords: keywords, mask: mask)
+            }
+        }
+    }
+
+    /// `rank`, scoring only what `narrowing` allows of `candidates[stable]` when `query` extends its query, and
+    /// leaving in `narrowing` what this query matched there. The caller resets `narrowing` to nil whenever that run
+    /// changes. Results are the same as `rank(query, candidates, limit:)`'s. `prepared`, when given, must be made from
+    /// `candidates[stable]` (the same candidates in the same order); one of another length is ignored.
+    public static func rank(_ query: String, _ candidates: [Candidate], limit: Int = 8, stable: Range<Int>,
+                            narrowing: inout Narrowing?, prepared: PreparedRun? = nil) -> [Result] {
         let q = query.trimmingCharacters(in: .whitespaces)
         var results: [Result] = []
-        for c in candidates {
-            if q.isEmpty {
+        if q.isEmpty {
+            for c in candidates {
                 results.append(Result(candidate: c, score: (kindWeight[c.kind] ?? 0) + c.boost, titleMatches: []))
-                continue
             }
-            var best: (Double, [Int])? = nil
-            if let m = score(q, in: c.title) { best = (m.score, m.matches) }
-            if let m = score(q, in: c.subtitle), m.score * 0.8 > (best?.0 ?? -1) { best = (m.score * 0.8, []) }
-            for k in c.keywords {
-                if let m = score(q, in: k), m.score * 0.9 > (best?.0 ?? -1) { best = (m.score * 0.9, []) }
+            narrowing = nil
+        } else {
+            // The query folded once (scoring it against each text used to fold it again, through the cache, each time).
+            let fq = folded(q)
+            func scored(_ c: Candidate) -> Result? {
+                var best: (Double, [Int])? = nil
+                if let m = score(fq, in: folded(c.title)) { best = (m.score, m.matches) }
+                if !c.subtitle.isEmpty, let m = score(fq, in: folded(c.subtitle)), m.score * 0.8 > (best?.0 ?? -1) { best = (m.score * 0.8, []) }
+                for k in c.keywords {
+                    if let m = score(fq, in: folded(k)), m.score * 0.9 > (best?.0 ?? -1) { best = (m.score * 0.9, []) }
+                }
+                guard let b = best else { return nil }
+                return Result(candidate: c, score: b.0 + (kindWeight[c.kind] ?? 0) + c.boost, titleMatches: b.1, match: b.0)
             }
-            guard let b = best else { continue }
-            results.append(Result(candidate: c, score: b.0 + (kindWeight[c.kind] ?? 0) + c.boost, titleMatches: b.1, match: b.0))
+            let run = stable.clamped(to: candidates.indices)
+            let prep = prepared.flatMap { $0.count == run.count ? $0.items : nil }
+            // The same as `scored`, from the run's prepared texts (`k`: the index in the run).
+            func scoredInRun(_ k: Int) -> Result? {
+                guard let prep else { return scored(candidates[run.lowerBound + k]) }
+                let p = prep[k]
+                if prefilters, fq.units != nil, let mask = p.mask, fq.mask & ~mask != 0 { return nil }
+                let c = candidates[run.lowerBound + k]
+                var best: (Double, [Int])? = nil
+                if let m = score(fq, in: p.title) { best = (m.score, m.matches) }
+                if let sub = p.subtitle, let m = score(fq, in: sub), m.score * 0.8 > (best?.0 ?? -1) { best = (m.score * 0.8, []) }
+                for k in p.keywords {
+                    if let m = score(fq, in: k), m.score * 0.9 > (best?.0 ?? -1) { best = (m.score * 0.9, []) }
+                }
+                guard let b = best else { return nil }
+                return Result(candidate: c, score: b.0 + (kindWeight[c.kind] ?? 0) + c.boost, titleMatches: b.1, match: b.0)
+            }
+            // Narrow only when both queries are single scalars per character, so both take the same comparison
+            // (`match` on scalars) against every text, and the new one starts with the old one.
+            var only: [Int]?
+            if let n = narrowing, let units = fq.units, !n.query.isEmpty, units.count >= n.query.count,
+               Array(units.prefix(n.query.count)) == n.query { only = n.matched }
+            var matched: [Int] = []
+            for i in candidates.startIndex..<run.lowerBound { if let r = scored(candidates[i]) { results.append(r) } }
+            if let only {
+                for k in only where run.lowerBound + k < run.upperBound {
+                    if let r = scoredInRun(k) { results.append(r); matched.append(k) }
+                }
+            } else {
+                for k in 0..<run.count { if let r = scoredInRun(k) { results.append(r); matched.append(k) } }
+            }
+            for i in run.upperBound..<candidates.endIndex { if let r = scored(candidates[i]) { results.append(r) } }
+            narrowing = fq.units.map { Narrowing(query: $0, matched: matched) }
         }
         results.sort { ($0.score, $1.candidate.title) > ($1.score, $0.candidate.title) }
         return Array(results.prefix(limit))
+    }
+
+    /// A page's host (lowercased, no "www.") and path, as `blend` compares them with built-in sites.
+    static func page(_ url: String) -> (host: String, path: String)? {
+        guard let c = URLComponents(string: url), var h = c.host?.lowercased() else { return nil }
+        if h.hasPrefix("www.") { h.removeFirst(4) }
+        return (h, c.path)
+    }
+
+    /// `page` remembered per address (keyframe2): `blend` parsed every open tab's and history row's address on every
+    /// keystroke that matched a built-in site. Test builds turn it off to time the old path in the same binary.
+    nonisolated(unsafe) public static var memoizesPages = true
+    private static let pageMemo = PageMemo()
+
+    private final class PageMemo: @unchecked Sendable {
+        private var entries: [String: (host: String, path: String)?] = [:]
+        private let lock = NSLock()
+
+        func get(_ url: String) -> (host: String, path: String)? {
+            lock.lock()
+            if let hit = entries[url] { lock.unlock(); return hit }
+            lock.unlock()
+            let made = CommandSearch.page(url)
+            lock.lock()
+            if entries.count >= 4_000 { entries.removeAll(keepingCapacity: true) }
+            entries[url] = .some(made)
+            lock.unlock()
+            return made
+        }
     }
 
     /// One row of `blend`: a result of yours, or a built-in site.
@@ -184,9 +333,8 @@ public enum CommandSearch {
         guard !sites.isEmpty else { return personal.prefix(limit).map { .personal($0) } }
         var pages: [String: [String]] = [:]
         for u in personalURLs {
-            guard let c = URLComponents(string: u), var h = c.host?.lowercased() else { continue }
-            if h.hasPrefix("www.") { h.removeFirst(4) }
-            pages[h, default: []].append(c.path)
+            guard let p = memoizesPages ? pageMemo.get(u) : page(u) else { continue }
+            pages[p.host, default: []].append(p.path)
         }
         let fresh = sites.filter { s in
             !s.site.hosts.contains { h in pages[h]?.contains { s.site.covers(host: h, path: $0) } ?? false }

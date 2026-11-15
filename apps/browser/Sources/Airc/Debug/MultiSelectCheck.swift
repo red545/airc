@@ -323,7 +323,7 @@ extension SnapshotRunner {
         run { [self] in
             let titles = msMenu(k, on: "b")?.items.map(\.title).filter { !$0.isEmpty } ?? []
             let want = ["Copy 3 Links", "Copy 3 Links as Markdown", "Share", "Duplicate 3 Tabs", "Open in Split View", "Pin 3 Tabs", "New Folder with 3 Tabs",
-                        "Add to Folder", "Move to Space", "Close 3 Tabs", "Archive 3 Tabs"]
+                        "Add to Folder", "Move to Space", "Close 3 Tabs", "Archive 3 Tabs", "Archive Tabs Below", "Archive Other Tabs"]
             check(titles == want, "multiselect: the context menu for 3 Today tabs (\(titles.joined(separator: ", ")))")
             let pinnedTitles = { () -> String in
                 self.msPage(k)?.setSelection([k.id["p1"], k.id["f"]].compactMap { $0 })
@@ -472,10 +472,34 @@ extension SnapshotRunner {
             k.w1.window.makeFirstResponder(nil)
         }
         run { [self] in
-            let f = k.w1.store.pinnedRoots(ofSpace: k.home).last
+            // Today tabs make a folder in Today, where B was (Arc), not a pinned one.
+            let store = k.w1.store
+            let roots = store.todayRootRows(ofSpace: k.home)
+            let f = roots.count == 3 ? store.todayFolder(roots[1].id) : nil
+            let inside = f.map { store.todayFolderTabs($0.id).map(\.title).joined(separator: " ") } ?? ""
+            let rootNames = roots.map { $0.liveTab?.title ?? ($0.item.map { "[\($0.displayTitle)]" } ?? "?") }.joined(separator: " ")
+            check(f != nil && inside == "B C" && rootNames == "A [New Folder] D" && msPinned(k) == "P1 P2 F",
+                  "multiselect: New Folder with 2 Today Tabs makes a Today folder holding B and C where B was (Today: \(rootNames), inside: \(inside), Pinned: \(msPinned(k)))")
+        }
+        msUndo(k, "New Folder", { self.msPinned(k) == "P1 P2 F" && self.msToday(k, k.home) == "A B C D" && k.w1.store.todayFolders(ofSpace: k.home).isEmpty },
+               detail: { self.msPinned(k) + " | " + self.msToday(k, k.home) })
+        msReset(k)
+
+        msTrace("New Folder with (mixed)")
+        // Pinned P2 and Today B: the first (topmost) row is pinned, so the folder is pinned, at the end of Pinned (rows
+        // from two sections have no shared place).
+        msPick(k, ["p2", "b"])
+        msFire(k, ["New Folder with 2 Tabs"])
+        run { [self] in
+            msPage(k)?.list.subviews.lazy.flatMap(\.subviews).compactMap { $0 as? InlineEditor.Field }.first?.cancelled = true
+            k.w1.window.makeFirstResponder(nil)
+        }
+        run { [self] in
+            let roots = k.w1.store.pinnedRoots(ofSpace: k.home)
+            let f = roots.count == 3 && roots[2].kind == .folder && roots[2].id != k.id["f"] ? roots[2] : nil
             let inside = f.map { msPinned(k, parent: $0.id) } ?? ""
-            check(f?.kind == .folder && f?.id != k.id["f"] && inside == "B C" && msToday(k, k.home) == "A D",
-                  "multiselect: New Folder with 2 Tabs holds B and C (Pinned: \(msPinned(k)), inside: \(inside))")
+            check(f != nil && inside == "P2 B" && msToday(k, k.home) == "A C D" && k.w1.store.todayFolders(ofSpace: k.home).isEmpty,
+                  "multiselect: New Folder with pinned P2 and Today B makes a pinned folder at the end of Pinned (Pinned: \(msPinned(k)), inside: \(inside), Today: \(msToday(k, k.home)))")
         }
         msUndo(k, "New Folder", { self.msPinned(k) == "P1 P2 F" && self.msToday(k, k.home) == "A B C D" },
                detail: { self.msPinned(k) + " | " + self.msToday(k, k.home) })

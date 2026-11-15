@@ -10,6 +10,7 @@ when the audit hasn't caught up yet. Writes status/parity.html, which the tailne
 """
 import argparse, collections, html, json, pathlib, re, subprocess
 from datetime import datetime, timezone
+from suite_status import panel
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 e = lambda s: html.escape(str(s))
@@ -99,6 +100,7 @@ th,td{{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);verti
 .who{{font-size:12px;white-space:nowrap}}.lag{{color:var(--mut);margin-left:3px}}.sz{{color:var(--mut)}}
 ul.ag{{margin:6px 0 14px;padding-left:18px;font-size:13px}}ul.ag i{{color:var(--mut)}}a{{color:inherit}}
 </style><main>
+{panel(pathlib.Path(a.out).parent)}
 <h1>Arc parity: {pct}% done <span class=sub>({c["done"]} of {scope} in scope)</span></h1>
 <div class=sub>Updated {now}. Audit last changed {e(rev)}. * = status ahead of the audit (lead overlay). <a href="work.html">Work page</a> · <a href="index.html">Status</a></div>
 <div class=bar>{bar}</div><div class=chips>{chips}<input id=q placeholder="Filter…"></div>

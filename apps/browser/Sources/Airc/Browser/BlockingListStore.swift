@@ -116,9 +116,49 @@ struct BlockingListDescriptor: Identifiable {
         }
     }
     private func load() {
+        let scan = Self.takePreloaded(root: root, seeds: seeds) ?? Self.scan(root: root, seeds: seeds)
+        for (id, current) in scan.current { snapshots[id] = current; versions[id] = current.version }
+        // Persist first check dates after loading every manifest entry, so cache
+        // collection cannot remove a different list before it has been loaded.
+        for id in scan.seeded { if let snapshot = snapshots[id] { try? install(snapshot, id: id) } }
+    }
+
+    /// fastlaunch: the launch's list scan (manifest, each snapshot's digest and metadata: the cache's integrity check,
+    /// ~70-130 ms of the main thread) runs on a background thread from main.swift, while the engine starts.
+    struct Scan: @unchecked Sendable {
+        var current: [String: Snapshot] = [:]
+        var seeded: [String] = []
+    }
+    private final class Preload: @unchecked Sendable {
+        let key: String; let group = DispatchGroup(); var result: Scan?
+        init(key: String) { self.key = key }
+    }
+    nonisolated(unsafe) private static var preload: Preload?
+    nonisolated private static let preloadLock = NSLock()
+    nonisolated static func preload(directory: URL, seeds: URL?) {
+        let root = directory.appendingPathComponent("Blocking/Lists", isDirectory: true)
+        let p = Preload(key: root.standardizedFileURL.path + "|" + (seeds?.standardizedFileURL.path ?? ""))
+        p.group.enter()
+        preloadLock.lock(); preload = p; preloadLock.unlock()
+        DispatchQueue.global(qos: .userInitiated).async {
+            let done = LaunchTimeline.begin("blocking list scan")
+            p.result = scan(root: root, seeds: seeds)
+            done()
+            p.group.leave()
+        }
+    }
+    nonisolated private static func takePreloaded(root: URL, seeds: URL?) -> Scan? {
+        preloadLock.lock(); let p = preload; preload = nil; preloadLock.unlock()
+        guard let p, p.key == root.standardizedFileURL.path + "|" + (seeds?.standardizedFileURL.path ?? "") else { return nil }
+        let waited = LaunchTimeline.begin("blocking list scan wait")
+        p.group.wait()
+        waited()
+        return p.result
+    }
+    nonisolated static func scan(root: URL, seeds: URL?) -> Scan {
+        var scan = Scan()
         let manifest = root.appendingPathComponent("current.json")
         let cached = Self.readBounded(manifest).flatMap { try? JSONDecoder().decode([String: BlockingListVersion].self, from: $0) } ?? [:]
-        var seeded: [String] = []
         for list in BlockingListDescriptor.catalog {
             var current: Snapshot?
             if let version = cached[list.id], Self.validDigest(version.digest),
@@ -136,16 +176,14 @@ struct BlockingListDescriptor: Identifiable {
                 if current == nil || newer {
                     let version = BlockingListVersion(digest: Self.digest(bytes), converterVersion: Self.converterVersion,
                                                       metadata: metadata, checkedAt: Date())
-                    current = Snapshot(bytes: bytes, version: version); seeded.append(list.id)
+                    current = Snapshot(bytes: bytes, version: version); scan.seeded.append(list.id)
                 }
             }
-            if let current { snapshots[list.id] = current; versions[list.id] = current.version }
+            if let current { scan.current[list.id] = current }
         }
-        // Persist first check dates after loading every manifest entry, so cache
-        // collection cannot remove a different list before it has been loaded.
-        for id in seeded { if let snapshot = snapshots[id] { try? install(snapshot, id: id) } }
+        return scan
     }
-    private static func readBounded(_ file: URL) -> Data? {
+    nonisolated private static func readBounded(_ file: URL) -> Data? {
         guard let size = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize,
               size <= BlockingListMetadata.maxBytes else { return nil }
         return try? Data(contentsOf: file)
@@ -167,7 +205,7 @@ struct BlockingListDescriptor: Identifiable {
         }
     }
     nonisolated static func digest(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
-    private static func validDigest(_ value: String) -> Bool { value.count == 64 && value.allSatisfy { "0123456789abcdef".contains($0) } }
+    nonisolated private static func validDigest(_ value: String) -> Bool { value.count == 64 && value.allSatisfy { "0123456789abcdef".contains($0) } }
     private static func httpDate(_ value: String?) -> Date? {
         guard let value else { return nil }
         let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX")

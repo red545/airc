@@ -449,6 +449,10 @@ extension SnapshotRunner {
         }
         wait(1.0)
         captureCard("split with a note") { [self] img in
+            if let png = board.data(forType: .png) {
+                try? png.write(to: dir.appendingPathComponent("capture-notes-split.png"))
+            }
+            note("capture native main-thread render milliseconds: \(CaptureSession.nativeRenderMilliseconds)")
             guard c.shownSplitID != nil, c.store.isNoteTab(splitNote) else { return (false, "no note in a split") }
             let l = pixel(img, img.w / 4, img.h / 2), r = pixel(img, img.w * 3 / 4, img.h * 3 / 4)
             let ok = dist(l.0, (229, 57, 53)) < 60 && r.1 == 255 && dist(r.0, (229, 57, 53)) > 120
