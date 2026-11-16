@@ -178,8 +178,7 @@ extension SnapshotRunner {
         openBar()
         typeText("gpt")
         run { [self] in
-            check(app?.settings.values.askAI.choice(for: profile().id) == .automatic && c.commandBarAskAI == nil,
-                  "\(tag): Ask AI is Automatic by default, and off for a profile that uses no chat site (askai)")
+            check(app?.settings.values.askAI.provider(for: profile().id) == nil, "\(tag): Ask AI is off by default")
             check(bar?.askCandidate == nil && !(bar?.resultTitles.contains { $0.hasPrefix("Ask ChatGPT") } ?? true),
                   "\(tag): off, \"gpt\" offers no Ask ChatGPT row (\(bar?.resultTitles.joined(separator: " | ") ?? "-"))")
             check(!c.commandActions().contains { $0.title == "New ChatGPT Message" }, "\(tag): off, no New ChatGPT Message command")
@@ -237,15 +236,13 @@ extension SnapshotRunner {
         openBar()
         typeText("why do lisbon trams have bells")
         run { [self] in
-            let ask = bar?.results.firstIndex { $0.title == "Ask ChatGPT" && $0.badge == "Ask" }
-            let row = ask.flatMap { bar?.results[$0] }
-            check(row?.subtitle == "why do lisbon trams have bells" && row?.opensInNewTab == true
-                  && ask == min(CommandBarView.askRowIndex, (bar?.results.count ?? 1) - 1),
-                  "\(tag): a typed question offers Ask ChatGPT, third (askai) (\(bar?.resultTitles.joined(separator: " | ") ?? "-"))")
+            let last = bar?.results.last
+            check(last?.subtitle == "Ask ChatGPT" && last?.title == "why do lisbon trams have bells" && last?.opensInNewTab == true,
+                  "\(tag): a typed question offers Ask ChatGPT, last (\(bar?.resultTitles.joined(separator: " | ") ?? "-"))")
         }
         typeText("weather")
         run { [self] in
-            check(!(bar?.results.contains { $0.title == "Ask ChatGPT" && $0.badge == "Ask" } ?? true), "\(tag): one word isn't a question: no Ask row")
+            check(!(bar?.results.contains { $0.subtitle == "Ask ChatGPT" } ?? true), "\(tag): one word isn't a question: no Ask row")
             c.closeCommandBar()
             c.commandActions().first { $0.title == "New ChatGPT Message" }?.run()
         }

@@ -16,7 +16,6 @@ The user's view is [user/sync.md](user/sync.md).
 | Profile name, emoji and "is the default" | Page titles and favicons, navigation, selection, window layout |
 | Pinned notes: their row, text, title and pictures ([Notes](#notes), P14b1) | Today splits, Boosts, Easels, blank-window Spaces, telemetry IDs |
 | Pinned and Favorite splits: their panes (saved URLs, order), name, icon, axis and sizes ([Splits](#splits), P14b2) | Which pane of a split has the keyboard; a split with a local-only pane (it stays whole) |
-| App settings a person changed, from an allowlist ([Settings](#settings)) | Per-Mac settings: paths, Developer Mode, memory, approvals, onboarding |
 | | A note only in Today or the Archive (its Today tab never syncs) |
 | | Folders in Today (`ItemContainer.today`, `LiveTab.folderID`): never in a snapshot, below |
 
@@ -41,8 +40,6 @@ UUIDs, note IDs (random), a format version, sizes and timestamps.
 | `Sync/SyncFolderGroup.swift` | The encrypted folder transport as a group (test builds' `--sync-folder` only; it carries no notes) |
 | `Sync/NoteSyncPayload.swift` | Notes: version vectors, sealed note records and picture assets, limits, the store's apply and conflicted copy |
 | `Sync/SplitSyncPayload.swift` | Splits: the synced layout, and which operations go in version 3 batches |
-| `Sync/SettingSyncPayload.swift` | Settings: the payload, the allowlist and per-Mac list, the ledger of changed settings (version 4 batches) |
-| `apps/browser/Sources/Airc/Sync/SettingsSync.swift` | The app's settings as flat keys: reading, the ledger file, applying values from other Macs |
 | `apps/browser/Sources/Airc/Sync/SyncCenter.swift` | Backend choice, triggers (activation, push, timer), profile and backup hooks |
 | `apps/browser/Sources/Airc/Settings/SyncSettings.swift` | Settings → Sync and the first-sync screen |
 | `scripts/release/icloud.py` | The provisioning profile and the main app's iCloud entitlements (docs/release.md) |
@@ -55,7 +52,7 @@ The private database, one custom zone **`AircSidebar`**, five record types:
 | Type | Record name | Fields | Written |
 |---|---|---|---|
 | `SyncGroup` | `group` | `group` (UUID), `version`, `check` (bytes), `created` | once, by the first Mac, create-only |
-| `SyncBatch` | `<device UUID>.<batch UUID>` | `group`, `device`, `envelope` (UUIDs), `version` (1; 2 with a note's row; 3 with a split's or a pane's; 4 for settings), `sealed` (bytes) | by its device, create-only, never changed |
+| `SyncBatch` | `<device UUID>.<batch UUID>` | `group`, `device`, `envelope` (UUIDs), `version` (1; 2 with a note's row; 3 with a split's or a pane's), `sealed` (bytes) | by its device, create-only, never changed |
 | `SyncDevice` | `device.<device UUID>` | `group`, `device`, `sealed` (its name), `seen` | by its device, overwritten at most every 6 hours |
 | `SyncNote` | `note.<device UUID>.<note ID>` | `group`, `device`, `note`, `version` (format 1), `sealed` (bytes, ≤ 256 KB) or `payload` (asset, ≤ 8 MB) | by its device, overwritten with its latest version of that note |
 | `SyncNoteAsset` | `noteasset.<40 hex>` | `group`, `version` (1), `data` (asset: one sealed picture, ≤ 32 MB) | by the first Mac that has the picture, create-only, never changed |
@@ -228,58 +225,6 @@ build from before splits synced (before P14b2) can't open version 3 (`unsupporte
 in its quarantine, says "Some changes can't be read here … updating Airc may help", and applies them once updated. It
 never makes split rows it doesn't understand, or panes without their split. Its own splits stay local, as before. Unknown
 values inside a version 3 batch (a newer `SplitSyncPayload.format`) are ignored: the split keeps the layout it has here.
-
-## Settings
-
-App settings sync too (syncsettings, 2026-11-16), with **no record type of their own** and so no CloudKit schema change:
-each synced setting is one `setting` record in the same sealed batches, whose one field, `value`, holds a
-`SettingSyncPayload`: the value as canonical JSON (sorted keys), at most 32 KB, and **when it was changed on its Mac**.
-
-- **Keys.** The app (`SettingsSync.swift`) flattens its settings into keys: `app.<key>` for settings.json,
-  `app.siteSearch@<profile>` and `app.askAI@<profile>` per profile, `blocking@<profile>` (on/off, third-party cookies,
-  lists, exceptions; never the migration bookkeeping), `profile.archiveAfter@…`, `profile.searchEngine@…`,
-  `profile.searchSuggestions@…` (store fields) and `window.sidebarOnRight`. Only keys on `SyncSettings.synced` ever leave
-  a Mac; `SyncSettings.perMac` lists the ones that never do (backup folder, Library folders, Developer Mode and its sites,
-  scripting from other apps, memory, pinned extensions, Little Airc's remembered profiles, the default-browser prompt,
-  Calendar, per-row switches, dismissed cards, member name, onboarding). Agent and MCP settings (approvals, paired
-  devices, tokens) live elsewhere and are never read. Per-profile keys carry the group's profile ID and map like Spaces'.
-- **Only changed settings travel.** Each Mac keeps a `SyncSettingsLedger` (`Sync/settings-ledger.json`, never synced):
-  every key's last seen value and, for those the person changed, when. It's kept whether sync is on or not. On its first
-  look (or a key's: a new profile, an update), a value that differs from its default counts as changed at time 0;
-  afterwards any change counts from then, even back to the default. A value from another Mac is adopted with that Mac's
-  time. A default is never sent, so a Mac that never changed a setting takes the synced one.
-- **Last writer wins per setting**: the later change time, then the later stamp, then the operation ID
-  (`SyncRegister.precedes`), so every Mac picks alike, and a change made while sync (or "Sync settings") was off still
-  counts from when it was made.
-- **Engine.** `capture()` sends each changed setting whose value this Mac hasn't sent or applied yet (the state file's
-  `settings.baseline`), then applies the winners it hasn't applied; `apply()` does the same after the sidebar, so the
-  first sync's Merge captures this Mac's settings before iCloud's are applied. A value the app can't read (a newer
-  build's), a newer payload format, or a profile this Mac lacks waits and is tried again. Replace replaces the sidebar,
-  not settings: they follow the same rule.
-- **The switch.** Settings › Sync › "Sync settings", on by default, per Mac (`settings.off` in the state file). Off sends
-  and applies nothing (the replica still merges what arrives); on catches up by the rule.
-- **Applying** is what Settings would do: settings.json's values, then the live parts (translucency in every window, the
-  shortcut map and its menus, ⌘1–9 choices, the app icon); Little Airc follows settings.json by itself; the store's
-  profile fields and the sidebar's side through the store; blocking through BlockingSettings (its rules reload).
-
-### Older builds
-
-Every setting operation goes in a batch of **envelope version 4** of its own (never mixed with sidebar operations). A
-build from before settings synced reads 1...3: it keeps those batches in its quarantine ("Some changes can't be read
-here … updating Airc may help") and applies them once updated. A version 3 batch could not carry them: a 1...3 reader
-would fail on the unknown record kind inside, and a mixed batch would hold back a split's operations too.
-
-### Tests
-
-- `swift test --package-path packages/AircKit --filter SyncSettings`: the allowlist and the excluded keys, the payload in
-  a sealed version 4 batch (refused by a 1...3 reader, malformed values refused), the later change winning whatever the
-  stamps, the ledger, and two engines: theme, shortcut and Site Search arrive, per-Mac keys never leave, a Mac that never
-  changed a setting takes it and defaults never travel, the conflict rule on both Macs, the switch, an unreadable value
-  and a missing profile waiting, and an older build's view.
-- `--script settingssync-a`, `-b`, `-a2` (Debug/SettingsSyncCheck.swift, in the snapshot suite on both engines): two app
-  instances on a mock database. A's theme, shortcut (live in B's map), Site Search and sidebar side reach B, with
-  nothing readable in iCloud and only allowlisted keys sent; per-Mac settings stay on each Mac; B's later change wins on
-  both.
 
 ### Safety rules (from the 2026-11-07 review)
 

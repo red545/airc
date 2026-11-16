@@ -32,10 +32,6 @@ final class SyncCenter: ObservableObject {
     @Published private(set) var notesTooLarge = 0
     /// iCloud doesn't take notes yet (their record types aren't deployed): they wait (Settings → Sync says so).
     @Published private(set) var notesHeld = false
-    /// Settings › Sync › "Sync settings" (on by default while sync is on).
-    @Published private(set) var syncsSettings = true
-    /// The app's settings for the engine (SettingsSync.swift).
-    private(set) var settingsSync: SettingsSync?
     private(set) var backend: Backend = .none
     private(set) var engine: SyncEngine?
     /// The real-iCloud test (test builds, `--sync-cloudkit-test-zone AircSidebarTest…`): its own zone, subscription and
@@ -152,10 +148,6 @@ final class SyncCenter: ObservableObject {
         // Notes' pictures: the data folder's Notes/Images (NoteImages). One that arrives shows in the open notes at once.
         environment.notePictures = SyncNotePictureFolder(folder: NoteImages.folder)
         environment.picturesArrived = { _ in NoteCenter.shared.picturesArrived() }
-        // Settings (docs/sync.md, "Settings"): only the allowlisted ones a person changed.
-        let settingsSync = SettingsSync(app: app)
-        self.settingsSync = settingsSync
-        environment.settings = settingsSync.source
         let engine = MainActor.assumeIsolated { SyncEngine(store: store, environment: environment) }
         self.engine = engine
         #if AIRC_TESTING
@@ -168,7 +160,6 @@ final class SyncCenter: ObservableObject {
         let triggers = triggers
         MainActor.assumeIsolated { engine.debounce = triggers.localChangeDelay }
         MainActor.assumeIsolated { engine.onChange = { [weak self] in self?.refresh() } }
-        settingsSync.changed = { [weak engine] in if let engine { MainActor.assumeIsolated { engine.settingsChanged() } } }
         refresh()
         if isEnabled { syncSoon() }
         #if AIRC_TESTING
@@ -180,13 +171,6 @@ final class SyncCenter: ObservableObject {
     func setEnabled(_ on: Bool) {
         guard let engine else { return }
         MainActor.assumeIsolated { engine.setEnabled(on) }
-        refresh()
-    }
-
-    /// Settings › Sync › "Sync settings".
-    func setSyncsSettings(_ on: Bool) {
-        guard let engine else { return }
-        MainActor.assumeIsolated { engine.setSyncsSettings(on) }
         refresh()
     }
 
@@ -278,10 +262,9 @@ final class SyncCenter: ObservableObject {
 
     private func refresh() {
         guard let engine else { return }
-        let (status, devices, lastSynced, enabled, tooLarge, held, settings) = MainActor.assumeIsolated {
-            (engine.status, engine.devices, engine.lastSynced, engine.isEnabled, engine.notesTooLarge, engine.notesHeld, engine.syncsSettings)
+        let (status, devices, lastSynced, enabled, tooLarge, held) = MainActor.assumeIsolated {
+            (engine.status, engine.devices, engine.lastSynced, engine.isEnabled, engine.notesTooLarge, engine.notesHeld)
         }
-        if syncsSettings != settings { syncsSettings = settings }
         if notesTooLarge != tooLarge { notesTooLarge = tooLarge }
         if notesHeld != held { notesHeld = held }
         if self.status != status { self.status = status }

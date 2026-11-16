@@ -200,8 +200,6 @@ protocol CommandBarHost: AnyObject {
     var commandBarFaviconDatabase: URL? { get }
     /// P07b: the chat site this window's profile asks with "gpt" + Tab (ChatGPTCommand.swift); nil: off.
     var commandBarAskAI: AskAIProvider? { get }
-    /// askai: finds Settings → AI's Automatic chat site for this profile again if it's stale (after the open's frame).
-    func refreshCommandBarAskAI()
     /// P07c: Instant Links, when on and Apple Intelligence can run (InstantLinks.swift); nil: ⇧↵ searches, no hint.
     var commandBarInstantLinks: CommandBarInstantLinks? { get }
     /// Opens Instant Links' pages, the first as ⌘T or ⌘L would open what's chosen.
@@ -217,7 +215,6 @@ extension CommandBarHost {
     var commandBarShowsSiteIcons: Bool { true }
     var commandBarFaviconDatabase: URL? { nil }
     var commandBarAskAI: AskAIProvider? { nil }
-    func refreshCommandBarAskAI() {}
     var commandBarInstantLinks: CommandBarInstantLinks? { nil }
     func openInstantLinks(_ links: [InstantLink], newTab: Bool) {
         for (i, l) in links.enumerated() { performCommand(.open(l.url), newTab: newTab || i > 0, typed: false) }
@@ -500,8 +497,6 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
 
     func focus(with text: String) {
         restingPointer = NSEvent.mouseLocation
-        // askai: Automatic's chat site, after this frame's commit (a 2 ms timer runs after it; `async` before it).
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.002) { [weak self] in self?.host?.refreshCommandBarAskAI() }
         input.stringValue = text
         typed = text
         if Self.defersSession, let w = window, w.isKeyWindow {
@@ -1552,9 +1547,6 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         return [askRow(q.trimmingCharacters(in: .whitespacesAndNewlines), subtitle: "Ask \(p.name) in a new tab", provider: p, url: url)]
     }
 
-    /// The plain bar's Ask row: under the search row and the row after it (↓↓), as the feedback asked.
-    static let askRowIndex = 2
-
     private func askRow(_ title: String, subtitle: String, provider p: AskAIProvider, url: URL) -> CommandResult {
         var row = CommandResult(title: title, subtitle: subtitle, badge: "Ask", icon: siteIcon(p.siteSearch), matches: [], action: .open(url))
         row.opensInNewTab = true
@@ -1562,8 +1554,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     }
 
     /// The plain bar's AI rows: "Ask ChatGPT · Press Tab" for "gpt" (where no site search matches); Instant Links' hint
-    /// under the search row (⇧↵, only while it can run); for a prompt (`AskAIProvider.looksLikePrompt`), Arc's "Ask GPT
-    /// What You Typed": "Ask Claude", third (↓↓ from the search row), above your history (askai).
+    /// under the search row (⇧↵, only while it can run); Arc's "Ask GPT What You Typed" for a question, last.
     private func addAIRows(_ rows: inout [CommandResult], _ q: String, host c: CommandBarHost) {
         let limit = AircMetrics.CommandBar.maxRows
         if let p = askCandidate {
@@ -1581,11 +1572,9 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
             row.startsInstantLinks = true
             rows.insert(row, at: i + 1)
         }
-        Perf.time("cb.askai") {
-            if scope == nil, askCandidate == nil, bang == nil, let p = c.commandBarAskAI, AskAIProvider.looksLikePrompt(text),
-               let url = AskAIRoute.url(p, text) {
-                rows.insert(askRow("Ask \(p.name)", subtitle: text, provider: p, url: url), at: min(Self.askRowIndex, rows.count))
-            }
+        if scope == nil, askCandidate == nil, let p = c.commandBarAskAI, AskAIProvider.suggestsAsking(text), let url = AskAIRoute.url(p, text) {
+            if rows.count >= limit { rows.removeLast(rows.count - limit + 1) }
+            rows.append(askRow(text, subtitle: "Ask \(p.name)", provider: p, url: url))
         }
         if rows.count > limit { rows.removeLast(rows.count - limit) }
     }

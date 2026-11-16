@@ -204,14 +204,14 @@
     "detail": "With WebKit, Airc's main process uses far less memory after launch. Switching Spaces is smoother, and an idle Airc no longer wakes up on repeating timers.",
     "action": "none"
   },
-  "Ask Claude or ChatGPT from the Command Bar": {
-    "title": "Ask AI in the Command Bar",
-    "detail": "Type a question or a prompt after ⌘T, press ↓↓ and Return: it opens in a new Claude or ChatGPT chat, signed in as you are. Pick the site, or Off, in Settings › AI.",
-    "action": "settingsAI"
+  "Signing in to a new profile from the sidebar": {
+    "title": "Sign in to a new profile",
+    "detail": "When you sign in to Google from a new profile's sidebar card, the profile takes the account's picture and name, and the card offers Gmail, Calendar and Drive for that account as Favorites: Add or Skip.",
+    "action": "none"
   },
-  "Settings sync between your Macs": {
-    "title": "Settings sync between Macs",
-    "detail": "With iCloud sync on, the settings you change (theme, shortcuts, Site Search, links, blocking and more) follow you to your other Macs; the latest change wins. Each Mac keeps its own folders and Developer Mode. Settings › Sync.",
-    "action": "settingsSync"
+  "The Feedback button sits next to +": {
+    "title": "Feedback, next to +",
+    "detail": "The speech bubble in the sidebar's bottom row now sits just left of +, after your Space icons. Click it to send a note or pictures to the Airc team.",
+    "action": "sendFeedback"
   }
 }

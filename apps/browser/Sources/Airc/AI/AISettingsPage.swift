@@ -67,13 +67,7 @@ struct AIPage: View {
             }
             // P07c: Arc Max's Instant Links (CommandBar/InstantLinks.swift).
             SettingsSection(title: "Command Bar",
-                            help: "Instant Links: your words go to your search engine, as a search does. Its results page loads in the background in the same profile and only its links are read, on this Mac; the model sees only their titles. Private windows never use it. Ask AI: nothing is sent until you choose the row; then the chat site opens with your prompt, like any page you open, and keeps it in your account there.") {
-                // askai: the chat site the Command Bar asks, for the current Space's profile (Site Search has it per
-                // profile too). It needs no Apple Intelligence.
-                AskAIChoiceRow(model: model, profileID: model.store.profile(ofSpace: model.store.selectedSpace.id).id,
-                               title: model.store.orderedProfiles.count > 1
-                                   ? "Ask AI (\(model.store.profile(ofSpace: model.store.selectedSpace.id).name))" : "Ask AI",
-                               anchor: "ai.askAI")
+                            help: "Your words go to your search engine, as a search does. Its results page loads in the background in the same profile and only its links are read, on this Mac; the model sees only their titles. Private windows never use it. ChatGPT in the Command Bar is in Site Search.") {
                 AircToggleRow("Instant Links",
                               subtitle: "Type what you're looking for and press ⇧↵ to open the best result directly, or “top 3 …” for three. You see what will open first; Esc cancels.",
                               isOn: toggle(\.instantLinks) { InstantLinksFeature.set($0, settings: $1) })

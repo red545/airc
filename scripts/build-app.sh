@@ -699,13 +699,6 @@ if [[ -n "$SNAPSHOTS" ]]; then
         --sync-keychain "$home/ICloudShared/keychain-$sync_keychain" --sync-device-name "${sync_name//-/ }"
     done
     launch --script icloudsync-unavailable --ephemeral --data-dir "$home/ICloudUnavailable"
-    # Settings sync (SettingsSyncCheck.swift, docs/sync.md "Settings") between two instances on another mock database: A's
-    # theme, shortcut, Site Search and sidebar side reach B; per-Mac settings stay; the later change wins on both.
-    for sync_phase in "settingssync-a a SettingsA" "settingssync-b b SettingsB" "settingssync-a2 a SettingsA"; do
-      read -r sync_script sync_keychain sync_data <<< "$sync_phase"
-      launch --script "$sync_script" --data-dir "$home/$sync_data" --sync-mock "$home/SettingsShared/cloud" \
-        --sync-keychain "$home/SettingsShared/keychain-$sync_keychain" --sync-device-name "Settings Mac ${sync_keychain}"
-    done
     ls "$home/Library" 2>/dev/null | sed 's/^/  wrote in snapshot home: /'
     ls "$out" | tr '\n' ' '; echo
     grep -E "^(PASS|FAIL|FAIL-ENV|SKIP|ENGINE-PASS|ENGINE-FAIL) " "$out/log.txt" | sed "s/^/  [$engine] /" || true

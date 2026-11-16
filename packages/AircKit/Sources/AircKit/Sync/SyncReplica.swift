@@ -4,8 +4,7 @@ import Foundation
 
 /// `profile` records carry only a name, an emoji and whether it's the default profile, so another Mac can map a Space's
 /// profile to one of its own (or create an empty one). Never logins, cookies, history or the engine folder.
-/// `setting` records are one app setting each (SettingSyncPayload.swift), only in version 4 batches.
-public enum SyncRecordKind: String, Codable, Hashable, Sendable { case space, row, profile, setting }
+public enum SyncRecordKind: String, Codable, Hashable, Sendable { case space, row, profile }
 
 public struct SyncRecordID: Codable, Hashable, Sendable {
     public let kind: SyncRecordKind
@@ -22,15 +21,12 @@ public enum SyncField: String, Codable, Hashable, CaseIterable, Sendable {
     case name, icon, theme, profile, kind, url, title, parent, location, order, deleted
     /// A saved split's layout (SplitSyncPayload.swift). Only in version 3 batches.
     case layout
-    /// A setting's value (SettingSyncPayload.swift). Only in version 4 batches.
-    case value
 }
 
 public enum SyncValue: Codable, Hashable, Sendable {
     case null, text(String), flag(Bool), theme(SpaceTheme), icon(SpaceIcon)
     case location(SyncLocation), order(SyncOrder)
     case split(SplitSyncPayload)
-    case setting(SettingSyncPayload)
 }
 
 public struct SyncOperation: Codable, Hashable, Sendable {
@@ -49,9 +45,7 @@ public struct SyncOperation: Codable, Hashable, Sendable {
         case .space: [.name, .icon, .theme, .profile, .order, .deleted]
         case .row: [.kind, .url, .title, .icon, .parent, .location, .order, .deleted, .layout]
         case .profile: [.name, .icon, .kind, .deleted]
-        case .setting: [.value]
         }
-        if record.kind == .setting, !SyncSettings.isValidKey(record.id) { throw SyncError.invalidOperation }
         for (field, value) in fields {
             guard allowed.contains(field) else { throw SyncError.invalidOperation }
             switch (field, value) {
@@ -60,7 +54,6 @@ public struct SyncOperation: Codable, Hashable, Sendable {
             case (.kind, .text(let kind)) where record.kind == .row && (kind == "tab" || kind == "folder" || kind == "split"): break
             case (.layout, .split(let payload)) where payload.isValid: break
             case (.layout, .null): break
-            case (.value, .setting(let payload)) where record.kind == .setting && payload.isValid: break
             case (.kind, .text(let kind)) where record.kind == .profile && (kind == "default" || kind == "profile"): break
             case (.url, .null), (.title, .null), (.icon, .null), (.parent, .null): break
             case (.deleted, .flag): break
@@ -78,10 +71,7 @@ public struct SyncRegister: Codable, Hashable, Sendable {
     public let value: SyncValue
 
     func precedes(_ other: Self) -> Bool {
-        // A setting: the later change wins (when it was made on its Mac, so a change made while sync was off still counts
-        // from then), then the later stamp. Every Mac orders alike.
-        if case .setting(let a) = value, case .setting(let b) = other.value, a.changed != b.changed { return a.changed < b.changed }
-        return stamp == other.stamp ? operation.uuidString < other.operation.uuidString : stamp < other.stamp
+        stamp == other.stamp ? operation.uuidString < other.operation.uuidString : stamp < other.stamp
     }
 }
 
@@ -157,8 +147,7 @@ public struct SyncReplica: Codable, Sendable {
     /// two live panes isn't one (a pane deleted elsewhere): its pane takes its place. Panes past `Split.maxPanes` (two
     /// Macs adding at once) sit next to it as rows of their own. Every Mac projects alike, so all show the same.
     public var sidebar: [SyncRecord] {
-        // Settings aren't in the sidebar (SyncSettings).
-        let live = records.filter { !$0.value.isDeleted && $0.key.kind != .setting }
+        let live = records.filter { !$0.value.isDeleted }
         func isSplit(_ r: SyncRecord?) -> Bool { r?[.kind] == .text("split") }
         func kindOf(_ r: SyncRecord) -> SyncValue { r[.kind] ?? .text("tab") }
         var rows = live.values.compactMap { original -> SyncRecord? in

@@ -105,8 +105,6 @@ public final class SyncEngine {
         public var notePictures: SyncNotePictureFolder?
         /// Pictures that arrived from another Mac (the app redraws open notes).
         public var picturesArrived: (([String]) -> Void)?
-        /// The app's settings (SettingSyncPayload.swift). nil: settings don't sync.
-        public var settings: SyncSettingsSource?
 
         public init(transport: @escaping (UUID) -> SyncGroupTransport, keys: SyncKeyStore, stateURL: URL, deviceName: String,
                     machine: String? = nil, createProfile: @escaping (String, String) throws -> String,
@@ -146,8 +144,6 @@ public final class SyncEngine {
         var malformed: Set<String> = []
         /// Notes: what this Mac knows, shows and owes of each (NoteSyncPayload.swift).
         var notes = SyncNoteState()
-        /// Settings: the switch, and what this Mac last sent or applied (SettingSyncPayload.swift).
-        var settings = SyncSettingsState()
 
         init(device: UUID = UUID(), machine: String?) {
             self.device = device; self.machine = machine
@@ -156,7 +152,7 @@ public final class SyncEngine {
 
         private enum CodingKeys: String, CodingKey {
             case version, enabled, device, machine, group, joined, replica, adapter, outbox, checkpoint, account, lastSynced
-            case published, uploaded, recovery, applyMode, quarantine, malformed, notes, settings
+            case published, uploaded, recovery, applyMode, quarantine, malformed, notes
         }
 
         init(from decoder: Decoder) throws {
@@ -181,8 +177,6 @@ public final class SyncEngine {
             malformed = try c.decodeIfPresent(Set<String>.self, forKey: .malformed) ?? []
             // A state file from before notes synced: the next capture sends this Mac's pinned notes.
             notes = try c.decodeIfPresent(SyncNoteState.self, forKey: .notes) ?? SyncNoteState()
-            // A state file from before settings synced: on, nothing sent yet (the next capture sends what was changed).
-            settings = try c.decodeIfPresent(SyncSettingsState.self, forKey: .settings) ?? SyncSettingsState()
         }
     }
 
@@ -260,21 +254,6 @@ public final class SyncEngine {
     /// Notes this Mac syncs (pinned here, or known from another Mac and not removed).
     public var syncedNotes: Int { state.notes.entries.values.filter { !$0.removed }.count }
     public var needsRecovery: Bool { state.recovery }
-    /// Settings › Sync › "Sync settings": on by default while sync is on.
-    public var syncsSettings: Bool { !state.settings.off }
-
-    /// The "Sync settings" switch. Turning it on sends what changed here meanwhile and takes what changed elsewhere, by
-    /// the same rule (the later change wins); off sends and applies nothing.
-    public func setSyncsSettings(_ on: Bool) {
-        guard on == state.settings.off else { return }
-        state.settings.off = !on
-        trySave()
-        onChange?()
-        if on { syncSoon() }
-    }
-
-    /// A setting changed (the app's settings, not the store): send it shortly, as a store change.
-    public func settingsChanged() { if state.enabled && !state.settings.off { localChanged() } }
 
     public init(store: SpacesStore, environment: Environment) {
         self.store = store
@@ -815,16 +794,13 @@ public final class SyncEngine {
         guard state.joined, let group = state.group, let key else { return }
         // Locals: two overlapping accesses to `state` (a class property) would trap at run time.
         var adapter = state.adapter, replica = state.replica
-        let rows = try adapter.capture(store.state, into: &replica, now: millis)
+        let ops = try adapter.capture(store.state, into: &replica, now: millis)
         state.adapter = adapter
         state.replica = replica
         // Notes after rows: a removal's stamp is later than its row's tombstone (see restoreNotes).
         let notesBefore = state.notes
         try captureNotes()
-        let settingsBefore = state.settings
-        let ops = try rows + captureSettings()
-        applySettings()
-        guard !ops.isEmpty || state.notes != notesBefore || state.settings != settingsBefore else { return }
+        guard !ops.isEmpty || state.notes != notesBefore else { return }
         if !ops.isEmpty { state.outbox += try seal(ops, group: group, key: key) }
         try save()
     }
@@ -852,12 +828,6 @@ public final class SyncEngine {
         for change in result.profileChanges { env.applyProfileChange(change.space, change.profile) }
         adapter.rebase(store.state)
         state.adapter = adapter
-        // Settings: this Mac's changes first (the first sync's merge hasn't captured them), then the winners.
-        if let key, let group = state.group, state.joined {
-            let ops = try captureSettings()
-            if !ops.isEmpty { state.outbox += try seal(ops, group: group, key: key) }
-        }
-        applySettings()
         // Notes the group pinned or unpinned here: a baseline too, never sent back as this Mac's removal or pin.
         let pinned = SyncNotes.pinnedNotes(store.state)
         for id in state.notes.entries.keys { state.notes.entries[id]?.pinned = pinned[id] != nil }
@@ -882,64 +852,12 @@ public final class SyncEngine {
         }
         // A split's or a pane's goes in a version 3 batch (a note in a split too), which builds from before splits synced
         // keep unread in the same way.
-        // A setting's goes in a version 4 batch of its own (SettingSyncPayload.swift).
-        let settings = ops.filter { $0.record.kind == .setting }
-        let sidebar = ops.filter { $0.record.kind != .setting }
-        let splits = sidebar.filter { SyncSplits.isSplitOperation($0, in: state.replica) }
-        let rest = sidebar.filter { !SyncSplits.isSplitOperation($0, in: state.replica) }
+        let splits = ops.filter { SyncSplits.isSplitOperation($0, in: state.replica) }
+        let rest = ops.filter { !SyncSplits.isSplitOperation($0, in: state.replica) }
         let notes = rest.filter(isNoteRow)
         let others = rest.filter { !isNoteRow($0) }
         return try seal(others, version: 1, group: group, key: key) + seal(notes, version: 2, group: group, key: key)
             + seal(splits, version: SyncSplits.envelopeVersion, group: group, key: key)
-            + seal(settings, version: SyncSettings.envelopeVersion, group: group, key: key)
-    }
-
-    // MARK: Settings
-
-    /// The group's ID of a local profile, and back (nil: not on this Mac).
-    private func groupProfile(_ local: String) -> String? { state.adapter.groupProfiles[local] ?? local }
-    private func localProfile(_ group: String) -> String? {
-        state.adapter.localProfiles[group] ?? (store.profile(group) != nil ? group : nil)
-    }
-
-    /// This Mac's changed settings that it hasn't said yet → replica. Returns the operations (the caller seals them).
-    private func captureSettings() throws -> [SyncOperation] {
-        guard !state.settings.off, let source = env.settings else { return [] }
-        var replica = state.replica, baseline = state.settings.baseline
-        var ops: [SyncOperation] = []
-        for (key, entry) in source.explicit().sorted(by: { $0.key < $1.key }) {
-            guard let group = SyncSettings.mapped(key, groupProfile), SyncSettings.isSynced(group), baseline[group] != entry.json else { continue }
-            let payload = SettingSyncPayload(json: entry.json, changed: entry.changed)
-            // Too large: stays on this Mac.
-            guard payload.isValid else { continue }
-            ops.append(try replica.edit(SyncRecordID(.setting, group), [.value: .setting(payload)], now: millis))
-            baseline[group] = entry.json
-        }
-        state.replica = replica
-        state.settings.baseline = baseline
-        return ops
-    }
-
-    /// Each synced setting's winner that this Mac hasn't applied (nor sent) yet → the app. A setting of a profile this
-    /// Mac doesn't have, from a newer format, or one the app can't read waits (and is tried again).
-    private func applySettings() {
-        guard !state.settings.off, let source = env.settings else { return }
-        var incoming: [String: SyncSettingEntry] = [:], groupKey: [String: String] = [:]
-        for record in state.replica.records.values where record.id.kind == .setting {
-            guard case .setting(let p)? = record[.value], p.isReadable, SyncSettings.isSynced(record.id.id),
-                  state.settings.baseline[record.id.id] != p.json, let local = SyncSettings.mapped(record.id.id, localProfile)
-            else { continue }
-            incoming[local] = SyncSettingEntry(json: p.json, changed: p.changed)
-            groupKey[local] = record.id.id
-        }
-        guard !incoming.isEmpty else { return }
-        // The app may change the store (a profile's archive timing, the sidebar's side): not this Mac's edit.
-        let was = applying
-        applying = true
-        defer { applying = was }
-        for local in source.apply(incoming) {
-            if let group = groupKey[local], let entry = incoming[local] { state.settings.baseline[group] = entry.json }
-        }
     }
 
     private func seal(_ ops: [SyncOperation], version: Int, group: UUID, key: SymmetricKey) throws -> [SyncEnvelope] {

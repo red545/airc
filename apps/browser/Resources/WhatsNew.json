@@ -2,6 +2,25 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.20",
+      "highlights": [
+        {
+          "title": "Sign in to a new profile",
+          "lead": "Signing in to a new profile from the sidebar",
+          "detail": "When you sign in to Google from a new profile's sidebar card, the profile takes the account's picture and name, and the card offers Gmail, Calendar and Drive for that account as Favorites: Add or Skip.",
+          "icon": "person.crop.circle"
+        },
+        {
+          "title": "Feedback, next to +",
+          "lead": "The Feedback button sits next to +",
+          "detail": "The speech bubble in the sidebar's bottom row now sits just left of +, after your Space icons. Click it to send a note or pictures to the Airc team.",
+          "icon": "bubble.left.and.text.bubble.right",
+          "action": "sendFeedback",
+          "image": "send-feedback"
+        }
+      ]
+    },
+    {
       "version": "0.1.19",
       "highlights": [
         {
