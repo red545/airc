@@ -1,17 +1,24 @@
-# Airc 0.1.19 public beta
+# Airc 0.1.20 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.88.
-This update brings back Google's account chooser for "Continue with Google", lets your Google or Outlook calendar
-drive the meeting countdown and Join, adds bangs to the Command Bar, stops search suggestions flickering, makes
-Restart to Update wait for busy pages and makes Airc lighter and quieter. It includes everything from 0.1.18. The
-release manifest records the exact build, source and checksums.
+This update makes signing in to a new profile from the sidebar pick up your Google account's picture and name and
+offer Gmail, Calendar and Drive for it, and moves the Feedback button next to +. It includes everything from 0.1.19.
+The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.18
+## New since 0.1.19
+
+- **Signing in to a new profile from the sidebar** now picks up the account's picture and name: the profile and its
+  Space header show them. The sign-in card then offers Gmail, Calendar and Drive for that account as Favorites, with
+  Add or Skip. A second Google account gets its own Gmail, Calendar and Drive, not the first account's.
+- **The Feedback button sits next to +.** The speech bubble in the sidebar's bottom row moved from beside the Library
+  button to just left of +, after your Space icons. Click it to write to the Airc team.
+
+## Included from 0.1.19
 
 - **Sign in with Google works inside Airc.** On pages that use Chromium, "Continue with Google" shows Google's account
   chooser over the page again, so you pick an account without a separate sign-in window. 0.1.18 had switched it off
@@ -258,6 +265,9 @@ release manifest records the exact build, source and checksums.
 - **If you click Check for Updates yourself** and the download stalls, Sparkle's error still shows before the quiet
   retry.
 
+- **Signing in to a new profile from the sidebar** was tested with a stand-in for Google's sign-in on the build Mac,
+  not real accounts yet.
+
 - **Signing in with Google** was tested with a stand-in sign-in provider on the build Mac, using the same account
   chooser Google's real pages show.
 
@@ -319,6 +329,6 @@ release manifest records the exact build, source and checksums.
 - **Arc import:** unreadable encrypted data and unsupported records are skipped with a reason.
 - **Smoothness:** 120 Hz animation and zero idle work remain goals, not measured promises.
 
-Source: `276e19820029687633895ca71e495a14a9d71634`. Build: `202611152216`. Channel: stable.
-
 Source: `2b1d17c5348f683a65b03159786623f53b843d99`. Build: `202611161528`. Channel: stable.
+
+Source: `9f2e6d8257edce1646103238420aaa440d058539`. Build: `202611161935`. Channel: stable.

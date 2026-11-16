@@ -1,0 +1,50 @@
+# Airc 0.1.21 (cut 522955db, release/0.1.21-cut; build revision 65753091). Claims from its approved notes
+# (docs/release-notes-beta.md at 65753091, "New since 0.1.20"). NOT TO POST before release033 posts LIVE for 0.1.21:
+# plan and approve only then, after checking the public repo shows the release (owner rule).
+slug = "2026-11-16-release-0.1.21"
+title = "Airc 0.1.21"
+kind = "release"
+since = "0.1.21"
+tag = "New in Airc 0.1.21"
+end_title = "Airc 0.1.21"
+end_line = "Free for Mac · aircbrowser.com"
+summary = """
+Two single posts: Ask Claude or ChatGPT from ⌘T (a card of the Command Bar from the release agent's screenshot of the
+real app) and settings sync between Macs (text).
+"""
+order = """
+1. Ask AI at 10:30 UTC on the first free day after LIVE; settings sync a day later.
+"""
+checked = """
+- Ask AI: type a question or prompt after ⌘T, ↓↓ to the Ask Claude (or Ask ChatGPT) row, Return: a new chat opens with
+  it, in the same profile; Settings › AI › Command Bar › Ask AI (Automatic, Claude, ChatGPT, Perplexity, Off).
+- Settings sync: with iCloud sync on, the settings you change follow you to your other Macs (theme, shortcuts, Site
+  Searches, search engine and more); the later change wins; one Mac's own things stay (folders, Developer Mode,
+  extensions, app approvals); Settings › Sync › Sync settings. Please know: tested between two copies of Airc with a
+  stand-in for iCloud, not real iCloud yet, so the post says what Airc does and nothing about testing.
+- Shot: artifacts/askai/askai-row-claude-chromium.png (release033's real screenshot of the app; not committed to
+  assets/screenshots), copied to scratch/social-shots/marketing/askai-row-claude.png so the studio finds it by name,
+  clipped to the Command Bar: the test's loopback address and its tab names stay out.
+"""
+
+[[image]]
+id = "askai"
+shot = "askai-row-claude"
+mode = "plate"
+title = "Ask Claude from ⌘T."
+line = "Type your question, ↓↓, Return."
+clip = [252, 226, 774, 286]
+alt = "Airc's Command Bar with “why do lisbon trams have bells” typed: search suggestions, and an Ask Claude row with the same question and Ask AI."
+
+[[post]]
+label = "Ask Claude or ChatGPT from ⌘T"
+media = ["askai:16x9"]
+text = """
+Ask Claude or ChatGPT straight from Airc's ⌘T: type your question, press ↓↓ to the Ask row and Return, and a new chat opens with it. Pick Claude, ChatGPT or Perplexity in Settings › AI. New in Airc 0.1.21.
+"""
+
+[[post]]
+label = "Settings sync between Macs"
+text = """
+Your Airc settings can follow you to your other Macs now: theme, shortcuts, Site Searches, search engine and more, through iCloud sync. Things that belong to one Mac, like folders and extensions, stay put. New in Airc 0.1.21.
+"""

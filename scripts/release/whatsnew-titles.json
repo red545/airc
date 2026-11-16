@@ -213,5 +213,15 @@
     "title": "Settings sync between Macs",
     "detail": "With iCloud sync on, the settings you change (theme, shortcuts, Site Search, links, blocking and more) follow you to your other Macs; the latest change wins. Each Mac keeps its own folders and Developer Mode. Settings › Sync.",
     "action": "settingsSync"
+  },
+  "Signing in to a new profile from the sidebar": {
+    "title": "Sign in to a new profile",
+    "detail": "When you sign in to Google from a new profile's sidebar card, the profile takes the account's picture and name, and the card offers Gmail, Calendar and Drive for that account as Favorites: Add or Skip.",
+    "action": "none"
+  },
+  "The Feedback button sits next to +": {
+    "title": "Feedback, next to +",
+    "detail": "The speech bubble in the sidebar's bottom row now sits just left of +, after your Space icons. Click it to send a note or pictures to the Airc team.",
+    "action": "sendFeedback"
   }
 }
