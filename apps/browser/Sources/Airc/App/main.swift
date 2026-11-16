@@ -1,6 +1,8 @@
 // Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
 import AppKit
 
+// The blocking lists' compile child (BlockingRuleCompiler): does its one compile and exits, before any app setup.
+BlockingRuleCompiler.runIfChild()
 LaunchTimeline.mark("main")
 AppPaths.prepare(LaunchOptions.current)
 // The blocking lists' integrity scan, off the main thread while the engine starts (BlockingListStore.load takes it).

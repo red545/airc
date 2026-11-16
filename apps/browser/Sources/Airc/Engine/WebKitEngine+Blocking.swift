@@ -105,7 +105,7 @@ final class WebKitBlocking {
         }
         guard policy.enabled, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return cookies(nil) }
         let id = prefix + BlockingListStore.digest(Data(text.utf8))
-        compile(identifier: id, makeJSON: { try BlockingFilter.webKitRules(text) }) { result in
+        compile(identifier: id, source: text, makeJSON: { try BlockingFilter.webKitRules(text) }) { result in
             switch result {
             case .rules(let ads): cookies(ads)
             case .empty: cookies(nil)
@@ -113,7 +113,9 @@ final class WebKitBlocking {
             }
         }
     }
-    private static func compile(identifier: String, makeJSON: @escaping () throws -> Data,
+    /// `source`: the list text, compiled in a child process (BlockingRuleCompiler) when given; `makeJSON` is the
+    /// in-process path (the small cookie rule, and the fallback when the child can't run).
+    private static func compile(identifier: String, source: String? = nil, makeJSON: @escaping () throws -> Data,
                                 completion: @escaping (Compilation) -> Void) {
         if compiling[identifier] != nil { compiling[identifier]!.append(completion); return }
         compiling[identifier] = [completion]
@@ -121,8 +123,7 @@ final class WebKitBlocking {
         do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) }
         catch { return finish(identifier, .failed) }
         guard let store = WKContentRuleListStore(url: directory) else { return finish(identifier, .failed) }
-        store.lookUpContentRuleList(forIdentifier: identifier) { list, _ in
-            if let list { return finish(identifier, .rules(list)) }
+        func inProcess() {
             queue.async {
                 // The conversion and its text (megabytes) off the main thread.
                 let json = try? makeJSON()
@@ -140,9 +141,28 @@ final class WebKitBlocking {
                 }
             }
         }
+        store.lookUpContentRuleList(forIdentifier: identifier) { list, _ in
+            if let list { return finish(identifier, .rules(list)) }
+            guard let source else { return inProcess() }
+            BlockingRuleCompiler.compile(text: source, identifier: identifier, directory: directory) { outcome in
+                switch outcome {
+                case .compiled:
+                    // The child wrote it to the store; this process only maps the compiled file.
+                    store.lookUpContentRuleList(forIdentifier: identifier) { list, _ in
+                        if let list { finish(identifier, .rules(list)) } else { inProcess() }
+                    }
+                case .empty: finish(identifier, .empty)
+                // Not compiled there (an invalid list, or no child): the previous path decides, so the result is the
+                // same as before either way.
+                case .failed, .unavailable: inProcess()
+                }
+            }
+        }
     }
     private static func finish(_ id: String, _ result: Compilation) {
         let callbacks = compiling.removeValue(forKey: id) ?? []
+        // After a compile here (or a child's, or a lookup): what it freed goes back to macOS (AllocatorCacheFlush).
+        AllocatorCacheFlush.afterCompile()
         callbacks.forEach { $0(result) }
     }
     static func install(_ prepared: Prepared, profile: WebKitProfile) {

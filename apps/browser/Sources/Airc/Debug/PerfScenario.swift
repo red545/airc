@@ -246,7 +246,9 @@ final class PerfRun {
         let loadedNow = tabs.filter { c.engineTab(for: $0) != nil }.count
         emit(["event": "workload_ready", "profiles": c.store.orderedProfiles.count, "spaces": c.store.orderedSpaces.count,
               "loaded_tabs": loadedNow, "unloaded_tabs": tabs.count - loadedNow, "stopped_loads": stopped,
-              "engine": runner.app?.engine.name ?? "?"])
+              "engine": runner.app?.engine.name ?? "?",
+              // webkitmem: the allocator's large-block cache setting of this process (MallocLargeCache, A/B runs).
+              "malloc_large_cache": ProcessInfo.processInfo.environment["MallocLargeCache"] ?? "default"])
     }
 
     // MARK: Timings (input → presented frame)

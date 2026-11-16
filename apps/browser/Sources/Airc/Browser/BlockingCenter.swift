@@ -136,7 +136,8 @@ import AircKit
         }
     }
     private static func validateRules(_ text: String) async throws {
-        _ = try await Task.detached(priority: .utility) { try BlockingFilter.compile(text) }.value
+        // The adblock compile in a child process (BlockingRuleCompiler): its transient memory never stays here.
+        guard await BlockingRuleCompiler.check(text) else { throw BlockingFilter.Failure.invalidRules }
         let policy = EngineBlockingPolicy(enabled: true, exceptions: [], blockThirdPartyCookies: false)
         let good = await withCheckedContinuation { resume in
             WebKitBlocking.prepare(text: text, policy: policy, privateSession: false) { resume.resume(returning: $0 != nil) }
