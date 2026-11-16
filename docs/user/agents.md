@@ -7,30 +7,6 @@ that these apps speak). It's on by default: **Settings › Agents › Let AI app
 An app works in its own **agent windows**. They never come to the front, never take your keyboard or mouse, and sit off
 screen. Your own windows and tabs stay as they are. While an app is connected, Airc's Dock icon wears a small ✦.
 
-## Ask Airc (the Airc Agent)
-
-You can also ask Airc itself. Press **⌥⌘A** (or **View › Airc Agent**) and a panel opens on the right of the window. Type
-what you want done, like "find the cheapest train to Graz on Friday and fill in the booking form", and press Return.
-The agent works in an agent window of the profile your current Space uses, so your signed-in sites work. You see each
-step in the panel as it happens, and the run shows in the sidebar's **Agents** folder as "Airc Agent", where **Watch**,
-**Take over** and **Stop** work as they do for other apps.
-
-- **Your own AI.** The agent uses your own Anthropic or OpenAI account: add an API key in **Settings › AI › Agent** and
-  pick a model (Claude Opus 5.5 by default). The key stays in your Keychain. Your task, the pages the agent reads and its
-  screenshots go from your Mac to that provider, billed to your key; nothing goes through Airc's servers. If you'd
-  rather use your Claude plan, **Hand to Claude** copies the task and opens Claude Desktop, which can use Airc through the
-  connector below.
-- **It asks before risky actions.** Before anything that looks like paying, sending a message or email, posting,
-  deleting or changing your account, the agent stops and shows a card: **Allow Once** or **Deny** (Esc). Deny ends the
-  task. Every answer stays in the panel's list.
-- **Quick or Keep going.** Quick stops after 25 steps or 3 minutes; Keep going runs up to 200 steps or 30 minutes. When a
-  limit is reached, **Continue** gives it another round. The panel shows steps, tokens and an estimated cost. **Stop**
-  (or Esc, or ⌘.) ends a task at once.
-- **Pages can't give it orders.** What a page says is never an instruction. When a page contains text aimed at an AI
-  agent, the panel shows "The page asked the agent to: …", and the agent doesn't follow it.
-- **Never use these sites.** Sites listed in Settings › AI › Agent stop the agent before it acts there.
-- The agent never sees saved passwords, cookies or private windows; it signs in with **fill_saved_login** like any app.
-
 ## Setting it up
 
 To get there: press ⌘T and type "claude" (or "mcp", "agent", "connect"), then pick **Connect Claude and other AI apps…**;

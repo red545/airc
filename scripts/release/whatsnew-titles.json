@@ -206,12 +206,13 @@
   },
   "Ask Claude or ChatGPT from the Command Bar": {
     "title": "Ask AI in the Command Bar",
-    "detail": "Type a question or a prompt after ⌘T, press ↓↓ and Return: it opens in a new Claude or ChatGPT chat, signed in as you are. Pick the site, or Off, in Settings › AI.",
-    "action": "settingsAI"
+    "detail": "Type a question or a prompt after ⌘T, press ↓↓ and Return: it opens in a new Claude or ChatGPT chat, signed in as you are. Pick the site, or Off, in Settings › AI › Command Bar › Ask AI.",
+    "action": "settingsAI",
+    "image": "ask-ai"
   },
   "Settings sync between your Macs": {
     "title": "Settings sync between Macs",
-    "detail": "With iCloud sync on, the settings you change (theme, shortcuts, Site Search, links, blocking and more) follow you to your other Macs; the latest change wins. Each Mac keeps its own folders and Developer Mode. Settings › Sync.",
+    "detail": "With iCloud sync on, the settings you change (theme, shortcuts, Site Searches, blocking and more) follow you to your other Macs; the later change wins. Each Mac keeps its own folders, Developer Mode and app approvals. Settings › Sync › Sync settings.",
     "action": "settingsSync"
   },
   "Signing in to a new profile from the sidebar": {

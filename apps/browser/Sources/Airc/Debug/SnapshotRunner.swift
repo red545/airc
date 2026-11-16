@@ -308,7 +308,6 @@ final class SnapshotRunner {
         case "parityp13b", "parityp13b-relaunch": parityP13bScenario()   // P13b: a note's title field, notes dragged into splits
         case "agentspike": agentSpikeScenario()   // the agent server end to end (AgentSpikeCheck.swift)
         case "parityagentview": parityAgentViewScenario()   // the Agents folder, Watch, Take over, Stop (ParityAgentViewCheck.swift)
-        case "agentpanel": agentPanelScenario()   // the Airc Agent panel against a fake model (AgentPanelCheck.swift)
         case "parityconnect": parityConnectScenario()   // every way to connect Claude (ParityConnectCheck.swift)
         case "parityremote": parityRemoteScenario()   // Settings › Agents › Other devices, the tailnet listener (ParityRemoteCheck.swift)
         case "hiddenpaint": hiddenPaintScenario()   // MEM-6: hidden pages draw nothing, by window state (HiddenPaintCheck.swift)

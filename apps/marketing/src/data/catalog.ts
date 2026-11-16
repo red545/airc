@@ -9,7 +9,7 @@
 // makes untrue, a Coming row it delivers); `from` shows a row only then. Previews show the state after the newest
 // release. `shot` names a file in src/assets/screens (scripts/sync-screenshots.mjs).
 
-export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "0.1.18" | "next" | "coming";
+export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "0.1.18" | "0.1.19" | "0.1.20" | "0.1.21" | "next" | "coming";
 
 export interface Feature {
   title: string;
@@ -472,7 +472,7 @@ export const groups: Group[] = [
       { title: "What stays on this Mac", line: "Today tabs, history, logins and Boosts don't sync. Pinned Notes now do. Your sidebar is backed up before the first sync.", since: "0.1.5" },
       { title: "Pinned and Favorite splits sync", line: "A split you pin or keep as a Favorite reaches your other Macs with its pages in order, side by side or stacked, at its sizes, end-to-end encrypted. If two Macs change it at once, the later layout wins and pages added on either stay.", since: "0.1.15" },
       { title: "What stays on this Mac", line: "Today tabs, history, logins, Boosts and notes don't sync. Your sidebar is backed up before the first sync.", since: "0.1.3", until: "0.1.5" },
-      { title: "Settings sync", line: "The settings you change follow you to your other Macs: theme, shortcuts, Site Search, links and Little Airc, Archive timing, AI, blocking and privacy. The latest change wins, and each Mac keeps its own folders, Developer Mode and approvals. Settings → Sync → Sync settings.", since: "next" },
+      { title: "Settings sync", line: "The settings you change follow you to your other Macs: theme, shortcuts, Site Search, links and Little Airc, Archive timing, AI, blocking and privacy. The latest change wins, and each Mac keeps its own folders, Developer Mode and approvals. Settings → Sync → Sync settings.", since: "0.1.21" },
     ],
   },
 ];

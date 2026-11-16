@@ -119,7 +119,6 @@ extension SnapshotRunner {
             AgentWatchView.ignoresOcclusion = false
         }
         wait(0.6)
-        mkAgentPanelShot(d)   // agentpanel: the Airc Agent asking before it pays (MarketingAgentPanel.swift)
     }
 
     /// agents-approval: "Allow ‘Claude’ to use Airc?" as Airc shows it (its own picture), on the studio's desktop.

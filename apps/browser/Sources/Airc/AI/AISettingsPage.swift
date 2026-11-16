@@ -11,7 +11,7 @@ struct AIPage: View {
     @State private var availability = AIFeatures.shared.availability
     @Environment(\.aircTheme) private var theme
 
-    static let privacy = "Apple Intelligence features run on this Mac. Nothing is sent anywhere."
+    static let privacy = "Runs on this Mac. Nothing is sent anywhere."
 
     private func toggle(_ key: KeyPath<AppSettings.Values, Bool>, _ set: @escaping (Bool, AppSettings) -> Void) -> Binding<Bool> {
         Binding(get: { availability.isAvailable && model.settings.values[keyPath: key] },
@@ -95,7 +95,6 @@ struct AIPage: View {
                     .disabled(!availability.isAvailable || !model.settings.values.tidyDownloads)
                     .testAnchor("ai.tidyDownloadsAuto")
             }
-            AgentModelSection()   // agentpanel: the Airc Agent's own model (Agent/Panel/AgentModelSection.swift)
         }
         .onAppear {
             AIFeatures.shared.refreshAvailability()
