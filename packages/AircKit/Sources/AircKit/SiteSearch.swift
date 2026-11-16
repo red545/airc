@@ -486,4 +486,9 @@ public struct SiteSearchIndex: Equatable, Sendable {
     }
 
     public func contains(_ id: String) -> Bool { searches.contains { $0.id == id } }
+
+    /// The site whose shortcut is `keyword` (lowercased), as a bang ("!yt") names it (SiteSearchBang).
+    public func site(forKeyword keyword: String) -> SiteSearch? {
+        keywords.firstIndex(of: keyword).map { searches[$0] }
+    }
 }

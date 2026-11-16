@@ -174,6 +174,7 @@ final class SnapshotRunner {
         case "cmdtrust": cmdTrustScenario()   // Command Bar icons, the official-sites mark, row kinds (CmdTrustCheck)
         case "parityp09": parityP09Scenario()   // P09: pinned extensions in the toolbar, their popups
         case "parityp07": parityP07Scenario()   // P07a: Site Search, suggestion deletion, input methods
+        case "paritybangs": parityBangsScenario()   // DuckDuckGo-style !bangs in the Command Bar (ParityBangsCheck)
         case "frames": framesScenario()
         case "extension": extensionScenario()
         case "fullscreen": fullScreenScenario()
@@ -246,6 +247,7 @@ final class SnapshotRunner {
         case "parityp09b": parityP09bScenario()
         case "paritycontextmenu": parityContextMenuScenario()
         case "parityfedcm": parityFedCmScenario()   // FedCM on a fake IdP: no crash; Chromium falls back to the popup (ParityFedCmCheck.swift)
+        case "paritypagebubbles": parityPageBubblesScenario()   // media remoting + WebAuthn ambient bubbles without a toolbar (ParityPageBubblesCheck.swift)
         case "menulang": menuLanguageScenario()   // English-only app strings under a German test locale (MenuLanguageCheck)
         case "parityp08c": parityP08cScenario()   // P08c: Capture in Portrait Mode in View and the Site Control Center
         case "parityp12", "parityp12-relaunch": parityP12Scenario()   // P12: GitHub Live Folders on a local fake GitHub

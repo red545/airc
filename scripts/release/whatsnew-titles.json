@@ -168,5 +168,10 @@
     "title": "Google sign-in crash fixed",
     "detail": "With the Chromium engine, \"Continue with Google\" on sites such as Pinterest could quit Airc. Sign-in now opens Google's own sign-in window instead.",
     "action": "none"
+  },
+  "Bangs in the Command Bar": {
+    "title": "Bangs in the Command Bar",
+    "detail": "Type a bang such as !yt cats, !gm Vienna or !gt hello in the Command Bar (⌘T) to search that site straight away. Your own Site Search shortcuts work as bangs too.",
+    "action": "commandBar"
   }
 }

@@ -307,6 +307,8 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     private(set) var siteCandidate: SiteSearch?
     /// P07b: the chat site Tab would ask ("gpt"), when no site search matches.
     private(set) var askCandidate: AskAIProvider?
+    /// A DuckDuckGo-style bang in what's typed ("!yt cats", "cats !yt"; SiteSearchBang): its search is the first row.
+    private(set) var bang: SiteSearchBang.Match?
     /// P07c: Instant Links finding pages for what's typed, or showing what will open.
     private var instant: InstantState?
     private let scopePill = CommandBarScopePill()
@@ -373,6 +375,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         deletingEdit = false
         siteCandidate = nil
         askCandidate = nil
+        bang = nil
         cancelInstant(restore: false)
         scopeOrigin = ""
         if scope != nil {
@@ -752,6 +755,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         inlineSite = nil
         siteCandidate = nil
         askCandidate = nil
+        bang = nil
         cancelInstant(restore: false)
         suggestions = []
         suggestionQuery = ""
@@ -1019,7 +1023,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         let q = typed
         let sites = Perf.time("cb.sitesearch") { Self.siteSearchEnabled ? c.commandBarSiteSearches : nil }
         // A site edited in Settings is searched as it is now; another profile's Space without it ends its search.
-        if case .site(let s)? = scope {
+        if case .site(let s)? = scope, !SiteSearchBang.isBuiltIn(s) {
             guard let now = sites?.index.searches.first(where: { $0.id == s.id }) else { return leaveScope(restoring: false) }
             if now != s {
                 scope = .site(now)
@@ -1029,6 +1033,9 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         // A chat site turned off (or another profile's Space, with another choice) ends its question, keeping the words.
         if case .ask(let p)? = scope, c.commandBarAskAI != p { return leaveScope(restoring: false) }
         let composing = isComposing
+        // "!yt cats": the profile's own shortcuts first, then the built-in bangs. A byte scan when there's no "!".
+        let bangWord = Self.bangsEnabled && !isActionsMode && scope == nil && !composing && SiteSearchBang.hasBangWord(q)
+        bang = Perf.time("cb.bang") { bangWord ? SiteSearchBang.match(q, own: sites?.index) : nil }
         // A bounded, prebuilt tier supplies local rows in this event, without waiting for the
         // history queue. The full index still refines later through identity-preserving replacement.
         if Self.localHistoryEnabled, !isActionsMode, !q.trimmingCharacters(in: .whitespaces).isEmpty,
@@ -1044,7 +1051,8 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         // Yours first (history, open tabs, pinned items); a well-known site only when nothing of yours completes it.
         var site: CommonSites.Site?
         inline = Perf.time("cb.inline") { () -> InlineCompletion.Match? in
-            guard allowCompletion && !isActionsMode && scope == nil && !composing else { return nil }
+            // Never over a bang: "!y" must stay "!y", whatever starts with it.
+            guard allowCompletion && !isActionsMode && scope == nil && !composing && !bangWord else { return nil }
             if let m = c.inlineCompletion(for: q) { return m }
             // feedback2: these words mean Send Feedback, not a built-in site ("feed" → Feedly): no site completes them.
             if Self.feedbackWords.contains(q.trimmingCharacters(in: .whitespaces).lowercased()) { return nil }
@@ -1091,10 +1099,12 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         let glyph = Symbols.image(isActionsMode ? "command" : "magnifyingglass", size: 17, weight: .medium)
         if glass.image !== glyph { glass.image = glyph }
         siteCandidate = Perf.time("cb.sitematch") { () -> SiteSearch? in
+            // A bang alone ("!yt"): Tab starts its site's search, as "yt" + Tab does. Another bang word: no hint.
+            if bangWord { return bang.flatMap { $0.query.isEmpty ? $0.site : nil } }
             guard scope == nil, !isActionsMode, !composing, let sites else { return nil }
             return sites.index.match(q, host: inline?.url ?? inlineSite?.url)
         }
-        askCandidate = siteCandidate == nil && scope == nil && !isActionsMode && !composing
+        askCandidate = siteCandidate == nil && scope == nil && !isActionsMode && !composing && bang == nil
             ? c.commandBarAskAI.flatMap { $0.matches(q) ? $0 : nil } : nil
         // The last answer's suggestions stay until the next answer replaces them, in place. Clearing them on every key
         // hid their rows until the answer came (30 ms debounce + the network), then showed them again: rows flickered
@@ -1116,6 +1126,15 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     private static let siteSearchEnabled: Bool = {
         #if AIRC_TESTING
         return ProcessInfo.processInfo.environment["AIRC_SITE_SEARCH"] != "0"
+        #else
+        return true
+        #endif
+    }()
+
+    /// Test builds can leave bangs out (`AIRC_BANGS=0`), for cbperf's A/B in one binary.
+    private static let bangsEnabled: Bool = {
+        #if AIRC_TESTING
+        return ProcessInfo.processInfo.environment["AIRC_BANGS"] != "0"
         #else
         return true
         #endif
@@ -1148,10 +1167,10 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         }
     }
 
-    /// Whether `q` gets the engine's suggestions: plain words of two letters or more, not in a site search or actions,
-    /// and suggestions on for this window's profile.
+    /// Whether `q` gets the engine's suggestions: plain words of two letters or more, not in a site search, a bang or
+    /// actions, and suggestions on for this window's profile.
     private func wantsSuggestions(_ q: String) -> Bool {
-        scope == nil && !isActionsMode && URLRules.normalizeInput(q) == nil
+        scope == nil && bang == nil && !isActionsMode && URLRules.normalizeInput(q) == nil
             && q.trimmingCharacters(in: .whitespaces).count >= 2 && host?.commandBarSuggestions != nil
     }
 
@@ -1165,8 +1184,8 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     }()
 
     private func requestSuggestions(for q: String) {
-        // A site search's query never goes to the profile's engine.
-        guard let c = host, scope == nil, !isActionsMode, URLRules.normalizeInput(q) == nil,
+        // A site search's query never goes to the profile's engine, nor does a bang's.
+        guard let c = host, scope == nil, bang == nil, !isActionsMode, URLRules.normalizeInput(q) == nil,
               q.trimmingCharacters(in: .whitespaces).count >= 2, let source = c.commandBarSuggestions else { return }
         SuggestionService.shared.fetch(q, engine: source.engine, profileID: source.profileID) { [weak self] list in
             guard let self, self.typed == q, self.scope == nil else { return }
@@ -1191,7 +1210,10 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         if case .site(let s)? = scope { return siteResults(q, site: s, history: history) }
         if case .ask(let p)? = scope { return askResults(q, provider: p) }
         var rows = c.barCommandResults(for: q, mode: mode, inline: inline, inlineSite: inlineSite, suggestions: suggestions, history: history)
-        if let s = siteCandidate {
+        if let b = bang {
+            rows.insert(bangRow(b), at: 0)
+            if rows.count > AircMetrics.CommandBar.maxRows { rows.removeLast() }
+        } else if let s = siteCandidate {
             // Arc's hint: "Tab", or "Space or Tab" where the profile lets Space start it too.
             let spaces = c.commandBarSiteSearches?.spaceTriggers == true
             var row = CommandResult(title: "Search \(s.name)", subtitle: spaces ? "Press Space or Tab" : "Press Tab", badge: "Site Search",
@@ -1221,6 +1243,20 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
                                      historyURL: h.entry.url))
         }
         return out
+    }
+
+    /// A bang's row, first: "Search YouTube for “cats”" (Return opens it); a bang alone, "Search YouTube" (Return or Tab
+    /// starts the site's search, as its shortcut and Tab do).
+    private func bangRow(_ b: SiteSearchBang.Match) -> CommandResult {
+        let label = AircCommandText.searchSubtitle(engine: b.site.name)
+        guard let url = b.url else {
+            var row = CommandResult(title: label, subtitle: "Press Return or Tab", badge: "Site Search", icon: siteIcon(b.site),
+                                    matches: [], action: .run {})
+            row.startsScope = .site(b.site)
+            return row
+        }
+        return CommandResult(title: label + " for \u{201C}" + b.query + "\u{201D}", subtitle: "!" + b.keyword, badge: "Search",
+                             icon: siteIcon(b.site), matches: [], action: .open(url))
     }
 
     /// A site's icon on its rows: its favicon (a letter tile until it's cached); a magnifying glass in private windows.
@@ -1528,7 +1564,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
             rows.insert(row, at: min(1, rows.count))
         }
         let text = q.trimmingCharacters(in: .whitespacesAndNewlines)
-        if Self.isInstantQuery(text), c.commandBarInstantLinks != nil,
+        if bang == nil, Self.isInstantQuery(text), c.commandBarInstantLinks != nil,
            let i = rows.firstIndex(where: { $0.badge == "Search" && $0.title == text }) {
             let n = InstantLinks.count(in: text)
             var row = CommandResult(title: n == 1 ? "Open the Top Result" : "Open the Top \(n) Results", subtitle: "Instant Links",
@@ -1566,7 +1602,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         case nil: break
         }
         let text = typed.trimmingCharacters(in: .whitespacesAndNewlines)
-        if scope == nil, Self.isInstantQuery(text), host?.commandBarInstantLinks != nil { return startInstantLinks() }
+        if scope == nil, bang == nil, Self.isInstantQuery(text), host?.commandBarInstantLinks != nil { return startInstantLinks() }
         if scope == nil, let i = results.firstIndex(where: { $0.badge == "Search" && $0.title == text }) { select(i) }
         execute()
     }

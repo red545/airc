@@ -84,6 +84,37 @@ address it gets from Chrome or Arc: after a "?" spaces become "+" and every char
 
 A site search's words go only to that site: they aren't sent to your search engine for suggestions.
 
+### Bangs
+
+As on DuckDuckGo, a word starting with **!** searches a site straight away: type **!yt cats** (or **cats !yt**) and
+the first row says **Search YouTube for “cats”**; Return opens YouTube's results. The bang can go anywhere in what you
+type, in any case (**!YT**). A bang alone (**!yt**) and Return or Tab starts the site's search, as its shortcut and
+Tab do.
+
+Every shortcut in **Settings → Site Search** works as a bang (**!gdocs**, or **!lb** for a site you added), and Airc
+knows the common DuckDuckGo bangs too:
+
+| Bang | Site | Bang | Site |
+|---|---|---|---|
+| !g | Google | !so | Stack Overflow |
+| !gm, !maps | Google Maps | !r, !reddit | Reddit |
+| !gt | Google Translate | !imdb | IMDb |
+| !gi | Google Images | !x, !twitter, !tw | X |
+| !gn | Google News | !ddg | DuckDuckGo |
+| !gs | Google Scholar | !b, !bing | Bing |
+| !yt | YouTube | !npm, !pypi, !crates | npm, PyPI, crates.io |
+| !w, !wiki | Wikipedia | !mdn | MDN Web Docs |
+| !a, !amazon | Amazon | !hn | Hacker News |
+| !ebay, !etsy | eBay, Etsy | !wa | WolframAlpha |
+| !gh | GitHub | !sp, !spotify | Spotify |
+| !applemaps | Apple Maps | !applemusic | Apple Music |
+| !li, !linkedin | LinkedIn | !pin, !twitch | Pinterest, Twitch |
+
+Your own site with the same shortcut comes first. Bangs are looked up on your Mac: nothing is sent to DuckDuckGo to
+find the site, and the words aren't sent to your search engine for suggestions. Google Translate translates into your
+Mac's first language. A bang Airc doesn't know stays part of the search, so if your profile searches with DuckDuckGo,
+DuckDuckGo's own bangs keep working.
+
 ## Ask ChatGPT
 
 Ask ChatGPT (or Perplexity, or Claude) from the Command Bar, as Arc Max's "ChatGPT in the Command Bar" did:
