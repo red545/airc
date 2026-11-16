@@ -825,11 +825,9 @@ final class ChromiumRuntime: NSObject, AircEngineDelegate {
         }
         // Airc owns Now Playing. It has no Google AI-mode omnibox or automatic translation-prompt ranking;
         // disabling the ranker leaves user-requested translation available.
-        // FedCM's account chooser and loading dialogs need the tab's views widget, which Airc's windows don't have:
-        // "Continue with Google" crashed in FedCmAccountSelectionView::CreateDialogWidget. With FedCm off, pages
-        // see no IdentityCredential or navigator.login and sign in through their popup or redirect instead.
+        // FedCM stays on: its dialogs parent on the window's modal-dialog parent (engine 036-fedcm-dialogs.patch).
         merge("disable-features", defaults: ["HardwareMediaKeyHandling", "AimEnabled",
-                                             "TranslateRankerQuery", "TranslateRankerEnforcement", "FedCm"])
+                                             "TranslateRankerQuery", "TranslateRankerEnforcement"])
         // Avoid bulk component downloads competing with startup and session restoration. Defer the first routine
         // check to five minutes, keeping Chromium's normal five-hour schedule and on-demand requests, including CRLSet
         // and Widevine. An explicit interval still works for diagnostics. Never disable the component updater.
