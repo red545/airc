@@ -95,3 +95,34 @@ with Google"). The patch falls back to `g_airc_fedcm_dialog_anchor`
 view of the same transparent modal parent that tab-modal dialogs use, anchored
 over the page and kept off other Spaces. The app's `--script parityfedcm` drives
 both modes on a loopback RP with a fake IdP.
+
+## Toolbar-anchored bubbles (dialogfix, 037 and 038)
+
+Two more bubbles asked `BrowserView::GetBrowserViewForBrowser(browser)` for a
+toolbar button to anchor on and dereferenced the null result:
+the media remoting prompt ("Optimize fullscreen casting?", asked once when a Cast
+mirroring session could remote a fullscreen video;
+037-media-remoting-dialog.patch) and WebAuthn ambient sign-in (`uiMode:
+'passive'` with conditional mediation, upstream feature
+`WebAuthenticationAmbientSignin`, off by default; 038-webauthn-ambient-dialog.patch).
+Without a BrowserView both now call `g_airc_page_bubble`
+(airc_page_bubble_hooks.h) → `WindowHost::PlacePageBubble`: the bubble parents
+on the same transparent modal parent and anchors at the page's top right corner,
+where Chrome's toolbar button would be. Ambient sign-in with one passkey uses the
+bubble's "Sign in" instead of the toolbar page-action chip, which Airc has no
+place for. `AircTab -showMediaRemotingDialogForTesting:` (test gate
+`--airc-test=modalDialogs`) shows the remoting prompt through the same
+coordinator; the app's `--script paritypagebubbles` drives both bubbles (ambient
+sign-in with a DevTools virtual authenticator and
+`--enable-features=WebAuthenticationAmbientSignin`).
+
+The re-audit (dialogfix) found the same null one level down, in
+`bubble_anchor_util::GetPageInfoAnchorConfiguration()` and
+`GetPageInfoAnchorRect()`: with no BrowserView both dereferenced it. Every bubble
+aligned with Page Info goes through them; the one a page reaches by default is
+the Safety Tip ("Did you mean google.com?") on a lookalike domain, e.g. a
+character swap of a top site. 039-page-info-anchor.patch returns no anchor view
+and an anchor point just inside the page's top left corner
+(`g_airc_page_info_anchor_rect` → `WindowHost::PageBoundsInScreen`). The callers
+already parent on the browser window's NSWindow. `--script paritypagebubbles`
+covers it with `--host-resolver-rules=MAP goolge.com 127.0.0.1`.

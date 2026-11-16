@@ -3,6 +3,7 @@
 // Optional callbacks awaiting upstream integrations; see README.md.
 #include "airc/core/airc_hooks.h"
 #include "airc/core/airc_fedcm_hooks.h"
+#include "airc/core/airc_page_bubble_hooks.h"
 #include "content/public/browser/web_contents.h"
 #include "content/browser/web_contents/web_contents_impl.h"  // nogncheck
 void (*g_airc_call_share)(TabSharingUI*, content::WebContents*, content::WebContents*, bool) = nullptr;
@@ -12,6 +13,8 @@ bool (*g_airc_keeps_window_without_tabs)(
     const BrowserWindowInterface* browser) = nullptr;
 bool (*g_airc_password_bubble)(content::WebContents* web_contents) = nullptr;
 views::View* (*g_airc_fedcm_dialog_anchor)(content::WebContents* contents) = nullptr;
+bool (*g_airc_page_bubble)(content::WebContents* contents, views::BubbleDialogDelegate* bubble) = nullptr;
+bool (*g_airc_page_info_anchor_rect)(BrowserWindowInterface* browser, gfx::Rect* rect) = nullptr;
 bool (*g_airc_device_chooser)(
     content::WebContents* contents,
     std::unique_ptr<permissions::ChooserController>* controller,

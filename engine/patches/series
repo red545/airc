@@ -131,6 +131,7 @@
 # FILE chrome/browser/safe_browsing/generated_safe_browsing_pref.cc | Keep the protection selector enforced without inventing an enterprise controller for command-line prefs. | Seam: generated-pref serialization assumes every non-user-modifiable pref is managed.
 
 # Signed main-app group for local profile passkeys.
+# FILE chrome/browser/webauthn/chrome_web_authentication_delegate.cc | Profile passkeys use the signed main app's keychain access group, not the build-time Chrome team/bundle constant. | Seam: the access group is a private constexpr in TouchIdAuthenticatorConfigForProfile with no embedder override.
 031-passkeys.patch
 
 # FILE chrome/browser/ui/views/media_router/media_router_dialog_controller_views.cc | Host Cast and site presentations in the native picker; preserve fullscreen blocking and teardown. | Seam: Views owns private controller creation.
@@ -150,3 +151,12 @@
 
 # FILE chrome/browser/ui/views/webid/fedcm_account_selection_view_desktop.cc | FedCM's account chooser, loading and bubble dialogs parent on the window host's modal parent when the tab's NSWindow is no views widget (the crash in CreateDialogWidget). | Seam: no embedder hook for the FedCM dialog parent or anchor.
 036-fedcm-dialogs.patch
+
+# FILE chrome/browser/ui/views/media_router/media_remoting_dialog_view.cc | The media remoting prompt ("Optimize fullscreen videos") anchors on the page's top right on the window host's modal parent when there is no BrowserView toolbar (null deref in Show). | Seam: the coordinator is built privately by CastRemotingConnector with no embedder anchor hook.
+037-media-remoting-dialog.patch
+
+# FILE chrome/browser/ui/webauthn/ambient/ambient_signin_controller.cc | WebAuthn ambient sign-in shows its bubble on the window host's modal parent when there is no BrowserView (null deref in ShowBubbleView), and uses the bubble instead of the toolbar page action chip. | Seam: no embedder hook for the ambient sign-in anchor or UI type.
+038-webauthn-ambient-dialog.patch
+
+# FILE chrome/browser/ui/views/bubble_anchor_util_views.cc | Bubbles aligned with Page Info (Safety Tip on lookalike domains, suspicious-site, wallet) get no anchor view and a point at the page's top left when there is no BrowserView (null deref of browser_view in both helpers). | Seam: the helpers are free functions over BrowserView with no embedder anchor.
+039-page-info-anchor.patch

@@ -58,6 +58,7 @@ class InstallPromptData;
 }
 
 namespace views {
+class BubbleDialogDelegate;
 class View;
 class Widget;
 class WidgetDelegate;
@@ -161,6 +162,11 @@ class WindowHost : public TabStripModelObserver,
   // FedCM's dialogs (036-fedcm-dialogs.patch): the views root over the page area, on the same transparent modal
   // parent as tab-modal dialogs, anchored and shown the way GetHostView() does it. Null without a widget.
   views::View* DialogAnchorView();
+  // Toolbar-anchored bubbles (airc_page_bubble_hooks.h): parent on the same modal parent, anchored at the page's top
+  // right corner. With nullptr only answers whether a parent exists.
+  bool PlacePageBubble(views::BubbleDialogDelegate* bubble);
+  // The page area in screen coordinates (the host view's frame), empty before the host view is in a window.
+  gfx::Rect PageBoundsInScreen();
   void OnWidgetBoundsChanged(views::Widget* widget,
                              const gfx::Rect& new_bounds) override;
 
