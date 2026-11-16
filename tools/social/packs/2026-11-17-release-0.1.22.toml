@@ -1,0 +1,57 @@
+# Airc 0.1.22 (cut a24acaba; build revision beab82dd; notes on release/0.1.22-notes). Claims from its approved notes,
+# "New since 0.1.21" (one line: Airc Agent (beta)). NOT TO POST before release034 posts LIVE for 0.1.22: plan and
+# approve only then, after checking the public repo shows the release (owner rule).
+slug = "2026-11-17-release-0.1.22"
+title = "Airc 0.1.22: Airc Agent (beta)"
+kind = "release"
+since = "0.1.22"
+shots_rev = "a24acaba"
+tag = "Beta in Airc 0.1.22"
+end_title = "Airc 0.1.22"
+end_line = "Free for Mac · aircbrowser.com"
+summary = """
+Two single posts about Airc's own agent: the launch (card of the panel asking before it pays) and a day later the
+controls (Quick or Keep going, Stop, the Agents folder). Every post says beta, your own API key billed by the provider,
+and not tried on every site, as release034 asked.
+"""
+order = """
+1. The launch at 10:30 UTC on the first free day after LIVE (move a lighter post if 10:30 is taken that day: this is
+   the biggest post since the agent launch); the controls post a day later.
+"""
+checked = """
+- 0.1.22's notes: ⌥⌘A or View › Airc Agent; describe a task; does it in your signed-in sites with your own Anthropic
+  or OpenAI API key (Settings › AI › Agent, kept in your Keychain); asks before it pays, sends, posts or deletes (Allow
+  Once or Deny); Quick (25 steps, 3 min) or Keep going (200 steps, 30 min); Stop any time; runs in the Agents folder,
+  where you can watch or take over.
+- Please know, said plainly in both posts: beta; your own API key, the provider bills its usage; not tried against
+  every site yet.
+- Not claimed: anything from agentpanel2 (streaming, Command Bar "Ask Airc to…"), autodark, linklaunch.
+- Shot: agent-panel (synthetic shop, scripted model), clipped to the panel's top: the task, its steps and "Pay on
+  cornershop…?" with Deny and Allow Once. Apple's developer site behind it stays out. The panel's model name and cost
+  line come from the scripted run; the alt says so.
+"""
+
+[[image]]
+id = "panel"
+shot = "agent-panel"
+title = "Airc Agent, in beta."
+line = "Describe a task. It asks before it pays."
+clip = [1056, 44, 374, 336]
+alt = "The Airc Agent panel in a scripted run on a demo shop: the task “Reorder my usual coffee beans from Corner Shop”, its steps (opening cornershop.aircbrowser.com, finding something on the page), then a question before anything is paid: Pay on cornershop.aircbrowser.com? The “Pay now” button. The agent waits for your answer, with Deny and Allow Once."
+
+[[post]]
+label = "Airc Agent (beta)"
+media = ["panel:16x9"]
+text = """
+Airc Agent is here, in beta: press ⌥⌘A, describe a task, and Airc does it in your signed-in sites. It asks before it pays, sends, posts or deletes.
+
+It runs on your own Anthropic or OpenAI API key, billed by them. It's new, so watch its first runs on a new site.
+"""
+
+[[post]]
+label = "Airc Agent: you stay in charge"
+text = """
+With Airc Agent you choose how far it goes: Quick (up to 25 steps) or Keep going (up to 200), and Stop any time. Each run shows in the Agents folder, where you can watch it or take over.
+
+Beta, in Airc 0.1.22, on your own API key.
+"""

@@ -1,16 +1,28 @@
-# Airc 0.1.20 public beta
+# Airc 0.1.21 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.88.
-This update makes signing in to a new profile from the sidebar pick up your Google account's picture and name and
-offer Gmail, Calendar and Drive for it, and moves the Feedback button next to +. It includes everything from 0.1.19.
-The release manifest records the exact build, source and checksums.
+This update keeps your settings the same on your Macs with iCloud sync, and lets you ask Claude or ChatGPT straight
+from the Command Bar. It includes everything from 0.1.20. The release manifest records the exact build, source and
+checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.19
+## New since 0.1.20
+
+- **Settings sync between your Macs.** With iCloud sync on, the settings you change follow you to your other Macs:
+  your theme, shortcuts, Site Searches, search engine, Ask AI, link and Little Airc choices, blocking and more. If you
+  change the same setting on two Macs, the later change wins. Things that belong to one Mac stay on it: folders and
+  paths, Developer Mode, memory settings, extensions and the approvals you gave apps. Turn it off in Settings › Sync ›
+  Sync settings (on by default while sync is on).
+- **Ask Claude or ChatGPT from the Command Bar.** Type a question or a prompt after ⌘T, press ↓↓ to the Ask Claude (or
+  Ask ChatGPT) row and Return: a new chat opens with your prompt, in the same profile. Choose Claude, ChatGPT,
+  Perplexity or Off in Settings › AI › Command Bar › Ask AI. Automatic, the default, uses the chat site you keep pinned
+  or as a Favorite, else the one you visited in the last 90 days, else none.
+
+## Included from 0.1.20
 
 - **Signing in to a new profile from the sidebar** now picks up the account's picture and name: the profile and its
   Space header show them. The sign-in card then offers Gmail, Calendar and Drive for that account as Favorites, with
@@ -255,6 +267,9 @@ The release manifest records the exact build, source and checksums.
 
 ## Please know
 
+- **Settings sync** was tested between two copies of Airc with a stand-in for iCloud on the build Mac, not with real
+  iCloud yet. Older versions of Airc don't get synced settings until they're updated.
+
 - **Arc import's Keychain prompt** was tested in simulation only: the real macOS prompt, and choosing Deny in it,
   haven't been tried on a real Arc import yet.
 
@@ -329,6 +344,6 @@ The release manifest records the exact build, source and checksums.
 - **Arc import:** unreadable encrypted data and unsupported records are skipped with a reason.
 - **Smoothness:** 120 Hz animation and zero idle work remain goals, not measured promises.
 
-Source: `2b1d17c5348f683a65b03159786623f53b843d99`. Build: `202611161528`. Channel: stable.
-
 Source: `9f2e6d8257edce1646103238420aaa440d058539`. Build: `202611161935`. Channel: stable.
+
+Source: `65753091662a41953cff5642118df50e4cf6d499`. Build: `202611162134`. Channel: stable.

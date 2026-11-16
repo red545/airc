@@ -743,7 +743,7 @@
           "arc": "Sync everything, with account recovery",
           "status": "partly",
           "where": "Settings → Sync",
-          "note": "Today tabs, history, logins and Boosts stay on each Mac, and there's no recovery without iCloud Keychain.",
+          "note": "Settings you change sync too; each Mac keeps its own folders, Developer Mode and approvals. Today tabs, history, logins and Boosts stay on each Mac, and there's no recovery without iCloud Keychain.",
           "since": "0.1.5"
         },
         {

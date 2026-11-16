@@ -2,6 +2,26 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.21",
+      "highlights": [
+        {
+          "title": "Settings sync between Macs",
+          "lead": "Settings sync between your Macs",
+          "detail": "With iCloud sync on, the settings you change (theme, shortcuts, Site Searches, blocking and more) follow you to your other Macs; the later change wins. Each Mac keeps its own folders, Developer Mode and app approvals. Settings › Sync › Sync settings.",
+          "icon": "sparkles",
+          "action": "settingsSync"
+        },
+        {
+          "title": "Ask AI in the Command Bar",
+          "lead": "Ask Claude or ChatGPT from the Command Bar",
+          "detail": "Type a question or a prompt after ⌘T, press ↓↓ and Return: it opens in a new Claude or ChatGPT chat, signed in as you are. Pick the site, or Off, in Settings › AI › Command Bar › Ask AI.",
+          "icon": "sparkles",
+          "action": "settingsAI",
+          "image": "ask-ai"
+        }
+      ]
+    },
+    {
       "version": "0.1.20",
       "highlights": [
         {
