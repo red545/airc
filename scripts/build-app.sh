@@ -361,7 +361,8 @@ if [[ -n "$SNAPSHOTS" ]]; then
       ui_open -g -n -W --env "CFFIXED_USER_HOME=$home" --env "AIRC_SHIP_GATE=${AIRC_SHIP_GATE:-0}" --env "AIRC_YTADS_SOURCE=$ROOT" "$app" --args --engine="$engine" --snapshot "$out" "$@"
       grep -qx "\[$2\]" "$out/log.txt" 2>/dev/null || echo "FAIL $2: the app wrote no log (crashed or never started)" >> "$out/log.txt"
     }
-    for pass in write read; do launch --script profilesignin --data-dir "$home/ProfileSignIn"; done
+    # SP-12: a new profile's sidebar sign-in on a loopback stand-in for Google (made-up hosts; WebKit uses a per-profile proxy).
+    for pass in write read; do launch --script profilesignin --data-dir "$home/ProfileSignIn" "--host-resolver-rules=MAP *.airc-fixture.co.uk 127.0.0.1" --disable-features=HttpsUpgrades; done
     launch --script showcase --ephemeral --data-dir "$home/Airc"
     # YouTube-shaped responses on loopback only: no public-video dependency in CI.
     launch --script ytads --ephemeral --data-dir "$home/VideoAds"

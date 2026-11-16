@@ -172,7 +172,7 @@ public enum SpaceBarLayout {
     /// The span between the Library button and "+": 42 pt from each edge.
     public static func span(sidebarWidth: Double) -> Double { max(0, sidebarWidth - 84) }
 
-    /// The Feedback button's room after the Library button (its 32 pt plus a 2 pt gap).
+    /// The Feedback button's room before the "+" button (its 32 pt plus a 2 pt gap).
     public static let feedbackButton: Double = 34
     /// The Space icons never get narrower than this to make room for the Feedback button.
     public static let feedbackMinCell: Double = 24
@@ -184,9 +184,10 @@ public enum SpaceBarLayout {
         return (span(sidebarWidth: sidebarWidth) - feedbackButton) / Double(spaces) >= feedbackMinCell
     }
 
-    /// Where the Space icons go: (left edge, span), after the Feedback button when it shows.
+    /// Where the Space icons go: (left edge, span). The Feedback button, when it shows, sits just left of "+"
+    /// (owner, 2026-11-16: Archive · Spaces · Feedback · +), so it takes its room from the span's right end.
     public static func region(sidebarWidth: Double, feedback: Bool) -> (x: Double, span: Double) {
         let extra = feedback ? feedbackButton : 0
-        return (42 + extra, max(0, span(sidebarWidth: sidebarWidth) - extra))
+        return (42, max(0, span(sidebarWidth: sidebarWidth) - extra))
     }
 }

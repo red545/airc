@@ -2,11 +2,11 @@
 
 Tell the Airc team what works, what doesn't, and what you'd like. Choose **Help › Send Feedback…** (where Arc had
 Contact the Team), press ⌘T and type **feedback** (or **feed**, **bug**, **report**), or click the speech bubble at the
-bottom left of the sidebar, next to the Library button.
+bottom right of the sidebar, next to the + button.
 
 ## The sidebar's Feedback button
 
-The speech bubble sits in the sidebar's bottom row, after the Library button. It steps aside when the sidebar is too
+The speech bubble sits in the sidebar's bottom row, after your Space icons, just left of +. It steps aside when the sidebar is too
 narrow for it and your Space icons (it never squeezes them below 24 points); Help and ⌘T still have Send Feedback then.
 Little Airc has no sidebar, so no button. Don't want it? Right-click it and choose **Hide Feedback Button**. Turn it
 back on in **Settings › Appearance › Sidebar › Show Feedback button**.

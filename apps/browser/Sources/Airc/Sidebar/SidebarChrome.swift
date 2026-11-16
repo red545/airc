@@ -502,12 +502,12 @@ final class SpacePagerView: NSView {
     }
 }
 
-/// The footer (SB-50/51): Library, Send Feedback (feedback2), one icon per Space, "+".
+/// The footer (SB-50/51): Library, one icon per Space, Send Feedback (feedback2), "+".
 final class SpaceBarView: NSView {
     weak var controller: WindowController? { didSet { if controller !== oldValue { observeFeedbackSetting() } } }
     private let library = GlyphButton(symbol: "archivebox", size: 15)
     private let plus = GlyphButton(symbol: "plus", size: 15)
-    /// Send Feedback (docs/user/feedback.md): a quiet speech bubble after Library. Right-click › Hide; Settings ›
+    /// Send Feedback (docs/user/feedback.md): a quiet speech bubble just left of "+". Right-click › Hide; Settings ›
     /// Appearance › Sidebar brings it back. Left out while the Space icons would get narrower than 24 pt for it.
     private let feedback = GlyphButton(symbol: "bubble.left", size: 14)
     private var feedbackObserver: AnyCancellable?
@@ -525,6 +525,8 @@ final class SpaceBarView: NSView {
     var cellViews: [NSView] { cells.filter { !$0.isHidden } }
     /// The Library button (the checks compare the Library's back button with it).
     var libraryButton: NSView { library }
+    /// The "+" button (feedbackbtn clicks it).
+    var plusButton: NSView { plus }
 
     /// The Library button's place in a column `height` tall, from its top-left: the footer's left button. The Library's
     /// back button takes the same place, so a second click without moving the pointer goes back (Arc).
@@ -858,7 +860,7 @@ final class SpaceBarView: NSView {
         let shows = feedbackEnabled && !hasProvisional
             && SpaceBarLayout.showsFeedback(sidebarWidth: Double(bounds.width), spaces: visibleSpaces)
         feedback.isHidden = !shows
-        feedback.frame = NSRect(x: library.frame.maxX + CGFloat(SpaceBarLayout.feedbackButton) - b, y: y, width: b, height: b)
+        feedback.frame = NSRect(x: plus.frame.minX - CGFloat(SpaceBarLayout.feedbackButton), y: y, width: b, height: b)
         guard !reordering else { return }
         let region = SpaceBarLayout.region(sidebarWidth: Double(bounds.width), feedback: shows)
         let widths = SpaceBarLayout.cellWidths(count: cells.count, current: Int(position.rounded()), span: region.span)

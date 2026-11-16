@@ -896,13 +896,12 @@ final class OnboardingController {
         }, failed: { [weak self] in self?.model.checkingAccounts.remove(source) })
     }
 
-    /// Shows `account` on the profile's row and keeps its email in the profile (Settings, the profile menu). Local only.
+    /// Shows `account` on the profile's row and keeps it in the profile (Settings, the profile menu, its avatar). Local only.
     private func show(_ account: GoogleAccount?, source: String, profileID pid: String) {
         model.accounts[source] = account
         model.accountPhotos[source] = nil
-        if store.profile(pid)?.googleAccount != account?.email {
-            try? store.updateProfile(pid) { $0.googleAccount = account?.email }
-        }
+        // The primary account (u/0), as the sidebar's sign-in keeps its own: email, name and picture (SP-12).
+        try? store.keepGoogleAccount(pid, account: account, index: account == nil ? nil : 0)
         GoogleAccountPhoto.load(account?.photoURL) { [weak self] image in
             guard let self, let image, self.model.accounts[source]?.email == account?.email else { return }
             self.model.accountPhotos[source] = image

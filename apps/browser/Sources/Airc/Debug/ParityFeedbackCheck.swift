@@ -556,6 +556,8 @@ extension SnapshotRunner {
         let footer = { self.c.sidebar.footer }
         func realClick(_ v: NSView?, mods: String? = nil, _ what: String) {
             step { [self] done in
+                // Lay out first: the Feedback button's place follows the sidebar's width (it sits left of +).
+                c.sidebar.layoutSubtreeIfNeeded()
                 guard let v, let w = v.window, let primary = NSScreen.screens.first, !v.isHidden else {
                     check(false, "parityfeedback [real click] \(what): on screen")
                     return done()
@@ -593,8 +595,9 @@ extension SnapshotRunner {
             c.sidebar.layoutSubtreeIfNeeded()
             let b = footer().feedbackButton
             check(footer().showsFeedback && b.toolTip == "Send Feedback" && b.accessibilityLabel() == "Send Feedback"
-                  && b.frame.minX > footer().libraryButton.frame.maxX - 0.5 && b.frame.maxX <= (footer().cellViews.first?.frame.minX ?? .infinity) + 0.5,
-                  "parityfeedback: the footer has the Feedback button after Library, before the Space icons (\(b.frame), tooltip \(b.toolTip ?? "-"))")
+                  && b.frame.minX >= (footer().cellViews.last?.frame.maxX ?? footer().libraryButton.frame.maxX) - 0.5
+                  && b.frame.maxX <= footer().plusButton.frame.minX + 0.5,
+                  "parityfeedback: the footer has the Feedback button after the Space icons, just left of + (\(b.frame), tooltip \(b.toolTip ?? "-"))")
         }
         renderFooter("feedback-footer-button")
         realClick(footer().feedbackButton, "the footer's Feedback button")
@@ -621,7 +624,7 @@ extension SnapshotRunner {
             c.sidebar.layoutSubtreeIfNeeded()
             let cells = footer().cellViews.map(\.frame.width)
             let b = footer().feedbackButton.frame
-            check(footer().showsFeedback && cells.allSatisfy { $0 >= 24 } && b.maxX <= (footer().cellViews.first?.frame.minX ?? 0) + 0.5,
+            check(footer().showsFeedback && cells.allSatisfy { $0 >= 24 } && b.minX >= (footer().cellViews.last?.frame.maxX ?? .infinity) - 0.5,
                   "parityfeedback: at 228 pt with 3 Spaces it shows, the icons keep \(cells.map { Int($0) }) pt and don't overlap it")
         }
         renderFooter("feedback-footer-228-3spaces")
@@ -633,7 +636,7 @@ extension SnapshotRunner {
             check(footer().showsFeedback && footer().cellViews.isEmpty, "parityfeedback: with one Space it shows at the minimum width too")
         }
         renderFooter("feedback-footer-min-1space")
-        run { [self] in c.setSidebarWidth(260) }
+        run { [self] in c.setSidebarWidth(260); c.sidebar.layoutSubtreeIfNeeded() }
         // ⌃-click › Hide Feedback Button (real ⌃-click, ↓ ↓ Return in its menu).
         realClick(footer().feedbackButton, mods: "ctrl", "⌃-click on the Feedback button")
         wait(0.4)

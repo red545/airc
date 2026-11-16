@@ -20,6 +20,11 @@ public enum AircSignInCopy {
     public static let message = "A fresh profile. Sign in once and Google stays signed in here."
     public static let signIn = "Sign in"
     public static let notNow = "Not now"
+    /// After sign-in: the suggested Favorites, in the words of Arc's own Favorites step ("Select your favorite apps to
+    /// keep them handy in your sidebar.").
+    public static func offer(_ apps: String) -> String { "Add \(apps) to keep them handy in your sidebar." }
+    public static let add = "Add"
+    public static let skip = "Skip"
 }
 
 extension AircSidebarCard where Icon == AircGoogleMark {
@@ -40,7 +45,12 @@ extension AircSidebarCard where Icon == AircGoogleMark {
 @MainActor
 public final class AircSignInCardView: NSView {
     public var theme: ResolvedTheme { didSet { if theme != oldValue { update() } } }
+    /// The signed-in account (its email): the card then offers `apps` as Favorites for it.
     public var account: String? { didSet { if account != oldValue { update() } } }
+    /// The account's name for the title (else the email) and its picture in place of the G.
+    public var accountName: String? { didSet { if accountName != oldValue { update() } } }
+    public var photo: NSImage? { didSet { if photo !== oldValue { update() } } }
+    public var apps = "Gmail, Calendar and Drive" { didSet { if apps != oldValue { update() } } }
     public var onSignIn: () -> Void = {}
     public var onNotNow: () -> Void = {}
     public var onDismiss: (() -> Void)? { didSet { update() } }
@@ -66,16 +76,22 @@ public final class AircSignInCardView: NSView {
 
     private func update() {
         let dismiss: (() -> Void)? = onDismiss == nil ? nil : { [weak self] in self?.onDismiss?() }
+        let label = accountName.flatMap { $0.isEmpty ? nil : $0 } ?? account
+        let shownPhoto = account == nil ? nil : self.photo
         host.rootView = AnyView(
-            AircSidebarCard(title: account == nil ? AircSignInCopy.title : "Signed in as…",
-                            message: account.map { "\($0) · Add Gmail and Calendar to Favorites?" } ?? AircSignInCopy.message,
-                            primary: account == nil ? AircSignInCopy.signIn : "Add",
-                            secondary: account == nil ? AircSignInCopy.notNow : "No thanks",
+            AircSidebarCard(title: label ?? AircSignInCopy.title,
+                            message: account == nil ? AircSignInCopy.message : AircSignInCopy.offer(apps),
+                            primary: account == nil ? AircSignInCopy.signIn : AircSignInCopy.add,
+                            secondary: account == nil ? AircSignInCopy.notNow : AircSignInCopy.skip,
                             onPrimary: { [weak self] in self?.onSignIn() },
                             onSecondary: { [weak self] in self?.onNotNow() }, onDismiss: dismiss) {
-                AircGoogleMark(size: 16, onDisc: theme.isDark)
+                if let shownPhoto {
+                    Image(nsImage: shownPhoto).resizable().frame(width: 16, height: 16).clipShape(Circle())
+                } else {
+                    AircGoogleMark(size: 16, onDisc: theme.isDark)
+                }
             }
-                .help(account ?? AircSignInCopy.title)
+                .help(account.map { a in label == a ? "Signed in as \(a)" : "Signed in as \(label!) (\(a))" } ?? AircSignInCopy.title)
                 .aircTheme(theme)
                 // Room for the selected-row shadow below the 112 pt card.
                 .padding(.bottom, 0)

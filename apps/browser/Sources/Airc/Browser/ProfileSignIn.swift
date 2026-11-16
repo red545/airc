@@ -14,11 +14,20 @@ final class ProfileSignInCoordinator {
     private var policy = ProfileSignInPolling()
     private var refreshing = false
     private var lastEligible: Set<String> = []
+    /// The emails Google listed when each sign-in began (its first answer): the account to offer is one that's new.
+    /// A profile already signed in to one account that adds a second gets the second, at u/1.
+    private var before: [String: Set<String>] = [:]
+    /// Profiles whose sign-in tab has left Google's sign-in pages: their next answer is the result, not the baseline.
+    private var finished: Set<String> = []
     private(set) var pollingProfiles: Set<String> = []
+    /// Profiles whose sign-in has its "before" answer (checks wait for it before completing a mock sign-in).
+    var baselineProfiles: Set<String> { Set(before.keys) }
 
     func restart(_ id: String, tabID: String) {
         signInTabs[id] = tabID
         policy.restart(id)
+        before[id] = nil
+        finished.remove(id)
     }
 
     func tabNavigated(_ tabID: String) {
@@ -26,6 +35,7 @@ final class ProfileSignInCoordinator {
               let address = app?.store.tab(tabID)?.url, let url = URL(string: address),
               url.host != nil, !Self.isSignIn(url), eligible.contains(id) else { return }
         // One prompt account read after Google redirects, without resetting the five-minute bound.
+        finished.insert(id)
         if policy.requestFinalProbe(id, now: Date()) { refresh() }
     }
 
@@ -88,8 +98,8 @@ final class ProfileSignInCoordinator {
                 probe.read(profile) { [weak self] accounts in
                     guard let self, self.reading[id] == request else { return }
                     self.reading[id] = nil
-                    if self.eligible.contains(id), self.policy.isActive(id, now: Date()) {
-                        try? self.app?.store.receiveGoogleSignIn(id, accounts: accounts)
+                    if let accounts, self.eligible.contains(id), self.policy.isActive(id, now: Date()) {
+                        self.receive(accounts, for: id)
                     }
                     self.refresh()
                 }
@@ -98,6 +108,18 @@ final class ProfileSignInCoordinator {
                 self?.reading[id] = nil
             })
         }
+    }
+
+    /// The answer read as sign-in began is the baseline; after that, the newest account not in it is offered (as
+    /// onboarding keeps an account: email, name, picture, and its u/N).
+    private func receive(_ accounts: [GoogleAccount], for id: String) {
+        if before[id] == nil, !finished.contains(id) {
+            before[id] = Set(accounts.map(\.email))
+            return
+        }
+        guard let pick = GoogleSignInChoice.account(accounts, before: before[id]) else { return }
+        _ = GoogleAccountPhoto.cached(pick.account.photoURL)   // the avatar redraws when it arrives
+        try? app?.store.receiveGoogleSignIn(id, account: pick.account, index: pick.index)
     }
 
     private func stopProbe() {

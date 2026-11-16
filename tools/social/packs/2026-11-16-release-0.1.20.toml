@@ -1,0 +1,40 @@
+# Airc 0.1.20 (cut 6d14f751, release/0.1.20-cut; build revision 9f2e6d82). Claims from its approved notes
+# (docs/release-notes-beta.md at 9f2e6d82, "New since 0.1.19"). NOT TO POST before release032 posts LIVE for 0.1.20:
+# plan and approve only then, after checking the public repo shows the release (owner rule).
+slug = "2026-11-16-release-0.1.20"
+title = "Airc 0.1.20"
+kind = "release"
+since = "0.1.20"
+shots_rev = "6d14f751"
+tag = "New in Airc 0.1.20"
+end_title = "Airc 0.1.20"
+end_line = "Free for Mac · aircbrowser.com"
+summary = """
+One post: signing in to a new profile from the sidebar, on a card from the cut's own shot.
+"""
+order = """
+1. One post at 10:30 UTC on the first free day after LIVE.
+"""
+checked = """
+- 0.1.20's notes, item 1: signing in to a new profile from the sidebar picks up the account's picture and name; the
+  sign-in card offers Gmail, Calendar and Drive for that account as Favorites, with Add or Skip; a second Google
+  account gets its own. Please know: tested with a stand-in for Google's sign-in, not real accounts yet, so the post
+  describes what Airc does and claims nothing about testing.
+- Left out: the Feedback button's move (small; and profile-sign-in shows the bottom row before the move).
+- Shot: profile-sign-in clipped to the sidebar's sign-in card (synthetic account, Alex Example).
+"""
+
+[[image]]
+id = "signin"
+shot = "profile-sign-in"
+title = "Sign in, and it's set up."
+line = "Gmail, Calendar and Drive for that account, one click away."
+clip = [0, 85, 290, 230]
+alt = "Airc's sidebar for a new profile signed in as a made-up account, Alex Example, in a Space called A fresh start: a card with the account's picture and name says Add Gmail, Calendar and Drive to keep them handy in your sidebar, with Add and Skip."
+
+[[post]]
+label = "Sign in to a new profile"
+media = ["signin:16x9"]
+text = """
+Sign in to a new profile from Airc's sidebar and it takes on that account's picture and name, then offers its Gmail, Calendar and Drive as Favorites. A second Google account gets its own. New in Airc 0.1.20.
+"""

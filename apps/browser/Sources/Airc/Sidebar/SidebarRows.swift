@@ -1357,9 +1357,11 @@ final class NewTabRowView: SidebarRowView {
 }
 
 /// SP-12: right after a Space gets a fresh profile, offer Google sign-in at the top of Today. The card is AircDesign's
-/// (design.md §7 "Sign in to Google", visual review #3): the G, the copy, Sign in in the accent, Not now and ✕.
+/// (design.md §7 "Sign in to Google", visual review #3): the G, the copy, Sign in in the accent, Not now and ✕. Once
+/// signed in, the account (picture and name) offers Gmail, Calendar and Drive as Favorites: Add or Skip.
 final class SignInCardView: SidebarRowView {
     private let card = AircSignInCardView(theme: DesignTheme.default.resolved(systemIsDark: false))
+    private var photoObserver: NSObjectProtocol?
     var spaceID = ""
 
     override init(frame: NSRect) {
@@ -1382,15 +1384,26 @@ final class SignInCardView: SidebarRowView {
             self.controller?.dismissSignInCard(spaceID: self.spaceID)
         }
         addSubview(card)
+        // The account's picture arrives after the offer is drawn.
+        photoObserver = NotificationCenter.default.addObserver(forName: GoogleAccountPhoto.didLoad, object: nil, queue: .main) { [weak self] _ in
+            guard let self, let palette = self.palette, !self.spaceID.isEmpty else { return }
+            self.configure(spaceID: self.spaceID, palette: palette)
+        }
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    deinit { if let o = photoObserver { NotificationCenter.default.removeObserver(o) } }
 
     func configure(spaceID: String, palette: Palette) {
         self.spaceID = spaceID
         self.palette = palette
         let profile = controller?.store.profile(ofSpace: spaceID)
-        card.account = profile?.signInState == .offered ? profile?.googleAccount : nil
+        let offered = profile?.signInState == .offered ? profile : nil
+        card.account = offered?.googleAccount
+        card.accountName = offered?.googleAccountName
+        card.photo = offered.flatMap { GoogleAccountPhoto.cached($0.googleAccountPhoto) == nil ? nil : GoogleAccountPhoto.avatar($0, size: 16) }
+        card.apps = GoogleSuggestedFavorites.names
         card.theme = palette.resolved
     }
 

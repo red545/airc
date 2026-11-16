@@ -18,7 +18,7 @@ sharing's store, rate limits and admin sign-in.
   (Capture's sources), composed at the window's scale and sent as a JPEG of at most 1920 px. It is taken only from
   "Add Screenshot…" › Screenshot of This Window, and never offered in a private window.
 - Entry points: Help › Send Feedback…, the Command Bar's Send Feedback (keywords feedback, bug, report…), and the
-  sidebar footer's speech bubble (`SpaceBarView`, `AppSettings.sidebarFeedbackButton`; shown while the Space icons keep
+  sidebar footer's speech bubble, just left of + (`SpaceBarView`, `AppSettings.sidebarFeedbackButton`; shown while the Space icons keep
   ≥ 24 pt, `SpaceBarLayout.showsFeedback`).
 
 ## The API

@@ -1,4 +1,5 @@
 #include "airc/core/airc_blocking.h"
+#include "airc/core/airc_color_scheme.h"
 #include "services/network/public/mojom/websocket.mojom.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "net/base/net_errors.h"
@@ -287,6 +288,23 @@ class AircContentBrowserClient : public ChromeContentBrowserClient {
     }
     ChromeContentBrowserClient::CreateWebSocket(frame,std::move(factory),url,cookies,
         user_agent,std::move(client),std::move(options));
+  }
+  // The tab's preferred colour scheme from its Space (airc_color_scheme.h), over Chrome's window colour mode.
+  void OverrideWebPreferences(content::WebContents* web_contents,
+                              content::SiteInstance& main_frame_site,
+                              blink::web_pref::WebPreferences* prefs) override {
+    ChromeContentBrowserClient::OverrideWebPreferences(web_contents, main_frame_site, prefs);
+    ApplyColorSchemeOverride(web_contents, prefs);
+  }
+  bool OverrideWebPreferencesAfterNavigation(content::WebContents* web_contents,
+                                             content::SiteInstance& main_frame_site,
+                                             blink::web_pref::WebPreferences* prefs) override {
+    // Chrome's own pass puts its window colour mode back; the override wins again. A round trip like that may report
+    // a change that isn't one, which only resends the same preferences.
+    bool changed = ChromeContentBrowserClient::OverrideWebPreferencesAfterNavigation(web_contents,
+                                                                                     main_frame_site, prefs);
+    changed |= ApplyColorSchemeOverride(web_contents, prefs);
+    return changed;
   }
   void BrowserURLHandlerCreated(content::BrowserURLHandler* handler) override {
     HostURLHandlerRegistration registration(handler, &HandleWebUI);

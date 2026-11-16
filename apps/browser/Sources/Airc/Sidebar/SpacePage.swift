@@ -377,15 +377,23 @@ final class ProfileIndicatorView: NSView {
     private let name = AircFadingLabel(frame: .zero)
     private let chevron = CALayer()
     private let pill = CALayer()
-    private var avatarImage: NSImage?
+    private(set) var avatarImage: NSImage?
     var onClick: (() -> Void)?
     /// Avatar (and chevron) only.
     var condensed = false { didSet { if condensed != oldValue { needsLayout = true } } }
     var hovered = false { didSet { if hovered != oldValue { update() } } }
     private var palette: Palette?
+    private var profile: Profile?
+    private var photoObserver: NSObjectProtocol?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        // SB-22: the account's picture replaces its initial once it has arrived.
+        photoObserver = NotificationCenter.default.addObserver(forName: GoogleAccountPhoto.didLoad, object: nil, queue: .main) { [weak self] n in
+            guard let self, let profile = self.profile, let palette = self.palette,
+                  profile.googleAccountPhoto == n.object as? String else { return }
+            self.configure(profile: profile, palette: palette)
+        }
         name.fadeWidth = 12
         wantsLayer = true
         pill.cornerRadius = 11
@@ -402,18 +410,23 @@ final class ProfileIndicatorView: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+    deinit { if let o = photoObserver { NotificationCenter.default.removeObserver(o) } }
     override var mouseDownCanMoveWindow: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     func configure(profile: Profile, palette: Palette) {
         self.palette = palette
-        let img = ProfileAvatarImage.image(profile, size: 16)
+        self.profile = profile
+        let img = GoogleAccountPhoto.avatar(profile, size: 16)
         if img !== avatarImage {
             avatarImage = img
             LayerImage.set(img, on: avatar, in: self)
         }
         if name.stringValue != profile.name { name.stringValue = profile.name }
-        let tip = "This Space uses the “\(profile.name)” Profile" + (profile.googleAccount.map { " (\($0))" } ?? "")
+        let account = profile.googleAccount.map { email in
+            profile.googleAccountLabel.map { $0 == email ? email : "\($0), \(email)" } ?? email
+        }
+        let tip = "This Space uses the “\(profile.name)” Profile" + (account.map { " (\($0))" } ?? "")
         if toolTip != tip { toolTip = tip }
         update()
     }

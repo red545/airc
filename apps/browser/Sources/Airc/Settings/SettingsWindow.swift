@@ -859,7 +859,7 @@ private struct AppearancePage: View {
                 AircToggleRow("Show tab previews", subtitle: "Rest the pointer on a tab to see the page, with pin, Favorites, split and Peek.",
                               isOn: Binding(get: { model.settings.values.tabPreviews }, set: { model.settings.values.tabPreviews = $0 }))
                 // feedback2: the footer's speech bubble (Sidebar/SidebarChrome.swift); its right-click › Hide turns this off.
-                AircToggleRow("Show Feedback button", subtitle: "A speech bubble beside the Library button sends feedback to the Airc team. Help › Send Feedback… and ⌘T always have it.",
+                AircToggleRow("Show Feedback button", subtitle: "A speech bubble beside the + button sends feedback to the Airc team. Help › Send Feedback… and ⌘T always have it.",
                               isOn: Binding(get: { model.settings.values.sidebarFeedbackButton }, set: { model.settings.values.sidebarFeedbackButton = $0 }))
             }
             SitePreviewsSettingsSection(model: model)   // S04 (Previews/SitePreviewsSettings.swift)

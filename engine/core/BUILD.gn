@@ -106,6 +106,8 @@ source_set("core") {
     "airc_cast_dialog.h",
     "airc_cast_dialog.mm",
     "airc_content_hooks.h",
+    "airc_color_scheme.cc",
+    "airc_color_scheme.h",
     "airc_contents_background.h",
     "airc_contents_background.mm",
     "airc_context_menu.h",

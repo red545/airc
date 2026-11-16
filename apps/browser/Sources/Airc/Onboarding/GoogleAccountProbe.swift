@@ -17,6 +17,8 @@ final class GoogleAccountProbe: NSObject, EngineWindowDelegate, EngineTabDelegat
     #if AIRC_TESTING
     /// The checks point this at a loopback mock; never a real Google account.
     static var testURL: URL?
+    /// The mock's sign-in page for the sidebar card's Sign in (nil: the ListAccounts mock itself).
+    static var testSignInURL: URL?
     #endif
 
     /// Google's list, or the checks' mock. Automated runs never ask Google.
@@ -126,7 +128,11 @@ final class GoogleAccountProbe: NSObject, EngineWindowDelegate, EngineTabDelegat
 
 /// A Google account's picture, fetched without cookies from Google's image host (https only) and kept in memory.
 enum GoogleAccountPhoto {
+    /// Posted on the main queue when a picture arrives (object: its address), so avatars drawn before can redraw.
+    static let didLoad = Notification.Name("AircGoogleAccountPhotoDidLoad")
     private static var cache: [String: CGImage] = [:]
+    private static var loading: Set<String> = []
+    private static var avatars: [String: NSImage] = [:]
 
     static func load(_ address: String?, completion: @escaping (CGImage?) -> Void) {
         guard let address, let url = URL(string: address), allowed(url) else { return completion(nil) }
@@ -135,11 +141,43 @@ enum GoogleAccountPhoto {
         session.dataTask(with: url) { data, _, _ in
             let image = data.flatMap { NSImage(data: $0) }?.cgImage(forProposedRect: nil, context: nil, hints: nil)
             DispatchQueue.main.async {
-                if let image { cache[address] = image }
-                completion(image)
+                if let image, cache[address] == nil {
+                    cache[address] = image
+                    NotificationCenter.default.post(name: didLoad, object: address)
+                }
+                completion(cache[address])
             }
             session.finishTasksAndInvalidate()
         }.resume()
+    }
+
+    /// The picture if it's here; otherwise starts fetching it once (`didLoad` says when) and returns nil.
+    static func cached(_ address: String?) -> CGImage? {
+        guard let address else { return nil }
+        if let hit = cache[address] { return hit }
+        if loading.insert(address).inserted { load(address) { _ in loading.remove(address) } }
+        return nil
+    }
+
+    /// SB-22: the profile's avatar. Its Google account's picture once signed in and fetched, else the account's
+    /// initial (ProfileAvatarImage). Cached per picture and size.
+    static func avatar(_ p: Profile, size: CGFloat) -> NSImage {
+        guard p.googleAccount != nil, let address = p.googleAccountPhoto, let photo = cached(address) else {
+            return ProfileAvatarImage.image(p, size: size)
+        }
+        let key = "\(address)|\(size)"
+        if let hit = avatars[key] { return hit }
+        let img = NSImage(size: NSSize(width: size, height: size), flipped: false) { r in
+            NSBezierPath(ovalIn: r).addClip()
+            NSGraphicsContext.current?.cgContext.draw(photo, in: r)
+            NSColor.black.withAlphaComponent(0.08).setStroke()
+            let ring = NSBezierPath(ovalIn: r.insetBy(dx: 0.25, dy: 0.25))
+            ring.lineWidth = 0.5
+            ring.stroke()
+            return true
+        }
+        avatars[key] = img
+        return img
     }
 
     private static func allowed(_ url: URL) -> Bool {

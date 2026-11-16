@@ -289,6 +289,7 @@ final class SnapshotRunner {
         case "parityh03": parityH03Scenario()   // H03: Share in a private window, the link alone, nothing kept (ParityH03Check.swift)
         case "paritysharing": paritySharingScenario()   // H01, H02, B03: hosted share links, the Boost gallery (ParitySharingCheck.swift)
         case "parityfeedback": parityFeedbackScenario()   // Help › Send Feedback…, real input, local server (ParityFeedbackCheck.swift)
+        case "feedbackbtn": feedbackButtonScenario()   // footer: Archive · Spaces · Feedback · +, real clicks (FeedbackButtonCheck.swift)
         case "paritylibpeek": parityLibPeekScenario()   // L05/N08: Library notes and Easels in Peek, Easel export, Delete Easel (ParityLibPeekCheck.swift)
         case "paritieaselall", "parityeaselall": parityEaselAllScenario()   // N08/L05: Export All Easels, File › Export Easel…'s panel (ParityEaselAllCheck.swift)
         case "paritymoveto": parityMoveToScenario()   // S09/S11: Move to › by profile, Reset Folder, Turn into Space, real input (ParityMoveToCheck.swift)

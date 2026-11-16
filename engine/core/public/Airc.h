@@ -477,6 +477,10 @@ typedef NS_ENUM(NSInteger, AircSavePageFormat) {
 - (void)grantUserActivationToFrame:(NSString*)frameId;
 @property(nonatomic, nullable) NSColor* pageBackgroundColor;
 @property(nonatomic, copy, nullable) NSString* pageColor;
+// The page's preferred colour scheme (prefers-color-scheme, color-scheme: light dark): 0 follows the engine's own
+// (the browser window's colour mode), 1 light, 2 dark. The app sets it from the tab's Space; a change reaches the open
+// page at once (media queries, matchMedia change events) and stays for later navigations.
+@property(nonatomic) NSInteger preferredColorScheme;
 @property(nonatomic, nullable) NSColor* contentsBackgroundColor;
 @property(nonatomic) double zoomFactor;
 - (void)zoomStep:(int)direction;

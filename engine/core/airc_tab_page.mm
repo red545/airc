@@ -17,6 +17,7 @@
 #include "third_party/blink/public/common/page/page_zoom.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "airc/core/airc_browser.h"
+#include "airc/core/airc_color_scheme.h"
 #include "airc/core/airc_contents_background.h"
 #include "airc/core/airc_page_channel.h"
 #import "airc/core/airc_api_internal.h"
@@ -83,6 +84,17 @@ using airc::NS;
     airc::PageChannel::GetOrCreate(_contents)->SetPageColor(
         color ? base::SysNSStringToUTF8(color) : std::string());
   }
+}
+
+- (NSInteger)preferredColorScheme {
+  return static_cast<NSInteger>(airc::GetColorSchemeOverride(_contents));
+}
+
+- (void)setPreferredColorScheme:(NSInteger)scheme {
+  if (scheme < 0 || scheme > 2) {
+    return;
+  }
+  airc::SetColorSchemeOverride(_contents, static_cast<airc::ColorSchemeOverride>(scheme));
 }
 
 - (void)setPageBackgroundColor:(NSColor*)color {

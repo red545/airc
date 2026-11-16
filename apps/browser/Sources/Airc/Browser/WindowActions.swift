@@ -429,7 +429,7 @@ extension WindowController {
     func addGoogleFavorites(spaceID: String) {
         guard let pid = store.space(spaceID)?.profileID else { return }
         do { try store.finishGoogleSignIn(pid, choice: .added) }
-        catch StoreError.favoritesFull { showToast("Make room for Gmail and Calendar in Favorites") }
+        catch StoreError.favoritesFull { showToast("Make room for \(GoogleSuggestedFavorites.names) in Favorites") }
         catch { showToast("Couldn’t save Favorites. Try again.") }
     }
 
@@ -438,7 +438,7 @@ extension WindowController {
         var url = SignInWindowController.signInURL
         #if AIRC_TESTING
         if LaunchOptions.current.isAutomated {
-            guard let mock = GoogleAccountProbe.testURL else { return }
+            guard let mock = GoogleAccountProbe.testSignInURL ?? GoogleAccountProbe.testURL else { return }
             url = mock
         }
         #endif

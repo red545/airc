@@ -203,6 +203,11 @@ public struct Profile: Codable, Hashable, Sendable, Identifiable {
     public var searchSuggestions: Bool?
     /// Signed-in Google account, for display only (SB-22).
     public var googleAccount: String?
+    /// That account's name and picture address, from Google's ListAccounts answer (SB-22). Local only, like the email.
+    public var googleAccountName: String?
+    public var googleAccountPhoto: String?
+    /// Where that account sits in the profile's Google sign-ins: 0 for u/0, 1 for u/1 (the `authuser` index).
+    public var googleAccountIndex: Int?
     /// SP-12: local, per-profile setup progress; nil for profiles saved by older versions.
     public var googleSignIn: ProfileSignInState?
     /// The one profile that always exists and can't be deleted.

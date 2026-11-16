@@ -430,7 +430,7 @@ final class SidebarOrderTests: XCTestCase {
         XCTAssertTrue(SpaceBarLayout.showsFeedback(sidebarWidth: 228, spaces: 4))
         XCTAssertFalse(SpaceBarLayout.showsFeedback(sidebarWidth: 228, spaces: 5))
         XCTAssertTrue(SpaceBarLayout.showsFeedback(sidebarWidth: 320, spaces: 8))
-        XCTAssertTrue(SpaceBarLayout.region(sidebarWidth: 228, feedback: true) == (76, 110))
+        XCTAssertTrue(SpaceBarLayout.region(sidebarWidth: 228, feedback: true) == (42, 110))
         XCTAssertTrue(SpaceBarLayout.region(sidebarWidth: 228, feedback: false) == (42, 144))
         XCTAssertEqual(SpaceBarLayout.cellWidths(count: 3, current: 0, span: 144), [34, 34, 34])
         XCTAssertEqual(SpaceBarLayout.cellWidths(count: 6, current: 0, span: 144), Array(repeating: 24, count: 6))
