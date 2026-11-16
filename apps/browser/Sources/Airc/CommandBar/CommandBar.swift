@@ -285,6 +285,10 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     #if AIRC_TESTING
     /// Debug hook: history matches were applied to the rows (`--script cbperf`).
     var onHistoryApplied: ((Int) -> Void)?
+    /// Debug hook: the rows were made again (each time, what the next frame shows; `--script cbflicker`).
+    var onRowsReloaded: ((CommandBarView) -> Void)?
+    /// The engine's suggestion rows now shown (search rows without a subtitle).
+    var suggestionRowCount: Int { results.reduce(0) { $0 + ($1.badge == "Search" && $1.subtitle.isEmpty ? 1 : 0) } }
     /// What reached the bar from the keyboard, in order ("insertTab:", "text", "suggestionKey"): proof that a posted
     /// key was delivered (`--script parityp07`).
     var keyLog: [String] = []
@@ -1092,7 +1096,11 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         }
         askCandidate = siteCandidate == nil && scope == nil && !isActionsMode && !composing
             ? c.commandBarAskAI.flatMap { $0.matches(q) ? $0 : nil } : nil
-        if suggestionQuery != q { suggestions = [] }
+        // The last answer's suggestions stay until the next answer replaces them, in place. Clearing them on every key
+        // hid their rows until the answer came (30 ms debounce + the network), then showed them again: rows flickered
+        // on each keystroke (owner bug, 0.1.18). They go at once only where no answer will come (an address, one letter,
+        // a site search, actions, suggestions off).
+        if suggestionQuery != q, !(Self.keepsSuggestions && wantsSuggestions(q)) { suggestions = [] }
         results = Perf.time("cb.results") { composedResults(q, history: historyHits, suggestions: suggestions) }
         Perf.time("cb.rows") { reloadRows() }
         #if AIRC_TESTING
@@ -1140,12 +1148,35 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         }
     }
 
+    /// Whether `q` gets the engine's suggestions: plain words of two letters or more, not in a site search or actions,
+    /// and suggestions on for this window's profile.
+    private func wantsSuggestions(_ q: String) -> Bool {
+        scope == nil && !isActionsMode && URLRules.normalizeInput(q) == nil
+            && q.trimmingCharacters(in: .whitespaces).count >= 2 && host?.commandBarSuggestions != nil
+    }
+
+    /// Test builds can bring back clearing suggestions on every key (`AIRC_CB_KEEP_SUGGESTIONS=0`): cbflicker's A/B.
+    static let keepsSuggestions: Bool = {
+        #if AIRC_TESTING
+        return ProcessInfo.processInfo.environment["AIRC_CB_KEEP_SUGGESTIONS"] != "0"
+        #else
+        return true
+        #endif
+    }()
+
     private func requestSuggestions(for q: String) {
         // A site search's query never goes to the profile's engine.
         guard let c = host, scope == nil, !isActionsMode, URLRules.normalizeInput(q) == nil,
               q.trimmingCharacters(in: .whitespaces).count >= 2, let source = c.commandBarSuggestions else { return }
         SuggestionService.shared.fetch(q, engine: source.engine, profileID: source.profileID) { [weak self] list in
-            guard let self, self.typed == q, self.scope == nil, !list.isEmpty else { return }
+            guard let self, self.typed == q, self.scope == nil else { return }
+            // No suggestions for the new words: the kept ones (for the words before) go.
+            if list.isEmpty {
+                guard Self.keepsSuggestions, !self.suggestions.isEmpty else { return }
+                self.suggestions = []
+                self.suggestionQuery = q
+                return self.replaceAsyncResults(self.composedResults(q, history: self.historyHits, suggestions: []))
+            }
             self.suggestions = list
             self.suggestionQuery = q
             self.replaceAsyncResults(self.composedResults(q, history: self.historyHits, suggestions: list))
@@ -1270,6 +1301,9 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     #endif
 
     private func reloadRows() {
+        #if AIRC_TESTING
+        defer { onRowsReloaded?(self) }
+        #endif
         userSelectedResult = nil
         selected = 0
         // Typing (and late results) put the top match first again; the pointer has to move to pick another row.

@@ -170,6 +170,7 @@ final class SnapshotRunner {
         case "histsuggcap": historyCapCheck()
         case "histsuggbrowse": historyCapCheck(keepBrowsing: true)
         case "cbperf": commandBarHistoryPerf()
+        case "cbflicker": commandBarFlickerCheck()   // suggestion rows never drop out while typing (CommandBarFlickerCheck)
         case "cmdtrust": cmdTrustScenario()   // Command Bar icons, the official-sites mark, row kinds (CmdTrustCheck)
         case "parityp09": parityP09Scenario()   // P09: pinned extensions in the toolbar, their popups
         case "parityp07": parityP07Scenario()   // P07a: Site Search, suggestion deletion, input methods
