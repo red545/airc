@@ -1,16 +1,37 @@
-# Airc 0.1.18 public beta
+# Airc 0.1.19 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.88.
-This update fixes a crash when signing in with Google on some sites, lets AI apps on your other devices use Airc on
-this Mac over Tailscale, fits Arc's six hours into calendar previews, makes typing in the Command Bar lighter, shows AI apps a page's headings and downloads updates
-straight from aircbrowser.com. It includes everything from 0.1.17. The release manifest records the exact build, source and checksums.
+This update brings back Google's account chooser for "Continue with Google", lets your Google or Outlook calendar
+drive the meeting countdown and Join, adds bangs to the Command Bar, stops search suggestions flickering, makes
+Restart to Update wait for busy pages and makes Airc lighter and quieter. It includes everything from 0.1.18. The
+release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.17
+## New since 0.1.18
+
+- **Sign in with Google works inside Airc.** On pages that use Chromium, "Continue with Google" shows Google's account
+  chooser over the page again, so you pick an account without a separate sign-in window. 0.1.18 had switched it off
+  to fix a crash.
+- **Your Google or Outlook calendar drives Join.** With a Google Calendar or Outlook calendar Favorite or pinned tab,
+  the meeting countdown, Join and ⌃⌘J use that calendar's events and their call links (Meet, Zoom, Teams, Webex),
+  not the calendars on your Mac.
+- **Bangs in the Command Bar.** Type "!yt cats", "cats !yt", "!gm vienna" or your own Site Search keyword to search
+  that site straight away. A bang Airc doesn't know stays part of your search.
+- **Search suggestions no longer flicker.** While you type in the Command Bar, the last suggestions stay in place
+  until new ones replace them.
+- **Restart to Update waits for busy pages.** Every page gets a few seconds to finish. If a tab has unsaved work,
+  Airc shows which one and asks, with Restart Anyway and Cancel.
+- **⇧⌘R hard refresh** now also works in Little Airc and in an open Peek, and reloads the page in front.
+- **Lighter and quieter.** With WebKit, Airc's main process uses far less memory after launch. Switching Spaces is
+  smoother, and an idle Airc no longer wakes up on repeating timers.
+- Fixes: no more crashes in a few rare Chrome dialogs (warnings about look-alike sites, Cast mirroring and passkey
+  sign-in). Reset Tabs no longer asks twice about leaving a page.
+
+## Included from 0.1.18
 
 - **Use Airc from your other devices.** Claude Code or another AI app on another computer on your Tailscale network
   can use Airc on this Mac. Turn it on in Settings › Agents › Other devices (it's off until you do), then press Pair a
@@ -237,8 +258,8 @@ straight from aircbrowser.com. It includes everything from 0.1.17. The release m
 - **If you click Check for Updates yourself** and the download stalls, Sparkle's error still shows before the quiet
   retry.
 
-- **Signing in with Google** on pages that use Chromium opens Google's sign-in window instead of the browser's own
-  account prompt (FedCM), until a later update brings that prompt back safely.
+- **Signing in with Google** was tested with a stand-in sign-in provider on the build Mac, using the same account
+  chooser Google's real pages show.
 
 - **Using Airc from your other devices** was tested with Claude Code on a Linux computer over Tailscale and with test
   devices on the build Mac.
@@ -261,8 +282,9 @@ straight from aircbrowser.com. It includes everything from 0.1.17. The release m
 
 - Slack's mention badge depends on Slack's page title, so it can be missed if Slack changes how its title marks mentions.
 
-- **Calendar previews** were tested on look-alike Google Calendar and Outlook pages, not real accounts yet, and they
-  read the page's English event text. Google events often show no Join until you open them.
+- **Calendar previews and Join** were tested on look-alike Google Calendar and Outlook pages, not real accounts yet,
+  and they read the page's English event text. When an event's call link isn't on the calendar page, Airc reads the
+  event's own page for it once, which can take a few seconds.
 
 - Mail previews read only the page you've signed in to; Outlook's preview has been tested on a look-alike page, not a real account yet.
 
@@ -298,3 +320,5 @@ straight from aircbrowser.com. It includes everything from 0.1.17. The release m
 - **Smoothness:** 120 Hz animation and zero idle work remain goals, not measured promises.
 
 Source: `276e19820029687633895ca71e495a14a9d71634`. Build: `202611152216`. Channel: stable.
+
+Source: `2b1d17c5348f683a65b03159786623f53b843d99`. Build: `202611161528`. Channel: stable.

@@ -2,6 +2,55 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.19",
+      "highlights": [
+        {
+          "title": "Sign in with Google",
+          "lead": "Sign in with Google works inside Airc",
+          "detail": "On pages that use Chromium, \"Continue with Google\" shows Google's account chooser over the page again, so you pick an account right there instead of in a separate sign-in window.",
+          "icon": "person.crop.circle"
+        },
+        {
+          "title": "Your calendar drives Join",
+          "lead": "Your Google or Outlook calendar drives Join",
+          "detail": "With Google Calendar or Outlook as a Favorite or pinned tab, Live Calendar's countdown, Join and ⌃⌘J use its events and call links (Meet, Zoom, Teams, Webex). Turn on Live Calendar in Settings › General.",
+          "icon": "calendar",
+          "action": "settingsGeneral"
+        },
+        {
+          "title": "Bangs in the Command Bar",
+          "lead": "Bangs in the Command Bar",
+          "detail": "Type a bang such as !yt cats, !gm Vienna or !gt hello in the Command Bar (⌘T) to search that site straight away. Your own Site Search shortcuts work as bangs too.",
+          "icon": "exclamationmark.magnifyingglass",
+          "image": "command-bar"
+        },
+        {
+          "title": "Steady search suggestions",
+          "lead": "Search suggestions no longer flicker",
+          "detail": "While you type in the Command Bar, the suggestions under it stay in place until new ones replace them, instead of blinking away with every letter.",
+          "icon": "magnifyingglass"
+        },
+        {
+          "title": "Restart waits for pages",
+          "lead": "Restart to Update waits for busy pages",
+          "detail": "When you click Restart to Update, every page gets a few seconds to finish. If a tab has unsaved work, Airc shows you which one and asks: Restart Anyway or Cancel.",
+          "icon": "arrow.clockwise.circle"
+        },
+        {
+          "title": "⇧⌘R everywhere",
+          "lead": "⇧⌘R hard refresh",
+          "detail": "⇧⌘R reloads a page without its cached files. It now also works in Little Airc and in an open Peek, and reloads the page in front of you.",
+          "icon": "arrow.clockwise"
+        },
+        {
+          "title": "Lighter and quieter",
+          "lead": "Lighter and quieter",
+          "detail": "With WebKit, Airc's main process uses far less memory after launch. Switching Spaces is smoother, and an idle Airc no longer wakes up on repeating timers.",
+          "icon": "leaf"
+        }
+      ]
+    },
+    {
       "version": "0.1.18",
       "highlights": [
         {
