@@ -340,6 +340,21 @@ sync's privacy scan fails, the release waits: fix the finding in the private rep
 ([public-repo.md](launch/public-repo.md), "Made-up addresses"), push, sync, check. Record the PASS output
 with the release evidence.
 
+**Public release tag.** Reviewers (byearc.com among them) check features against the source, so each release
+also gets a tag `v<version>` and a GitHub Release on the public repository whose tree is exactly the release's
+build revision minus `infra/launch/exclude.txt` ([public-repo.md](launch/public-repo.md), "Release tags"). Once the
+"Record the <version> release build identity" commit (the changelog's `Source: … Build: …` line) is on
+`origin/main`, the release agent runs, from the Linux checkout at `origin/main`:
+
+```sh
+infra/launch/sync-public.sh --release <version>        # scans, pushes tag v<version>, creates the GitHub Release
+infra/launch/public-release-check.sh <version>         # must end "public-release-check: PASS"
+```
+
+The release isn't done until `public-release-check.sh` passes, like the Vercel check: report its output with the
+LIVE post. If the scan fails, the release waits: fix the finding in the private repo, push, and run both again.
+Never delete or move a published tag; a wrong tag is the lead's call.
+
 Test N−1 → N with real signed builds, both full and delta download, relaunch and
 profile/settings preservation. Upload immutable DMGs, deltas and notes first;
 verify their HTTPS downloads, then atomically publish the feed. Re-fetch and test

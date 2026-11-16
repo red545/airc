@@ -16,6 +16,8 @@ Everything here runs on the Linux box. No step needs the build Mac.
 | `scan.sh <dir>` | The privacy and secret gate. It runs gitleaks 8.30.1 (a pinned release, checked against the published checksum and the hash pinned in the script, kept in `tools/` beside the repo) and `scan.py`. `scan.py` greps every file, file name and symlink for the operator's private values and for email addresses that are neither reserved (`example.com`, `.invalid`, `.test` and so on) nor the public mailbox in `apps/marketing/src/lib/site.ts`. Hits print as `file:line: kind`, never the value. |
 | `scan-allowlist.txt` | Approved hits, as `path glob<TAB>kind<TAB>reason`. An entry with no reason is rejected, and an entry that no longer matches anything gets a warning. Use it for hits that aren't addresses (URL user info, fixture secrets, upstream files). |
 | `scan-synthetic.txt` | Made-up IP addresses and tailnet names, approved **by value**: `path glob<TAB>kind<TAB>net:<CIDR>` or `text:<exact><TAB>reason`. See "Made-up addresses" below. |
+| `sync-public.sh --release <version> [<rev>]` | Publishes one release's source: tag `v<version>` and a GitHub Release (see "Release tags" below). |
+| `public-release-check.sh <version>` | Release checklist step: tag `v<version>` is on GitHub, annotated, its tree is the release's build revision minus the excludes, and its GitHub Release is published. Read-only. |
 | `public-sync-check.sh [<commit>]` | Release checklist step: the last sync was OK, the published revision contains `<commit>`, and GitHub's public `main` is the commit the sync recorded. Read-only. |
 | `make-private-patterns.sh` | Writes the private pattern file **outside the repo** (default `private-patterns.txt` beside it, mode 0600). It reads the values from this machine: the tailnet names and IPs of this box and its peers, its hostnames, the local and SSH usernames, home-directory prefixes, the hosts in `~/.ssh/config`, the git and GitHub identities, the Vercel account, team and project IDs, the operator's agent-workspace paths and the private IP ranges. It prints counts only. Lines you add below its marker survive a rerun. |
 | `test_scan.sh` | Self-test: it plants fake values (tailnet host and IP, username, home path, PNG metadata, file name, outside symlink, personal email, GitHub token, hand-added Space name) into a temporary copy of `HEAD`, then proves that each one is caught at the right `file:line` and that none appears in the output. It also checks the allowlist and the refusals. |
@@ -187,6 +189,33 @@ The public repository (`GITHUB_REPO` in `apps/marketing/src/lib/site.ts`) was cr
   The lead's hourly tick reads it. A new failure (or a changed one) also appends an alert to `briefs/queue.md`
   (`AIRC_SYNC_ALERT_FILE` in the cron line). The log is `../status/public-sync.log`.
 - Releases check it: `infra/launch/public-sync-check.sh <cut>` ([release.md](../release.md), per-release procedure).
+
+### Release tags: which public commit is a release
+
+Hourly syncs publish `main`, so on their own they don't say which public commit a release was built from. Each
+release therefore also gets an annotated tag `v<version>` and a GitHub Release (owner, 2026-11-16):
+
+- `infra/launch/sync-public.sh --release <version> [<private revision>]` reads the release's build revision and
+  build number from the `Source: … Build: …` line of `apps/marketing/src/content/changelog/<version>.md` on
+  `origin/main` (a revision given on the command line must match it). Release builds come from a cut branch
+  (`release/<version>-cut`) that is later rebased onto main, so the revision needn't be on main; it must be on a
+  private branch or tag.
+- It exports that revision minus `exclude.txt` (main's and the revision's own, together), checks the tree blob for
+  blob, and commits it **beside** main: the parent is the current public `main`, and `main` never moves. When
+  public `main`'s tree already is that tree, it tags `main`'s commit instead.
+- The tag message names the build number, build time, the private revision and the excluded paths, and links
+  `https://aircbrowser.com/changelog#v<version>`. The GitHub Release (title `Airc <version>`) carries the
+  changelog's intro and "New since" section, the changelog link and the source line; the newest version is
+  marked Latest.
+- The scan is main's gate (current rules), run on the tree and on the commit, the tag and the notes. Nothing is
+  pushed if it fails. `--dry-run` prints the tag message and notes without pushing.
+- Re-running is safe: an existing tag must hold the same tree (tags are never moved or forced), and a missing
+  Release is created. It waits up to 20 minutes for the hourly sync's lock, and never writes
+  `public-sync.state`.
+- `infra/launch/public-release-check.sh <version>` checks it live with `git ls-remote --tags` and the GitHub API,
+  rebuilding the expected tree from the private objects. Both use the machine's existing git and `gh`
+  credentials; `AIRC_PUBLIC_REMOTE` and `AIRC_PUBLIC_AUTHOR` default to the public clone's origin and public
+  `main`'s author.
 
 ### Made-up addresses: what passes the scan
 

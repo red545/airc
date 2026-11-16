@@ -28,6 +28,12 @@ final class CalPrevFixtures: @unchecked Sendable {
         var meet = false
         /// calmeet: the call link in the chip's text, instead of a real Meet address (a look-alike at meetHost).
         var meetURL: String? = nil
+        /// calmeet2: the call on the chip itself (Google: a data attribute; Outlook: a Join link in the event button), not
+        /// in its text.
+        var chipCall: String? = nil
+        /// calmeet2: the call only in the event's own page (Google: "Join with Google Meet", drawn late by the page's
+        /// script; Outlook: the reading pane's "Join the meeting now", behind Safe Links).
+        var detailCall: String? = nil
     }
 
     static let googleHost = "calendar.google.calprev.co.uk"
@@ -37,6 +43,9 @@ final class CalPrevFixtures: @unchecked Sendable {
     static let gmailHost = "mail.google.calprev.co.uk"
     /// calmeet: a Meet look-alike (for meet.google.com) whose call page is a plain page: nothing asks for a camera.
     static let meetHost = "meet.google.calprev.co.uk"
+    /// calmeet2: Zoom and Teams look-alikes (for zoom.us and teams.microsoft.com), plain call pages too.
+    static let zoomHost = "zoom.calprev.co.uk"
+    static let teamsHost = "teams.microsoft.calprev.co.uk"
     /// Google's pages refuse eval (script nonces and Trusted Types): Chromium's evaluate falls back to DevTools there.
     static let googleCSP = ["Content-Security-Policy": "script-src 'nonce-calprev'; require-trusted-types-for 'script'; object-src 'none'"]
 
@@ -136,8 +145,9 @@ final class CalPrevFixtures: @unchecked Sendable {
                 var parts = [when, e.title, "Fixture Organizer", e.declined ? "Declined" : "Accepted"]
                 if let u = e.meetURL { parts.append(u) } else if e.meet { parts.append("https://meet.google.com/abc-defg-hij") }
                 parts += ["No location", Self.longDate.string(from: e.start)]
+                let conf = e.chipCall.map { " data-conference-url=\"\(Self.esc($0))\"" } ?? ""
                 chips += """
-                    <div role="button" tabindex="0" data-eventchip="" data-eventid="\(e.id)" class="chip">\
+                    <div role="button" tabindex="0" data-eventchip="" data-eventid="\(e.id)"\(conf) class="chip">\
                     <div class="XuJrye">\(Self.esc(parts.joined(separator: ", ")))</div><span aria-hidden="true">\(Self.esc(e.title))</span></div>
                     """
             }
@@ -159,7 +169,8 @@ final class CalPrevFixtures: @unchecked Sendable {
                 let when = e.allDay ? "All day" : "\(Self.outlook12(e.start)) to \(Self.outlook12(e.end))"
                 let label = [e.title, when, Self.weekday.string(from: e.start), Self.longDate.string(from: e.start),
                              e.declined ? "Declined" : "Busy"].joined(separator: ", ")
-                items += "<div role=\"button\" data-calitemid=\"\(e.id)\" aria-label=\"\(Self.esc(label))\" class=\"ev\"><span>\(Self.esc(e.title))</span></div>"
+                let join = e.chipCall.map { "<a href=\"\(Self.esc($0))\" aria-label=\"Join\">Join</a>" } ?? ""
+                items += "<div role=\"button\" data-calitemid=\"\(e.id)\" aria-label=\"\(Self.esc(label))\" class=\"ev\"><span>\(Self.esc(e.title))</span>\(join)</div>"
             }
             cols += "<div data-date=\"\(Self.ymd.string(from: day))T00:00:00\"><h2>\(Self.weekday.string(from: day))</h2>\(items)</div>"
         }
@@ -219,13 +230,24 @@ final class CalPrevFixtures: @unchecked Sendable {
             return ["Set-Cookie": "sid=s\(sessions); Path=/; SameSite=Lax"]
         }
         func title(_ id: String, in list: [Event]) -> String { list.first { $0.id == id }?.title ?? "Unknown event" }
+        /// calmeet2: the event's page draws its call late, as the real pages' scripts do (a nonce script under Google's CSP).
+        func lateLink(_ call: String?, label: String, text: String, nonce: Bool) -> String {
+            guard let call, let json = try? JSONSerialization.data(withJSONObject: [call, label, text]),
+                  let args = String(data: json, encoding: .utf8) else { return "" }
+            return "<script\(nonce ? " nonce=\"calprev\"" : "")>setTimeout(function(){var v=\(args),a=document.createElement('a');a.href=v[0];"
+                + "a.setAttribute('aria-label',v[1]);a.textContent=v[2];document.getElementById('conf').appendChild(a)},700)</script>"
+        }
         switch host {
         case Self.googleHost:
             if let r = path.range(of: "/r/eventedit/") {
                 let raw = String(path[r.upperBound...])
                 let id = raw.removingPercentEncoding ?? raw
-                let t = title(id, in: google)
-                return Answer(body: "<!doctype html><title>\(Self.esc(t)) - Google Calendar</title><h1>\(Self.esc(t))</h1>")
+                let t = title(id, in: google), call = google.first { $0.id == id }?.detailCall
+                let csp = ["Content-Security-Policy": (Self.googleCSP["Content-Security-Policy"] ?? "") + "; frame-ancestors 'self'",
+                           "X-Frame-Options": "SAMEORIGIN"]
+                return Answer(headers: csp, body: "<!doctype html><title>\(Self.esc(t)) - Google Calendar</title><h1>\(Self.esc(t))</h1>"
+                              + "<div role=\"main\"><a href=\"https://docs.example.com/agenda\">Agenda</a><div id=\"conf\"></div></div>"
+                              + lateLink(call, label: "Join with Google Meet", text: "Join with Google Meet", nonce: true))
             }
             if path.hasPrefix("/calendar/") {
                 if googleSignedOut {
@@ -237,13 +259,23 @@ final class CalPrevFixtures: @unchecked Sendable {
             return Answer(body: "<!doctype html><title>Sign in - Google Accounts</title><h1>Sign in</h1>")
         case Self.gmailHost:
             return gmailAnswer(path: path, headers: newSession())
-        case Self.meetHost:
+        case Self.meetHost, Self.zoomHost, Self.teamsHost:
             return Answer(body: "<!doctype html><title>Meet fixture call</title><h1>Meet fixture call \(Self.esc(path))</h1>")
         case Self.outlookHost:
             if let r = path.range(of: "/calendar/0/item/") {
                 let raw = String(path[r.upperBound...])
-                let t = title(raw.removingPercentEncoding ?? raw, in: outlook)
-                return Answer(body: "<!doctype html><title>\(Self.esc(t)) - Outlook</title><h1>\(Self.esc(t))</h1>")
+                let id = raw.removingPercentEncoding ?? raw
+                let t = title(id, in: outlook)
+                // Outlook's reading pane: a Join button (no address) and the invitation's body link, behind Safe Links.
+                let safe = (outlook.first { $0.id == id }?.detailCall).map {
+                    "https://eur01.safelinks.protection.outlook.com/?url=" + ($0.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")
+                        + "&data=05%7C02%7Cfixture&reserved=0"
+                }
+                return Answer(headers: ["X-Frame-Options": "SAMEORIGIN"],
+                              body: "<!doctype html><title>\(Self.esc(t)) - Outlook</title><h1>\(Self.esc(t))</h1>"
+                              + "<div role=\"main\"><button type=\"button\">Join</button><p>Microsoft Teams meeting</p>"
+                              + "<a href=\"https://docs.example.com/notes\">Notes</a><div id=\"conf\"></div></div>"
+                              + lateLink(safe, label: "", text: "Join the meeting now", nonce: false))
             }
             if path.hasPrefix("/calendar/") { return Answer(headers: newSession(), body: outlookPage()) }
         default: break
@@ -329,6 +361,10 @@ final class CalPrevFixtures: @unchecked Sendable {
 ///     Apple Calendar meeting at the same time: the tile's countdown, the Join prompt and ⌃⌘J (a real key) are the page's
 ///     meeting and open its Meet link; a real click on the prompt's Join shows that call; with no calendar page loaded,
 ///     the last page-read meetings stay and EventKit's never come;
+///   - calmeet2: the call on the chip (Google: Meet in an attribute; Outlook: Zoom in a Join link) or only in the meeting's
+///     own page (Google's late-drawn "Join with Google Meet"; Outlook's reading pane body, behind Safe Links): Join and a
+///     real ⌃⌘J give the fixture's call without its tracking parameters; only the next meeting's page is read, out of
+///     sight, and only when its chip has no call;
 ///   - a second Google account (/u/1/) never opened is never read; Settings › Site Previews › Google Calendar off: the
 ///     picture card, no line, no read; a private window's page is never read.
 /// Needs AIRC_REAL_KEYS=1 in a dedicated session (AIRC_UI_DEDICATED_SESSION=1, AIRC_LA_AS_OWNER=1) for real input;
@@ -449,7 +485,11 @@ extension SnapshotRunner {
             let m = Int((e.start.timeIntervalSinceNow / 60).rounded(.up))
             return [m - 1, m, m + 1].filter { $0 >= 1 }.map { "Event in \($0)m" }
         }
-        func pageRequests() -> Int { fx?.requests.filter { !$0.path.hasSuffix("favicon.ico") }.count ?? 0 }
+        /// The fixture's requests, without favicons and the event pages a detail read loads for the next meeting's call
+        /// (calmeet2): the grid's own read asks nothing.
+        func pageRequests() -> Int {
+            fx?.requests.filter { !$0.path.hasSuffix("favicon.ico") && !$0.path.contains("/r/eventedit/") && !$0.path.contains("/item/") }.count ?? 0
+        }
         func readsOf(_ url: String) -> Int { center.pageMail.readsForTesting.filter { $0.0 == account(url) }.count }
         func clickCard(_ anchor: @escaping () -> String, until ok: @escaping () -> Bool) {
             step { [self] done in
@@ -558,6 +598,8 @@ extension SnapshotRunner {
                   label("before the page is loaded, the card says to open Google Calendar (\(String(describing: model?.state)))"))
             check(TestAnchors.frames["svc.snapshot"] != nil, label("behind it, the item's last page picture"))
             check(readsOf(gcalURL) == 0, label("nothing is read without the account's page (\(readsOf(gcalURL)) reads)"))
+            check(!center.pageMail.hasTimerForTesting,
+                  label("MEM-6: no page of an account is loaded, so the page reader has no timer (\(center.pageMail.wakeupsForTesting.count) wake-ups so far)"))
         }
         capture("calprev-needs-page")
         clickCard({ "svc.openPage" }) { stored(gcalURL).count == expected(googleEvents).count }
@@ -565,6 +607,8 @@ extension SnapshotRunner {
         var requestsAtRead = 0
         run { [self] in
             check(shownTab().item == gcalItem, label("Open loads the pinned Google Calendar itself"))
+            check(center.pageMail.hasTimerForTesting && center.pageMail.wakeupsForTesting.contains("changed"),
+                  label("MEM-6: the loaded page was read when it changed, and one one-shot asks again when its answer goes stale"))
             check(shown().map(\.title) == expected(googleEvents),
                   label("the card lists today and tomorrow from the page: all-day first, no declined or past event (\(shown().map(\.title)))"))
             check(!shown().contains { $0.title == monday.title || $0.title == declined.title || $0.title == past.title },
@@ -984,6 +1028,117 @@ extension SnapshotRunner {
             live.now = Date.init
             live.clockMoved()
             for t in c.store.todayRows(ofSpace: home).compactMap(\.liveTab) where t.url == meetURL { c.closeTab(t.id) }
+        }
+
+        // MARK: calmeet2: the call on the chip, or only in the meeting's own page (Google and Outlook)
+
+        // Four layouts: Google with the call on the chip (an attribute), Google with Meet only in the event's page (its
+        // "Join with Google Meet", drawn late by the page's script), Outlook with Zoom on the chip (a Join link), Outlook
+        // with Teams only in the reading pane's body, behind Safe Links. Each has a later meeting whose page also has a
+        // call. In every layout the Join prompt and a real ⌃⌘J give the fixture's call, its tracking parameters gone; the
+        // meeting's page is read only when its chip has no call, only for the next meeting, out of sight (no tab, no
+        // navigation of the calendar page, no window).
+        struct Layout { let name: String; let outlook: Bool; let onChip: Bool; let service: MeetingLink.Service }
+        let layouts = [Layout(name: "Google, Meet on the chip", outlook: false, onChip: true, service: .meet),
+                       Layout(name: "Google, Meet only in the event's page", outlook: false, onChip: false, service: .meet),
+                       Layout(name: "Outlook, Zoom on the chip", outlook: true, onChip: true, service: .zoom),
+                       Layout(name: "Outlook, Teams only in the reading pane", outlook: true, onChip: false, service: .teams)]
+        var want = "", caseStart = Date(), caseID = "", detailsBefore = 0, requestsBefore = 0, windowsBefore = 0
+        for (i, l) in layouts.enumerated() {
+            let item = { l.outlook ? outItem : gcalFav }, itemURL = { l.outlook ? outURL : gcalFavURL }
+            func tag(_ s: String) -> String { label("calmeet2 \(l.name): " + s) }
+            run { [self] in
+                guard let fx else { return }
+                tp().hide()
+                for t in c.store.todayRows(ofSpace: home).compactMap(\.liveTab) where t.url == want { c.closeTab(t.id) }
+                PreviewService.fixtureHosts[CalPrevFixtures.zoomHost] = "zoom.us"
+                PreviewService.fixtureHosts[CalPrevFixtures.teamsHost] = "teams.microsoft.com"
+                caseStart = Date(timeIntervalSince1970: (Date().timeIntervalSince1970 / 60).rounded(.up) * 60 + 240)
+                caseID = (l.outlook ? "AAMkQ2FsbWVldDI" : "Y2FsbWVldDI") + "\(i)"
+                let call: String
+                switch (l.outlook, l.onChip) {
+                case (false, true):
+                    call = "http://\(CalPrevFixtures.meetHost):\(fx.port)/chip-meet-\(i)?authuser=2&hs=122&utm_source=calendar"
+                    want = "http://\(CalPrevFixtures.meetHost):\(fx.port)/chip-meet-\(i)?authuser=2"
+                case (false, false):
+                    call = "http://\(CalPrevFixtures.meetHost):\(fx.port)/detail-meet-\(i)?hs=179&authuser=2"
+                    want = "http://\(CalPrevFixtures.meetHost):\(fx.port)/detail-meet-\(i)?authuser=2"
+                case (true, true):
+                    call = "http://\(CalPrevFixtures.zoomHost):\(fx.port)/j/8123400\(i)?pwd=calprev&utm_medium=email"
+                    want = "http://\(CalPrevFixtures.zoomHost):\(fx.port)/j/8123400\(i)?pwd=calprev"
+                case (true, false):
+                    call = "http://\(CalPrevFixtures.teamsHost):\(fx.port)/l/meetup-join/calprev-\(i)/0?context=fixture&utm_campaign=invite"
+                    want = "http://\(CalPrevFixtures.teamsHost):\(fx.port)/l/meetup-join/calprev-\(i)/0?context=fixture"
+                }
+                var next = E(id: caseID, title: "Call \(i + 1)", start: caseStart, end: caseStart.addingTimeInterval(1800))
+                if l.onChip { next.chipCall = call } else { next.detailCall = call }
+                var later = E(id: caseID + "L", title: "Later \(i + 1)", start: caseStart.addingTimeInterval(2400), end: caseStart.addingTimeInterval(3600))
+                later.detailCall = call.replacingOccurrences(of: "\(i)?", with: "\(i)9?")
+                fx.set(google: l.outlook ? [] : [next, later], outlook: l.outlook ? [next, later] : [])
+                center.register(center.pageMail)   // forget what was read: this layout's page answers alone
+                detailsBefore = center.pageMail.detailReadsForTesting.count
+                requestsBefore = fx.requests.count
+                windowsBefore = app?.controllers.count ?? 0
+                if let it = c.store.item(item()) { c.activate(entry: .favorite(it, c.store.liveTab(forItem: item()))) }
+                // Every loaded calendar page loads this layout's day (a page left on the last layout would still show its meeting).
+                for (other, url) in [(gcalFav, gcalFavURL), (gcalItem, gcalURL), (outItem, outURL)] { load(other, url) }
+                live.now = Date.init
+                live.accessChanged()
+            }
+            step { [self] done in
+                waitUntil({ live.events.contains { $0.title == "Call \(i + 1)" && $0.link?.url.absoluteString == want } }, timeout: 25) { done() }
+            }
+            run { [self] in
+                live.now = { caseStart.addingTimeInterval(-90) }
+                live.clockMoved()
+                c.reloadAll(animated: false)
+            }
+            wait(0.5)
+            run { [self] in
+                let e = live.events.first { $0.title == "Call \(i + 1)" }
+                check(e?.link?.service == l.service && e?.link?.url.absoluteString == want,
+                      tag("the next meeting has the fixture's call, without its tracking parameters (\(e?.link?.url.absoluteString ?? "none"))"))
+                check(prompt()?.text == "Call \(i + 1) · in 2 min" && prompt()?.event?.link?.url.absoluteString == want,
+                      tag("Join appears for it (\(prompt()?.text ?? "no prompt"))"))
+                let reads = center.pageMail.detailReadsForTesting.dropFirst(detailsBefore)
+                let asked = fx?.requests.dropFirst(requestsBefore) ?? []
+                func askedFor(_ id: String) -> Int { asked.filter { $0.path.hasSuffix("/eventedit/\(id)") || $0.path.hasSuffix("/item/\(id)") }.count }
+                if l.onChip {
+                    check(reads.isEmpty && askedFor(caseID) == 0, tag("the chip has the call: no event page read (\(reads.count) reads)"))
+                } else {
+                    check(reads.count == 1 && reads.first?.event.hasPrefix(caseID + "@") == true && reads.first?.result == "link" && askedFor(caseID) == 1,
+                          tag("only the next meeting's page is read, once, and it gives the call (\(reads.map { "\($0.event) \($0.result)" }), \(askedFor(caseID)) requests)"))
+                }
+                check(askedFor(caseID + "L") == 0, tag("the later meeting's page is never read"))
+                let page = c.store.liveTab(forItem: item()).flatMap { c.engineTab(for: $0.id) }
+                check(page?.url?.absoluteString.hasPrefix(itemURL()) == true && shownTab().item == item()
+                      && !c.store.todayRows(ofSpace: home).contains { $0.liveTab?.url.contains(caseID) == true }
+                      && (app?.controllers.count ?? 0) == windowsBefore,
+                      tag("out of sight: the calendar page stays on its view, no tab or window of the event page (\(page?.url?.absoluteString ?? "-"))"))
+                meetTabs = c.store.todayRows(ofSpace: home).compactMap(\.liveTab).filter { $0.url == want }.count
+            }
+            if i == 1 { capture("calmeet2-detail-prompt") }
+            step { [self] done in
+                guard realInput() else {
+                    check(false, tag("⌃⌘J needs real input (driver \(UIDriverClient.available), active \(NSApp.isActive))"))
+                    CommandMenus.all.first { $0.id == "tabs.joinMeeting" }?.run(c)
+                    return done()
+                }
+                UIDriverClient.press(["ctrl+cmd+j"], pid: getpid()) { ok, out in
+                    if !ok { self.check(false, tag("the UI driver pressed ⌃⌘J (\(out))")) } else { self.note(tag("⌃⌘J, a real key, PID-targeted")) }
+                    self.waitUntil({ self.c.store.tab(self.c.shownTabID)?.url == want }, timeout: 5) { done() }
+                }
+            }
+            run { [self] in
+                let shown = c.store.tab(c.shownTabID)?.url
+                check(shown == want && c.store.todayRows(ofSpace: home).compactMap(\.liveTab).filter { $0.url == want }.count == meetTabs + 1,
+                      tag("a real ⌃⌘J opens the fixture's call (\(shown ?? "-"))"))
+            }
+        }
+        run { [self] in
+            for t in c.store.todayRows(ofSpace: home).compactMap(\.liveTab) where t.url == want { c.closeTab(t.id) }
+            live.now = Date.init
+            live.clockMoved()
         }
         // Gmail closed again: "Open Gmail".
         run { [self] in

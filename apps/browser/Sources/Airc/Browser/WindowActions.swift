@@ -201,12 +201,12 @@ extension WindowController {
         }
     }
 
-    /// Switches off a page's "Leave site?" handlers once the person chose to leave it: its own `onbeforeunload` and,
-    /// with a listener that runs before the page's, any it added.
-    static let skipBeforeUnload = """
-    (function(){try{window.onbeforeunload=null;
-      window.addEventListener('beforeunload',function(e){e.stopImmediatePropagation()},true);}catch(x){}return true})()
-    """
+    /// Switches off a page's "Leave site?" handlers once the person chose to leave it: `onbeforeunload` and any the
+    /// page added with addEventListener. The same script as Restart Anyway's (`UpdateCenter.leaveScript`): clearing
+    /// `onbeforeunload` plus a capture listener (this script's earlier form) didn't stop an addEventListener handler on
+    /// Chromium, so Reset could still raise "Leave site?" after the person had said Leave. It also makes the event's
+    /// cancel and message no-ops, and runs in the page's own world too.
+    static let skipBeforeUnload = UpdateCenter.leaveScript
 
     func togglePin() {
         if let (page, ids) = sidebarSelection { return pinSelected(ids, spaceID: page.spaceID) }

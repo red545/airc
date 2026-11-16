@@ -6,8 +6,10 @@ meetings there, as Arc's Live Calendar did. Nothing leaves your Mac. Where the m
 - **Google Calendar or Outlook in your Favorites or pinned tabs:** the meetings are read from that calendar's own page,
   signed in, in its profile (see [Site previews](previews.md)). Only those: meetings in this Mac's Calendar app don't
   show, even at the same time, because they can be another calendar altogether. Open the calendar once after starting
-  Airc; while its page isn't open, the meetings read last stay. A meeting's Join link (Meet, Zoom or Teams) is the one
-  the calendar page shows for it.
+  Airc; while its page isn't open, the meetings read last stay. A meeting's Join link (Meet, Zoom, Teams or Webex) is
+  the one the calendar page shows for it. When the page shows a meeting without its call (Google puts Meet calls in the
+  event, not on the grid), Airc reads the next meeting's own page in the background, out of sight and read-only, to
+  find it; tracking parameters are left off.
 - **Otherwise** (no web calendar, or only Proton Calendar or Fastmail, which Airc doesn't read): the calendars synced
   to this Mac (System Settings → Internet Accounts).
 

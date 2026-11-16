@@ -76,10 +76,42 @@ public struct MeetingLink: Sendable, Equatable {
         let fromLocation = location.map(links(in:)) ?? []
         let fromNotes = notes.map(links(in:)) ?? []
         for u in fromURL + fromLocation + fromNotes {
-            if let s = service(of: u) { return MeetingLink(url: u, service: s) }
+            if let s = service(of: u) { return MeetingLink(url: cleaned(u, service: s), service: s) }
         }
-        if let u = (fromURL + fromLocation).first(where: { $0.scheme == "https" }) { return MeetingLink(url: u, service: .web) }
+        if let u = (fromURL + fromLocation).first(where: { $0.scheme == "https" }) { return MeetingLink(url: cleaned(u, service: .web), service: .web) }
         return nil
+    }
+
+    /// calmeet2: the first call link of a known video service among `urls` (links read from an event's chip or its
+    /// detail page, the ones labelled "Join" first), never a plain web link: a detail page links to documents, people
+    /// and the calendar itself.
+    public static func firstCall(in urls: [String]) -> MeetingLink? {
+        for raw in urls {
+            for u in links(in: raw) {
+                if let s = service(of: u) { return MeetingLink(url: cleaned(u, service: s), service: s) }
+            }
+        }
+        return nil
+    }
+
+    /// Query parameters that only track where a click came from. What a call needs stays: Zoom's `pwd`, Teams'
+    /// `context`, Webex's `MTID`, Meet's `authuser` (which signed-in account joins).
+    static let trackingParameters: Set<String> = ["fbclid", "gclid", "dclid", "msclkid", "mc_cid", "mc_eid", "_hsenc", "_hsmi",
+                                                   "mkt_tok", "igshid", "yclid"]
+    /// Meet's own tracking, added by Calendar and Gmail ("hangout source", invite and link-medium markers).
+    static let meetTracking: Set<String> = ["hs", "ijlm", "pli", "lpl"]
+
+    /// `u` without tracking parameters (utm_*, click IDs; Meet's `hs`), the rest of it untouched.
+    public static func cleaned(_ u: URL, service: Service) -> URL {
+        guard var c = URLComponents(url: u, resolvingAgainstBaseURL: false), let items = c.percentEncodedQueryItems else { return u }
+        let kept = items.filter { item in
+            let n = item.name.lowercased()
+            if n.hasPrefix("utm_") || trackingParameters.contains(n) { return false }
+            return !(service == .meet && meetTracking.contains(n))
+        }
+        guard kept.count != items.count else { return u }
+        c.percentEncodedQueryItems = kept.isEmpty ? nil : kept
+        return c.url ?? u
     }
 
     /// The video service a link belongs to, if it's a meeting link of one we know.
@@ -117,6 +149,12 @@ public struct MeetingLink: Sendable, Equatable {
             guard var u = URL(string: s), u.host != nil else { return nil }
             if let host = u.host?.lowercased(), host == "www.google.com" || host == "google.com", u.path == "/url",
                let q = URLComponents(url: u, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "q" })?.value,
+               let inner = URL(string: q), inner.host != nil {
+                u = inner
+            }
+            // Outlook's Safe Links wrapper (`*.safelinks.protection.outlook.com/?url=…`): the link it guards.
+            if let host = u.host?.lowercased(), host.hasSuffix(".safelinks.protection.outlook.com"),
+               let q = URLComponents(url: u, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "url" })?.value,
                let inner = URL(string: q), inner.host != nil {
                 u = inner
             }

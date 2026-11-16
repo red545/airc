@@ -8,6 +8,9 @@ import AircCore
 #endif
 
 extension SnapshotRunner {
+    /// `--script parityp20c`, both engines. On Chromium its extension-coexistence part needs the engine's test gate:
+    /// launch without --ephemeral, with `--data-dir D --airc-data-dir=D --airc-test=unpackedExtension` (D/Chromium
+    /// existing), as build-app.sh launches parityp09. Without the gate that part is a SKIP that names the arguments.
     func parityP20cScenario() {
         step { [self] done in
             Task { @MainActor in
@@ -281,8 +284,18 @@ extension SnapshotRunner {
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             let manifest = #"{"manifest_version":3,"name":"Fixture Adblock","version":"1.0","description":"Synthetic coexistence fixture; no permissions, no network."}"#
             try? Data(manifest.utf8).write(to: folder.appendingPathComponent("manifest.json"))
-            let id: String? = await withCheckedContinuation { resume in profile.core.loadUnpackedExtension(forTesting: folder.path) { id, _ in resume.resume(returning: id) } }
-            guard let id else { check(false, "synthetic blocker extension loads under test gate"); return }
+            let (loaded, error): (String?, String?) = await withCheckedContinuation { resume in
+                profile.core.loadUnpackedExtension(forTesting: folder.path) { id, error in resume.resume(returning: (id, error)) }
+            }
+            // The engine loads the fixture only on its test gate, which a launch opens with --airc-data-dir=<data dir>
+            // (its Chromium folder is the profile's) and --airc-test=unpackedExtension, as parityp09 and smallwins do in
+            // build-app.sh. Without them the engine answers "test instance required": a launch without the gate, not an
+            // extension red; it says so (SKIP) instead of failing. Any other answer is a real failure, with its reason.
+            if loaded == nil, error == "test instance required" {
+                runner.note("SKIP parityp20c: extension coexistence (the synthetic blocker extension needs the Chromium engine's test gate: --airc-data-dir, --airc-test=unpackedExtension; engine: \(error ?? "-"))")
+                return
+            }
+            guard let id = loaded else { check(false, "synthetic blocker extension loads under test gate (engine: \(error ?? "no reason"))"); return }
             let blockers = center.blockers(profile: profileID)
             check(blockers.contains { $0.id == id }, "enabled blocker still enabled before consent")
             check(center.settings.shouldOfferCoexistence(profile: profileID, extensionIDs: [id]), "coexistence notice offered")

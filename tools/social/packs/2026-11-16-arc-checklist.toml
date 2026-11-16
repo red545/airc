@@ -1,0 +1,39 @@
+# The Arc checklist (2026-11-16): what comes with you from Arc, in the same terms as byearc.com's comparison of Arc
+# replacements (Spaces, Profiles per Space, Arc import, Chrome extensions, Sync), which the owner found and wants Airc
+# listed and ticked on. Every line from shipped docs; the one gap said plainly.
+slug = "2026-11-16-arc-checklist"
+title = "Arc checklist"
+kind = "release"
+since = "0.1.18"
+tag = ""
+summary = """
+One text post: a checklist of what an Arc user keeps in Airc, honest about what's missing.
+"""
+order = """
+1. The one post.
+"""
+checked = """
+- Spaces each with its own profile: docs/user/README.md ("Spaces, each tied to a profile"); several Spaces can share one.
+- Arc import of Spaces, pinned tabs and folders: docs/user/import-from-arc.md.
+- Chrome Web Store extensions: docs/user/extensions.md.
+- Little Arc (Little Airc), Peek, Split View, Boosts, ⌘T: shipped since 0.1.2–0.1.13 (notes, catalog).
+- Sidebar sync through iCloud: docs/user/sync.md (Spaces, pinned tabs, folders, Favorites). Says only that it exists;
+  no claim about two Macs.
+- Left out: DRM streaming (subscription playback isn't qualified: Please know); "faster" (no head-to-head yet).
+- ✕ No iPhone app: true, and byearc scores a mobile app.
+"""
+
+[[post]]
+label = "What comes with you from Arc"
+text = """
+Leaving Arc before Dec 22? What comes with you in Airc:
+
+✓ Spaces, each with its own profile
+✓ Arc import: Spaces, pinned tabs, folders
+✓ Chrome Web Store extensions
+✓ Little Arc, Peek, Split View, Boosts
+✓ Sidebar sync through iCloud
+✕ No iPhone app yet
+
+Free for Mac.
+"""

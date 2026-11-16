@@ -1787,6 +1787,7 @@ extension WindowController: EngineTabDelegate {
         refreshRow(id)
         if id == shownTabID { refreshChrome() }
         if persist { scheduleSpareBarRefresh() }   // a title, icon or address ⌘T's rows may show
+        ServicePreviewCenter.shared.pageMail.pageChanged(page)   // MEM-6: a mail or calendar page is read again when it changes
     }
 
     /// History is per profile (SP-24). A visit is a new main-frame URL; the title follows when it arrives.

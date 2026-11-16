@@ -40,6 +40,11 @@ Airc sends anonymous usage data, which features get used and how fast Airc is, t
 browse, type or name. Turn it off, or see exactly what is sent, in Settings → Privacy
 ([docs/user/telemetry.md](docs/user/telemetry.md)).
 
+## Releases
+
+Each release has a tag `v<version>` and a [GitHub Release](../../releases) here whose tree is exactly the source
+that release was built from; the full notes are in the [changelog](https://aircbrowser.com/changelog).
+
 ## Licence
 
 Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

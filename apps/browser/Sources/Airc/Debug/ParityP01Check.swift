@@ -18,6 +18,9 @@ import AircKit
 ///   5. Reset: a page with unsaved input asks "Leave site?" first; Cancel keeps the page and its input, Leave goes back
 ///      to the saved URL with no second question from the engine. "Reset all tabs in this Space" from the main menu:
 ///      one question for the page that would ask; Reset Others, then Reset All.
+///   5b. Reset with real input (UI driver clicks and keys in a dedicated session; posted stand-ins, labelled so,
+///      without): a page whose handler was added with addEventListener asks; Cancel keeps it asking, Leave goes back
+///      with no second question; then one Reset All over both handler styles (onbeforeunload and addEventListener).
 ///   6. Command Bar: every new action is offered where it applies, and one runs from there.
 extension SnapshotRunner {
     private final class P01 {
@@ -41,6 +44,7 @@ extension SnapshotRunner {
         p01Share(k)
         p01Folders(k)
         p01Reset(k)
+        p01ResetListeners(k)
         p01CommandBar(k)
         p01QuoteLink(k)
         p01TodayIcon(k)
@@ -77,6 +81,9 @@ extension SnapshotRunner {
             // Unsaved input asks before the page is left (only once the person used the page, as browsers do).
             pages["/dirty.html"] = page("Dirty", "<input id=f><script>onbeforeunload=function(e){if(document.getElementById('f').value)"
                                         + "{e.preventDefault();e.returnValue=''}}</script>")
+            // The same with a handler the page added with addEventListener (Reset's switch-off must stop this one too).
+            pages["/listener.html"] = page("Listener", "<input id=f><script>addEventListener('beforeunload',function(e){"
+                                           + "if(document.getElementById('f').value){e.preventDefault();e.returnValue=''}})</script>")
             k.server = LocalPageServer(pages: pages)
             k.server?.start { port in
                 guard let port else { self.check(false, "parityp01: the loopback page server starts"); return self.finish() }
@@ -593,6 +600,167 @@ extension SnapshotRunner {
                                                       && self.c.engineTab(for: k.tab[$0.key] ?? "")?.isLoading == false } }, timeout: 8) { done() }
             }
         }
+    }
+
+    // MARK: Reset, both handler styles, real input
+
+    /// Presses the reset question's `title` button: a real driver click on the sheet when real input is on, else
+    /// performClick. `done` gets how it was pressed.
+    private func p01PressResetButton(_ title: String, real: Bool, _ done: @escaping (String) -> Void) {
+        guard let a = WindowController.lastResetAlert, let b = a.buttons.first(where: { $0.title == title }), let w = b.window else {
+            check(false, "parityp01: listener: the question has a \(title) button")
+            return done("no button")
+        }
+        guard real, NSApp.isActive, let top = NSScreen.screens.first?.frame.maxY else {
+            b.performClick(nil)
+            return done("performClick")
+        }
+        w.contentView?.layoutSubtreeIfNeeded()
+        let g = w.convertPoint(toScreen: b.convert(NSPoint(x: b.bounds.midX, y: b.bounds.midY), to: nil))
+        UIDriverClient.run(["--click", String(Double(g.x)), String(Double(top - g.y))]) { ok, out in
+            if ok { return done("real driver click") }
+            self.note("parityp01: listener: the driver's click on \(title) failed (\(out.prefix(120))), performClick")
+            b.performClick(nil)
+            done("performClick after a driver failure")
+        }
+    }
+
+    private func p01ResetListeners(_ k: P01) {
+        let real = realPointerInput
+        var how: [String] = []
+        func page(_ n: String) -> EngineTab? { c.engineTab(for: k.tab[n] ?? "") }
+        func sheets() -> Int { NSApp.windows.filter { $0.attachedSheet != nil }.count }
+        func moveAway(_ n: String, _ path: String, _ title: String) {
+            step { [self] done in
+                guard let p = page(n), let u = URL(string: k.url(path)) else { return done() }
+                c.show(k.tab[n] ?? "", focus: false)
+                c.engineWindow.load(u, in: p)
+                waitUntil({ p.title == title && p.isLoading == false && self.c.store.isDrifted(k.tab[n] ?? "") }, timeout: 8) { done() }
+            }
+        }
+        /// The person clicks into the page's field and types "kept" (driver click and keys), else p01Dirty's stand-in.
+        func typeInto(_ n: String) {
+            step { [self] done in
+                guard real, let p = page(n) else { how.append("\(n) posted"); return p01Dirty(k, n, done) }
+                c.show(k.tab[n] ?? "", focus: false)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    p.evaluate("(function(){var r=document.getElementById('f').getBoundingClientRect();return [r.left+r.width/2,r.top+r.height/2]})()") { v in
+                        let view = p.view
+                        guard let xy = v as? [Double], xy.count == 2, let w = view.window, let top = NSScreen.screens.first?.frame.maxY else {
+                            self.check(false, "parityp01: listener: \(n)'s field is on screen")
+                            return done()
+                        }
+                        let local = NSPoint(x: xy[0], y: view.isFlipped ? xy[1] : view.bounds.height - xy[1])
+                        let g = w.convertPoint(toScreen: view.convert(local, to: nil))
+                        UIDriverClient.run(["--click", String(Double(g.x)), String(Double(top - g.y))]) { ok, out in
+                            guard ok, let keys = UIDriverClient.keys(typing: "kept") else {
+                                self.note("parityp01: listener: the driver's click into \(n) failed (\(out.prefix(120))); stand-in input")
+                                how.append("\(n) posted")
+                                return self.p01Dirty(k, n, done)
+                            }
+                            UIDriverClient.press(keys, pid: getpid()) { ok, out in
+                                how.append(ok ? "\(n) real click+keys" : "\(n) real click, keys failed (\(out.prefix(80)))")
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: done)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        func typed(_ n: String) {
+            step { [self] done in
+                let want = how.last?.hasSuffix("posted") == true ? "unsaved words" : "kept"
+                page(n)?.evaluate("[document.getElementById('f').value, navigator.userActivation ? navigator.userActivation.hasBeenActive : true]") { v in
+                    let a = v as? [Any]
+                    self.check((a?.first as? String) == want && (a?.last as? Bool) == true,
+                               "parityp01: listener: \(n)'s field holds what the person typed (\(a?.first as? String ?? "-"), used \(a?.last as? Bool ?? false); \(how.last ?? "-"))")
+                    done()
+                }
+            }
+        }
+        /// Waits for the question's sheet to be up, then lets `then` check it and press a button.
+        func whenAsked(_ then: @escaping (NSAlert?, @escaping () -> Void) -> Void) -> (@escaping () -> Void) -> Void {
+            { [self] done in
+                waitUntil({ WindowController.lastResetAlert != nil && self.c.window.attachedSheet?.isVisible == true }, timeout: 4) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { then(WindowController.lastResetAlert, done) }
+                }
+            }
+        }
+
+        activateForRealInput()
+        // Active app: park the real pointer in the sidebar, or a posted press later in the run starts menu tracking.
+        if real { pointerInWindow("parityp01 listener") }
+        run { [self] in note("parityp01: listener: \(real ? "real driver clicks and keys" : "POSTED input (no UI driver or no dedicated session)")") }
+        // 1. One page whose handler was added with addEventListener: Cancel, then Leave.
+        moveAway("P", "/listener.html", "Listener")
+        typeInto("P")
+        typed("P")
+        step { [self] done in
+            WindowController.lastResetAlert = nil
+            _ = p01Fire(p01Entry(k, "P").map { c.menu(for: $0) }, ["Back to Pinned URL"])
+            whenAsked { a, done in
+                self.check(a?.messageText == "Leave site?" && a?.buttons.map(\.title) == ["Leave", "Cancel"] && page("P")?.title == "Listener",
+                           "parityp01: listener: Back to Pinned URL on a page with an addEventListener handler asks \"\(a?.messageText ?? "nothing")\" first")
+                self.p01PressResetButton("Cancel", real: real) { pressed in how.append("Cancel: \(pressed)"); done() }
+            }(done)
+        }
+        wait(0.8)
+        step { [self] done in
+            let p = k.tab["P"] ?? ""
+            page("P")?.evaluate("[document.getElementById('f').value, " + WindowController.wouldAskBeforeUnload.trimmingCharacters(in: .whitespacesAndNewlines) + "]") { v in
+                let a = v as? [Any]
+                self.check(page("P")?.title == "Listener" && (a?.first as? String)?.isEmpty == false && (a?.last as? Bool) == true
+                           && self.c.store.isDrifted(p) && sheets() == 0 && self.p01EngineDialogs(p) == 0,
+                           "parityp01: listener: Cancel (\(how.last ?? "-")) keeps the page, its input and its handler (\(page("P")?.title ?? "-"), \(a?.first as? String ?? "-"), still asks \(a?.last as? Bool ?? false))")
+                done()
+            }
+        }
+        step { [self] done in
+            WindowController.lastResetAlert = nil
+            c.resetToSaved(k.tab["P"] ?? "", keepCurrent: false)
+            whenAsked { _, done in
+                self.p01PressResetButton("Leave", real: real) { pressed in
+                    how.append("Leave: \(pressed)")
+                    let p = k.tab["P"] ?? ""
+                    self.waitUntil({ page("P")?.title == "Pinned P" && page("P")?.isLoading == false }, timeout: 6) {
+                        self.check(page("P")?.title == "Pinned P" && !self.c.store.isDrifted(p) && sheets() == 0 && self.p01EngineDialogs(p) == 0,
+                                   "parityp01: listener: Leave (\(pressed)) goes back to the saved URL and the engine doesn't ask again (\(page("P")?.title ?? "-"), sheets \(sheets()), engine dialogs \(self.p01EngineDialogs(p)))")
+                        done()
+                    }
+                }
+            }(done)
+        }
+        // 2. Both handler styles in one Reset All: Draft (onbeforeunload) and P (addEventListener), each with typed input.
+        moveAway("P", "/listener.html", "Listener")
+        typeInto("P")
+        typed("P")
+        moveAway("Draft", "/dirty.html", "Dirty")
+        typeInto("Draft")
+        typed("Draft")
+        run { [self] in c.show(k.tab["Alpha"] ?? "", focus: false) }
+        step { [self] done in
+            WindowController.lastResetAlert = nil
+            let tabs = NSApp.mainMenu?.items.first { $0.submenu?.title == "Tabs" }?.submenu
+            let fired = p01Fire(tabs, ["Reset all tabs in this Space"])
+            whenAsked { a, done in
+                self.check(fired && a?.informativeText == "2 of these pages have changes that may not be saved."
+                           && a?.buttons.map(\.title) == ["Reset All", "Cancel", "Reset Others"],
+                           "parityp01: listener: Reset all tabs in this Space asks once for both pages (\(a?.informativeText ?? "no question"))")
+                self.p01PressResetButton("Reset All", real: real) { pressed in
+                    how.append("Reset All: \(pressed)")
+                    let home = ["P": "Pinned P", "Draft": "Draft home"]
+                    self.waitUntil({ home.allSatisfy { page($0.key)?.title == $0.value && page($0.key)?.isLoading == false } }, timeout: 8) {
+                        let titles = ["P", "Draft"].map { page($0)?.title ?? "-" }
+                        let dialogs = ["P", "Draft"].map { self.p01EngineDialogs(k.tab[$0] ?? "") }.reduce(0, +)
+                        self.check(titles == ["Pinned P", "Draft home"] && self.c.store.driftedPinnedTabs(inSpace: k.home).isEmpty
+                                   && sheets() == 0 && dialogs == 0,
+                                   "parityp01: listener: Reset All (\(pressed)) takes both handler styles back with no second question (\(titles), sheets \(sheets()), engine dialogs \(dialogs))")
+                        done()
+                    }
+                }
+            }(done)
+        }
+        run { [self] in note("parityp01: listener: input \(how.joined(separator: "; "))") }
     }
 
     // MARK: A Today tab's own icon

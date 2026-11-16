@@ -57,33 +57,68 @@ extension SnapshotRunner {
             guard let s = self.app?.store.space(spaceID) else { return [] }
             return ThemePagePalette.palette(s.theme, systemDark: ThemePagePalette.isDark(NSApp.effectiveAppearance)).variables.map(\.value)
         }
-        func values(_ tab: @escaping () -> EngineTab?, _ then: @escaping ([String]) -> Void) {
-            step { done in
-                guard let p = tab() else { then([]); return done() }
+        /// Reads the page's values until `accept` takes an answer or `timeout` passes; `then` gets the accepted answer
+        /// (else the last one, [] if none came) and whether it was accepted. Under load a read can come back empty, and
+        /// on Chromium a read sent right after a theme change reached the page can go unanswered until the engine's own
+        /// 10 s evaluate timeout (fedcm's A/B, 2026-11-16, load 47–186: "values" reds in both engine arms). So a read
+        /// that isn't taken is sent again after 0.1 s, one still unanswered after 0.5 s gets another beside it, and
+        /// the first acceptable answer wins. Reads that took more than one try are noted with their count and time.
+        func read(_ tab: @escaping () -> EngineTab?, _ what: String, timeout: Double, accept: @escaping ([String]) -> Bool,
+                  _ then: @escaping ([String], Bool) -> Void) {
+            let started = Date(), deadline = started.addingTimeInterval(timeout)
+            var finished = false, last: [String] = [], sent = 0, answered = 0, lastSent = Date.distantPast
+            func finish(_ ok: Bool) {
+                guard !finished else { return }
+                finished = true
+                if sent > 1 || !ok {
+                    note("themeparity (\(tag)): \(what): \(ok ? "read" : "no acceptable read") after \(sent) tries, \(answered) answered, \(String(format: "%.2f", Date().timeIntervalSince(started))) s")
+                }
+                then(last, ok)
+            }
+            func send() {
+                guard !finished else { return }
+                guard Date() < deadline else { return finish(false) }
+                lastSent = Date()
+                guard let p = tab() else { return }
+                sent += 1
                 p.evaluate(valuesJS) { v in
-                    then((v as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String] } ?? [])
+                    guard !finished else { return }
+                    answered += 1
+                    let got = (v as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String] } ?? []
+                    if !got.isEmpty || last.isEmpty { last = got }
+                    if accept(got) { last = got; return finish(true) }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: send)
+                }
+            }
+            func watch() {
+                guard !finished else { return }
+                guard Date() < deadline else { return finish(false) }
+                if Date().timeIntervalSince(lastSent) >= 0.5 { send() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: watch)
+            }
+            send()
+            watch()
+        }
+        /// The page's values once all of them are there (19 non-empty strings), waiting up to `timeout`.
+        func values(_ tab: @escaping () -> EngineTab?, _ what: String = "values", timeout: Double = 10,
+                    _ then: @escaping ([String]) -> Void) {
+            step { done in
+                read(tab, what, timeout: timeout, accept: { $0.count == names.count && !$0.contains(where: \.isEmpty) }) { got, _ in
+                    then(got)
                     done()
                 }
             }
         }
         /// Waits until `tab`'s page shows `want()` (all 19 values), then checks it.
-        func expectPalette(_ tab: @escaping () -> EngineTab?, _ want: @escaping () -> [String], _ what: String, timeout: Double = 5) {
+        func expectPalette(_ tab: @escaping () -> EngineTab?, _ want: @escaping () -> [String], _ what: String, timeout: Double = 10) {
             step { [self] done in
-                let deadline = Date().addingTimeInterval(timeout)
-                func poll() {
-                    guard let p = tab() else { check(false, "themeparity (\(tag)): \(what) (no page)"); return done() }
-                    p.evaluate(valuesJS) { v in
-                        let got = (v as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String] } ?? []
-                        let w = want()
-                        if got == w || Date() > deadline {
-                            self.check(got == w && !w.isEmpty && (w.allSatisfy(\.isEmpty) || got.count == names.count),
-                                       "themeparity (\(tag)): \(what) (background \(got.indices.contains(6) ? got[6] : "-"), want \(w.indices.contains(6) ? w[6] : "-"))")
-                            return done()
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: poll)
-                    }
+                guard tab() != nil else { check(false, "themeparity (\(tag)): \(what) (no page)"); return done() }
+                read(tab, what, timeout: timeout, accept: { $0 == want() }) { got, _ in
+                    let w = want()
+                    self.check(got == w && !w.isEmpty && (w.allSatisfy(\.isEmpty) || got.count == names.count),
+                               "themeparity (\(tag)): \(what) (background \(got.indices.contains(6) ? got[6] : "-"), want \(w.indices.contains(6) ? w[6] : "-"))")
+                    done()
                 }
-                poll()
             }
         }
         func waitTitle(_ tab: @escaping () -> EngineTab?, _ title: String) {
@@ -213,7 +248,7 @@ extension SnapshotRunner {
         for (preset, intensity) in [("mint", 0.0), ("mint", 1.0), ("ocean", 0.0), ("ocean", 1.0)] {
             run { [self] in try? w1().store.updateSpace(home) { var t = DesignTheme.preset(preset)!; t.intensity = intensity; $0.theme = t.model } }
             expectPalette(pageA, { expected(home) }, "\(preset) at intensity \(intensity) reaches the page")
-            values(pageA) { [self] v in
+            values(pageA, "\(preset) i\(intensity) values") { [self] v in
                 guard v.count == names.count, let fg = AircColor(hex: v[0]), let second = AircColor(hex: v[1]), let bg = AircColor(hex: v[6]) else {
                     return check(false, "themeparity (\(tag)): \(preset) i\(intensity) values")
                 }

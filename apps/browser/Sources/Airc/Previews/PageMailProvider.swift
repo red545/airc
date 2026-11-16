@@ -11,8 +11,10 @@ import WebKit
 ///
 /// - Private windows are never read (their pages aren't the windows' pages here), and their pages are never history,
 ///   so a private window never opens an account (ServicePreviewCenter.hasOpened).
-/// - Answers are cached by the center (one minute); while such a page is loaded, a light timer asks again when the
-///   answer is stale, so the card and the row's "3 Recent" are ready before a hover. Nothing is read with no page.
+/// - Answers are cached by the center (one minute). Event-driven (MEM-6): a loaded page of an account that changes
+///   (loads, navigates, changes its title) is read again at once; while such a page is loaded, one one-shot timer asks
+///   again when its answer goes stale, so the card and the row's "3 Recent" are ready before a hover. With no such page
+///   loaded, no timer runs at all. A hover asks through the center as before. Nothing is read with no page.
 /// - A site whose previews are off in Settings is never read (ServicePreviewCenter.isEnabled).
 ///
 /// calprev: Google Calendar's and Outlook's calendar cards come the same way, from the calendar page's own markup
@@ -22,9 +24,22 @@ final class PageMailProvider: ServicePreviewProvider {
     let services: Set<PreviewService> = [.gmail, .outlookMail, .googleCalendar, .outlookCalendar]
     /// The account's site must have been opened in its profile before its card asks anything.
     var fetchesRemotely: Bool { true }
-    /// How often loaded pages are looked at (an account is read only when its answer is stale).
+    /// The shortest wait of the one-shot that asks a loaded page again (its answer goes stale after the center's
+    /// `refreshAfter`); checks make it short.
     static var tick: TimeInterval = 15
+    /// After a page changes, how long to wait for more changes before reading it (a load's title, URL and loading flips).
+    static let settle: TimeInterval = 0.5
+    private var running = false
+    /// The one wake-up: the next stale answer of a loaded page, or a page that just changed.
     private var timer: Timer?
+    private var timerFire: Date?
+    /// Accounts whose page changed since the last look: read again whatever their answer's age.
+    private var changed: Set<PreviewAccount> = []
+    #if AIRC_TESTING
+    /// MEM-6: how many times the provider woke up to look at pages, and why ("changed", "due").
+    var wakeupsForTesting: [String] = []
+    var hasTimerForTesting: Bool { timer != nil }
+    #endif
     weak var center: ServicePreviewCenter?
 
     /// Reads on their way: each one's page, so it can be stopped there.
@@ -32,7 +47,16 @@ final class PageMailProvider: ServicePreviewProvider {
     private var reads: [Int: Read] = [:]
     private var nextToken = 1
 
+    /// calmeet2: the call links read from meetings' own pages, per account, and the detail read on its way per account
+    /// (at most one: only the next meeting is ever read).
+    private var details: [PreviewAccount: CalendarDetailLinks] = [:]
+    private struct DetailRead { let token: Int; let event: CalendarEvent; let started: Date; weak var page: EngineTab? }
+    private var detailReads: [PreviewAccount: DetailRead] = [:]
+
     #if AIRC_TESTING
+    /// calmeet2: each detail read: the account, the event's ID, and how it ended ("link", "none", "failed",
+    /// "cancelled"; "" while on its way).
+    var detailReadsForTesting: [(account: PreviewAccount, event: String, result: String)] = []
     /// Each read: the account, the address of the page it was read from, and when it started.
     var readsForTesting: [(PreviewAccount, String, Date)] = []
     /// Reads stopped by a site's previews going off, and their answers that came anyway (dropped).
@@ -134,8 +158,14 @@ final class PageMailProvider: ServicePreviewProvider {
                 // The calendar page on another view (an event's page, settings): nothing to read, the card keeps its events.
                 var before: [CalendarEvent]?
                 if case .calendar(let e)? = previous { before = e }
-                state = answer.flatMap { PageCalendar.state(from: $0, service: a.service, now: now, previous: before) }
-                    ?? previous.map { .ready($0) } ?? .needsPage
+                var read = answer.flatMap { PageCalendar.state(from: $0, service: a.service, now: now, previous: before) }
+                if case .ready(.calendar(let events))? = read {
+                    self.details[a]?.prune(keeping: events, now: now)
+                    let linked = self.details[a]?.apply(events) ?? events
+                    read = .ready(.calendar(linked))
+                    self.readDetail(a, linked, in: page, now: now)
+                }
+                state = read ?? previous.map { .ready($0) } ?? .needsPage
             } else {
                 state = answer.flatMap { PageMail.state(from: $0, service: a.service, now: now) }
             }
@@ -144,6 +174,61 @@ final class PageMailProvider: ServicePreviewProvider {
             }
             completion(state ?? .failed(stale: nil))
         }
+    }
+
+    /// calmeet2: the next meeting's call link, when its chip has none (Google puts a Meet call in the event, not on its
+    /// chip): read from the meeting's own page, in a hidden frame of the same calendar page (PageCalendar.detailScript),
+    /// once per meeting until its chip changes. Nothing shows: no navigation, no tab, no click. Only the countdown's
+    /// meeting is read, so the Join prompt and ⌃⌘J have its call in time; the others keep what their chips give.
+    private func readDetail(_ a: PreviewAccount, _ events: [CalendarEvent], in page: EngineTab, now: Date) {
+        // A read whose page went away (or that never answered) doesn't hold the next one up.
+        if let r = detailReads[a], r.page == nil || r.page?.isClosed == true || Date().timeIntervalSince(r.started) > 60 { detailReads[a] = nil }
+        guard detailReads[a] == nil, let e = (details[a] ?? CalendarDetailLinks()).candidate(events, now: now), let url = e.url else { return }
+        let token = nextToken
+        nextToken += 1
+        guard let script = PageCalendar.detailScript(for: a.service, url: url, token: token) else { return }
+        detailReads[a] = DetailRead(token: token, event: e, started: Date(), page: page)
+        #if AIRC_TESTING
+        detailReadsForTesting.append((a, e.id, ""))
+        let slot = detailReadsForTesting.count - 1
+        #endif
+        // The script answers at once ({"pending":true}); its answer is then asked for about once a second.
+        let deadline = Date().addingTimeInterval(PageCalendar.detailWait + 10)
+        func poll(_ answer: String?) {
+            guard detailReads[a]?.token == token, PageCalendar.detailPending(answer), Date() < deadline else { return finish(answer) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self, weak page] in
+                guard let self, self.detailReads[a]?.token == token else { return }
+                guard let page, !page.isClosed else { return finish(nil) }
+                Self.run(PageCalendar.detailPollScript(token: token), in: page) { poll($0) }
+            }
+        }
+        func finish(_ answer: String?) {
+            guard self.detailReads[a]?.token == token, !PageMail.wasCancelled(answer) else {
+                #if AIRC_TESTING
+                self.detailReadsForTesting[slot].result = "cancelled"
+                #endif
+                return
+            }
+            self.detailReads[a] = nil
+            let now = self.center?.now() ?? Date()
+            let result = PageCalendar.detailResult(from: answer)
+            self.details[a, default: CalendarDetailLinks()].store(result, for: e, now: now)
+            let outcome: String
+            switch result {
+            case .link: outcome = "link"
+            case .noCall: outcome = "none"
+            case .failed: outcome = "failed"
+            }
+            #if AIRC_TESTING
+            self.detailReadsForTesting[slot].result = outcome
+            #endif
+            // Privacy: whether a call was found, never its address or the event.
+            Self.log.notice("\(a.service.rawValue, privacy: .public) \(a.key, privacy: .public): the next meeting's page read for its call: \(outcome, privacy: .public)")
+            guard case .link = result, let center = self.center, case .calendar(let current)? = center.state(a)?.content,
+                  let details = self.details[a] else { return }
+            center.storeAnswer(.ready(.calendar(details.apply(current))), for: a)
+        }
+        Self.run(script, in: page) { poll($0) }
     }
 
     /// Runs `expression` (a promise of a string) in `page`: on WebKit in Airc's own script world (the page's scripts
@@ -169,32 +254,83 @@ final class PageMailProvider: ServicePreviewProvider {
             guard let page = r.page, !page.isClosed else { continue }
             Self.run(PageMail.cancelScript(token: token), in: page) { _ in }
         }
+        for (a, r) in detailReads where a.service == service {
+            detailReads[a] = nil
+            guard let page = r.page, !page.isClosed else { continue }
+            Self.run(PageMail.cancelScript(token: r.token), in: page) { _ in }
+        }
+        // Off: what was read of its meetings' pages goes too.
+        details = details.filter { $0.key.service != service }
     }
 
     /// The card's button (Sign In, or Open with no page): the item's own page, by the card (TabPreview opens it).
     func signIn(_ a: PreviewAccount, completion: @escaping () -> Void) { completion() }
-    func remove(_ a: PreviewAccount) {}
+    func remove(_ a: PreviewAccount) { details[a] = nil }
 
     // MARK: Refresh while loaded
 
     func start() {
-        guard timer == nil else { return }
-        let t = Timer(timeInterval: Self.tick, repeats: true) { [weak self] _ in self?.look() }
-        t.tolerance = Self.tick / 3
-        RunLoop.main.add(t, forMode: .common)
-        timer = t
+        running = true
+        schedule(at: Date())
     }
 
     func stop() {
+        running = false
         timer?.invalidate()
         timer = nil
+        timerFire = nil
+        changed = []
+    }
+
+    /// A page of a window changed (WindowController: it loaded, navigated or changed its title). A finished page of an
+    /// account this reads is read again soon; anything else is ignored, with no wake-up.
+    func pageChanged(_ page: EngineTab) {
+        guard running, !page.isClosed, !page.isLoading, let u = page.url?.absoluteString,
+              let s = PreviewService.detect(u), services.contains(s) else { return }
+        if let a = account(of: page) { changed.insert(a) }
+        schedule(at: Date().addingTimeInterval(Self.settle))
+    }
+
+    /// The account a loaded page in a normal window is a page of (its tab's profile).
+    private func account(of page: EngineTab) -> PreviewAccount? {
+        guard let app = NSApp.delegate as? AppDelegate, let u = page.url?.absoluteString else { return nil }
+        for c in app.controllers {
+            for (tabID, p) in c.pages where p === page {
+                guard let profile = c.store.tab(tabID)?.profileID else { return nil }
+                return PreviewAccount(url: u, profileID: profile)
+            }
+        }
+        return nil
+    }
+
+    /// One one-shot timer, at the earliest time asked for.
+    private func schedule(at date: Date) {
+        guard running else { return }
+        if let f = timerFire, f <= date, timer != nil { return }
+        timer?.invalidate()
+        let t = Timer(fire: date, interval: 0, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.timer = nil
+            self.timerFire = nil
+            #if AIRC_TESTING
+            self.wakeupsForTesting.append(self.changed.isEmpty ? "due" : "changed")
+            #endif
+            self.look()
+        }
+        t.tolerance = min(1, max(0.1, date.timeIntervalSinceNow / 10))
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+        timerFire = date
     }
 
     /// Each account with a loaded page that the profile has opened and whose previews are on: asked again when its
     /// answer is stale, or at once when the card was waiting for a page.
     func look() {
         guard let center, let app = NSApp.delegate as? AppDelegate else { return }
+        let changedNow = changed
+        changed = []
         var seen: Set<PreviewAccount> = []
+        var next: Date?
         for c in app.controllers {
             for (tabID, page) in c.pages where !page.isClosed && !page.isLoading {
                 guard let u = page.url?.absoluteString, let profile = c.store.tab(tabID)?.profileID,
@@ -204,8 +340,14 @@ final class PageMailProvider: ServicePreviewProvider {
                 guard center.account(for: u, profileID: profile) != nil else { continue }
                 seen.insert(a)
                 let waiting = center.state(a) == .needsPage
-                center.refresh(a, force: waiting)
+                center.refresh(a, force: waiting || changedNow.contains(a))
+                // While its page stays loaded: ask again when its answer goes stale (not sooner than `tick`).
+                let at = center.cache.entry(a).map { $0.at.addingTimeInterval(ServicePreviewCenter.refreshAfter) } ?? Date()
+                let due = max(at, Date().addingTimeInterval(Self.tick))
+                if next.map({ due < $0 }) ?? true { next = due }
             }
         }
+        // No page of a service this reads is loaded: no timer until one changes.
+        if let next { schedule(at: next) }
     }
 }
