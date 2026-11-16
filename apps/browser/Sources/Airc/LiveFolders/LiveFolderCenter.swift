@@ -3,7 +3,8 @@ import AircKit
 import AppKit
 
 /// Keeps the app's live folders current (AircKit's LiveFolders.swift, docs/user/live-folders.md): every three minutes,
-/// when a window comes to the front with a list older than a minute, and on Refresh. One request per folder at a time;
+/// when a window comes to the front with a list older than a minute, and on Refresh. The timer is one-shot, armed for
+/// the next folder that comes due (LiveFolderSchedule.nextTimerRefresh), so with no live folder nothing wakes (MEM-6). One request per folder at a time;
 /// a folder deleted while its request is out cancels it, and a late answer is dropped. Starts the first time the sidebar
 /// shows a live folder or one is made, so a profile without one never touches the network.
 final class LiveFolderCenter {
@@ -51,10 +52,17 @@ final class LiveFolderCenter {
             guard change.touches(.item) else { return }
             self?.storeChanged()
         }
-        let t = Timer(timeInterval: 30, repeats: true) { [weak self] _ in self?.refreshDue(.timer) }
-        t.tolerance = 10
-        RunLoop.main.add(t, forMode: .common)
-        timer = t
+        #if AIRC_TESTING
+        // MEM-6 A/B (artifacts/idletimers): the old fixed 30 s tick, same binary.
+        if ProcessInfo.processInfo.environment["AIRC_IDLETIMERS_BASELINE"] == "1" {
+            let t = Timer(timeInterval: 30, repeats: true) { [weak self] _ in self?.refreshDue(.timer) }
+            t.tolerance = 10
+            RunLoop.main.add(t, forMode: .common)
+            timer = t
+            baselineTick = true
+        }
+        #endif
+        scheduleTimer()
         activeObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
                                                                 queue: .main) { [weak self] _ in self?.refreshDue(.focus) }
         DispatchQueue.main.async { [weak self] in self?.refreshDue(.focus) }
@@ -69,6 +77,9 @@ final class LiveFolderCenter {
         refreshing = []
         timer?.invalidate()
         timer = nil
+        #if AIRC_TESTING
+        baselineTick = false
+        #endif
         if let storeToken { store?.removeObserver(storeToken) }
         storeToken = nil
         activeObserver.map(NotificationCenter.default.removeObserver)
@@ -85,6 +96,39 @@ final class LiveFolderCenter {
             cancel(id)
             post(id)
         }
+        scheduleTimer()
+    }
+
+    #if AIRC_TESTING
+    private var baselineTick = false
+    /// When the one-shot timer fires next (nil: none armed), for checks.
+    var nextTimerFire: Date? { timer?.isValid == true ? timer?.fireDate : nil }
+    #endif
+
+    /// Arms the timer for the earliest live folder that comes due without a request out; none when nothing will.
+    /// Called after anything that changes a folder's due time: attach, a refresh's start and answer, store changes.
+    private func scheduleTimer() {
+        #if AIRC_TESTING
+        if baselineTick { return }
+        #endif
+        guard let book else { timer?.invalidate(); timer = nil; return }
+        let now = book.now()
+        let next = book.activeFolderIDs.filter { tasks[$0] == nil }
+            .compactMap { book.definition($0).flatMap { LiveFolderSchedule.nextTimerRefresh($0, now: now) } }.min()
+        guard let next else { timer?.invalidate(); timer = nil; return }
+        // A re-arm for the same moment keeps the timer (no churn on every row change).
+        let fire = max(next, Date().addingTimeInterval(1))
+        if let timer, timer.isValid, abs(timer.fireDate.timeIntervalSince(fire)) < 1 { return }
+        timer?.invalidate()
+        let t = Timer(fire: fire, interval: 0, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.timer = nil
+            self.refreshDue(.timer)
+            self.scheduleTimer()
+        }
+        t.tolerance = 10
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
     }
 
     // MARK: State
@@ -139,6 +183,7 @@ final class LiveFolderCenter {
             let result = await client.fetch(d.query, token: token, pages: d.pages)
             await MainActor.run { self?.finish(folderID, ticket, result) }
         }
+        scheduleTimer()
     }
 
     private func finish(_ folderID: String, _ ticket: UUID, _ result: LiveFetchResult) {
@@ -153,6 +198,7 @@ final class LiveFolderCenter {
             for c in (NSApp.delegate as? AppDelegate)?.controllers ?? [] { c.dropPage(tab) }
         }
         post(folderID)
+        scheduleTimer()
         #if AIRC_TESTING
         lastOutcome[folderID] = out
         #endif
@@ -170,6 +216,7 @@ final class LiveFolderCenter {
         tasks[folderID] = nil
         tickets[folderID] = nil
         refreshing.remove(folderID)
+        scheduleTimer()
     }
 
     // MARK: Actions
@@ -193,6 +240,7 @@ final class LiveFolderCenter {
         cancel(folderID)
         try? book?.stopUpdating(folderID)
         post(folderID)
+        scheduleTimer()
     }
 
     func keep(_ itemID: String) {

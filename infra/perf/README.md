@@ -55,6 +55,38 @@ refusal a minute later; `launch` is one such launch for a caller that holds the 
 `--probe` adds the in-app main-thread sampler (diagnostic; its timings don't count). Every launch records the build
 Mac's load average (`load_before`, `load_after`), and `run.py` records it too (`load`): other agents compile there.
 
+## Browser comparison, black box (`arcbench.py`)
+
+Airc against other browsers on the same Mac, measured from outside every app the same way, so a **published** build
+(no perf hook) can be compared too. No Accessibility, screen capture or AppleEvents: windows come from the CoreGraphics
+window list (`arcbench_probe.swift`, no window names), keys from the stable UI driver (`--pid`, foreground only), and
+page timings from a beacon (`arcbench_page.js`) injected into local copies of public pages, each served as its own
+`pNN.localhost` site. Every browser gets a synthetic home (CFFIXED_USER_HOME), a throwaway profile and Chromium's mock
+keychain; Airc runs with telemetry off and `--skip-onboarding`.
+
+```sh
+python3 infra/perf/arcbench.py mirror urls.txt PAGES            # on a box with wget: PAGES/pNN/site + pages.json
+# on the build Mac, one case per strict UI-lock hold, dedicated session, status/timing-run declared:
+python3 infra/perf/arcbench.py launch --browser airc --app Airc.app --pages PAGES --out OUT/launch-airc-1
+python3 infra/perf/arcbench.py tabs --browser chrome --pages PAGES --out OUT/tabs-chrome-1 --window 144,125,1440,900
+python3 infra/perf/arcbench.py report OUT --json summary.json --svg chart.svg
+```
+
+- `launch`: a new profile's launch to the first on-screen window; a warm relaunch; a link launch (warm profile; Airc
+  gets the link from Launch Services and shows it in Little Airc by default, Chrome reads it from argv), to the window
+  and to the page's first contentful paint. Every launch ends with SIGTERM (Airc's ⌘Q is hold-to-quit).
+- `tabs`: the 20 pages open as tabs (Airc: Settings › Links set to the current Space). Airc loads a tab when it's first
+  shown, so both browsers visit each tab once with ⌃PageDown. 60 s settle after the last load, then phys_footprint
+  (vmmap) of every process of the launch. ⌃PageDown ×30: key → the next page's first frame (requestAnimationFrame
+  after its visibility change). ⌘T ×30: key → focus leaves the page (the new tab's field has the keyboard), then Esc
+  (Airc's Command Bar) or ⌘W (Chrome's New Tab page). Times run from the moment before the driver call, so they include
+  the driver's ~65–80 ms of posting a modifier combo (modifier, 10 ms, key; foreground check): compare browsers by the
+  difference. ⇧↓ ×10 records that offset per run (`*_from_keydown_ms` subtracts it), but it differs by browser by a few
+  ms, so it's a diagnostic, not a correction. Then the app hidden and 300 s idle CPU.
+- `arc` is defined but refuses to launch (`ARC_BLOCKED`): a second Arc instance shares the login keychain's Arc account
+  items with the owner's, and a fresh one can't sign up (closed since 1.171).
+- Caches aren't dropped (`purge` needs root): "new profile" launches still find the app's files in the page cache.
+
 ## What one instrumented run measures
 
 Four launches, one after the other (about ten minutes, inside the nightly's 15-minute perf step; watchdog 840 s):

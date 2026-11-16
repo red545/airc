@@ -853,9 +853,13 @@ extension SnapshotRunner {
                   "p11a: M08: the Favorite counts down to the account's next meeting (\(cal.tileLabel ?? "none"))")
             let target = MeetingSchedule.joinTarget(cal.events, now: cal.now(), lead: 10 * 60)
             check(target?.title == "Standup", "p11a: M08: ⌃⌘J's meeting among overlapping ones is the one with a call (\(target?.title ?? "none"))")
-            let mine = cal.events.filter { ["Standup", "Pairing", "Design review", "West coast sync", "Company holiday"].contains($0.title) }
-            check(mine.count == 5 && mine.allSatisfy { $0.id.hasPrefix("outlookCalendar/live/") },
-                  "p11a: M08: the account's meetings, under the account's own IDs")
+            // calmeet: the pinned Google Calendar is a web calendar too, so its meetings are there as well (each under its own
+            // account's IDs); never the Mac's.
+            let names = ["Standup", "Pairing", "Design review", "West coast sync", "Company holiday"]
+            let mine = cal.events.filter { names.contains($0.title) && $0.id.hasPrefix("outlookCalendar/live/") }
+            check(Set(mine.map(\.title)).count == 5 && mine.count == 5 && cal.sourceKind == .pages
+                  && cal.events.allSatisfy { $0.id.hasPrefix("outlookCalendar/") || $0.id.hasPrefix("googleCalendar/") },
+                  "p11a: M08: the account's meetings, under the account's own IDs, and only the web calendars' (\(cal.events.count))")
         }
         hoverFresh({ tile(calFav) }, settle: 0.7)
         run { [self] in
@@ -880,9 +884,13 @@ extension SnapshotRunner {
             item.representedObject = aOutCal
             ServicePreviewMenuTarget.shared.signOut(item)
         }
-        step { [self] done in waitUntil({ !cal.isActive }, timeout: 3) { done() } }
+        // calmeet: the pinned Google Calendar is a web calendar too, so Live Calendar stays on the pages (never EventKit).
+        step { [self] done in waitUntil({ !cal.events.contains { $0.id.hasPrefix("outlookCalendar/") } }, timeout: 3) { done() } }
         run { [self] in
-            check(!cal.isActive && cal.tileLabel == nil, "p11a: M08: signing out of the account (the gear's Sign Out) stops Live Calendar's account meetings")
+            check(!cal.events.contains { $0.id.hasPrefix("outlookCalendar/") } && cal.sourceKind == .pages
+                  && cal.events.allSatisfy { $0.id.hasPrefix("googleCalendar/") },
+                  "p11a: M08: signing out of the account (the gear's Sign Out) stops its meetings; the pinned Google Calendar's stay, "
+                  + "never the Mac's (\(cal.events.map(\.title)))")
             app?.settings.values.calendar.enabled = false
             cal.accessChanged()
         }

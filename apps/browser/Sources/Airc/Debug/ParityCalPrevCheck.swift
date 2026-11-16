@@ -26,6 +26,8 @@ final class CalPrevFixtures: @unchecked Sendable {
         var allDay = false
         var declined = false
         var meet = false
+        /// calmeet: the call link in the chip's text, instead of a real Meet address (a look-alike at meetHost).
+        var meetURL: String? = nil
     }
 
     static let googleHost = "calendar.google.calprev.co.uk"
@@ -33,6 +35,8 @@ final class CalPrevFixtures: @unchecked Sendable {
     static let accountsHost = "accounts.google.calprev.co.uk"
     /// pageread: a Gmail look-alike (the inbox list's markup and its Atom feed, as S04MailFixtures), for mail.google.com.
     static let gmailHost = "mail.google.calprev.co.uk"
+    /// calmeet: a Meet look-alike (for meet.google.com) whose call page is a plain page: nothing asks for a camera.
+    static let meetHost = "meet.google.calprev.co.uk"
     /// Google's pages refuse eval (script nonces and Trusted Types): Chromium's evaluate falls back to DevTools there.
     static let googleCSP = ["Content-Security-Policy": "script-src 'nonce-calprev'; require-trusted-types-for 'script'; object-src 'none'"]
 
@@ -130,7 +134,7 @@ final class CalPrevFixtures: @unchecked Sendable {
             for e in google where Calendar.current.isDate(e.start, inSameDayAs: day) {
                 let when = e.allDay ? "All day" : "\(Self.google12(e.start)) to \(Self.google12(e.end))"
                 var parts = [when, e.title, "Fixture Organizer", e.declined ? "Declined" : "Accepted"]
-                if e.meet { parts.append("https://meet.google.com/abc-defg-hij") }
+                if let u = e.meetURL { parts.append(u) } else if e.meet { parts.append("https://meet.google.com/abc-defg-hij") }
                 parts += ["No location", Self.longDate.string(from: e.start)]
                 chips += """
                     <div role="button" tabindex="0" data-eventchip="" data-eventid="\(e.id)" class="chip">\
@@ -233,6 +237,8 @@ final class CalPrevFixtures: @unchecked Sendable {
             return Answer(body: "<!doctype html><title>Sign in - Google Accounts</title><h1>Sign in</h1>")
         case Self.gmailHost:
             return gmailAnswer(path: path, headers: newSession())
+        case Self.meetHost:
+            return Answer(body: "<!doctype html><title>Meet fixture call</title><h1>Meet fixture call \(Self.esc(path))</h1>")
         case Self.outlookHost:
             if let r = path.range(of: "/calendar/0/item/") {
                 let raw = String(path[r.upperBound...])
@@ -319,6 +325,10 @@ final class CalPrevFixtures: @unchecked Sendable {
 ///     Calendar on with an Apple Calendar meeting: not loaded, "Open Google Calendar" / "Open Gmail"; loaded with Gmail
 ///     active, the unread mail and the page's day, never Live Calendar's card or the Mac's meeting; Gmail closed, "Open
 ///     Gmail" again;
+///   - calmeet: the same Favorites with a page meeting in 10 minutes with a Meet link (a look-alike host) and a different
+///     Apple Calendar meeting at the same time: the tile's countdown, the Join prompt and ⌃⌘J (a real key) are the page's
+///     meeting and open its Meet link; a real click on the prompt's Join shows that call; with no calendar page loaded,
+///     the last page-read meetings stay and EventKit's never come;
 ///   - a second Google account (/u/1/) never opened is never read; Settings › Site Previews › Google Calendar off: the
 ///     picture card, no line, no read; a private window's page is never read.
 /// Needs AIRC_REAL_KEYS=1 in a dedicated session (AIRC_UI_DEDICATED_SESSION=1, AIRC_LA_AS_OWNER=1) for real input;
@@ -864,6 +874,117 @@ extension SnapshotRunner {
                         + "(Live Calendar card \(CalendarCard.shared.panel != nil))"))
         }
         capture("pageread-calendar-open")
+
+        // MARK: calmeet: the countdown, Join and ⌃⌘J from the page, never the Mac's calendars
+
+        // The Google Calendar page has "Team sync" in 10 minutes with a Meet link (the look-alike host); the Mac's
+        // calendars (the synthetic EventKit source) have a different meeting at the same moment, with its own call.
+        // Merged as before, the Apple one would win the countdown (its ID sorts first).
+        let live = CalendarCenter.shared
+        var meetStart = Date(), meetURL = "", appleURL = ""
+        var meetTabs = 0
+        func prompt() -> CalendarPromptView? {
+            page()?.layoutSubtreeIfNeeded()
+            return page()?.favorites.subviews.compactMap { $0 as? CalendarPromptView }.first
+        }
+        func meetTabCount() -> Int { c.store.todayRows(ofSpace: home).compactMap(\.liveTab).filter { $0.url == meetURL }.count }
+        func liveTitles() -> [String] { live.events.map(\.title) }
+        run { [self] in
+            guard let fx else { return }
+            PreviewService.fixtureHosts[CalPrevFixtures.meetHost] = "meet.google.com"
+            meetStart = Date(timeIntervalSince1970: (Date().timeIntervalSince1970 / 60).rounded(.up) * 60 + 600)
+            meetURL = "http://\(CalPrevFixtures.meetHost):\(fx.port)/cal-meet-fix"
+            appleURL = "http://\(CalPrevFixtures.meetHost):\(fx.port)/apple-call-fix"
+            let teamSync = E(id: "Y2FsbWVldA", title: "Team sync", start: meetStart, end: meetStart.addingTimeInterval(1800), meetURL: meetURL)
+            fx.set(google: [teamSync], outlook: [])
+            calendarSource?.set([appleOnly,
+                                 CalendarEvent(id: "apple-standup", title: "Apple standup (Mac calendar)", start: meetStart,
+                                               end: meetStart.addingTimeInterval(1800),
+                                               link: MeetingLink(url: URL(string: appleURL)!, service: .meet))])
+            // Read every calendar page again from scratch: the loaded ones load the new day, and what was read goes.
+            load(gcalFav, gcalFavURL)
+            load(gcalItem, gcalURL)
+            load(outItem, outURL)
+            center.register(center.pageMail)
+            live.accessChanged()
+        }
+        step { [self] done in
+            waitUntil({ liveTitles().contains("Team sync") && !liveTitles().contains(favEvent.title) }, timeout: 12) { done() }
+        }
+        run { [self] in
+            // The clock of Live Calendar: 90 s before (the countdown "in 2m", the Join prompt from two minutes before).
+            live.now = { meetStart.addingTimeInterval(-90) }
+            live.clockMoved()
+            c.reloadAll(animated: false)
+        }
+        wait(0.5)
+        run { [self] in
+            let e = live.events.first { $0.title == "Team sync" }
+            check(live.sourceKind == .pages && !liveTitles().contains { $0.contains("Mac calendar") || $0 == appleOnly.title },
+                  label("calmeet: with a Google Calendar Favorite, Live Calendar's meetings are the page's alone, no Apple Calendar one (\(liveTitles()))"))
+            check(e?.link?.service == .meet && e?.link?.url.absoluteString == meetURL,
+                  label("calmeet: the page's meeting carries its Meet link (\(e?.link?.url.absoluteString ?? "none"))"))
+            check(tile(gcalFav)?.calendarFace?.text == "in 2m" && MeetingSchedule.countdownEvent(live.events, now: live.now())?.title == "Team sync",
+                  label("calmeet: the tile counts down to the page's meeting (\(tile(gcalFav)?.calendarFace?.text ?? "none"))"))
+            check(prompt()?.text == "Team sync · in 2 min" && prompt()?.event?.link?.url.absoluteString == meetURL,
+                  label("calmeet: the Join prompt is the page's meeting (\(prompt()?.text ?? "none"))"))
+            meetTabs = meetTabCount()
+        }
+        capture("calmeet-prompt")
+        // ⌃⌘J: a real key from the UI driver, PID-targeted at this app in front.
+        step { [self] done in
+            guard realInput() else {
+                check(false, label("calmeet: ⌃⌘J needs real input (driver \(UIDriverClient.available), active \(NSApp.isActive))"))
+                CommandMenus.all.first { $0.id == "tabs.joinMeeting" }?.run(c)
+                return done()
+            }
+            UIDriverClient.press(["ctrl+cmd+j"], pid: getpid()) { ok, out in
+                if !ok { self.check(false, label("calmeet: the UI driver pressed ⌃⌘J (\(out))")) } else { self.note(label("calmeet: ⌃⌘J, a real key, PID-targeted")) }
+                self.waitUntil({ self.c.store.tab(self.c.shownTabID)?.url == meetURL }, timeout: 5) { done() }
+            }
+        }
+        run { [self] in
+            let shown = c.store.tab(c.shownTabID)
+            check(shown?.url == meetURL && meetTabCount() == meetTabs + 1 && !c.store.todayRows(ofSpace: home).contains { $0.liveTab?.url == appleURL },
+                  label("calmeet: ⌃⌘J opens the page meeting's Meet link (\(shown?.url ?? "-")), never the Apple meeting's"))
+            meetTabs = meetTabCount()
+        }
+        // The prompt's Join, by a real driver click: the open call, no second tab.
+        step { [self] done in
+            guard let p = prompt() else { check(false, label("calmeet: a Join prompt to click")); return done() }
+            let pt = p.convert(NSPoint(x: p.joinRect.midX, y: p.joinRect.midY), to: nil)
+            if let gcal = c.store.liveTab(forItem: gcalFav) { c.show(gcal.id) }
+            guard realInput() else {
+                postedClicks += 1
+                return click(at: pt, in: c.window) { self.waitUntil({ self.c.store.tab(self.c.shownTabID)?.url == meetURL }, timeout: 3) { done() } }
+            }
+            let g = c.window.convertPoint(toScreen: pt), top = NSScreen.screens.first?.frame.maxY ?? 0
+            UIDriverClient.run(["--click", String(Double(g.x)), String(Double(top - g.y))]) { [self] ok, out in
+                if ok { realClicks += 1 } else { note(label("calmeet: driver click on Join failed: \(out)")) }
+                waitUntil({ self.c.store.tab(self.c.shownTabID)?.url == meetURL }, timeout: 3) { done() }
+            }
+        }
+        run { [self] in
+            check(c.store.tab(c.shownTabID)?.url == meetURL && meetTabCount() == meetTabs,
+                  label("calmeet: the prompt's Join (a real click) shows the page meeting's open call, no second tab (\(c.store.tab(c.shownTabID)?.url ?? "-"))"))
+            // No calendar page loaded: close the Google Calendar Favorite's page and the pinned one's, and ask again.
+            for item in [gcalFav, gcalItem] { if let t = c.store.liveTab(forItem: item) { c.closeTab(t.id) } }
+        }
+        wait(1)
+        run { [self] in
+            for url in [gcalFavURL, gcalURL] { center.refresh(account(url), force: true) }
+            live.fetch()
+        }
+        wait(2)
+        run { [self] in
+            note(label("calmeet closed calendar: \(pagesSeen(account(gcalFavURL)))"))
+            check(liveTitles().contains("Team sync") && !liveTitles().contains { $0.contains("Mac calendar") || $0 == appleOnly.title }
+                  && tile(gcalFav)?.calendarFace?.text == "in 2m" && MeetingSchedule.joinTarget(live.events, now: live.now())?.link?.url.absoluteString == meetURL,
+                  label("calmeet: no calendar page loaded: the last page-read meeting stays (countdown, ⌃⌘J's target), EventKit's never comes (\(liveTitles()))"))
+            live.now = Date.init
+            live.clockMoved()
+            for t in c.store.todayRows(ofSpace: home).compactMap(\.liveTab) where t.url == meetURL { c.closeTab(t.id) }
+        }
         // Gmail closed again: "Open Gmail".
         run { [self] in
             tp().hide()

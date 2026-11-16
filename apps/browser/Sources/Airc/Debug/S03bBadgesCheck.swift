@@ -329,6 +329,8 @@ extension SnapshotRunner {
             _ = AppTelemetry.shared.recordOnlyForCheck()
             guard let source = center.source as? SyntheticCalendarSource else { return check(false, "\(tag): the synthetic calendar") }
             center.now = { t0.addingTimeInterval(offset) }
+            // The synthetic source stands for the Mac's calendars beside the Google Calendar Favorite (calmeet).
+            center.sourceForTesting = .mac
             source.set([meeting])
             center.setEnabled(true)
             at(20 * 60)
@@ -381,6 +383,7 @@ extension SnapshotRunner {
             check(face()?.pill.isHidden == true && face()?.isSoon == false, "\(tag): past the meeting's late minutes the pill goes")
             center.setEnabled(false)
             center.now = Date.init
+            center.sourceForTesting = nil
             center.clockMoved()
         }
 

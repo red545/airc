@@ -575,7 +575,8 @@ final class EaselLiveCenter {
     /// Refreshes blocks `ids` of `editor`'s Easel (their sources as they are now). `manual`: asked for (Refresh, ⌘R),
     /// so back-off and Manual mode don't hold it back.
     func refresh(_ editor: EaselEditor, _ ids: [String], manual: Bool) {
-        startTimer()
+        // Only an Easel with Live blocks needs the minute tick (MEM-6: opening any Easel used to start it for good).
+        if !editor.document.liveBlocks.isEmpty || Self.baseline { startTimer() }
         for id in ids {
             guard let s = editor.document.liveSource(id), s.isValid, !isRefreshing(editor.easelID, id) else { continue }
             waiting.append(Job(editor: editor, blockID: id, source: s, manual: manual))
@@ -607,12 +608,28 @@ final class EaselLiveCenter {
     }
 
     /// Every minute: the Live blocks that came due on the Easels on screen (a hidden or minimised one waits).
+    /// Stops once no open Easel has a Live block and nothing is waiting; the next Live Easel shown starts it again.
     private func tick() {
         for e in EaselCenter.shared.openEditors {
             guard let w = e.view.window, w.isVisible, w.occlusionState.contains(.visible), e.view.superview != nil else { continue }
             refresh(e, e.document.dueLiveBlocks(now: Date()), manual: false)
         }
+        if Self.baseline { return }
+        if waiting.isEmpty, running.isEmpty, !EaselCenter.shared.openEditors.contains(where: { !$0.document.liveBlocks.isEmpty }) {
+            timer?.invalidate()
+            timer = nil
+        }
     }
+    #if AIRC_TESTING
+    /// MEM-6 A/B (artifacts/idletimers): the old tick, started by any Easel and never stopped, same binary.
+    static let baseline = ProcessInfo.processInfo.environment["AIRC_IDLETIMERS_BASELINE"] == "1"
+    #else
+    static let baseline = false
+    #endif
+    #if AIRC_TESTING
+    /// Whether the minute tick is running (checks).
+    var tickRunning: Bool { timer != nil }
+    #endif
 
     private func pump() {
         while running.count < EaselLivePolicy.concurrency, !waiting.isEmpty {

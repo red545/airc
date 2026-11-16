@@ -55,5 +55,26 @@ class TimerCensus(unittest.TestCase):
         self.assertEqual(result['positive_interval_count'], 1)
         self.assertIsNone(census({'runloop': 'unsupported format'})['count'])
 
+    def test_owners_name_the_app_frame_and_count_app_repeating_timers(self):
+        import gaps
+        app = '<CFRunLoopTimer 0xa1 [x]>{interval = 30, tolerance = 10, callout = (NSTimer) [_NSTimerBlockTarget fire:] (0 / 0) (F), context = <c>}'
+        ca = '<CFRunLoopTimer 0xb2 [x]>{interval = 3.1536e+09, tolerance = 0, callout = CA (0 / 0) (Q), context = <c>}'
+        frames = [{'pc': '0x10', 'image': '/A/Airc', 'base': '0x0'}, {'pc': '0x20', 'image': '/A/Airc', 'base': '0x0'}]
+        names = {'0x10': 'static TimerOrigins.record(_:interval:) (in Airc) (TimerOrigins.swift:90)',
+                 '0x20': 'LiveFolderCenter.attach(_:) (in Airc) (LiveFolderCenter.swift:54)'}
+        real = gaps.atos
+        gaps.atos = lambda image, base, pcs: [names[p] for p in pcs]
+        try:
+            result = gaps.census({'runloop': 'timers = (' + app + ca + ')', 'owners_recorded': True,
+                                  'owners': [{'address': '0xa1', 'frames': frames}, {'address': '0xb2', 'origin': 'not made through NSTimer'}]})
+        finally:
+            gaps.atos = real
+        by = {t['address']: t for t in result['timers']}
+        self.assertEqual(by['0xa1']['owner']['owner'], names['0x20'])
+        self.assertEqual(by['0xb2']['owner'], {'origin': 'not made through NSTimer'})
+        self.assertFalse(by['0xb2']['repeating'], 'a 100-year interval is not a repeating idle timer')
+        self.assertEqual(result['app_repeating_count'], 1)
+        self.assertIsNone(gaps.census({'runloop': 'timers = (' + app + ')'})['app_repeating_count'], 'no recorder: unknown')
+
 
 if __name__ == '__main__': unittest.main()

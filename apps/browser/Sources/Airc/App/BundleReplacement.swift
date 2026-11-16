@@ -3,6 +3,9 @@ import AppKit
 
 /// Finder can replace the installed bundle while this process keeps executing the old image.
 /// Capture the launch identity once; read the disk plist directly (Bundle caches its infoDictionary).
+/// Event-driven (MEM-6): file-system sources on the bundle's folder, the bundle, Contents and Info.plist say when
+/// something there changed; a check follows a moment later, and once more while a new copy is still settling. Also
+/// checked when Airc becomes active. Nothing runs while the bundle stays as it is.
 final class BundleReplacementMonitor {
     static let shared = BundleReplacementMonitor()
     struct Identity: Equatable {
@@ -21,6 +24,9 @@ final class BundleReplacementMonitor {
     private let center: UpdateCenter
     private let terminate: () -> Void
     private var timer: Timer?
+    private var sources: [DispatchSourceFileSystemObject] = []
+    private var pending: DispatchWorkItem?
+    private var started = false
     private var candidate: Identity?
     private var offered: BundleReplacementUpdate?
     private var requested: Identity?
@@ -32,17 +38,77 @@ final class BundleReplacementMonitor {
     }
 
     func start() {
-        guard timer == nil, !LaunchOptions.current.isAutomated else { return }
-        let t = Timer(timeInterval: 5, repeats: true) { [weak self] _ in self?.check() }
-        timer = t
-        RunLoop.main.add(t, forMode: .common)
+        guard !LaunchOptions.current.isAutomated else { return }
+        startWatching()
+    }
+
+    /// `start` without the automated-run guard (BundleReplacementCheck watches a fixture bundle).
+    func startWatching() {
+        guard !started else { return }
+        started = true
+        #if AIRC_TESTING
+        // MEM-6 A/B (artifacts/idletimers): the old 5 s poll, same binary.
+        if ProcessInfo.processInfo.environment["AIRC_IDLETIMERS_BASELINE"] == "1" {
+            let t = Timer(timeInterval: 5, repeats: true) { [weak self] _ in self?.check() }
+            timer = t
+            RunLoop.main.add(t, forMode: .common)
+        } else { watch() }
+        #else
+        watch()
+        #endif
         observer = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification,
                                                            object: nil, queue: .main) { [weak self] _ in self?.check() }
     }
 
     deinit {
         timer?.invalidate()
+        pending?.cancel()
+        sources.forEach { $0.cancel() }
         if let observer { NotificationCenter.default.removeObserver(observer) }
+    }
+
+    /// How long after a change the bundle is read, and again while a new copy hasn't settled (two equal reads).
+    static let settleDelay: TimeInterval = 2
+
+    /// (Re)opens the sources. A replaced bundle, Contents folder or Info.plist is a new file, so every event re-arms
+    /// all of them; the parent folder's source sees a bundle moved or copied in while the old one is gone.
+    private func watch() {
+        sources.forEach { $0.cancel() }
+        sources = []
+        let contents = bundleURL.appendingPathComponent("Contents")
+        let watched: [(URL, DispatchSource.FileSystemEvent)] = [
+            (bundleURL.deletingLastPathComponent(), [.write, .rename, .delete]),
+            (bundleURL, [.write, .rename, .delete]),
+            (contents, [.write, .rename, .delete]),
+            (contents.appendingPathComponent("Info.plist"), [.write, .extend, .attrib, .rename, .delete]),
+        ]
+        for (url, mask) in watched {
+            let fd = open(url.path, O_EVTONLY)
+            guard fd >= 0 else { continue }
+            let src = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: mask, queue: .main)
+            src.setEventHandler { [weak self] in self?.changed() }
+            src.setCancelHandler { close(fd) }
+            src.resume()
+            sources.append(src)
+        }
+    }
+
+    private func changed() {
+        watch()
+        checkSoon()
+    }
+
+    private func checkSoon() {
+        pending?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pending = nil
+            self.check()
+            // A first sighting of a new copy needs a second, equal read before it is offered.
+            if self.candidate != nil, self.offered?.identity != self.candidate { self.checkSoon() }
+        }
+        pending = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.settleDelay, execute: work)
     }
 
     private func diskIdentity() -> Identity? {

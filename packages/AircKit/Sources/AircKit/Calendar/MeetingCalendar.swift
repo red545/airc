@@ -85,7 +85,9 @@ public struct MeetingLink: Sendable, Equatable {
     /// The video service a link belongs to, if it's a meeting link of one we know.
     public static func service(of url: URL) -> Service? {
         guard let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http",
-              let host = url.host?.lowercased() else { return nil }
+              let raw = url.host?.lowercased() else { return nil }
+        // The checks' look-alike hosts (PreviewService.fixtureHosts, empty outside them) stand for the real ones.
+        let host = PreviewService.fixtureHosts[raw] ?? raw
         let path = url.path.lowercased()
         func on(_ domain: String) -> Bool { host == domain || host.hasSuffix("." + domain) }
         if host == "meet.google.com" { return path.count > 1 ? .meet : nil }
@@ -167,6 +169,40 @@ public enum CalendarSites {
         let parts = path.split(separator: "/")
         guard let i = parts.firstIndex(of: "u"), i + 1 < parts.count, let n = Int(parts[i + 1]), n >= 0 else { return 0 }
         return n
+    }
+}
+
+/// calmeet (owner, 2026-11-15): where Live Calendar's meetings come from (the Calendar Favorite's countdown, its Join,
+/// ⌃⌘J and Live Calendar's card). The calendars on this Mac (EventKit) can be another calendar altogether than the web
+/// calendar the person keeps in the sidebar, so a web calendar whose page Airc reads wins outright, and the two are never
+/// merged.
+public enum LiveCalendarSource: String, Sendable, Equatable {
+    /// The calendars on this Mac (EventKit): no calendar Favorite or pinned tab Airc reads (none at all, or only
+    /// calendars Airc doesn't read, such as Proton or Fastmail).
+    case mac
+    /// The events read from the web calendars' own pages (Google Calendar, Outlook), in their sidebar items' order.
+    /// While no page is loaded, the last ones read; never EventKit's.
+    case pages
+
+    /// `calendars`: the saved addresses of the person's calendar Favorites and pinned tabs; `reads`: whether Airc reads
+    /// a service's page (it has a provider).
+    public static func choose(_ calendars: [String], reads: (PreviewService) -> Bool) -> LiveCalendarSource {
+        calendars.contains { url in
+            guard let s = PreviewService.detect(url), s.family == .calendar else { return false }
+            return reads(s)
+        } ? .pages : .mac
+    }
+
+    /// The meetings for `source`: EventKit's (`mac`), or the accounts' (`pages`, one list per account, the first
+    /// account's first). A meeting two accounts both show (the same title, start and end: an invitation in both) is kept
+    /// once, from the first.
+    public static func events(_ source: LiveCalendarSource, mac: [CalendarEvent], pages: [[CalendarEvent]]) -> [CalendarEvent] {
+        guard source == .pages else { return mac }
+        struct Key: Hashable { let title: String, start: Date, end: Date }
+        var seen = Set<Key>()
+        var out: [CalendarEvent] = []
+        for e in pages.joined() where seen.insert(Key(title: e.title, start: e.start, end: e.end)).inserted { out.append(e) }
+        return out
     }
 }
 

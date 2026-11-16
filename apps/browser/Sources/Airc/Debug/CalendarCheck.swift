@@ -102,6 +102,9 @@ extension SnapshotRunner {
         }
         run { [self] in
             spaceID = c.currentSpaceID
+            // M08 tests Live Calendar on the Mac's calendars (EventKit's route, the synthetic source) beside a Google
+            // Calendar Favorite, which would otherwise take the meetings from its page (calmeet; paritycalprev tests it).
+            center.sourceForTesting = .mac
             let profile = c.store.profile(ofSpace: spaceID).id
             do {
                 try favorite("https://mail.google.com/mail/u/0/#inbox", title: "Inbox - Gmail",
@@ -252,6 +255,7 @@ extension SnapshotRunner {
             }
             Telemetry.shared.removeObserver(telemetryToken)
             center.now = Date.init
+            center.sourceForTesting = nil
             server?.stop()
         }
     }

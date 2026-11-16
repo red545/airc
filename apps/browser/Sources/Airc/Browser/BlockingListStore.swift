@@ -57,11 +57,12 @@ struct BlockingListDescriptor: Identifiable {
     }
     func has(_ id: String) -> Bool { snapshots[id] != nil }
 
-    func refresh(selected: Set<String>, force: Bool = false, now: Date = Date()) async {
+    /// `retryFailedNow`: a failed list's back-off is skipped (the network came back); its cadence still holds.
+    func refresh(selected: Set<String>, force: Bool = false, retryFailedNow: Bool = false, now: Date = Date()) async {
         guard networkAllowed else { return }
         for list in BlockingListDescriptor.catalog where selected.contains(list.id) {
             guard !updating.contains(list.id), force || (versions[list.id]?.nextRefresh ?? .distantPast) <= now,
-                  force || (retries[list.id]?.date ?? .distantPast) <= now else { continue }
+                  force || (retryFailedNow && retries[list.id] != nil) || (retries[list.id]?.date ?? .distantPast) <= now else { continue }
             await update(list, now: now)
         }
     }

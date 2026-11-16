@@ -97,7 +97,8 @@ others. The row under the card's item says what's next ("Event in 9m", "Event at
 - **Turning one off:** Settings → Appearance → Site Previews, "Google Calendar" or "Outlook Calendar".
 - **Favorites too:** a Google Calendar or Outlook calendar Favorite shows the same card, its page's day, even with
   Live Calendar on: never the meetings from this Mac's calendars, which may be another calendar altogether. The events
-  read from its page also join Live Calendar's countdown and Join.
+  read from its page are also Live Calendar's countdown, Join and ⌃⌘J, alone: this Mac's calendars don't join them
+  ([Live Calendar](calendar.md)).
 
 ## Known differences from Arc
 

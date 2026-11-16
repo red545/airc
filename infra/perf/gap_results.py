@@ -71,7 +71,9 @@ def budgets(data):
     cpu = [r.get('cpu_percent') for r in series('idle')]
     timer = [r.get('timers', {}).get('count') for r in series('idle')]
     valid = complete('idle') and all(number(v) for v in cpu)
-    row('MEM-6', {'cpu_percent': distribution(cpu), 'main_runloop_timer_count': distribution(timer), 'timers_due_within_30s': distribution([r.get('timers', {}).get('due_within_30s') for r in series('idle')])},
+    row('MEM-6', {'cpu_percent': distribution(cpu), 'main_runloop_timer_count': distribution(timer), 'timers_due_within_30s': distribution([r.get('timers', {}).get('due_within_30s') for r in series('idle')]),
+                  'app_repeating_timers': distribution([r.get('timers', {}).get('app_repeating_count') for r in series('idle')]),
+                  'main_idle_wakeups_per_s': distribution([next((p.get('idle_wakeups_per_s') for p in r.get('processes', []) if p.get('kind') == 'main'), None) for r in series('idle')])},
         False if valid and (max(cpu) >= 1 or any(number(v) and v > 0 for v in timer)) else None,
         '30 s settled, 30 s all-process CPU; main CFRunLoop timer census includes framework timers. Dispatch/worker timers excluded: zero cannot prove global absence. No-media local pages, background window.')
     return rows

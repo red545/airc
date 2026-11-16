@@ -284,6 +284,10 @@ extension SnapshotRunner {
         refresh({ repoFolder })
         run { [self] in
             ok(titles(repoFolder).contains("Arrives too late"), "and it updates again (\(titles(repoFolder)))")
+            // MEM-6 (idletimers): one one-shot timer for the next due folder instead of a fixed 30 s tick.
+            let next = center.nextTimerFire.map { $0.timeIntervalSinceNow }
+            ok(next.map { $0 > 30 && $0 <= LiveFolderSchedule.interval + 1 } == true,
+               "the timer is armed once, for the next due folder (in \(next.map { String(Int($0)) } ?? "none") s)")
             let ff = FaviconCache.shared.networkRequests.filter { $0.host != "127.0.0.1" && $0.host != "localhost" }
             ok(ff.isEmpty, "no favicon was asked of another host (\(ff.prefix(3)))")
             let state = ["repo": repoFolder, "yours": yoursFolder, "work": workFolder, "own": ownTab]
