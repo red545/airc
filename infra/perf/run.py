@@ -381,6 +381,8 @@ def main():
     data['engine'] = 'chromium' if 'Chromium' in options.app.name else 'webkit'
     data['app_args'] = options.app_arg
     data['foreground'] = options.foreground
+    # Other agents compile on the build Mac: keep the load next to the timings (1, 5, 15 min averages).
+    data['load'] = {'start': list(os.getloadavg())}
     if options.foreground:
         data['notes'][0] = ('Airc in a dedicated foreground session (window key; AIRC_UI_DEDICATED_SESSION=1), Chrome in '
                             'hidden background windows. Single launch; caches not flushed.')
@@ -425,6 +427,7 @@ def main():
             # Chrome with all 30 pairs with airc_30; --no-30 skips both (as documented, ~4 minutes less).
             if options.thirty: data['chrome'] = chrome('', urls, age('airc_30'))
     except (Exception, Deadline) as e: data['error'] = str(e)
+    data['load']['end'] = list(os.getloadavg())
     summary = write(data, out, options.output)
     print(summary)
     return 3  # incomplete, not a false green acceptance run

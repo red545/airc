@@ -894,6 +894,13 @@ final class WindowController: NSObject, NSWindowDelegate {
         tabPreview.pageWillChange(hiding: shownTabID, showing: tabID)
         if let page {
             hideNote()
+            // wkframes: the page leaving holds the keyboard and this one takes it below. Hand it to the window first,
+            // so hiding the old page doesn't make AppKit search the whole window for a replacement key view (~1 ms
+            // of a WebKit Space switch); the focus ends up where it did.
+            if focus, shownTabID != tabID, !ThemeBackgroundView.spaceFrameBaseline, let host = card.hostView,
+               let responder = window.firstResponder as? NSView, responder.isDescendant(of: host) {
+                window.makeFirstResponder(nil)
+            }
             Perf.time("show.activateTab") { engineWindow.activateTab(page) }
             app?.engine.setPictureInPictureWindowActive(page, active: window.isKeyWindow)
         } else if let note {

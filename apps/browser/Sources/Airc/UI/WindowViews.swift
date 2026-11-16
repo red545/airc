@@ -25,6 +25,7 @@ final class ThemeBackgroundView: NSView {
 
     init(theme: ResolvedTheme) {
         base = SpaceBackgroundView(theme: theme)
+        if Self.spaceFrameBaseline { SpaceBackgroundView.remembersUnderlays = false }
         super.init(frame: .zero)
         wantsLayer = true
         material.isHidden = true
@@ -44,9 +45,22 @@ final class ThemeBackgroundView: NSView {
 
     /// Renders every theme the window can switch to, at its current size, off the main thread. Call at idle.
     func prewarm(_ themes: [ResolvedTheme]) {
+        // wkframes: each theme's underlay opacity (a 1–3 ms contrast search), so a switch doesn't work it out in its frame.
+        if Self.preparesUnderlays { SpaceBackgroundView.prepareUnderlays(themes, translucency: translucency) }
         guard bounds.width > 0, bounds.height > 0 else { return }
         AircBackgroundCache.shared.prerender(themes, size: bounds.size)
     }
+
+    /// Test builds: `AIRC_SPACE_FRAME_BASELINE=1` restores the switch frame before wkframes (one-entry underlay cache,
+    /// nothing prepared ahead, the focused page hidden while focused).
+    static let spaceFrameBaseline: Bool = {
+        #if AIRC_TESTING
+        return ProcessInfo.processInfo.environment["AIRC_SPACE_FRAME_BASELINE"] == "1"
+        #else
+        return false
+        #endif
+    }()
+    private static var preparesUnderlays: Bool { !spaceFrameBaseline }
 
     /// Shows `from` blended toward `to` by `t` (0 = only `from`). Used every frame of a swipe.
     func show(_ from: ResolvedTheme, _ to: ResolvedTheme? = nil, t: Double = 0) {

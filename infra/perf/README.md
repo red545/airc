@@ -36,6 +36,25 @@ nightly's `runs/*/results.json` (newest by timestamp) and shows the latest WebKi
 build Mac. `gaps.py` takes `--app-arg` too; with `AIRC_UI_DEDICATED_SESSION=1` in its environment the lock
 wrapper turns its launches into foreground ones (`dedicated_session` in gaps.json).
 
+## Foreground frame budgets on both engines (`fgframes.py`)
+
+`run.py --foreground` times one Space switch series, one New Space and five Command Bar openings per launch, from
+input to the presented frame but not aligned to a vsync. For the frame budgets themselves, `fgframes.py` runs
+`--script frames` in a dedicated foreground session, one launch per engine, action and run: each action starts right
+after a vsync, so `frames` 1 means the next vsync. Space switch ≤16.7 ms, New Space ≤8.3 ms, first Command Bar frame
+≤8 ms (`cbfirst`, after a loaded-tab switch; sample 0 is the process's first opening).
+
+```sh
+python3 infra/perf/fgframes.py series --app build/Airc.app --app build/Airc-Chromium.app --runs 3 --output OUT
+python3 infra/perf/fgframes.py summary OUT --json OUT/summary.json
+```
+
+`series` takes the strict UI lock per launch (AIRC_UI_DEDICATED_SESSION=1, AIRC_UI_LOCK_STRICT=1) and retries a
+refusal a minute later; `launch` is one such launch for a caller that holds the lock itself. `--env NAME=VALUE` and
+`--arm` run an A/B arm of one test binary (e.g. `AIRC_SPACE_FRAME_BASELINE=1`, the Space switch before wkframes);
+`--probe` adds the in-app main-thread sampler (diagnostic; its timings don't count). Every launch records the build
+Mac's load average (`load_before`, `load_after`), and `run.py` records it too (`load`): other agents compile there.
+
 ## What one instrumented run measures
 
 Four launches, one after the other (about ten minutes, inside the nightly's 15-minute perf step; watchdog 840 s):
