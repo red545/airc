@@ -1,0 +1,42 @@
+# Airc 0.1.19 (cut 77481f2b, release/0.1.19-cut; build revision 2b1d17c5). Claims from its approved notes
+# (docs/release-notes-beta.md at 2b1d17c5, "New since 0.1.18"). NOT TO POST before release031 posts LIVE for 0.1.19 in
+# briefs/queue.md: plan and approve only then, after checking the public repo shows the release (owner rule).
+slug = "2026-11-16-release-0.1.19"
+title = "Airc 0.1.19"
+kind = "release"
+since = "0.1.19"
+tag = ""
+summary = """
+Three text posts, single, one a day (threads bury their replies): bangs in ⌘T, Google sign-in back inside Airc, and
+your calendar driving Join. The cut has no new shots.
+"""
+order = """
+1. One post a day at 10:30 UTC (the best slot) on the first free days after LIVE, bangs first.
+"""
+checked = """
+- Bangs: "!yt cats", "cats !yt", "!gm vienna" or your own Site Search keyword; an unknown bang stays in the search.
+- Sign in with Google: on pages that use Chromium, Google's account chooser over the page again (0.1.18 had switched it
+  off to fix a crash). The post says Chromium pages, as the notes do.
+- Calendar: with a Google Calendar or Outlook calendar Favorite or pinned tab, the countdown, Join and ⌃⌘J use its
+  events and call links (Meet, Zoom, Teams, Webex), not the Mac's calendars.
+- Left out: Restart to Update waiting for busy pages (update-adjacent; no update posts), "lighter and quieter" (no
+  numbers), the suggestion flicker, ⇧⌘R in Little Airc and Peek, and the crash fixes (small).
+"""
+
+[[post]]
+label = "Bangs in ⌘T"
+text = """
+Bangs work in Airc's ⌘T now: type "!yt cats", "cats !yt" or "!gm vienna" and you're searching that site straight away. Your own Site Search keywords work as bangs too. New in Airc 0.1.19.
+"""
+
+[[post]]
+label = "Sign in with Google, inside Airc"
+text = """
+On pages that use Chromium, "Continue with Google" shows Google's account chooser right over the page again in Airc 0.1.19, so you pick an account without a separate sign-in window.
+"""
+
+[[post]]
+label = "Your calendar drives Join"
+text = """
+Pin your Google Calendar or Outlook calendar in Airc and it now drives the meeting countdown, Join and ⌃⌘J, with its own call links: Meet, Zoom, Teams or Webex. New in Airc 0.1.19.
+"""
