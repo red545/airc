@@ -109,7 +109,7 @@ enum ParityCommandCatalog {
         "Settings…": ["preferences", "options"],
         "Show Toolbar": ["address bar", "url bar"],
         "Toggle Sidebar": ["hide sidebar", "show sidebar"],
-        "Reload Ignoring Cache": ["hard reload", "force refresh"],
+        "Reload Ignoring Cache": ["hard reload", "hard refresh", "force refresh", "bypass cache"],
         "New Private Window": ["incognito"],
         "New Little Airc Window": ["mini window", "little arc"],
         "Capture…": ["screenshot"],

@@ -722,6 +722,7 @@ final class LittleArcController: NSObject, NSWindowDelegate {
         case ("w", .command): closeWindow(); return true
         case ("l", .command): focusAddress(); return true
         case ("r", .command): page?.reload(); return true
+        case ("r", [.command, .shift]): page?.reloadIgnoringCache(); return true
         case ("[", .command): page?.goBack(); return true
         case ("]", .command): page?.goForward(); return true
         case ("n", [.command, .option]): app?.openLittleArc(url: nil); return true

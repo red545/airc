@@ -44,8 +44,14 @@ extension WindowController {
     }
 
     func reloadOrStop() {
-        guard let p = engineTab(for: shownTabID ?? "") else { return }
+        guard let p = reloadTarget else { return }
         if p.isLoading { p.stop() } else { p.reload() }
+    }
+
+    /// The page ⌘R and ⇧⌘R reload: an open Peek's (it's in front of the tab and has the keyboard), else the shown tab's.
+    var reloadTarget: EngineTab? {
+        if let p = peek, !p.closing, !p.page.isClosed { return p.page }
+        return engineTab(for: shownTabID ?? "")
     }
 
     /// Opens what was typed. ⌘T always makes a new Today tab; ⌘L loads in place unless the tab is

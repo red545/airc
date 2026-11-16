@@ -338,7 +338,7 @@ extension WindowController {
 
     private var shownPage: EngineTab? { shownTabID.flatMap { engineTab(for: $0) } }
 
-    func reloadIgnoringCache() { shownPage?.reloadIgnoringCache() }
+    func reloadIgnoringCache() { reloadTarget?.reloadIgnoringCache() }
 
     func zoom(step: Int) {
         guard let page = shownPage else { return }
