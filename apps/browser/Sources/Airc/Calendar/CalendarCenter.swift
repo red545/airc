@@ -139,19 +139,15 @@ final class EventKitCalendarSource: CalendarEventSource {
     }
 }
 
-/// M08: meetings from the web calendars in the sidebar: a calendar Favorite's or pinned tab's account in the service
-/// previews (Previews/CalendarProvider.swift), read from its own page. calmeet (owner, 2026-11-15): when there is such a
-/// web calendar, its meetings are the countdown's, the Join prompt's, ⌃⌘J's and the card's alone, without EventKit's
-/// access and never merged with EventKit's (the Mac's calendars can be another calendar altogether). Without one, Live
-/// Calendar is EventKit's alone (LiveCalendarSource).
+/// M08: meetings from calendar accounts that aren't on this Mac (EventKit has no account for them): a Calendar
+/// Favorite's account in the service previews (Previews/CalendarProvider.swift). They join EventKit's meetings for the
+/// countdown, the Join prompt, ⌃⌘J and the card, and work without EventKit's access. With nothing signed in, Live
+/// Calendar is EventKit's alone.
 protocol CalendarAccountEvents: AnyObject {
-    /// Whether a calendar Favorite or pinned tab is a web calendar Airc reads (Google Calendar, Outlook), whether or not
-    /// its page has been read yet.
-    var hasWebCalendar: Bool { get }
     /// Whether an account gives meetings now (signed in, and answered).
     var hasAccounts: Bool { get }
-    /// The accounts' meetings overlapping the range, from their last answers, one list per account (main queue).
-    func events(from: Date, to: Date) -> [[CalendarEvent]]
+    /// The accounts' meetings overlapping the range, from their last answers (main queue).
+    func events(from: Date, to: Date) -> [CalendarEvent]
     /// Asks the accounts again when their answers are old (only accounts whose site was opened in their profile).
     func refresh()
     /// Called on the main queue when an account's meetings may have changed.
@@ -193,22 +189,6 @@ final class CalendarCenter: ObservableObject {
         }
     }
     private var hasAccounts: Bool { accounts?.hasAccounts == true }
-    #if AIRC_TESTING
-    /// Scripted runs whose synthetic source stands for the Mac's calendars beside a Google Calendar Favorite (M08, S03b,
-    /// the marketing shots): the source they test, whatever the sidebar holds.
-    var sourceForTesting: LiveCalendarSource? {
-        didSet { if fetchedAt != nil { fetch() } else { update() } }
-    }
-    #endif
-    /// calmeet: where the meetings come from now: a web calendar's pages when the sidebar has one, else EventKit.
-    var sourceKind: LiveCalendarSource {
-        #if AIRC_TESTING
-        if let sourceForTesting { return sourceForTesting }
-        #endif
-        return accounts?.hasWebCalendar == true ? .pages : .mac
-    }
-    /// The kind the meetings in `events` were read from.
-    private var fetchedKind: LiveCalendarSource?
     private var systemObservers: [NSObjectProtocol] = []
 
     private init() {
@@ -224,9 +204,8 @@ final class CalendarCenter: ObservableObject {
 
     private var settings: AppSettings? { (NSApp.delegate as? AppDelegate)?.settings }
     var preferences: CalendarPreferences { settings?.values.calendar ?? CalendarPreferences() }
-    /// On, with somewhere to read meetings (a web calendar's pages, else EventKit allowed), and a Calendar Favorite to
-    /// show it on.
-    var isActive: Bool { preferences.enabled && (sourceKind == .pages || access == .granted) && faces > 0 }
+    /// On, allowed (or an account gives meetings, M08), and a Calendar Favorite to show it on.
+    var isActive: Bool { preferences.enabled && (access == .granted || hasAccounts) && faces > 0 }
 
     // MARK: What to show
 
@@ -277,7 +256,7 @@ final class CalendarCenter: ObservableObject {
     var cardState: CardState? {
         let p = preferences
         if !p.enabled { return p.invitationDismissed ? nil : .invitation }
-        if sourceKind == .pages { return .events }
+        if hasAccounts { return .events }
         return access == .denied ? .denied : access == .granted ? .events : .invitation
     }
 
@@ -289,8 +268,7 @@ final class CalendarCenter: ObservableObject {
         settings.values.calendar.enabled = on
         if on {
             Telemetry.shared.record(.featureUsed(.calendarEnable))
-            // calmeet: a web calendar's meetings need no access to the Mac's calendars, so it isn't asked for.
-            if sourceKind == .mac, source.access == .notDetermined {
+            if source.access == .notDetermined {
                 source.requestAccess { [weak self] _ in self?.accessChanged() }
                 return
             }
@@ -319,19 +297,12 @@ final class CalendarCenter: ObservableObject {
 
     func faceAppeared() {
         faces += 1
-        if faces == 1 { update() } else { sidebarChanged() }
+        if faces == 1 { update() }
     }
 
     func faceGone() {
         faces = max(0, faces - 1)
-        if faces == 0 { update() } else { sidebarChanged() }
-    }
-
-    /// A Calendar Favorite came or went: a web calendar may have come or gone with it, so the meetings' source too.
-    private func sidebarChanged() {
-        guard fetchedKind != nil, fetchedKind != sourceKind else { return }
-        update()
-        fetch()
+        if faces == 0 { update() }
     }
 
     // MARK: Refresh
@@ -349,22 +320,19 @@ final class CalendarCenter: ObservableObject {
             timer = nil
             events = []
             fetchedAt = nil
-            fetchedKind = nil
         }
         notify()
     }
 
-    /// Reads the events from an hour ago to 36 hours ahead (off the main queue). EventKit is read only when it's the
-    /// source (calmeet).
+    /// Reads the events from an hour ago to 36 hours ahead (off the main queue).
     func fetch() {
         guard isActive else { return }
         guard !fetching else { refetchAfterFetch = true; return }
         fetching = true
         let t = now()
-        let kind = sourceKind
         let src = source
         queue.async { [weak self] in
-            let events = kind == .mac ? src.events(from: t.addingTimeInterval(-3600), to: t.addingTimeInterval(36 * 3600)) : []
+            let events = src.events(from: t.addingTimeInterval(-3600), to: t.addingTimeInterval(36 * 3600))
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.fetching = false
@@ -373,17 +341,23 @@ final class CalendarCenter: ObservableObject {
                     return self.fetch()
                 }
                 guard self.isActive else { return }
-                // The sidebar changed while EventKit was read: read again for the source it has now.
-                if self.sourceKind != kind { return self.fetch() }
                 let window = (t.addingTimeInterval(-3600), t.addingTimeInterval(36 * 3600))
-                let pages = kind == .pages ? self.accounts?.events(from: window.0, to: window.1) ?? [] : []
-                self.events = LiveCalendarSource.events(kind, mac: events, pages: pages)
-                self.fetchedKind = kind
+                self.events = Self.merged(events, self.accounts?.events(from: window.0, to: window.1) ?? [])
                 self.fetchedAt = t
                 self.reschedule()
                 self.notify()
             }
         }
+    }
+
+    /// EventKit's meetings, then the accounts' that EventKit doesn't have too (the same title, start and end: one
+    /// calendar synced to this Mac and signed in to as well).
+    static func merged(_ local: [CalendarEvent], _ accounts: [CalendarEvent]) -> [CalendarEvent] {
+        struct Key: Hashable { let title: String, start: Date, end: Date }
+        var seen = Set(local.map { Key(title: $0.title, start: $0.start, end: $0.end) })
+        var out = local
+        for e in accounts where seen.insert(Key(title: e.title, start: e.start, end: e.end)).inserted { out.append(e) }
+        return out
     }
 
     /// An account's meetings changed, or one signed in or out.
@@ -460,15 +434,12 @@ final class CalendarCenter: ObservableObject {
             NSSound.beep()
             return c.showToast("Turn on upcoming meetings in Settings → General → Calendar")
         }
-        let kind = sourceKind
-        guard kind == .pages || access == .granted else {
+        guard access == .granted || hasAccounts else {
             NSSound.beep()
             return c.showToast("Allow Airc to read your calendars in System Settings")
         }
         guard let e = MeetingSchedule.joinTarget(events, now: now(), lead: preferences.joinLead.seconds) else {
             NSSound.beep()
-            // calmeet: a web calendar's meetings come from its page, which hasn't been read since launch.
-            if kind == .pages, !hasAccounts { return c.showToast("Open your calendar to join its meetings") }
             return c.showToast("No meeting to join")
         }
         join(e, spaceID: space, controller: c)

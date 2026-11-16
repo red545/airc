@@ -63,66 +63,13 @@ def census(event):
     for address, body in re.findall(r'<CFRunLoopTimer (0x[0-9a-f]+)\s+[^>]*>\{([^}]+)\}', text):
         interval = re.search(r'interval\s*=\s*([\d.e+-]+)', body)
         due = re.search(r'next fire date = [\d.e+-]+ \(([\d.e+-]+) @', body)
-        tolerance = re.search(r'tolerance\s*=\s*([\d.e+-]+)', body)
-        timers[address] = {'address': address, 'interval_s': float(interval[1]) if interval else None,
-                           'tolerance_s': float(tolerance[1]) if tolerance else None,
-                           'repeating': bool(interval) and 0 < float(interval[1]) < 1e9,
+        timers[address] = {'interval_s': float(interval[1]) if interval else None,
                            'due_s': float(due[1]) if due else None,
                            'callout': body.split('callout = ')[-1].split(', context =')[0]}
-    owners = symbolize(event.get('owners') or [])
-    for address, value in timers.items():
-        if address in owners: value['owner'] = owners[address]
     return {'count': len(timers) if 'timers =' in text else None,
             'positive_interval_count': sum((v['interval_s'] or 0) > 0 for v in timers.values()) if timers else None,
             'due_within_30s': sum(v['due_s'] is not None and v['due_s'] <= 30 for v in timers.values()),
-            # Repeating timers whose maker is Airc's own code (the app executable, not the engine framework or AppKit).
-            'app_repeating_count': sum(v['repeating'] and '(in Airc)' in str((v.get('owner') or {}).get('owner')) for v in timers.values())
-                                   if event.get('owners_recorded') else None,
             'timers': list(timers.values()), 'scope': event.get('scope'), 'raw': text}
-
-
-SKIP = ('TimerOrigins', 'thunk', 'NSTimer', 'Timer.')
-
-
-def atos(image, base, pcs):
-    """Symbols (and file:line when the image's debug info is there) for `pcs` in `image` loaded at `base`."""
-    try:
-        out = subprocess.run(['atos', '-o', image, '-l', base, *pcs], capture_output=True, text=True, timeout=60).stdout
-    except (OSError, subprocess.SubprocessError):
-        return [None] * len(pcs)
-    lines = out.splitlines()
-    return [line.strip() for line in lines] if len(lines) == len(pcs) else [None] * len(pcs)
-
-
-def symbolize(owners):
-    """The app's own creation frame per timer address (Debug/TimerOrigins.swift's stacks), named with atos.
-    The owner is the first frame that isn't the recorder, a thunk or Foundation's Timer wrapper."""
-    result = {}
-    groups = {}
-    for row in owners:
-        for frame in row.get('frames') or []:
-            groups.setdefault((frame['image'], frame['base']), []).append(frame)
-    for (image, base), frames in groups.items():
-        for frame, name in zip(frames, atos(image, base, [f['pc'] for f in frames])):
-            frame['atos'] = name
-    for row in owners:
-        address = row.get('address')
-        frames = row.get('frames')
-        if not address: continue
-        if frames is None:
-            result[address] = {'origin': row.get('origin')}
-            continue
-        names = [f.get('atos') or f.get('symbol') or f['pc'] for f in frames]
-        owner = next((n for n in names if not any(k in n for k in SKIP)), names[0] if names else None)
-        result[address] = {'owner': owner, 'frames': names, 'made_s_ago': row.get('made_s_ago')}
-    return result
-
-
-def wakeups(pid):
-    """(package idle, interrupt) wakeups since the process started (proc_pid_rusage, rusage_info_v2), or None."""
-    buf = ctypes.create_string_buffer(512)
-    if ctypes.CDLL(None).proc_pid_rusage(pid, 2, buf) != 0: return None
-    return int.from_bytes(buf.raw[32:40], 'little'), int.from_bytes(buf.raw[40:48], 'little')
 
 
 def launch(app, out, action, samples, endpoint, profile=False, extra_env=None, app_args=()):
@@ -182,16 +129,11 @@ def launch(app, out, action, samples, endpoint, profile=False, extra_env=None, a
             wait(30)
             run.control_action(out, '', {'action': 'census'})
             timer = event('timer_census')
-            begin = instance.discover(); wake0 = {p: wakeups(p) for p in begin}; t0 = time.monotonic(); wait(30)
-            end = instance.discover(); wake1 = {p: wakeups(p) for p in end}
+            begin = instance.discover(); t0 = time.monotonic(); wait(30); end = instance.discover()
             elapsed = time.monotonic() - t0
             stable = set(begin) == set(end) and bool(begin)
             rows = [{'pid': p, 'kind': run.kind(begin[p]['command'], p == instance.pid),
-                     'cpu_percent': 100 * (end[p]['cpu'] - begin[p]['cpu']) / elapsed,
-                     # Every wakeup, dispatch timers and engine threads included (the census sees run-loop timers only).
-                     'idle_wakeups_per_s': (wake1[p][0] - wake0[p][0]) / elapsed if wake0.get(p) and wake1.get(p) else None,
-                     'interrupt_wakeups_per_s': (wake1[p][1] - wake0[p][1]) / elapsed if wake0.get(p) and wake1.get(p) else None}
-                    for p in begin if p in end]
+                     'cpu_percent': 100 * (end[p]['cpu'] - begin[p]['cpu']) / elapsed} for p in begin if p in end]
             value = {'ready': ready, 'pages': pages, 'timers': census(timer), 'processes': rows,
                      'cpu_percent': sum(p['cpu_percent'] for p in rows) if stable else None,
                      'stable': stable, 'interval_s': elapsed}
@@ -229,16 +171,13 @@ def main():
     p.add_argument('--profile', action='store_true')
     p.add_argument('--app-arg', action='append', default=[],
                    help='extra Airc argument, e.g. --app-arg=--agent-server (the MCP server, on by default outside scripted runs)')
-    p.add_argument('--app-env', action='append', default=[], metavar='KEY=VALUE',
-                   help='extra environment for Airc, e.g. --app-env AIRC_IDLETIMERS_BASELINE=1 (a test build\'s old-path switch)')
     o = p.parse_args()
-    app_env = dict(kv.split('=', 1) for kv in o.app_env)
     server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Suggestions)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     out = o.output.resolve(); out.mkdir(parents=True, exist_ok=True)
     data = {'schema_version': 1, 'kind': 'performance-gaps', 'timestamp': datetime.datetime.now(datetime.timezone.utc).isoformat(),
             'binary_sha256': hashlib.sha256((o.app / 'Contents/MacOS/Airc').read_bytes()).hexdigest(),
-            'requested_runs': o.runs, 'requested_samples': o.samples, 'runs': {}, 'errors': [], 'app_args': o.app_arg, 'app_env': app_env,
+            'requested_runs': o.runs, 'requested_samples': o.samples, 'runs': {}, 'errors': [], 'app_args': o.app_arg,
             # Set in the environment, ui-check-lock.py turns each `open -g` into a foreground launch (window key).
             'dedicated_session': os.environ.get('AIRC_UI_DEDICATED_SESSION') == '1'}
     try:
@@ -246,7 +185,7 @@ def main():
             for action in o.actions:
                 print(action, i, flush=True)
                 value = launch(o.app.resolve(), out / f'{action}-{i}', action, o.samples,
-                               f'http://127.0.0.1:{server.server_port}/suggest', o.profile, extra_env=app_env, app_args=o.app_arg)
+                               f'http://127.0.0.1:{server.server_port}/suggest', o.profile, app_args=o.app_arg)
                 data['runs'].setdefault(action, []).append(value)
                 (out / 'gaps.json').write_text(json.dumps(data, indent=2))
     except (Exception, KeyboardInterrupt) as e:

@@ -13,12 +13,7 @@ import AircKit
     @Published private(set) var failures: [String: String] = [:]
     private var contexts: [ObjectIdentifier: Context] = [:]
     private var filters: [String: BlockingFilter] = [:]
-    /// List updates (MEM-6: no repeating timer at idle): see `scheduleUpdates`.
-    private var scheduler: NSBackgroundActivityScheduler?
-    private var updateObservers: [NSObjectProtocol] = []
-    #if AIRC_TESTING
-    private var baselineTimer: Timer?
-    #endif
+    private var timer: Timer?
     private var subscription: AnyCancellable?
     private final class Context {
         weak var profile: EngineProfile?
@@ -81,63 +76,11 @@ import AircKit
         }
         subscription = settings.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
         BlockingCosmetics.start(engine: engine, center: self)
-        scheduleUpdates()
-    }
-    deinit {
-        scheduler?.invalidate()
-        for o in updateObservers {
-            NotificationCenter.default.removeObserver(o)
-            NSWorkspace.shared.notificationCenter.removeObserver(o)
+        timer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
+            Task { @MainActor in await self?.refresh() }
         }
-        #if AIRC_TESTING
-        baselineTimer?.invalidate()
-        #endif
     }
-
-    /// When the lists are checked for updates, without a timer in the app's run loop. Each check is cheap when nothing
-    /// is due: a list is fetched only once its own cadence has passed (four days, or the list's longer Expires;
-    /// BlockingListVersion.nextRefresh), and a failed one waits out its back-off (1 h doubling to a day).
-    /// - At launch, once every profile is ready (AppDelegate.didLaunchBrowser).
-    /// - About twice a day from the system's background activity scheduler, which coalesces the wakeup with other
-    ///   apps' work and runs it when the Mac is awake and not busy: every 12 h, within a 6 h tolerance, so at least daily.
-    /// - After the Mac wakes (a little later, so the network is back), when a list most often turns due.
-    /// - When the network comes back, at once for a list whose last try failed (offline launch, lost Wi-Fi).
-    private func scheduleUpdates() {
-        #if AIRC_TESTING
-        // MEM-6 A/B (artifacts/idletimers): the old hourly repeating timer, same binary.
-        if ProcessInfo.processInfo.environment["AIRC_IDLETIMERS_BASELINE"] == "1" {
-            baselineTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
-                Task { @MainActor in await self?.refresh() }
-            }
-            return
-        }
-        #endif
-        let s = NSBackgroundActivityScheduler(identifier: (Bundle.main.bundleIdentifier ?? "org.airc.Airc") + ".blocking-lists")
-        s.repeats = true
-        s.interval = Self.updateCheckInterval
-        s.tolerance = Self.updateCheckInterval / 2
-        s.qualityOfService = .utility
-        s.schedule { [weak self] completion in
-            Task { @MainActor in
-                await self?.refresh()
-                completion(.finished)
-            }
-        }
-        scheduler = s
-        updateObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification,
-                                                                                 object: nil, queue: .main) { [weak self] _ in
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.afterWakeDelay) {
-                Task { @MainActor in await self?.refresh() }
-            }
-        })
-        NetworkWatch.shared.start()
-        updateObservers.append(NotificationCenter.default.addObserver(forName: NetworkWatch.restored, object: nil,
-                                                                      queue: .main) { [weak self] _ in
-            Task { @MainActor in await self?.refresh(retryFailedNow: true) }
-        })
-    }
-    static let updateCheckInterval: TimeInterval = 12 * 3600
-    static let afterWakeDelay: TimeInterval = 20
+    deinit { timer?.invalidate() }
 
     func prepare(profile: EngineProfile, id: String, isPrivate: Bool = false, completion: @escaping () -> Void) {
         contexts = contexts.filter { $0.value.profile != nil }
@@ -193,18 +136,16 @@ import AircKit
         }
     }
     private static func validateRules(_ text: String) async throws {
-        // The adblock compile in a child process (BlockingRuleCompiler): its transient memory never stays here.
-        guard await BlockingRuleCompiler.check(text) else { throw BlockingFilter.Failure.invalidRules }
+        _ = try await Task.detached(priority: .utility) { try BlockingFilter.compile(text) }.value
         let policy = EngineBlockingPolicy(enabled: true, exceptions: [], blockThirdPartyCookies: false)
         let good = await withCheckedContinuation { resume in
             WebKitBlocking.prepare(text: text, policy: policy, privateSession: false) { resume.resume(returning: $0 != nil) }
         }
         if !good { throw BlockingFilter.Failure.invalidRules }
     }
-    /// `retryFailedNow`: the network just came back, so a list whose last try failed needn't wait out its back-off.
-    func refresh(force: Bool = false, retryFailedNow: Bool = false) async {
+    func refresh(force: Bool = false) async {
         let selected = settings.profiles.values.reduce(into: Set<String>()) { $0.formUnion($1.selectedLists) }
-        await lists.refresh(selected: selected, force: force, retryFailedNow: retryFailedNow)
+        await lists.refresh(selected: selected, force: force)
     }
     func cosmeticsEnabled(for tab: EngineTab, url: String, isMainFrame: Bool) -> Bool {
         guard let context = contexts[ObjectIdentifier(tab.profile)],

@@ -12,8 +12,7 @@ import Sparkle
 /// sidebar shows "New Airc Version Available" above the footer (Browser/UpdateButton.swift), and a toast and an item
 /// under "Check for Updates…" say "A new version of Airc is ready. Restart to update", with "See What's New" (the item's
 /// release notes) under it. The button and the item restart into it (asking first while music or video plays, during
-/// a call or a download; a page that would ask "Leave site?", has typed text or doesn't answer within 5 s is named and
-/// selected, with Restart Anyway and Cancel); quitting installs it too, and so does, with Arc's
+/// a call, a download or a page that would ask "Leave site?"); quitting installs it too, and so does, with Arc's
 /// "Automatically update my Arc" turned on (off by default), being away 30 minutes with nothing to interrupt (E13,
 /// UpdateCenter). What happened is appended to `Updates.log` in the data folder.
 ///

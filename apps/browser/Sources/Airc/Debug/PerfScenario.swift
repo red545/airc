@@ -246,9 +246,7 @@ final class PerfRun {
         let loadedNow = tabs.filter { c.engineTab(for: $0) != nil }.count
         emit(["event": "workload_ready", "profiles": c.store.orderedProfiles.count, "spaces": c.store.orderedSpaces.count,
               "loaded_tabs": loadedNow, "unloaded_tabs": tabs.count - loadedNow, "stopped_loads": stopped,
-              "engine": runner.app?.engine.name ?? "?",
-              // webkitmem: the allocator's large-block cache setting of this process (MallocLargeCache, A/B runs).
-              "malloc_large_cache": ProcessInfo.processInfo.environment["MallocLargeCache"] ?? "default"])
+              "engine": runner.app?.engine.name ?? "?"])
     }
 
     // MARK: Timings (input → presented frame)
@@ -535,11 +533,9 @@ final class PerfRun {
         guard let control, let data = try? Data(contentsOf: control),
               let cmd = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
         if cmd["action"] as? String == "census" {
-            let runloop = CFCopyDescription(CFRunLoopGetMain()) as String
-            emit(["event": "timer_census", "runloop": runloop,
+            emit(["event": "timer_census", "runloop": CFCopyDescription(CFRunLoopGetMain()) as String,
                   "archive_repeating": c.repeatingTimerCount,
-                  "owners": Self.timerOwners(runloop), "owners_recorded": TimerOrigins.isEnabled,
-                  "scope": "main CFRunLoop, all described modes; excludes dispatch and engine worker timers (the harness counts idle wakeups for those)"])
+                  "scope": "main CFRunLoop, all described modes; excludes dispatch and engine worker timers"])
             return
         }
         if cmd["action"] as? String == "measure", !measureRequested {
@@ -553,20 +549,6 @@ final class PerfRun {
         let url = cmd["url"] as? String ?? "about:blank"
         let timeout = cmd["page_timeout_seconds"] as? Double ?? 20
         leakCycle(remaining: count, opened: 0, closed: 0, url: url, timeout: timeout)
-    }
-
-    /// MEM-6: each main run-loop timer's maker (TimerOrigins), by the address CF's description gives it. Read on the
-    /// main thread in the same turn as the description, so every listed timer is still scheduled.
-    static func timerOwners(_ runloop: String) -> [[String: Any]] {
-        var addresses: [UInt] = [], intervals: [UInt: TimeInterval] = [:]
-        let pattern = try! NSRegularExpression(pattern: #"<CFRunLoopTimer 0x([0-9a-f]+)\s+[^>]*>\{[^}]*?interval = ([\d.e+-]+)"#)
-        let ns = runloop as NSString
-        for m in pattern.matches(in: runloop, range: NSRange(location: 0, length: ns.length)) {
-            guard let a = UInt(ns.substring(with: m.range(at: 1)), radix: 16), intervals[a] == nil else { continue }
-            addresses.append(a)
-            intervals[a] = Double(ns.substring(with: m.range(at: 2))) ?? 0
-        }
-        return TimerOrigins.describe(addresses: addresses, intervals: intervals)
     }
 
     /// Opens a real engine tab, waits for its load (bounded), closes it and drops its page; 100 times, one at a time.

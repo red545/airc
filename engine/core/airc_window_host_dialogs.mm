@@ -19,7 +19,6 @@
 #include "content/public/browser/web_contents.h"
 #include "airc/core/airc_browser_window.h"
 #include "airc/core/airc_modal_dialog_host.h"
-#include "ui/views/bubble/bubble_dialog_delegate_view.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/cocoa/native_widget_mac_ns_window_host.h"
 #include "ui/gfx/mac/coordinate_conversion.h"
@@ -67,37 +66,6 @@ gfx::NativeView WindowHost::GetHostView() const {
   // require that bridge both during InitModalType and later reparent/show calls.
   const_cast<WindowHost*>(this)->UpdateModalParent();
   return modal_parent_->GetNativeView();
-}
-
-views::View* WindowHost::DialogAnchorView() {
-  if (!externally_hosted()) return widget_ ? widget_->GetRootView() : nullptr;
-  UpdateModalParent();
-  return modal_parent_ ? modal_parent_->GetRootView() : nullptr;
-}
-
-gfx::Rect WindowHost::PageBoundsInScreen() {
-  if (!externally_hosted()) {
-    views::View* root = widget_ ? widget_->GetRootView() : nullptr;
-    return root ? root->GetBoundsInScreen() : gfx::Rect();
-  }
-  if (!host_view_.window) return gfx::Rect();
-  return gfx::ScreenRectFromNSRect([ns_window() convertRectToScreen:
-      [host_view_ convertRect:host_view_.bounds toView:nil]]);
-}
-
-bool WindowHost::PlacePageBubble(views::BubbleDialogDelegate* bubble) {
-  views::View* parent = DialogAnchorView();
-  if (!parent || !parent->GetWidget()) return false;
-  if (!bubble) return true;
-  // The page's frame now, not the modal parent's: that one re-anchors lazily while no dialog shows.
-  gfx::Rect page = PageBoundsInScreen();
-  if (page.IsEmpty()) page = parent->GetBoundsInScreen();
-  // Chrome anchors these bubbles (arrow TOP_RIGHT) under a toolbar button at the window's top right: a point just
-  // inside the page's top right corner puts the bubble's top right corner there.
-  constexpr int kInset = 8;
-  bubble->set_parent_window(parent->GetWidget()->GetNativeView());
-  bubble->SetAnchorRect(gfx::Rect(page.right() - kInset, page.y() + kInset, 0, 0));
-  return true;
 }
 
 void WindowHost::UpdateModalParent() {

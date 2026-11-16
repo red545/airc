@@ -23,10 +23,7 @@
 #include "chrome/browser/devtools/devtools_contents_resizing_strategy.h"
 #include "chrome/browser/devtools/devtools_toggle_action.h"
 #include "chrome/browser/devtools/devtools_window.h"
-#include "chrome/browser/media/router/media_router_feature.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/media_router/media_router_ui_service.h"
-#include "chrome/browser/ui/views/media_router/media_remoting_dialog_view.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/browser_window/public/global_browser_collection.h"
@@ -38,7 +35,6 @@
 #include "chrome/common/pref_names.h"
 #include "components/blocked_content/popup_blocker_tab_helper.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
-#include "components/lookalikes/core/safety_tips_config.h"
 #include "components/policy/core/common/policy_pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
@@ -258,34 +254,6 @@ std::optional<bool> RunPageCommand(content::WebContents* contents, int command) 
     }
   }
   return NO;
-}
-
-- (BOOL)showMediaRemotingDialogForTesting:(void (^)(BOOL allowed))completion {
-  if (!airc::TestFlag("modalDialogs") || !_contents) return NO;
-  Profile* profile = Profile::FromBrowserContext(_contents->GetBrowserContext());
-  auto* ui_service = media_router::MediaRouterUIService::Get(profile);
-  if (!media_router::MediaRouterEnabled(profile) || !ui_service || !ui_service->action_controller()) return NO;
-  // Owned by the tab, like CastRemotingConnector's coordinator, so a closing tab takes the dialog with it.
-  struct Holder : base::SupportsUserData::Data {
-    explicit Holder(content::WebContents* contents) : coordinator(contents) {}
-    media_router::MediaRemotingDialogCoordinatorViews coordinator;
-  };
-  static const char kKey = 0;
-  auto holder = std::make_unique<Holder>(_contents);
-  Holder* raw = holder.get();
-  _contents->SetUserData(&kKey, std::move(holder));
-  void (^done)(BOOL) = [completion copy];
-  return raw->coordinator.Show(base::BindOnce([](void (^done)(BOOL), bool allowed) {
-    if (done) done(allowed);
-  }, done));
-}
-
-- (BOOL)useEmptySafetyTipsConfigForTesting {
-  if (!airc::TestFlag("modalDialogs")) return NO;
-  if (!lookalikes::GetSafetyTipsRemoteConfigProto()) {
-    lookalikes::SetSafetyTipsRemoteConfigProto(std::make_unique<reputation::SafetyTipsConfig>());
-  }
-  return lookalikes::GetSafetyTipsRemoteConfigProto() != nullptr;
 }
 
 - (NSDictionary*)modalDialogStateForTesting {

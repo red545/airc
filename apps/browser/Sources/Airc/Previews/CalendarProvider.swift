@@ -6,8 +6,7 @@ import AppKit
 /// Outlook Calendar) when its calendars aren't on this Mac. It reads what the service previews' calendar provider last
 /// answered for each Calendar Favorite's account (ServicePreviewCenter), and asks again only for accounts whose site
 /// was opened in their profile, at most once a minute. The provider is the calendar page's own reader (calprev,
-/// PageMailProvider): a Favorite's account gives meetings once its page has been read in its profile. calmeet: pinned
-/// calendar tabs count too, and with any of them Live Calendar uses these meetings alone (LiveCalendarSource).
+/// PageMailProvider): a Favorite's account gives meetings once its page has been read in its profile.
 final class PreviewCalendarAccounts: CalendarAccountEvents {
     static let shared = PreviewCalendarAccounts()
     var onChange: (() -> Void)?
@@ -31,31 +30,19 @@ final class PreviewCalendarAccounts: CalendarAccountEvents {
         }
     }
 
-    /// The calendar Favorites and pinned tabs (Favorites first, then pinned ones, each in a stable order).
-    private var calendarItems: [Item] {
-        guard let store = (NSApp.delegate as? AppDelegate)?.store else { return [] }
-        let items = store.state.items.values.filter { CalendarTileFace.isCalendar($0) && $0.savedURL != nil }
-        return items.filter(\.isFavorite).sorted { $0.id < $1.id } + items.filter { !$0.isFavorite }.sorted { $0.id < $1.id }
-    }
-
-    /// Whether Airc reads `s`'s page (calmeet: a Google Calendar or Outlook page, through its provider).
-    private func reads(_ s: PreviewService) -> Bool { ServicePreviewCenter.shared.provider(for: s) != nil }
-
-    /// calmeet: a Google or Outlook calendar is a Favorite or pinned tab, so Live Calendar takes its meetings from the
-    /// pages alone, never from EventKit (LiveCalendarSource).
-    var hasWebCalendar: Bool { LiveCalendarSource.choose(calendarItems.compactMap(\.savedURL), reads: reads) == .pages }
-
-    /// Each calendar Favorite's and pinned tab's account, where its service has a provider, Favorites first.
+    /// Each Calendar Favorite's account, where its service has a provider (Live Calendar is the Favorites'; a pinned
+    /// calendar has its card and row line only).
     var accounts: [PreviewAccount] {
         guard let store = (NSApp.delegate as? AppDelegate)?.store else { return [] }
-        var favorites: [PreviewAccount] = [], pinned: [PreviewAccount] = []
-        for item in calendarItems {
+        let center = ServicePreviewCenter.shared
+        var out: [PreviewAccount] = []
+        for item in store.state.items.values where item.isFavorite && CalendarTileFace.isCalendar(item) {
             guard let url = item.savedURL, let profile = item.profileID ?? item.spaceID.map({ store.profile(ofSpace: $0).id }),
-                  let a = PreviewAccount(url: url, profileID: profile), a.service.family == .calendar, reads(a.service),
-                  !favorites.contains(a), !pinned.contains(a) else { continue }
-            if item.isFavorite { favorites.append(a) } else { pinned.append(a) }
+                  let a = PreviewAccount(url: url, profileID: profile), a.service.family == .calendar,
+                  center.provider(for: a.service) != nil, !out.contains(a) else { continue }
+            out.append(a)
         }
-        return favorites.sorted { $0.description < $1.description } + pinned.sorted { $0.description < $1.description }
+        return out.sorted { $0.description < $1.description }
     }
 
     var hasAccounts: Bool {
@@ -65,17 +52,17 @@ final class PreviewCalendarAccounts: CalendarAccountEvents {
         }
     }
 
-    /// The accounts' meetings, each ID made unique to its account (two accounts can use the same event IDs), one list per
-    /// account in `accounts`' order. An account whose page isn't loaded keeps what was read last (PageMailProvider).
-    func events(from: Date, to: Date) -> [[CalendarEvent]] {
-        accounts.map { a in
-            guard case .calendar(let events)? = ServicePreviewCenter.shared.state(a)?.content else { return [] }
-            return events.filter { $0.end > from && $0.start < to }.map { e in
-                var e = e
+    /// The accounts' meetings, each ID made unique to its account (two accounts can use the same event IDs).
+    func events(from: Date, to: Date) -> [CalendarEvent] {
+        var out: [CalendarEvent] = []
+        for a in accounts {
+            guard case .calendar(let events)? = ServicePreviewCenter.shared.state(a)?.content else { continue }
+            for var e in events where e.end > from && e.start < to {
                 e.id = "\(a.service.rawValue)/\(a.key)/\(e.id)"
-                return e
+                out.append(e)
             }
         }
+        return out
     }
 
     func refresh() {

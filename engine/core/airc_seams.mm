@@ -21,8 +21,6 @@
 #include "extensions/browser/extension_install_prompt_client.h"
 #include "extensions/common/extension_id.h"
 #include "airc/core/airc_hooks.h"
-#include "airc/core/airc_fedcm_hooks.h"
-#include "airc/core/airc_page_bubble_hooks.h"
 #include "airc/core/airc_call_share_target.h"
 #include "airc/core/airc_browser.h"
 #include "airc/core/airc_cast_dialog.h"
@@ -137,27 +135,6 @@ bool IsReservedAccelerator(const ui::Accelerator& accelerator) {
          [g_delegate engineIsReservedKeyEvent:event];
 }
 
-views::View* FedCmDialogAnchor(content::WebContents* contents) {
-  WindowHost* host = WindowHost::ForContents(contents);
-  return host ? host->DialogAnchorView() : nullptr;
-}
-
-bool PlacePageBubble(content::WebContents* contents, views::BubbleDialogDelegate* bubble) {
-  WindowHost* host = WindowHost::ForContents(contents);
-  return host && host->PlacePageBubble(bubble);
-}
-
-bool PageInfoAnchorRect(BrowserWindowInterface* browser, gfx::Rect* rect) {
-  WindowHost* host = WindowHost::ForBrowser(browser);
-  if (!host) return false;
-  const gfx::Rect page = host->PageBoundsInScreen();
-  if (page.IsEmpty()) return false;
-  // Like Chrome's no-toolbar anchor (kNoToolbarLeftOffset), just inside the page's top left corner.
-  constexpr int kInset = 8;
-  *rect = gfx::Rect(page.x() + kInset, page.y() + kInset, 0, 0);
-  return true;
-}
-
 bool IsHistoryEligible(content::WebContents* contents) {
   WindowHost* host = WindowHost::ForContents(contents);
   return !host || !host->internal();
@@ -186,9 +163,6 @@ void InstallChromeHooks() {
   g_airc_password_bubble = &HandlePasswordBubble;
   g_airc_extension_install_prompt = &HostExtensionInstallPrompt;
   g_airc_device_chooser = &HandleDeviceChooser;
-  g_airc_fedcm_dialog_anchor = &FedCmDialogAnchor;
-  g_airc_page_bubble = &PlacePageBubble;
-  g_airc_page_info_anchor_rect = &PageInfoAnchorRect;
   g_airc_wants_cast_dialog = &WantsCastDialog;
   g_airc_cast_dialog = &HandleCastDialog;
   g_airc_extension_side_panel = &HandleExtensionSidePanel;

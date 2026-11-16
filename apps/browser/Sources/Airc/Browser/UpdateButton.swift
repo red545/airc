@@ -7,9 +7,7 @@ import SwiftUI
 
 // The sidebar's update button, as in Arc (Arc ref §2.9 "Update banner"): once Sparkle has downloaded and verified an
 // update, a pill above the footer reads "New Airc Version Available"; a click restarts into it. Music or video
-// playing, a call, a running download or a page that would ask "Leave site?" (in any window) gets a calm question first;
-// every page has 5 s to answer, and a page with unsaved changes or one that doesn't answer is named and selected, and
-// the restart waits for Restart Anyway (restartwait).
+// playing, a call, a running download or a page that would ask "Leave site?" (in any window) gets a calm question first.
 // Left alone, the update installs when Airc quits; with Arc's "Automatically update my Arc" turned on (off by default,
 // Settings › General › Automatic Updates) it restarts by itself after 30 minutes without input on the Mac, when
 // nothing would be interrupted (IdleUpdatePolicy). The pill's menu and the question offer the update's release notes
@@ -83,115 +81,40 @@ final class UpdateCenter {
     }
 
     /// The button, or the app menu's "Restart to update": restart now, asking first if something would be lost.
-    /// Every page gets `UpdateRestartRisks.answerTime` (5 s, as restarting by itself) to answer; a page with unsaved
-    /// changes or one that doesn't answer is never quit behind its back: the question names its tab and selects it
-    /// (restartwait, E13). While the pages answer, the pill says "Checking Tabs…" (after a moment).
     func restart(from controller: WindowController?) {
         guard let update = ready, !asking, confirm == nil else { return }
         Telemetry.shared.record(.featureUsed(.updateRestartClicked))
         guard let c = controller else { return install(update, downloads: false) }
         asking = true
-        let started = Date()
-        let token = UUID()
-        checkToken = token
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.checkingTitleDelay) { [weak self] in
-            guard let self, self.checkToken == token else { return }
-            self.setChecking(true)
-        }
         let probe = riskProbe ?? { _, done in Self.risksInEveryWindow(done) }
         probe(c) { [weak self, weak c] risks in
             guard let self else { return }
             self.asking = false
-            self.checkToken = nil
-            self.setChecking(false)
             guard let c, self.ready === update else { return }
-            let waited = Int(Date().timeIntervalSince(started) * 1000)
             if risks.isEmpty {
-                self.log("restart: every page answered in \(waited) ms, nothing at risk")
                 self.install(update, downloads: false)
             } else {
-                self.log("restart asks first (after \(waited) ms): \(risks.logText)")
+                self.log("restart asks first: \(risks.logText)")
                 self.ask(risks, in: c, update: update)
             }
         }
     }
 
-    /// "Checking Tabs…" on the pill once the pages take longer than this to answer.
-    static let checkingTitleDelay: TimeInterval = 0.4
-    static let checkingTitle = "Checking Tabs…"
-    private var checkToken: UUID?
-    /// The click's pages are still answering (the pill says so).
-    private(set) var checking = false
-    private func setChecking(_ on: Bool) {
-        guard checking != on else { return }
-        checking = on
-        for w in (NSApp.delegate as? AppDelegate)?.controllers ?? [] { w.sidebar.update.needsLayout = true }
-    }
-
-    private func ask(_ risks: UpdateRestartRisks, in clicked: WindowController, update: ReadyUpdate) {
-        // The first tab that would be quit behind: selected in its own window, where the question shows.
-        var c = clicked
-        if let first = risks.blockingTabs.first,
-           let w = (NSApp.delegate as? AppDelegate)?.controllers.first(where: { $0.pages[first.tabID] != nil }) {
-            c = w
-            w.selectForUpdate(first.tabID)
-            if w !== clicked { w.window.makeKeyAndOrderFront(nil) }
-        }
+    private func ask(_ risks: UpdateRestartRisks, in c: WindowController, update: ReadyUpdate) {
         let model = UpdateConfirmModel(risks: risks, theme: c.currentPalette.resolved)
         let v = UpdateConfirmView(model: model, controller: c)
         model.onAnswer = { [weak self] restart in
             guard let self else { return }
             self.dismissConfirm()
-            guard restart, self.ready === update else { return self.log(risks.blockingTabs.isEmpty ? "restart: not now" : "restart: cancelled") }
-            guard !risks.blockingTabs.isEmpty else { return self.install(update, downloads: risks.downloads > 0) }
-            self.log("restart anyway: leaving \(risks.blockingTabs.count) tab(s)")
-            Self.leave(risks.blockingTabs) { if self.ready === update { self.install(update, downloads: risks.downloads > 0) } }
+            if restart, self.ready === update { self.install(update, downloads: risks.downloads > 0) }
+            else { self.log("restart: not now") }
         }
         model.onWhatsNew = { [weak self, weak c] in self?.showWhatsNew(from: c) }
-        model.onSelectTab = { id in
-            (NSApp.delegate as? AppDelegate)?.controllers.first { $0.pages[id] != nil }?.selectForUpdate(id)
-        }
         c.root.addSubview(v, positioned: .below, relativeTo: c.toast)
         confirm = v
         v.layoutInWindow()
         v.present()
     }
-
-    /// Restart Anyway: the person chose to leave these pages, so the quit doesn't ask them "Leave site?" again. Their
-    /// handlers can't hold the page any more (`leaveScript`); a page that still doesn't answer gets it queued, and the
-    /// quit goes on after a second at most.
-    static func leave(_ tabs: [UpdateRestartRisks.BlockingTab], then: @escaping () -> Void) {
-        let controllers = (NSApp.delegate as? AppDelegate)?.controllers ?? []
-        let pages = tabs.compactMap { t in controllers.lazy.compactMap { $0.pages[t.tabID] }.first { !$0.isClosed }.map { (t, $0) } }
-        var waiting = pages.filter { $0.0.reason != .unanswered }.count, finished = false
-        let finish = {
-            guard !finished else { return }
-            finished = true
-            then()
-        }
-        for (t, page) in pages {
-            page.evaluate(Self.leaveScript) { _ in
-                guard t.reason != .unanswered else { return }
-                waiting -= 1
-                if waiting == 0 { finish() }
-            }
-        }
-        if waiting == 0 { return finish() }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { finish() }
-    }
-
-    /// Whatever order the page's own listeners run in (on some engines a listener added earlier runs before a capture
-    /// one added later): a beforeunload event can't be cancelled or given a message any more, and `onbeforeunload` is
-    /// cleared. Run where the script runs and, through a script element, in the page's own world as well (an engine
-    /// may evaluate in an isolated one).
-    static let leaveScript = """
-    (function(){var f=function(){try{window.onbeforeunload=null;var P=BeforeUnloadEvent.prototype;
-      Object.defineProperty(P,'returnValue',{configurable:true,get:function(){return ''},set:function(){}});
-      Object.defineProperty(P,'preventDefault',{configurable:true,writable:true,value:function(){}});
-      window.addEventListener('beforeunload',function(e){e.stopImmediatePropagation()},true);}catch(x){}};
-      f();try{var s=document.createElement('script');s.textContent='('+f+')()';(document.head||document.documentElement).appendChild(s);s.remove()}catch(x){}
-      return true})()
-    """
 
     func dismissConfirm() {
         guard let v = confirm else { return }
@@ -237,8 +160,8 @@ final class UpdateCenter {
 
     /// How often a ready update looks whether it may restart by itself (only while one is ready and the setting is on).
     static let idleCheckInterval: TimeInterval = 60
-    /// How long each page has to answer before restarting by itself: the same as Restart to Update's.
-    static let idleAnswerTime: TimeInterval = UpdateRestartRisks.answerTime
+    /// How long each page has to answer before restarting by itself (Restart to Update waits `answerTime`).
+    static let idleAnswerTime: TimeInterval = 5
     #if AIRC_TESTING
     /// The check's fake idle clock (HID idle seconds, Airc in front): with it set, `checkIdleRestart` runs in the
     /// scripted run; without it an automated run never restarts by itself. The timer never runs in one either way.
@@ -635,19 +558,8 @@ struct UpdateRestartRisks: Equatable {
     var developerMode = 0
     /// Pages that didn't answer in time: what they hold is unknown (restarting by itself waits for them).
     var unanswered = 0
-    /// The tabs a restart would quit behind (restartwait): pages that would ask "Leave site?", have typed text, or didn't
-    /// answer in time. Restart to Update names them, selects the first and installs only on Restart Anyway.
-    var blockingTabs: [BlockingTab] = []
-    /// How long each page has to answer, whether the person clicked Restart to Update or it restarts by itself: a busy
-    /// page that answers within it doesn't hold the restart back; one that doesn't is never taken as "nothing to lose".
-    static let answerTime: TimeInterval = 5
-
-    struct BlockingTab: Equatable {
-        enum Reason: String, Equatable { case leaveSite, editedForm, unanswered }
-        var tabID: String
-        var title: String
-        var reason: Reason
-    }
+    /// How long each page has to answer when the person clicked Restart to Update.
+    static let answerTime: TimeInterval = 0.5
 
     /// Another window's pages (downloads are the app's, counted once).
     mutating func merge(_ r: UpdateRestartRisks) {
@@ -661,7 +573,6 @@ struct UpdateRestartRisks: Equatable {
         editedForms += r.editedForms
         developerMode += r.developerMode
         unanswered += r.unanswered
-        blockingTabs += r.blockingTabs
     }
 
     /// Nothing the question names: Restart to Update installs at once.
@@ -683,15 +594,12 @@ struct UpdateRestartRisks: Equatable {
         if leaveSite == 1 { out.append("A page may have changes that aren’t saved.") }
         if leaveSite > 1 { out.append("\(leaveSite) pages may have changes that aren’t saved.") }
         if editedForms > 0 && leaveSite == 0 { out.append(editedForms == 1 ? "A page has text you typed that isn’t sent." : "\(editedForms) pages have text you typed that isn’t sent.") }
-        if unanswered == 1 { out.append("A page isn’t responding. What it holds may be lost.") }
-        if unanswered > 1 { out.append("\(unanswered) pages aren’t responding. What they hold may be lost.") }
         return out
     }
 
     var logText: String {
         "call \(call), screen \(screenSharing), playing \(playing), paused \(pausedMedia), pip \(pictureInPicture), downloads \(downloads), "
             + "loading \(loading), leave site \(leaveSite), edited \(editedForms), developer mode \(developerMode), unanswered \(unanswered)"
-            + (blockingTabs.isEmpty ? "" : ", tabs [\(blockingTabs.map { "\($0.reason.rawValue) \($0.tabID)" }.joined(separator: ", "))]")
     }
 
     /// A page in a call or capturing (muted or silent too).
@@ -726,13 +634,6 @@ struct UpdateRestartRisks: Equatable {
 }
 
 extension WindowController {
-    /// Restart to Update shows a tab it would quit behind: its Space, then the tab (its split too), the page not focused.
-    func selectForUpdate(_ tabID: String) {
-        guard let tab = store.tab(tabID) else { return }
-        if let sid = tab.spaceID, sid != currentSpaceID, store.space(sid) != nil { switchToSpace(sid, animated: false) }
-        show(tabID, focus: false)
-    }
-
     /// Calls, screen sharing, music or video (playing, paused part-way, in picture in picture), running downloads,
     /// loading pages, pages that would ask "Leave site?" or have changed form fields, and Developer Mode pages (each
     /// page answers itself within `answerTime`; one that doesn't counts as `unanswered`).
@@ -740,8 +641,8 @@ extension WindowController {
         var risks = UpdateRestartRisks()
         risks.downloads = MediaLibrary.shared.downloads?.runningCount ?? 0
         let site = app?.engine as? EngineSiteControls, media = app?.engine as? EngineMedia
-        let live = pages.filter { !$0.value.isClosed }.sorted { $0.key < $1.key }.map { (id: $0.key, page: $0.value) }
-        for (_, page) in live {
+        let live = pages.values.filter { !$0.isClosed }
+        for page in live {
             let activity = site?.siteActivity(of: page) ?? SiteActivity(), session = media?.mediaSession(of: page) ?? EngineMediaSession()
             if UpdateRestartRisks.usesCameraOrMicrophone(activity: activity, media: session) { risks.call = true }
             if UpdateRestartRisks.sharesScreen(activity: activity, media: session) { risks.screenSharing = true }
@@ -751,40 +652,29 @@ extension WindowController {
             if DeveloperMode.shared.applies(to: page) { risks.developerMode += 1 }
         }
         var waiting = live.count, finished = false
-        var answered: [String: UpdateRestartRisks.BlockingTab.Reason?] = [:]
-        let finish = { [weak self] in
+        let finish = {
             guard !finished else { return }
             finished = true
-            // In the sidebar's order where it has one; the pages still quiet now are unknown, never "nothing to lose".
-            let order = self.map { c in Dictionary(c.store.todayTabs(ofSpace: c.currentSpaceID).enumerated().map { ($1.id, $0) },
-                                                   uniquingKeysWith: { a, _ in a }) } ?? [:]
-            for (id, _) in live.sorted(by: { (order[$0.id] ?? Int.max, $0.id) < (order[$1.id] ?? Int.max, $1.id) }) {
-                let reason: UpdateRestartRisks.BlockingTab.Reason?
-                if let a = answered[id] { reason = a } else { reason = .unanswered }
-                guard let reason else { continue }
-                let tab = self?.store.tab(id)
-                let title = [self?.pages[id]?.title, tab?.title, tab?.url].compactMap { $0 }.first { !$0.isEmpty } ?? "Untitled"
-                risks.blockingTabs.append(.init(tabID: id, title: title, reason: reason))
-            }
-            risks.unanswered = waiting
             done(risks)
         }
         guard waiting > 0 else { return finish() }
-        for (id, page) in live {
+        for page in live {
             page.evaluate(UpdateRestartRisks.pageScript) { answer in
-                guard !finished else { return }
                 let bits = (answer as? NSNumber)?.intValue ?? 0
                 if bits & 1 != 0 { risks.leaveSite += 1 }
                 if bits & 2 != 0 { risks.editedForms += 1 }
                 if bits & 4 != 0 { risks.playing = true }
                 if bits & 8 != 0 { risks.pausedMedia = true }
                 if bits & 16 != 0 { risks.pictureInPicture = true }
-                answered.updateValue(bits & 1 != 0 ? .leaveSite : bits & 2 != 0 ? .editedForm : nil, forKey: id)
                 waiting -= 1
                 if waiting == 0 { finish() }
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + answerTime) { finish() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + answerTime) {
+            // The pages still quiet now: unknown, never "nothing to lose".
+            if !finished { risks.unanswered = waiting }
+            finish()
+        }
     }
 }
 
@@ -1142,8 +1032,7 @@ final class UpdateButtonView: NSView {
             title.lineBreakMode = .byTruncatingTail
         } else {
             let titles = UpdateCenter.shared.ready?.pillTitles ?? Self.titles
-            text = UpdateCenter.shared.checking ? UpdateCenter.checkingTitle
-                : hovered ? Self.hoverTitle : titles.first { fits($0, in: available) } ?? titles.last!
+            text = hovered ? Self.hoverTitle : titles.first { fits($0, in: available) } ?? titles.last!
             title.lineBreakMode = .byClipping
         }
         if title.stringValue != text { title.stringValue = text }
@@ -1249,12 +1138,6 @@ final class UpdateConfirmModel: ObservableObject {
     /// true: restart now.
     var onAnswer: ((Bool) -> Void)?
     var onWhatsNew: (() -> Void)?
-    /// A blocking tab's row: selects it.
-    var onSelectTab: ((String) -> Void)?
-    /// Tabs that would be quit behind: "Restart Anyway" and "Cancel" instead of "Restart" and "Not Now".
-    var blocks: Bool { !risks.blockingTabs.isEmpty }
-    static let restartAnywayTitle = "Restart Anyway"
-    static let cancelTitle = "Cancel"
 
     init(risks: UpdateRestartRisks, theme: ResolvedTheme) {
         self.risks = risks
@@ -1285,7 +1168,6 @@ struct UpdateConfirmCard: View {
                     Text(line).aircFont(AircFont.callout).foregroundStyle(ui.surfaceTextSecondary.color)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if model.blocks { blockingRows.padding(.vertical, 2) }
                 Text("Your Spaces and tabs come back as they are.").aircFont(AircFont.callout)
                     .foregroundStyle(ui.surfaceTextSecondary.color).fixedSize(horizontal: false, vertical: true)
                 Button(UpdateConfirmModel.whatsNewTitle) { model.onWhatsNew?() }.buttonStyle(.plain)
@@ -1306,41 +1188,12 @@ struct UpdateConfirmCard: View {
         .aircTheme(ui)
     }
 
-    /// The tabs a restart would quit behind, each one a row that selects it (the first is already selected); a hung one has an hourglass.
-    private var blockingRows: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(Array(model.risks.blockingTabs.prefix(4).enumerated()), id: \.offset) { i, t in
-                Button { model.onSelectTab?(t.tabID) } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: t.reason == .unanswered ? "hourglass" : "doc.text").font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(ui.surfaceTextSecondary.color).frame(width: 14)
-                        Text(t.title).aircFont(AircFont.callout.weight(.medium)).foregroundStyle(ui.surfaceText.color)
-                            .lineLimit(1).truncationMode(.tail)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 6).frame(height: 24)
-                    .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(ui.tileFill.color))
-                    .contentShape(Rectangle())
-                }
-                // A hung tab: the hourglass (the line above says it isn't responding); the title keeps the row's width.
-                .buttonStyle(.plain).help(t.reason == .unanswered ? "Not responding. Show this tab" : "Show this tab")
-                .accessibilityLabel(t.reason == .unanswered ? "\(t.title), not responding" : t.title)
-                .testAnchor("update.blockingTab\(i)")
-            }
-            if model.risks.blockingTabs.count > 4 {
-                Text("and \(model.risks.blockingTabs.count - 4) more").aircFont(AircFont.caption).foregroundStyle(ui.surfaceTextSecondary.color)
-            }
-        }
-    }
-
     private var restart: some View {
-        Button(model.blocks ? UpdateConfirmModel.restartAnywayTitle : "Restart") { model.onAnswer?(true) }
-            .buttonStyle(.airc(.secondary, size: .small)).testAnchor("update.restartAnyway")
+        Button("Restart") { model.onAnswer?(true) }.buttonStyle(.airc(.secondary, size: .small)).testAnchor("update.restartAnyway")
     }
 
     private var notNow: some View {
-        Button(model.blocks ? UpdateConfirmModel.cancelTitle : "Not Now") { model.onAnswer?(false) }
-            .buttonStyle(.airc(.primary, size: .small)).keyboardShortcut(.defaultAction)
+        Button("Not Now") { model.onAnswer?(false) }.buttonStyle(.airc(.primary, size: .small)).keyboardShortcut(.defaultAction)
             .testAnchor("update.notNow")
     }
 }

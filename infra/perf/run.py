@@ -2,7 +2,7 @@
 # Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
 
 """Bounded macOS benchmark. Missing instrumentation is UNKNOWN, never a pass."""
-import argparse, ctypes, datetime, fcntl, json, os, re, signal, subprocess, sys, threading, time, urllib.request
+import argparse, ctypes, datetime, fcntl, json, os, re, signal, subprocess, sys, time, urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -30,63 +30,6 @@ def footprint(pid):
     if not m:
         raise RuntimeError('vmmap did not report physical footprint')
     return float(m[1]) * 1024 ** (' KMGT'.index(m[2]) if m[2] else 0) / 1e6
-
-DIAGNOSE_TOOLS = (('vmmap', ['vmmap', '--summary']), ('footprint', ['footprint', '--noCategories', '-p']),
-                  ('heap', ['heap', '-s', '-H']))
-
-def diagnose_main(pid, out, tag=''):
-    """Saves `vmmap --summary`, `footprint` and `heap` (malloc by class, sorted by size) for one process; with
-    --app-env=MallocStackLogging=lite also `malloc_history -allBySize` (stacks). Returns {tool: file or error}."""
-    found = {}
-    tools = list(DIAGNOSE_TOOLS)
-    if DIAGNOSE_STACKS: tools.append(('malloc_history', ['malloc_history', str(pid), '-allBySize']))
-    for name, argv in tools:
-        path = out / f'diag{tag}-{name}.txt'
-        try:
-            r = subprocess.run(argv if name == 'malloc_history' else [*argv, str(pid)], capture_output=True, text=True,
-                               timeout=300)
-            path.write_text(r.stdout + (('\n--- stderr\n' + r.stderr) if r.stderr.strip() else ''))
-            found[name] = path.name if r.returncode == 0 or r.stdout else f'exit {r.returncode}: {r.stderr[:200]}'
-        except Exception as e: found[name] = f'error: {e}'
-    return found
-
-def rusage_footprint_mb(pid):
-    """phys_footprint from proc_pid_rusage (rusage_info_v2; the same value vmmap reports), cheap enough to sample
-    every 200 ms. None when the process is gone."""
-    buf = ctypes.create_string_buffer(512)
-    if ctypes.CDLL(None).proc_pid_rusage(pid, 2, buf) != 0: return None
-    return int.from_bytes(buf.raw[72:80], 'little') / 1e6
-
-def process_start(pid):
-    """Epoch seconds the process started (proc_bsdinfo pbi_start_tvsec/usec), to line samples up with the app's
-    LaunchTimeline (ms since process start)."""
-    buf = ctypes.create_string_buffer(136)
-    if ctypes.CDLL(None).proc_pidinfo(pid, 3, ctypes.c_uint64(0), buf, 136) != 136: return None
-    return int.from_bytes(buf.raw[120:128], 'little') + int.from_bytes(buf.raw[128:136], 'little') / 1e6
-
-class FootprintTrace(threading.Thread):
-    """--diagnose: the main process's footprint every 200 ms from launch, as (ms since process start, MB)."""
-    def __init__(self, pid, peak_mb=None, out=None, tag=''):
-        super().__init__(daemon=True); self.pid = pid; self.samples = []; self.done = threading.Event()
-        self.start_epoch = process_start(pid)
-        # --diagnose-peak: one dump (heap, vmmap, malloc stacks with MallocStackLogging) the first time the footprint
-        # crosses peak_mb, to see what a transient launch peak is made of.
-        self.peak_mb, self.out, self.tag, self.peak_dump = peak_mb, out, tag, None
-    def run(self):
-        while not self.done.wait(.2):
-            mb = rusage_footprint_mb(self.pid)
-            if mb is None: return
-            self.samples.append((round((time.time() - (self.start_epoch or 0)) * 1000), round(mb, 1)))
-            if self.peak_mb and self.peak_dump is None and mb >= self.peak_mb:
-                self.peak_dump = {'at_ms': self.samples[-1][0], 'mb': round(mb, 1),
-                                  'files': diagnose_main(self.pid, self.out, self.tag + '-peak')}
-    def save(self, path):
-        self.done.set()
-        if self.ident: self.join(2)
-        path.write_text(json.dumps({'pid': self.pid, 'start_epoch': self.start_epoch, 'samples': self.samples}))
-        peak = max(self.samples, key=lambda s: s[1], default=None)
-        return {'file': path.name, 'peak_mb': peak and peak[1], 'peak_ms': peak and peak[0], 'count': len(self.samples),
-                **({'peak_dump': self.peak_dump} if self.peak_mb else {})}
 
 def kind(command_line, main=False):
     """A process's role from its command line: main, gpu-process, renderer, utility:<service>, …."""
@@ -171,7 +114,7 @@ def control_action(out, tag, action):
     temporary.replace(out/f'control{tag}.json')
 
 def measure(name, app, args, marker, out, instrumented=False, tag='', expect=(8, 22, 3, 6), leak=True,
-            sample_at=None, pages=None, cpu_seconds=30, launch_env=(), diagnose=False):
+            sample_at=None, pages=None, cpu_seconds=30, launch_env=()):
     """One launch. Set cpu_seconds=0 for memory-only comparisons (no CPU metric). Airc (`instrumented`) waits for its workload, Chrome until `sample_at` seconds after launch (the
     matched Airc run's memory-sample age, so both are sampled as long after launch); then memory, 30 s of idle CPU
     and, for Airc's reference run, the 100-tab leak cycle. `pages`: Chrome's page list, read before the sample."""
@@ -179,7 +122,6 @@ def measure(name, app, args, marker, out, instrumented=False, tag='', expect=(8,
     result = {'errors':[], 'metrics':{}}
     m = result['metrics']
     events = out/f'events{tag}.jsonl'
-    trace = None
     try:
         start = time.monotonic()
         # --foreground (Airc only): a normal activating launch in a dedicated UI session, so the window is key while
@@ -196,8 +138,6 @@ def measure(name, app, args, marker, out, instrumented=False, tag='', expect=(8,
             if instance.pid: break
             time.sleep(.02)
         if not instance.pid: raise RuntimeError('launch PID not found within 20 s')
-        if diagnose or TRACE or PEAK_MB:
-            trace = FootprintTrace(instance.pid, PEAK_MB, out, tag); trace.start()
         command([out / 'window', str(instance.pid), *(['keep'] if front else [])], 22)
         m['first_window_ms'] = (time.monotonic()-start)*1000
         # This is external first-window observation, NOT cold interactive launch.
@@ -208,14 +148,10 @@ def measure(name, app, args, marker, out, instrumented=False, tag='', expect=(8,
             except Exception as e: result['errors'].append(str(e))
         result['early_processes'] = observed
         m['early_main_mb'] = next((x['mb'] for x in observed if x['main']), None)
-        if diagnose:
-            # At the first window: the launch's peak (cold blocking compile) is still in the process.
-            result['diagnosis_early'] = diagnose_main(instance.pid, out, tag + '-early')
         ready = event(events,'workload_ready',180) if instrumented else None
         if ready and (ready.get('loaded_tabs'),ready.get('unloaded_tabs'),ready.get('profiles'),ready.get('spaces')) != expect:
             raise RuntimeError('app did not confirm the reference workload')
         result['reference_verified'] = bool(ready)
-        if ready and 'malloc_large_cache' in ready: result['malloc_large_cache'] = ready['malloc_large_cache']
         if ready: result['ready_seconds'] = time.monotonic()-start
         if not front:
             # Hide again once the workload is up: the first hide (at the first window) can come before the browser
@@ -270,12 +206,6 @@ def measure(name, app, args, marker, out, instrumented=False, tag='', expect=(8,
                 result['idle_cpu_processes'] = sorted(({'pid':p,'kind':kind(begin[p]['command'],p==instance.pid),
                     'cpu_percent':round(100*(end[p]['cpu']-begin[p]['cpu'])/elapsed,3)} for p in begin),
                     key=lambda x:-x['cpu_percent'])
-        if diagnose:
-            # --diagnose: what the main process holds, after the idle CPU interval (heap pauses it, so never before a
-            # metric) and before the timed actions. Diagnosis only: these runs' timings are not published.
-            result['diagnosis'] = diagnose_main(instance.pid, out, tag)
-        if trace:
-            result['footprint_trace'] = trace.save(out / f'diag{tag}-trace.json')
         if instrumented and leak:
             # Only now the timed actions (they show every loaded page once): memory and idle CPU above were taken
             # from the same untouched state as Chrome's.
@@ -296,8 +226,6 @@ def measure(name, app, args, marker, out, instrumented=False, tag='', expect=(8,
     except Exception as e:
         result['errors'].append(str(e))
     finally:
-        if trace and 'footprint_trace' not in result:
-            result['footprint_trace'] = trace.save(out / f'diag{tag}-trace.json')
         instance.cleanup()
     return result
 
@@ -426,24 +354,13 @@ def main():
     parser.add_argument('--airc-only',action='store_true',help='only the Airc reference run (before/after iteration; no MEM-4)')
     parser.add_argument('--foreground',action='store_true',help='Airc launches activate (run inside AIRC_UI_DEDICATED_SESSION=1 '
                         'scripts/ui-check-lock.py): the window is key during the timed actions; Chrome stays background')
-    parser.add_argument('--diagnose',action='store_true',help='also save vmmap/footprint/heap of the Airc main process '
-                        'after its idle CPU sample (diag-*.txt); diagnosis only, never for published numbers')
-    parser.add_argument('--diagnose-peak',type=float,metavar='MB',help='with the trace: dump heap/vmmap (and malloc stacks '
-                        'with MallocStackLogging) when the main footprint first reaches MB')
-    parser.add_argument('--trace',action='store_true',help='only the main process footprint every 200 ms (diag-trace.json), '
-                        'no dumps: cheap enough for measured runs')
-    parser.add_argument('--app-env',action='append',default=[],help='KEY=VALUE for the Airc launch, e.g. MallocStackLogging=lite '
-                        '(with --diagnose adds malloc_history stacks)')
     parser.add_argument('--app-arg',action='append',default=[],help='extra Airc argument for A/B runs, e.g. --app-arg=--airc-switches=aperitifHelpers=off')
     options = parser.parse_args()
     # The apps get these paths as arguments and start with / as their directory: a relative --output silently
     # gives them nowhere to write their events (every launch then fails at the window probe).
     options.output, options.app = options.output.resolve(), options.app.resolve()
-    global LAUNCH_LIMIT_MS, FOREGROUND, DIAGNOSE_STACKS, TRACE, PEAK_MB
-    TRACE = options.trace
-    PEAK_MB = options.diagnose_peak
+    global LAUNCH_LIMIT_MS, FOREGROUND
     FOREGROUND = options.foreground
-    DIAGNOSE_STACKS = any(e.startswith('MallocStackLogging=') for e in options.app_env)
     LAUNCH_LIMIT_MS = 1000 if 'Chromium' in options.app.name else 500
     if sys.platform != 'darwin': parser.error('requires the build Mac')
     signal.alarm(WATCHDOG_S)
@@ -463,12 +380,7 @@ def main():
     data['machine'] = machine(options.app)
     data['engine'] = 'chromium' if 'Chromium' in options.app.name else 'webkit'
     data['app_args'] = options.app_arg
-    data['app_env'] = options.app_env
-    if options.diagnose or DIAGNOSE_STACKS: data['notes'].append('DIAGNOSIS run (--diagnose/MallocStackLogging): not for publishing.')
-    if options.app_env: data['notes'].append('A/B: Airc launched with environment ' + ' '.join(options.app_env))
     data['foreground'] = options.foreground
-    # Other agents compile on the build Mac: keep the load next to the timings (1, 5, 15 min averages).
-    data['load'] = {'start': list(os.getloadavg())}
     if options.foreground:
         data['notes'][0] = ('Airc in a dedicated foreground session (window key; AIRC_UI_DEDICATED_SESSION=1), Chrome in '
                             'hidden background windows. Single launch; caches not flushed.')
@@ -495,8 +407,7 @@ def main():
             return measure('chrome',Path('/Applications/Google Chrome.app'),chrome_args(profile,pages),profile,out,
                            tag=tag,sample_at=sample_at,pages=lambda: chrome_pages(profile))
         age = lambda key: data.get(key,{}).get('memory_sample_start_seconds') or 80
-        data['airc'] = measure('airc', options.app.resolve(),airc('',[]),out/'airc-data',out,options.instrumented,
-                               launch_env=options.app_env, diagnose=options.diagnose)
+        data['airc'] = measure('airc', options.app.resolve(),airc('',[]),out/'airc-data',out,options.instrumented)
         log = out/'snapshots/log.txt'
         if log.exists():
             text = log.read_text()
@@ -514,14 +425,9 @@ def main():
             # Chrome with all 30 pairs with airc_30; --no-30 skips both (as documented, ~4 minutes less).
             if options.thirty: data['chrome'] = chrome('', urls, age('airc_30'))
     except (Exception, Deadline) as e: data['error'] = str(e)
-    data['load']['end'] = list(os.getloadavg())
     summary = write(data, out, options.output)
     print(summary)
     return 3  # incomplete, not a false green acceptance run
-
-DIAGNOSE_STACKS = False
-TRACE = False
-PEAK_MB = None
 
 # The whole run: four launches (~10 minutes), inside the nightly's 15-minute perf step.
 WATCHDOG_S = 840

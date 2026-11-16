@@ -296,5 +296,3 @@ straight from aircbrowser.com. It includes everything from 0.1.17. The release m
 - **No Chrome Sync.** Signing in to Google websites is separate from browser sync.
 - **Arc import:** unreadable encrypted data and unsupported records are skipped with a reason.
 - **Smoothness:** 120 Hz animation and zero idle work remain goals, not measured promises.
-
-Source: `276e19820029687633895ca71e495a14a9d71634`. Build: `202611152216`. Channel: stable.

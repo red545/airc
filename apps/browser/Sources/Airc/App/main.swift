@@ -1,12 +1,6 @@
 // Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
 import AppKit
 
-// The blocking lists' compile child (BlockingRuleCompiler): does its one compile and exits, before any app setup.
-BlockingRuleCompiler.runIfChild()
-#if AIRC_TESTING
-// MEM-6: perf runs record who makes each run-loop timer (Debug/TimerOrigins.swift), before anything makes one.
-TimerOrigins.installIfPerfRun()
-#endif
 LaunchTimeline.mark("main")
 AppPaths.prepare(LaunchOptions.current)
 // The blocking lists' integrity scan, off the main thread while the engine starts (BlockingListStore.load takes it).

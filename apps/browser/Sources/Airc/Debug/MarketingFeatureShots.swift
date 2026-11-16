@@ -64,7 +64,6 @@ extension SnapshotRunner {
             // 4 min 50 s before the meeting: the countdown on its bright "meeting soon" pill.
             offset = meeting.start.timeIntervalSince(t0) - (4 * 60 + 50)
             calendar.now = { t0.addingTimeInterval(offset) }
-            calendar.sourceForTesting = .mac   // the synthetic source stands for the Mac's calendars (calmeet)
             source.set([meeting])
             calendar.setEnabled(true)
             calendar.clockMoved()
@@ -108,7 +107,6 @@ extension SnapshotRunner {
             CallTools.shared.update(callTab, page: nil, active: false)
             calendar.setEnabled(false)
             calendar.now = Date.init
-            calendar.sourceForTesting = nil
             calendar.clockMoved()
             server?.stop()
         }

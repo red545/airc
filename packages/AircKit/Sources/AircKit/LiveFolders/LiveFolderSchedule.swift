@@ -32,16 +32,6 @@ public enum LiveFolderSchedule {
         }
     }
 
-    /// When the timer next has something to do for this folder: the first moment `isDue(d, trigger: .timer, …)` holds
-    /// (never before `now`), or nil while only a sign-in can refresh it. The app arms one timer for the earliest folder
-    /// instead of waking on a fixed tick (MEM-6).
-    public static func nextTimerRefresh(_ d: LiveFolderDefinition, now: Date) -> Date? {
-        if d.status == .signedOut { return nil }
-        var at = (d.lastAttempt ?? d.lastRefreshed).map { $0.addingTimeInterval(interval - 1) } ?? now
-        if let next = d.nextAllowed { at = max(at, next) }
-        return max(at, now)
-    }
-
     /// The earliest automatic retry after a failure.
     public static func nextAttempt(after status: LiveFolderStatus, failures: Int, retryAt: Date?, now: Date) -> Date? {
         switch status {

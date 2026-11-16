@@ -286,21 +286,5 @@
   "chrome/browser/ui/webauthn/sheet_models.cc": {
     "before": "129c4f0d1b470ea1dc5f95747773d585e907c93885166551d2883adcc8b9e537",
     "after": "9960aed747ed9cccb7043af72fd0bf6b2c3c9f188ac49cd5628004058e653df5"
-  },
-  "chrome/browser/ui/views/webid/fedcm_account_selection_view_desktop.cc": {
-    "before": "bb122339540b28fc65b46decfe423ec202c921a1ae7715b0bdb79ee16707c020",
-    "after": "5d193adcf4bbf2f1660c5a2d5f025a6c4dbc40f223504c3946b65ca8d2371bd2"
-  },
-  "chrome/browser/ui/views/media_router/media_remoting_dialog_view.cc": {
-    "before": "7edcae3bf2b8b614541e5b6db70bfa5e3f923d61704389dc44fe53947986e8a0",
-    "after": "768cc8524e864f7c2e8ea500f9643127fed0dda8a8ec1bfa2e4776473939eaf7"
-  },
-  "chrome/browser/ui/webauthn/ambient/ambient_signin_controller.cc": {
-    "before": "87fdf5ce9c288c78b73547e64c435c5f0a4dc8c04c4873f2a085a6a2a6b725fc",
-    "after": "f7d710844a27bf6f14f13e33fe4a0b4cf0ea481a87dcea6b0b4046bdcb7a9650"
-  },
-  "chrome/browser/ui/views/bubble_anchor_util_views.cc": {
-    "before": "013004b459bcd5176b372c26d5d89d9f18b91fbbdd67a206bd3287331b696509",
-    "after": "1171eadc2ee11146b3760248d3b0333c4dafc2870f3146afa6c319af4b2119f4"
   }
 }

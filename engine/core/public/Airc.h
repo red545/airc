@@ -529,14 +529,6 @@ typedef NS_ENUM(NSInteger, AircSavePageFormat) {
 // Select only the phone/QR mechanism of a synthetic request, using its real
 // button callback. Same test gate; never selects a saved credential.
 - (BOOL)selectHybridMechanismForTesting;
-// Chromium's media remoting prompt ("Optimize fullscreen videos"), the same coordinator a Cast mirroring session's
-// remoting start uses (037-media-remoting-dialog.patch); completion gets the person's answer. Same test gate; NO
-// without it or without Cast (media router) in this profile.
-- (BOOL)showMediaRemotingDialogForTesting:(void (^)(BOOL allowed))completion
-    NS_SWIFT_NAME(showMediaRemotingDialogForTesting(_:));
-// A scratch profile has no Safety Tips component yet, and without its config Chromium shows no Safety Tip (lookalike
-// domains). Installs an empty config when none is loaded, so the next navigation can show one (039). Same test gate.
-- (BOOL)useEmptySafetyTipsConfigForTesting;
 
 - (void)devToolsCall:(NSString*)method
               params:(nullable NSDictionary*)params

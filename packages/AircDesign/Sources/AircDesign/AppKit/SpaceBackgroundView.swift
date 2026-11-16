@@ -239,29 +239,10 @@ public final class SpaceBackgroundView: NSView {
 
     private func underlayTarget(active: Bool, reduce: Bool) -> Double {
         guard translucency != .off, active, !reduce else { return 1 }
-        if Self.remembersUnderlays { return Self.underlays.value(theme, translucency) }
         if let c = floorCache, c.theme == theme, c.translucency == translucency { return c.value }
         let v = theme.underlayOpacity(for: translucency)
         floorCache = (theme, translucency, v)
         return v
-    }
-
-    /// `ResolvedTheme.underlayOpacity(for:)` searches for the contrast floor: 1–3 ms each time, which a Space switch
-    /// or New Space paid in its frame (wkframes; the old one-entry cache missed whenever the theme changed). Every
-    /// background now shares one memo per theme and translucency, filled ahead by `prepareUnderlays` at idle.
-    nonisolated private static let underlays = UnderlayMemo()
-    /// Off restores the one-entry cache (a test build's A/B switch).
-    public static var remembersUnderlays = true
-
-    /// Works out the underlay opacity of `themes` at `translucency` off the main thread (call at idle), so a switch
-    /// to one of them finds it ready.
-    public nonisolated static func prepareUnderlays(_ themes: [ResolvedTheme], translucency: AircTranslucency) {
-        guard translucency != .off else { return }
-        let missing = Set(themes).filter { !underlays.contains($0, translucency) }
-        guard !missing.isEmpty else { return }
-        DispatchQueue.global(qos: .utility).async {
-            for theme in missing { _ = underlays.value(theme, translucency) }
-        }
     }
 
     private func updateState(animated: Bool) {
@@ -315,35 +296,5 @@ public class AircMaterialView: NSVisualEffectView {
         image.capInsets = NSEdgeInsets(top: radius, left: radius, bottom: radius, right: radius)
         image.resizingMode = .stretch
         return image
-    }
-}
-
-/// A thread-safe memo of `ResolvedTheme.underlayOpacity(for:)` (a pure function of the theme and translucency).
-private final class UnderlayMemo: @unchecked Sendable {
-    private struct Key: Hashable {
-        let theme: ResolvedTheme
-        let translucency: AircTranslucency
-    }
-    private let lock = NSLock()
-    private var values: [Key: Double] = [:]
-
-    func contains(_ theme: ResolvedTheme, _ translucency: AircTranslucency) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return values[Key(theme: theme, translucency: translucency)] != nil
-    }
-
-    func value(_ theme: ResolvedTheme, _ translucency: AircTranslucency) -> Double {
-        let key = Key(theme: theme, translucency: translucency)
-        lock.lock()
-        if let v = values[key] { lock.unlock(); return v }
-        lock.unlock()
-        let v = theme.underlayOpacity(for: translucency)
-        lock.lock()
-        // Themes are few (one per Space, light and dark, inactive ink); bound it anyway.
-        if values.count >= 256 { values = [:] }
-        values[key] = v
-        lock.unlock()
-        return v
     }
 }

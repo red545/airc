@@ -34,35 +34,6 @@ class SafetyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with self.assertRaises(RuntimeError): run.event(Path(d)/'missing','workload_ready',.01)
 
-class DiagnoseTests(unittest.TestCase):
-    def test_diagnosis_files_and_stacks_only_with_malloc_logging(self):
-        calls = []
-        def fake(argv, **kw):
-            calls.append(argv)
-            class R: returncode = 0; stdout = f'{argv[0]} output'; stderr = ''
-            return R()
-        with tempfile.TemporaryDirectory() as d, patch.object(run.subprocess,'run',fake):
-            found = run.diagnose_main(42, Path(d))
-            self.assertEqual(set(found), {'vmmap','footprint','heap'})
-            self.assertEqual((Path(d)/'diag-heap.txt').read_text(), 'heap output')
-            self.assertTrue(all(c[-1] == '42' for c in calls))
-            with patch.object(run,'DIAGNOSE_STACKS',True):
-                found = run.diagnose_main(42, Path(d), '-x')
-            self.assertEqual(found['malloc_history'], 'diag-x-malloc_history.txt')
-            self.assertEqual(calls[-1], ['malloc_history','42','-allBySize'])
-    def test_footprint_trace_peak(self):
-        with patch.object(run,'process_start',return_value=100.0):
-            trace = run.FootprintTrace(7)
-        trace.samples = [(200, 80.0), (900, 455.3), (5000, 120.0)]
-        with tempfile.TemporaryDirectory() as d:
-            info = trace.save(Path(d)/'diag-trace.json')
-            self.assertEqual((info['peak_mb'], info['peak_ms'], info['count']), (455.3, 900, 3))
-            self.assertIn('"start_epoch": 100.0', (Path(d)/'diag-trace.json').read_text())
-    def test_failing_tool_is_recorded_not_raised(self):
-        def boom(argv, **kw): raise FileNotFoundError(argv[0])
-        with tempfile.TemporaryDirectory() as d, patch.object(run.subprocess,'run',boom):
-            self.assertTrue(all(v.startswith('error:') for v in run.diagnose_main(1, Path(d)).values()))
-
 class Mem4Tests(unittest.TestCase):
     def test_page_load_check(self):
         self.assertTrue(run.loaded({'url':'https://en.wikipedia.org/wiki/X','title':'X - Wikipedia'}))

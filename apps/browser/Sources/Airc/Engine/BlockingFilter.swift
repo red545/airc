@@ -85,10 +85,7 @@ final class BlockingFilter: @unchecked Sendable {
         if let f = finished[digest]?.filter { return f }
         let task: Task<BlockingFilter, Error>
         if let r = running[digest] { task = r } else {
-            task = Task.detached(priority: .userInitiated) {
-                defer { AllocatorCacheFlush.afterCompile() }   // its freed working memory goes back to macOS
-                return try BlockingFilter.compile(text)
-            }
+            task = Task.detached(priority: .userInitiated) { try BlockingFilter.compile(text) }
             running[digest] = task
         }
         do {

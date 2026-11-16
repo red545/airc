@@ -1,21 +1,14 @@
 # Live Calendar
 
 With a web calendar in your Favorites (Google Calendar, Outlook, Proton Calendar or Fastmail), Airc shows your next
-meetings there, as Arc's Live Calendar did. Nothing leaves your Mac. Where the meetings come from:
-
-- **Google Calendar or Outlook in your Favorites or pinned tabs:** the meetings are read from that calendar's own page,
-  signed in, in its profile (see [Site previews](previews.md)). Only those: meetings in this Mac's Calendar app don't
-  show, even at the same time, because they can be another calendar altogether. Open the calendar once after starting
-  Airc; while its page isn't open, the meetings read last stay. A meeting's Join link (Meet, Zoom or Teams) is the one
-  the calendar page shows for it.
-- **Otherwise** (no web calendar, or only Proton Calendar or Fastmail, which Airc doesn't read): the calendars synced
-  to this Mac (System Settings → Internet Accounts).
+meetings there, as Arc's Live Calendar did. The meetings come from the calendars synced to this Mac (System Settings →
+Internet Accounts); nothing leaves your Mac. Arc read Google Calendar from the account you were signed in to; Airc can't
+sign in to calendar accounts yet, so add the account to your Mac to see its meetings.
 
 ## Turning it on
 
 Point at the calendar Favorite and choose Turn On, or use Settings → General → Calendar → "Show upcoming meetings".
-macOS asks once for calendar access, unless your meetings come from a Google Calendar or Outlook page. It's off until
-you turn it on.
+macOS asks once for calendar access. It's off until you turn it on.
 
 ## Which meetings count
 

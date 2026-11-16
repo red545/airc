@@ -188,7 +188,7 @@ extension SnapshotRunner {
             if let fresh = privateWindow { await assertBlocked(fresh.openPage(url), "fresh private session forgets exception"); fresh.closeWindow(); privateWindow = nil }
             else { check(false, "fresh private session") }
         } else { check(false, "private window opened") }
-        await separation(tab)
+        await separation()
         migrationPolicy()
         await coexistence(tab)
         await withCheckedContinuation { resume in
@@ -220,7 +220,7 @@ extension SnapshotRunner {
             try? json.write(to: runner.dir.appendingPathComponent("blocking-measurements.json"))
         }
     }
-    func separation(_ tab: EngineTab) async {
+    func separation() async {
         guard let other = try? c.profiles.createProfile(name: "Blocking Check", emoji: "🧪", color: nil) else { check(false, "second profile created"); return }
         let profile: EngineProfile? = await withCheckedContinuation { resume in c.profiles.whenLoaded(other.id, { resume.resume(returning: $0) }, failed: { resume.resume(returning: nil) }) }
         guard let profile else { check(false, "second profile ready"); return }
@@ -230,18 +230,6 @@ extension SnapshotRunner {
         let window = app.engine.makeWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600))
         let otherTab = window.openTab(url: nil, profile: profile, foreground: true)
         _ = await load(otherTab); await assertAllowed(otherTab, "separate disabled profile")
-        // webkitmem: blocking work shared across profiles (one compiled list in the store, compiled in a child process)
-        // must never join their data. Same origin in two profiles: each keeps its own cookie and local storage, read
-        // after a reload.
-        let mark = "iso" + String(UUID().uuidString.prefix(8))
-        _ = await evaluate(tab, "document.cookie='p20c_iso_a=\(mark); Path=/'; localStorage.setItem('p20c_iso_a','\(mark)'); true")
-        _ = await evaluate(otherTab, "document.cookie='p20c_iso_b=\(mark); Path=/'; localStorage.setItem('p20c_iso_b','\(mark)'); true")
-        let read = "[document.cookie, localStorage.getItem('p20c_iso_a') || '', localStorage.getItem('p20c_iso_b') || ''].join('|')"
-        _ = await load(otherTab); let seenOther = await evaluate(otherTab, read) as? String
-        _ = await load(tab); let seenFirst = await evaluate(tab, read) as? String
-        let separate = seenOther.map { $0.contains("p20c_iso_b=\(mark)") && !$0.contains("p20c_iso_a") && $0.hasSuffix("||\(mark)") } == true &&
-            seenFirst.map { $0.contains("p20c_iso_a=\(mark)") && !$0.contains("p20c_iso_b") && $0.hasSuffix("|\(mark)|") } == true
-        check(separate, "two profiles on the same site keep their own cookies and local storage (\(seenFirst ?? "nil") / \(seenOther ?? "nil"))")
         check(center.settings.configuration(profileID).enabled, "another profile’s switch does not change this profile")
         otherTab.close(); window.window.close()
     }

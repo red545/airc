@@ -350,7 +350,6 @@ extension SnapshotRunner {
             let t0 = cal.date(bySettingHour: 15, minute: 55, second: 0, of: Date()) ?? Date()
             offset = t0.timeIntervalSinceNow
             calendar.now = { Date().addingTimeInterval(offset) }
-            calendar.sourceForTesting = .mac   // the synthetic source stands for the Mac's calendars (calmeet)
             start = t0.addingTimeInterval(5 * 60)
             func at(_ m: Double) -> Date { t0.addingTimeInterval(m * 60) }
             source.set([
@@ -386,10 +385,7 @@ extension SnapshotRunner {
         }
         wait(0.6)
         mkWindowShot("calendar-join")
-        run {
-            calendar.setEnabled(false)
-            calendar.sourceForTesting = nil
-        }
+        run { calendar.setEnabled(false) }
 
         // Site Controls from the URL field, on swift.org.
         mkShow(d, "personal", "swift")
