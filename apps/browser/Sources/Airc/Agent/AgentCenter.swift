@@ -120,6 +120,7 @@ final class AgentCenter {
         #endif
         loadSettings()
         observeAutofill()
+        AgentModelSettings.shared.launch(automated: app.options.isAutomated)
         // Scripted runs serve only when a check asks (enableForCheck) or the run says so: a test launch must never
         // put a socket in a folder another run is using, nor ask approvals nobody answers.
         if isOn, !app.options.isAutomated || runEnabled { start() }
@@ -155,15 +156,19 @@ final class AgentCenter {
 
     // MARK: On, off, stop
 
+    /// The page driver for agent windows (the server's and the Airc Agent panel's).
+    func ensureDriver() {
+        guard driver == nil, let app else { return }
+        #if canImport(AircCore)
+        driver = app.engine is ChromiumEngine ? ChromiumAgentDriver() : WebKitAgentDriver()
+        #else
+        driver = WebKitAgentDriver()
+        #endif
+    }
+
     func start() {
-        guard server == nil, let app else { return }
-        if driver == nil {
-            #if canImport(AircCore)
-            driver = app.engine is ChromiumEngine ? ChromiumAgentDriver() : WebKitAgentDriver()
-            #else
-            driver = WebKitAgentDriver()
-            #endif
-        }
+        guard server == nil, app != nil else { return }
+        ensureDriver()
         let s = AgentServer(socketPath: socketPath, handler: { [weak self] line, session, reply in
             self?.handle(line, session, reply) ?? reply(nil)
         }, hello: { [weak self] session, answer in
@@ -195,6 +200,7 @@ final class AgentCenter {
     /// The kill switch: every connection closes and every agent window with it. The server listens again (Stop
     /// isn't Off), unless `off`.
     func stopAgents(reason: String, off: Bool = false) {
+        AgentRunCenter.shared.stopFromFolder()
         stopRemote()
         server?.stop()
         server = nil
@@ -396,6 +402,8 @@ final class AgentCenter {
     /// Stop in the Agents folder or Watch: the app's agent windows close, its connections stay open but every call
     /// fails with a clear message, and new connections are refused, until the person allows it again.
     func stopClient(_ key: String) {
+        // The Airc Agent panel (Agent/AgentBridge.swift): Stop ends its run; there's no app to refuse later.
+        if key == AgentBridge.clientKey { return AgentRunCenter.shared.stopFromFolder() }
         if let i = settings.clients.firstIndex(where: { $0.key == key }) {
             settings.clients[i].stopped = true
             saveSettings()
@@ -470,6 +478,20 @@ final class AgentCenter {
         }
         guard isGranted(p) else { return .failure(AgentReason("The profile \(p.name) isn't open to agents. In Airc: Settings › Agents › Profiles.")) }
         return .success(p)
+    }
+
+    /// The Airc Agent panel's session (in process, no socket): live while its run has a window.
+    func admitPanel(_ s: AgentSession) {
+        live[s.id] = s
+        log(["event": "connect", "session": s.id, "client": s.client, "app": s.clientName ?? s.client, "via": s.via])
+        updateIndicator()
+    }
+
+    func endPanel(_ s: AgentSession, _ end: AgentTabRow.End) {
+        for w in windows.values where w.ownerKey == s.ownerKey { closeWindow(w, end: end) }
+        AgentActivity.shared.sessionEnded(s.ownerKey, end)
+        if live.removeValue(forKey: s.id) != nil { log(["event": "disconnect", "session": s.id, "client": s.client]) }
+        updateIndicator()
     }
 
     // MARK: The hello
@@ -725,7 +747,7 @@ final class AgentCenter {
 
     // MARK: The log (metadata only, never content)
 
-    private func log(_ entry: [String: Any]) {
+    func log(_ entry: [String: Any]) {
         var e = entry
         e["t"] = ISO8601DateFormatter().string(from: Date())
         let file = logFile
@@ -736,7 +758,7 @@ final class AgentCenter {
         }
     }
 
-    private func logCall(_ tool: String, _ s: AgentSession, _ result: AgentResult, _ ms: Double) {
+    func logCall(_ tool: String, _ s: AgentSession, _ result: AgentResult, _ ms: Double) {
         var e: [String: Any] = ["event": "call", "tool": tool, "session": s.id, "client": s.client, "via": s.via,
                                 "ok": !result.isError, "ms": Int(ms.rounded())]
         if let p = s.profileID { e["profile"] = p }
@@ -752,7 +774,7 @@ final class AgentCenter {
     // MARK: What the person sees
 
     /// ✦ on the Dock icon while an agent is connected or has a window open.
-    private func updateIndicator() {
+    func updateIndicator() {
         let busy = !live.isEmpty || !windows.isEmpty
         if busy != badgeShown { NSApp.dockTile.badgeLabel = busy ? "✦" : nil }
         changed()

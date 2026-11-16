@@ -26,6 +26,8 @@ final class LocalPageServer {
         var method: String
         var target: String
         var headers: [String: String] = [:]
+        /// The request's body (a POST's), as received.
+        var body = Data()
         var path: String { String(target.split(separator: "?").first ?? "/") }
     }
     var requestHandler: ((Request) -> Page?)?
@@ -92,7 +94,8 @@ final class LocalPageServer {
                     let pair = line.split(separator: ":", maxSplits: 1)
                     if pair.count == 2 { headers[pair[0].lowercased()] = pair[1].trimmingCharacters(in: .whitespaces) }
                 }
-                self.respond(connection, request: Request(method: method, target: target, headers: headers))
+                self.respond(connection, request: Request(method: method, target: target, headers: headers,
+                                                          body: Data(buffer[end.upperBound...])))
             } else if complete || error != nil || buffer.count > 65536 {
                 connection.cancel()
             } else {

@@ -201,11 +201,18 @@ public struct AgentRisk: Equatable, Sendable {
     }
 
     static func sentence(around r: Range<String.Index>, in text: String) -> String {
-        let stops: Set<Character> = [".", "!", "?", "\n"]
+        // A sentence ends at . ! ? followed by a space (not inside "/evil.html" or "3.5"), or at a line break.
+        func ends(at i: String.Index) -> Bool {
+            let ch = text[i]
+            if ch == "\n" { return true }
+            guard ch == "." || ch == "!" || ch == "?" else { return false }
+            let next = text.index(after: i)
+            return next == text.endIndex || text[next].isWhitespace
+        }
         var start = r.lowerBound
-        while start > text.startIndex, !stops.contains(text[text.index(before: start)]) { start = text.index(before: start) }
+        while start > text.startIndex, !ends(at: text.index(before: start)) { start = text.index(before: start) }
         var end = r.upperBound
-        while end < text.endIndex, !stops.contains(text[end]) { end = text.index(after: end) }
+        while end < text.endIndex, !ends(at: end) { end = text.index(after: end) }
         if end < text.endIndex { end = text.index(after: end) }
         let s = text[start..<end].split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
         return s.count > 160 ? String(s.prefix(159)) + "…" : s

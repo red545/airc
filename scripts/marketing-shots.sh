@@ -172,6 +172,7 @@ settings-agents|Settings: Agents|Let AI apps use Airc (on), Show agent pages in 
 settings-agents-activity|Settings: Agents, Activity|What each app did in the last 7 days: sites and kinds of actions (Clicked, Typed in a field), never page content or typed text; Clear History
 settings-agents-devices|Settings: Agents, Other devices|Claude Code on your other computers over Tailscale: on, listening only on the tailnet, a one-time pairing code with the command to paste, and two paired devices with Revoke (made-up names and addresses)
 command-bar-connect-claude|Connect Claude|⌘T “connect claude”: Connect Claude and other AI apps…, which opens Settings › Agents with setup first
+agent-panel|Ask Airc|The Airc Agent panel (⌥⌘A) on a checkout: the task, its steps and “Pay on cornershop…?” with Deny and Allow Once, before anything is paid (synthetic shop, scripted model)
 agents-approval|Allow ‘Claude’ to use Airc?|The one-time question when a new app connects: the profiles it can use and who signed it
 settings-sync|Settings: Sync|iCloud sync on, up to date between two Macs, with what syncs and what never leaves the Mac
 settings-sync-first|First sync on another Mac|Both sidebars side by side, the other Mac'"'"'s Work profile matched to this one'"'"'s, then merge or replace (a backup first)
