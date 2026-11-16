@@ -79,7 +79,18 @@ extension SnapshotRunner {
         }
         run { Perf.reset() }   // the opening's sections are reported above; from here, the keystrokes'
         var mainMs: [Double] = [], frameMs: [Double] = [], historyMs: [Double] = []
+        // askai's A/B: AIRC_CBPERF_PROMPTS=1 adds two prompts (both arms type them); AIRC_CBPERF_ASK=chatgpt|off sets the
+        // profile's Ask AI, so one arm makes the "Ask ChatGPT" row on them and the other doesn't.
+        let env = ProcessInfo.processInfo.environment
         let queries = ["g", "gi", "git", "gith", "githu", "github", "site1", "site12", "page t", "page ti"]
+            + (env["AIRC_CBPERF_PROMPTS"] == "1" ? ["how do page t", "how do page ti"] : [])
+        if let ask = env["AIRC_CBPERF_ASK"] {
+            run { [self] in
+                let id = c.store.profile(ofSpace: c.currentSpaceID).id
+                app?.settings.values.askAI.set(ask == "chatgpt" ? .provider(.chatGPT) : .off, for: id)
+                note("cbperf: Ask AI \(ask) (\(c.commandBarAskAI?.name ?? "none"))")
+            }
+        }
         for text in queries {
             step { [self] done in
                 guard let bar = c.commandBar else {
@@ -102,7 +113,10 @@ extension SnapshotRunner {
                             note("cbperf: first key sections (avg ms) " + Perf.report())
                             Perf.reset()
                         }
-                        check(hits > 0 && bar.results.contains { $0.historyURL != nil }, "cbperf: “\(text)” applies nonzero history matches and renders history rows (\(hits))")
+                        // askai's prompts match no synthetic page: timed, not asserted.
+                        if !text.hasPrefix("how do ") {
+                            check(hits > 0 && bar.results.contains { $0.historyURL != nil }, "cbperf: “\(text)” applies nonzero history matches and renders history rows (\(hits))")
+                        }
                         bar.onHistoryApplied = nil
                         done()
                     }

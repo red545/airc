@@ -12,6 +12,9 @@ import CryptoKit
 /// Version 3 is a batch that touches a pinned or Favorite split or one of its panes (SplitSyncPayload.swift): builds from
 /// before splits synced keep it unread the same way, instead of making split rows they don't understand. A version 3
 /// reader reads versions 1 and 2 as before.
+///
+/// Version 4 is a batch of app settings (SettingSyncPayload.swift), never mixed with sidebar operations: builds from before
+/// settings synced keep it unread in the same way. A version 4 reader reads versions 1 to 3 as before.
 public struct SyncEnvelope: Codable, Hashable, Sendable {
     public let version: Int
     public let group: UUID
@@ -25,7 +28,7 @@ public struct SyncEnvelope: Codable, Hashable, Sendable {
         Data("Airc-sidebar-sync|\(version)|\(group.uuidString)|\(device.uuidString)|\(id.uuidString)".utf8)
     }
 
-    public static let versions = 1...3
+    public static let versions = 1...4
 
     public static func seal(_ operations: [SyncOperation], group: UUID, device: UUID,
                             key: SymmetricKey, version: Int = 1) throws -> Self {

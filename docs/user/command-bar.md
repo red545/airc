@@ -119,8 +119,10 @@ DuckDuckGo's own bangs keep working.
 
 Ask ChatGPT (or Perplexity, or Claude) from the Command Bar, as Arc Max's "ChatGPT in the Command Bar" did:
 
-1. Turn it on for a profile: **Settings → Site Search → Ask AI → Ask from the Command Bar**, and pick **ChatGPT**,
-   **Perplexity** or **Claude**. It's **off** by default, as in Arc, where it was off until you opted in to Arc Max.
+1. Pick the site in **Settings → AI → Command Bar → Ask AI** (or per profile in **Settings → Site Search → Ask AI**):
+   **Automatic**, **ChatGPT**, **Claude**, **Perplexity** or **Off**. **Automatic** (the default) uses the chat site
+   the profile keeps as a pinned tab or Favorite, else the one it visited most recently in the last 90 days; a profile
+   that uses none has it off, as Arc had it off until you opted in to Arc Max. The menu shows what Automatic picked.
 2. Press **⌘T**, type **gpt** (or **chatgpt**, **pplx**, **claude**, or the first four letters of the name) and press
    **Tab**. The row **Ask ChatGPT · Press Tab** shows what Tab will do. The site's name leads the field ("Ask ChatGPT…").
 3. Type your question and press **Return**. It opens on the site in a **new tab** of the Space's profile, with the
@@ -132,8 +134,11 @@ Ask ChatGPT (or Perplexity, or Claude) from the Command Bar, as Arc Max's "ChatG
    | Perplexity | `https://www.perplexity.ai/search?q=…` |
    | Claude | `https://claude.ai/new?q=…` |
 
-A question typed in the plain bar (three words or more, or with a "?") also gets an **Ask ChatGPT** row at the end of
-the list. The command **New ChatGPT Message** (type it in the Command Bar) opens the bar ready to ask. Backspace in
+When what you type in the plain bar reads like a prompt rather than a search, an **Ask ChatGPT** (or **Ask Claude**)
+row comes third, under the search row and the row after it: press **↓↓** and **Return** to open a new chat with it.
+A prompt is a question (with a "?", "？" or "¿"), two words or more starting with a question or instruction word
+("how do I…", "explain…", "wie…", "pourquoi…"), five words or more, or a long phrase in Chinese, Japanese or Thai.
+Web addresses (also an address followed by words), commands ("/…") and bangs ("!yt …") never get it. The command **New ChatGPT Message** (type it in the Command Bar) opens the bar ready to ask. Backspace in
 the empty field or Esc goes back to the plain bar; click the site's name for **Stop Asking ChatGPT** or its settings.
 
 - Airc needs no account and no API key. You're signed in on the site as you are when you open it yourself.
@@ -141,6 +146,8 @@ the empty field or Esc goes back to the plain bar; click the site's name for **S
   is: in the profile's history. A private window keeps no history, and uses the choice of the profile it was opened
   from.
 - Each profile has its own choice. Long questions are cut at 2,000 characters.
+- As of 2026-11-16, Claude's `claude.ai/new?q=` is known to put the prompt in a new chat's message field without
+  sending it (not tried with an account).
 - Tried on 2026-11-10, signed out: ChatGPT opens with the question in its message field, and Perplexity searches it
   straight away. Claude asks you to sign in first and keeps the question in the sign-in address; whether it's filled in after
   signing in wasn't checked (no account was used).

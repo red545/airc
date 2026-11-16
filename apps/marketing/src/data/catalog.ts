@@ -472,6 +472,7 @@ export const groups: Group[] = [
       { title: "What stays on this Mac", line: "Today tabs, history, logins and Boosts don't sync. Pinned Notes now do. Your sidebar is backed up before the first sync.", since: "0.1.5" },
       { title: "Pinned and Favorite splits sync", line: "A split you pin or keep as a Favorite reaches your other Macs with its pages in order, side by side or stacked, at its sizes, end-to-end encrypted. If two Macs change it at once, the later layout wins and pages added on either stay.", since: "0.1.15" },
       { title: "What stays on this Mac", line: "Today tabs, history, logins, Boosts and notes don't sync. Your sidebar is backed up before the first sync.", since: "0.1.3", until: "0.1.5" },
+      { title: "Settings sync", line: "The settings you change follow you to your other Macs: theme, shortcuts, Site Search, links and Little Airc, Archive timing, AI, blocking and privacy. The latest change wins, and each Mac keeps its own folders, Developer Mode and approvals. Settings → Sync → Sync settings.", since: "next" },
     ],
   },
 ];

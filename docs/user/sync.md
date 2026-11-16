@@ -1,7 +1,8 @@
 # Sync with iCloud
 
-Airc can keep your sidebar the same on your Macs: **Settings → Sync → Sync Spaces, pinned tabs and Favorites with
-iCloud**. It's off until you turn it on. Both Macs need the same Apple Account, with iCloud and iCloud Keychain on.
+Airc can keep your sidebar and your settings the same on your Macs: **Settings → Sync → Sync Spaces, pinned tabs, notes
+and Favorites with iCloud**. It's off until you turn it on. Both Macs need the same Apple Account, with iCloud and iCloud
+Keychain on. While it's on, **Sync settings** (on by default) keeps your settings the same too.
 
 ## What syncs, and what never does
 
@@ -11,13 +12,49 @@ order, name, icon, and whether they're side by side or stacked, with their sizes
 Space finds its profile on the other Mac.
 
 Never synced: Today tabs, their [folders](sidebar.md), splits in Today and the Archive, history, passwords, cookies and
-logins, private windows and Little Airc, Boosts, Easels, and which tab, pane or Space you're on. A note only in Today
+logins, private windows and Little Airc windows, Boosts, Easels, and which tab, pane or Space you're on. A note only in Today
 stays on this Mac. Each Mac signs in to sites in its own profiles. A profile that's new to a Mac starts there empty:
 sign in to its sites once.
 
 If two Macs change the same split at once, the later layout wins, and pages added or moved on either Mac both stay.
 Deleting a split on one Mac deletes it on the other, but a page the other Mac added to it meanwhile stays as a pinned
 tab. Older versions of Airc don't show synced splits until they're updated.
+
+## Settings
+
+With **Sync settings** on, a setting you change on one Mac changes on your other Macs too:
+
+| Synced | Settings |
+|---|---|
+| Appearance | The theme new Spaces start with (and light, dark or automatic), translucency, the app icon, sounds and haptics, tab previews, Site Previews, the Send Feedback button, the Space header, the sidebar's side |
+| Command Bar and search | Search suggestions, each profile's search engine and its suggestions, each profile's Site Searches (and which one is the default), Ask AI in the Command Bar, Instant Links |
+| Shortcuts | Your shortcut changes, and the ⌘1–9 and ⌥ sidebar choices |
+| Links | Air Traffic Control rules, where links from other apps open, Little Airc (its shortcut, looking up the selection, ⌥⌘-click, when Little Airc windows go to the Archive), Peek, Shared Quotes, dragging the window from the top of pages, picture in picture and its site choices |
+| Archive | Each profile's "Archive tabs after" |
+| AI | Tidy tab titles, Ask on Page, link previews and their never-list, Tidy downloads and Rename automatically |
+| General | When Airc starts, restarting to update by itself, what you see after an update, which app New Note uses |
+| Privacy and blocking | Sharing anonymous usage data, playing DRM sites with Safari's engine, and each profile's blocking: on or off, third-party cookies, the lists and the sites you allowed |
+
+These stay on each Mac: the backup and Library folders, Developer Mode, the memory choices (when tabs free their memory,
+keeping chat sites loaded), Calendar, the default-browser reminder, pinned extensions, the per-tab menu switches, the name
+on your member card, which profile Little Airc remembers for a site, and everything about agents and connected apps
+(approvals, paired devices). Sync never sends a password, token or key.
+
+- **Only what you changed travels.** A setting you never touched keeps following your other Mac; its default never
+  overwrites a choice you made there. A setting you'd changed before this version of Airc counts as older than any
+  change made since; if both Macs had, the Mac that sends it last wins.
+- **The latest change wins**, per setting: change the theme on one Mac and a shortcut on the other, and both Macs end with
+  both. Change the same setting on both, and the one you changed last wins on both, even if that Mac was offline or had
+  sync off when you changed it.
+- Per-profile settings (Site Search, blocking, the archive timing, the search engine) go to the same profile on the other
+  Mac, as your Spaces do. A profile only on one Mac keeps its own.
+- A setting a newer Airc made that this Mac can't read yet keeps this Mac's value until you update.
+- Turn **Sync settings** off to keep this Mac's settings to itself; your sidebar still syncs. Turn it on again and it
+  catches up by the same rule.
+- Older versions of Airc don't get synced settings until they're updated, and say "Some changes can't be read here" until
+  then.
+
+## Encryption
 
 It's end-to-end encrypted. The key is in your iCloud Keychain, so only your Macs can read what Airc keeps in iCloud.
 

@@ -170,6 +170,7 @@ final class SnapshotRunner {
         case "histsuggcap": historyCapCheck()
         case "histsuggbrowse": historyCapCheck(keepBrowsing: true)
         case "cbperf": commandBarHistoryPerf()
+        case "askai": askAICommandBarCheck()   // Ask Claude/ChatGPT row for a prompt, ↓↓ + Return, Off (AskAICommandBarCheck)
         case "cbflicker": commandBarFlickerCheck()   // suggestion rows never drop out while typing (CommandBarFlickerCheck)
         case "cmdtrust": cmdTrustScenario()   // Command Bar icons, the official-sites mark, row kinds (CmdTrustCheck)
         case "parityp09": parityP09Scenario()   // P09: pinned extensions in the toolbar, their popups
@@ -314,6 +315,7 @@ final class SnapshotRunner {
         case "library2": library2Scenario()
         case "l04": l04Scenario()   // L04LibraryCheck.swift: Library media and recent files, real input
         case "icloudsync", "icloudsync-second", "icloudsync-replace", "icloudsync-return", "icloudsync-unavailable": iCloudSyncScenario()
+        case "settingssync-a", "settingssync-b", "settingssync-a2": settingsSyncScenario()   // settings sync (SettingsSyncCheck.swift)
         case "icloudsync-real-a", "icloudsync-real-b", "icloudsync-real-live-a", "icloudsync-real-live-b", "icloudsync-real-cleanup":
             iCloudRealScenario()
         case "marketing": marketingScenario()   // product shots, not a check: scripts/marketing-shots.sh only
