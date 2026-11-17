@@ -19,10 +19,8 @@ order = """
 checked = """
 - Links: click a link in another app while Airc isn't running and its page shows in about a second, even on the first
   launch; it used to take up to 6 seconds. Please know, kept: macOS sometimes adds up to about a second, so the post
-  originally said "usually". At LIVE: release036's signed build measured Chromium first launch ever 0.93 s (0.1.23
-  6.68 s), warm median 1.21 s, no pre-main delay in any run; and 0.1.25's notes clarified the 0.1.24 line (Chromium
-  even on the first launch; WebKit's first launch still prepares its rules once). So the post says "with the Chromium
-  engine, the default" and drops "usually". No comparison with other browsers (linklaunch has Chrome at 0.7 s).
+  says "usually" and doesn't promise one second every time. No comparison with other browsers (linklaunch's report
+  has Chrome at 0.7 s). Re-check against release036's signed-build numbers at LIVE before approving.
 - Agent: replies stream and Stop ends them at once; the approval card in Watch; optional memory (off by default,
   Settings › AI › Agent › Memory; read, edit, undo or clear; refuses passwords, codes and card numbers); "Ask Airc to…"
   in the Command Bar; "Hand to Claude Desktop" or "Hand to Claude Code" once Airc is connected to it. Still a beta,
@@ -53,7 +51,7 @@ alt = "The Airc Agent panel after “Remember what you learn”, on fixture data
 [[post]]
 label = "Links open fast when Airc is closed"
 text = """
-Click a link in another app while Airc is closed, and its page now shows in about a second, even on Airc's very first launch with the Chromium engine, the default. It used to take up to 6 seconds. Ad and tracker blocking still covers it from the first request.
+Click a link in another app while Airc is closed, and its page now usually shows in about a second, even on Airc's very first launch. It used to take up to 6 seconds. Ad and tracker blocking still covers it from the first request. New in Airc 0.1.24.
 """
 
 [[post]]

@@ -2,6 +2,17 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.25",
+      "highlights": [
+        {
+          "title": "Every launch is quick",
+          "lead": "Every launch is quick now",
+          "detail": "About every other launch used to wait up to a second inside macOS before Airc started, so a link from another app could take almost two seconds. That wait is gone with the Chromium engine, the default.",
+          "icon": "bolt"
+        }
+      ]
+    },
+    {
       "version": "0.1.24",
       "highlights": [
         {
