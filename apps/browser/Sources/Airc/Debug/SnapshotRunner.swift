@@ -157,7 +157,7 @@ final class SnapshotRunner {
         case "boosts3": boostsThreeScenario()
         case "themeparity": themeParityScenario()
         case "autodark": autoDarkScenario()   // pages follow their Space's light/dark live, both engines (AutoDarkCheck.swift)
-        case "medialib", "medialib-downloads", "medialib-media", "medialib-call": mediaLibScenario()
+        case "medialib", "medialib-downloads", "medialib-media", "medialib-call", "medialib-noise": mediaLibScenario()
         case "pipcontrols", "pipcontrols-media2": pipControlsScenario()
         #if canImport(AircCore)
         case "parityp16b-capture": parityP16bCaptureScenario()

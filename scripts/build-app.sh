@@ -463,7 +463,7 @@ if [[ -n "$SNAPSHOTS" ]]; then
     # SB-54 / SB-55: Downloads, the media tray and the call window (MediaLibCheck.swift). No media devices: the "call"
     # page is a canvas stream and silent audio, so macOS never asks for the camera or microphone. Its two peers connect
     # on loopback; without mDNS names for their host candidates the engine sends no multicast on the local network.
-    for script in medialib-downloads medialib-media medialib-call; do
+    for script in medialib-downloads medialib-media medialib-call medialib-noise; do
       if [[ $engine == chromium && $script == medialib-call ]]; then
         launch --script "$script" --data-dir "$home/${script}" --autoplay-policy=no-user-gesture-required \
           --disable-features=WebRtcHideLocalIpsWithMdns

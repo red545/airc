@@ -490,8 +490,11 @@ final class WebKitLibrary: NSObject, WKDownloadDelegate, WKScriptMessageHandler 
       function send(){
         var md = ms && ms.metadata, list = els();
         var audible = list.some(function(m){ return !m.paused && !m.ended && !m.muted && m.volume > 0 && m.readyState > 2; });
-        // Tab mute must not erase the session or stop the clock. Muted autoplay without metadata stays out.
-        list = list.filter(function(m){ return tabMuted || md || (!m.muted && m.volume > 0); });
+        // Tab mute must not erase the session or stop the clock. Muted autoplay without metadata stays out. So do
+        // one-shot sounds (a chat's ping): without the page's metadata, only media over 5 s or of unknown length
+        // (a stream) is a player, as Chromium's transient rule; an element counts once its length is known.
+        list = list.filter(function(m){ return md || ((tabMuted || (!m.muted && m.volume > 0))
+          && m.readyState > 0 && !(m.duration > 0 && m.duration <= 5)); });
         var m = primary(list), pos = positionState || (m && isFinite(m.duration) && m.duration > 0 ? {duration: m.duration, position: m.currentTime, playbackRate: m.playbackRate} : null);
         var playing = list.some(function(m){ return !m.paused && !m.ended && m.readyState > 2; });
         var started = list.some(function(m){ return (m.currentTime > 0 || !m.paused || begun.has(m)) && !m.ended; });

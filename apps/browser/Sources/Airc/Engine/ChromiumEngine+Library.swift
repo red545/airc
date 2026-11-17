@@ -83,14 +83,28 @@ extension ChromiumEngine: EngineDownloads, EngineMedia, EngineCallHosting {
     func mediaSession(of tab: EngineTab) -> EngineMediaSession {
         if tab is WebKitTab { return webKit.mediaSession(of: tab) }
         guard let t = core(of: tab), let d = Pass13.value(t, "mediaSession") as? [String: Any] else { return EngineMediaSession() }
-        return EngineMediaSession(d)
+        return Self.realMedia(EngineMediaSession(d))
+    }
+
+    /// Only real media is a player (the tray, Now Playing, media keys): a notification ping isn't. Chromium makes a
+    /// session controllable, and gives it play/pause/stop, only for media over 5 s (or of unknown length) or a page's
+    /// own Media Session; Web Audio (ambient) and short <audio>/<video> (transient, one-shot) aren't. Such a session
+    /// is no player here unless the page described it (artist, album or artwork; the title alone is the page's).
+    /// The tab's speaker still shows the sound (WebContents audibility, not this).
+    static func realMedia(_ s: EngineMediaSession) -> EngineMediaSession {
+        guard s.playback != .none, !s.isCall, s.actions.isDisjoint(with: ["play", "pause", "stop"]),
+              s.artist.isEmpty, s.album.isEmpty, s.artwork.isEmpty else { return s }
+        var quiet = s
+        quiet.playback = .none
+        quiet.active = false
+        return quiet
     }
 
     func observeMediaSession(of tab: EngineTab, _ handler: ((EngineMediaSession) -> Void)?) {
         if tab is WebKitTab { return webKit.observeMediaSession(of: tab, handler) }
         guard let t = core(of: tab) else { return }
         Pass13.observeDictionary(t, "observeMediaSession:", handler.map { handler in
-            { d in handler(EngineMediaSession(d as? [String: Any] ?? [:])) }
+            { d in handler(Self.realMedia(EngineMediaSession(d as? [String: Any] ?? [:]))) }
         })
     }
 

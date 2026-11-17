@@ -7,7 +7,8 @@ import Network
 import AircCore
 #endif
 
-/// `--script medialib-downloads | medialib-media | medialib-call` (`medialib` runs all three; each fits the runner's
+/// `--script medialib-downloads | medialib-media | medialib-call` (`medialib` runs all three; medialib-noise is
+/// MediaNoiseCheck.swift; each fits the runner's
 /// four minutes on its own). Loopback pages only, served by MediaLibServer; downloads go to a scratch folder in the
 /// run's data folder (never ~/Downloads), nothing is opened in another app or shown in Finder, and the call is a
 /// canvas and a silent oscillator on both engines: no camera, no microphone, so no macOS prompt (fake devices still
@@ -49,6 +50,7 @@ extension SnapshotRunner {
         if parts.contains("downloads") { mediaLibDownloads(x) }
         if parts.contains("media") { mediaLibMedia(x) }
         if parts.contains("call") { mediaLibCall(x) }
+        if parts.contains("noise") { mediaNoise(x) }
         run { [self] in
             note("medialib: done")
             x.server?.stop()
@@ -1065,6 +1067,8 @@ final class MediaLibServer {
     func stopCutting() { queue.sync { cutting = false } }
     private let art: Data
     private let silence: Data
+    /// medialib-noise (MediaNoiseCheck.swift): a 0.5 s ping, a 2 s sound and a 30 s track, all silent.
+    private let ping: Data, short: Data, track: Data
 
     init?() {
         let params = NWParameters.tcp
@@ -1074,6 +1078,9 @@ final class MediaLibServer {
         listener = l
         art = Self.artwork()
         silence = Self.silentWAV(seconds: 6)
+        ping = Self.silentWAV(seconds: 0.5)
+        short = Self.silentWAV(seconds: 2)
+        track = Self.silentWAV(seconds: 30)
     }
 
     func start(_ ready: @escaping (UInt16?) -> Void) {
@@ -1150,6 +1157,11 @@ final class MediaLibServer {
             artworkRequests += 1
             send(c, "200 OK", ["Content-Type": "image/png"], art)
         case (_, "/silence.wav"): sendRange(c, silence, type: "audio/wav", range: range)
+        case (_, "/noise"): send(c, "200 OK", ["Content-Type": "text/html; charset=utf-8"], Data(Self.noisePage.utf8))
+        case (_, "/track"): send(c, "200 OK", ["Content-Type": "text/html; charset=utf-8"], Data(Self.trackPage.utf8))
+        case (_, "/ping.wav"): sendRange(c, ping, type: "audio/wav", range: range)
+        case (_, "/short.wav"): sendRange(c, short, type: "audio/wav", range: range)
+        case (_, "/track.wav"): sendRange(c, track, type: "audio/wav", range: range)
         case (_, "/danger"):
             send(c, "200 OK", ["Content-Type": "application/octet-stream", "Content-Disposition": "attachment; filename=\"inert.command\""],
                  Data(repeating: 0x23, count: 32))
@@ -1222,8 +1234,8 @@ final class MediaLibServer {
     }
 
     /// 16 kHz mono 16-bit zeros: a media session without a sound on the build Mac's speakers.
-    private static func silentWAV(seconds: Int) -> Data {
-        let samples = 16_000 * seconds
+    private static func silentWAV(seconds: Double) -> Data {
+        let samples = Int(16_000 * seconds)
         var d = Data()
         func u32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
         func u16(_ v: UInt16) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }

@@ -1,0 +1,26 @@
+# Airc 0.1.28 (cut e9278f3f; build revision 40bcc589; branch release/0.1.28-cut). Claims from its approved notes,
+# "New since 0.1.27" (one line). NOT TO POST before release040 posts LIVE for 0.1.28: plan and approve only then, after
+# checking the public repo shows the release (owner rule).
+slug = "2026-11-17-release-0.1.28"
+title = "Airc 0.1.28: quiet notification sounds"
+kind = "release"
+since = "0.1.28"
+tag = ""
+summary = """
+One short text post: a small, relatable fix (WhatsApp and Slack pings no longer pop up the mini player).
+"""
+order = """
+1. One post on the first free day after LIVE, not at 10:30 (it's small).
+"""
+checked = """
+- 0.1.28's notes: short pings from pages such as WhatsApp or Slack no longer pop up the sidebar's mini player or Now
+  Playing; music and videos still get their player; the tab's speaker icon still shows the page made a sound.
+- Please know, kept: a clip of 5 s or less still gets the player when its page gives it media details, so the post
+  says "pings" and doesn't promise every short sound.
+"""
+
+[[post]]
+label = "Quiet notification sounds"
+text = """
+A WhatsApp or Slack ping no longer pops up Airc's mini player. Music and videos still get theirs, and the tab's speaker icon still tells you which page made the sound. Fixed in Airc 0.1.28.
+"""
