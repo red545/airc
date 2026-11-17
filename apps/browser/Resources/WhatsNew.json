@@ -2,6 +2,19 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.22",
+      "highlights": [
+        {
+          "title": "Airc Agent (beta)",
+          "lead": "Airc Agent (beta)",
+          "detail": "Press ⌥⌘A, describe a task, and Airc does it in your signed-in sites with your own Anthropic or OpenAI API key (add it in Settings › AI › Agent). It asks before it pays, sends, posts or deletes; Stop any time.",
+          "icon": "sparkles",
+          "action": "settingsAI",
+          "image": "agent-panel"
+        }
+      ]
+    },
+    {
       "version": "0.1.21",
       "highlights": [
         {

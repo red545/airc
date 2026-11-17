@@ -794,6 +794,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         pages[tabID] = page
         tabIDByPage[ObjectIdentifier(page)] = tabID
         ThemePagePalette.shared?.adopted(page)
+        PageColorScheme.shared?.adopted(page)
         applyKeepLoadedPolicy()
     }
 

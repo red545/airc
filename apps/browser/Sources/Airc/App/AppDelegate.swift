@@ -228,6 +228,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SiteUse.start()
         // P07: Arc's page palette (--arc-palette-*), the theme of each page's Space (ThemePagePalette.swift).
         ThemePagePalette.start(app: self)
+        // Pages prefer their Space's light or dark, live (PageColorScheme.swift).
+        PageColorScheme.start(app: self)
         DeveloperMode.shared.start(settings: settings)
         // Link previews' part of the page script, before the first page opens (only when an AI setting is on).
         MainActor.assumeIsolated { AIFeatures.startIfNeeded(settings: settings) }

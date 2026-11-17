@@ -299,6 +299,7 @@ final class LittleArcController: NSObject, NSWindowDelegate {
         let p = engineWindow.openTab(url: url, profile: profile, foreground: true)
         p.delegate = self
         page = p
+        PageColorScheme.shared?.adopted(p, space: store?.space(spaceID) ?? store?.selectedSpace)
         engineWindow.activateTab(p)
         app?.engine.setPictureInPictureWindowActive(p, active: window.isKeyWindow)
         prompts.refresh()
@@ -444,6 +445,7 @@ final class LittleArcController: NSObject, NSWindowDelegate {
         }
         let sameProfile = store.space(sid)?.profileID == profileID
         spaceID = sid
+        if let page { PageColorScheme.shared?.adopted(page, space: store.space(sid)) }
         if !sameProfile, let old = page {
             let url = old.url
             old.delegate = nil

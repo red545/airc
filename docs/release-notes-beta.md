@@ -1,16 +1,24 @@
-# Airc 0.1.21 public beta
+# Airc 0.1.22 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.88.
-This update keeps your settings the same on your Macs with iCloud sync, and lets you ask Claude or ChatGPT straight
-from the Command Bar. It includes everything from 0.1.20. The release manifest records the exact build, source and
-checksums.
+This update adds the Airc Agent (beta): describe a task and Airc does it in your signed-in sites, with your own
+Anthropic or OpenAI API key. It includes everything from 0.1.21. The release manifest records the exact build, source
+and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.20
+## New since 0.1.21
+
+- **Airc Agent (beta).** Press ⌥⌘A (or View › Airc Agent), describe a task, and Airc does it in your signed-in sites
+  with your own Anthropic or OpenAI API key: add it in Settings › AI › Agent, where it stays in your Keychain. Before it
+  pays, sends, posts or deletes, it asks you first, and you choose Allow Once or Deny. Pick Quick (up to 25 steps and 3
+  minutes) or Keep going (up to 200 steps and 30 minutes), and Stop any time. Its runs show in the Agents folder, where
+  you can watch or take over.
+
+## Included from 0.1.21
 
 - **Settings sync between your Macs.** With iCloud sync on, the settings you change follow you to your other Macs:
   your theme, shortcuts, Site Searches, search engine, Ask AI, link and Little Airc choices, blocking and more. If you
@@ -267,6 +275,9 @@ checksums.
 
 ## Please know
 
+- **The Airc Agent is a beta.** It needs your own Anthropic or OpenAI API key, and the provider bills its usage to that
+  key. It hasn't been tried against every site yet, so watch its first runs on a new site.
+
 - **Settings sync** was tested between two copies of Airc with a stand-in for iCloud on the build Mac, not with real
   iCloud yet. Older versions of Airc don't get synced settings until they're updated.
 
@@ -344,6 +355,6 @@ checksums.
 - **Arc import:** unreadable encrypted data and unsupported records are skipped with a reason.
 - **Smoothness:** 120 Hz animation and zero idle work remain goals, not measured promises.
 
-Source: `9f2e6d8257edce1646103238420aaa440d058539`. Build: `202611161935`. Channel: stable.
-
 Source: `65753091662a41953cff5642118df50e4cf6d499`. Build: `202611162134`. Channel: stable.
+
+Source: `beab82dd434dfe3cb63b900ef2591f9a5c3fe9a5`. Build: `202611162337`. Channel: stable.

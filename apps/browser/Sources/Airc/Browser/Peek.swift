@@ -144,6 +144,7 @@ extension WindowController {
             let page = try engineWindow.openPeek(url: url, opener: opener, in: view.pageHost)
             page.delegate = self
             peek = Peek(page: page, view: view, openerTabID: tabID(for: opener))
+            PageColorScheme.shared?.adopted(page)
             view.titleLabel.stringValue = URLRules.displayHost(url.absoluteString)
             view.onClose = { [weak self] in self?.closePeek() }
             view.onPromote = { [weak self] in self?.promotePeek() }

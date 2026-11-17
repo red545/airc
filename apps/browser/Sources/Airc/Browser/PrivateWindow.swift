@@ -336,6 +336,7 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
     private func adopt(_ tab: EngineTab, opener: String?, show: Bool) {
         guard !closing else { tab.close(); return }
         tab.delegate = self
+        PageColorScheme.shared?.adopted(tab, space: nil)
         nextID += 1
         let page = Page(id: "private-\(nextID)", tab: tab, openerID: opener)
         if let opener, let i = pages.firstIndex(where: { $0.id == opener }) {
