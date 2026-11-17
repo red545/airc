@@ -153,4 +153,3 @@ apps/marketing/test/feedback.test.mjs	gitleaks:generic-api-key	A made-up UUID up
 infra/launch/scan-synthetic.txt	private-ip	The list of approved made-up addresses itself; scan.py refuses any entry that covers one of the operator's real values.
 infra/launch/scan-synthetic.txt	tailnet-domain	The list of approved made-up tailnet names itself; scan.py refuses any entry that covers one of the operator's real values.
 apps/browser/Sources/Airc/Debug/ParityPageBubblesCheck.swift	gitleaks:generic-api-key	A throwaway P-256 private key (PKCS#8) generated for this check's virtual-authenticator fixture passkeys on localhost; protects nothing.
-packages/AircKit/Tests/AircKitTests/UpdateWarmupTests.swift	home-path-other	A made-up home folder proving the warm-up finds Sparkle's Installation folder under any caches path
