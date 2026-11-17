@@ -696,7 +696,8 @@ final class AgentPanelCheck {
         let input = real ? "real keys" : "posted keys"
         AgentModelSettings.shared.setTestKey(nil, provider: .anthropic, base: base)
         openBarAndType(prompt) { [self] in
-            check(bar?.results.contains { $0.title == CommandBarView.agentRowTitle } == false, "(bar) no key: no “Ask Airc to…” row (\(bar?.resultTitles.joined(separator: " | ") ?? "-"))")
+            // cbflicker2 (owner, 0.1.26): the row shows without a key too; it opens the panel at its setup (CommandBarFlickerCheck).
+            check(bar?.results.contains { $0.title == CommandBarView.agentRowTitle } == true, "(bar) no key: the “Ask Airc to…” row still shows (\(bar?.resultTitles.joined(separator: " | ") ?? "-"))")
             AgentModelSettings.shared.setTestKey(key, provider: .anthropic, base: base)
             fake.begin("bar", [.text("The 07:12 is the cheapest.")])
             openBarAndType("lisbon trams") { [self] in

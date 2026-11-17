@@ -65,9 +65,20 @@ final class AgentPanelController: NSObject {
     func ask(_ text: String) {
         let run = AgentRunCenter.shared
         focus()
-        guard run.canSend, run.hasKey, let p = profile() else { look.draft = text; return }
+        guard run.canSend, run.hasKey, let p = profile() else {
+            look.draft = text
+            // The task waits in the field with the caret after it: the next key goes on from it, never over it
+            // (cbflicker2: the field selected all of it, so the first key typed replaced the task).
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in self?.caretToEnd() }
+            return
+        }
         run.ask(text, profileID: p.id, profileName: p.name)
     }
+
+    #if AIRC_TESTING
+    /// What waits in the field (cbflicker: the Command Bar's task, kept while there's no key).
+    var draftForTesting: String? { look.draft }
+    #endif
 
     /// The Space's profile the agent acts in.
     func profile() -> (id: String, name: String)? {
@@ -115,6 +126,11 @@ final class AgentPanelController: NSObject {
         }
     }
 
+    private func caretToEnd() {
+        guard let tv = panel.firstResponder as? NSTextView else { return }
+        tv.setSelectedRange(NSRange(location: (tv.string as NSString).length, length: 0))
+    }
+
     private static func findField(in v: NSView?) -> NSView? {
         guard let v else { return nil }
         if v is NSTextView || v is NSTextField, v.acceptsFirstResponder { return v }
@@ -159,10 +175,11 @@ final class AgentPanelLook: ObservableObject {
 }
 
 extension WindowController {
-    /// The Command Bar's "Ask Airc to…" row: only with a key saved (a cached answer, no Keychain read per keystroke).
+    /// The Command Bar's "Ask Airc to…" row, key or not (owner, 0.1.26: without a key nobody found it). With no key the
+    /// panel opens at its setup (key fields, Hand to Claude Desktop / Claude Code) with the task kept in its field.
+    /// Private windows have none (CommandBarHost's default).
     var commandBarAgent: ((String) -> Void)? {
-        guard AgentModelSettings.shared.hasCurrentKey else { return nil }
-        return { [weak self] text in
+        { [weak self] text in
             guard let self else { return }
             AgentPanelController.show(self).ask(text)
         }

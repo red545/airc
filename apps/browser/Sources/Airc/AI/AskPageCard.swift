@@ -103,14 +103,19 @@ extension WindowController {
 
     /// The Command Bar's "Ask This Page…" (and ⌘↩ in the find field): the bar in Ask mode, focused.
     func askShow(_ question: String?) {
-        guard let id = shownTabID, engineTab(for: id) != nil else { return NSSound.beep() }
+        // No page to ask about (a note, an empty Space): say so, never a bare beep (owner, 0.1.26).
+        guard let id = shownTabID, engineTab(for: id) != nil else {
+            return toast.show("Ask on Page asks about a web page. Open one first.", palette: currentPalette, in: card.frame)
+        }
         // A bar already up stays as it is (⌘F would take it back to Find).
         if findBar == nil { showFind() }
         guard let bar = findBar else { return }
         if bar.askButton.isHidden {
-            // Off, or no model: the bar says why instead of asking.
+            // Off, or no model: the bar says why instead of asking, with the way to Settings › AI.
             enterAsk(bar)
-            AskPageFeature.sessions[ObjectIdentifier(bar)]?.card.show(refusal: .unavailable)
+            let off = app?.settings.values.askPage != true && AIFeatures.shared.availability.isAvailable
+            AskPageFeature.sessions[ObjectIdentifier(bar)]?.card.show(refusal: .unavailable,
+                note: off ? "Ask on Page is off. Turn it on in Settings › AI." : nil)
             layoutFindBar()
             return
         }
@@ -264,6 +269,8 @@ final class AskAnswerView: NSView {
     let footer = NSTextField(wrappingLabelWithString: "")
     private var placeholders: [CALayer] = []
     private let palette: Palette
+    /// "Open Settings › AI", under a note that says what to turn on there (Ask on Page off, or no Apple Intelligence).
+    let settingsButton = NSButton(title: "Open Settings › AI", target: nil, action: nil)
 
     init(palette: Palette) {
         self.palette = palette
@@ -291,6 +298,13 @@ final class AskAnswerView: NSView {
             v.isBezeled = false
             addSubview(v)
         }
+        settingsButton.isBordered = false
+        settingsButton.attributedTitle = NSAttributedString(string: settingsButton.title, attributes: [
+            .font: AircFont.callout.weight(.semibold).appFont, .foregroundColor: t.accent.nsColor])
+        settingsButton.target = self
+        settingsButton.action = #selector(openSettings)
+        settingsButton.isHidden = true
+        addSubview(settingsButton)
         for _ in 0..<3 {
             let l = CALayer()
             l.cornerRadius = 4
@@ -314,7 +328,10 @@ final class AskAnswerView: NSView {
 
     override func mouseDown(with event: NSEvent) {}
 
+    @objc private func openSettings() { (NSApp.delegate as? AppDelegate)?.showSettings(page: .ai) }
+
     func showReading(question: String) {
+        settingsButton.isHidden = true
         hasContent = true
         refusal = nil
         state = nil
@@ -326,12 +343,13 @@ final class AskAnswerView: NSView {
         setWaiting(true)
     }
 
-    func show(refusal r: AskPageRefusal) {
+    func show(refusal r: AskPageRefusal, note: String? = nil) {
         hasContent = true
         refusal = r
         state = nil
         header.stringValue = r == .privateWindow ? "Private window" : "Ask on Page"
-        answerLabel.stringValue = r.message
+        answerLabel.stringValue = note ?? r.message
+        settingsButton.isHidden = r != .unavailable
         answerLabel.textColor = palette.resolved.surfaceTextSecondary.nsColor
         relatedLabel.stringValue = ""
         setQuotes([])
@@ -341,6 +359,7 @@ final class AskAnswerView: NSView {
 
     func update(_ s: AskPageRun.State) {
         hasContent = true
+        settingsButton.isHidden = true
         state = s
         refusal = nil
         answerLabel.textColor = palette.resolved.surfaceText.nsColor
@@ -437,6 +456,7 @@ final class AskAnswerView: NSView {
         let w = width - 2 * Self.inset
         var h = Self.inset + 14 + 8
         if placeholders.first?.isHidden == false { h += 3 * 12 + 2 * 7 } else { h += textHeight(answerLabel, w) }
+        if !settingsButton.isHidden { h += 8 + 18 }
         if !relatedLabel.stringValue.isEmpty { h += 10 + 14 }
         if !quoteRows.isEmpty { h += 10 + quoteRows.reduce(0) { $0 + $1.height(width: w) + 4 } }
         if !footer.stringValue.isEmpty { h += 10 + textHeight(footer, w) }
@@ -464,6 +484,11 @@ final class AskAnswerView: NSView {
             let ah = textHeight(answerLabel, w)
             answerLabel.frame = NSRect(x: x - 2, y: y, width: w + 4, height: ah)
             y += ah
+        }
+        if !settingsButton.isHidden {
+            y += 8
+            settingsButton.frame = NSRect(x: x - 2, y: y, width: min(w, ceil(settingsButton.fittingSize.width)), height: 18)
+            y += 18
         }
         if !relatedLabel.stringValue.isEmpty {
             y += 10

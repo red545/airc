@@ -194,6 +194,10 @@ protocol CommandBarHost: AnyObject {
     func barCommandResults(for query: String, mode: CommandBarMode, inline: InlineCompletion.Match?,
                            inlineSite: CommonSites.Site?, suggestions: [String], history: [HistoryMatch]) -> [CommandResult]
     func closeCommandBar()
+    /// Closes the bar; with `focusingPage: false` the keyboard is left for what runs next (`focusPageUnlessTaken`).
+    func closeCommandBar(focusingPage: Bool)
+    /// After a command chosen in the bar: the page gets the keyboard unless the command gave it to something.
+    func focusPageUnlessTaken()
     func performCommand(_ action: CommandResult.Action, newTab: Bool, typed: Bool)
     /// This window's site searches (its profile's); nil: none.
     var commandBarSiteSearches: CommandBarSiteSearches? { get }
@@ -205,7 +209,8 @@ protocol CommandBarHost: AnyObject {
     var commandBarAskAI: AskAIProvider? { get }
     /// askai: finds Settings → AI's Automatic chat site for this profile again if it's stale (after the open's frame).
     func refreshCommandBarAskAI()
-    /// agentpanel2: the "Ask Airc to…" row (the Airc Agent, ⌥⌘A) for a prompt; nil: none (no key, a private window).
+    /// agentpanel2: the "Ask Airc to…" row (the Airc Agent, ⌥⌘A) for a prompt, with or without a key; nil: none (a
+    /// private window).
     /// Asked on every keystroke: a cached answer only.
     var commandBarAgent: ((String) -> Void)? { get }
     /// P07c: Instant Links, when on and Apple Intelligence can run (InstantLinks.swift); nil: ⇧↵ searches, no hint.
@@ -220,6 +225,8 @@ extension CommandBarHost {
         commandResults(for: query, mode: mode, inline: inline, inlineSite: inlineSite, suggestions: suggestions, history: history)
     }
     var commandBarSiteSearches: CommandBarSiteSearches? { nil }
+    func closeCommandBar(focusingPage: Bool) { closeCommandBar() }
+    func focusPageUnlessTaken() {}
     var commandBarShowsSiteIcons: Bool { true }
     var commandBarFaviconDatabase: URL? { nil }
     var commandBarAskAI: AskAIProvider? { nil }
@@ -294,6 +301,9 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     private(set) var typed = ""
     private var suggestions: [String] = []
     private var suggestionQuery = ""
+    /// cbflicker2: the words the prompt's rows (Ask Claude, Ask Airc to…) first showed for while they still begin what's
+    /// typed. The "looks like a prompt" guess can flip from key to key; the rows stay until the words are taken back.
+    private var promptShownFor: String?
     /// The last history matches (searched off the main thread, H5) and the query they were for.
     private var historyHits: [HistoryMatch] = []
     private var removedHistory = Set<String>()
@@ -385,6 +395,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         inlineSite = nil
         suggestions = []
         suggestionQuery = ""
+        promptShownFor = nil
         historyHits = []
         removedHistory = []
         deletingEdit = false
@@ -1210,6 +1221,15 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         }
     }
 
+    /// Test builds can bring back 0.1.26's placement of the prompt's rows (`AIRC_CB_STABLE_ROWS=0`): cbflicker's A/B.
+    static let stableRows: Bool = {
+        #if AIRC_TESTING
+        return ProcessInfo.processInfo.environment["AIRC_CB_STABLE_ROWS"] != "0"
+        #else
+        return true
+        #endif
+    }()
+
     /// Test builds can bring back clearing suggestions on every key (`AIRC_CB_KEEP_SUGGESTIONS=0`): cbflicker's A/B.
     static let keepsSuggestions: Bool = {
         #if AIRC_TESTING
@@ -1324,6 +1344,10 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
 
     #if AIRC_TESTING
     func applyLateResultsForTesting(_ updated: [CommandResult]) { replaceAsyncResults(updated) }
+    /// ↓ (or ↑ for a negative `d`) as the arrow keys move it (cbflicker's posted arm).
+    func moveSelectionForTesting(by d: Int) { select(max(0, min(results.count - 1, selected + d)), userMoved: true) }
+    /// Return on the selected row (cbflicker's posted arm).
+    func executeSelectedForTesting() { execute() }
     var historySelectionIsExplicitForTesting: Bool { selectedHistoryURL != nil }
     /// The rows on screen, in order (CmdTrustCheck).
     var rowViewsForTesting: [CommandRowView] { Array(rows.prefix(results.count)) }
@@ -1578,8 +1602,18 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         if r.startsInstantLinks { return startInstantLinks() }
         // Chosen: now its icon may come from the network (rows never ask for one while you type).
         CommandRowView.fetchIcon(of: r)
-        host?.closeCommandBar()
-        host?.performCommand(r.action, newTab: mode == .newTab || r.opensInNewTab, typed: !r.opensInNewTab)
+        let newTab = mode == .newTab || r.opensInNewTab
+        guard case .run = r.action else {
+            host?.closeCommandBar()
+            host?.performCommand(r.action, newTab: newTab, typed: !r.opensInNewTab)
+            return
+        }
+        // A command (Ask This Page…, Ask Airc to…, a menu's): the page gets the keyboard back only if the command didn't
+        // give it to a field of its own. The page taking it after the command had focused its field (Chromium focuses
+        // late) left the keys going nowhere, each one beeping (owner bug, 0.1.26: "ask page").
+        host?.closeCommandBar(focusingPage: false)
+        host?.performCommand(r.action, newTab: newTab, typed: !r.opensInNewTab)
+        host?.focusPageUnlessTaken()
     }
 
     // MARK: Ask AI (P07b)
@@ -1621,19 +1655,26 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
             row.startsInstantLinks = true
             rows.insert(row, at: i + 1)
         }
-        var prompt: Bool?
-        Perf.time("cb.askai") {
-            if scope == nil, askCandidate == nil, bang == nil, let p = c.commandBarAskAI, AskAIProvider.looksLikePrompt(text),
-               let url = AskAIRoute.url(p, text) {
-                prompt = true
-                rows.insert(askRow("Ask \(p.name)", subtitle: text, provider: p, url: url), at: min(Self.askRowIndex, rows.count))
-            }
+        // A prompt's rows: while what's typed looks like a prompt, and (cbflicker2) on until the words they showed for
+        // are taken back, so a guess that flips on a key doesn't make them come and go.
+        let guessed = Perf.time("cb.askai") { scope == nil && askCandidate == nil && bang == nil && AskAIProvider.looksLikePrompt(text) }
+        var prompt = guessed
+        if Self.stableRows, scope == nil, askCandidate == nil, bang == nil {
+            if let shown = promptShownFor, !text.isEmpty, text.hasPrefix(shown) { prompt = true }
+            if !prompt { promptShownFor = nil } else if promptShownFor.map({ !text.hasPrefix($0) }) ?? true { promptShownFor = text }
+        }
+        // Where they go: two arrows down (askai), the agent's right under it.
+        let askAt = Self.askRowIndex
+        var askShown = false
+        if prompt, let p = c.commandBarAskAI, let url = AskAIRoute.url(p, text) {
+            askShown = true
+            rows.insert(askRow("Ask \(p.name)", subtitle: text, provider: p, url: url), at: min(askAt, rows.count))
         }
         // agentpanel2: "Ask Airc to…" (the Airc Agent does it in this profile), right under the Ask row (↓↓↓), or third.
+        // With no key it opens the panel at its setup with the task in its field (cbflicker2).
         Perf.time("cb.agentrow") {
-            guard scope == nil, askCandidate == nil, bang == nil, let ask = c.commandBarAgent,
-                  prompt ?? AskAIProvider.looksLikePrompt(text) else { return }
-            let at = rows.firstIndex { $0.badge == "Ask" && $0.subtitle == text }.map { $0 + 1 } ?? Self.askRowIndex
+            guard prompt, let ask = c.commandBarAgent else { return }
+            let at = askShown ? rows.firstIndex { $0.badge == "Ask" && $0.subtitle == text }.map { $0 + 1 } ?? askAt : askAt
             rows.insert(CommandResult(title: Self.agentRowTitle, subtitle: text, badge: "Agent", icon: .symbol("sparkles"), matches: [],
                                       action: .run { ask(text) }), at: min(at, rows.count))
         }
@@ -2550,7 +2591,9 @@ extension WindowController: CommandBarHost {
         pageView(for: currentSpaceID)?.refreshNewTabRow()
     }
 
-    func closeCommandBar() {
+    func closeCommandBar() { closeCommandBar(focusingPage: true) }
+
+    func closeCommandBar(focusingPage: Bool) {
         guard let bar = commandBar else { return }
         commandBar = nil
         Self.commandMemo = nil
@@ -2566,12 +2609,19 @@ extension WindowController: CommandBarHost {
         bar.park()
         spareCommandBar = bar
         scheduleSpareBarRefresh()
-        if let id = shownTabID { engineTab(for: id)?.focus() }
+        if focusingPage, let id = shownTabID { engineTab(for: id)?.focus() }
         // Every page: a Space switch closes the bar after the current Space changed.
         for spaceID in store.orderedSpaces.map(\.id) { pageView(for: spaceID)?.refreshNewTabRow() }
     }
 
     func isCommandBarOpen(mode: CommandBarMode) -> Bool { commandBar?.mode == mode }
+
+    func focusPageUnlessTaken() {
+        // Taken: a field or text view of this window, another window made key (a panel, a sheet), or a bar opened again.
+        if commandBar != nil || !window.isKeyWindow && NSApp.keyWindow != nil { return }
+        if let r = window.firstResponder, r !== window, r is NSText || r is NSTextView || r is NSControl { return }
+        if let id = shownTabID { engineTab(for: id)?.focus() }
+    }
 
     /// The parked bar shows what ⌘T will (CommandBarView.prepareForNextOpening): set a moment after whatever changes
     /// it (a tab shown or closed, a title or icon, a Space switch, the window's size, the bar closing), when nothing is
@@ -3064,8 +3114,9 @@ extension WindowController: CommandBarHost {
                     _ = try? self.store.duplicateTab(id)
                 },
             ]
-            // Ask on Page (AI/AskPageCard.swift), while it's on.
-            if app?.settings.values.askPage == true {
+            // Ask on Page (AI/AskPageCard.swift) on a page: while it's off or can't run, choosing it says why and opens
+            // Settings › AI from its card (owner, 0.1.26: "ask page" found nothing and beeped).
+            if shownTabID.flatMap({ engineTab(for: $0) }) != nil {
                 a.append(.init(title: "Ask This Page…", symbol: "sparkles", hint: "",
                                keywords: ["ask", "question", "ai", "summarize", "apple intelligence"]) { [weak self] in self?.showAsk() })
             }

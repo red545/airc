@@ -126,9 +126,9 @@ extension SnapshotRunner {
         run { [self] in
             c.showFind()
             let bar = c.findBar
-            aiCheck(app?.settings.values.askPage == false && bar?.askButton.isHidden == true
-                  && !c.commandActions().contains { $0.title == "Ask This Page…" },
-                  "\(tag): Ask on Page is off by default: no ✦ in ⌘F's bar, no \"Ask This Page…\" in the Command Bar")
+            // cbflicker2: the Command Bar still offers "Ask This Page…" on a page; while off it says why (its card).
+            aiCheck(app?.settings.values.askPage == false && bar?.askButton.isHidden == true,
+                  "\(tag): Ask on Page is off by default: no ✦ in ⌘F's bar")
             c.closeFind(refocusPage: false)
             // 2. Without Apple Intelligence the switch can't turn it on.
             if let s = app?.settings { ai.setAskPage(true, settings: s) }
@@ -458,8 +458,7 @@ extension SnapshotRunner {
             aiCheck(session() == nil, "\(tag): Clear Data of its own profile closes it")
             c.closeFind(refocusPage: false)
             ai.setAskPage(false, settings: app.settings)
-            aiCheck(app.settings.values.askPage == false && !c.commandActions().contains { $0.title == "Ask This Page…" },
-                  "\(tag): off, the Command Bar's action goes")
+            aiCheck(app.settings.values.askPage == false, "\(tag): off again")
             checkAIEvents(tag, ai.events, expect: ["ai.ask_page:on", "ai.ask_page:used", "ai.ask_page:off"])
         }
 

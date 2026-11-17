@@ -141,6 +141,11 @@ final class AircUpdateDelegate: NSObject, SPUUpdaterDelegate {
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem,
                  immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
         log("ready \(item.versionString): installs on quit")
+        // updatewarm: Sparkle has validated the staged bundle and finished its first install stage; executing it once
+        // now spares the next launch what is left of macOS's first-run checks of the new code (UpdateWarmupRunner).
+        UpdateWarmupRunner.shared.warm(version: item.versionString) { line in
+            DispatchQueue.main.async { [weak self] in self?.log(line) }
+        }
         let version = "\(item.displayVersionString) (\(item.versionString))"
         if UpdateCenter.shared.ready?.version != version {
             // A web page of notes only: the feed's inline or Markdown notes have no address to open.

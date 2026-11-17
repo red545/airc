@@ -463,6 +463,23 @@ updated to the published 0.1.16 archive. The first GET stalled after 1 MiB; Spar
 followed 5 s later, the update was ready 37 s after launch, installed on quit and relaunched. With every GET stalling,
 it logged exactly one retry and then aborted with Sparkle's usual error.
 
+### First launch after an update: warm-up
+
+The first exec of a newly written copy of the signed app costs ~4 s in macOS before `main` (syspolicyd/AMFI evaluate
+the new Airc Framework); the per-file results survive a rename. Sparkle 2.10 installs by swapping the bundle it
+extracted and validated into place, and its first install stage already runs `gktool scan` on it (~3.7 s, macOS 14.4+,
+same volume and team), so most of that cost is paid before Airc quits. Once Sparkle reports the update ready
+(`willInstallUpdateOnQuit`), `UpdateWarmupRunner` (finding the staged bundle: AircKit `UpdateWarmup`) checks the
+staged bundle's signature against Airc's own team and identifier and executes it once with the blocking-list check
+child's arguments, which exit on the first line of `main` (no window, profile or network; killed after 30 s; quitting
+never waits for it). `Updates.log`: `warm-up: signature checked in … s, probe exit 1 in … s`. `AIRC_UPDATE_WARMUP=0`
+turns it off, `=check` checks without executing (A/B only).
+
+Verified 2026-11-17 on the build Mac with real Sparkle updates (Developer ID builds 0.1.90 → 0.1.91 from a loopback
+appcast, throwaway EdDSA key, inside `update-proof.py`, 5 runs per arm): first launch after install, pre-main 140–223 ms
+without the warm-up, 54–68 ms with it (the second launch: 55–60 ms in both); a signature check alone 175–188 ms.
+Report: artifacts/updatewarm.
+
 References: [Sparkle setup](https://sparkle-project.org/documentation/),
 [publishing](https://sparkle-project.org/documentation/publishing/),
 [Apple notarization](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution),
