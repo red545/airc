@@ -802,8 +802,12 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
             decisionHandler(.download, preferences)
             return
         }
-        WebKitBlocking.navigation(self, action: action, preferences: preferences)
-        decisionHandler(.allow, preferences)
+        // linklaunch: a Chromium profile's WebKit page made before its WebKit rules are in waits for them here.
+        WebKitBlocking.whenNavigable(webKitProfile) { [weak self] in
+            guard let self else { return decisionHandler(.cancel, preferences) }
+            WebKitBlocking.navigation(self, action: action, preferences: preferences)
+            decisionHandler(.allow, preferences)
+        }
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse,

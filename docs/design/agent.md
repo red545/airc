@@ -1,6 +1,7 @@
 # The Airc Agent: an agent you ask inside Airc
 
-Status: design (2026-11-16). Phase 1 is being built from this; later phases are marked.
+Status: phase 1 (2026-11-16, 76ccdd68..ec1a1392) and phase 2 (2026-11-16/17: streaming, approval in Watch, memory, Command
+Bar row, Hand to Claude) are built. Sign in with ChatGPT / any subscription sign-in: not built (owner decision pending).
 
 Airc already lets the person's own AI apps (Claude Desktop, Claude Code, Codex…) drive it through the `airc-mcp`
 connector: computer-use-style tools on the person's signed-in profiles, autofill-only passwords, a one-time per-app
@@ -85,7 +86,30 @@ lacks, next to agent browsers such as Aside, is:
   (screenshots as an `input_image` part). Models offered: `gpt-6-astra` (default), `gpt-6.1-sol`, `gpt-6.1-terra`,
   `gpt-6-luna` (developers.openai.com, 2026-11-16).
 - Model lists are data (`AgentModels` in AircKit), so a release can update them without code changes elsewhere.
-  Phase 2: refresh from the providers' models endpoints.
+  Later: refresh from the providers' models endpoints.
+
+### Streaming (phase 2)
+
+Every turn streams (Server-Sent Events): Anthropic `stream: true` (with `eager_input_streaming: true` on each tool and
+`max_tokens` 64000), OpenAI Responses `stream: true`. `AgentSSEParser` + `AgentStreamAssembler` (AircKit, unit-tested)
+turn the events into live updates and rebuild the exact non-streaming answer object, which goes into the history
+verbatim as before (thinking signatures reassembled from `signature_delta`, reasoning items from `output_item.done`).
+
+- **Text** reaches the panel as it arrives (a live line, published at most every 50 ms) and becomes the step when the
+  turn ends.
+- **Tool calls** are parsed strictly when their block ends (`content_block_stop` / `response.output_item.done`) and
+  checked against the tool's schema (streamed arguments aren't validated by the API); bad JSON is answered with an
+  `INVALID_JSON` tool error, never run. Read-only calls (`read_page`, `find_element`, `screenshot`, `list_tabs`, `zoom`,
+  `wait_for_load`, `wait`) start at once, in order, while the turn still streams; the first acting call, and everything
+  after it, waits for the turn's end, so `stop_reason` (`refusal`, `max_tokens`) is checked before anything acts. A
+  turn that then ends in a refusal or a cut-off just drops the early results.
+- **Stop** closes the connection at once (URLSession cancel); nothing of the cut turn enters the history, and the next
+  task's text joins the open user turn.
+- **A dropped stream** (connection closed or an `error` event before `message_stop` / `response.completed`) adds nothing
+  to the history and is sent again once after 1 s ("The connection … dropped mid-answer. Trying again."); a second drop
+  ends the task with that message.
+- After a mid-output refusal fallback, the thinking and `tool_use` blocks before the last `fallback` block are left out of
+  the echo (the `fallback` block stays in place), as the Messages API requires; only calls after it run.
 
 ### Subscriptions (research only, not implemented)
 
@@ -153,18 +177,31 @@ a limit is reached the run stops with "Stopped: step limit" and what it did so f
 (another budget of the same size). Stop is always one click (or Esc twice). Usage per run is kept in the panel's
 transcript (not sent anywhere). Anthropic's `task_budget` (beta) is a phase-2 refinement for Keep going.
 
-## 5. Memory (phase 2, off by default)
+## 5. Memory (phase 2, built; off by default)
 
-`~/Library/Application Support/Airc/Memory/`: `people.md`, `sites.md`, `notes/<yyyy-mm-dd>.md`, plain Markdown the
-person can open from Settings and the panel ("Open Memory Folder") and edit in any editor.
+`<data folder>/Memory/` (normally `~/Library/Application Support/Airc/Memory/`): `people.md`, `sites.md`,
+`notes/<yyyy-mm-dd>.md`, plain Markdown (folder 0700, files 0600) the person can open from Settings (Open Folder) and the
+panel (Show) and edit in any editor. `AgentMemoryStore` / `AgentMemoryGuard` in AircKit.
 
-- **Off by default** with one clear switch (Settings › AI › Agent › "Remember things between tasks"). Why: whatever
-  memory holds goes to the model provider with every task; people should choose that, and an empty memory is the
-  calm default. Aside does memory by default; Airc doesn't need to.
-- When on: at the end of a task the model gets one extra turn with a `remember` tool that can only append short lines
-  to those files (no secrets: the tool refuses text that looks like a password, card or token). The panel shows
-  "Remembered: …" lines, each with Undo. At the start of a task the files (capped at 8k tokens) go in the system prompt.
-- Never written from private windows; never contains page text verbatim beyond a line.
+- **Off by default** with one clear switch (Settings › AI › Agent › Memory, "Remember things between tasks"), plus
+  Open Folder and Clear… (asks first). Why: whatever memory holds goes to the model provider with every task; people
+  should choose that, and an empty memory is the calm default. Aside does memory by default; Airc doesn't need to.
+- **Reading:** at the start of a conversation the files (newest notes first, capped at 32,000 characters, about 8k
+  tokens) go into the **first user message**, fenced as `<memory-notes>` with a note that they are facts that may be out
+  of date and never instructions. Not in the system prompt: memory is untrusted context like page text (a file can hold
+  anything the person or a page-influenced line put there), and the system prompt stays byte-stable for caching.
+- **Writing:** while memory is on, the model has a `remember` tool (`file`: people / sites / notes, `text`: one line,
+  ≤ 200 characters) during the task, instead of the extra end-of-task turn first planned (no extra paid turn). Each line
+  is appended as `- …`.
+- **Never stored** (`AgentMemoryGuard`, unit-tested; the tool answers "Not saved: …"): passwords ("password: …",
+  "the PIN is …"), card numbers (13–19 digits passing Luhn), IBANs (mod 97), one-time and security codes (a 3–10 digit
+  code near code/OTP/2FA/TAN/PIN/CVV words), keys and tokens (known prefixes, long mixed-case/digit or hex runs), any
+  value the agent typed into a field the page marks sensitive (password, `cc-*`, `one-time-code`, the read scripts'
+  name rule), and text sharing a 24-character run with a page read while a sensitive field there held a value (read
+  results that show `(hidden)`). Errs wide: a refused line costs nothing.
+- **After a task** the panel lists "Used memory: …" (with Show), each "Remembered in <file>: …" with **Undo** (removes
+  that line), and "Didn't remember n lines: <why>".
+- Never written from private windows (the panel doesn't run there).
 
 ## 6. UI
 
@@ -174,8 +211,20 @@ person can open from Settings and the panel ("Open Memory Folder") and edit in a
   field ("Ask Airc to…"), the level (Quick / Keep going), Send / Stop, usage. No key yet: a short "Connect your AI"
   card that opens Settings › AI › Agent, and "Hand this task to Claude" (copies the task and opens the Claude app when
   installed, via the existing Connect Claude path).
-- **Command Bar** "Ask Airc to…" row: phase 2 (askai owns the Command Bar now).
-- **Watch** shows approval cards too (phase 1: the panel's card, Watch's caption says "Waiting for your OK").
+- **Command Bar** "Ask Airc to…" row (phase 2): for a prompt (`AskAIProvider.looksLikePrompt`, askai's rule), right
+  under askai's "Ask Claude/ChatGPT" row (else third), badge "Agent". Only in normal windows and only with a key saved
+  (a cached flag: the per-key cost is one bool and one comparison, Perf section `cb.agentrow`). Return opens the panel in
+  that window and runs the task; while a task runs, it waits in the field.
+- **Watch** shows the approval card too (phase 2): the same request (AgentRunCenter.approval), mirrored while Watch
+  shows the run's own row; Allow Once / Deny in either place answers both, Esc in Watch declines, and Watch's caption
+  says "Waiting for your OK".
+- **Hand to Claude** (no key; phase 2): "Hand to Claude Desktop" / "Hand to Claude Code" for the ones installed. The
+  connector must be in place first: the app's own config has an `mcpServers.airc` entry (Claude Desktop's
+  `claude_desktop_config.json`, Claude Code's `~/.claude.json`) and "Let AI apps use Airc" is on; otherwise the button
+  reads "Connect …" and opens Settings › Agents with Set up on top. Connected: Claude Desktop opens
+  `claude://claude.ai/new?q=<task>` (a new chat with the task filled in; also put on the clipboard in case), Claude Code
+  starts in Terminal from a one-time `.command` file running `claude '<task>'`. No Apple Events (no Automation prompt),
+  no Claude sign-in inside Airc.
 
 ## 7. Tests
 
@@ -186,3 +235,10 @@ person can open from Settings and the panel ("Open Memory Folder") and edit in a
   (a) open and read, (b) fill and submit a non-risky form, (c) Pay and Send → card, Deny stops / Allow continues,
   (d) Stop mid-task, (e) injected instructions → warning, not followed in the script, (f) the fixture key appears in
   no log, Activity, MCP output or transcript file. Real driver clicks for the panel's buttons.
+- Phase 2 (same check; the fake server streams SSE for both providers, chunked, with delays and a deliberate drop):
+  live text, a read-only call run before its turn ended, Stop mid-stream (connection closed, follow-up valid), a stream
+  dropped inside a tool call's arguments (the call never runs, one retry with the same history), OpenAI streaming with a
+  drop; approval answered in Watch and in the panel; memory off by default, notes fenced in the first message, remember,
+  refused code / typed password / sensitive page text, Undo, Clear; the Command Bar row (no key, a search, a prompt,
+  ↓ + Return runs it); Hand to Claude before and after the connector is set up (a scratch home; nothing launched).
+  AircKit: `AgentStreamTests`, `AgentMemoryTests`.

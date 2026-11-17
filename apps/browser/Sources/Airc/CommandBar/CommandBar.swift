@@ -202,6 +202,9 @@ protocol CommandBarHost: AnyObject {
     var commandBarAskAI: AskAIProvider? { get }
     /// askai: finds Settings → AI's Automatic chat site for this profile again if it's stale (after the open's frame).
     func refreshCommandBarAskAI()
+    /// agentpanel2: the "Ask Airc to…" row (the Airc Agent, ⌥⌘A) for a prompt; nil: none (no key, a private window).
+    /// Asked on every keystroke: a cached answer only.
+    var commandBarAgent: ((String) -> Void)? { get }
     /// P07c: Instant Links, when on and Apple Intelligence can run (InstantLinks.swift); nil: ⇧↵ searches, no hint.
     var commandBarInstantLinks: CommandBarInstantLinks? { get }
     /// Opens Instant Links' pages, the first as ⌘T or ⌘L would open what's chosen.
@@ -218,6 +221,7 @@ extension CommandBarHost {
     var commandBarFaviconDatabase: URL? { nil }
     var commandBarAskAI: AskAIProvider? { nil }
     func refreshCommandBarAskAI() {}
+    var commandBarAgent: ((String) -> Void)? { nil }
     var commandBarInstantLinks: CommandBarInstantLinks? { nil }
     func openInstantLinks(_ links: [InstantLink], newTab: Bool) {
         for (i, l) in links.enumerated() { performCommand(.open(l.url), newTab: newTab || i > 0, typed: false) }
@@ -1554,6 +1558,8 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
 
     /// The plain bar's Ask row: under the search row and the row after it (↓↓), as the feedback asked.
     static let askRowIndex = 2
+    /// agentpanel2's row (the Airc Agent panel's own wording, "Ask Airc to…").
+    static let agentRowTitle = "Ask Airc to…"
 
     private func askRow(_ title: String, subtitle: String, provider p: AskAIProvider, url: URL) -> CommandResult {
         var row = CommandResult(title: title, subtitle: subtitle, badge: "Ask", icon: siteIcon(p.siteSearch), matches: [], action: .open(url))
@@ -1581,11 +1587,21 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
             row.startsInstantLinks = true
             rows.insert(row, at: i + 1)
         }
+        var prompt: Bool?
         Perf.time("cb.askai") {
             if scope == nil, askCandidate == nil, bang == nil, let p = c.commandBarAskAI, AskAIProvider.looksLikePrompt(text),
                let url = AskAIRoute.url(p, text) {
+                prompt = true
                 rows.insert(askRow("Ask \(p.name)", subtitle: text, provider: p, url: url), at: min(Self.askRowIndex, rows.count))
             }
+        }
+        // agentpanel2: "Ask Airc to…" (the Airc Agent does it in this profile), right under the Ask row (↓↓↓), or third.
+        Perf.time("cb.agentrow") {
+            guard scope == nil, askCandidate == nil, bang == nil, let ask = c.commandBarAgent,
+                  prompt ?? AskAIProvider.looksLikePrompt(text) else { return }
+            let at = rows.firstIndex { $0.badge == "Ask" && $0.subtitle == text }.map { $0 + 1 } ?? Self.askRowIndex
+            rows.insert(CommandResult(title: Self.agentRowTitle, subtitle: text, badge: "Agent", icon: .symbol("sparkles"), matches: [],
+                                      action: .run { ask(text) }), at: min(at, rows.count))
         }
         if rows.count > limit { rows.removeLast(rows.count - limit) }
     }

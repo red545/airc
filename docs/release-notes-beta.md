@@ -1,16 +1,22 @@
-# Airc 0.1.22 public beta
+# Airc 0.1.23 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.88.
-This update adds the Airc Agent (beta): describe a task and Airc does it in your signed-in sites, with your own
-Anthropic or OpenAI API key. It includes everything from 0.1.21. The release manifest records the exact build, source
-and checksums.
+This update makes web pages follow their Space's light or dark look, and switch live when it changes. It includes
+everything from 0.1.22. The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.21
+## New since 0.1.22
+
+- **Pages follow light and dark.** Web pages now use their Space's light or dark look, so a dark Space shows sites in
+  their dark style and a light Space in their light one. When the look changes, open pages switch at once, without a
+  reload: when macOS switches automatically between light and dark (Appearance: Auto), when you change a Space's theme
+  or move a tab to another Space. That includes background tabs, Peek and Little Airc; private windows follow macOS.
+
+## Included from 0.1.22
 
 - **Airc Agent (beta).** Press ⌥⌘A (or View › Airc Agent), describe a task, and Airc does it in your signed-in sites
   with your own Anthropic or OpenAI API key: add it in Settings › AI › Agent, where it stays in your Keychain. Before it
@@ -275,6 +281,9 @@ and checksums.
 
 ## Please know
 
+- **Light and dark pages:** a site that has no dark style stays light in a dark Space. macOS's automatic switch was
+  checked on the build Mac with a simulated change, not the real sunset switch yet.
+
 - **The Airc Agent is a beta.** It needs your own Anthropic or OpenAI API key, and the provider bills its usage to that
   key. It hasn't been tried against every site yet, so watch its first runs on a new site.
 
@@ -355,6 +364,6 @@ and checksums.
 - **Arc import:** unreadable encrypted data and unsupported records are skipped with a reason.
 - **Smoothness:** 120 Hz animation and zero idle work remain goals, not measured promises.
 
-Source: `65753091662a41953cff5642118df50e4cf6d499`. Build: `202611162134`. Channel: stable.
-
 Source: `beab82dd434dfe3cb63b900ef2591f9a5c3fe9a5`. Build: `202611162337`. Channel: stable.
+
+Source: `c2069afac928d5467d218b4e4b5b28fcf557addb`. Build: `202611170206`. Channel: stable.

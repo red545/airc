@@ -55,6 +55,20 @@ struct AgentModelSection: View {
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
             }
+            SettingsRow(title: "Memory", subtitle: values.memory
+                         ? "On: the agent reads its notes at the start of a task (they go to \(values.provider.name) with it) and adds short lines you can undo. Never passwords, card numbers or codes."
+                         : "Off: every task starts fresh. On, it keeps short notes about people and sites in Markdown files you can edit.") {
+                HStack(spacing: 6) {
+                    Toggle("Remember things between tasks", isOn: Binding(get: { values.memory }, set: { on in
+                        settings.update { $0.memory = on }
+                        reload()
+                    }))
+                    .toggleStyle(.switch).labelsHidden().help("Remember things between tasks").testAnchor("ai.agent.memory")
+                    Button("Open Folder") { AgentMemoryUI.openFolder() }.buttonStyle(.airc(.secondary)).testAnchor("ai.agent.memory.open")
+                    Button("Clear…") { if AgentMemoryUI.clear(in: NSApp.keyWindow) { status = "Memory cleared." } }
+                        .buttonStyle(.airc(.secondary)).testAnchor("ai.agent.memory.clear")
+                }
+            }
             SettingsRow(title: "Never use these sites", subtitle: values.blockedSites.isEmpty ? "The agent stops instead of acting on a site listed here." : values.blockedSites.joined(separator: ", ")) {
                 HStack(spacing: 6) {
                     TextField("example.com", text: $siteField).textFieldStyle(.roundedBorder).frame(width: 140).onSubmit(addSite)

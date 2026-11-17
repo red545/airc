@@ -152,6 +152,27 @@ final class AgentBridge {
         """
     }
 
+    /// Whether the focused field is one a page marks sensitive (password, card, one-time code; AgentPageScripts' rule):
+    /// what's typed there is never remembered.
+    func focusIsSensitive(_ done: @escaping (Bool) -> Void) {
+        guard let w = window, let tab = w.activeTab, !tab.isClosed else { return done(false) }
+        let script = """
+        (function(){var e=document.activeElement;while(e&&e.shadowRoot&&e.shadowRoot.activeElement)e=e.shadowRoot.activeElement;if(!e||!e.getAttribute)return false;
+        var t=(e.getAttribute('type')||'').toLowerCase(),a=(e.getAttribute('autocomplete')||'').toLowerCase();
+        if(t==='password'||/(^|\\s)(cc-|current-password|new-password|one-time-code)/.test(a))return true;
+        var n=(e.getAttribute('name')||'')+' '+(e.id||'')+' '+(e.getAttribute('aria-label')||'')+' '+(e.getAttribute('placeholder')||'');
+        return /pass(word|wd|code|phrase)?|pwd|secret|otp|totp|2fa|mfa|cvc|cvv|csc|card.?num|cc.?num|iban|ssn|\\bpin\\b/i.test(n);})()
+        """
+        var answered = false
+        let finish: (Any?) -> Void = { v in
+            guard !answered else { return }
+            answered = true
+            done((v as? Bool) ?? ((v as? NSNumber)?.boolValue ?? false))
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { finish(nil) }
+        w.driver.evaluate(tab, script, completion: finish)
+    }
+
     // MARK: Results for the model
 
     /// Text and images of a result; `untrusted`: the page's own text in it (for the injection check).

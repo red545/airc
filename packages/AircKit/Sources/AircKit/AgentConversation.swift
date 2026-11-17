@@ -76,32 +76,50 @@ public final class AgentConversation {
 
     public func addUser(_ text: String) {
         switch provider {
-        case .anthropic: items.append(["role": "user", "content": [["type": "text", "text": text]]])
+        case .anthropic:
+            // A stopped or dropped stream appends nothing, so the history can end in a user turn: add to it.
+            if var last = items.last, last["role"] as? String == "user", var content = last["content"] as? [[String: Any]] {
+                content.append(["type": "text", "text": text])
+                last["content"] = content
+                items[items.count - 1] = last
+            } else {
+                items.append(["role": "user", "content": [["type": "text", "text": text]]])
+            }
         case .openai: items.append(["type": "message", "role": "user", "content": [["type": "input_text", "text": text]]])
         }
     }
 
     /// The request body. `fallback`: Anthropic's server-side refusal fallback (needs the beta header from `headers`).
-    public func requestBody(model: AgentModel, system: String, tools: [AgentToolSpec], effort: String, maxTokens: Int = 16000) -> [String: Any] {
+    /// `stream`: Server-Sent Events (AgentStream); Anthropic tools then stream their arguments eagerly (validated by
+    /// Airc before a call runs) and the turn gets the streaming output cap.
+    public func requestBody(model: AgentModel, system: String, tools: [AgentToolSpec], effort: String, maxTokens: Int? = nil,
+                            stream: Bool = false) -> [String: Any] {
         switch provider {
         case .anthropic:
             var body: [String: Any] = [
-                "model": model.id, "max_tokens": maxTokens,
+                "model": model.id, "max_tokens": maxTokens ?? (stream ? 64000 : 16000),
                 "system": [["type": "text", "text": system]],
-                "tools": tools.map { ["name": $0.name, "description": $0.description, "input_schema": $0.schema] as [String: Any] },
+                "tools": tools.map { t -> [String: Any] in
+                    var d: [String: Any] = ["name": t.name, "description": t.description, "input_schema": t.schema]
+                    if stream { d["eager_input_streaming"] = true }
+                    return d
+                },
                 "messages": items,
                 "output_config": ["effort": effort],
                 // Stable tools + system first, so every turn reads the cache.
                 "cache_control": ["type": "ephemeral"],
             ]
             if model.refusalFallback { body["fallbacks"] = "default" }
+            if stream { body["stream"] = true }
             return body
         case .openai:
-            return [
+            var body: [String: Any] = [
                 "model": model.id, "instructions": system, "input": items, "store": false,
-                "include": ["reasoning.encrypted_content"], "reasoning": ["effort": effort], "max_output_tokens": maxTokens,
+                "include": ["reasoning.encrypted_content"], "reasoning": ["effort": effort], "max_output_tokens": maxTokens ?? 16000,
                 "tools": tools.map { ["type": "function", "name": $0.name, "description": $0.description, "parameters": $0.schema, "strict": false] as [String: Any] },
             ]
+            if stream { body["stream"] = true }
+            return body
         }
     }
 
@@ -135,14 +153,28 @@ public final class AgentConversation {
     /// Parses a successful answer and appends the model's output to the history, verbatim.
     public func absorb(_ data: Data) throws -> AgentTurn {
         guard let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { throw AgentWireError.notJSON }
+        return absorb(object: o)
+    }
+
+    /// A parsed answer (a streamed turn's rebuilt response, AgentStreamAssembler). `invalidInputs`: tool calls whose
+    /// streamed arguments weren't JSON; they are answered with an error instead of running.
+    public func absorb(object o: [String: Any], invalidInputs: [String: String] = [:]) -> AgentTurn {
         switch provider {
-        case .anthropic: return absorbAnthropic(o)
-        case .openai: return absorbOpenAI(o)
+        case .anthropic: return absorbAnthropic(o, invalidInputs)
+        case .openai: return absorbOpenAI(o, invalidInputs)
         }
     }
 
-    private func absorbAnthropic(_ o: [String: Any]) -> AgentTurn {
-        let content = o["content"] as? [[String: Any]] ?? []
+    /// The content to echo back. After a mid-output refusal fallback, the thinking and tool_use blocks before the last
+    /// `fallback` block are left out (the fallback block itself stays where it was), as the Messages API requires.
+    public static func echoContent(_ content: [[String: Any]]) -> [[String: Any]] {
+        guard let f = content.lastIndex(where: { $0["type"] as? String == "fallback" }) else { return content }
+        let dropped: Set<String> = ["thinking", "redacted_thinking", "tool_use", "server_tool_use"]
+        return content.enumerated().filter { i, b in i >= f || !dropped.contains(b["type"] as? String ?? "") }.map(\.element)
+    }
+
+    private func absorbAnthropic(_ o: [String: Any], _ invalid: [String: String]) -> AgentTurn {
+        let content = Self.echoContent(o["content"] as? [[String: Any]] ?? [])
         items.append(["role": "assistant", "content": content])
         var text: [String] = []
         var calls: [AgentToolCall] = []
@@ -151,8 +183,9 @@ public final class AgentConversation {
             case "text": if let t = b["text"] as? String { text.append(t) }
             case "tool_use":
                 let input = b["input"] as? [String: Any]
-                calls.append(AgentToolCall(id: b["id"] as? String ?? "", name: b["name"] as? String ?? "", input: input ?? [:],
-                                           inputError: input == nil ? "The arguments weren't a JSON object." : nil))
+                let id = b["id"] as? String ?? ""
+                let error = invalid[id].map(AgentStreamAssembler.invalidJSON) ?? (input == nil ? "The arguments weren't a JSON object." : nil)
+                calls.append(AgentToolCall(id: id, name: b["name"] as? String ?? "", input: input ?? [:], inputError: error))
             default: break
             }
         }
@@ -173,7 +206,7 @@ public final class AgentConversation {
         return AgentTurn(text: text.joined(separator: "\n"), calls: calls, stop: stop, usage: usage)
     }
 
-    private func absorbOpenAI(_ o: [String: Any]) -> AgentTurn {
+    private func absorbOpenAI(_ o: [String: Any], _ invalid: [String: String]) -> AgentTurn {
         let output = o["output"] as? [[String: Any]] ?? []
         items += output
         var text: [String] = []

@@ -48,6 +48,8 @@ if LaunchOptions.current.engine == "chromium" {
 if LaunchOptions.current.engine == "chromium" {
     FileHandle.standardError.write("Airc: this build has no Chromium engine (build with CHROMIUM_OUT set); using WebKit.\n".data(using: .utf8)!)
 }
+// linklaunch: the blocking rule lists the last launch used, looked up while the app starts (WebKitBlocking).
+WebKitBlocking.prefetchLaunchRules()
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate

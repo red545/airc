@@ -61,6 +61,14 @@ final class AgentPanelController: NSObject {
         panel.onEscape = { [weak self] in self?.escape() }
     }
 
+    /// The Command Bar's "Ask Airc to…" (or any caller): the task runs now if the agent is free, else it waits in the field.
+    func ask(_ text: String) {
+        let run = AgentRunCenter.shared
+        focus()
+        guard run.canSend, run.hasKey, let p = profile() else { look.draft = text; return }
+        run.ask(text, profileID: p.id, profileName: p.name)
+    }
+
     /// The Space's profile the agent acts in.
     func profile() -> (id: String, name: String)? {
         guard let c = controller else { return nil }
@@ -146,6 +154,19 @@ final class AgentPanelWindow: NSPanel {
 /// The panel's theme, the window's (it changes with the Space).
 final class AgentPanelLook: ObservableObject {
     @Published var theme: ResolvedTheme?
+    /// Text for the field from outside (the Command Bar's row while a task runs).
+    @Published var draft: String?
+}
+
+extension WindowController {
+    /// The Command Bar's "Ask Airc to…" row: only with a key saved (a cached answer, no Keychain read per keystroke).
+    var commandBarAgent: ((String) -> Void)? {
+        guard AgentModelSettings.shared.hasCurrentKey else { return nil }
+        return { [weak self] text in
+            guard let self else { return }
+            AgentPanelController.show(self).ask(text)
+        }
+    }
 }
 
 struct AgentPanelView: View {
@@ -155,6 +176,7 @@ struct AgentPanelView: View {
     @ObservedObject private var run = AgentRunCenter.shared
     @State private var text = ""
     @State private var settingsRev = 0
+    @State private var handoffNote: String?
     @Environment(\.aircTheme) private var envTheme
     private var theme: ResolvedTheme { look.theme ?? envTheme }
 
@@ -172,6 +194,11 @@ struct AgentPanelView: View {
                     LazyVStack(alignment: .leading, spacing: 10) {
                         if run.steps.isEmpty && run.hasKey { empty }
                         ForEach(run.steps) { StepRow(step: $0).id($0.id) }
+                        if !run.partial.isEmpty {
+                            // The answer as it streams in.
+                            Text(run.partial).aircFont(AircFont.body).foregroundStyle(theme.surfaceText.color)
+                                .fixedSize(horizontal: false, vertical: true).id("partial").testAnchor("agent.partial")
+                        }
                         if let a = run.approval { ApprovalCard(request: a).id("approval") }
                         Color.clear.frame(height: 1).id("bottom")
                     }
@@ -179,11 +206,16 @@ struct AgentPanelView: View {
                 }
                 .onChange(of: run.steps.count) { _, _ in withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom") } }
                 .onChange(of: run.approval) { _, _ in withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom") } }
+                .onChange(of: run.partial.count / 80) { _, _ in proxy.scrollTo("bottom") }
             }
             Divider().opacity(0.5)
             footer
         }
         .onReceive(NotificationCenter.default.publisher(for: AgentModelSettings.changed)) { _ in settingsRev += 1 }
+        .onReceive(look.$draft) { d in if let d { text = d; look.draft = nil } }
+        // Back from Settings › Agents (or Claude's own setup): the hand-off buttons read the configs again.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in if !run.hasKey { settingsRev += 1 } }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { _ in if !run.hasKey { settingsRev += 1 } }
         .testAnchor("agent.panel")
         .testAnchorRoot()
     }
@@ -226,17 +258,46 @@ struct AgentPanelView: View {
             Text("Connect your AI").aircFont(AircFont.title3).foregroundStyle(theme.surfaceText.color)
             Text("Add an Anthropic or OpenAI API key in Settings › AI › Agent. Requests go from this Mac to that provider, billed to your key.")
                 .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color).fixedSize(horizontal: false, vertical: true)
-            HStack {
-                Button("Open Settings") { (NSApp.delegate as? AppDelegate)?.showSettings(page: .ai) }.buttonStyle(.airc(.primary))
-                    .testAnchor("agent.connect")
-                if AgentHandoff.claudeInstalled {
-                    Button("Hand to Claude") { AgentHandoff.toClaude(text) }.buttonStyle(.airc(.secondary))
-                        .help("Copies your task and opens Claude, which can use Airc through its connector.")
-                }
-            }
+            Button("Open Settings") { (NSApp.delegate as? AppDelegate)?.showSettings(page: .ai) }.buttonStyle(.airc(.primary))
+                .testAnchor("agent.connect")
+            handoff
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 10).fill(theme.tileFill.color))
+    }
+
+    /// No key: the person's own Claude can do the task through Airc's connector (their app, their plan).
+    private var handoff: some View {
+        let targets = AgentHandoff.Target.allCases.filter(\.installed)
+        return VStack(alignment: .leading, spacing: 6) {
+            Divider().opacity(0.5).padding(.vertical, 2)
+            Text(targets.isEmpty ? "Or use Claude Desktop or Claude Code, which can use Airc once they're connected."
+                 : "Or hand this task to Claude. It uses Airc through its connector, with your Claude plan.")
+                .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color).fixedSize(horizontal: false, vertical: true)
+            ForEach(targets, id: \.self) { t in
+                let ready = AgentHandoff.isConnected(t)
+                HStack(spacing: 8) {
+                    Button(ready ? "Hand to \(t.name)" : "Connect \(t.name)…") {
+                        if ready { handoffNote = AgentHandoff.hand(text, to: t) } else { AgentHandoff.connect(t) }
+                    }
+                    .buttonStyle(.airc(.secondary))
+                    .disabled(ready && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .help(ready ? "Opens \(t.name) with your task in it." : "Set up Airc's connector in Settings › Agents first.")
+                    .testAnchor("agent.handoff.\(t.rawValue)")
+                    if !ready {
+                        Text("Not set up yet").aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextTertiary.color)
+                    }
+                }
+            }
+            if targets.isEmpty {
+                Button("Settings › Agents") { AgentHandoff.connect(nil) }.buttonStyle(.airc(.secondary)).testAnchor("agent.handoff.settings")
+            }
+            if let handoffNote {
+                Text(handoffNote).aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextSecondary.color)
+                    .fixedSize(horizontal: false, vertical: true).testAnchor("agent.handoff.note")
+            }
+        }
+        .id(settingsRev)
     }
 
     private var footer: some View {
@@ -244,7 +305,7 @@ struct AgentPanelView: View {
             if case .stopped(let why) = run.state, why.contains("limit") {
                 Button("Continue") { run.continueRun() }.buttonStyle(.airc(.secondary)).testAnchor("agent.continue")
             }
-            TextField("Ask Airc to…", text: $text, axis: .vertical)
+            TextField(run.hasKey ? "Ask Airc to…" : "Your task, to hand to Claude…", text: $text, axis: .vertical)
                 .textFieldStyle(.plain)
                 .aircFont(AircFont.body)
                 .lineLimit(1...6)
@@ -309,6 +370,20 @@ private struct StepRow: View {
             line("exclamationmark.circle.fill", step.text, nil, .red)
         case .info:
             line("info.circle", step.text, nil, theme.surfaceTextSecondary.color)
+        case .memory:
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                line("book.closed", step.text, step.detail, theme.surfaceTextSecondary.color)
+                Spacer(minLength: 4)
+                if step.memoryLine != nil {
+                    Button("Undo") { AgentRunCenter.shared.undoMemory(step.id) }
+                        .buttonStyle(.airc(.secondary, size: .small)).help("Remove this line from your Memory folder.")
+                        .testAnchor("agent.memory.undo")
+                } else if step.text.hasPrefix("Used memory") {
+                    Button("Show") { AgentMemoryUI.openFolder() }
+                        .buttonStyle(.airc(.secondary, size: .small)).help("Open the Memory folder in Finder.")
+                }
+            }
+            .testAnchor("agent.memory")
         }
     }
 
@@ -338,7 +413,7 @@ private struct ApprovalCard: View {
             }
             Text(request.risk.reason).aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("The agent waits for your answer. Watch it in the sidebar's Agents folder.")
+            Text("The agent waits for your answer, here or in Watch (the sidebar's Agents folder).")
                 .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextTertiary.color).fixedSize(horizontal: false, vertical: true)
             HStack {
                 Button("Deny") { AgentRunCenter.shared.answerApproval(allow: false) }.buttonStyle(.airc(.secondary)).testAnchor("agent.deny")
@@ -352,18 +427,25 @@ private struct ApprovalCard: View {
     }
 }
 
-/// "Hand to Claude": the person's own Claude app does the task through Airc's connector (their plan, their app).
-enum AgentHandoff {
-    static let claudeBundle = "com.anthropic.claudefordesktop"
-    static var claudeInstalled: Bool { NSWorkspace.shared.urlForApplication(withBundleIdentifier: claudeBundle) != nil }
+/// Settings › AI › Agent › Memory and the panel's Show: the Memory folder in Finder, and Clear.
+enum AgentMemoryUI {
+    static func openFolder() {
+        let folder = AgentModelSettings.shared.memoryStore.folder
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        NSWorkspace.shared.open(folder)
+    }
 
-    static func toClaude(_ task: String) {
-        let t = task.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !t.isEmpty {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString("Using Airc (the browser connector): " + t, forType: .string)
-        }
-        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: claudeBundle) else { return }
-        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+    /// Asks first; true if cleared.
+    @discardableResult
+    static func clear(in window: NSWindow?) -> Bool {
+        let a = NSAlert()
+        a.messageText = "Clear the Airc Agent's memory?"
+        a.informativeText = "Everything in the Memory folder (people, sites and dated notes) is deleted. This can't be undone."
+        a.addButton(withTitle: "Clear Memory")
+        a.addButton(withTitle: "Cancel")
+        a.buttons.first?.hasDestructiveAction = true
+        guard a.runModal() == .alertFirstButtonReturn else { return false }
+        AgentModelSettings.shared.memoryStore.clear()
+        return true
     }
 }

@@ -140,3 +140,32 @@ The persistent `suite/low-priority.json` records the first deferral and reason;
 starvation clock. Checkpoint validation, pinned revision, interrupted-case rerun
 and the 24-hour expiry remain unchanged. Changing the runner itself invalidates
 older checkpoints under the existing runner-SHA rule.
+
+## Link to paint (`linkpaint.py`)
+
+The signed build's window timeline (each release's `timeline.py`, modes `late` and `atlaunch`) times windows only. In
+0.1.18 a link opened while Airc was closed showed Little Airc in 0.8 s and painted its page at 5.3 s, and no gate saw
+it. `linkpaint.py` times the page itself, black-box, on any build (signed or test):
+
+    python3 infra/release/linkpaint.py --app NEW.app [--app PREVIOUS.app] --engine chromium|webkit \
+        --pages PAGES_DIR --out OUT_DIR [--runs 5] [--budget 1.0]
+
+- A loopback page with a paint beacon (infra/perf/arcbench_page.js, its first-contentful-paint) is handed to the app
+  through Launch Services while the app is closed, so the link launches Airc and opens Little Airc, as a link from
+  another app does. Times are seconds from the `open` call: window, page script, first paint.
+- Per app: one plain launch with a fresh data folder (stays until its blocking rules are compiled), then `--runs` link
+  launches with that data. **Gate:** median paint ≤ 1.0 s, no run over 2.0 s, every run painted, no new crash report.
+  One more link launch with a brand-new data folder (first launch ever) is reported, not gated: its rules are compiled
+  once before any page may load (WebKit ~4 s).
+- `--pages` is an arcbench mirror (pages.json + pNN/site); only the first page is used.
+- Each row also has `before_main_s` (process start → Airc's `main`, from the app's own LaunchTimeline) and the
+  verdict counts `slow_before_main` (> 0.5 s). On the build Mac about half the launches of a Chromium build spent
+  0.6–1.3 s there in Nov 2026, before any app code, with or without the fix (artifacts/linklaunch/REPORT.md); a FAIL
+  made only of such runs is the system's start, not a page wait, and the release report says which it was.
+- It's a timing run: inside the strict UI lock in a dedicated session, with status/timing-run declared by the
+  Linux coordinator; the load average is recorded per run. Exit 0 pass, 1 over budget or no paint, 2 setup error.
+
+Release order: run it on both engines next to `timeline.py late/atlaunch` on the signed stage, with the previous
+published build as the second `--app`. It isn't part of the fast gate (fast-gate.json, prepare-fast-gate.py and
+FastGateCheck.swift are unchanged, so fast-gate reuse is unaffected); a release states its verdict in the signed-build
+timeline section and stops on a FAIL like a window-timeline regression.

@@ -590,6 +590,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // LA-1: the sending app, while its Apple event is current. In native full screen, Little Arc opens over it, in
         // whatever order Launch Services activates Airc and hands over the link (LittleArcFullScreen.linkArrived).
         let sender = LinkLog.eventSenderPID()
+        LaunchTimeline.mark("link received")
         URLEventHandler.noteLaunchLink()
         let senderState = LinkLog.enabled ? LinkLog.senderState(sender) : ""
         for url in urls { LittleArcFullScreen.shared.linkArrived(from: sender, url: url) }
@@ -794,7 +795,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Cascaded from the screen's upper middle, as Arc places it.
         let n = CGFloat(littleArcs.count % 6) * 24
         let frame = NSRect(x: screen.midX - size.width / 2 + n, y: screen.maxY - size.height - 60 - n, width: size.width, height: size.height)
-        let l = LittleArcController(app: self, url: url, spaceID: sid, frame: frame, overFullScreen: fullScreenApp != nil)
+        // linklaunch: the process's first Little Airc page is made after its window is on screen.
+        var deferPage = !LittleArcController.madeFirstPage && littleArcsOpened == 0
+        #if AIRC_TESTING
+        if LinkLaunchBaseline.enabled { deferPage = false }
+        #endif
+        let l = LittleArcController(app: self, url: url, spaceID: sid, frame: frame, overFullScreen: fullScreenApp != nil,
+                                    deferPage: deferPage)
         Telemetry.shared.record(.featureUsed(.littleArcOpen(url == nil ? .shortcut : .link)))
         littleArcs.append(l)
         littleArcsOpened += 1
@@ -804,6 +811,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             LittleArcFullScreen.shared.shown(l, over: fullScreenApp)
         } else {
             bringForward(l.window)
+        }
+        if deferPage {
+            l.window.displayIfNeeded()
+            CATransaction.flush()
+            LaunchTimeline.mark("little airc window shown")
+            l.openDeferredPage()
         }
         return l
     }

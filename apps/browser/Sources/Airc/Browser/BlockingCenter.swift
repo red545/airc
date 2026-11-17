@@ -27,6 +27,13 @@ import AircKit
         var filter: BlockingFilter?
         var revision = 0
         var waiters: [() -> Void] = []
+        /// linklaunch: the profile's pages were let through once (its first rules are in force on every page kind).
+        var opened = false
+        /// The page script's cosmetic requests while the first filter compiles (`whenCosmeticsReady`).
+        var filterPending = false
+        var cosmeticWaiters: [() -> Void] = []
+        /// Ends the engine's hold on the profile's navigations for the first filter (WebKit: no cosmetics of its own).
+        var releaseCosmeticHold: (() -> Void)?
         init(_ profile: EngineProfile, id: String, isPrivate: Bool) {
             self.profile = profile; self.id = id
             privatePolicy = isPrivate ? PrivateBlockingPolicy() : nil
@@ -53,6 +60,14 @@ import AircKit
                     $0.enabled = app.options.script == "parityp20c-memory-on"
                     $0.selectedLists = ["easylist", "easyprivacy", "check-fixture"]
                 }
+            }
+        }
+        // launchtimeline: the launch's first install already has the fixture rules (with the defaults), so the check
+        // sees the launch's own gate protect its first pages, whatever the order of that install and the check's start.
+        if app.options.script == "launchtimeline" {
+            lists.installCheckRules(BlockingCheckFixtures.rules)
+            for id in app.store.orderedProfiles.map(\.id) {
+                settings.update(id) { $0.enabled = true; $0.selectedLists = ["easylist", "easyprivacy", "check-fixture"] }
             }
         }
         // Launch timeline comparisons (artifacts/fastlaunch): every profile without blocking.
@@ -208,15 +223,25 @@ import AircKit
     }
     func cosmeticsEnabled(for tab: EngineTab, url: String, isMainFrame: Bool) -> Bool {
         guard let context = contexts[ObjectIdentifier(tab.profile)],
-              context.filter != nil,
+              context.filter != nil || (context.opened && engineAnswersCosmetics),
               let topURL = isMainFrame ? URL(string: url) : tab.url else { return false }
         let config = settings.configuration(context.id)
         return context.privatePolicy?.enabled(for: topURL, regular: config) ?? config.blocks(topURL)
     }
+    /// Runs `block` once the tab's profile can answer cosmetic requests: at once, unless its first filter is still
+    /// compiling (linklaunch: pages no longer wait for it; their cosmetic requests do).
+    func whenCosmeticsReady(for tab: EngineTab, _ block: @escaping () -> Void) {
+        guard let context = contexts[ObjectIdentifier(tab.profile)], context.filter == nil, context.filterPending,
+              !(context.opened && engineAnswersCosmetics) else { return block() }
+        context.cosmeticWaiters.append(block)
+    }
+    /// Whether the engine answers cosmetic requests from its own installed rules (Chromium) while the filter compiles.
+    private var engineAnswersCosmetics: Bool { !baseline && blocking?.answersCosmetics == true }
     func selectors(for tab: EngineTab, url: String, tokens: String?, isMainFrame: Bool) -> [String] {
         guard cosmeticsEnabled(for: tab, url: url, isMainFrame: isMainFrame),
               let context = contexts[ObjectIdentifier(tab.profile)] else { return [] }
-        return context.filter?.cosmetics(url: url, tokens: tokens) ?? []
+        if let filter = context.filter { return filter.cosmetics(url: url, tokens: tokens) }
+        return blocking?.engineCosmetics(for: tab, url: url, tokens: tokens) ?? []
     }
     func blockers(profile id: String) -> [(id: String, name: String)] {
         guard let profile = app?.profiles.engineProfile(for: id) else { return [] }
@@ -291,6 +316,7 @@ import AircKit
         let digesting = LaunchTimeline.begin("blocking digest \(name)")
         let digest = BlockingListStore.digest(Data(text.utf8))
         digesting()
+        if context.filter == nil { context.filterPending = true }
         Task { @MainActor in
             // The engine compiles and installs its rules while the filter (cosmetics, the page script's selectors)
             // compiles here: at once, not one after the other. Both parse the same text with the same library.
@@ -302,10 +328,20 @@ import AircKit
             guard context.revision == revision else { return }
             guard contexts[ObjectIdentifier(profile)] === context else { finishApply(context, revision: revision); return }
             let configuring = LaunchTimeline.begin("blocking engine install \(name)")
+            // linklaunch: pages made before the first filter is ready (below) don't navigate until it is, so their first
+            // paint has its element hiding; an engine that answers cosmetics itself needs no hold.
+            if !context.opened, context.filter == nil, context.releaseCosmeticHold == nil, !engineAnswersCosmetics, !baseline {
+                context.releaseCosmeticHold = blocking.holdNavigationsForCosmetics(profile: profile)
+            }
+            // linklaunch: the profile's pages may load as soon as the engine has its rules in force for them (`ready`,
+            // or the install itself): they don't wait for this filter, only their cosmetic requests do.
             let ok = await withCheckedContinuation { resume in
-                blocking.configureBlocking(text: text, policy: policy, profile: profile) { resume.resume(returning: $0) }
+                blocking.configureBlocking(text: text, policy: policy, profile: profile, ready: { [weak self] in
+                    self?.letPagesLoad(context, revision: revision)
+                }) { resume.resume(returning: $0) }
             }
             configuring()
+            letPagesLoad(context, revision: revision)
             let filter: BlockingFilter
             do { filter = try await filterTask.value; filters[digest] = filter } catch {
                 compileStep()
@@ -322,6 +358,28 @@ import AircKit
     }
     private func finishApply(_ context: Context, revision: Int) {
         guard context.revision == revision else { return }
+        context.opened = true
+        let waiters = context.waiters; context.waiters.removeAll()
+        waiters.forEach { $0() }
+        context.filterPending = false
+        let cosmetic = context.cosmeticWaiters; context.cosmeticWaiters.removeAll()
+        cosmetic.forEach { $0() }
+        let release = context.releaseCosmeticHold; context.releaseCosmeticHold = nil
+        release?()
+    }
+    private var baseline: Bool {
+        #if AIRC_TESTING
+        return LinkLaunchBaseline.enabled
+        #else
+        return false
+        #endif
+    }
+    /// The first install of a profile: its pages (the profile gate's waiters) go ahead before the filter is done.
+    /// Later installs finish as before (their waiters reload pages and want every part in place).
+    private func letPagesLoad(_ context: Context, revision: Int) {
+        guard !baseline, context.revision == revision, !context.opened else { return }
+        context.opened = true
+        LaunchTimeline.mark("blocking pages may load \(profileName(context.id))")
         let waiters = context.waiters; context.waiters.removeAll()
         waiters.forEach { $0() }
     }

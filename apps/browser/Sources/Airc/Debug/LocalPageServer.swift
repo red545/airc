@@ -15,6 +15,12 @@ final class LocalPageServer {
         var data: Data?
         /// Seconds before the answer goes out (a slow server).
         var delay: TimeInterval = 0
+        /// A streamed answer (Server-Sent Events): chunked transfer, each chunk after its own delay instead of `body`.
+        var chunks: [(data: Data, after: TimeInterval)]?
+        /// With `chunks`: close the connection after the last one without ending the body (a dropped stream).
+        var dropAtEnd = false
+        /// With `chunks`, on the server queue: "complete", "dropped" or "client closed" (a send failed: the client went away).
+        var onStreamEnd: ((String) -> Void)?
     }
 
     /// Asked first for every request, on the server's queue: a page that changes from one request to the next (a
@@ -115,6 +121,7 @@ final class LocalPageServer {
     }
 
     private func send(_ page: Page, on connection: NWConnection) {
+        if let chunks = page.chunks { return stream(page, chunks, on: connection) }
         let bytes = page.data ?? Data(page.body.utf8)
         var headers = page.headers
         if !headers.keys.contains(where: { $0.lowercased() == "cache-control" }) { headers["Cache-Control"] = "no-store" }
@@ -123,6 +130,48 @@ final class LocalPageServer {
         let head = "HTTP/1.1 \(page.status)\r\n\(extra)"
             + "Content-Length: \(bytes.count)\r\nConnection: close\r\n\r\n"
         connection.send(content: Data(head.utf8) + bytes, completion: .contentProcessed { _ in connection.cancel() })
+    }
+
+    private func stream(_ page: Page, _ chunks: [(data: Data, after: TimeInterval)], on connection: NWConnection) {
+        var headers = page.headers
+        headers["Cache-Control"] = "no-store"
+        if !headers.keys.contains(where: { $0.lowercased() == "content-type" }) { headers["Content-Type"] = "text/event-stream" }
+        let extra = headers.map { "\($0.key): \($0.value)\r\n" }.sorted().joined()
+        let head = "HTTP/1.1 \(page.status)\r\n\(extra)Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n"
+        var rest = chunks[...]
+        var ended = false
+        func end(_ how: String) {
+            guard !ended else { return }
+            ended = true
+            page.onStreamEnd?(how)
+        }
+        func next() {
+            guard let c = rest.popFirst() else {
+                if page.dropAtEnd { end("dropped"); return connection.forceCancel() }
+                return connection.send(content: Data("0\r\n\r\n".utf8), completion: .contentProcessed { _ in end("complete"); connection.cancel() })
+            }
+            queue.asyncAfter(deadline: .now() + c.after) {
+                let framed = Data(String(c.data.count, radix: 16).utf8) + Data("\r\n".utf8) + c.data + Data("\r\n".utf8)
+                connection.send(content: framed, completion: .contentProcessed { error in
+                    if error != nil { end("client closed"); return connection.cancel() }
+                    next()
+                })
+            }
+        }
+        // A client that goes away mid-stream is seen at once, not only at the next send.
+        connection.stateUpdateHandler = { state in
+            switch state {
+            case .failed, .cancelled: if !rest.isEmpty || !ended { end("client closed") }
+            default: break
+            }
+        }
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 1) { _, _, complete, error in
+            if complete || error != nil { end("client closed"); connection.cancel() }
+        }
+        connection.send(content: Data(head.utf8), completion: .contentProcessed { error in
+            if error != nil { end("client closed"); return connection.cancel() }
+            next()
+        })
     }
 }
 #endif

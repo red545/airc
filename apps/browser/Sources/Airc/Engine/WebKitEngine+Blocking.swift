@@ -5,22 +5,39 @@ import AircKit
 
 extension WebKitEngine: EngineBlocking {
     func configureBlocking(text: String, policy: EngineBlockingPolicy, profile: EngineProfile,
-                           completion: @escaping (Bool) -> Void) {
+                           ready: (() -> Void)?, completion: @escaping (Bool) -> Void) {
         guard let profile = profile as? WebKitProfile else { return completion(false) }
         let current = BlockingInstallation.begin(profile)
+        // linklaunch: before the profile's first install its pages may already be made (WKWebView, web process: ~0.3 s
+        // of first-page work right after launch) while their navigations wait for these rules (WebKitBlocking holds).
+        var early = false
+        #if AIRC_TESTING
+        if !LinkLaunchBaseline.enabled { early = WebKitBlocking.holdNavigations(profile) }
+        #else
+        early = WebKitBlocking.holdNavigations(profile)
+        #endif
+        if early { ready?() }
         let wkStep = LaunchTimeline.begin("blocking webkit rules \(profile.directory)")
+        LinkLaunchBaseline.afterTestDelay {
         WebKitBlocking.prepare(text: text, policy: policy, privateSession: profile.privateSession) { prepared in
             wkStep()
-            guard current(), let prepared else { return completion(false) }
+            guard current() else { return completion(false) }
+            guard let prepared else { WebKitBlocking.releaseNavigations(profile); return completion(false) }
             let videoStep = LaunchTimeline.begin("blocking video scriptlets \(profile.directory)")
             WebKitBlocking.prepareVideo(text: text, prepared: prepared) { prepared in
                 videoStep()
-                guard current(), let prepared else { return completion(false) }
+                guard current() else { return completion(false) }
+                guard let prepared else { WebKitBlocking.releaseNavigations(profile); return completion(false) }
                 WebKitBlocking.install(prepared, profile: profile); completion(true)
             }
         }
+        }
     }
     func blockedRequests(in tab: EngineTab) -> Int? { (tab as? WebKitTab).flatMap(WebKitBlocking.count) }
+    func holdNavigationsForCosmetics(profile: EngineProfile) -> (() -> Void)? {
+        guard let profile = profile as? WebKitProfile, WebKitBlocking.holdNavigations(profile, reason: "cosmetics") else { return nil }
+        return { WebKitBlocking.releaseNavigations(profile, reason: "cosmetics") }
+    }
 }
 
 /// Disk caches contain only converted public lists, never site exceptions.
@@ -45,6 +62,46 @@ final class WebKitBlocking {
     }
     private static var profiles: [ObjectIdentifier: ProfileState] = [:]
     private static var pages: [ObjectIdentifier: PageState] = [:]
+    private final class Hold {
+        weak var profile: WebKitProfile?
+        var reasons: Set<String> = []
+        var waiters: [() -> Void] = []
+        init(_ profile: WebKitProfile) { self.profile = profile }
+    }
+    /// linklaunch: profiles whose pages may exist while their first rules (or the cosmetic filter their pages ask) are
+    /// still coming: right after launch, so the page and its web process start meanwhile. Their navigations wait here
+    /// (`whenNavigable`), never unprotected.
+    private static var holds: [ObjectIdentifier: Hold] = [:]
+
+    /// Holds the profile's navigations for `reason` until `releaseNavigations(_:reason:)` (or, for "rules", `install`).
+    /// Only before the profile's first install: an update keeps the previous rules in force until the new ones replace
+    /// them. Returns whether it holds.
+    @discardableResult
+    static func holdNavigations(_ profile: WebKitProfile, reason: String = "rules") -> Bool {
+        let id = ObjectIdentifier(profile)
+        holds = holds.filter { $0.value.profile != nil }
+        guard profiles[id]?.profile == nil else { return false }
+        let hold = holds[id] ?? Hold(profile)
+        hold.reasons.insert(reason); holds[id] = hold
+        return true
+    }
+    /// Ends `reason`'s hold (a failed preparation too: navigations then go ahead with whatever the profile has, as the
+    /// profile gate does on a failed install; BlockingCenter shows the failure).
+    static func releaseNavigations(_ profile: WebKitProfile, reason: String = "rules") {
+        let id = ObjectIdentifier(profile)
+        guard let hold = holds[id] else { return }
+        hold.reasons.remove(reason)
+        guard hold.reasons.isEmpty else { return }
+        holds.removeValue(forKey: id)
+        if !hold.waiters.isEmpty { LaunchTimeline.mark("webkit navigation released \(profile.directory)") }
+        hold.waiters.forEach { $0() }
+    }
+    /// Runs `block` once the profile's navigations may start: at once unless a hold is on.
+    static func whenNavigable(_ profile: WebKitProfile, _ block: @escaping () -> Void) {
+        guard let hold = holds[ObjectIdentifier(profile)], hold.profile != nil else { return block() }
+        if hold.waiters.isEmpty { LaunchTimeline.mark("webkit navigation held (\(hold.reasons.sorted().joined(separator: ", "))) \(profile.directory)") }
+        hold.waiters.append(block)
+    }
     private static let queue = DispatchQueue(label: "org.airc.blocking-converter", qos: .userInitiated)
     private enum Compilation { case rules(WKContentRuleList), empty, failed }
     private static var compiling: [String: [(Compilation) -> Void]] = [:]
@@ -68,12 +125,21 @@ final class WebKitBlocking {
             var result = prepared
             do {
                 if prepared.policy.enabled && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    let filter = try await SharedBlockingFilters.filter(text: text, digest: BlockingListStore.digest(Data(text.utf8)))
-                    let scripts = try await Task.detached(priority: .userInitiated) {
-                        Dictionary(uniqueKeysWithValues: sites.map {
-                            ($0, filter.scriptlet(url: "https://" + $0 + "/"))
-                        })
-                    }.value
+                    let digest = BlockingListStore.digest(Data(text.utf8))
+                    let scripts: [String: String]
+                    // linklaunch: the scriptlets depend only on the list text and the hosts, so they are kept on disk by
+                    // digest. A launch reads a few KB instead of compiling the whole adblock engine (~0.1–0.5 s).
+                    if let cached = await VideoScriptletCache.read(digest: digest, hosts: sites) {
+                        scripts = cached
+                    } else {
+                        let filter = try await SharedBlockingFilters.filter(text: text, digest: digest)
+                        scripts = try await Task.detached(priority: .userInitiated) {
+                            Dictionary(uniqueKeysWithValues: sites.map {
+                                ($0, filter.scriptlet(url: "https://" + $0 + "/"))
+                            })
+                        }.value
+                        VideoScriptletCache.write(scripts, digest: digest, hosts: sites)
+                    }
                     let branches = scripts.keys.sorted().filter { !prepared.policy.exceptions.contains($0) }.map { host in
                         "if (host === '\(host)') { \(scripts[host]!)\n }"
                     }.joined(separator: "\n")
@@ -115,10 +181,69 @@ final class WebKitBlocking {
     }
     /// `source`: the list text, compiled in a child process (BlockingRuleCompiler) when given; `makeJSON` is the
     /// in-process path (the small cookie rule, and the fallback when the child can't run).
+    // MARK: linklaunch: the last launch's rule lists, looked up as the process starts
+
+    /// A lookup maps and checks the compiled file (30+ MB for EasyList + EasyPrivacy): ~0.25 s before the first page
+    /// could load. The lists installed last time are looked up from `main` instead, while the app and engine start.
+    private static var prefetched: [String: WKContentRuleList] = [:]
+    private static var prefetching: [String: [(WKContentRuleList?) -> Void]] = [:]
+    private static var launchListsFile: URL {
+        AppPaths.dataDirectory.appendingPathComponent("Blocking/WebKit/launch-rule-lists.json")
+    }
+    private static var recordedLaunchLists: [String]?
+
+    /// From main.swift (the WebKit engine), right after the data folder is known. Unused results go after 60 s.
+    static func prefetchLaunchRules() {
+        #if AIRC_TESTING
+        if LinkLaunchBaseline.enabled { return }
+        #endif
+        guard let data = try? Data(contentsOf: launchListsFile),
+              let ids = try? JSONDecoder().decode([String].self, from: data) else { return }
+        recordedLaunchLists = ids
+        let directory = launchListsFile.deletingLastPathComponent()
+        guard !ids.isEmpty, let store = WKContentRuleListStore(url: directory) else { return }
+        for id in ids.prefix(4) where id.hasPrefix(prefix) && id != cookiesID && prefetching[id] == nil {
+            prefetching[id] = []
+            let step = LaunchTimeline.begin("blocking webkit prefetch")
+            store.lookUpContentRuleList(forIdentifier: id) { list, _ in
+                step()
+                let waiters = prefetching.removeValue(forKey: id) ?? []
+                if let list, waiters.isEmpty { prefetched[id] = list }
+                waiters.forEach { $0(list) }
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60) { prefetched.removeAll() }
+    }
+
+    /// Records the rule lists in use now, for the next launch's prefetch (only when they changed).
+    private static func recordLaunchLists() {
+        let ids = Array(Set(profiles.values.filter { $0.profile != nil }.compactMap { $0.prepared.ads?.identifier })).sorted()
+        if recordedLaunchLists == nil {   // the Chromium engine doesn't prefetch: what the file says now
+            recordedLaunchLists = (try? Data(contentsOf: launchListsFile)).flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
+        }
+        guard ids != recordedLaunchLists else { return }
+        recordedLaunchLists = ids
+        let file = launchListsFile
+        queue.async {
+            guard let data = try? JSONEncoder().encode(ids) else { return }
+            try? data.write(to: file, options: [.atomic])
+        }
+    }
+
     private static func compile(identifier: String, source: String? = nil, makeJSON: @escaping () throws -> Data,
                                 completion: @escaping (Compilation) -> Void) {
         if compiling[identifier] != nil { compiling[identifier]!.append(completion); return }
         compiling[identifier] = [completion]
+        if let list = prefetched.removeValue(forKey: identifier) { return finish(identifier, .rules(list)) }
+        if prefetching[identifier] != nil {
+            prefetching[identifier]!.append { list in
+                if let list { finish(identifier, .rules(list)) } else { lookUpOrCompile(identifier: identifier, source: source, makeJSON: makeJSON) }
+            }
+            return
+        }
+        lookUpOrCompile(identifier: identifier, source: source, makeJSON: makeJSON)
+    }
+    private static func lookUpOrCompile(identifier: String, source: String?, makeJSON: @escaping () throws -> Data) {
         let directory = AppPaths.dataDirectory.appendingPathComponent("Blocking/WebKit", isDirectory: true)
         do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) }
         catch { return finish(identifier, .failed) }
@@ -181,6 +306,8 @@ final class WebKitBlocking {
         if let ads = prepared.ads { profile.userContent.add(ads) }
         if let cookies = prepared.cookies { profile.userContent.add(cookies) }
         profiles[id] = ProfileState(profile, prepared)
+        releaseNavigations(profile)
+        if !profile.privateSession { recordLaunchLists() }
     }
     static func navigation(_ tab: WebKitTab, action: WKNavigationAction, preferences: WKWebpagePreferences) {
         guard preferences.responds(to: enableSelector),
@@ -207,6 +334,52 @@ final class WebKitBlocking {
         // Only WebKit-confirmed blocked loads. CSS hides and failed resource
         // loads are never used as estimates. No URL is retained.
         page(tab).count += 1
+    }
+}
+
+/// The YouTube scriptlets per list text (WebKitBlocking.prepareVideo), next to the compiled WebKit rule lists:
+/// Blocking/WebKit/scriptlets-<list digest>-<app build + hosts digest>.json, written atomically; the newest 8 are kept. A file that
+/// can't be read or doesn't match is ignored (the scriptlets are made again).
+enum VideoScriptletCache {
+    private static let queue = DispatchQueue(label: "org.airc.blocking-scriptlets", qos: .userInitiated)
+    private static var directory: URL { AppPaths.dataDirectory.appendingPathComponent("Blocking/WebKit", isDirectory: true) }
+    #if AIRC_TESTING
+    private static var disabled: Bool { LinkLaunchBaseline.enabled }
+    #else
+    private static let disabled = false
+    #endif
+    private static func file(digest: String, hosts: [String]) -> URL {
+        // The scriptlet resources ship with the app: another build makes them again.
+        let build = (Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "") + "/" + (Bundle.main.infoDictionary?["AircRevision"] as? String ?? "")
+        let key = BlockingListStore.digest(Data(([build] + hosts).joined(separator: "\n").utf8)).prefix(16)
+        return directory.appendingPathComponent("scriptlets-\(digest)-\(key).json")
+    }
+    static func read(digest: String, hosts: [String]) async -> [String: String]? {
+        guard !disabled else { return nil }
+        let url = file(digest: digest, hosts: hosts)
+        return await withCheckedContinuation { resume in
+            queue.async {
+                let value = (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode([String: String].self, from: $0) }
+                resume.resume(returning: value.flatMap { Set($0.keys) == Set(hosts) ? $0 : nil })
+            }
+        }
+    }
+    static func write(_ scripts: [String: String], digest: String, hosts: [String]) {
+        guard !disabled else { return }
+        let url = file(digest: digest, hosts: hosts), dir = directory
+        queue.async {
+            guard let data = try? JSONEncoder().encode(scripts) else { return }
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try? data.write(to: url, options: [.atomic])
+            let fm = FileManager.default
+            let old = ((try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [])
+                .filter { $0.lastPathComponent.hasPrefix("scriptlets-") }
+                .sorted { a, b in
+                    let d = { (u: URL) in (try? u.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast }
+                    return d(a) > d(b)
+                }
+            for u in old.dropFirst(8) where u != url { try? fm.removeItem(at: u) }
+        }
     }
 }
 

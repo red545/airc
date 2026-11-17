@@ -31,20 +31,24 @@ import Foundation
                     tokens = String(decoding: bytes, as: UTF8.self)
                 default: return
                 }
-                let selectors = center.selectors(for: tab, url: value, tokens: tokens, isMainFrame: message.isMainFrame)
-                let enabled = center.cosmeticsEnabled(for: tab, url: value, isMainFrame: message.isMainFrame)
-                #if AIRC_TESTING
-                if LaunchOptions.current.isScripted {
-                    checkMessages[enabled ? "enabled" : "disabled", default: 0] += 1
-                    checkMessages["selectors", default: 0] += selectors.count
-                }
-                #endif
-                guard let response = try? JSONSerialization.data(withJSONObject: ["token": token, "selectors": selectors, "enabled": enabled]),
-                      let json = String(data: response, encoding: .utf8) else { return }
-                if message.isMainFrame {
-                    _ = scripts.callDocument(tab, frame: message.frame, origin: message.origin, part: "blocking", kind: "apply", json: json)
-                } else {
-                    _ = scripts.callFrameDocument(tab, frame: message.frame, origin: message.origin, part: "blocking", kind: "apply", json: json)
+                // Right after launch the page can come before its profile's first filter: its answer waits for it.
+                center.whenCosmeticsReady(for: tab) { [weak center] in
+                    guard let center else { return }
+                    let selectors = center.selectors(for: tab, url: value, tokens: tokens, isMainFrame: message.isMainFrame)
+                    let enabled = center.cosmeticsEnabled(for: tab, url: value, isMainFrame: message.isMainFrame)
+                    #if AIRC_TESTING
+                    if LaunchOptions.current.isScripted {
+                        checkMessages[enabled ? "enabled" : "disabled", default: 0] += 1
+                        checkMessages["selectors", default: 0] += selectors.count
+                    }
+                    #endif
+                    guard let response = try? JSONSerialization.data(withJSONObject: ["token": token, "selectors": selectors, "enabled": enabled]),
+                          let json = String(data: response, encoding: .utf8) else { return }
+                    if message.isMainFrame {
+                        _ = scripts.callDocument(tab, frame: message.frame, origin: message.origin, part: "blocking", kind: "apply", json: json)
+                    } else {
+                        _ = scripts.callFrameDocument(tab, frame: message.frame, origin: message.origin, part: "blocking", kind: "apply", json: json)
+                    }
                 }
             }
         }

@@ -148,6 +148,10 @@ the empty field or Esc goes back to the plain bar; click the site's name for **S
 - Each profile has its own choice. Long questions are cut at 2,000 characters.
 - As of 2026-11-16, Claude's `claude.ai/new?q=` is known to put the prompt in a new chat's message field without
   sending it (not tried with an account).
+
+**Ask Airc to…** Once the Airc Agent has an API key (Settings › AI › Agent), a prompt also gets an **Ask Airc to…** row,
+right under the Ask row (or third when there's none). Return opens the Airc Agent panel (⌥⌘A) and starts the task there, in
+this window's profile. If the agent is busy, the task waits in the panel's field. Private windows don't get the row.
 - Tried on 2026-11-10, signed out: ChatGPT opens with the question in its message field, and Perplexity searches it
   straight away. Claude asks you to sign in first and keeps the question in the sign-in address; whether it's filled in after
   signing in wasn't checked (no account was used).

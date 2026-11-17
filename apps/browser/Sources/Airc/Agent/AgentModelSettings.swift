@@ -18,6 +18,8 @@ final class AgentModelSettings {
         var level: AgentLevel = .quick
         /// Sites (hosts) the agent never uses.
         var blockedSites: [String] = []
+        /// "Remember things between tasks" (docs/design/agent.md, "Memory"): off by default.
+        var memory = false
 
         init() {}
         init(from decoder: Decoder) throws {
@@ -27,6 +29,7 @@ final class AgentModelSettings {
             openaiModel = (try? c.decode(String.self, forKey: .openaiModel)) ?? AgentProvider.openai.defaultModel.id
             level = (try? c.decode(AgentLevel.self, forKey: .level)) ?? .quick
             blockedSites = (try? c.decode([String].self, forKey: .blockedSites)) ?? []
+            memory = (try? c.decode(Bool.self, forKey: .memory)) ?? false
         }
     }
 
@@ -46,11 +49,13 @@ final class AgentModelSettings {
     /// `--agent-model-key=<fixture key>` (memory only).
     func launch(automated: Bool) {
         inMemory = automated
+        hasKeyCache = nil
         #if AIRC_TESTING
         let args = CommandLine.arguments
         if let b = args.first(where: { $0.hasPrefix("--agent-model-base=") }) { baseOverride = String(b.dropFirst("--agent-model-base=".count)) }
         if let k = args.first(where: { $0.hasPrefix("--agent-model-key=") }) {
             inMemory = true
+            hasKeyCache = nil
             memoryKeys[values.provider] = String(k.dropFirst("--agent-model-key=".count))
         }
         #endif
@@ -69,6 +74,9 @@ final class AgentModelSettings {
         let id = values.provider == .anthropic ? values.anthropicModel : values.openaiModel
         return AgentModel.find(id).flatMap { $0.provider == values.provider ? $0 : nil } ?? values.provider.defaultModel
     }
+
+    /// The Memory folder (in the data folder: ~/Library/Application Support/Airc/Memory).
+    var memoryStore: AgentMemoryStore { AgentMemoryStore(folder: AppPaths.dataDirectory.appendingPathComponent("Memory", isDirectory: true)) }
 
     var baseURL: URL { URL(string: baseOverride ?? values.provider.defaultBase)! }
 
@@ -90,6 +98,15 @@ final class AgentModelSettings {
 
     func hasKey(_ p: AgentProvider) -> Bool { !(key(p) ?? "").isEmpty }
 
+    /// Whether the chosen provider has a key, cached (the Command Bar asks on every keystroke); refreshed on changes.
+    var hasCurrentKey: Bool {
+        if let c = hasKeyCache, c.provider == values.provider { return c.has }
+        let has = hasKey(values.provider)
+        hasKeyCache = (values.provider, has)
+        return has
+    }
+    private var hasKeyCache: (provider: AgentProvider, has: Bool)?
+
     /// "…a1b2": what Settings shows of a saved key.
     func keyHint(_ p: AgentProvider) -> String? { key(p).map { "…" + $0.suffix(4) } }
 
@@ -97,7 +114,8 @@ final class AgentModelSettings {
     @discardableResult
     func setKey(_ raw: String, for p: AgentProvider) -> Bool {
         let k = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        defer { NotificationCenter.default.post(name: Self.changed, object: self) }
+        hasKeyCache = nil
+        defer { hasKeyCache = nil; NotificationCenter.default.post(name: Self.changed, object: self) }
         if inMemory { memoryKeys[p] = k.isEmpty ? nil : k; return true }
         let match: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: Self.keychainService,
                                     kSecAttrAccount as String: p.rawValue]
@@ -116,6 +134,7 @@ final class AgentModelSettings {
     func setTestKey(_ key: String?, provider: AgentProvider, base: String?) {
         inMemory = true
         memoryKeys[provider] = key
+        hasKeyCache = nil
         baseOverride = base
         update { $0.provider = provider }
         NotificationCenter.default.post(name: Self.changed, object: self)

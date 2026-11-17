@@ -69,7 +69,7 @@ final class LittleArcController: NSObject, NSWindowDelegate {
     private var store: SpacesStore? { app?.store }
     private var main: WindowController? { app?.controller }
 
-    init(app: AppDelegate, url: URL?, spaceID: String, frame: NSRect, overFullScreen: Bool = false) {
+    init(app: AppDelegate, url: URL?, spaceID: String, frame: NSRect, overFullScreen: Bool = false, deferPage: Bool = false) {
         self.app = app
         self.spaceID = spaceID
         openedOverFullScreen = overFullScreen
@@ -92,8 +92,18 @@ final class LittleArcController: NSObject, NSWindowDelegate {
         engineWindow.delegate = self
         setUpWindow(frame: frame)
         app.promptCenter?.register(prompts)
-        open(url)
+        if deferPage { deferredURL = .some(url) } else { open(url) }
         scheduleArchive()
+    }
+
+    /// linklaunch: the launch's first page (its WKWebView or WebContents, ~0.1–0.3 s of first-page work on the main
+    /// thread) is made once the window is on screen (AppDelegate.openLittleArc), not before it.
+    private var deferredURL: URL??
+    static private(set) var madeFirstPage = false
+    func openDeferredPage() {
+        guard let url = deferredURL else { return }
+        deferredURL = nil
+        open(url)
     }
 
     /// The Spaces behaviour of an ordinary Little Arc window: it moves to the active Space when shown, and may sit over
@@ -297,6 +307,8 @@ final class LittleArcController: NSObject, NSWindowDelegate {
         waitingForProfile = false
         engineWindow.activeProfile = profile
         let p = engineWindow.openTab(url: url, profile: profile, foreground: true)
+        Self.madeFirstPage = true
+        LaunchTimeline.mark("little airc page opened")
         p.delegate = self
         page = p
         PageColorScheme.shared?.adopted(p, space: store?.space(spaceID) ?? store?.selectedSpace)

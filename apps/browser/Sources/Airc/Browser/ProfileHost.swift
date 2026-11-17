@@ -109,9 +109,22 @@ final class ProfileHost {
                 let blocks = self.waiting.removeValue(forKey: p.id) ?? []
                 blocks.forEach { $0(nil) }; return
             }
+            // linklaunch: the launch's first page's renderer (Chromium) starts now, while the window and the blocking
+            // rules get ready, instead of after them (~0.1–0.2 s of a link's way to its first paint). Its first
+            // navigation takes it; WebKit has none.
+            if !Self.warmedLaunchRenderer {
+                Self.warmedLaunchRenderer = true
+                #if AIRC_TESTING
+                if !LinkLaunchBaseline.enabled { e.warmSpareRenderer() }
+                #else
+                e.warmSpareRenderer()
+                #endif
+            }
             self.finishLoading(e, id: p.id)
         }
     }
+
+    private static var warmedLaunchRenderer = false
 
     private func finishLoading(_ e: EngineProfile, id: String) {
         let gate = LaunchTimeline.begin("profile gate \(store.profile(id)?.name ?? id)")

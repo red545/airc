@@ -10,25 +10,37 @@ screen. Your own windows and tabs stay as they are. While an app is connected, A
 ## Ask Airc (the Airc Agent)
 
 You can also ask Airc itself. Press **⌥⌘A** (or **View › Airc Agent**) and a panel opens on the right of the window. Type
-what you want done, like "find the cheapest train to Graz on Friday and fill in the booking form", and press Return.
+what you want done, like "find the cheapest train to Graz on Friday and fill in the booking form", and press Return. Or
+type it in the Command Bar and pick **Ask Airc to…**.
 The agent works in an agent window of the profile your current Space uses, so your signed-in sites work. You see each
 step in the panel as it happens, and the run shows in the sidebar's **Agents** folder as "Airc Agent", where **Watch**,
 **Take over** and **Stop** work as they do for other apps.
 
 - **Your own AI.** The agent uses your own Anthropic or OpenAI account: add an API key in **Settings › AI › Agent** and
   pick a model (Claude Opus 5.5 by default). The key stays in your Keychain. Your task, the pages the agent reads and its
-  screenshots go from your Mac to that provider, billed to your key; nothing goes through Airc's servers. If you'd
-  rather use your Claude plan, **Hand to Claude** copies the task and opens Claude Desktop, which can use Airc through the
-  connector below.
+  screenshots go from your Mac to that provider, billed to your key; nothing goes through Airc's servers. Answers stream
+  in as they're written.
+- **Or hand it to Claude.** Without a key, the panel offers **Hand to Claude Desktop** and **Hand to Claude Code**, which
+  use your Claude plan and drive Airc through the connector below. If the connector isn't set up in that app yet, the
+  button reads **Connect…** and opens Settings › Agents first. Once it is, Claude Desktop opens a new chat with your task
+  filled in (it's also on the clipboard, in case), and Claude Code starts in Terminal with your task as its first prompt.
 - **It asks before risky actions.** Before anything that looks like paying, sending a message or email, posting,
-  deleting or changing your account, the agent stops and shows a card: **Allow Once** or **Deny** (Esc). Deny ends the
-  task. Every answer stays in the panel's list.
+  deleting or changing your account, the agent stops and shows a card: **Allow Once** or **Deny** (Esc). The same card
+  shows in **Watch** when you're watching the agent's page; answer it in either place. Deny ends the task. Every answer
+  stays in the panel's list.
 - **Quick or Keep going.** Quick stops after 25 steps or 3 minutes; Keep going runs up to 200 steps or 30 minutes. When a
   limit is reached, **Continue** gives it another round. The panel shows steps, tokens and an estimated cost. **Stop**
   (or Esc, or ⌘.) ends a task at once.
 - **Pages can't give it orders.** What a page says is never an instruction. When a page contains text aimed at an AI
   agent, the panel shows "The page asked the agent to: …", and the agent doesn't follow it.
 - **Never use these sites.** Sites listed in Settings › AI › Agent stop the agent before it acts there.
+- **Memory (off by default).** Turn on **Settings › AI › Agent › Memory** and the agent keeps short notes between tasks:
+  `people.md`, `sites.md` and dated `notes/<date>.md` in `~/Library/Application Support/Airc/Memory`, plain Markdown you
+  can open (**Open Folder**) and edit. At the start of a task it reads them (they go to your AI provider with the task);
+  after a task the panel lists what it used and each line it wrote, with **Undo**. It never keeps passwords, card or
+  account numbers, one-time codes, keys, anything typed into a password or code field, or text copied from a page while
+  it showed one; those lines are refused. Notes are facts, never instructions: a note that tells the agent to do
+  something is ignored. **Clear…** deletes them all.
 - The agent never sees saved passwords, cookies or private windows; it signs in with **fill_saved_login** like any app.
 
 ## Setting it up

@@ -2,6 +2,7 @@
 import AircDesign
 import AircKit
 import AppKit
+import Combine
 import SwiftUI
 
 /// Watch (docs/user/agents.md): an agent tab's page, live and read-only, over this window's page card. The agent window
@@ -40,6 +41,8 @@ final class AgentWatchView: NSView {
     private let overlay = AgentWatchModel()
     private var host: AircFirstClickHostingView<AgentWatchOverlay>?
     private var token: UUID?
+    /// The Airc Agent's approval card, mirrored from the panel while this row is its run's (AgentRunCenter.approval).
+    private var approvalSub: AnyCancellable?
     private var running = false
     private var inFlight = false
     private var pageSize = CGSize(width: 1280, height: 800)
@@ -123,6 +126,7 @@ final class AgentWatchView: NSView {
         c.card.addSubview(self, positioned: .above, relativeTo: nil)
         update(row: row, state: AgentActivity.shared.model.state(row, now: Date()))
         token = AgentActivity.shared.watch(rowID) { [weak self] e in self?.handle(e) }
+        approvalSub = AgentRunCenter.shared.$approval.sink { [weak self] a in self?.syncApproval(a) }
         previousResponder = c.window.firstResponder
         if takeKeys { c.window.makeFirstResponder(self) }
         running = true
@@ -134,6 +138,7 @@ final class AgentWatchView: NSView {
 
     func stop() {
         running = false
+        approvalSub = nil
         removeLive()
         if let token { AgentActivity.shared.unwatch(rowID, token) }
         token = nil
@@ -149,8 +154,8 @@ final class AgentWatchView: NSView {
         overlay.icon = AgentCenter.shared.windows[row.window]?.tab(row.tab)?.favicon
         overlay.live = row.isLive
         switch state {
-        case .acting(let c): overlay.acting = true; overlay.caption = c ?? "Working…"
-        case .idle: overlay.acting = false; overlay.caption = "Waiting for \(row.client)"
+        case .acting(let c): overlay.acting = true; overlay.caption = overlay.approval != nil ? "Waiting for your OK" : (c ?? "Working…")
+        case .idle: overlay.acting = false; overlay.caption = overlay.approval != nil ? "Waiting for your OK" : "Waiting for \(row.client)"
         case .justEnded(let end), .faded(let end, _):
             overlay.acting = false
             switch end {
@@ -380,10 +385,34 @@ final class AgentWatchView: NSView {
     override func otherMouseDown(with event: NSEvent) {}
     override func scrollWheel(with event: NSEvent) {}
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 { controller?.sidebar.agents.closeWatch() }   // Esc
+        if event.keyCode == 53 { escape() }   // Esc
     }
     override func keyUp(with event: NSEvent) {}
-    override func cancelOperation(_ sender: Any?) { controller?.sidebar.agents.closeWatch() }
+    override func cancelOperation(_ sender: Any?) { escape() }
+
+    /// Esc declines a waiting approval (as in the panel), else closes Watch.
+    private func escape() {
+        if overlay.approval != nil { return answerApproval(allow: false) }
+        controller?.sidebar.agents.closeWatch()
+    }
+
+    // MARK: The approval card (the panel's, mirrored)
+
+    /// The run's approval, shown here while this row is the Airc Agent run's own window; answering here or in the panel
+    /// resolves both (one request, AgentRunCenter.answerApproval).
+    private func syncApproval(_ a: AgentApprovalRequest?) {
+        let run = AgentRunCenter.shared
+        let row = AgentActivity.shared.model.row(rowID)
+        let mine = row?.clientKey == AgentBridge.clientKey && row?.window != nil && row?.window == run.runWindowID
+        let shown = mine ? a : nil
+        guard overlay.approval != shown else { return }
+        overlay.approval = shown
+        if let row { update(row: row, state: AgentActivity.shared.model.state(row, now: Date())) }
+        if shown != nil { NSAccessibility.post(element: self, notification: .layoutChanged) }
+    }
+
+    func answerApproval(allow: Bool) { AgentRunCenter.shared.answerApproval(allow: allow) }
+    var approvalShown: Bool { overlay.approval != nil }
 
     // MARK: The bar's actions
 
@@ -400,6 +429,7 @@ final class AgentWatchModel: ObservableObject {
     @Published var live = true
     @Published var icon: NSImage?
     @Published var theme = DesignTheme.default.resolved(systemIsDark: false)
+    @Published var approval: AgentApprovalRequest?
     weak var view: AgentWatchView?
 }
 
@@ -412,6 +442,11 @@ struct AgentWatchOverlay: View {
         VStack(spacing: 0) {
             bar
             Spacer(minLength: 0)
+            if let a = model.approval {
+                AgentWatchApprovalCard(request: a, theme: theme, answer: { model.view?.answerApproval(allow: $0) })
+                    .padding(.bottom, 10)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
             if let caption = model.caption {
                 HStack(spacing: 8) {
                     if model.live {
@@ -475,5 +510,36 @@ struct AgentWatchOverlay: View {
         }
         .padding(.horizontal, AgentWatchView.inset)
         .frame(height: AgentWatchView.barHeight)
+    }
+}
+
+/// The Airc Agent's approval card on Watch: the panel's card (same request, same answer), so the person can say yes or no
+/// while watching. Nothing is pre-selected; Esc declines.
+private struct AgentWatchApprovalCard: View {
+    let request: AgentApprovalRequest
+    let theme: ResolvedTheme
+    let answer: (Bool) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "hand.raised.fill").foregroundStyle(.orange)
+                Text(request.title).aircFont(AircFont.title3).foregroundStyle(theme.surfaceText.color)
+            }
+            Text(request.risk.reason).aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Deny") { answer(false) }.buttonStyle(.airc(.secondary)).testAnchor("agentwatch-deny")
+                Button("Allow Once") { answer(true) }.buttonStyle(.airc(.secondary)).testAnchor("agentwatch-allow")
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: 420, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(theme.surface.color).shadow(color: .black.opacity(0.2), radius: 10, y: 3))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.orange.opacity(0.45)))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(request.title) \(request.risk.reason)")
+        .testAnchor("agentwatch-approval")
     }
 }

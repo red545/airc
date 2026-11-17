@@ -91,6 +91,14 @@ extension SnapshotRunner {
                 note("cbperf: Ask AI \(ask) (\(c.commandBarAskAI?.name ?? "none"))")
             }
         }
+        // agentpanel2's A/B: AIRC_CBPERF_AGENT=on|off gives the Airc Agent a fixture key (memory only) or none, so one arm
+        // builds the "Ask Airc to…" row on the prompts and the other doesn't.
+        if let agent = env["AIRC_CBPERF_AGENT"] {
+            run { [self] in
+                AgentModelSettings.shared.setTestKey(agent == "on" ? "airc-fixture-cbperf-key" : nil, provider: .anthropic, base: "http://127.0.0.1:9")
+                note("cbperf: Ask Airc \(agent) (\(c.commandBarAgent == nil ? "no row" : "row"))")
+            }
+        }
         for text in queries {
             step { [self] done in
                 guard let bar = c.commandBar else {

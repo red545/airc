@@ -40,9 +40,10 @@ extension SnapshotRunner {
         let profileID = c.currentProfileID
         let name = app.store.profile(profileID)?.name ?? profileID
         let readyAtStart = app.profiles.isReady(profileID)
+        // linklaunch: a profile is "ready" as soon as its pages may be made; their requests wait for the rules (the
+        // engine's navigation hold), so readiness no longer orders against the window. Protection is asserted below on
+        // the requests themselves.
         runner.note("launchtimeline: engine \(app.engine.name); the profile was \(readyAtStart ? "" : "not ")ready when the window was up")
-        // A cold launch compiles the default lists; the window must not have waited for that.
-        check(!readyAtStart, "the window is up before its profile's blocking rules are ready (a cold launch)")
 
         // While any profile isn't ready, no page of it exists (nothing loads unprotected).
         var unprotected: [String] = []
@@ -65,9 +66,12 @@ extension SnapshotRunner {
         }
         guard let server, port != 0 else { check(false, "loopback server listening"); watcher.invalidate(); return }
         var requested: Set<String> = []   // server queue only
+        var firstPageRequest: Double?     // LaunchTimeline ms of the fixture page's first request
         let lock = NSLock()
         server.handler = { path in
-            lock.lock(); requested.insert(path); lock.unlock()
+            lock.lock(); requested.insert(path)
+            if path == "/", firstPageRequest == nil { firstPageRequest = LaunchTimeline.now() }
+            lock.unlock()
             switch path {
             case "/": return .init(body: """
                 <!doctype html><meta charset='utf-8'><title>Launch fixture</title>
@@ -106,13 +110,27 @@ extension SnapshotRunner {
         }
         let shown = await wait(seconds: 60) { self.c.engineTab(for: row.id) != nil }
         check(shown, "the picked tab gets its page once the profile is ready")
-        check(rulesIn, "the fixture rules were installed before the page was created")
+        let installed = await wait(seconds: 30) { rulesIn }
+        check(installed, "the fixture rules were installed")
         guard shown, let tab = c.engineTab(for: row.id) else { watcher.invalidate(); server.stop(); return }
         let loaded = await wait(seconds: 20) { await self.evaluate(tab, "document.documentElement.dataset.fixtureDone") as? String != nil && !tab.isLoading }
         let done = await evaluate(tab, "document.documentElement.dataset.fixtureDone") as? String
         check(loaded && done == "yes", "the profile's first page loads with its third-party ad script blocked (\(done ?? "not loaded"))")
-        lock.lock(); let adRequested = requested.contains("/ads.js"); lock.unlock()
+        lock.lock(); let adRequested = requested.contains("/ads.js"); let pageAt = firstPageRequest; lock.unlock()
         check(!adRequested, "the blocked ad script never reached the network")
+        // The page's first request came after the engine had the fixture rules in force for it (the last install's end
+        // on the engine side; Chromium's lists, or WebKit's rules and its first filter).
+        let inForce = LaunchTimeline.all.compactMap { e -> Double? in
+            if e.name.hasPrefix("blocking chromium ready") || e.name.hasPrefix("webkit navigation released") { return e.start }
+            return e.name.hasPrefix("blocking engine install") ? e.end : nil
+        }.min()
+        if let pageAt, let inForce {
+            check(pageAt >= inForce, String(format: "the page's first request (%.0f ms) came after its rules were in force (%.0f ms)", pageAt, inForce))
+        } else if pageAt == nil {
+            check(false, "the fixture page was requested")
+        } else {
+            runner.note("launchtimeline: no hold mark (the page was made after the rules were in force)")
+        }
         // The site's own cosmetic rule (localhost##.sponsor): EasyList's loopback generichide exception keeps generic
         // ones off here, as parityp20c asserts.
         let hidden = await wait(seconds: 5) { await self.evaluate(tab, "getComputedStyle(document.querySelector('.sponsor')).display === 'none'") as? Bool == true }
@@ -137,8 +155,9 @@ extension SnapshotRunner {
         let t = LaunchTimeline.self
         let window = t.first("window on screen"), interactive = t.first("interactive"), ready = t.first("profile ready \(name)")
         runner.note("launch timeline:\n" + t.text)
-        if let window, let ready { check(window < ready, String(format: "window on screen (%.0f ms) before the profile is ready (%.0f ms)", window, ready)) }
-        else { check(false, "the timeline has the window and the profile's ready mark") }
+        if let window, let ready {
+            runner.note(String(format: "launchtimeline: window on screen %.0f ms, profile ready (pages may be made) %.0f ms", window, ready))
+        } else { check(false, "the timeline has the window and the profile's ready mark") }
         let budget: Double = chromium ? 1000 : 500
         if let interactive, let main = t.first("main") {
             // What Airc's code takes: from main.swift on. Before it is the system's part (dyld, the signature check of
