@@ -1,15 +1,24 @@
-# Airc 0.1.25 public beta
+# Airc 0.1.26 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.88.
-This update makes every launch quick: macOS no longer holds Airc up before it starts on about every other launch. It
-includes everything from 0.1.24. The release manifest records the exact build, source and checksums.
+This update gives search suggestions from the search engines you imported, and keeps the Command Bar's first
+keystroke fast. It includes everything from 0.1.25. The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.24
+## New since 0.1.25
+
+- **Search suggestions from your imported search engines.** Search engines you brought over from Arc, Chrome or Brave
+  now suggest as you type in the Command Bar, like the built-in ones: your imported default, and one of your imported
+  shortcuts once you've picked it with Tab. They follow the same switches, Settings › Privacy and the profile's
+  "Include search engine suggestions". In private windows they don't suggest.
+- **"New ChatGPT Message" from the second letter.** The Command Bar now shows the "New ChatGPT Message" command (or
+  "Ask Claude…" and "Ask Perplexity…") from the second letter you type, which keeps the first keystroke fast.
+
+## Included from 0.1.25
 
 - **Every launch is quick now.** About every other launch used to wait up to a second inside macOS before Airc even
   started, so a link from another app could take close to two seconds to show. That wait is gone with the Chromium
@@ -345,8 +354,6 @@ includes everything from 0.1.24. The release manifest records the exact build, s
 - On pages that use Chromium, the link menu item reads "Open link in Space" with a small "l"; a later update
   matches the rest of the menu.
 
-- Imported search engines that Airc doesn't list (custom defaults and your shortcuts) don't give search suggestions yet.
-
 - An Easel added from a link is a copy of your own, not a live shared Easel as in Arc: later changes to the original don't reach it.
 
 - Slack's mention badge depends on Slack's page title, so it can be missed if Slack changes how its title marks mentions.
@@ -393,3 +400,5 @@ Source: `c2069afac928d5467d218b4e4b5b28fcf557addb`. Build: `202611170206`. Chann
 Source: `ef878a1ef0f67d52c0ec1c67cf22352116bb9e9a`. Build: `202611170359`. Channel: stable.
 
 Source: `0a5f5855b0ad09fc32b134c3471ed81b17f0453e`. Build: `202611170628`. Channel: stable.
+
+Source: `d19d7715733c04a3055fa2e3013eaa11eb41af1b`. Build: `202611170915`. Channel: stable.

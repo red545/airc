@@ -1,6 +1,7 @@
 // Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
 import Foundation
 import WebKit
+import Compression
 import AircKit
 
 extension WebKitEngine: EngineBlocking {
@@ -266,9 +267,7 @@ final class WebKitBlocking {
                 }
             }
         }
-        store.lookUpContentRuleList(forIdentifier: identifier) { list, _ in
-            if let list { return finish(identifier, .rules(list)) }
-            guard let source else { return inProcess() }
+        func compileInChild(_ source: String) {
             BlockingRuleCompiler.compile(text: source, identifier: identifier, directory: directory) { outcome in
                 switch outcome {
                 case .compiled:
@@ -280,6 +279,24 @@ final class WebKitBlocking {
                 // Not compiled there (an invalid list, or no child): the previous path decides, so the result is the
                 // same as before either way.
                 case .failed, .unavailable: inProcess()
+                }
+            }
+        }
+        store.lookUpContentRuleList(forIdentifier: identifier) { list, _ in
+            if let list { return finish(identifier, .rules(list)) }
+            guard let source else { return inProcess() }
+            // wkrules: the app's own default lists come compiled with the app (first launch ever); anything else, or a
+            // bundled copy this WebKit can't read, is compiled as before.
+            BundledRuleLists.install(identifier: identifier, into: directory) { installed in
+                guard installed else { return compileInChild(source) }
+                store.lookUpContentRuleList(forIdentifier: identifier) { list, _ in
+                    if let list {
+                        LaunchTimeline.mark("blocking webkit bundled rules in use")
+                        return finish(identifier, .rules(list))
+                    }
+                    LaunchTimeline.mark("blocking webkit bundled rules rejected")
+                    BundledRuleLists.reject(identifier: identifier, in: directory)
+                    compileInChild(source)
                 }
             }
         }
@@ -334,6 +351,86 @@ final class WebKitBlocking {
         // Only WebKit-confirmed blocked loads. CSS hides and failed resource
         // loads are never used as estimates. No URL is retained.
         page(tab).count += 1
+    }
+}
+
+/// wkrules: the default lists (the bundled EasyList + EasyPrivacy seeds, as a fresh profile selects them) compiled into a
+/// WKContentRuleList at build time (scripts/build-app.sh, `precompile_rules`), so the first launch ever looks the list up
+/// (~0.3 s) instead of compiling it (~4.4 s) before any page may load. Contents/Resources/BlockingRules holds
+/// `rules.json` ({"lists": [{"identifier", "file", "size", "webkitFileVersion"}]}) and each list's WebKit store file,
+/// LZFSE-compressed (37.7 → 15.8 MB, 0.05 s to expand).
+///
+/// The file is expanded into the data folder's store under WebKit's own file name, then looked up there like any
+/// compiled list, so the next launch's prefetch and every later list update work as before (an update has another
+/// identifier: it compiles in the child, with the previous rules in force). A WebKit that can't read it (another
+/// rule-list format version, after a macOS update) fails the lookup: the file is removed and the list compiled as before.
+enum BundledRuleLists {
+    private struct Manifest: Decodable {
+        struct List: Decodable { let identifier: String; let file: String; let size: Int }
+        let lists: [List]
+    }
+    private static let queue = DispatchQueue(label: "org.airc.blocking-bundled-rules", qos: .userInitiated)
+    private static var folder: URL? { Bundle.main.resourceURL?.appendingPathComponent("BlockingRules", isDirectory: true) }
+    private static var disabled: Bool {
+        #if AIRC_TESTING
+        // Before/after on one test binary (artifacts/wkrules): AIRC_WKRULES_BASELINE=1 compiles as 0.1.24 did.
+        return ProcessInfo.processInfo.environment["AIRC_WKRULES_BASELINE"] == "1"
+        #else
+        return false
+        #endif
+    }
+    private static func storeFile(_ identifier: String, in directory: URL) -> URL {
+        directory.appendingPathComponent("ContentRuleList-" + identifier)
+    }
+
+    /// Expands the bundled compiled list for `identifier` into the store at `directory` (off the main thread);
+    /// `completion(true)` on the main queue once it is there, false when the app has none for it (or it can't be written).
+    static func install(identifier: String, into directory: URL, completion: @escaping (Bool) -> Void) {
+        guard !disabled, let folder, identifier.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" }) else { return completion(false) }
+        let step = LaunchTimeline.begin("blocking webkit bundled rules")
+        queue.async {
+            let ok = expand(identifier: identifier, folder: folder, directory: directory)
+            DispatchQueue.main.async { step(); completion(ok) }
+        }
+    }
+    static func reject(identifier: String, in directory: URL) {
+        try? FileManager.default.removeItem(at: storeFile(identifier, in: directory))
+    }
+
+    private final class Count { var bytes = 0 }
+    private static func expand(identifier: String, folder: URL, directory: URL) -> Bool {
+        guard let data = try? Data(contentsOf: folder.appendingPathComponent("rules.json")),
+              let manifest = try? JSONDecoder().decode(Manifest.self, from: data),
+              let entry = manifest.lists.first(where: { $0.identifier == identifier }),
+              !entry.file.contains("/") else { return false }
+        let fm = FileManager.default
+        let target = storeFile(identifier, in: directory)
+        let temporary = directory.appendingPathComponent(".bundled-\(UUID().uuidString)")
+        do {
+            // Mapped, and expanded in 1 MB pieces straight to the file: no 38 MB buffer in this process.
+            let input = try Data(contentsOf: folder.appendingPathComponent(entry.file), options: .alwaysMapped)
+            guard fm.createFile(atPath: temporary.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { return false }
+            let output = try FileHandle(forWritingTo: temporary)
+            let count = Count()
+            let filter = try OutputFilter(.decompress, using: .lzfse, bufferCapacity: 1 << 20) { piece in
+                guard let piece else { return }
+                try output.write(contentsOf: piece); count.bytes += piece.count
+            }
+            var offset = input.startIndex
+            while offset < input.endIndex {
+                let end = min(offset + (1 << 20), input.endIndex)
+                try filter.write(input[offset..<end]); offset = end
+            }
+            try filter.finalize()
+            try output.close()
+            guard count.bytes == entry.size else { try? fm.removeItem(at: temporary); return false }
+            if fm.fileExists(atPath: target.path) { try fm.removeItem(at: target) }
+            try fm.moveItem(at: temporary, to: target)
+            return true
+        } catch {
+            try? fm.removeItem(at: temporary)
+            return false
+        }
     }
 }
 

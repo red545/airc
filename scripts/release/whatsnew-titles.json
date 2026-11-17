@@ -251,5 +251,16 @@
     "title": "Every launch is quick",
     "detail": "About every other launch used to wait up to a second inside macOS before Airc started, so a link from another app could take almost two seconds. That wait is gone with the Chromium engine, the default.",
     "action": "none"
+  },
+  "Search suggestions from your imported search engines": {
+    "title": "Imported engines suggest",
+    "detail": "Search engines you brought over from Arc, Chrome or Brave now suggest as you type after ⌘T, like the built-in ones: your default, and a shortcut once you pick it with Tab. Not in private windows; turn suggestions off in Settings › Privacy.",
+    "action": "commandBar",
+    "image": null
+  },
+  "\"New ChatGPT Message\" from the second letter": {
+    "title": "Ask command from 2 letters",
+    "detail": "The Command Bar now shows \"New ChatGPT Message\" (or \"Ask Claude…\") from the second letter you type, so your first keystroke after ⌘T stays fast.",
+    "action": "commandBar"
   }
 }

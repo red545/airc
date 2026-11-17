@@ -9,7 +9,7 @@
 // makes untrue, a Coming row it delivers); `from` shows a row only then. Previews show the state after the newest
 // release. `shot` names a file in src/assets/screens (scripts/sync-screenshots.mjs).
 
-export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "0.1.18" | "0.1.19" | "0.1.20" | "0.1.21" | "0.1.22" | "0.1.23" | "0.1.24" | "0.1.25" | "next" | "coming";
+export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "0.1.18" | "0.1.19" | "0.1.20" | "0.1.21" | "0.1.22" | "0.1.23" | "0.1.24" | "0.1.25" | "0.1.26" | "next" | "coming";
 
 export interface Feature {
   title: string;
@@ -183,6 +183,7 @@ export const groups: Group[] = [
       { title: "Your default search", line: "Make any saved site search the profile's default in Settings → Site Search, and the Command Bar uses it for ordinary searches too.", since: "0.1.4" },
       { title: "Your search engine", line: "Each profile picks its own: Google, Bing, DuckDuckGo, Ecosia, Brave, Yahoo, Startpage, Perplexity or Kagi, with Arc's per-profile switch for search suggestions. Right-click selected text to search it there.", since: "0.1.6", shot: "settings-profiles-search" },
       { title: "Your engines, imported", line: "Importing from Arc, Chrome or Brave brings each profile's default search engine and the shortcuts you made, so \"yt\", Tab still searches YouTube.", since: "0.1.11" },
+      { title: "Imported engines suggest", line: "A search engine or shortcut you imported suggests as you type, like the built-in ones, with the same switches. Not in private windows.", since: "0.1.26" },
       { title: "Real icons, and sites you can trust", line: "Every site in ⌘T shows its own icon, or its first letter on its own colour, and each row says what it is. The Chrome Web Store, Google's apps, GitHub and Apple Support get a check mark from Airc's own list, never a look-alike address.", since: "0.1.5" },
     ],
   },

@@ -183,6 +183,9 @@ bundle() {   # bundle APP BIN [chromium]
   fi
   "$ROOT/scripts/release/copy-licenses.sh" "$app" "$CHROMIUM_OUT"
   python3 "$ROOT/scripts/bundle-blocking-lists.py" "$app"
+  # wkrules: the default lists' WebKit rule list, compiled once per build (precompile_rules below), so a first launch
+  # ever needn't compile it before its first page loads.
+  rm -rf "$app/Contents/Resources/BlockingRules" && cp -R "$RULES_STORE" "$app/Contents/Resources/BlockingRules"
   cp "$ROOT/apps/browser/Resources/Info.plist" "$app/Contents/Info.plist"
   # The app icon (assets/brand/README.md): Info.plist names it with CFBundleIconFile = AppIcon.
   cp "$ROOT/assets/brand/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
@@ -300,6 +303,13 @@ echo "== swift build ($CONFIG, WebKit)"
 swift_build --package-path "$ROOT/apps/browser" -c "$CONFIG" ${WEBKIT_SCRATCH[@]+"${WEBKIT_SCRATCH[@]}"} "${BLOCKING_MODULE[@]}" "${BLOCKING_LINK[@]}" \
   ${TESTING_FLAGS[@]+"${TESTING_FLAGS[@]}"} ${SPARKLE_FLAGS[@]+"${SPARKLE_FLAGS[@]}"} \
   || { echo "build failed" >&2; exit 1; }
+# wkrules: compile the default blocking lists with the app's own compile child (scripts/precompile-blocking-rules.py;
+# cached by lists, converter and WebKit version), for both bundles.
+RULES_STORE="$ROOT/build/blocking/rules-store"
+echo "== blocking: precompiled WebKit rule list"
+python3 "$ROOT/scripts/precompile-blocking-rules.py" "$(swift build --package-path "$ROOT/apps/browser" -c "$CONFIG" \
+  ${WEBKIT_SCRATCH[@]+"${WEBKIT_SCRATCH[@]}"} ${SPARKLE_FLAGS[@]+"${SPARKLE_FLAGS[@]}"} --show-bin-path)/Airc" "$RULES_STORE" \
+  || { echo "rule list precompile failed" >&2; exit 1; }
 APP="$ROOT/build/Airc.app"
 bundle "$APP" "$(swift build --package-path "$ROOT/apps/browser" -c "$CONFIG" ${WEBKIT_SCRATCH[@]+"${WEBKIT_SCRATCH[@]}"} \
   ${SPARKLE_FLAGS[@]+"${SPARKLE_FLAGS[@]}"} --show-bin-path)/Airc"
