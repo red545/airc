@@ -370,11 +370,34 @@ public enum InlineCompletion {
 /// Search suggestions from the profile's search engine (CB-1). The app fetches them; parsing lives here so it can
 /// be tested.
 public enum SearchSuggestions {
+    /// Where suggestions come from: a built-in engine, or a site search with its own endpoint (an imported engine's
+    /// `suggest_url`, C08) while it's the profile's default or the search in progress.
+    public enum Source: Hashable, Sendable {
+        case engine(SearchEngine)
+        case site(SiteSearch)
+
+        /// What a cache of answers is kept under: two sources never share answers.
+        public var cacheKey: String {
+            switch self {
+            case .engine(let e): "engine:" + e.rawValue
+            case .site(let s): "site:" + (s.suggestTemplate ?? "")
+            }
+        }
+    }
+
     /// The endpoint for an engine's suggestions (OpenSearch "suggestions" JSON), or nil if it has none.
     public static func url(for query: String, engine: SearchEngine) -> URL? {
         let q = SearchEngine.encode(query)
         guard !q.isEmpty else { return nil }
         return URL(string: SearchEngineStandIn.route(engine.suggestBase) + q)
+    }
+
+    /// The endpoint for `source`'s suggestions; nil for an empty query or a site without one.
+    public static func url(for query: String, source: Source) -> URL? {
+        switch source {
+        case .engine(let e): url(for: query, engine: e)
+        case .site(let s): s.suggestionURL(for: query)
+        }
     }
 
     /// Parses OpenSearch suggestions: `["query", ["s1", "s2", …], …]`. Drops the query itself and blanks.

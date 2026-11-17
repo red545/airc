@@ -12,11 +12,14 @@ public struct SearchEngineImport: Equatable, Sendable {
         public var keyword: String
         /// The search page with `%s` (or Chrome's `{searchTerms}`).
         public var template: String
+        /// Its suggestion endpoint, the same way (Chromium's `suggest_url`); nil or one that isn't https: none.
+        public var suggest: String?
 
-        public init(name: String, keyword: String, template: String) {
+        public init(name: String, keyword: String, template: String, suggest: String? = nil) {
             self.name = name
             self.keyword = keyword
             self.template = template
+            self.suggest = suggest
         }
     }
 
@@ -103,24 +106,41 @@ extension SiteSearchSettings {
     private mutating func merge(_ e: SearchEngineImport.Entry, into profileID: String) -> Merge {
         guard case .success(let template) = SiteSearchTemplate.normalize(e.template), template.hasPrefix("https://") else { return .skipped }
         let list = searches(for: profileID)
-        if let same = list.first(where: { $0.template == template }) { return .existing(same) }
+        let suggest = e.suggest.flatMap(SiteSearchTemplate.suggestion)
+        if let same = list.first(where: { $0.template == template }) {
+            // What an earlier import added takes the source's suggestion endpoint now; a site of Airc's or the user's
+            // stays as it is.
+            guard same.id.hasPrefix(SearchEngineImport.idPrefix), suggest != nil, same.suggestTemplate != suggest else { return .existing(same) }
+            return .updated(setSuggest(suggest, of: same.id, in: profileID) ?? same)
+        }
         let k = e.keyword.trimmingCharacters(in: .whitespacesAndNewlines)
         if let taken = list.first(where: { $0.keyword.lowercased() == k.lowercased() }) {
             guard taken.id.hasPrefix(SearchEngineImport.idPrefix) else {
                 // Airc's own entry for the same site (its seeded YouTube for Arc's "yt") is the same search.
                 return taken.host != nil && taken.host == SiteSearchTemplate.host(of: template) ? .existing(taken) : .skipped
             }
-            if case .success(let s) = update(taken.id, name: e.name, keyword: k, template: template, in: profileID) { return .updated(s) }
+            if case .success(let s) = update(taken.id, name: e.name, keyword: k, template: template, in: profileID) {
+                return .updated(setSuggest(suggest, of: s.id, in: profileID) ?? s)
+            }
             return .skipped
         }
         guard case .success(var s) = check(name: e.name, keyword: k, template: template, for: profileID) else { return .skipped }
         s.id = SearchEngineImport.idPrefix + k.lowercased()
+        s.suggestTemplate = suggest
         if list.contains(where: { $0.id == s.id }) { s.id += "." + UUID().uuidString.prefix(8) }
         let added = s
         var p = profiles[profileID] ?? ProfileSearches(searches: Self.defaults)
         p.searches.append(added)
         profiles[profileID] = p
         return .added(added)
+    }
+
+    /// Sets an imported site's suggestion endpoint; the site as it is now.
+    private mutating func setSuggest(_ suggest: String?, of id: String, in profileID: String) -> SiteSearch? {
+        guard var p = profiles[profileID], let i = p.searches.firstIndex(where: { $0.id == id }) else { return nil }
+        p.searches[i].suggestTemplate = suggest
+        profiles[profileID] = p
+        return p.searches[i]
     }
 
     /// A shortcut for a default that had none: the site's name ("example" for search.example.com), then "example2"….

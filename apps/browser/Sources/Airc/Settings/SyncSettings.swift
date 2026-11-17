@@ -27,6 +27,10 @@ struct SyncSettingsPage: View {
                                   subtitle: "Appearance, shortcuts, Site Search, links, blocking and more. The latest change wins.",
                                   isOn: Binding(get: { sync.isEnabled && sync.syncsSettings }, set: { sync.setSyncsSettings($0) }))
                         .disabled(!sync.isEnabled)
+                    AircToggleRow("Sync Boosts",
+                                  subtitle: "Colours, fonts, zaps and CSS. A Boost's code runs on another Mac only after you allow it there.",
+                                  isOn: Binding(get: { sync.isEnabled && sync.syncsBoosts }, set: { sync.setSyncsBoosts($0) }))
+                        .disabled(!sync.isEnabled)
                 }
             }
             if sync.isAvailable, sync.isEnabled || stopped {
@@ -71,14 +75,17 @@ struct SyncSettingsPage: View {
                 SyncListRow(symbol: "star", title: "Favorites", detail: "Each profile's, at the top of the sidebar.")
                 SyncListRow(symbol: "person.2", title: "Profile names",
                             detail: "So a Space finds its profile on your other Mac. A profile new to a Mac starts there empty.")
+                SyncListRow(symbol: "paintbrush.pointed", title: "Boosts",
+                            detail: "Each site's Boost, on or off. Its JavaScript waits on each Mac until you allow it there, with one click naming the Mac you allowed it on.")
                 SyncListRow(symbol: "gearshape", title: "Settings",
                             detail: "The ones you've changed: appearance, sidebar side, shortcuts, Command Bar and Site Search, links and Little Airc, Archive timing, AI, blocking and privacy. If you change one on two Macs, the later change wins.")
             }
             SettingsSection(title: "Never synced", help: "Each Mac signs in to sites in its own profiles; sync never copies logins or cookies.") {
-                SyncListRow(symbol: "clock", title: "Today tabs and the Archive", detail: "What's open stays on each Mac.")
+                SyncListRow(symbol: "clock", title: "Today tabs and the Archive",
+                            detail: "What's open stays on each Mac. A pinned tab you unpin keeps its archive timer on your other Macs.")
                 SyncListRow(symbol: "key", title: "History, passwords, cookies and logins", detail: nil)
                 SyncListRow(symbol: "eye.slash", title: "Private windows and Little Airc", detail: nil)
-                SyncListRow(symbol: "paintbrush.pointed", title: "Boosts, Today splits and window layout", detail: "Nor which tab or Space you're on.")
+                SyncListRow(symbol: "rectangle.split.2x1", title: "Today splits and window layout", detail: "Nor which tab or Space you're on.")
                 SyncListRow(symbol: "desktopcomputer", title: "This Mac's own settings",
                             detail: "Backup and Library folders, Developer Mode, memory, calendars, default browser, extensions, and agent and app approvals.")
             }

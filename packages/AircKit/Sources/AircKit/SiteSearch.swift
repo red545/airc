@@ -12,12 +12,35 @@ public struct SiteSearch: Codable, Hashable, Sendable, Identifiable {
     public var keyword: String
     /// The search page with `%s` in place of the query.
     public var template: String
+    /// The site's suggestion endpoint with `%s` for the query (OpenSearch suggestions JSON), https only; nil for a site
+    /// without one. Only an import sets it (Chromium's `suggest_url`, C08); the Command Bar asks it while the site is the
+    /// profile's default or the search in progress, under the same rules as the built-in engines' suggestions.
+    public var suggestTemplate: String?
 
-    public init(id: String = UUID().uuidString, name: String, keyword: String, template: String) {
+    public init(id: String = UUID().uuidString, name: String, keyword: String, template: String, suggestTemplate: String? = nil) {
         self.id = id
         self.name = name
         self.keyword = keyword
         self.template = template
+        self.suggestTemplate = suggestTemplate.flatMap(SiteSearchTemplate.suggestion)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        keyword = try c.decode(String.self, forKey: .keyword)
+        template = try c.decode(String.self, forKey: .template)
+        // A suggestion address that isn't one (a hand edit, a newer build's) is dropped, not the site.
+        suggestTemplate = (try? c.decodeIfPresent(String.self, forKey: .suggestTemplate))?.flatMap(SiteSearchTemplate.suggestion)
+    }
+
+    /// The suggestion endpoint for `query` (trimmed); nil without one or for an empty query. Test builds' loopback
+    /// stand-in (`SearchEngineStandIn`) takes it as it takes the built-in engines'.
+    public func suggestionURL(for query: String) -> URL? {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty, let t = suggestTemplate, let u = SiteSearchTemplate.expand(t, with: q) else { return nil }
+        return URL(string: SearchEngineStandIn.route(u))
     }
 
     /// The page that searches for `query` (trimmed), encoded as Chromium does for its search engines; nil for an empty
@@ -114,6 +137,13 @@ public enum SiteSearchTemplate {
               s.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "+-.".contains($0)) }) else { return nil }
         if t[t.index(after: colon)...].first?.isNumber == true { return nil }
         return s.lowercased()
+    }
+
+    /// A suggestion endpoint as it's kept, or nil: a template `normalize` accepts that is https (what's typed goes there
+    /// on every key, so never in the clear).
+    public static func suggestion(_ input: String) -> String? {
+        guard case .success(let t) = normalize(input), t.hasPrefix("https://") else { return nil }
+        return t
     }
 
     public static func isValid(_ template: String) -> Bool {
@@ -300,7 +330,13 @@ public struct SiteSearchSettings: Codable, Equatable, Sendable {
         guard searches(for: profileID).contains(where: { $0.id == id }) else {
             return .failure(.init(field: .name, message: "That site was removed."))
         }
-        let r = check(name: name, keyword: keyword, template: template, for: profileID, editing: id)
+        // An edit in Settings keeps the site's suggestion endpoint (Chrome's edit dialog has no field for it either).
+        let kept = searches(for: profileID).first { $0.id == id }?.suggestTemplate
+        let r = check(name: name, keyword: keyword, template: template, for: profileID, editing: id).map { s -> SiteSearch in
+            var s = s
+            s.suggestTemplate = kept
+            return s
+        }
         if case .success(let s) = r { change(profileID) { list in list = list.map { $0.id == id ? s : $0 } } }
         return r
     }

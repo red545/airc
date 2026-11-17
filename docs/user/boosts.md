@@ -1,7 +1,7 @@
 # Boosts
 
 A Boost changes how one website looks for you, every time you visit it: a softer color, a darker page, a font you
-like, without the parts you never want to see. Like Arc's Boosts, without an account: they stay on your Mac.
+like, without the parts you never want to see. Like Arc's Boosts, without an account: they stay on your Macs.
 
 ## Make one
 
@@ -52,8 +52,10 @@ editor does the same, and **Delete** removes the Boost.
 
 ## Privacy and safety
 
-- Boosts are stored in `Boosts.json` in Airc's data folder, readable only by you. They're never synced or sent
-  anywhere, and the usage data never names a site, its style or its code (see [telemetry.md](telemetry.md)).
+- Boosts are stored in `Boosts.json` in Airc's data folder, readable only by you. With [iCloud sync](sync.md) on, they
+  also go to your other Macs, end-to-end encrypted in your own iCloud; never anywhere else. Their code runs on another
+  Mac only after you allow it there. The usage data never names a site, its style or its code (see
+  [telemetry.md](telemetry.md)).
 - Only code you save in the editor or explicitly install after reviewing a shared file runs. Airc never downloads Boost code. (Arc's Boosts lived on Arc's server,
   which once let other people run code in Arc users' browsers.)
 - Your JavaScript is sent only to pages of its own site, and runs only where the page's address is exactly the one the

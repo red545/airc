@@ -20,10 +20,16 @@ extension WindowController {
 
     func refreshCommandBarAskAI() { AskAIAutomatic.refresh(app, profileID: store.profile(ofSpace: currentSpaceID).id) }
 
-    /// Arc's "New ChatGPT Message": the Command Bar, asking the profile's chat site.
+    static func askAICommandTitle(_ p: AskAIProvider) -> String { p == .chatGPT ? "New ChatGPT Message" : "Ask \(p.name)…" }
+
+    /// The command's candidate id (CommandIndex's "action:" + title); nil while asking is off.
+    var askAICommandID: String? { commandBarAskAI.map { "action:" + Self.askAICommandTitle($0) } }
+
+    /// Arc's "New ChatGPT Message": the Command Bar, asking the profile's chat site. The bar offers it from the second
+    /// letter typed (`composeCommandResults`), so the first key never builds its row.
     func askAICommandActions() -> [CommandAction] {
         guard let p = commandBarAskAI else { return [] }
-        let title = p == .chatGPT ? "New ChatGPT Message" : "Ask \(p.name)…"
+        let title = Self.askAICommandTitle(p)
         return [.init(title: title, symbol: "bubble.left.and.text.bubble.right", hint: "",
                       keywords: ["ask", "ai", "chat", "gpt", "chatgpt", p.name.lowercased(), "question", "message"]) { [weak self] in
             self?.startAskAI()

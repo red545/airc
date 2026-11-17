@@ -2,7 +2,8 @@
 
 Airc can keep your sidebar and your settings the same on your Macs: **Settings → Sync → Sync Spaces, pinned tabs, notes
 and Favorites with iCloud**. It's off until you turn it on. Both Macs need the same Apple Account, with iCloud and iCloud
-Keychain on. While it's on, **Sync settings** (on by default) keeps your settings the same too.
+Keychain on. While it's on, **Sync settings** (on by default) keeps your settings the same too, and **Sync Boosts** (on by
+default) your [Boosts](boosts.md).
 
 ## What syncs, and what never does
 
@@ -12,7 +13,7 @@ order, name, icon, and whether they're side by side or stacked, with their sizes
 Space finds its profile on the other Mac.
 
 Never synced: Today tabs, their [folders](sidebar.md), splits in Today and the Archive, history, passwords, cookies and
-logins, private windows and Little Airc windows, Boosts, Easels, and which tab, pane or Space you're on. A note only in Today
+logins, private windows and Little Airc windows, Easels, and which tab, pane or Space you're on. A note only in Today
 stays on this Mac. Each Mac signs in to sites in its own profiles. A profile that's new to a Mac starts there empty:
 sign in to its sites once.
 
@@ -53,6 +54,25 @@ on your member card, which profile Little Airc remembers for a site, and everyth
   catches up by the same rule.
 - Older versions of Airc don't get synced settings until they're updated, and say "Some changes can't be read here" until
   then.
+
+## Boosts
+
+With **Sync Boosts** on, a Boost you make, change, switch on or off, or delete on one Mac does the same on your other
+Macs: its colors, font and size, zaps, CSS and name show on the site at once.
+
+A Boost's **JavaScript** never runs on a Mac just because it synced. On your other Mac it waits until you allow it there:
+open the Boost (Site Controls says **Its code waits for you**) and the editor asks **Run this code here too?**, naming
+the Mac where you allowed it. **Show Code** shows it; **Run on This Mac** runs it from then on. If no Mac says you
+allowed the code, the editor shows the full warning and lets you run it only after you've looked at the code. Code you
+allowed stays allowed when the Boost's style changes elsewhere; if the code itself changes on another Mac, this Mac asks
+again. If you edit the same Boost on two Macs, the one you changed last wins. A Boost made by an earlier test build for a
+shared address (see [Boosts](boosts.md)) stays on its Mac until you choose its site.
+
+## Archive timing
+
+Today tabs stay on each Mac, and so does their archive timer. When you unpin a pinned tab on one Mac, its open page on
+your other Macs becomes a Today tab too, and its timer counts from the last time you used it on any of them, not only
+on that Mac, so a tab you just used elsewhere isn't archived early.
 
 ## Encryption
 

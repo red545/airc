@@ -13,6 +13,9 @@ public struct ImportedSearchEngine: Codable, Sendable, Equatable {
     /// AircKit's `SearchEngine` raw value ("duckDuckGo") when this is one of the picker's engines, matched by Chromium's
     /// prepopulate_id or by host and path.
     public var known: String?
+    /// Its suggestion endpoint (`suggest_url`) with `%s` for the query, checked as `template` is; nil when it has none, it
+    /// isn't safe to keep, or this is a picker engine (Airc asks the picker's engines at its own addresses).
+    public var suggest: String? = nil
 }
 
 /// A profile's search engines: its default and the shortcuts the user made. Chromium's prepopulated engines that aren't
@@ -153,7 +156,11 @@ public enum ChromiumSearchEngines {
         }
         guard let t = template(raw, prepopulated: prepopulateID > 0) else { return nil }
         let fallback = URLComponents(string: t.replacingOccurrences(of: "%s", with: "x"))?.host ?? "Search"
-        return ImportedSearchEngine(name: name.isEmpty ? fallback : name, keyword: keyword, template: t, known: nil)
+        // Suggestions only from where a query may go: an https endpoint with the query outside its host.
+        // (`Web Data` calls it suggest_url; the saved default in Preferences, suggestions_url.)
+        let rawSuggest = r.string("suggest_url").isEmpty ? r.string("suggestions_url") : r.string("suggest_url")
+        let suggest = template(rawSuggest, prepopulated: prepopulateID > 0)
+        return ImportedSearchEngine(name: name.isEmpty ? fallback : name, keyword: keyword, template: t, known: nil, suggest: suggest)
     }
 
     /// The picker engine whose results page `raw` is, if any.

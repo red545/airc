@@ -34,7 +34,7 @@ final class SearchEngineTests: XCTestCase, @unchecked Sendable {
 
     struct K {
         var id: Int, name: String, keyword: String, url: String
-        var safe = 0, prepopulate = 0, guid: String? = nil, active = 1, starter = 0, policy = 0
+        var safe = 0, prepopulate = 0, guid: String? = nil, active = 1, starter = 0, policy = 0, suggest = ""
     }
 
     static func insert(_ k: K) -> String {
@@ -43,7 +43,7 @@ final class SearchEngineTests: XCTestCase, @unchecked Sendable {
             INSERT INTO keywords(id, short_name, keyword, favicon_url, url, safe_for_autoreplace, prepopulate_id, sync_guid,
               is_active, starter_pack_id, created_by_policy, suggest_url)
             VALUES(\(k.id), \(q(k.name)), \(q(k.keyword)), '', \(q(k.url)), \(k.safe), \(k.prepopulate), \(q(k.guid ?? "guid-\(k.id)")),
-              \(k.active), \(k.starter), \(k.policy), '');
+              \(k.active), \(k.starter), \(k.policy), \(q(k.suggest)));
             """
     }
 
@@ -118,6 +118,51 @@ final class SearchEngineTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(e.defaultEngine?.keyword, "ws")
         XCTAssertEqual(e.defaultEngine?.template, "https://wiki.example.org/w/index.php?search=%s&ie=UTF-8")
         XCTAssertEqual(e.custom.map(\.keyword), ["vs", "act"], "the default isn't listed twice")
+    }
+
+    // MARK: Suggestion endpoints (cbfixes)
+
+    func testSuggestURLsComeAlong() throws {
+        try webData([
+            K(id: 1, name: "Sample Search", keyword: "ss", url: "https://search.example.com/find?q={searchTerms}", guid: "d",
+              suggest: "https://suggest.example.com/complete?q={searchTerms}&ie={inputEncoding}"),
+            K(id: 2, name: "Video Sample", keyword: "vs", url: "https://video.example.com/results?search_query={searchTerms}",
+              suggest: "https://video.example.com/sugg/{searchTerms}"),
+            K(id: 3, name: "No Suggest", keyword: "ns", url: "https://none.example.com/?q={searchTerms}"),
+            // Not kept: in the clear, a script, the query in the host, a placeholder Airc can't fill.
+            K(id: 4, name: "Plain", keyword: "pl", url: "https://plain.example.com/?q={searchTerms}", suggest: "http://plain.example.com/s?q={searchTerms}"),
+            K(id: 5, name: "Script", keyword: "sc", url: "https://script.example.com/?q={searchTerms}", suggest: "javascript:alert('{searchTerms}')"),
+            K(id: 6, name: "Host", keyword: "ho", url: "https://host.example.com/?q={searchTerms}", suggest: "https://{searchTerms}.example.com/"),
+            K(id: 7, name: "Other", keyword: "ot", url: "https://other.example.com/?q={searchTerms}", suggest: "https://other.example.com/s?q={searchTerms}&c={google:clientName}"),
+            // A picker engine's own copy isn't used: Airc asks DuckDuckGo at its own address.
+            K(id: 8, name: "DuckDuckGo", keyword: "duckduckgo.com", url: "https://duckduckgo.com/?q={searchTerms}", safe: 1, prepopulate: 92,
+              suggest: "https://duckduckgo.com/ac/?q={searchTerms}&type=list"),
+        ])
+        try preferences(["default_search_provider": ["guid": "d"]])
+        let e = try XCTUnwrap(try read())
+        XCTAssertEqual(e.defaultEngine?.suggest, "https://suggest.example.com/complete?q=%s&ie=UTF-8")
+        let byKey = Dictionary(uniqueKeysWithValues: e.custom.map { ($0.keyword, $0.suggest) })
+        XCTAssertEqual(byKey["vs"], .some("https://video.example.com/sugg/%s"))
+        for k in ["ns", "pl", "sc", "ho", "ot"] { XCTAssertEqual(byKey[k], .some(nil), k) }
+        XCTAssertNil(byKey["duckduckgo.com"], "a prepopulated engine that isn't the default stays out")
+    }
+
+    func testPickerDefaultHasNoSuggestEndpoint() throws {
+        try webData([K(id: 1, name: "DuckDuckGo", keyword: "duckduckgo.com", url: "https://duckduckgo.com/?q={searchTerms}", safe: 1,
+                       prepopulate: 92, guid: "d", suggest: "https://duckduckgo.com/ac/?q={searchTerms}&type=list")])
+        try preferences(["default_search_provider": ["guid": "d"]])
+        let e = try XCTUnwrap(try read())
+        XCTAssertEqual(e.defaultEngine?.known, "duckDuckGo")
+        XCTAssertNil(e.defaultEngine?.suggest)
+    }
+
+    func testSavedDefaultDataCarriesSuggestURL() throws {
+        try preferences(["default_search_provider_data": ["template_url_data": [
+            "short_name": "Gone Sample", "keyword": "gone", "url": "https://gone.example.com/search?q={searchTerms}",
+            // Chromium's DefaultSearchManager::kSuggestionsURL.
+            "suggestions_url": "https://gone.example.com/ac?q={searchTerms}",
+            "prepopulate_id": 0, "synced_guid": "not-in-table"]]])
+        XCTAssertEqual(try read()?.defaultEngine?.suggest, "https://gone.example.com/ac?q=%s")
     }
 
     func testDefaultFromSavedDataWhenRowIsGone() throws {

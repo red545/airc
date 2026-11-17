@@ -2,7 +2,8 @@
 import AircKit
 import Foundation
 
-/// Search suggestions for the Command Bar (CB-1) from the profile's search engine. Per profile: each profile has its
+/// Search suggestions for the Command Bar (CB-1) from the profile's search engine, or from an imported site search's own
+/// endpoint (C08: Chromium's `suggest_url`) while it's the default or the search in progress. Per profile: each profile has its
 /// own cookie-less session and cache, so nothing typed in one profile informs another's suggestions. Debounced
 /// (30 ms: enough to coalesce a burst of keys, short enough for the ≤100 ms budget), and only the latest query's answer
 /// is delivered. Opening the Command Bar connects to the engine ahead (`prewarm`), so the first answer doesn't pay for
@@ -21,7 +22,7 @@ final class SuggestionService {
     static let debounce: TimeInterval = 0.03
     private let canned: Bool
     private var sessions: [String: URLSession] = [:]
-    private var cache: [String: [String: [String]]] = [:]   // profile → query → suggestions
+    private var cache: [String: [String: [String]]] = [:]   // profile → source + query → suggestions
     private var pending: DispatchWorkItem?
     /// Whose query `pending` and `task` are.
     private var pendingProfileID: String?
@@ -48,8 +49,10 @@ final class SuggestionService {
 
     /// Opens the connection to the engine's suggestion host (a HEAD request to its root: no query is sent), so the first
     /// keystroke's request reuses it. Chrome preconnects to the search engine the same way.
-    func prewarm(engine: SearchEngine, profileID: String) {
-        guard !usesCanned, let probe = SearchSuggestions.url(for: "a", engine: engine),
+    func prewarm(engine: SearchEngine, profileID: String) { prewarm(source: .engine(engine), profileID: profileID) }
+
+    func prewarm(source: SearchSuggestions.Source, profileID: String) {
+        guard !usesCanned, let probe = SearchSuggestions.url(for: "a", source: source),
               var root = URLComponents(url: probe, resolvingAgainstBaseURL: false) else { return }
         root.path = "/"
         root.query = nil
@@ -61,13 +64,18 @@ final class SuggestionService {
 
     /// Calls `completion` on the main thread with up to four suggestions, or not at all if a newer query came first.
     func fetch(_ query: String, engine: SearchEngine, profileID: String, completion: @escaping ([String]) -> Void) {
+        fetch(query, source: .engine(engine), profileID: profileID, completion: completion)
+    }
+
+    func fetch(_ query: String, source: SearchSuggestions.Source, profileID: String, completion: @escaping ([String]) -> Void) {
         let q = query.trimmingCharacters(in: .whitespaces)
+        let key = source.cacheKey + "\u{0}" + q.lowercased()
         pending?.cancel()
         task?.cancel()
         generation += 1
         let gen = generation
         pendingProfileID = profileID
-        if let hit = cache[profileID]?[q.lowercased()] { return completion(hit) }
+        if let hit = cache[profileID]?[key] { return completion(hit) }
         if usesCanned {
             let list = Self.cannedSuggestions(for: q)
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.debounce) { [weak self] in
@@ -76,7 +84,7 @@ final class SuggestionService {
             }
             return
         }
-        guard let url = SearchSuggestions.url(for: q, engine: engine) else { return }
+        guard let url = SearchSuggestions.url(for: q, source: source) else { return }
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             let t = self.session(for: profileID).dataTask(with: url) { data, _, _ in
@@ -85,7 +93,7 @@ final class SuggestionService {
                     guard self.generation == gen else { return }
                     // Cleared while it was on its way (a private window closed): keep nothing of it.
                     guard self.sessions[profileID] != nil else { return }
-                    self.cache[profileID, default: [:]][q.lowercased()] = list
+                    self.cache[profileID, default: [:]][key] = list
                     if (self.cache[profileID]?.count ?? 0) > 200 { self.cache[profileID] = [:] }
                     completion(list)
                 }

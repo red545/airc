@@ -181,7 +181,7 @@ public enum SearchEngine: String, Codable, Hashable, Sendable, CaseIterable {
 public enum SearchEngineStandIn {
     nonisolated(unsafe) public static var origin: String?
 
-    static func route(_ base: String) -> String {
+    public static func route(_ base: String) -> String {
         guard let origin, let r = base.range(of: "://") else { return base }
         return origin + "/" + base[r.upperBound...]
     }

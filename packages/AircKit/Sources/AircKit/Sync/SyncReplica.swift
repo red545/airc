@@ -4,8 +4,9 @@ import Foundation
 
 /// `profile` records carry only a name, an emoji and whether it's the default profile, so another Mac can map a Space's
 /// profile to one of its own (or create an empty one). Never logins, cookies, history or the engine folder.
-/// `setting` records are one app setting each (SettingSyncPayload.swift), only in version 4 batches.
-public enum SyncRecordKind: String, Codable, Hashable, Sendable { case space, row, profile, setting }
+/// `setting` records are one app setting each (SettingSyncPayload.swift), only in version 4 batches; `boost` records one
+/// site's Boost each (BoostSyncPayload.swift), only in version 5 batches.
+public enum SyncRecordKind: String, Codable, Hashable, Sendable { case space, row, profile, setting, boost }
 
 public struct SyncRecordID: Codable, Hashable, Sendable {
     public let kind: SyncRecordKind
@@ -22,8 +23,12 @@ public enum SyncField: String, Codable, Hashable, CaseIterable, Sendable {
     case name, icon, theme, profile, kind, url, title, parent, location, order, deleted
     /// A saved split's layout (SplitSyncPayload.swift). Only in version 3 batches.
     case layout
-    /// A setting's value (SettingSyncPayload.swift). Only in version 4 batches.
+    /// A setting's value (SettingSyncPayload.swift), only in version 4 batches; a Boost (BoostSyncPayload.swift), only in
+    /// version 5 batches.
     case value
+    /// When a row's tab was last used on the Mac that unpinned it, in ms (BoostSyncPayload.swift, "Archive timing"). Only
+    /// in version 5 batches.
+    case used
 }
 
 public enum SyncValue: Codable, Hashable, Sendable {
@@ -31,6 +36,9 @@ public enum SyncValue: Codable, Hashable, Sendable {
     case location(SyncLocation), order(SyncOrder)
     case split(SplitSyncPayload)
     case setting(SettingSyncPayload)
+    case boost(BoostSyncPayload)
+    /// Milliseconds since 1970.
+    case time(Int64)
 }
 
 public struct SyncOperation: Codable, Hashable, Sendable {
@@ -47,11 +55,12 @@ public struct SyncOperation: Codable, Hashable, Sendable {
         guard !record.id.isEmpty, !fields.isEmpty, stamp.milliseconds >= 0 else { throw SyncError.invalidOperation }
         let allowed: Set<SyncField> = switch record.kind {
         case .space: [.name, .icon, .theme, .profile, .order, .deleted]
-        case .row: [.kind, .url, .title, .icon, .parent, .location, .order, .deleted, .layout]
+        case .row: [.kind, .url, .title, .icon, .parent, .location, .order, .deleted, .layout, .used]
         case .profile: [.name, .icon, .kind, .deleted]
-        case .setting: [.value]
+        case .setting, .boost: [.value]
         }
         if record.kind == .setting, !SyncSettings.isValidKey(record.id) { throw SyncError.invalidOperation }
+        if record.kind == .boost, !SyncBoosts.isValidSite(record.id) { throw SyncError.invalidOperation }
         for (field, value) in fields {
             guard allowed.contains(field) else { throw SyncError.invalidOperation }
             switch (field, value) {
@@ -61,6 +70,8 @@ public struct SyncOperation: Codable, Hashable, Sendable {
             case (.layout, .split(let payload)) where payload.isValid: break
             case (.layout, .null): break
             case (.value, .setting(let payload)) where record.kind == .setting && payload.isValid: break
+            case (.value, .boost(let payload)) where record.kind == .boost && payload.isValid: break
+            case (.used, .time(let ms)) where ms >= 0: break
             case (.kind, .text(let kind)) where record.kind == .profile && (kind == "default" || kind == "profile"): break
             case (.url, .null), (.title, .null), (.icon, .null), (.parent, .null): break
             case (.deleted, .flag): break
@@ -81,6 +92,9 @@ public struct SyncRegister: Codable, Hashable, Sendable {
         // A setting: the later change wins (when it was made on its Mac, so a change made while sync was off still counts
         // from then), then the later stamp. Every Mac orders alike.
         if case .setting(let a) = value, case .setting(let b) = other.value, a.changed != b.changed { return a.changed < b.changed }
+        // A Boost: the same rule. A last use: the later use, whichever Mac said it last.
+        if case .boost(let a) = value, case .boost(let b) = other.value, a.changed != b.changed { return a.changed < b.changed }
+        if case .time(let a) = value, case .time(let b) = other.value, a != b { return a < b }
         return stamp == other.stamp ? operation.uuidString < other.operation.uuidString : stamp < other.stamp
     }
 }
@@ -157,8 +171,8 @@ public struct SyncReplica: Codable, Sendable {
     /// two live panes isn't one (a pane deleted elsewhere): its pane takes its place. Panes past `Split.maxPanes` (two
     /// Macs adding at once) sit next to it as rows of their own. Every Mac projects alike, so all show the same.
     public var sidebar: [SyncRecord] {
-        // Settings aren't in the sidebar (SyncSettings).
-        let live = records.filter { !$0.value.isDeleted && $0.key.kind != .setting }
+        // Settings and Boosts aren't in the sidebar (SyncSettings, SyncBoosts).
+        let live = records.filter { !$0.value.isDeleted && $0.key.kind != .setting && $0.key.kind != .boost }
         func isSplit(_ r: SyncRecord?) -> Bool { r?[.kind] == .text("split") }
         func kindOf(_ r: SyncRecord) -> SyncValue { r[.kind] ?? .text("tab") }
         var rows = live.values.compactMap { original -> SyncRecord? in

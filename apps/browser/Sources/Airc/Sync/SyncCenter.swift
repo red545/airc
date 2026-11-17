@@ -34,6 +34,8 @@ final class SyncCenter: ObservableObject {
     @Published private(set) var notesHeld = false
     /// Settings › Sync › "Sync settings" (on by default while sync is on).
     @Published private(set) var syncsSettings = true
+    /// Settings › Sync › "Sync Boosts" (on by default while sync is on).
+    @Published private(set) var syncsBoosts = true
     /// The app's settings for the engine (SettingsSync.swift).
     private(set) var settingsSync: SettingsSync?
     private(set) var backend: Backend = .none
@@ -61,6 +63,8 @@ final class SyncCenter: ObservableObject {
     private weak var app: AppDelegate?
     private var timer: Timer?
     private var observers: [Any] = []
+    /// Boost changes → the engine (lives as long as the engine; not one of the sync-on triggers).
+    private var boostObserver: Any?
     private var lastActivationSync = Date.distantPast
     private var registeredForPushes = false
     private var triggers = SyncTriggers.plan(cloudKit: false, pushEntitlement: false)
@@ -156,6 +160,10 @@ final class SyncCenter: ObservableObject {
         let settingsSync = SettingsSync(app: app)
         self.settingsSync = settingsSync
         environment.settings = settingsSync.source
+        // Boosts (docs/sync.md, "Boosts"): style as it is; code from another Mac waits until it's allowed here.
+        environment.boosts = SyncBoostsSource(current: { thisMac in
+            BoostCenter.shared.map { SyncBoosts.payloads($0.store, thisMac: thisMac) } ?? [:]
+        }, apply: { incoming in BoostCenter.shared?.applySynced(incoming) ?? [] })
         let engine = MainActor.assumeIsolated { SyncEngine(store: store, environment: environment) }
         self.engine = engine
         #if AIRC_TESTING
@@ -169,6 +177,10 @@ final class SyncCenter: ObservableObject {
         MainActor.assumeIsolated { engine.debounce = triggers.localChangeDelay }
         MainActor.assumeIsolated { engine.onChange = { [weak self] in self?.refresh() } }
         settingsSync.changed = { [weak engine] in if let engine { MainActor.assumeIsolated { engine.settingsChanged() } } }
+        boostObserver = NotificationCenter.default.addObserver(forName: BoostCenter.didChange, object: nil, queue: .main) { [weak engine] note in
+            guard note.userInfo?["domain"] != nil, let engine else { return }
+            MainActor.assumeIsolated { engine.boostsChanged() }
+        }
         refresh()
         if isEnabled { syncSoon() }
         #if AIRC_TESTING
@@ -180,6 +192,13 @@ final class SyncCenter: ObservableObject {
     func setEnabled(_ on: Bool) {
         guard let engine else { return }
         MainActor.assumeIsolated { engine.setEnabled(on) }
+        refresh()
+    }
+
+    /// Settings › Sync › "Sync Boosts".
+    func setSyncsBoosts(_ on: Bool) {
+        guard let engine else { return }
+        MainActor.assumeIsolated { engine.setSyncsBoosts(on) }
         refresh()
     }
 
@@ -281,7 +300,9 @@ final class SyncCenter: ObservableObject {
         let (status, devices, lastSynced, enabled, tooLarge, held, settings) = MainActor.assumeIsolated {
             (engine.status, engine.devices, engine.lastSynced, engine.isEnabled, engine.notesTooLarge, engine.notesHeld, engine.syncsSettings)
         }
+        let boosts = MainActor.assumeIsolated { engine.syncsBoosts }
         if syncsSettings != settings { syncsSettings = settings }
+        if syncsBoosts != boosts { syncsBoosts = boosts }
         if notesTooLarge != tooLarge { notesTooLarge = tooLarge }
         if notesHeld != held { notesHeld = held }
         if self.status != status { self.status = status }

@@ -221,7 +221,7 @@ public struct BoostFile: Codable, Equatable, Sendable {
 
 /// A shared Boost's identity in a person's own copy (`Boost.origin`): the one they shared themselves (`shared`), or the
 /// one they installed from someone (`installed`) or from Airc's gallery.
-public struct BoostOrigin: Codable, Equatable, Sendable {
+public struct BoostOrigin: Codable, Hashable, Sendable {
     public enum Kind: String, Codable, Sendable { case shared, installed }
     public var id: String
     public var revision: Int

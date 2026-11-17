@@ -706,6 +706,13 @@ if [[ -n "$SNAPSHOTS" ]]; then
       launch --script "$sync_script" --data-dir "$home/$sync_data" --sync-mock "$home/SettingsShared/cloud" \
         --sync-keychain "$home/SettingsShared/keychain-$sync_keychain" --sync-device-name "Settings Mac ${sync_keychain}"
     done
+    # Boosts and archive timing (BoostSyncCheck.swift, docs/sync.md "Boosts"): A's Boost reaches B with its code waiting for
+    # a one-click confirm naming A; a tab A unpins keeps its archive timer from A's later use on B.
+    for sync_phase in "boostsync-a a BoostA" "boostsync-b b BoostB" "boostsync-a2 a BoostA" "boostsync-b2 b BoostB"; do
+      read -r sync_script sync_keychain sync_data <<< "$sync_phase"
+      launch --script "$sync_script" --data-dir "$home/$sync_data" --sync-mock "$home/BoostShared/cloud" \
+        --sync-keychain "$home/BoostShared/keychain-$sync_keychain" --sync-device-name "Boost Mac ${sync_keychain}"
+    done
     ls "$home/Library" 2>/dev/null | sed 's/^/  wrote in snapshot home: /'
     ls "$out" | tr '\n' ' '; echo
     grep -E "^(PASS|FAIL|FAIL-ENV|SKIP|ENGINE-PASS|ENGINE-FAIL) " "$out/log.txt" | sed "s/^/  [$engine] /" || true

@@ -575,7 +575,7 @@ final class SyncNotesTests: XCTestCase {
         XCTAssertEqual(report.malformed, [])
         // A version 2 batch is refused by a build that reads version 1 only (SyncEnvelope.open's check), and a state
         // file from before notes synced still loads. (Version 3 is splits', SyncSplitsTests; 4 settings', SyncSettingsTests.)
-        XCTAssertEqual(SyncEnvelope.versions, 1...4)
+        XCTAssertEqual(SyncEnvelope.versions, 1...5)
         let state = try JSONSerialization.jsonObject(with: Data(contentsOf: b.folder.appendingPathComponent("sync.json"))) as! [String: Any]
         var old = state
         old["notes"] = nil

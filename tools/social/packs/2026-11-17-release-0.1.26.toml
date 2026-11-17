@@ -1,0 +1,26 @@
+# Airc 0.1.26 (cut d1bc0d7a; build revision d19d7715; notes on release/0.1.26-notes). Claims from its approved notes,
+# "New since 0.1.25". NOT TO POST before release038 posts LIVE for 0.1.26: plan and approve only then, after checking
+# the public repo shows the release (owner rule).
+slug = "2026-11-17-release-0.1.26"
+title = "Airc 0.1.26: imported engines suggest"
+kind = "release"
+since = "0.1.26"
+tag = ""
+summary = """
+One text post for Arc and Chrome movers: the search engines they brought over now suggest as they type.
+"""
+order = """
+1. One post on the first free day after LIVE.
+"""
+checked = """
+- 0.1.26's notes: search engines imported from Arc, Chrome or Brave (the imported default, and a shortcut once picked
+  with Tab) now suggest in the Command Bar like the built-in ones; same switches (Settings › Privacy, the profile's
+  "Include search engine suggestions"); none in private windows. The post says the last part too.
+- Left out: "New ChatGPT Message" from the second letter (small).
+"""
+
+[[post]]
+label = "Imported search engines suggest"
+text = """
+Moving from Arc, Chrome or Brave? The search engines you brought over into Airc now suggest as you type in ⌘T, like the built-in ones, with the same privacy switches. Never in private windows. New in Airc 0.1.26.
+"""

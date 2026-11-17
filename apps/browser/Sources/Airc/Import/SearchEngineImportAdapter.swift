@@ -11,10 +11,10 @@ enum SearchEngineImportAdapter {
         let defaultSearch: SearchEngineImport.Default? = e.defaultEngine.flatMap { d in
             if let raw = d.known, let engine = SearchEngine(rawValue: raw) { return .engine(engine) }
             guard !d.template.isEmpty else { return nil }
-            return .site(.init(name: d.name, keyword: d.keyword, template: d.template))
+            return .site(.init(name: d.name, keyword: d.keyword, template: d.template, suggest: d.suggest))
         }
         return SearchEngineImport(defaultSearch: defaultSearch,
-                                  shortcuts: e.custom.filter { !$0.template.isEmpty }.map { .init(name: $0.name, keyword: $0.keyword, template: $0.template) })
+                                  shortcuts: e.custom.filter { !$0.template.isEmpty }.map { .init(name: $0.name, keyword: $0.keyword, template: $0.template, suggest: $0.suggest) })
     }
 
     struct Summary: Equatable {

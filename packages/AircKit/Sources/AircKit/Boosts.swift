@@ -6,8 +6,11 @@ import Foundation
 // public suffix list ("nytimes.com", and every subdomain of it; "alice.github.io", but not "bob.github.io"). A Boost
 // tints and dims the page, swaps its font, hides elements the person zapped, and adds their own CSS and JavaScript (the
 // JavaScript on one host of the site unless they pick all of it). Boosts are global, like Arc's: every Space and profile shows the same
-// one. They live in one local JSON file and are never synced or sent anywhere (Arc kept them in Firebase, which is how
-// CVE-2024-45489 let strangers run code in other people's browsers; docs/research/t3code_and_accounts.md).
+// one. They live in one local JSON file. With iCloud sync on they follow the person to their other Macs, end-to-end
+// encrypted in their own private database (Sync/BoostSyncPayload.swift), never anywhere else (Arc kept them in Firebase,
+// which is how CVE-2024-45489 let strangers run code in other people's browsers; docs/research/t3code_and_accounts.md).
+// JavaScript that arrives from another Mac never runs by itself: it waits in `heldCode` until the person allows it on
+// this Mac.
 
 /// One site's Boost. Every field decodes with a default, so files from older and newer builds still load.
 public struct Boost: Codable, Equatable, Sendable {
@@ -32,6 +35,9 @@ public struct Boost: Codable, Equatable, Sendable {
     /// Where a shared Boost came from (installed from a file, a link or the gallery) or, for one the person shared
     /// themselves, the identity its files and links carry: what lets a newer version update it (BoostOrigin).
     public var origin: BoostOrigin?
+    /// JavaScript that came from another Mac through sync and hasn't been allowed on this one yet: it never runs (`js` is
+    /// what runs). Kept apart from `js`, so a build that doesn't know about it can't run it either.
+    public var heldCode: BoostHeldCode?
     public var created: Date
     public var modified: Date
 
@@ -55,7 +61,7 @@ public struct Boost: Codable, Equatable, Sendable {
     /// Nothing set: an empty Boost changes nothing (the editor keeps it until it's deleted, as Arc does).
     public var isEmpty: Bool {
         colors.isDefault && font.isDefault && zaps.isEmpty && css.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !hasScript
+            && !hasScript && heldCode == nil
     }
 
     public var hasScript: Bool { !js.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -73,7 +79,9 @@ public struct Boost: Codable, Equatable, Sendable {
     /// switch and dates don't count). An installed Boost whose digest is no longer its origin's was edited since.
     public var contentDigest: String { BoostOrigin.digest(of: self) }
 
-    enum CodingKeys: String, CodingKey { case name, domain, enabled, colors, font, zaps, css, js, scriptHost, needsSite, origin, created, modified }
+    enum CodingKeys: String, CodingKey {
+        case name, domain, enabled, colors, font, zaps, css, js, scriptHost, needsSite, origin, heldCode, created, modified
+    }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -88,14 +96,29 @@ public struct Boost: Codable, Equatable, Sendable {
         scriptHost = try c.decodeIfPresent(String.self, forKey: .scriptHost)
         needsSite = try c.decodeIfPresent(Bool.self, forKey: .needsSite) ?? false
         origin = try? c.decodeIfPresent(BoostOrigin.self, forKey: .origin)
+        // A held code this build can't read is dropped, never run.
+        heldCode = try? c.decodeIfPresent(BoostHeldCode.self, forKey: .heldCode)
         created = try c.decodeIfPresent(Date.self, forKey: .created) ?? Date(timeIntervalSince1970: 0)
         modified = try c.decodeIfPresent(Date.self, forKey: .modified) ?? created
     }
 }
 
+/// A Boost's JavaScript as it came from another Mac (iCloud sync), waiting for the person to allow it on this one.
+public struct BoostHeldCode: Codable, Hashable, Sendable {
+    public var js: String
+    public var scriptHost: String?
+    /// The Mac where the person allowed this code (wrote it, installed it through the review, or allowed it there), as
+    /// that Mac names itself: this Mac's confirm names it. nil: no Mac vouched for it, so this Mac shows the full review.
+    public var allowedOn: String?
+
+    public init(js: String, scriptHost: String?, allowedOn: String?) {
+        self.js = js; self.scriptHost = scriptHost; self.allowedOn = allowedOn
+    }
+}
+
 /// The Colours section: a tint over the page, brightness, contrast, how much of the page's own colour stays (Arc's
 /// "Original Saturation"), and invert for an instant dark mode.
-public struct BoostColors: Codable, Equatable, Sendable {
+public struct BoostColors: Codable, Hashable, Sendable {
     /// The tint's hue, 0…1 (red at 0, as HSL).
     public var hue: Double
     /// How strong the tint is, 0 (none) … 1.
@@ -142,7 +165,7 @@ public struct BoostColors: Codable, Equatable, Sendable {
 
 /// The Font section: one of a few system fonts for the page's text, a size step, and a letter case (Arc's "Change text
 /// case").
-public struct BoostFont: Codable, Equatable, Sendable {
+public struct BoostFont: Codable, Hashable, Sendable {
     /// A `BoostFontFamily` raw value; nil (or a family this build doesn't know) keeps the site's own.
     public var family: String?
     /// A step in `BoostFont.sizes` around 0 (100 %).
@@ -228,7 +251,7 @@ public enum BoostFontFamily: String, CaseIterable, Sendable {
 }
 
 /// An element hidden with Zap: a CSS selector that finds it again on the next visit, and how the list names it.
-public struct BoostZap: Codable, Equatable, Sendable, Identifiable {
+public struct BoostZap: Codable, Hashable, Sendable, Identifiable {
     public var id: String
     public var selector: String
     public var label: String
@@ -439,10 +462,16 @@ public final class BoostStore {
     /// so this outlives the pages.
     public private(set) var zoomedHosts: [String: Double] = [:]
 
+    /// When each site's Boost was deleted on this Mac (or deleted elsewhere and that came through sync): what sync sends
+    /// so the deletion reaches the other Macs, and what keeps an older copy from coming back. Cleared when the site gets
+    /// a Boost again.
+    public private(set) var removed: [String: Date] = [:]
+
     struct File: Codable {
         var version: Int
         var boosts: [Boost]
         var zoomedHosts: [String: Double]?
+        var removed: [String: Date]?
     }
 
     /// `url` nil keeps everything in memory.
@@ -460,6 +489,7 @@ public final class BoostStore {
                 boosts[b.domain] = b
             }
             zoomedHosts = (file.zoomedHosts ?? [:]).filter { $0.value > 0 && $0.value < 10 }
+            removed = (file.removed ?? [:]).filter { boosts[$0.key] == nil }
             if file.version < Self.version { isDirty = true }
         } catch {
             let stamp = Int(Date().timeIntervalSince1970)
@@ -512,6 +542,7 @@ public final class BoostStore {
         guard b != before || boosts[domain] == nil else { return b }
         b.modified = Date()
         boosts[domain] = b
+        removed[domain] = nil
         isDirty = true
         onChange?(domain)
         return b
@@ -526,8 +557,42 @@ public final class BoostStore {
 
     public func remove(domain: String) {
         guard boosts.removeValue(forKey: domain) != nil else { return }
+        removed[domain] = Date()
         isDirty = true
         onChange?(domain)
+    }
+
+    // MARK: Sync
+
+    /// A Boost as it came from another Mac (BoostSyncPayload.boost): stored as it is, its change time kept, so it isn't
+    /// sent back as this Mac's change.
+    public func applySynced(_ boost: Boost) {
+        guard boosts[boost.domain] != boost else { return }
+        boosts[boost.domain] = boost
+        removed[boost.domain] = nil
+        isDirty = true
+        onChange?(boost.domain)
+    }
+
+    /// A deletion that came from another Mac, at the time it was made there.
+    public func removeSynced(domain: String, at date: Date) {
+        let had = boosts.removeValue(forKey: domain) != nil
+        guard had || removed[domain] != date else { return }
+        removed[domain] = date
+        isDirty = true
+        if had { onChange?(domain) }
+    }
+
+    /// The person allowed the code that came from another Mac: it runs on this Mac from now on. False if there was none.
+    @discardableResult
+    public func allowHeldCode(domain: String) -> Bool {
+        guard let held = boosts[domain]?.heldCode else { return false }
+        update(domain: domain) {
+            $0.js = held.js
+            $0.scriptHost = BoostDomain.isExactHost(domain) ? nil : held.scriptHost
+            $0.heldCode = nil
+        }
+        return true
     }
 
     /// Writes the file if anything changed. Owner-only permissions: it can hold the person's own scripts.
@@ -537,7 +602,8 @@ public final class BoostStore {
         guard let url else { isDirty = false; return true }
         do {
             let data = try JSONEncoder.boosts.encode(File(version: Self.version, boosts: all,
-                                                          zoomedHosts: zoomedHosts.isEmpty ? nil : zoomedHosts))
+                                                          zoomedHosts: zoomedHosts.isEmpty ? nil : zoomedHosts,
+                                                          removed: removed.isEmpty ? nil : removed))
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.write(to: url, options: .atomic)
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)

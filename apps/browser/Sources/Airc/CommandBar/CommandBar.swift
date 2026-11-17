@@ -182,6 +182,9 @@ protocol CommandBarHost: AnyObject {
     var commandBarHistory: (store: HistoryStore, profileID: String)? { get }
     /// The search engine and the session key for live suggestions; nil while they're off.
     var commandBarSuggestions: (engine: SearchEngine, profileID: String)? { get }
+    /// Where live suggestions come from and their session key: with no `site`, the profile's default search (its engine,
+    /// or a default site search with its own endpoint); in a site search, that site's endpoint. nil while they're off.
+    func commandBarSuggestionSource(scope site: SiteSearch?) -> (source: SearchSuggestions.Source, profileID: String)?
     func inlineCompletion(for typed: String) -> InlineCompletion.Match?
     func siteCompletion(for typed: String, history: [HistoryMatch]) -> CommonSites.Completion?
     func commandResults(for query: String, mode: CommandBarMode, inline: InlineCompletion.Match?,
@@ -225,6 +228,11 @@ extension CommandBarHost {
     var commandBarInstantLinks: CommandBarInstantLinks? { nil }
     func openInstantLinks(_ links: [InstantLink], newTab: Bool) {
         for (i, l) in links.enumerated() { performCommand(.open(l.url), newTab: newTab || i > 0, typed: false) }
+    }
+    /// Hosts that don't say otherwise (private windows): the built-in engine only, never an imported site's endpoint.
+    func commandBarSuggestionSource(scope site: SiteSearch?) -> (source: SearchSuggestions.Source, profileID: String)? {
+        guard site == nil, let s = commandBarSuggestions else { return nil }
+        return (.engine(s.engine), s.profileID)
     }
 }
 
@@ -786,6 +794,9 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         guard scope != nil else { return }
         let query = typed
         scope = nil
+        // The site's suggestions aren't the default's.
+        suggestions = []
+        suggestionQuery = ""
         applyScope()
         let text = !restoring ? query : query.isEmpty ? scopeOrigin : scopeOrigin + " " + query
         let caret = !restoring ? (text as NSString).length : (scopeOrigin as NSString).length + (query.isEmpty ? 0 : 1)
@@ -817,6 +828,9 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         for s in host?.commandBarSiteSearches?.index.searches ?? [] {
             sites.add(s.name) { [weak self] in
                 guard let self, self.scope != nil else { return }
+                // The other site's suggestions aren't this one's.
+                self.suggestions = []
+                self.suggestionQuery = ""
                 self.scope = .site(s)
                 self.applyScope()
                 if self.host?.commandBarShowsSiteIcons == true { self.scopePill.fetchIcon(s) }
@@ -1176,11 +1190,24 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         }
     }
 
-    /// Whether `q` gets the engine's suggestions: plain words of two letters or more, not in a site search, a bang or
-    /// actions, and suggestions on for this window's profile.
-    private func wantsSuggestions(_ q: String) -> Bool {
-        scope == nil && bang == nil && !isActionsMode && URLRules.normalizeInput(q) == nil
-            && q.trimmingCharacters(in: .whitespaces).count >= 2 && host?.commandBarSuggestions != nil
+    /// Whether `q` gets suggestions (`suggestionSource`).
+    private func wantsSuggestions(_ q: String) -> Bool { suggestionSource(for: q) != nil }
+
+    /// Where `q`'s suggestions come from: the profile's default (C08: an imported default site with its own endpoint too),
+    /// or, in a site search, that site's endpoint; nil for an address outside a site search, one letter, a bang, actions,
+    /// a chat site, a site without an endpoint, or suggestions off.
+    private func suggestionSource(for q: String) -> (source: SearchSuggestions.Source, profileID: String)? {
+        guard let c = host, bang == nil, !isActionsMode, q.trimmingCharacters(in: .whitespaces).count >= 2 else { return nil }
+        switch scope {
+        case nil:
+            guard URLRules.normalizeInput(q) == nil else { return nil }
+            return c.commandBarSuggestionSource(scope: nil)
+        case .site(let s)?:
+            guard s.suggestTemplate != nil else { return nil }
+            return c.commandBarSuggestionSource(scope: s)
+        case .ask?:
+            return nil
+        }
     }
 
     /// Test builds can bring back clearing suggestions on every key (`AIRC_CB_KEEP_SUGGESTIONS=0`): cbflicker's A/B.
@@ -1193,11 +1220,11 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     }()
 
     private func requestSuggestions(for q: String) {
-        // A site search's query never goes to the profile's engine, nor does a bang's.
-        guard let c = host, scope == nil, bang == nil, !isActionsMode, URLRules.normalizeInput(q) == nil,
-              q.trimmingCharacters(in: .whitespaces).count >= 2, let source = c.commandBarSuggestions else { return }
-        SuggestionService.shared.fetch(q, engine: source.engine, profileID: source.profileID) { [weak self] list in
-            guard let self, self.typed == q, self.scope == nil else { return }
+        // A site search's query never goes to the profile's engine (only to the site's own endpoint), nor does a bang's.
+        guard let source = suggestionSource(for: q) else { return }
+        let asked = scope
+        SuggestionService.shared.fetch(q, source: source.source, profileID: source.profileID) { [weak self] list in
+            guard let self, self.typed == q, self.scope == asked else { return }
             // No suggestions for the new words: the kept ones (for the words before) go.
             if list.isEmpty {
                 guard Self.keepsSuggestions, !self.suggestions.isEmpty else { return }
@@ -1216,7 +1243,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     private func composedResults(_ q: String, history: [HistoryMatch], suggestions: [String]) -> [CommandResult] {
         guard let c = host else { return [] }
         if instant != nil { return instantRows() }
-        if case .site(let s)? = scope { return siteResults(q, site: s, history: history) }
+        if case .site(let s)? = scope { return siteResults(q, site: s, history: history, suggestions: suggestions) }
         if case .ask(let p)? = scope { return askResults(q, provider: p) }
         var rows = c.barCommandResults(for: q, mode: mode, inline: inline, inlineSite: inlineSite, suggestions: suggestions, history: history)
         if let b = bang {
@@ -1235,15 +1262,22 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         return rows
     }
 
-    /// In a site search: the site's search for the query (Return), then up to five pages of this profile's history on
-    /// that site that match it.
-    private func siteResults(_ q: String, site s: SiteSearch, history: [HistoryMatch]) -> [CommandResult] {
+    /// In a site search: the site's search for the query (Return), then the site's own suggestions when it has an endpoint
+    /// (C08, an imported engine's), then up to five pages of this profile's history on that site that match it.
+    private func siteResults(_ q: String, site s: SiteSearch, history: [HistoryMatch], suggestions: [String]) -> [CommandResult] {
         let query = q.trimmingCharacters(in: .whitespaces)
         guard let url = s.url(for: query) else { return [] }
         var out = [CommandResult(title: query, subtitle: AircCommandText.searchSubtitle(engine: s.name), badge: "Search",
                                  icon: siteIcon(s), matches: [], action: .open(url))]
+        if s.suggestTemplate != nil {
+            for sug in suggestions.prefix(3) where sug.lowercased() != query.lowercased() {
+                guard let u = s.url(for: sug) else { continue }
+                out.append(CommandResult(title: sug, subtitle: "", badge: "Search", icon: .symbol("magnifyingglass"), matches: [], action: .open(u)))
+            }
+        }
         let icons = host?.commandBarShowsSiteIcons == true
-        for h in history where out.count < 6 && s.covers(h.entry.url) {
+        let pagesEnd = out.count + 5
+        for h in history where out.count < min(pagesEnd, AircMetrics.CommandBar.maxRows) && s.covers(h.entry.url) {
             guard let page = URL(string: h.entry.url) else { continue }
             let title = h.entry.title.isEmpty ? URLRules.displayURL(h.entry.url) : h.entry.title
             out.append(CommandResult(title: title, subtitle: URLRules.displayHost(h.entry.url), badge: "Open",
@@ -2443,9 +2477,24 @@ extension WindowController: CommandBarHost {
         let profile = store.profile(ofSpace: currentSpaceID)
         // C08: Arc's per-profile "Include search engine suggestions".
         guard profile.includesSearchSuggestions else { return nil }
-        // P07d: a site search made the default has no suggestion service (as Chrome's custom engines without one).
+        // P07d: a site search made the default asks the engine nothing (its own endpoint, if any, is
+        // `commandBarSuggestionSource`'s).
         guard profile.defaultSearch.site == nil else { return nil }
         return (profile.searchEngine, profile.id)
+    }
+
+    /// C08: an imported site search's own endpoint (Chromium's `suggest_url`) while it's the default or the search in
+    /// progress, under the built-in engines' rules: off with Settings › Privacy's switch or the profile's "Include search
+    /// engine suggestions", one cookie-less session per profile.
+    func commandBarSuggestionSource(scope site: SiteSearch?) -> (source: SearchSuggestions.Source, profileID: String)? {
+        guard app?.settings.values.suggestionsEnabled ?? true else { return nil }
+        let profile = store.profile(ofSpace: currentSpaceID)
+        guard profile.includesSearchSuggestions else { return nil }
+        if let site { return site.suggestTemplate == nil ? nil : (.site(site), profile.id) }
+        switch profile.defaultSearch {
+        case .engine(let e): return (.engine(e), profile.id)
+        case .site(let s): return s.suggestTemplate == nil ? nil : (.site(s), profile.id)
+        }
     }
 
     /// The current Space's profile's site searches: profiles keep their own (Settings → Site Search).
@@ -2477,11 +2526,11 @@ extension WindowController: CommandBarHost {
         // The built-in sites' index, once per process, off the main thread (ready long before the first keystroke).
         CommonSitesIndex.shared.prepare()
         LetterTile.prewarm()
-        if commandBarSuggestions != nil {
+        if let source = commandBarSuggestionSource(scope: nil) {
             // After this frame's commit: the first opening per profile makes its URLSession here (milliseconds). Not
             // `async`: the main queue drains before the run loop's Core Animation commit, a 2 ms timer only after it.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.002) {
-                SuggestionService.shared.prewarm(engine: profile.searchEngine, profileID: profile.id)
+                SuggestionService.shared.prewarm(source: source.source, profileID: source.profileID)
             }
         }
         Perf.time("cb.open.add") {
@@ -2639,6 +2688,15 @@ extension WindowController: CommandBarHost {
         #endif
     }()
 
+    /// Test builds can bring back "New ChatGPT Message" for one letter (`AIRC_CB_ASK_FIRST_KEY=1`): cbperf's A/B.
+    static let askCommandOnFirstKey: Bool = {
+        #if AIRC_TESTING
+        return ProcessInfo.processInfo.environment["AIRC_CB_ASK_FIRST_KEY"] == "1"
+        #else
+        return false
+        #endif
+    }()
+
     func barCommandResults(for query: String, mode: CommandBarMode, inline: InlineCompletion.Match?,
                            inlineSite: CommonSites.Site?, suggestions: [String], history: [HistoryMatch]) -> [CommandResult] {
         composeCommandResults(for: query, mode: mode, inline: inline, inlineSite: inlineSite, suggestions: suggestions,
@@ -2773,12 +2831,17 @@ extension WindowController: CommandBarHost {
 
         // Well-known sites (CommonSites) you have never been to, below every result of yours that matches as well, one
         // or two of them (more for a site's exact name); not the one already completed inline, nor the address typed.
-        let personal = Perf.time("cb.rank") { () -> [CommandSearch.Result] in
+        var personal = Perf.time("cb.rank") { () -> [CommandSearch.Result] in
             // Only the bar's own keys narrow: what another caller ranks must not change what the next key may skip.
             guard reuses else { return CommandSearch.rank(q, candidates, limit: 7) }
             var n = block.narrowing
             defer { block.narrowing = n }
             return CommandSearch.rank(q, candidates, limit: 7, stable: stable, narrowing: &n, prepared: session?.prepared)
+        }
+        // cbfixes: "New ChatGPT Message" (Ask Claude…) from two letters on ("gp", "ne", "ask"), never for the first
+        // one: with Automatic on for ChatGPT users, "g" showed it and its row cost the first key ~1 ms (askai's cbperf).
+        if q.count < 2, !Self.askCommandOnFirstKey, let askID = askAICommandID {
+            personal.removeAll { $0.candidate.id == askID }
         }
         var sites: [CommonSites.Match] = []
         if let index = Self.commonSites {

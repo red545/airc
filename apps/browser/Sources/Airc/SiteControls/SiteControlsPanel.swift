@@ -627,7 +627,10 @@ struct SiteControlsCard: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(boost.enabled ? "Boosted" : "Boost Off").aircFont(AircFont.body).foregroundStyle(ui.surfaceText.color)
                         .testAnchor("site.boostState")
-                    Text(model.boostDomain ?? "").aircFont(AircFont.callout).foregroundStyle(ui.surfaceTextTertiary.color).lineLimit(1)
+                    // Code from another Mac waits for the editor's confirm (docs/sync.md, "Boosts").
+                    Text(boost.heldCode != nil ? "Its code waits for you: Edit" : model.boostDomain ?? "")
+                        .aircFont(AircFont.callout).foregroundStyle(ui.surfaceTextTertiary.color).lineLimit(1)
+                        .testAnchor("site.boostDetail")
                 }
                 Spacer(minLength: 4)
                 Button("Edit") { model.openBoostEditor() }.buttonStyle(.airc(.secondary, size: .small))
