@@ -140,7 +140,6 @@ final class BoostEditorModel: ObservableObject {
     func resetAllEdits() {
         change {
             $0.colors = BoostColors(); $0.font = BoostFont(); $0.zaps = []; $0.css = ""; $0.js = ""; $0.scriptHost = nil
-            $0.heldCode = nil
         }
         css = ""; js = ""
         Self.drafts[domain] = nil
@@ -228,27 +227,6 @@ final class BoostEditorModel: ObservableObject {
         return "Runs on \(scriptHost ?? pageHost ?? domain) only"
     }
 
-    // MARK: Code from another Mac
-
-    /// The confirm shows the waiting code.
-    @Published var showsSyncedCode = false
-
-    /// Code that came from another Mac and waits here (docs/sync.md, "Boosts").
-    var syncedCode: BoostHeldCode? { boost.heldCode }
-
-    /// One click when another Mac vouches for it; otherwise only after the code was shown (the full review).
-    var canAllowSyncedCode: Bool { syncedCode != nil && (syncedCode?.allowedOn != nil || showsSyncedCode) }
-
-    func allowSyncedCode() {
-        guard canAllowSyncedCode else { return }
-        edited = true
-        center?.allowSyncedCode(domain: domain, page: page)
-        showsSyncedCode = false
-        reload()
-        js = boost.js
-        Self.drafts[domain] = nil
-    }
-
     // MARK: A held Boost
 
     /// The held Boost can come to this site: it has no Boost of its own yet (or this is the held one).
@@ -312,7 +290,6 @@ struct BoostEditorCard: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             if let held = model.held { heldBanner(held) }
-            else if let code = model.syncedCode { syncedCodeBanner(code) }
             AircSegmented(selection: $model.section, segments: [
                 .init(value: .colors, title: "Colors", symbol: "paintpalette"),
                 .init(value: .font, title: "Font", symbol: "textformat"),
@@ -434,51 +411,6 @@ struct BoostEditorCard: View {
         .padding(.horizontal, inset)
         .padding(.top, AircSpacing.m)
         .testAnchor("boost.held")
-    }
-
-    // MARK: Code from another Mac
-
-    /// "Run this Boost's code here too?": one click when the person allowed it on another Mac (named); otherwise the full
-    /// review's warning, and Run only after the code was shown. Never runs by itself.
-    private func syncedCodeBanner(_ code: BoostHeldCode) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: "chevron.left.forwardslash.chevron.right").font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(ui.accent.color)
-                Text(code.allowedOn != nil ? "Run this code here too?" : "This Boost's code isn't running")
-                    .aircFont(AircFont.body.weight(.semibold)).foregroundStyle(ui.surfaceText.color)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .testAnchor("boost.synced.title")
-            }
-            Text(code.allowedOn.map { "You allowed this Boost's JavaScript on \($0). It runs on this Mac only once you allow it here too." }
-                 ?? "Its JavaScript came from your other Mac through iCloud, and no Mac says you allowed it. It can read and change pages on \(model.domain), see what you type there, and send it to other websites. Read it before you run it.")
-                .aircFont(AircFont.callout).foregroundStyle(ui.surfaceTextSecondary.color)
-                .fixedSize(horizontal: false, vertical: true)
-                .testAnchor("boost.synced.detail")
-            if model.showsSyncedCode {
-                ScrollView {
-                    Text(code.js).font(.system(size: 11, design: .monospaced)).foregroundStyle(ui.surfaceText.color)
-                        .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(6)
-                }
-                .frame(maxHeight: 120)
-                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(ui.surface.color))
-                .testAnchor("boost.synced.code")
-            }
-            HStack(spacing: 8) {
-                Spacer()
-                Button(model.showsSyncedCode ? "Hide Code" : "Show Code") { model.showsSyncedCode.toggle() }
-                    .buttonStyle(.airc(.plain, size: .small)).testAnchor("boost.synced.show")
-                Button("Run on This Mac") { model.allowSyncedCode() }.buttonStyle(.airc(.primary, size: .small))
-                    .disabled(!model.canAllowSyncedCode)
-                    .help(model.canAllowSyncedCode ? "Run this code on \(model.domain) on this Mac" : "Show the code first")
-                    .testAnchor("boost.synced.allow")
-            }
-        }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(ui.fieldFill.color))
-        .padding(.horizontal, inset)
-        .padding(.top, AircSpacing.m)
-        .testAnchor("boost.synced")
     }
 
     // MARK: Colors

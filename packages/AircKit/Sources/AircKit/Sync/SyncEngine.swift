@@ -107,8 +107,6 @@ public final class SyncEngine {
         public var picturesArrived: (([String]) -> Void)?
         /// The app's settings (SettingSyncPayload.swift). nil: settings don't sync.
         public var settings: SyncSettingsSource?
-        /// The app's Boosts (BoostSyncPayload.swift). nil: Boosts don't sync.
-        public var boosts: SyncBoostsSource?
 
         public init(transport: @escaping (UUID) -> SyncGroupTransport, keys: SyncKeyStore, stateURL: URL, deviceName: String,
                     machine: String? = nil, createProfile: @escaping (String, String) throws -> String,
@@ -150,8 +148,6 @@ public final class SyncEngine {
         var notes = SyncNoteState()
         /// Settings: the switch, and what this Mac last sent or applied (SettingSyncPayload.swift).
         var settings = SyncSettingsState()
-        /// Boosts: the switch, and what this Mac last sent or applied (BoostSyncPayload.swift).
-        var boosts = SyncBoostsState()
 
         init(device: UUID = UUID(), machine: String?) {
             self.device = device; self.machine = machine
@@ -160,7 +156,7 @@ public final class SyncEngine {
 
         private enum CodingKeys: String, CodingKey {
             case version, enabled, device, machine, group, joined, replica, adapter, outbox, checkpoint, account, lastSynced
-            case published, uploaded, recovery, applyMode, quarantine, malformed, notes, settings, boosts
+            case published, uploaded, recovery, applyMode, quarantine, malformed, notes, settings
         }
 
         init(from decoder: Decoder) throws {
@@ -187,8 +183,6 @@ public final class SyncEngine {
             notes = try c.decodeIfPresent(SyncNoteState.self, forKey: .notes) ?? SyncNoteState()
             // A state file from before settings synced: on, nothing sent yet (the next capture sends what was changed).
             settings = try c.decodeIfPresent(SyncSettingsState.self, forKey: .settings) ?? SyncSettingsState()
-            // From before Boosts synced: on, nothing sent yet (the next capture sends this Mac's Boosts).
-            boosts = try c.decodeIfPresent(SyncBoostsState.self, forKey: .boosts) ?? SyncBoostsState()
         }
     }
 
@@ -281,22 +275,6 @@ public final class SyncEngine {
 
     /// A setting changed (the app's settings, not the store): send it shortly, as a store change.
     public func settingsChanged() { if state.enabled && !state.settings.off { localChanged() } }
-
-    /// Settings › Sync › "Sync Boosts": on by default while sync is on.
-    public var syncsBoosts: Bool { !state.boosts.off }
-
-    /// The "Sync Boosts" switch. On sends this Mac's Boosts changed meanwhile and takes the others' (the later change
-    /// wins); off sends and applies nothing. Code from another Mac still waits for the person either way.
-    public func setSyncsBoosts(_ on: Bool) {
-        guard on == state.boosts.off else { return }
-        state.boosts.off = !on
-        trySave()
-        onChange?()
-        if on { syncSoon() }
-    }
-
-    /// A Boost changed (the app's Boosts, not the store): send it shortly, as a store change.
-    public func boostsChanged() { if state.enabled && !state.boosts.off { localChanged() } }
 
     public init(store: SpacesStore, environment: Environment) {
         self.store = store
@@ -843,12 +821,10 @@ public final class SyncEngine {
         // Notes after rows: a removal's stamp is later than its row's tombstone (see restoreNotes).
         let notesBefore = state.notes
         try captureNotes()
-        let settingsBefore = state.settings, boostsBefore = state.boosts
-        let ops = try rows + captureUses(rows) + captureSettings() + captureBoosts()
+        let settingsBefore = state.settings
+        let ops = try rows + captureSettings()
         applySettings()
-        applyBoosts()
-        guard !ops.isEmpty || state.notes != notesBefore || state.settings != settingsBefore || state.boosts != boostsBefore
-        else { return }
+        guard !ops.isEmpty || state.notes != notesBefore || state.settings != settingsBefore else { return }
         if !ops.isEmpty { state.outbox += try seal(ops, group: group, key: key) }
         try save()
     }
@@ -876,15 +852,12 @@ public final class SyncEngine {
         for change in result.profileChanges { env.applyProfileChange(change.space, change.profile) }
         adapter.rebase(store.state)
         state.adapter = adapter
-        // Archive timing: Today tabs another Mac unpinned continue from its last use there.
-        try store.applySyncedUses(state.replica, adapter: adapter)
-        // Settings and Boosts: this Mac's changes first (the first sync's merge hasn't captured them), then the winners.
+        // Settings: this Mac's changes first (the first sync's merge hasn't captured them), then the winners.
         if let key, let group = state.group, state.joined {
-            let ops = try captureSettings() + captureBoosts()
+            let ops = try captureSettings()
             if !ops.isEmpty { state.outbox += try seal(ops, group: group, key: key) }
         }
         applySettings()
-        applyBoosts()
         // Notes the group pinned or unpinned here: a baseline too, never sent back as this Mac's removal or pin.
         let pinned = SyncNotes.pinnedNotes(store.state)
         for id in state.notes.entries.keys { state.notes.entries[id]?.pinned = pinned[id] != nil }
@@ -909,12 +882,9 @@ public final class SyncEngine {
         }
         // A split's or a pane's goes in a version 3 batch (a note in a split too), which builds from before splits synced
         // keep unread in the same way.
-        // A setting's goes in a version 4 batch of its own (SettingSyncPayload.swift); a Boost's, or a row's last use, in
-        // a version 5 batch of its own (BoostSyncPayload.swift).
-        func isVersion5(_ op: SyncOperation) -> Bool { op.record.kind == .boost || op.fields[.used] != nil }
-        let boosts = ops.filter(isVersion5)
+        // A setting's goes in a version 4 batch of its own (SettingSyncPayload.swift).
         let settings = ops.filter { $0.record.kind == .setting }
-        let sidebar = ops.filter { $0.record.kind != .setting && !isVersion5($0) }
+        let sidebar = ops.filter { $0.record.kind != .setting }
         let splits = sidebar.filter { SyncSplits.isSplitOperation($0, in: state.replica) }
         let rest = sidebar.filter { !SyncSplits.isSplitOperation($0, in: state.replica) }
         let notes = rest.filter(isNoteRow)
@@ -922,59 +892,6 @@ public final class SyncEngine {
         return try seal(others, version: 1, group: group, key: key) + seal(notes, version: 2, group: group, key: key)
             + seal(splits, version: SyncSplits.envelopeVersion, group: group, key: key)
             + seal(settings, version: SyncSettings.envelopeVersion, group: group, key: key)
-            + seal(boosts, version: SyncBoosts.envelopeVersion, group: group, key: key)
-    }
-
-    // MARK: Boosts and archive timing
-
-    /// This Mac's Boosts (and deletions) it hasn't said yet → replica. Returns the operations (the caller seals them).
-    private func captureBoosts() throws -> [SyncOperation] {
-        guard !state.boosts.off, let source = env.boosts else { return [] }
-        var replica = state.replica, baseline = state.boosts.baseline
-        var ops: [SyncOperation] = []
-        for (site, payload) in source.current(env.deviceName).sorted(by: { $0.key < $1.key }) {
-            // Too large, or not a site: stays on this Mac.
-            guard SyncBoosts.isValidSite(site), payload.isValid, baseline[site] != payload.content else { continue }
-            ops.append(try replica.edit(SyncRecordID(.boost, site), [.value: .boost(payload)], now: millis))
-            baseline[site] = payload.content
-        }
-        state.replica = replica
-        state.boosts.baseline = baseline
-        return ops
-    }
-
-    /// Each site's winning Boost that this Mac hasn't applied (nor sent) yet → the app. A newer format waits.
-    private func applyBoosts() {
-        guard !state.boosts.off, let source = env.boosts else { return }
-        var incoming: [String: BoostSyncPayload] = [:]
-        for record in state.replica.records.values where record.id.kind == .boost {
-            guard case .boost(let p)? = record[.value], p.isReadable, state.boosts.baseline[record.id.id] != p.content else { continue }
-            incoming[record.id.id] = p
-        }
-        guard !incoming.isEmpty else { return }
-        let was = applying
-        applying = true
-        defer { applying = was }
-        for site in source.apply(incoming) {
-            if let p = incoming[site] { state.boosts.baseline[site] = p.content }
-        }
-    }
-
-    /// Rows this capture unpinned whose page stayed here as a Today tab: when it was last used here, so a Mac that keeps
-    /// the page continues its archive timer from there (`SpacesStore.applySyncedUses`). One operation per unpin, never
-    /// per use.
-    private func captureUses(_ rows: [SyncOperation]) throws -> [SyncOperation] {
-        let unpinned = Set(rows.filter { $0.record.kind == .row && $0.fields[.location] == .location(.archived) }.map(\.record))
-        guard !unpinned.isEmpty else { return [] }
-        var replica = state.replica
-        var ops: [SyncOperation] = []
-        for tab in store.state.tabs.values.sorted(by: { $0.id < $1.id }) where tab.isToday {
-            guard let record = state.adapter.record(forTab: tab.id), unpinned.contains(SyncRecordID(.row, record)) else { continue }
-            let used = Int64(max(0, tab.lastActiveAt.timeIntervalSince1970 * 1000))
-            ops.append(try replica.edit(SyncRecordID(.row, record), [.used: .time(used)], now: millis))
-        }
-        state.replica = replica
-        return ops
     }
 
     // MARK: Settings

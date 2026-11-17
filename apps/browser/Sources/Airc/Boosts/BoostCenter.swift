@@ -31,10 +31,7 @@ import AircCore
 ///   - Try it on: a Boost under review can be shown on its site's pages for a while (`preview`): style and size only,
 ///     never its code; Cancel puts the stored Boost back.
 ///   - Links: a page that is a Boost link (BoostLink) opens the review in its window.
-///   - Sync (docs/sync.md, "Boosts"): with iCloud sync on, Boosts come from the person's other Macs (`applySynced`). Their
-///     JavaScript waits (`Boost.heldCode`) until the person allows it here (`allowSyncedCode`, the editor's confirm).
-/// Boosts apply to every Space and profile (as in Arc). Nothing here leaves the Mac except through the person's own
-/// end-to-end encrypted iCloud sync.
+/// Boosts apply to every Space and profile (as in Arc), and nothing here leaves the Mac.
 final class BoostCenter {
     /// Posted on the main thread when a Boost or the zap state changes. userInfo: `domain` (String), if one changed.
     static let didChange = Notification.Name("AircBoostsDidChange")
@@ -92,8 +89,6 @@ final class BoostCenter {
     private let recording = LaunchOptions.current.snapshotDir != nil
     private(set) var scriptRuns: [(domain: String, origin: String)] = []
     private(set) var sent: [(kind: String, origin: String, tab: Int, delivered: Bool)] = []
-    /// Boosts applied from other Macs (BoostSyncCheck).
-    private(set) var syncedApplies = 0
     #endif
 
     /// Called once the engine exists. Engines without a page script have no Boosts (the UI hides them).
@@ -281,36 +276,13 @@ final class BoostCenter {
         let before = store.boost(domain: domain)
         // New CSS: its pages say again what its imports did.
         if (before?.css ?? "") != css { importFailures[domain] = nil }
-        let jsChanged = (before?.js ?? "") != js
         store.update(domain: domain) {
             $0.css = css
             $0.js = js
             $0.scriptHost = $0.hasScript && !BoostDomain.isExactHost(domain) ? scriptHost : nil
-            // Code written here replaces code that waits from another Mac.
-            if jsChanged { $0.heldCode = nil }
         }
+        let jsChanged = (before?.js ?? "") != js
         if jsChanged, codeRan(on: page, domain: domain), let page { reloadWithNewScript(page) }
-    }
-
-    // MARK: Sync
-
-    /// Boosts and deletions from the person's other Macs (SyncBoosts.apply): style at once, code held. A page whose old
-    /// code ran keeps it until it loads again (code that ran can't be taken back), as when the person edits it.
-    func applySynced(_ incoming: [String: BoostSyncPayload]) -> Set<String> {
-        let done = SyncBoosts.apply(incoming, to: store)
-        #if AIRC_TESTING
-        if recording { syncedApplies += done.count }
-        #endif
-        return done
-    }
-
-    /// The editor's confirm: the code that came from another Mac runs here from now on. The site's page on screen loads
-    /// again so it runs now (it runs once per page load).
-    @discardableResult
-    func allowSyncedCode(domain: String, page: EngineTab?) -> Bool {
-        guard store.allowHeldCode(domain: domain) else { return false }
-        if let page, BoostDomain.key(for: page.url) == domain { reloadWithNewScript(page) }
-        return true
     }
 
     /// The JavaScript's host (nil: the whole site). A page where it ran and that it no longer covers reloads.

@@ -39,9 +39,6 @@ public struct SyncStoreAdapter: Codable, Sendable {
     /// The record a local pinned item or Favorite syncs as (`item:<id>`, or `tab:<id>` for a pinned Today tab).
     public func record(forItem id: String) -> String { aliases["item:" + id] ?? Self.defaultRecord(forItem: id) }
 
-    /// The record a live tab has synced as (it was pinned, or a Favorite, at some capture), if any.
-    public func record(forTab id: String) -> String? { aliases["tab:" + id] }
-
     /// Without an alias: `item:<id>`, or the `tab:` record a `synctab-` item was made for.
     public static func defaultRecord(forItem id: String) -> String {
         id.hasPrefix(tabItemPrefix) ? "tab:" + id.dropFirst(tabItemPrefix.count) : "item:" + id

@@ -15,9 +15,6 @@ import CryptoKit
 ///
 /// Version 4 is a batch of app settings (SettingSyncPayload.swift), never mixed with sidebar operations: builds from before
 /// settings synced keep it unread in the same way. A version 4 reader reads versions 1 to 3 as before.
-///
-/// Version 5 is a batch of Boosts or of archive timing (BoostSyncPayload.swift), never mixed with other operations:
-/// builds from before Boosts synced keep it unread in the same way. A version 5 reader reads versions 1 to 4 as before.
 public struct SyncEnvelope: Codable, Hashable, Sendable {
     public let version: Int
     public let group: UUID
@@ -31,7 +28,7 @@ public struct SyncEnvelope: Codable, Hashable, Sendable {
         Data("Airc-sidebar-sync|\(version)|\(group.uuidString)|\(device.uuidString)|\(id.uuidString)".utf8)
     }
 
-    public static let versions = 1...5
+    public static let versions = 1...4
 
     public static func seal(_ operations: [SyncOperation], group: UUID, device: UUID,
                             key: SymmetricKey, version: Int = 1) throws -> Self {

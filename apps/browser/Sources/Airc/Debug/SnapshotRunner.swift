@@ -319,7 +319,6 @@ final class SnapshotRunner {
         case "l04": l04Scenario()   // L04LibraryCheck.swift: Library media and recent files, real input
         case "icloudsync", "icloudsync-second", "icloudsync-replace", "icloudsync-return", "icloudsync-unavailable": iCloudSyncScenario()
         case "settingssync-a", "settingssync-b", "settingssync-a2": settingsSyncScenario()   // settings sync (SettingsSyncCheck.swift)
-        case "boostsync-a", "boostsync-b", "boostsync-a2", "boostsync-b2": boostSyncScenario()   // Boosts and archive timing sync (BoostSyncCheck.swift)
         case "icloudsync-real-a", "icloudsync-real-b", "icloudsync-real-live-a", "icloudsync-real-live-b", "icloudsync-real-cleanup":
             iCloudRealScenario()
         case "marketing": marketingScenario()   // product shots, not a check: scripts/marketing-shots.sh only

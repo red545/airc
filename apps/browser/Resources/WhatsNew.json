@@ -2,6 +2,25 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.26",
+      "highlights": [
+        {
+          "title": "Imported engines suggest",
+          "lead": "Search suggestions from your imported search engines",
+          "detail": "Search engines you brought over from Arc, Chrome or Brave now suggest as you type after ⌘T, like the built-in ones: your default, and a shortcut once you pick it with Tab. Not in private windows; turn suggestions off in Settings › Privacy.",
+          "icon": "magnifyingglass",
+          "action": "commandBar"
+        },
+        {
+          "title": "Ask command from 2 letters",
+          "lead": "\"New ChatGPT Message\" from the second letter",
+          "detail": "The Command Bar now shows \"New ChatGPT Message\" (or \"Ask Claude…\") from the second letter you type, so your first keystroke after ⌘T stays fast.",
+          "icon": "bolt",
+          "action": "commandBar"
+        }
+      ]
+    },
+    {
       "version": "0.1.25",
       "highlights": [
         {

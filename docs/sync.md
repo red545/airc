@@ -14,11 +14,9 @@ The user's view is [user/sync.md](user/sync.md).
 | Pinned tabs and folders: saved URL, custom name, emoji, order, parent | History, passwords, cookies, logins, engine data |
 | Favorites, per profile | Private windows and Little Arc (they're never in the store) |
 | Profile name, emoji and "is the default" | Page titles and favicons, navigation, selection, window layout |
-| Pinned notes: their row, text, title and pictures ([Notes](#notes), P14b1) | Today splits, Easels, blank-window Spaces, telemetry IDs |
+| Pinned notes: their row, text, title and pictures ([Notes](#notes), P14b1) | Today splits, Boosts, Easels, blank-window Spaces, telemetry IDs |
 | Pinned and Favorite splits: their panes (saved URLs, order), name, icon, axis and sizes ([Splits](#splits), P14b2) | Which pane of a split has the keyboard; a split with a local-only pane (it stays whole) |
 | App settings a person changed, from an allowlist ([Settings](#settings)) | Per-Mac settings: paths, Developer Mode, memory, approvals, onboarding |
-| Boosts: style, zaps, CSS, on or off, deletions; their code only once allowed on each Mac ([Boosts](#boosts), P14b3) | A Boost held for its site (`needsSite`); Boost zoom bookkeeping |
-| When an unpinned tab was last used, so its archive timer continues ([Archive timing](#archive-timing)) | The time of every use (it would be a browsing record) |
 | | A note only in Today or the Archive (its Today tab never syncs) |
 | | Folders in Today (`ItemContainer.today`, `LiveTab.folderID`): never in a snapshot, below |
 
@@ -44,11 +42,9 @@ UUIDs, note IDs (random), a format version, sizes and timestamps.
 | `Sync/NoteSyncPayload.swift` | Notes: version vectors, sealed note records and picture assets, limits, the store's apply and conflicted copy |
 | `Sync/SplitSyncPayload.swift` | Splits: the synced layout, and which operations go in version 3 batches |
 | `Sync/SettingSyncPayload.swift` | Settings: the payload, the allowlist and per-Mac list, the ledger of changed settings (version 4 batches) |
-| `Sync/BoostSyncPayload.swift` | Boosts (code held per Mac) and archive timing (version 5 batches) |
 | `apps/browser/Sources/Airc/Sync/SettingsSync.swift` | The app's settings as flat keys: reading, the ledger file, applying values from other Macs |
 | `apps/browser/Sources/Airc/Sync/SyncCenter.swift` | Backend choice, triggers (activation, push, timer), profile and backup hooks |
 | `apps/browser/Sources/Airc/Settings/SyncSettings.swift` | Settings → Sync and the first-sync screen |
-| `apps/browser/Sources/Airc/Boosts/BoostCenter.swift`, `BoostEditor.swift` | Boosts from other Macs, and the editor's confirm for their code |
 | `scripts/release/icloud.py` | The provisioning profile and the main app's iCloud entitlements (docs/release.md) |
 | `infra/release/cloudkit-schema.ckdb` | The CloudKit schema |
 
@@ -59,7 +55,7 @@ The private database, one custom zone **`AircSidebar`**, five record types:
 | Type | Record name | Fields | Written |
 |---|---|---|---|
 | `SyncGroup` | `group` | `group` (UUID), `version`, `check` (bytes), `created` | once, by the first Mac, create-only |
-| `SyncBatch` | `<device UUID>.<batch UUID>` | `group`, `device`, `envelope` (UUIDs), `version` (1; 2 with a note's row; 3 with a split's or a pane's; 4 for settings; 5 for Boosts and archive timing), `sealed` (bytes) | by its device, create-only, never changed |
+| `SyncBatch` | `<device UUID>.<batch UUID>` | `group`, `device`, `envelope` (UUIDs), `version` (1; 2 with a note's row; 3 with a split's or a pane's; 4 for settings), `sealed` (bytes) | by its device, create-only, never changed |
 | `SyncDevice` | `device.<device UUID>` | `group`, `device`, `sealed` (its name), `seen` | by its device, overwritten at most every 6 hours |
 | `SyncNote` | `note.<device UUID>.<note ID>` | `group`, `device`, `note`, `version` (format 1), `sealed` (bytes, ≤ 256 KB) or `payload` (asset, ≤ 8 MB) | by its device, overwritten with its latest version of that note |
 | `SyncNoteAsset` | `noteasset.<40 hex>` | `group`, `version` (1), `data` (asset: one sealed picture, ≤ 32 MB) | by the first Mac that has the picture, create-only, never changed |
@@ -284,74 +280,6 @@ would fail on the unknown record kind inside, and a mixed batch would hold back 
   instances on a mock database. A's theme, shortcut (live in B's map), Site Search and sidebar side reach B, with
   nothing readable in iCloud and only allowlisted keys sent; per-Mac settings stay on each Mac; B's later change wins on
   both.
-
-## Boosts
-
-Boosts sync too (boostsync, 2026-11-17, P14b3), again with **no record type of their own** and no CloudKit schema
-change: each site's Boost is one `boost` record (its ID the site, `BoostDomain.key`) in the same sealed batches, whose
-one field, `value`, holds a `BoostSyncPayload`: its name, on or off, colours, font and size, zaps, CSS, JavaScript and
-its host, where it came from (`BoostOrigin`), its dates (whole seconds), and **which Mac the person allowed the code
-on** (`allowedOn`). A deletion is a payload too (`removed`), so it reaches every Mac and an older copy never comes back
-(`BoostStore.removed` keeps when each site's Boost was deleted). At most 256 KB, like a Boost file; a larger Boost, and
-one held for its site (`needsSite`), stay on their Mac.
-
-- **Last writer wins per site**: the later change time on its Mac, then the stamp, as for settings. The editor's
-  changes are whole-Boost writes, so two Macs editing one Boost at once keep the later one whole.
-- **Style applies at once**: tint, filters, font, size, zaps and CSS show on the site's open pages as soon as they arrive,
-  as a local edit would (CSS `@import`s keep their rules).
-- **Code never runs because it synced.** JavaScript from another Mac lands in `Boost.heldCode`, never in `Boost.js` (the
-  code that runs), so even a build that doesn't know `heldCode` can't run it. Code already allowed on this Mac, byte for
-  byte and for the same host, keeps running; any other code arriving stops the old code here and waits.
-- **The decision (P14b3).** The person's consent to run a Boost's code on one Mac is evidence, not authority, for the
-  next Mac: the payload names the Mac where the code is allowed (where it was written or allowed, or installed through
-  the review and switched on; BST-2 installs someone else's code off), and the next Mac asks with a **one-click confirm naming it** in the Boost editor ("Run this code
-  here too? You allowed this Boost's JavaScript on <Mac>." · Show Code · Run on This Mac). Site Controls says "Its code
-  waits for you". Code that no Mac vouches for gets the **full review**: the warning the install review shows, and Run
-  only after Show Code. Nothing in sync turns code on: the click is per Mac. Why not one consent for all Macs: the person
-  agreed to run code on one machine, whose pages and logins they had in front of them; a second Mac has other profiles
-  and sites signed in, and anyone who could write into the person's zone with the group key could otherwise run code on
-  every Mac at once. Why not the full review every time: the person already read and allowed this exact code; asking
-  again in full would teach them to click through. Allowing sends the Boost again with this Mac as `allowedOn`; a Mac
-  whose copy is the same code keeps running it.
-- **Reset All Edits** and Delete act on every Mac, like any edit. Writing new code in the editor replaces held code.
-- **The switch.** Settings › Sync › "Sync Boosts", on by default, per Mac (`boosts.off` in the state file). Off sends and
-  applies nothing; on sends what changed here meanwhile and takes the rest by the rule. Held code waits either way.
-- **Engine.** As settings: `capture()` sends each Boost whose content (the payload without `allowedOn`) this Mac hasn't
-  sent or applied (`boosts.baseline`), then applies the winners; a newer payload format, or a site the app can't take
-  now, waits and is tried again.
-
-## Archive timing
-
-Today tabs never sync, so a Today tab's archive timer is its own Mac's. One case crosses Macs: a pinned tab unpinned on
-one Mac becomes a Today tab there, and on every other Mac that has its page open, the page stays as a Today tab too. Its
-timer then ran from that Mac's own last use, which could be days old (archived at once) although the person had just
-used it on the other Mac. Now the Mac that unpins also sends when it last used the tab (`SyncField.used` on the row, ms,
-an operation of its own in a version 5 batch), and a Mac that keeps the page continues its timer from the later of its
-own last use and that one (`SpacesStore.applySyncedUses`; never earlier, never past now, so a Mac whose clock runs ahead
-can't keep a tab forever). The register keeps the latest use any Mac sent. Only unpins send it: the time of every use
-would turn the append-only log into a browsing record. The unpin itself still goes in a version 1 batch, so an older
-build unpins as before and only its timer starts from its own use.
-
-### Older builds (Boosts and archive timing)
-
-Boost and last-use operations go in batches of **envelope version 5** of their own. A build from before Boosts synced
-reads 1...4: it keeps them in its quarantine ("updating Airc may help") and applies them once updated; every other batch
-still reads there, so the sidebar, notes, splits and settings keep syncing with it. Its Boosts.json reader ignores
-`heldCode` and `removed` (it never runs held code), and a Boost whose only content is held code looks empty there.
-
-### Tests (Boosts and archive timing)
-
-- `swift test --package-path packages/AircKit --filter SyncBoosts`: the payload (whole seconds, limits, `allowedOn` not a
-  change), version 5 sealing refused by a 1...4 reader, malformed operations, the later change and the later use winning,
-  the consent rule (held, kept running, stopped, the first vouching Mac kept, no vouch, exact hosts), an older build's
-  Boosts.json never running held code, two engines on the mock database (style arrives, code waits naming A, no echo,
-  allow, a style edit keeps allowed code running, a code edit asks again, deletion), the switch and a site applied later,
-  an older build's view, and a tab unpinned on A continuing its timer on B from A's later use.
-- `--script boostsync-a`, `-b`, `-a2`, `-b2` (Debug/BoostSyncCheck.swift, in the snapshot suite on both engines): two app
-  instances on a mock database and a loopback page. A's Boost: B's page shows its CSS at once and its code doesn't run;
-  the editor's one-click confirm names A (boostsync-confirm.png), Run on This Mac reloads the page and the code runs; a
-  Boost no Mac vouched for needs Show Code first (boostsync-review.png); a tab A uses after B and unpins keeps its timer on
-  B from A's use.
 
 ### Safety rules (from the 2026-11-07 review)
 

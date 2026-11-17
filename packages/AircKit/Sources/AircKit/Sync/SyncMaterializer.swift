@@ -223,28 +223,6 @@ extension SpacesStore {
         return result
     }
 
-    /// Archive timing (BoostSyncPayload.swift): a Today tab whose row another Mac unpinned, saying when it last used it,
-    /// continues its archive timer from that use if it is later than this Mac's own. Never earlier: a use here counts
-    /// too. Not undoable, and not a change this Mac sends (`lastActiveAt` isn't in the payload). Returns whether any changed.
-    @discardableResult
-    public func applySyncedUses(_ replica: SyncReplica, adapter: SyncStoreAdapter) throws -> Bool {
-        var later: [LiveTab] = []
-        for tab in state.tabs.values where tab.isToday {
-            guard let record = adapter.record(forTab: tab.id),
-                  case .time(let ms)? = replica.records[SyncRecordID(.row, record)]?[.used] else { continue }
-            let used = Date(timeIntervalSince1970: Double(ms) / 1000)
-            // Not in the future: a Mac whose clock runs ahead mustn't keep a tab from ever archiving.
-            let when = min(used, now())
-            guard when.timeIntervalSince(tab.lastActiveAt) >= 1 else { continue }
-            var t = tab
-            t.lastActiveAt = when
-            later.append(t)
-        }
-        guard !later.isEmpty else { return false }
-        try perform(nil) { for t in later { put(t) } }
-        return true
-    }
-
     /// A pinned item or Favorite that went elsewhere. Its children the group still has were moved already; local-only
     /// ones (splits) go to the root, or with it on Replace. An unpinned pinned tab's open page becomes a Today tab.
     private func removeSynced(_ id: String, keepPage: Bool, replace: Bool, keep: Set<String>, kept: (Item) -> Bool) {
