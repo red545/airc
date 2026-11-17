@@ -1,0 +1,69 @@
+# Airc 0.1.24 (cut 1e36f511; build revision ef878a1e; notes on release/0.1.24-notes). Claims from its approved notes,
+# "New since 0.1.23". NOT TO POST before release036 posts LIVE for 0.1.24 (with the signed build's link-paint numbers):
+# plan and approve only then, after checking the public repo shows the release (owner rule).
+slug = "2026-11-17-release-0.1.24"
+title = "Airc 0.1.24: fast links, a better agent"
+kind = "release"
+since = "0.1.24"
+tag = "Beta in Airc 0.1.24"
+end_title = "Airc 0.1.24"
+end_line = "Free for Mac · aircbrowser.com"
+summary = """
+Three single posts: links open fast when Airc is closed (text, the first measured speed post), then the agent's hand-off
+to Claude and its memory, on cards cropped from release036's own screenshots of the panel.
+"""
+order = """
+1. Links first at 10:30 UTC (or 15:00 if 10:30 is taken) on the first free day after LIVE; the agent posts on the next
+   two days.
+"""
+checked = """
+- Links: click a link in another app while Airc isn't running and its page shows in about a second, even on the first
+  launch; it used to take up to 6 seconds. Please know, kept: macOS sometimes adds up to about a second, so the post
+  says "usually" and doesn't promise one second every time. No comparison with other browsers (linklaunch's report
+  has Chrome at 0.7 s). Re-check against release036's signed-build numbers at LIVE before approving.
+- Agent: replies stream and Stop ends them at once; the approval card in Watch; optional memory (off by default,
+  Settings › AI › Agent › Memory; read, edit, undo or clear; refuses passwords, codes and card numbers); "Ask Airc to…"
+  in the Command Bar; "Hand to Claude Desktop" or "Hand to Claude Code" once Airc is connected to it. Still a beta,
+  on your own Anthropic or OpenAI API key, billed by the provider: both agent posts say so.
+- Shots: release036's (artifacts/agentpanel2/shots, chromium), copied to scratch/social-shots/marketing so the studio
+  finds them by name, each cropped to the panel's top: the hand-off card, and memory's "Done, and noted" with the
+  refused one-time code. Both are the panel alone, on fixture data; no loopback address in either crop.
+"""
+
+[[image]]
+id = "handoff"
+shot = "agentpanel-handoff"
+mode = "plate"
+title = "Or hand it to Claude."
+line = "Claude Desktop or Claude Code, with the task."
+clip = [0, 0, 380, 342]
+alt = "The Airc Agent panel without an API key: Connect your AI, with Open Settings for an Anthropic or OpenAI key billed to you, or hand this task to Claude, which uses Airc through its connector with your Claude plan: Hand to Claude Desktop, Hand to Claude Code."
+
+[[image]]
+id = "memory"
+shot = "agentpanel-memory"
+mode = "plate"
+title = "Memory you can read."
+line = "Off by default. It won't keep codes or passwords."
+clip = [0, 0, 380, 300]
+alt = "The Airc Agent panel after “Remember what you learn”, on fixture data: Done, and noted. It used memory notes, remembered one line in sites.md with Undo, and didn't remember another because it looks like a one-time or security code: Airc never keeps secrets in Memory."
+
+[[post]]
+label = "Links open fast when Airc is closed"
+text = """
+Click a link in another app while Airc is closed, and its page now usually shows in about a second, even on Airc's very first launch. It used to take up to 6 seconds. Ad and tracker blocking still covers it from the first request. New in Airc 0.1.24.
+"""
+
+[[post]]
+label = "Agent: hand it to Claude"
+media = ["handoff:16x9"]
+text = """
+Airc Agent (beta) can now hand a task to Claude Desktop or Claude Code if you'd rather use your Claude app. Or run it in Airc on your own API key: replies stream in, Stop ends them at once, and "Ask Airc to…" in ⌘T starts a task.
+"""
+
+[[post]]
+label = "Agent: memory you can read"
+media = ["memory:16x9"]
+text = """
+Airc Agent (beta) can now remember between tasks, if you turn it on: short notes you can read, edit, undo or clear. It refuses to keep passwords, codes or card numbers. Off by default; runs on your own API key, billed by your provider.
+"""
