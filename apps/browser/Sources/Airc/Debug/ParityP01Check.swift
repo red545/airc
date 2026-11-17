@@ -819,10 +819,14 @@ extension SnapshotRunner {
                 let want = k.url("/a.html") + "#:~:text=Alpha%20words"
                 self.check(offer?.label.stringValue == QuoteLinkOfferView.message && offer?.link == want,
                            "parityp01: ⌘C on the page's selection offers \"\(offer?.label.stringValue ?? "nothing")\" (\(offer?.link ?? "-"))")
+                let linkBefore = k.board.changeCount
                 offer?.button.performClick(nil)
-                self.check(k.board.string(forType: .string) == want && self.c.toast.shownText == "Copied a link to this text",
-                           "parityp01: its Copy Link copies the link to the text (\(k.board.string(forType: .string) ?? "-"))")
-                done()
+                // C06: the copy first asks the page what it is (quote opt-outs).
+                self.waitUntil({ k.board.changeCount != linkBefore }, timeout: 3) {
+                    self.check(k.board.string(forType: .string) == want && self.c.toast.shownText == QuoteLink.copiedToast && self.c.toast.shownDetail == QuoteLink.withQuote,
+                               "parityp01: its Copy Quote Link copies the link to the text (\(k.board.string(forType: .string) ?? "-"))")
+                    done()
+                }
             }
         }
         step { [self] done in

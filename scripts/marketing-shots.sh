@@ -24,7 +24,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PARTS="cast blocking video-blocking smallwins arcbits arcimport2 profilesignin boostsplus archive browser views media calls settings sync onboarding boosts themes drm basics previews windows sidebarright multiselect parityp01 parityp21b capture notes parityp07 parityp03b parityp09 parityp20d parityp18b library parityp10 parityp12 shortcuts devmode routing ai"
+PARTS="cast blocking video-blocking smallwins arcbits arcimport2 profilesignin boostsplus archive browser views media calls settings sync onboarding boosts themes drm basics previews windows sidebarright multiselect parityp01 quotecopy parityp21b capture notes parityp07 parityp03b parityp09 parityp20d parityp18b library parityp10 parityp12 shortcuts devmode routing ai"
 PARTS="$PARTS parityp16b"
 PARTS="$PARTS parityp07bc"   # ChatGPT in the Command Bar and Instant Links (Debug/MarketingParityP07bc.swift)
 PARTS="$PARTS parityp19a"   # an Easel (Debug/MarketingParityP19a.swift)
@@ -112,7 +112,9 @@ sidebar-files|Files and folders|A "Lisbon trip" folder dropped on the Travel sid
 multi-select|Multi-selection|Three Today tabs ⌘-clicked in Personal, with their menu: copy, share, duplicate, split, pin, a new folder, move, close, archive
 tab-menu|Tab menus|The Kyoto tab'"'"'s menu in Personal, as Arc'"'"'s: Copy Link, Share, Rename, Mute, Customize Page, Add Split View, Move to, Archive
 folder-markdown|Folder links as Markdown|The Recipes folder'"'"'s menu: Copy All Links and Copy All Links as Markdown, titles and order kept
-quote-link|A link to copied text|After ⌘C on a sentence in Wikipedia'"'"'s Typography article: Share a link directly to this text instead? with Copy Link
+quote-link|A link to copied text|After ⌘C on a sentence in Wikipedia'"'"'s Typography article: Share a link directly to this text instead? with Copy Quote Link
+quote-copy|Share Quote|A sentence selected in Wikipedia'"'"'s Typography article: Share Quote under the address, and the toast Copied Link · With Quote
+quote-copy-dark|Share Quote, dark|The same quote link copied in a dark Space
 essential-shortcuts|Essential Keyboard Shortcuts|Help › Essential Keyboard Shortcuts: tabs, Spaces, pages, Split View and notes, each with the key it has now
 library-media|Library: Media|Library › Media in the Work Space: downloaded pictures and films and a Capture, newest first, as a grid of thumbnails
 library-recent|Library: recent files|The pointer resting on the Library button: the five newest downloads and Captures in a card above it

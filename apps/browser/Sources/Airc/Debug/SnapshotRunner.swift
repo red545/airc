@@ -244,6 +244,7 @@ final class SnapshotRunner {
         case "parityw10drag": parityW10DragScenario()   // W10: tear-out, drops, ⌥ copy, Esc (real driver drags)
         case "ownerfs": ownerFullScreenScenario()   // new windows from full screen open in their own full-screen Space (OwnerFixesCheck.swift)
         case "paritysmallgaps": paritySmallGapsScenario()   // C06 Share Quote under the URL, K03 Edit/Help remaps and layout brackets
+        case "quotecopy": quoteCopyScenario()   // C06 Copy Quote Link: page menu, Share Quote, Arc's toasts, opt-outs (QuoteCopyCheck.swift)
         case "ownerquote": ownerQuoteScenario()   // C06 Shared Quotes with a real ⌘C, and the page menu's Copy Link to Highlight
         case "parityS09S11": parityS09S11Scenario()   // S09/S11: Move to › folders, a selection's Archive Tabs Below / Other Tabs, Command Bar
         case "parityp01c": parityP01cScenario()   // P01c: Move to ›, folder reset and Turn into Space, the Space header, Shared Quotes

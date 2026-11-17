@@ -79,27 +79,151 @@ public enum LinkCopyPolicy {
     ]
 
     /// A link that opens the page scrolled to `selection`, highlighted (a text fragment, `#:~:text=`; Arc's "share a link
-    /// directly to this text"). A long passage is found by its first and last words. The page's own fragment gives way;
-    /// trackers go. Nil when there are no words or the page isn't a website.
+    /// directly to this text"). The page's own fragment gives way; trackers go. Nil when there are no words or the page
+    /// isn't a website.
+    ///
+    /// The fragment has to find the text again in any browser, so it follows how browsers match one: a single
+    /// `text=` term matches only inside one block (paragraph, list item, cell), and a range (`start,end`) needs only
+    /// its start to begin a word and its end to end one. So:
+    /// - a short passage on one line goes as it is (whitespace collapsed);
+    /// - a long one, or one across several lines or blocks, goes as a range: its first and its last words (from the
+    ///   first and the last line);
+    /// - a run without spaces (Chinese, Japanese, a long code word) is cut by characters, never in the middle of one.
     public static func textFragmentURL(_ url: String, selection: String) -> String? {
-        let words = selection.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).map(String.init)
-        guard !words.isEmpty, var c = URLComponents(string: clean(url)),
+        let lines = selection.split(whereSeparator: \.isNewline).map(Self.words).filter { !$0.isEmpty }
+        guard let first = lines.first, let last = lines.last, var c = URLComponents(string: clean(url)),
               let scheme = c.scheme?.lowercased(), ["http", "https"].contains(scheme) else { return nil }
-        func encoded(_ w: ArraySlice<String>) -> String {
-            // The directive's own characters (- , &) are escaped inside its terms.
-            var allowed = CharacterSet.urlFragmentAllowed
-            allowed.remove(charactersIn: "-,&#%")
-            return w.joined(separator: " ").addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+        let text: String
+        if lines.count == 1, first.count <= exactWords, first.joined(separator: " ").count <= exactCharacters {
+            text = fragmentTerm(first.joined(separator: " "))
+        } else {
+            let start = edge(first, fromStart: true), end = edge(last, fromStart: false)
+            text = fragmentTerm(start) + "," + fragmentTerm(end)
         }
-        let text = words.count <= 8 ? encoded(words[...]) : encoded(words.prefix(4)) + "," + encoded(words.suffix(4))
         c.percentEncodedFragment = ":~:text=" + text
         return c.string
+    }
+
+    /// Up to this many words (and characters) on one line go whole.
+    static let exactWords = 8, exactCharacters = 120
+    /// A range's start or end: up to this many words, within this many characters.
+    static let edgeWords = 4, edgeCharacters = 48
+
+    static func words(_ s: Substring) -> [String] {
+        s.split(whereSeparator: { (c: Character) in c.isWhitespace || c.isNewline }).map(String.init)
+    }
+
+    /// A range's start (its first words) or end (its last words); a first or last word too long for that is cut by
+    /// characters, from its outer side.
+    static func edge(_ words: [String], fromStart: Bool) -> String {
+        let ordered = fromStart ? words : words.reversed()
+        var picked: [String] = []
+        var length = 0
+        for w in ordered.prefix(edgeWords) {
+            let extra = (picked.isEmpty ? 0 : 1) + w.count
+            if !picked.isEmpty, length + extra > edgeCharacters { break }
+            picked.append(w)
+            length += extra
+        }
+        if picked.count == 1, let w = picked.first, w.count > edgeCharacters {
+            let keep = edgeCharacters / 2
+            return fromStart ? String(w.prefix(keep)) : String(w.suffix(keep))
+        }
+        return (fromStart ? picked : picked.reversed()).joined(separator: " ")
+    }
+
+    /// One term of a `text=` directive, percent-encoded. The directive's own characters (- , &) are escaped inside it.
+    static func fragmentTerm(_ s: String) -> String {
+        var allowed = CharacterSet.urlFragmentAllowed
+        allowed.remove(charactersIn: "-,&#%")
+        return s.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
     }
 
     /// The toast after copying `count` links (Arc's wording): clean ones say so.
     public static func toast(count: Int, removedTrackers: Bool, single: String) -> String {
         if removedTrackers { return count == 1 ? "Copied a clean link without trackers" : "Copied clean links without trackers" }
         return count == 1 ? single : "Copied \(count) Links"
+    }
+}
+
+/// Arc's quote links (C06): its labels, and the pages that get a plain link instead.
+///
+/// Arc 1.171's own strings: the button "Copy Quote Link" (on the offer after ⌘C), the toast "Copied Link" with the
+/// sublabel "With Quote" and a filled quote bubble. A page where a link to the text can't work gets the page's clean link
+/// and the plain "Copied Link".
+public enum QuoteLink {
+    public static let copyTitle = "Copy Quote Link"
+    public static let copiedToast = "Copied Link"
+    public static let withQuote = "With Quote"
+    public static let symbol = "quote.bubble.fill"
+
+    /// Why a page gets a plain link.
+    public enum OptOut: String, Sendable {
+        /// Not a website (chrome:, about:, file:, data:, a note…): nobody else can open it.
+        case notWebsite
+        /// A PDF: browsers show it in a viewer that text fragments don't reach.
+        case pdf
+        /// A private window: a quote of what was read there would outlive it.
+        case privateWindow
+        /// The site sends `Document-Policy: force-load-at-top`: it always opens at the top, so the link would never
+        /// scroll to the text.
+        case forceLoadAtTop
+        /// The page didn't say in time what it is (a viewer page that runs no script, a busy page): no promise of a
+        /// link that finds the text.
+        case unreadable
+    }
+
+    /// What is known about a page. `contentType` and `documentPolicy` are nil while unknown.
+    public struct Page: Equatable, Sendable {
+        public var url: String
+        public var contentType: String?
+        public var documentPolicy: String?
+        public var isPrivate: Bool
+        /// The page was asked and didn't answer.
+        public var unreadable: Bool
+
+        public init(url: String, contentType: String? = nil, documentPolicy: String? = nil, isPrivate: Bool = false,
+                    unreadable: Bool = false) {
+            self.url = url
+            self.contentType = contentType
+            self.documentPolicy = documentPolicy
+            self.isPrivate = isPrivate
+            self.unreadable = unreadable
+        }
+    }
+
+    /// Why `page` gets a plain link, or nil when a quote link works there.
+    public static func optOut(_ page: Page) -> OptOut? {
+        if page.isPrivate { return .privateWindow }
+        guard let u = URLComponents(string: page.url), let scheme = u.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              !(u.host ?? "").isEmpty else { return .notWebsite }
+        if let type = page.contentType?.lowercased() {
+            if type.hasPrefix("application/pdf") || type.hasPrefix("application/x-pdf") { return .pdf }
+        } else if u.path.lowercased().hasSuffix(".pdf") {
+            return .pdf
+        }
+        if let policy = page.documentPolicy, forcesLoadAtTop(policy) { return .forceLoadAtTop }
+        return page.unreadable ? .unreadable : nil
+    }
+
+    /// Whether a `Document-Policy` header (a structured-header dictionary; several headers joined with commas) turns
+    /// `force-load-at-top` on: `force-load-at-top` or `force-load-at-top=?1`, with or without parameters.
+    public static func forcesLoadAtTop(_ documentPolicy: String) -> Bool {
+        for member in documentPolicy.split(separator: ",") {
+            let item = member.split(separator: ";", maxSplits: 1).first.map(String.init) ?? ""
+            let parts = item.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            guard parts.first?.lowercased() == "force-load-at-top" else { continue }
+            return parts.count == 1 || parts[1] == "?1"
+        }
+        return false
+    }
+
+    /// What a quote copy writes: the link to `selection` (`withQuote`), or the page's clean link when the page opts out
+    /// or there are no words. Nil when there's nothing to copy at all.
+    public static func copy(_ page: Page, selection: String) -> (link: String, withQuote: Bool)? {
+        if optOut(page) == nil, let link = LinkCopyPolicy.textFragmentURL(page.url, selection: selection) { return (link, true) }
+        guard !page.url.isEmpty else { return nil }
+        return (LinkCopyPolicy.clean(page.url), false)
     }
 }
 

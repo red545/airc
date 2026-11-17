@@ -68,13 +68,19 @@ each pinned folder in the Space (⌘Z puts the tab back).
   Markdown quote with a link back. If you copy something else, switch tabs, or the Peek closes before the page has
   handed over its selection, that quote is dropped rather than replacing what you copied since.
 - **A link to the text you copied.** After ⌘C on text you selected in a page, Airc offers "Share a link directly to
-  this text instead?". Copy Link replaces what you copied with a link that opens the page at that text, highlighted.
-  The link takes whole words, so a selection that starts or ends partway through a word still finds its text. You can
-  also right-click (or ⌃-click) the selected text and choose **Copy Link to Highlight** (on Safari's engine: **Copy
-  Link with Highlight**), as in Chrome.
+  this text instead?". **Copy Quote Link** replaces what you copied with a link that opens the page at that text,
+  highlighted, and "Copied Link · With Quote" confirms it, as in Arc. The link takes whole words, so a selection that
+  starts or ends partway through a word still finds its text; a long passage, or one over several paragraphs, is
+  found by its first and last words. You can also right-click (or ⌃-click) the selected text and choose **Copy Quote
+  Link**, right under Copy (the engine's own **Copy Link to Highlight**, on Safari's engine **Copy Link with
+  Highlight**, is there too).
+- **Pages that get a plain link.** Where a link to the text can't work, Copy Quote Link and Share Quote copy the
+  page's clean link instead, and the toast says just "Copied Link": PDFs, pages that aren't websites (a browser
+  page, a file), and sites that ask browsers to always open them at the top (`Document-Policy: force-load-at-top`).
+  To find that out, Airc asks the site once for the page's headers. Private windows offer no quote links at all.
 - **Share Quote under the address.** While you have text selected on a page, a small **Share Quote** button shows just
   below the address at the top of the sidebar, as in Arc (the sidebar's list moves down a little to make room). Click it to copy the same link to that text (whole words,
-  without trackers); "Copied a link to this text" confirms it. It appears once you let go of the mouse (or the key
+  without trackers); "Copied Link · With Quote" confirms it. It appears once you let go of the mouse (or the key
   that made the selection), never while you're still dragging, and goes when the selection does, when you switch
   tabs, or when you hide the sidebar. Text you select inside a field or an editor gets no button: a link can't point
   there. Right-click it for **Disable Shared Quotes**.

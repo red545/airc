@@ -2,6 +2,7 @@
 import AircDesign
 import AircKit
 import AppKit
+import WebKit
 
 /// H03 (Arc's "Share" in its tab menus and its main menu): the system's share menu (Messages, Mail, AirDrop, Notes…) for
 /// exactly the links in question: a row's page, the selected rows', the page on screen or its Peek. The links lose
@@ -168,13 +169,13 @@ extension WindowController {
 
 // MARK: A link straight to the copied text (C06)
 
-/// Arc's offer after ⌘C on a page's selected text: "Share a link directly to this text instead?" with a button that
-/// copies the page's link to that text (a text fragment that scrolls to and highlights it). It goes by itself after a few
-/// seconds; nothing is copied unless the person asks.
+/// Arc's offer after ⌘C on a page's selected text: "Share a link directly to this text instead?" with Arc's button
+/// "Copy Quote Link", which copies the page's link to that text (a text fragment that scrolls to and highlights it). It
+/// goes by itself after a few seconds; nothing is copied unless the person asks.
 final class QuoteLinkOfferView: NSView {
     static let message = "Share a link directly to this text instead?"
     let label = NSTextField(labelWithString: QuoteLinkOfferView.message)
-    let button = NSButton(title: "Copy Link", target: nil, action: nil)
+    let button = NSButton(title: QuoteLink.copyTitle, target: nil, action: nil)
     /// The link the button copies.
     private(set) var link = ""
     var onCopy: ((String) -> Void)?
@@ -269,8 +270,12 @@ extension WindowController {
             let pair = (v as? [Any])?.compactMap { $0 as? String } ?? []
             guard let self, let page, page === self.displayedLinkPage, board.changeCount == changeCount, pair.count == 2,
                   case let selection = pair[0], words(selection).count >= 3, words(selection) == words(copied),
-                  let link = LinkCopyPolicy.textFragmentURL(url, selection: pair[1].isEmpty ? selection : pair[1]) else { return }
-            self.showQuoteLinkOffer(link)
+                  QuoteLink.optOut(.init(url: url)) == nil, case let whole = pair[1].isEmpty ? selection : pair[1],
+                  let link = LinkCopyPolicy.textFragmentURL(url, selection: whole) else { return }
+            self.showQuoteLinkOffer(link) { [weak self, weak page] in
+                guard let self, let page else { return }
+                self.copyQuoteLink(page: page, url: url, selection: whole)
+            }
         }
     }
 
@@ -285,13 +290,17 @@ extension WindowController {
         return [t,String(r)];})()
         """
 
-    func showQuoteLinkOffer(_ link: String) {
+    /// `copy` runs on Copy Quote Link (the page's own quote copy, with its opt-outs); without one, `link` is copied as is.
+    func showQuoteLinkOffer(_ link: String, copy: (() -> Void)? = nil) {
         let offer = quoteLinkOffer ?? {
             let v = QuoteLinkOfferView()
             root.addSubview(v, positioned: .below, relativeTo: toast)
             return v
         }()
-        offer.onCopy = { [weak self] link in self?.writeLinks(link, toast: "Copied a link to this text") }
+        offer.onCopy = { [weak self] link in
+            if let copy { return copy() }
+            self?.writeQuoteLink(link, withQuote: true)
+        }
         offer.onDisable = { [weak self] in self?.setSharedQuotes(false) }
         offer.show(link, palette: currentPalette, in: card.frame)
     }
@@ -309,8 +318,10 @@ final class QuotePillView: NSView {
     weak var controller: WindowController?
     let icon = NSImageView()
     let label = NSTextField(labelWithString: QuotePillView.title)
-    /// The link a click copies.
+    /// The link a click copies (where the page takes quote links).
     private(set) var link = ""
+    /// The page's address and the selection out to whole words, which the copy goes by.
+    private var pageURL = "", selection = ""
     /// The page the link is for (the pill goes when another one is on screen).
     private weak var page: EngineTab?
     private var poll: Timer?
@@ -381,9 +392,10 @@ final class QuotePillView: NSView {
 
     func copyLink() {
         guard !isHidden, !link.isEmpty else { return }
-        let l = link
+        let (url, text, on) = (pageURL, selection, page)
         hide()
-        controller?.writeLinks(l, toast: "Copied a link to this text")
+        guard let on else { return }
+        controller?.copyQuoteLink(page: on, url: url, selection: text)
     }
 
     private func paint() {
@@ -424,15 +436,17 @@ final class QuotePillView: NSView {
         guard c.app?.settings.values.sharedQuotes != false, !c.sidebarHidden, !c.sidebar.isHidden, c.peek == nil,
               let id = c.shownTabID, !c.store.isNoteTab(id), let page = c.engineTab(for: id),
               let url = page.url?.absoluteString, url.hasPrefix("http://") || url.hasPrefix("https://"),
-              !fromPoll || page === self.page else { return hide() }
+              QuoteLink.optOut(.init(url: url)) == nil, !fromPoll || page === self.page else { return hide() }
         page.evaluate(Self.selectionScript) { [weak self, weak page] v in
             guard let self, let page, asked == self.generation, page === c.shownTabID.flatMap(c.engineTab) else { return }
             let pair = (v as? [Any])?.compactMap { $0 as? String } ?? []
             func words(_ s: String) -> [Substring] { s.split(whereSeparator: { $0.isWhitespace || $0.isNewline }) }
-            guard pair.count == 2, words(pair[0]).count >= 3,
-                  let link = LinkCopyPolicy.textFragmentURL(url, selection: pair[1].isEmpty ? pair[0] : pair[1]) else { return self.hide() }
+            guard pair.count == 2, words(pair[0]).count >= 3, case let whole = pair[1].isEmpty ? pair[0] : pair[1],
+                  let link = LinkCopyPolicy.textFragmentURL(url, selection: whole) else { return self.hide() }
             // The sidebar may have been resized meanwhile.
             if fromPoll { if link != self.link { self.hide() } else { self.place() }; return }
+            self.pageURL = url
+            self.selection = whole
             self.show(link, for: page)
         }
     }
@@ -528,5 +542,136 @@ extension WindowController {
         pill.controller = self
         sidebar.addSubview(pill)
         QuotePillView.installMonitor()
+    }
+}
+
+// MARK: Copy Quote Link (C06)
+
+extension WindowController {
+    /// What is known about pages' quote opt-outs, by address without its fragment: their type and Document-Policy.
+    private static var quotePageFacts: [String: (type: String, policy: String)] = [:]
+
+    #if AIRC_TESTING
+    /// The checks start each case from what the page says now.
+    static func forgetQuotePageFacts() { quotePageFacts.removeAll() }
+    /// The facts the last copy went by (the opt-out checks read why a page got a plain link).
+    static var lastQuoteFacts: QuoteLink.Page?
+    #endif
+
+    /// Arc's toast after a quote copy: "Copied Link", and with a quote bubble and "With Quote" when the link goes to it.
+    func showQuoteToast(withQuote: Bool) {
+        toast.show(QuoteLink.copiedToast, palette: currentPalette, in: card.frame,
+                   detail: withQuote ? QuoteLink.withQuote : nil, symbol: withQuote ? QuoteLink.symbol : nil)
+    }
+
+    /// Writes a quote copy's link to the link pasteboard, with Arc's toast.
+    func writeQuoteLink(_ link: String, withQuote: Bool) {
+        guard !link.isEmpty else { return NSSound.beep() }
+        Self.quoteGate.cancel()
+        Self.linkPasteboard.clearContents()
+        Self.linkPasteboard.setString(link, forType: .string)
+        showQuoteToast(withQuote: withQuote)
+    }
+
+    /// Arc's Copy Quote Link (the ⌘C offer, Share Quote, the page menu): the link to `selection` on `page`, or, where
+    /// such a link can't work (QuoteLink.optOut: a PDF, a site that always opens at the top, a page that doesn't answer),
+    /// the page's clean link. What the page is gets asked first; a newer copy, another page or a Peek meanwhile wins.
+    func copyQuoteLink(page: EngineTab, url: String, selection: String) {
+        let board = Self.linkPasteboard
+        let ticket = Self.quoteGate.begin(quoteContext(), changeCount: board.changeCount)
+        quotePageFacts(page, url: url) { [weak self] facts in
+            #if AIRC_TESTING
+            Self.lastQuoteFacts = facts
+            #endif
+            guard let self, Self.quoteGate.finish(ticket, now: self.quoteContext(), changeCount: board.changeCount),
+                  let out = QuoteLink.copy(facts, selection: selection) else { return }
+            board.clearContents()
+            board.setString(out.link, forType: .string)
+            self.showQuoteToast(withQuote: out.withQuote)
+        }
+    }
+
+    /// The page's quote facts: its content type (a PDF) and its `Document-Policy` header, read with a HEAD request to
+    /// the page's own address from the page (its cookies, its cache first). Once per address; a page that doesn't
+    /// answer within 1.5 s is `unreadable` (not remembered).
+    func quotePageFacts(_ page: EngineTab, url: String, _ done: @escaping (QuoteLink.Page) -> Void) {
+        var facts = QuoteLink.Page(url: url)
+        // Not a website, or a .pdf by its name: nothing to ask.
+        guard QuoteLink.optOut(facts) == nil else { return done(facts) }
+        let key = url.components(separatedBy: "#").first ?? url
+        if let known = Self.quotePageFacts[key] {
+            facts.contentType = known.type
+            facts.documentPolicy = known.policy
+            return done(facts)
+        }
+        var answered = false
+        func finish(_ answer: [String]?) {
+            guard !answered else { return }
+            answered = true
+            if let answer, answer.count == 2 {
+                facts.contentType = answer[0].isEmpty ? nil : answer[0]
+                facts.documentPolicy = answer[1]
+                if Self.quotePageFacts.count > 200 { Self.quotePageFacts.removeAll() }
+                Self.quotePageFacts[key] = (answer[0], answer[1])
+            } else {
+                facts.unreadable = true
+            }
+            done(facts)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { finish(nil) }
+        let body = Self.quoteFactsScript
+        if let wk = page as? WebKitTab {
+            // WebKit's evaluate doesn't wait for a promise; this does, in Airc's own script world.
+            wk.webView.callAsyncJavaScript(body, arguments: [:], in: nil, in: .defaultClient) { result in
+                finish((try? result.get()) as? [String])
+            }
+        } else {
+            page.evaluate("(async function(){\(body)})()") { v in finish(v as? [String]) }
+        }
+    }
+
+    /// An async function body: the document's type and its Document-Policy header ("" when it has none, or the request
+    /// fails or takes over a second).
+    static let quoteFactsScript = """
+        const type = String(document.contentType || '');
+        if (/pdf/i.test(type)) return [type, ''];
+        let policy = '';
+        try {
+          const ctl = new AbortController();
+          const timer = setTimeout(() => ctl.abort(), 1000);
+          const r = await fetch(location.href.split('#')[0], {method: 'HEAD', cache: 'force-cache', credentials: 'include', signal: ctl.signal});
+          clearTimeout(timer);
+          policy = r.headers.get('document-policy') || '';
+        } catch (e) {}
+        return [type, policy];
+        """
+
+    /// The page menu's Copy Quote Link (QuoteLinkMenu): `tab`'s selection out to whole words.
+    func copyQuoteLinkFromMenu(_ tab: EngineTab) {
+        guard let url = tab.url?.absoluteString else { return NSSound.beep() }
+        var asked = false
+        func copy(_ selection: String) {
+            guard !asked else { return }
+            asked = true
+            copyQuoteLink(page: tab, url: url, selection: selection)
+        }
+        // A page that runs no script (a PDF viewer): the page's link, after the facts' own wait.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copy("") }
+        tab.evaluate(Self.selectionToWholeWordsScript) { v in
+            let pair = (v as? [Any])?.compactMap { $0 as? String } ?? []
+            copy(pair.count == 2 ? (pair[1].isEmpty ? pair[0] : pair[1]) : "")
+        }
+    }
+}
+
+/// C06: "Copy Quote Link" in a page's menu on selected text (not in a field), first after Copy.
+enum QuoteLinkMenu {
+    static let id = "quote.copy"
+
+    /// Chromium's menu context has the selection; WebKit's says only whether its menu has Copy (`hasSelection`).
+    static func items(_ context: [String: Any]) -> [[String: String]] {
+        let text = (context["selection"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard context["editable"] as? Bool != true, !text.isEmpty || context["hasSelection"] as? Bool == true else { return [] }
+        return [["id": id, "title": QuoteLink.copyTitle]]
     }
 }

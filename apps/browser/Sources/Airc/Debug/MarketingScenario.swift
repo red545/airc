@@ -76,6 +76,7 @@ extension SnapshotRunner {
             case "sidebarright": mkSidebarRightShots(d)
             case "multiselect": mkMultiSelectShots(d)
             case "parityp01": mkParityP01Shots(d)
+            case "quotecopy": mkQuoteCopyShots(d)   // MarketingQuoteCopy.swift: Share Quote and Arc's quote-link toast
             case "parityp21b": mkParityP21bShots(d)   // MarketingParityP21b.swift: What's New, the question, App Icon
             case "capture": mkCaptureShots(d)
             case "notes": mkNotesShots(d)

@@ -4,7 +4,7 @@ import AppKit
 
 extension WindowController {
     func tab(_ tab: EngineTab, pageMenu context: [String: Any]) -> [[String: String]] {
-        SelectionSearchMenu.items(context, search: selectionSearch(for: tab)) +
+        QuoteLinkMenu.items(context) + SelectionSearchMenu.items(context, search: selectionSearch(for: tab)) +
         [ ["id": "capture", "title": "Capture"],
           ["id": "capture.full", "title": "Capture Full Page"],
           ["id": "capture.portrait", "title": "Capture in Portrait Mode"] ]
@@ -21,6 +21,7 @@ extension WindowController {
             }
             if let tabID = self.tabID(for: tab), self.shownTabID != tabID { self.show(tabID, focus: false) }
             switch id {
+            case QuoteLinkMenu.id: self.copyQuoteLinkFromMenu(tab)
             case "capture": self.startCapture()
             case "capture.full": self.startCapture(fullPage: true)
             case "capture.portrait": self.startCapture(portrait: true)

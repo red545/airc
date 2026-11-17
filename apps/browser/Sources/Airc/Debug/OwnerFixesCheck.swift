@@ -525,7 +525,7 @@ extension SnapshotRunner {
                     UIDriverClient.run(["--click", String(Double(s.x)), String(Double(primary.frame.maxY - s.y))]) { ok, out in
                         if !ok { self.note("FAIL-ENV \(label("driver click on Copy Link: \(out)"))") }
                         self.waitUntil({ board.changeCount != linkBefore }, timeout: 3) {
-                            self.check(board.string(forType: .string) == want && self.c.toast.shownText == "Copied a link to this text",
+                            self.check(board.string(forType: .string) == want && self.c.toast.shownText == QuoteLink.copiedToast && self.c.toast.shownDetail == QuoteLink.withQuote,
                                        label("a real click on Copy Link copies the link (\(board.string(forType: .string) ?? "-")) and says so"))
                             done()
                         }

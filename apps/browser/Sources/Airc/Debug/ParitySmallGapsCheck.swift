@@ -193,7 +193,7 @@ extension SnapshotRunner {
         realClick({ pill().flatMap { $0.isHidden ? nil : $0.convert(NSPoint(x: $0.bounds.midX, y: $0.bounds.midY), to: nil) } }, "Share Quote")
         step { [self] done in
             waitUntil({ board.changeCount != linkBefore }, timeout: 3) {
-                self.check(board.string(forType: .string) == want && self.c.toast.shownText == "Copied a link to this text",
+                self.check(board.string(forType: .string) == want && self.c.toast.shownText == QuoteLink.copiedToast && self.c.toast.shownDetail == QuoteLink.withQuote,
                            label("a real click on Share Quote copies that link (\(board.string(forType: .string) ?? "-")) and says so"))
                 self.check(pill()?.isHidden == true, label("and the pill goes"))
                 done()

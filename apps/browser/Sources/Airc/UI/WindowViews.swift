@@ -213,12 +213,20 @@ final class PageCardView: NSView {
 /// "Copied Current URL", "Space deleted! Use ⌘Z to undo." (Arc ref §6.1 toast motion).
 final class ToastView: NSView {
     private let label = NSTextField(labelWithString: "")
+    /// C06: Arc's sublabel after the title ("Copied Link" · "With Quote"), in the secondary text colour.
+    private let detailLabel = NSTextField(labelWithString: "")
+    /// C06: Arc's glyph before the title (quote.bubble.fill on a quote link).
+    private let glyph = NSImageView()
     private var hideWork: DispatchWorkItem?
     /// L04: an action on the toast ("Undo" after the Library moved a file to the Trash).
     private(set) var actionButton: NSButton?
     private var actionRun: (() -> Void)?
     /// What it says while it shows, else nil (the real-event checks read it).
     var shownText: String? { isHidden ? nil : label.stringValue }
+    /// Its sublabel while it shows ("" without one), else nil.
+    var shownDetail: String? { isHidden ? nil : detailLabel.isHidden ? "" : detailLabel.stringValue }
+    /// Its glyph's symbol name while it shows, else nil.
+    private(set) var shownSymbol: String?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -228,7 +236,10 @@ final class ToastView: NSView {
         layer?.apply(.toast)
         label.font = AircFont.body.weight(.medium).appFont
         label.alignment = .center
+        detailLabel.font = AircFont.body.appFont
         addSubview(label)
+        addSubview(detailLabel)
+        addSubview(glyph)
         isHidden = true
     }
 
@@ -241,9 +252,18 @@ final class ToastView: NSView {
     }
 
     func show(_ text: String, palette: Palette, in container: NSRect, duration: Double = AircMetrics.Toast.defaultDuration,
-              action: (title: String, run: () -> Void)? = nil) {
+              action: (title: String, run: () -> Void)? = nil, detail: String? = nil, symbol: String? = nil) {
         label.stringValue = text
         label.textColor = palette.panelText
+        detailLabel.stringValue = detail ?? ""
+        detailLabel.textColor = palette.panelText.withAlphaComponent(0.6)
+        detailLabel.isHidden = (detail ?? "").isEmpty
+        detailLabel.sizeToFit()
+        shownSymbol = symbol
+        glyph.image = symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) }?
+            .withSymbolConfiguration(.init(pointSize: 12, weight: .semibold))
+        glyph.contentTintColor = palette.panelText
+        glyph.isHidden = glyph.image == nil
         layer?.backgroundColor = palette.panelBackground.cgColor
         layer?.borderWidth = 0.5
         layer?.borderColor = palette.panelBorder.cgColor
@@ -266,12 +286,18 @@ final class ToastView: NSView {
             buttonWidth = b.frame.width + AircSpacing.m
         }
         let h = AircMetrics.Toast.height
-        let w = label.frame.width + buttonWidth + 2 * AircSpacing.l
+        let glyphSide: CGFloat = 16, glyphGap: CGFloat = 6, detailGap: CGFloat = 5
+        let glyphWidth = glyph.isHidden ? 0 : glyphSide + glyphGap
+        let detailWidth = detailLabel.isHidden ? 0 : detailGap + detailLabel.frame.width
+        let w = glyphWidth + label.frame.width + detailWidth + buttonWidth + 2 * AircSpacing.l
         frame = NSRect(x: container.midX - w / 2, y: container.minY + AircMetrics.Toast.topInset, width: w, height: h)
-        label.frame = NSRect(x: AircSpacing.l, y: (h - label.frame.height) / 2, width: label.frame.width, height: label.frame.height)
+        glyph.frame = NSRect(x: AircSpacing.l, y: (h - glyphSide) / 2, width: glyphSide, height: glyphSide)
+        label.frame = NSRect(x: AircSpacing.l + glyphWidth, y: (h - label.frame.height) / 2, width: label.frame.width, height: label.frame.height)
+        detailLabel.frame.origin = NSPoint(x: label.frame.maxX + detailGap, y: label.frame.minY)
         if let b = actionButton {
-            b.frame.origin = NSPoint(x: label.frame.maxX + AircSpacing.m, y: (h - b.frame.height) / 2)
+            b.frame.origin = NSPoint(x: label.frame.maxX + detailWidth + AircSpacing.m, y: (h - b.frame.height) / 2)
         }
+        setAccessibilityLabel(detailLabel.isHidden ? text : "\(text), \(detailLabel.stringValue)")
         isHidden = false
         guard let layer else { return }
         // In: from 0.7 scale on Arc's pop spring, fading in.

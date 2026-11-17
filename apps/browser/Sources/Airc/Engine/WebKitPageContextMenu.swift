@@ -22,7 +22,13 @@ final class PageMenuWebView: WKWebView {
         guard let tab = pageTab else { return }
         retargetSearchItem(in: menu, tab: tab)
         insertLinkSpaces(in: menu, tab: tab)
-        let items = tab.delegate?.tab(tab, pageMenu: [:]) ?? []
+        // WebKit's menu on selected text has its Copy (C06's Copy Quote Link goes right after it, as in Chromium's).
+        let copy = menu.items.firstIndex { $0.identifier == Self.copyItem }
+        var items = tab.delegate?.tab(tab, pageMenu: copy == nil ? [:] : ["hasSelection": true]) ?? []
+        if let copy, let quote = items.firstIndex(where: { $0["id"] == QuoteLinkMenu.id }), let title = items[quote]["title"] {
+            menu.insertItem(PageCaptureMenuItem(title: title, id: QuoteLinkMenu.id, tab: tab), at: copy + 1)
+            items.remove(at: quote)
+        }
         guard !items.isEmpty else { return }
         menu.addItem(.separator())
         for item in items {
@@ -60,6 +66,9 @@ extension PageMenuWebView {
         let open = menu.items.firstIndex { $0.identifier?.rawValue == "WKMenuItemIdentifierOpenLinkInNewWindow" }
         menu.insertItem(item, at: (open ?? anchor) + 1)
     }
+
+    /// WebKit's Copy, in its menu on selected text.
+    static let copyItem = NSUserInterfaceItemIdentifier("WKMenuItemIdentifierCopy")
 
     /// WebKit's identifier for its "Search with Google" item (WKMenuItemIdentifierSearchWeb).
     static let searchWebItem = NSUserInterfaceItemIdentifier("WKMenuItemIdentifierSearchWeb")
