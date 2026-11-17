@@ -224,5 +224,11 @@
     "title": "Feedback, next to +",
     "detail": "The speech bubble in the sidebar's bottom row now sits just left of +, after your Space icons. Click it to send a note or pictures to the Airc team.",
     "action": "sendFeedback"
+  },
+  "Airc Agent (beta)": {
+    "title": "Airc Agent (beta)",
+    "detail": "Press ⌥⌘A, describe a task, and Airc does it in your signed-in sites with your own Anthropic or OpenAI API key (add it in Settings › AI › Agent). It asks before it pays, sends, posts or deletes; Stop any time.",
+    "action": "settingsAI",
+    "image": "agent-panel"
   }
 }
