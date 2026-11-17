@@ -1,21 +1,27 @@
-# Airc 0.1.24 public beta
+# Airc 0.1.25 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.88.
-This update opens links from other apps fast even when Airc is closed, and makes the Airc Agent (beta) stream its
-replies, keep optional notes and hand tasks to your Claude app. It includes everything from 0.1.23. The release
-manifest records the exact build, source and checksums.
+This update makes every launch quick: macOS no longer holds Airc up before it starts on about every other launch. It
+includes everything from 0.1.24. The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.23
+## New since 0.1.24
+
+- **Every launch is quick now.** About every other launch used to wait up to a second inside macOS before Airc even
+  started, so a link from another app could take close to two seconds to show. That wait is gone with the Chromium
+  engine, the default.
+
+## Included from 0.1.24
 
 - **Links open fast when Airc is closed.** Click a link in another app while Airc isn't running and its page shows in
-  about a second, even on Airc's very first launch; it used to take up to 6 seconds. The page no longer waits for all of
-  the ad and tracker blocking to be set up: only its own requests wait until the rules are in force, so nothing slips
-  through.
+  about a second; it used to take up to 6 seconds. With the Chromium engine (the default) that holds even on Airc's
+  very first launch; with the WebKit engine, the very first launch still takes a few seconds once while it prepares
+  its blocking rules. The page no longer waits for all of the ad and tracker blocking to be set up: only its own
+  requests wait until the rules are in force, so nothing slips through.
 - **Airc Agent (beta) gets better.** Replies now stream in as they're written, and Stop ends them at once. The
   approval card also shows in the Agents folder's Watch, so you can answer there. Optional memory (off by default,
   Settings › AI › Agent › Memory) keeps short Markdown notes between tasks that you can read, edit, undo or clear; it
@@ -296,8 +302,7 @@ manifest records the exact build, source and checksums.
 
 ## Please know
 
-- **Links at launch:** on some launches macOS itself takes up to about a second longer before Airc starts, so a link
-  can take closer to two seconds. We're looking into it.
+- **The first launch after an update** can take a few seconds longer, while macOS checks the new version once.
 
 - **Light and dark pages:** a site that has no dark style stays light in a dark Space. macOS's automatic switch was
   checked on the build Mac with a simulated change, not the real sunset switch yet.
@@ -386,3 +391,5 @@ manifest records the exact build, source and checksums.
 Source: `c2069afac928d5467d218b4e4b5b28fcf557addb`. Build: `202611170206`. Channel: stable.
 
 Source: `ef878a1ef0f67d52c0ec1c67cf22352116bb9e9a`. Build: `202611170359`. Channel: stable.
+
+Source: `0a5f5855b0ad09fc32b134c3471ed81b17f0453e`. Build: `202611170628`. Channel: stable.

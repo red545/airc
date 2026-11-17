@@ -9,7 +9,7 @@
 // makes untrue, a Coming row it delivers); `from` shows a row only then. Previews show the state after the newest
 // release. `shot` names a file in src/assets/screens (scripts/sync-screenshots.mjs).
 
-export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "0.1.18" | "0.1.19" | "0.1.20" | "0.1.21" | "0.1.22" | "0.1.23" | "0.1.24" | "next" | "coming";
+export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "0.1.18" | "0.1.19" | "0.1.20" | "0.1.21" | "0.1.22" | "0.1.23" | "0.1.24" | "0.1.25" | "next" | "coming";
 
 export interface Feature {
   title: string;
@@ -194,7 +194,8 @@ export const groups: Group[] = [
     features: [
       { title: "Little Airc", line: "A link from Mail or Slack opens in a small window, like Arc's Little Arc. ⌘O moves the page into a Space.", since: "0.1.0" },
       { title: "Air Traffic Control", line: "Rules send links from other apps to the right Space, already signed in.", since: "0.1.0" },
-      { title: "Fast even when Airc is closed", line: "A link from another app shows its page in about a second, even on the first launch. Only the page's own requests wait for the blocking rules.", since: "0.1.24" },
+      { title: "Fast even when Airc is closed", line: "A link from another app shows its page in about a second, with the Chromium engine even on the first launch. Only the page's own requests wait for the blocking rules.", since: "0.1.24" },
+      { title: "Quick on every launch", line: "macOS no longer holds Airc up for up to a second before it starts on about every other launch (Chromium engine, the default).", since: "0.1.25" },
       { title: "One click to your browser", line: "A link from an app in full screen opens Little Airc over it, on the same Space. One click moves the page into your window.", since: "0.1.2", shot: "little-arc-window" },
       { title: "It remembers your profile", line: "Little Airc keeps the profile you pick for each site. Settings → Links forgets them.", since: "0.1.2", shot: "remembered-profiles" },
       { title: "Open in any Space", line: "The chip's chevron (⇧⌘O) lists your Spaces in their colours and says which would reload the page in another profile. Search Spaces (⌥⌘O) finds one as you type.", since: "0.1.3", shot: "little-arc-menu-window" },

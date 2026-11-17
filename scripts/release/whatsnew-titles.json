@@ -246,5 +246,10 @@
     "detail": "Replies stream in as they're written, and the approval card shows in Watch too. Turn on memory in Settings › AI › Agent, type a task in the Command Bar with \"Ask Airc to…\", or hand it to your Claude app.",
     "action": "settingsAI",
     "image": "agent-panel"
+  },
+  "Every launch is quick now": {
+    "title": "Every launch is quick",
+    "detail": "About every other launch used to wait up to a second inside macOS before Airc started, so a link from another app could take almost two seconds. That wait is gone with the Chromium engine, the default.",
+    "action": "none"
   }
 }
