@@ -262,5 +262,29 @@
     "title": "Ask command from 2 letters",
     "detail": "The Command Bar now shows \"New ChatGPT Message\" (or \"Ask Claude…\") from the second letter you type, so your first keystroke after ⌘T stays fast.",
     "action": "commandBar"
+  },
+  "Command Bar fixes": {
+    "title": "Command Bar fixes",
+    "detail": "The Ask rows stay put while you type after ⌘T. \"Ask This Page…\" works on every page or says why, and \"Ask Airc to…\" shows even before you add an API key and opens the agent's setup.",
+    "action": "commandBar",
+    "image": null
+  },
+  "WebKit's first launch is fast too": {
+    "title": "Fast first launch: WebKit",
+    "detail": "With the WebKit engine, a link opened on Airc's very first launch now shows in about a second instead of four: the blocking rules come ready to use.",
+    "action": "none",
+    "image": null
+  },
+  "Boosts sync between your Macs": {
+    "title": "Boosts sync",
+    "detail": "With iCloud sync on, your Boosts follow you to your other Macs. Their JavaScript runs only after a quick confirm on each Mac. Turn it off in Settings › Sync › Sync Boosts.",
+    "action": "settingsSync",
+    "image": null
+  },
+  "The first launch after an update is a little quicker": {
+    "title": "Quicker after updates",
+    "detail": "Airc now starts a downloaded update once in the background before it restarts, so macOS's first-run checks are already done. You'll notice it from the next update on.",
+    "action": "none",
+    "image": null
   }
 }

@@ -9,7 +9,7 @@
 // makes untrue, a Coming row it delivers); `from` shows a row only then. Previews show the state after the newest
 // release. `shot` names a file in src/assets/screens (scripts/sync-screenshots.mjs).
 
-export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "0.1.18" | "0.1.19" | "0.1.20" | "0.1.21" | "0.1.22" | "0.1.23" | "0.1.24" | "0.1.25" | "0.1.26" | "next" | "coming";
+export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "0.1.18" | "0.1.19" | "0.1.20" | "0.1.21" | "0.1.22" | "0.1.23" | "0.1.24" | "0.1.25" | "0.1.26" | "0.1.27" | "next" | "coming";
 
 export interface Feature {
   title: string;
@@ -197,6 +197,7 @@ export const groups: Group[] = [
       { title: "Air Traffic Control", line: "Rules send links from other apps to the right Space, already signed in.", since: "0.1.0" },
       { title: "Fast even when Airc is closed", line: "A link from another app shows its page in about a second, with the Chromium engine even on the first launch. Only the page's own requests wait for the blocking rules.", since: "0.1.24" },
       { title: "Quick on every launch", line: "macOS no longer holds Airc up for up to a second before it starts on about every other launch (Chromium engine, the default).", since: "0.1.25" },
+      { title: "WebKit's first launch too", line: "With the WebKit engine, a link opened on Airc's very first launch shows in about a second too: Airc ships its blocking rules ready to use instead of preparing them first.", since: "0.1.27" },
       { title: "One click to your browser", line: "A link from an app in full screen opens Little Airc over it, on the same Space. One click moves the page into your window.", since: "0.1.2", shot: "little-arc-window" },
       { title: "It remembers your profile", line: "Little Airc keeps the profile you pick for each site. Settings → Links forgets them.", since: "0.1.2", shot: "remembered-profiles" },
       { title: "Open in any Space", line: "The chip's chevron (⇧⌘O) lists your Spaces in their colours and says which would reload the page in another profile. Search Spaces (⌥⌘O) finds one as you type.", since: "0.1.3", shot: "little-arc-menu-window" },
@@ -279,7 +280,7 @@ export const groups: Group[] = [
   {
     id: "boosts",
     name: "Boosts",
-    sub: "Make any site yours. No account, no sync.",
+    sub: "Make any site yours. No account needed.",
     color: "#e0559f",
     features: [
       { title: "Colours", line: "A tint, brightness and contrast for a site, or Invert for a quick dark mode.", since: "0.1.2", shot: "boosts" },
@@ -288,6 +289,7 @@ export const groups: Group[] = [
       { title: "Your own code", line: "Add CSS and JavaScript for a site, from Site Controls.", since: "0.1.2" },
       { title: "Share a Boost", line: "Share one as a file. Opening it shows its site, its changes and all its code before anything installs.", since: "0.1.2", shot: "boost-import" },
       { title: "Boost links", line: "Copy Link puts the whole Boost after the # of an aircbrowser.com/boost link, which browsers never send anywhere, so nothing is uploaded.", since: "0.1.3", shot: "boosts-share" },
+      { title: "Boosts sync", line: "With iCloud sync on, your Boosts follow you to your other Macs. Their JavaScript never runs just because it arrived: a quick confirm naming the Mac you allowed it on, or Show Code first when no Mac did. Settings → Sync → Sync Boosts.", since: "0.1.27" },
       { title: "Updates from the author", line: "Share a Boost again and everyone who added it is offered the new version. Arc never updated installed copies.", since: "0.1.3" },
       { title: "Try It On", line: "See a shared Boost's colours, font and CSS on the page before you add it. Its JavaScript never runs until you do.", since: "0.1.3", shot: "boosts-review" },
       { title: "Boost Gallery", line: "Airc's starter Boosts, style only: a calmer Wikipedia, a night one, a comfortable Hacker News and more.", since: "0.1.3", shot: "boosts-gallery" },
@@ -477,7 +479,8 @@ export const groups: Group[] = [
     features: [
       { title: "Sync with iCloud", line: "Your Spaces and tabs on every Mac you use. Not in a release yet.", since: "coming", until: "0.1.3" },
       { title: "Sync with iCloud", line: "Settings → Sync keeps your Spaces, pinned tabs, folders and Favorites the same on your Macs, end-to-end encrypted. It's off until you turn it on, and new: so far it's been tested with iCloud on one Mac.", since: "0.1.3" },
-      { title: "What stays on this Mac", line: "Today tabs, history, logins and Boosts don't sync. Pinned Notes now do. Your sidebar is backed up before the first sync.", since: "0.1.5" },
+      { title: "What stays on this Mac", line: "Today tabs, history, logins and Boosts don't sync. Pinned Notes now do. Your sidebar is backed up before the first sync.", since: "0.1.5", until: "0.1.27" },
+      { title: "What stays on this Mac", line: "Today tabs, history and logins don't sync. Pinned Notes and Boosts do. Your sidebar is backed up before the first sync.", since: "0.1.27" },
       { title: "Pinned and Favorite splits sync", line: "A split you pin or keep as a Favorite reaches your other Macs with its pages in order, side by side or stacked, at its sizes, end-to-end encrypted. If two Macs change it at once, the later layout wins and pages added on either stay.", since: "0.1.15" },
       { title: "What stays on this Mac", line: "Today tabs, history, logins, Boosts and notes don't sync. Your sidebar is backed up before the first sync.", since: "0.1.3", until: "0.1.5" },
       { title: "Settings sync", line: "The settings you change follow you to your other Macs: theme, shortcuts, Site Search, links and Little Airc, Archive timing, AI, blocking and privacy. The latest change wins, and each Mac keeps its own folders, Developer Mode and approvals. Settings → Sync → Sync settings.", since: "0.1.21" },

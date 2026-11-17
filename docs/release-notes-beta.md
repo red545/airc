@@ -1,15 +1,32 @@
-# Airc 0.1.26 public beta
+# Airc 0.1.27 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.88.
-This update gives search suggestions from the search engines you imported, and keeps the Command Bar's first
-keystroke fast. It includes everything from 0.1.25. The release manifest records the exact build, source and checksums.
+This update fixes the Command Bar's Ask rows, makes WebKit's first launch fast, and syncs your Boosts between your
+Macs. It includes everything from 0.1.26. The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.25
+## New since 0.1.26
+
+- **Command Bar fixes.** The Ask rows no longer jump around while you type: once shown, they stay put. "Ask This
+  Page…" is offered on every page and either works or says why, with a button to Settings › AI when it's off.
+  "Ask Airc to…" shows even before you've added an API key and opens the Airc Agent's setup with your task filled in.
+  And choosing a command in the Command Bar never leaves you unable to type.
+- **WebKit's first launch is fast too.** With the WebKit engine, a link opened on Airc's very first launch now shows in
+  about a second; it took about four. Airc ships its ad and tracker blocking rules ready to use instead of preparing
+  them first.
+- **Boosts sync between your Macs.** With iCloud sync on, your Boosts follow you to your other Macs. A Boost's
+  JavaScript never runs just because it arrived: if you allowed it on one Mac, the next one asks for a quick confirm
+  that names that Mac; code that no Mac vouched for needs Show Code before it can run. A tab you unpin on one Mac also
+  keeps its Archive timer on the others. Turn it off in Settings › Sync › Sync Boosts.
+- **The first launch after an update is a little quicker.** Once an update has downloaded and been checked, Airc starts
+  the new version once in the background, so macOS's first-run checks are done before you open it. You'll notice it
+  from the update after this one.
+
+## Included from 0.1.26
 
 - **Search suggestions from your imported search engines.** Search engines you brought over from Arc, Chrome or Brave
   now suggest as you type in the Command Bar, like the built-in ones: your imported default, and one of your imported
@@ -28,8 +45,8 @@ keystroke fast. It includes everything from 0.1.25. The release manifest records
 
 - **Links open fast when Airc is closed.** Click a link in another app while Airc isn't running and its page shows in
   about a second; it used to take up to 6 seconds. With the Chromium engine (the default) that holds even on Airc's
-  very first launch; with the WebKit engine, the very first launch still takes a few seconds once while it prepares
-  its blocking rules. The page no longer waits for all of the ad and tracker blocking to be set up: only its own
+  very first launch; with the WebKit engine, the very first launch took a few seconds once while it prepared its
+  blocking rules, until 0.1.27. The page no longer waits for all of the ad and tracker blocking to be set up: only its own
   requests wait until the rules are in force, so nothing slips through.
 - **Airc Agent (beta) gets better.** Replies now stream in as they're written, and Stop ends them at once. The
   approval card also shows in the Agents folder's Watch, so you can answer there. Optional memory (off by default,
@@ -311,7 +328,14 @@ keystroke fast. It includes everything from 0.1.25. The release manifest records
 
 ## Please know
 
-- **The first launch after an update** can take a few seconds longer, while macOS checks the new version once.
+- **The first launch after you install Airc from the DMG** can take a few seconds longer, while macOS checks the new
+  copy once. Updates through Airc do that check before Airc restarts.
+
+- **Boost sync** was tested between two copies of Airc with a stand-in for iCloud on the build Mac, not with real
+  iCloud yet. Older versions of Airc don't get synced Boosts until they're updated.
+
+- **WebKit's fast first launch** was measured on macOS 26. On other macOS versions WebKit may still prepare its
+  blocking rules once on the first launch.
 
 - **Light and dark pages:** a site that has no dark style stays light in a dark Space. macOS's automatic switch was
   checked on the build Mac with a simulated change, not the real sunset switch yet.
@@ -402,3 +426,5 @@ Source: `ef878a1ef0f67d52c0ec1c67cf22352116bb9e9a`. Build: `202611170359`. Chann
 Source: `0a5f5855b0ad09fc32b134c3471ed81b17f0453e`. Build: `202611170628`. Channel: stable.
 
 Source: `d19d7715733c04a3055fa2e3013eaa11eb41af1b`. Build: `202611170915`. Channel: stable.
+
+Source: `32b71c325bb83eed113928365b88002a7ac55853`. Build: `202611171442`. Channel: stable.
