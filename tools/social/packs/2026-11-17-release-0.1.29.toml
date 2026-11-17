@@ -1,0 +1,42 @@
+# Airc 0.1.29 (cut 2625c82c; build revision 9d102758; notes on release/0.1.29-notes). Claims from its approved notes
+# (one line: Copy Quote Link, like Arc). NOT TO POST before release041 posts LIVE for 0.1.29: plan and approve only
+# then, after checking the public repo shows the release (owner rule).
+slug = "2026-11-17-release-0.1.29"
+title = "Airc 0.1.29: Copy Quote Link"
+kind = "release"
+since = "0.1.29"
+shots_rev = "2625c82c"
+tag = "New in Airc 0.1.29"
+end_title = "Airc 0.1.29"
+end_line = "Free for Mac · aircbrowser.com"
+summary = """
+One post on a card from the cut's own shot. "A link to what you copied" (0.1.3) is the account's third-best post, so
+this one gets 10:30.
+"""
+order = """
+1. 10:30 UTC on the first day after LIVE whose 10:30 can move (move that day's 10:30 post to a free afternoon slot).
+"""
+checked = """
+- 0.1.29's notes: select text, then Copy Quote Link in the page's right-click menu (right after Copy), Share Quote under
+  the address, or the button in the offer after ⌘C; the link opens the page scrolled to that text, highlighted, with
+  Arc's "Copied Link · With Quote" toast. PDFs, pages that always open at their top, and private windows get a plain
+  link: not claimed otherwise.
+- Not claimed: that ⇧⌘C copies quotes (it's still Copy URL, release041).
+- Shot: quote-copy (Wikipedia's Typography article, the person's demo sidebar), focused on Share Quote, the toast and
+  the highlighted sentence.
+"""
+
+[[image]]
+id = "quote"
+shot = "quote-copy"
+title = "Copy Quote Link, like Arc."
+line = "A link that opens right at the words you picked."
+clip = [0, 0, 960, 360]
+alt = "Airc on Wikipedia's Typography article, with a sentence selected and highlighted: Share Quote sits under the address in the sidebar, and a toast at the top says Copied Link · With Quote."
+
+[[post]]
+label = "Copy Quote Link"
+media = ["quote:16x9"]
+text = """
+Select a few words on a page and choose Copy Quote Link, or Share Quote under the address. Whoever opens the link lands right on those words, highlighted. Just like Arc. New in Airc 0.1.29.
+"""
