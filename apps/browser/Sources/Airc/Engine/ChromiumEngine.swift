@@ -826,8 +826,16 @@ final class ChromiumRuntime: NSObject, AircEngineDelegate {
         // Airc owns Now Playing. It has no Google AI-mode omnibox or automatic translation-prompt ranking;
         // disabling the ranker leaves user-requested translation available.
         // FedCM stays on: its dialogs parent on the window's modal-dialog parent (engine 036-fedcm-dialogs.patch).
+        // No code-sign clone (prelaunch): Chromium hard-links the app's main executable into a temporary bundle clone
+        // at startup and unlinks it after quitting, for Chrome's in-place staged updates. Each link or unlink changes
+        // the executable's ctime, and macOS then re-checks it at the next exec (AppleSystemPolicy "changetime": a
+        // syspolicyd ticket check, network lookup included), so about every other launch spent 0.4–1.3 s before `main`.
+        // Sparkle installs only after Airc quits, and BundleReplacementMonitor offers a restart if the bundle is
+        // replaced while it runs, so the clone protects nothing here. (It also kept every replaced build's
+        // 540 MB framework alive on disk until the clone was deleted.)
         merge("disable-features", defaults: ["HardwareMediaKeyHandling", "AimEnabled",
-                                             "TranslateRankerQuery", "TranslateRankerEnforcement"])
+                                             "TranslateRankerQuery", "TranslateRankerEnforcement",
+                                             "MacAppCodeSignClone"])
         // Avoid bulk component downloads competing with startup and session restoration. Defer the first routine
         // check to five minutes, keeping Chromium's normal five-hour schedule and on-demand requests, including CRLSet
         // and Widevine. An explicit interval still works for diagnostics. Never disable the component updater.
