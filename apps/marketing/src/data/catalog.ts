@@ -9,7 +9,7 @@
 // makes untrue, a Coming row it delivers); `from` shows a row only then. Previews show the state after the newest
 // release. `shot` names a file in src/assets/screens (scripts/sync-screenshots.mjs).
 
-export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "0.1.18" | "0.1.19" | "0.1.20" | "0.1.21" | "0.1.22" | "next" | "coming";
+export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "0.1.18" | "0.1.19" | "0.1.20" | "0.1.21" | "0.1.22" | "0.1.23" | "next" | "coming";
 
 export interface Feature {
   title: string;
@@ -291,6 +291,7 @@ export const groups: Group[] = [
       { title: "Closer to Arc's", line: "Boosts apply in a page's same-site frames too, and a Boost's size uses page zoom.", since: "0.1.3" },
       { title: "Pages in your Space's colours", line: "Every page gets its Space's theme as Arc's --arc-palette CSS variables, so Boosts and pages written for Arc's colours work in Airc.", since: "0.1.3", shot: "theme-palette" },
       { title: "Following the Space live", line: "Change the Space's colour, go dark or move the tab, and those pages follow at once.", since: "0.1.3", shot: "theme-palette-dark" },
+      { title: "Light and dark pages", line: "Pages use their Space's light or dark look, so sites with a dark style show it in a dark Space. When macOS switches on its own, or you change the theme or move a tab, open pages follow at once, without a reload.", since: "0.1.23" },
       { title: "Community Boosts", line: "The Boost Gallery on aircbrowser.com lists Boosts from other people to try, and offers Update when one you installed has a newer version.", since: "0.1.4" },
       { title: "Review code before it runs", line: "Import a .airc-boost file and its JavaScript is shown in full, in colour, under “This Boost runs code on …”. A Boost with code is added off until you turn it on, and files that load code from elsewhere are refused.", since: "0.1.14" },
     ],

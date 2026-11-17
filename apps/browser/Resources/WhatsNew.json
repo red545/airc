@@ -2,6 +2,17 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.23",
+      "highlights": [
+        {
+          "title": "Pages match light and dark",
+          "lead": "Pages follow light and dark",
+          "detail": "Web pages use their Space's light or dark look, and open pages switch at once when it changes, including when macOS switches between light and dark on its own. Background tabs, Peek and Little Airc follow too.",
+          "icon": "circle.lefthalf.filled"
+        }
+      ]
+    },
+    {
       "version": "0.1.22",
       "highlights": [
         {

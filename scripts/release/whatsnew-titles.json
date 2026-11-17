@@ -230,5 +230,10 @@
     "detail": "Press ⌥⌘A, describe a task, and Airc does it in your signed-in sites with your own Anthropic or OpenAI API key (add it in Settings › AI › Agent). It asks before it pays, sends, posts or deletes; Stop any time.",
     "action": "settingsAI",
     "image": "agent-panel"
+  },
+  "Pages follow light and dark": {
+    "title": "Pages match light and dark",
+    "detail": "Web pages use their Space's light or dark look, and open pages switch at once when it changes, including when macOS switches between light and dark on its own. Background tabs, Peek and Little Airc follow too.",
+    "action": "none"
   }
 }
