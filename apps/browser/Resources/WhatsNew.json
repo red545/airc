@@ -2,6 +2,17 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.28",
+      "highlights": [
+        {
+          "title": "Quiet notification sounds",
+          "lead": "Notification sounds stay out of the sidebar player",
+          "detail": "Short pings from pages such as WhatsApp or Slack no longer pop up the sidebar's mini player. Music and videos still get their player as before.",
+          "icon": "speaker.slash"
+        }
+      ]
+    },
+    {
       "version": "0.1.27",
       "highlights": [
         {

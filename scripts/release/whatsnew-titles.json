@@ -286,5 +286,11 @@
     "detail": "Airc now starts a downloaded update once in the background before it restarts, so macOS's first-run checks are already done. You'll notice it from the next update on.",
     "action": "none",
     "image": null
+  },
+  "Notification sounds stay out of the sidebar player": {
+    "title": "Quiet notification sounds",
+    "detail": "Short pings from pages such as WhatsApp or Slack no longer pop up the sidebar's mini player. Music and videos still get their player as before.",
+    "action": "none",
+    "image": null
   }
 }

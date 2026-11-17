@@ -9,7 +9,7 @@
 // makes untrue, a Coming row it delivers); `from` shows a row only then. Previews show the state after the newest
 // release. `shot` names a file in src/assets/screens (scripts/sync-screenshots.mjs).
 
-export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "0.1.18" | "0.1.19" | "0.1.20" | "0.1.21" | "0.1.22" | "0.1.23" | "0.1.24" | "0.1.25" | "0.1.26" | "0.1.27" | "next" | "coming";
+export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "0.1.18" | "0.1.19" | "0.1.20" | "0.1.21" | "0.1.22" | "0.1.23" | "0.1.24" | "0.1.25" | "0.1.26" | "0.1.27" | "0.1.28" | "next" | "coming";
 
 export interface Feature {
   title: string;
@@ -236,6 +236,7 @@ export const groups: Group[] = [
       { title: "Picture in picture", line: "Leave a playing video and it floats in a small window, with Airc's own controls.", since: "0.1.0", shot: "picture-in-picture" },
       { title: "Media in the sidebar", line: "Audio and video playing in the background show their artwork and controls in the sidebar.", since: "0.1.0", shot: "media-controls" },
       { title: "Calls keep going", line: "A call isn't unloaded when you switch Spaces, and floats when you leave its tab. Tested with simulated calls so far.", since: "0.1.0" },
+      { title: "Notification sounds stay quiet", line: "Short pings, such as a chat app's notification sound, don't pop up the sidebar player. Music and videos still do.", since: "0.1.28" },
       { title: "Mini Player pill", line: "Esc collapses the player to a small pill without stopping playback.", since: "0.1.2" },
       { title: "Streaming sites", line: "Spotify, Netflix, Disney+ and others open with Safari's engine inside Airc. Checked logged out; playback with a subscription isn't tested yet.", since: "0.1.2", shot: "drm-site-controls-panel" },
       { title: "Media keys everywhere", line: "Pages in Safari's engine use the sidebar's controls, Now Playing and the media keys too.", since: "0.1.2" },

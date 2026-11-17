@@ -1,15 +1,21 @@
-# Airc 0.1.27 public beta
+# Airc 0.1.28 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.88.
-This update fixes the Command Bar's Ask rows, makes WebKit's first launch fast, and syncs your Boosts between your
-Macs. It includes everything from 0.1.26. The release manifest records the exact build, source and checksums.
+This update keeps short notification sounds out of the sidebar's player. It includes everything from 0.1.27. The
+release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.26
+## New since 0.1.27
+
+- **Notification sounds stay out of the sidebar player.** Short pings from pages such as WhatsApp or Slack no longer
+  pop up the sidebar's mini player or Now Playing. Music and videos still get their player, and the tab's speaker
+  icon still shows that the page made a sound.
+
+## Included from 0.1.27
 
 - **Command Bar fixes.** The Ask rows no longer jump around while you type: once shown, they stay put. "Ask This
   Page…" is offered on every page and either works or says why, with a button to Settings › AI when it's off.
@@ -327,6 +333,9 @@ Macs. It includes everything from 0.1.26. The release manifest records the exact
   limit, instead of leaving you waiting for suggestions.
 
 ## Please know
+
+- **Short sounds:** a clip of 5 seconds or less still gets the sidebar player when its page gives it media details
+  (a title with artist, album or artwork), as a music page would.
 
 - **The first launch after you install Airc from the DMG** can take a few seconds longer, while macOS checks the new
   copy once. Updates through Airc do that check before Airc restarts.
