@@ -1,15 +1,30 @@
-# Airc 0.1.23 public beta
+# Airc 0.1.24 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.88.
-This update makes web pages follow their Space's light or dark look, and switch live when it changes. It includes
-everything from 0.1.22. The release manifest records the exact build, source and checksums.
+This update opens links from other apps fast even when Airc is closed, and makes the Airc Agent (beta) stream its
+replies, keep optional notes and hand tasks to your Claude app. It includes everything from 0.1.23. The release
+manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.22
+## New since 0.1.23
+
+- **Links open fast when Airc is closed.** Click a link in another app while Airc isn't running and its page shows in
+  about a second, even on Airc's very first launch; it used to take up to 6 seconds. The page no longer waits for all of
+  the ad and tracker blocking to be set up: only its own requests wait until the rules are in force, so nothing slips
+  through.
+- **Airc Agent (beta) gets better.** Replies now stream in as they're written, and Stop ends them at once. The
+  approval card also shows in the Agents folder's Watch, so you can answer there. Optional memory (off by default,
+  Settings › AI › Agent › Memory) keeps short Markdown notes between tasks that you can read, edit, undo or clear; it
+  refuses to keep passwords, codes or card numbers. Type a task in the Command Bar and pick "Ask Airc to…". And if
+  you'd rather use your Claude app, the panel offers "Hand to Claude Desktop" or "Hand to Claude Code" (once Airc is
+  connected to it; the task is also copied to the clipboard). Airc's own agent still needs your own Anthropic or
+  OpenAI API key.
+
+## Included from 0.1.23
 
 - **Pages follow light and dark.** Web pages now use their Space's light or dark look, so a dark Space shows sites in
   their dark style and a light Space in their light one. When the look changes, open pages switch at once, without a
@@ -281,11 +296,15 @@ everything from 0.1.22. The release manifest records the exact build, source and
 
 ## Please know
 
+- **Links at launch:** on some launches macOS itself takes up to about a second longer before Airc starts, so a link
+  can take closer to two seconds. We're looking into it.
+
 - **Light and dark pages:** a site that has no dark style stays light in a dark Space. macOS's automatic switch was
   checked on the build Mac with a simulated change, not the real sunset switch yet.
 
 - **The Airc Agent is a beta.** It needs your own Anthropic or OpenAI API key, and the provider bills its usage to that
-  key. It hasn't been tried against every site yet, so watch its first runs on a new site.
+  key. It hasn't been tried against every site yet, so watch its first runs on a new site. Its memory filter errs on
+  the safe side and may refuse an ordinary number, such as a postcode.
 
 - **Settings sync** was tested between two copies of Airc with a stand-in for iCloud on the build Mac, not with real
   iCloud yet. Older versions of Airc don't get synced settings until they're updated.
@@ -363,7 +382,5 @@ everything from 0.1.22. The release manifest records the exact build, source and
 - **No Chrome Sync.** Signing in to Google websites is separate from browser sync.
 - **Arc import:** unreadable encrypted data and unsupported records are skipped with a reason.
 - **Smoothness:** 120 Hz animation and zero idle work remain goals, not measured promises.
-
-Source: `beab82dd434dfe3cb63b900ef2591f9a5c3fe9a5`. Build: `202611162337`. Channel: stable.
 
 Source: `c2069afac928d5467d218b4e4b5b28fcf557addb`. Build: `202611170206`. Channel: stable.

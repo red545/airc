@@ -2,6 +2,25 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.24",
+      "highlights": [
+        {
+          "title": "Links open fast",
+          "lead": "Links open fast when Airc is closed",
+          "detail": "Click a link in another app while Airc is closed and its page shows in about a second, even on the first launch (it used to take up to 6 seconds). Blocking still applies to the page from its first request.",
+          "icon": "link"
+        },
+        {
+          "title": "Airc Agent (beta) improves",
+          "lead": "Airc Agent (beta) gets better",
+          "detail": "Replies stream in as they're written, and the approval card shows in Watch too. Turn on memory in Settings › AI › Agent, type a task in the Command Bar with \"Ask Airc to…\", or hand it to your Claude app.",
+          "icon": "sparkles",
+          "action": "settingsAI",
+          "image": "agent-panel"
+        }
+      ]
+    },
+    {
       "version": "0.1.23",
       "highlights": [
         {
