@@ -34,6 +34,8 @@ extension SnapshotRunner {
         step { done in k.caseHandoff(done) }
         step { done in k.caseMemorySecrets(done) }
         step { done in k.caseKeyNowhere(done) }
+        // The same panel on the person's own Claude Code and Codex (fake CLIs; AgentCLICheck.swift).
+        k.addCLISteps(self)
         run { k.finish() }
     }
 }

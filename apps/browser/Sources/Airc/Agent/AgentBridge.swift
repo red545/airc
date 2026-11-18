@@ -20,12 +20,14 @@ final class AgentBridge {
     let session: AgentSession
     private(set) var windowID: Int?
 
-    init(center: AgentCenter = .shared, profileID: String) {
+    /// `clientName`: how the run is named in the Agents folder, Watch and Activity ("Claude Code (in Airc)" when the
+    /// person's own CLI runs the task; docs/design/agent-cli.md).
+    init(center: AgentCenter = .shared, profileID: String, clientName: String = AgentBridge.clientName) {
         self.center = center
         AgentBridge.nextSession += 1
         session = AgentSession(id: AgentBridge.nextSession, persistent: true)
-        session.client = AgentBridge.clientName
-        session.clientName = AgentBridge.clientName
+        session.client = clientName
+        session.clientName = clientName
         session.clientKey = AgentBridge.clientKey
         session.via = "panel"
         session.profileID = profileID

@@ -145,6 +145,9 @@ guard let sock = fd else {
 var hello: [String: Any] = ["airc": "hello", "v": helperVersion, "client": options.client ?? ProcessInfo.processInfo.environment["AIRC_MCP_CLIENT"] ?? "mcp-client",
                             "via": ProcessInfo.processInfo.environment["SSH_CONNECTION"] != nil ? "ssh" : "local"]
 if let p = options.profile { hello["profile"] = p }
+// A run of the Airc Agent on the person's own CLI (docs/design/agent-cli.md): the per-run socket wants its token, which
+// Airc put in this helper's environment through the CLI's MCP config (never on the command line).
+if let t = ProcessInfo.processInfo.environment["AIRC_MCP_TOKEN"], !t.isEmpty { hello["token"] = String(t.prefix(256)) }
 var helloLine = try! JSONSerialization.data(withJSONObject: hello)
 helloLine.append(0x0A)
 guard helloLine.withUnsafeBytes({ writeAll(sock, $0) }) else { fail("the socket closed") }

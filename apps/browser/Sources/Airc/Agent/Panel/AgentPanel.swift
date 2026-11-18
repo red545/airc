@@ -229,9 +229,18 @@ struct AgentPanelView: View {
             footer
         }
         .onReceive(NotificationCenter.default.publisher(for: AgentModelSettings.changed)) { _ in settingsRev += 1 }
+        // Your own Claude Code / Codex (docs/design/agent-cli.md): its status, read again when the panel shows.
+        .onReceive(NotificationCenter.default.publisher(for: AgentCLIDetector.changed)) { _ in settingsRev += 1 }
+        .onAppear { if let k = AgentModelSettings.shared.values.backend.cli { AgentCLIDetector.shared.check(k) } }
         .onReceive(look.$draft) { d in if let d { text = d; look.draft = nil } }
         // Back from Settings › Agents (or Claude's own setup): the hand-off buttons read the configs again.
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in if !run.hasKey { settingsRev += 1 } }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+            if !run.hasKey {
+                settingsRev += 1
+                // Back from Terminal after installing or logging in.
+                if let k = AgentModelSettings.shared.values.backend.cli { AgentCLIDetector.shared.check(k, maxAge: 5) }
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { _ in if !run.hasKey { settingsRev += 1 } }
         .testAnchor("agent.panel")
         .testAnchorRoot()
@@ -256,7 +265,7 @@ struct AgentPanelView: View {
 
     private var subtitle: String {
         if run.stepCount > 0 { return run.usageLine }
-        let m = AgentModelSettings.shared.model.name
+        let m = run.backendLabel
         let p = profile()?.name ?? ""
         return p.isEmpty ? m : "\(m) · in \(p)"
     }
@@ -270,10 +279,17 @@ struct AgentPanelView: View {
         .padding(.top, 4)
     }
 
+    private var connectText: String {
+        if let k = AgentModelSettings.shared.values.backend.cli, let s = AgentCLIDetector.shared.status(k), let fix = s.fix(k) {
+            return "\(s.summary(k)). \(fix) Or choose another option in Settings › AI › Agent."
+        }
+        return "Add an Anthropic or OpenAI API key in Settings › AI › Agent, or use your own Claude Code or Codex. Requests go from this Mac to that provider."
+    }
+
     private var connectCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Connect your AI").aircFont(AircFont.title3).foregroundStyle(theme.surfaceText.color)
-            Text("Add an Anthropic or OpenAI API key in Settings › AI › Agent. Requests go from this Mac to that provider, billed to your key.")
+            Text(connectText)
                 .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color).fixedSize(horizontal: false, vertical: true)
             Button("Open Settings") { (NSApp.delegate as? AppDelegate)?.showSettings(page: .ai) }.buttonStyle(.airc(.primary))
                 .testAnchor("agent.connect")
