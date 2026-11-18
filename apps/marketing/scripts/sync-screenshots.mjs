@@ -56,6 +56,7 @@ const used = [
   "settings-site-search",
   "sidebar-files", // the same, for files dropped on the sidebar (2a24413)
   "quote-link", // the same, for a link to copied text and Help's shortcuts (3d8fde4)
+  "quote-copy", // Copy Quote Link: Share Quote and Arc's quote toast (0.1.29)
   "essential-shortcuts",
   "notes-split", // the same, for New Note in Split (758a4d6)
   "theme-palette", // the same, for Space colors on pages (34b19d4)

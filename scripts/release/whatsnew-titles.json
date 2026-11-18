@@ -292,5 +292,11 @@
     "detail": "Short pings from pages such as WhatsApp or Slack no longer pop up the sidebar's mini player. Music and videos still get their player as before.",
     "action": "none",
     "image": null
+  },
+  "Copy Quote Link, like Arc": {
+    "title": "Copy Quote Link",
+    "detail": "Select text on a page, then choose Copy Quote Link in its right-click menu or click Share Quote under the address. The link opens the page right at that text, highlighted.",
+    "action": "none",
+    "image": "copy-quote-link"
   }
 }

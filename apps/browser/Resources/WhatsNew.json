@@ -2,6 +2,18 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.29",
+      "highlights": [
+        {
+          "title": "Copy Quote Link",
+          "lead": "Copy Quote Link, like Arc",
+          "detail": "Select text on a page, then choose Copy Quote Link in its right-click menu or click Share Quote under the address. The link opens the page right at that text, highlighted.",
+          "icon": "quote.bubble.fill",
+          "image": "copy-quote-link"
+        }
+      ]
+    },
+    {
       "version": "0.1.28",
       "highlights": [
         {

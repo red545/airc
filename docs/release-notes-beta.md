@@ -1,15 +1,23 @@
-# Airc 0.1.28 public beta
+# Airc 0.1.29 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.88.
-This update keeps short notification sounds out of the sidebar's player. It includes everything from 0.1.27. The
-release manifest records the exact build, source and checksums.
+This update adds Arc's Copy Quote Link: a link that opens a page right at the text you selected. It includes
+everything from 0.1.28. The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.27
+## New since 0.1.28
+
+- **Copy Quote Link, like Arc.** Select some text on a page, then choose Copy Quote Link in the page's right-click
+  menu (right after Copy), click Share Quote under the address, or use the button in the offer that appears after ⌘C.
+  The link opens the page scrolled to that text, highlighted, and Airc confirms with Arc's "Copied Link · With Quote"
+  toast. Where a quote link can't work (a PDF, a page that always opens at its top, or a page in a private window),
+  you get the page's plain link instead.
+
+## Included from 0.1.28
 
 - **Notification sounds stay out of the sidebar player.** Short pings from pages such as WhatsApp or Slack no longer
   pop up the sidebar's mini player or Now Playing. Music and videos still get their player, and the tab's speaker

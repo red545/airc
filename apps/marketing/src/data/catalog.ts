@@ -9,7 +9,7 @@
 // makes untrue, a Coming row it delivers); `from` shows a row only then. Previews show the state after the newest
 // release. `shot` names a file in src/assets/screens (scripts/sync-screenshots.mjs).
 
-export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "0.1.18" | "0.1.19" | "0.1.20" | "0.1.21" | "0.1.22" | "0.1.23" | "0.1.24" | "0.1.25" | "0.1.26" | "0.1.27" | "0.1.28" | "next" | "coming";
+export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "0.1.18" | "0.1.19" | "0.1.20" | "0.1.21" | "0.1.22" | "0.1.23" | "0.1.24" | "0.1.25" | "0.1.26" | "0.1.27" | "0.1.28" | "0.1.29" | "next" | "coming";
 
 export interface Feature {
   title: string;
@@ -50,7 +50,8 @@ export const shotAlt: Record<string, string> = {
   "command-bar-site-search": "Site Search in the Command Bar: the Wikipedia pill leads the field, the search for Belém Tower comes first, then the open Wikipedia pages.",
   "settings-site-search": "Settings → Site Search: the Personal profile's sites with their shortcuts and %s addresses.",
   "sidebar-files": "A Lisbon trip folder dropped on the Travel Space: its files as pinned tabs, its Tickets folder inside, the itinerary open, and Added 5 tabs and 2 folders to Travel.",
-  "quote-link": "Wikipedia's Typography article after ⌘C on a sentence: Share a link directly to this text instead?, with Copy Link.",
+  "quote-link": "Wikipedia's Typography article after ⌘C on a sentence: Share a link directly to this text instead?, with Copy Quote Link.",
+  "quote-copy": "Wikipedia's Typography article with a sentence selected: Share Quote under the address, and Arc's Copied Link · With Quote toast.",
   "essential-shortcuts": "Help › Essential Keyboard Shortcuts: tabs, pages, Spaces and windows, Split View, notes and meetings, and numbers, in two calm columns.",
   "notes-split": "New Note in Split: a Lisbon trip page with a packing note beside it, being written, a checklist and a list from the guide.",
   "theme-palette": "Wikipedia in a light Peach Space, wearing the Space's colours through Arc's palette variables.",
@@ -176,6 +177,7 @@ export const groups: Group[] = [
       { title: "Copy a tab's link", line: "Rest the pointer on a tab in the sidebar and click the copy button beside ✕: its clean link is copied, and the tab stays where it is.", since: "0.1.13" },
       { title: "A folder as Markdown", line: "Copy All Links as Markdown copies a folder's links with their titles and nesting.", since: "0.1.3", shot: "folder-markdown-card" },
       { title: "A link to the text you copied", line: "After ⌘C on a sentence, Airc offers a link that opens the page at that text, highlighted.", since: "0.1.3", shot: "quote-link" },
+      { title: "Copy Quote Link", line: "Select text, then Copy Quote Link in the page's menu or Share Quote under the address: a link that opens the page at that text. PDFs and private pages get a plain link.", since: "0.1.29", shot: "quote-copy" },
       { title: "Quote links on whole words", line: "A link to a quote you copied always starts and ends on whole words, so it finds and highlights the text.", since: "0.1.13" },
       { title: "Share Quote under the address", line: "Select text on a page and a small Share Quote button shows under the address, as in Arc. One click copies a link that opens the page at that text.", since: "0.1.16" },
       { title: "Every menu command in ⌘T", line: "Anything in the menu bar can be found in the Command Bar: try \"read aloud\".", since: "0.1.3" },
