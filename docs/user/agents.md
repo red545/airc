@@ -83,10 +83,23 @@ in two minutes, the connection is refused and Airc asks again next time.
 **Settings › Agents › Apps** lists every app you answered, allowed or not, and when an allowed app last used Airc.
 **Remove** forgets the answer, ends the app's connections and closes its windows. It's asked again the next time.
 
-Airc tells apps apart by their code signature: the developer's signing identity (Claude is signed by Anthropic) and the
-app's identifier. An update to the app keeps its approval. An unsigned program, or a general one like `node` or
-`python3`, is told apart by its path and the name it gives, which is weaker. A program that connects to Airc directly
-is identified as itself, so it can't borrow another app's approval.
+Airc tells apps apart by what actually runs, never by the name an app gives itself (any program can call itself
+"claude-code"; the question shows such a name only as "calls itself ‘…’"):
+
+- **A signed app or tool**: the developer's signing identity (Claude is signed by Anthropic) and the app's identifier. An
+  update to the app keeps its approval.
+- **A script** (a shell script, `python3 agent.py`, `node cli.js`): the script file's path and contents. Approving one
+  script approves no other script run by the same `node` or `python3`, and a script that changes is asked again.
+- **An unsigned program**: its path and a fingerprint of its code; a changed program is asked again.
+- **Over SSH**: the computer it connects from.
+- What Airc can't pin down, such as code typed straight into `python3 -c` or SSH from this Mac to itself, is asked on
+  every connection and nothing is remembered.
+
+Programs that only start other programs (`sh -c`, `env`, `npx`, `time`) don't count: the app is whatever started them.
+A program that connects to Airc directly is identified as itself, so it can't borrow another app's approval.
+
+If you allowed apps before Airc 0.1.31, apps that were told apart only by path and name (scripts, `node`, `python3`) are
+asked once more.
 
 What this protects against: any program on your Mac quietly driving your signed-in accounts through Airc. What it can't
 protect against: a program already running as you can change another app's settings or tamper with it. Approval is

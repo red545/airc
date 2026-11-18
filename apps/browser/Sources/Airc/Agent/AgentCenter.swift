@@ -147,6 +147,10 @@ final class AgentCenter {
 
     private func loadSettings() {
         if let data = try? Data(contentsOf: settingsFile), let s = try? JSONDecoder.agents.decode(Settings.self, from: data) { settings = s }
+        // Answers kept under a key that could cover several programs (AgentClientIdentity.isLegacyKey): asked again.
+        let before = settings.clients.count
+        settings.clients.removeAll { AgentClientIdentity.isLegacyKey($0.key) }
+        if settings.clients.count != before { saveSettings() }
     }
 
     private func saveSettings() {
@@ -406,8 +410,10 @@ final class AgentCenter {
 
     /// A tools/call refusal for this connection, before the tool runs.
     func refusal(for s: AgentSession) -> String? {
-        guard let key = s.clientKey, let c = client(key), c.stopped == true else { return nil }
-        return AgentCenter.stoppedMessage(c.name)
+        guard let key = s.clientKey, let c = client(key) else { return nil }
+        if c.stopped == true { return AgentCenter.stoppedMessage(c.name) }
+        if !c.allowed { return "You chose not to let \(c.name) use Airc. To change that: Airc › Settings › Agents." }
+        return nil
     }
 
     func isStopped(_ clientKey: String) -> Bool { client(clientKey)?.stopped == true }
@@ -420,6 +426,9 @@ final class AgentCenter {
         if let i = settings.clients.firstIndex(where: { $0.key == key }) {
             settings.clients[i].stopped = true
             saveSettings()
+        } else if live.values.contains(where: { $0.clientKey == key }) {
+            // An app Airc asks every time (nothing remembered to refuse later): its connections end.
+            return disconnect(clientKey: key, reason: "stopped")
         }
         let sessions = live.values.filter { $0.clientKey == key }
         for s in sessions {
@@ -519,7 +528,11 @@ final class AgentCenter {
             case .failure(let why): return answer(why.text)
             }
         }
-        let identity = AgentClientIdentity.resolve(session: session)
+        let resolved = AgentClientIdentity.resolve(session: session)
+        // Asked on every connection: this connection's own key, so no other connection shares its answer.
+        let identity = resolved.remember ? resolved
+            : AgentClientIdentity(key: "\(resolved.key)#\(session.id)", displayName: resolved.displayName,
+                                  detail: resolved.detail, kind: resolved.kind, pid: resolved.pid, remember: false)
         session.clientKey = identity.key
         session.clientName = identity.displayName
         let admit = { [weak self] in
@@ -552,11 +565,11 @@ final class AgentCenter {
             guard let self else { return answer("Airc is quitting") }
             switch decision {
             case .allow:
-                self.remember(identity, allowed: true)
+                if identity.remember { self.remember(identity, allowed: true) }
                 self.onEvent?("allowed \(identity.key)")
                 admit()
             case .deny:
-                self.remember(identity, allowed: false)
+                if identity.remember { self.remember(identity, allowed: false) }
                 self.onEvent?("denied \(identity.key)")
                 answer("You chose not to let \(identity.displayName) use Airc. To change that: Airc › Settings › Agents.")
             case .noAnswer:
