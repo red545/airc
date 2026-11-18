@@ -2,7 +2,6 @@
 import AircDesign
 import AircKit
 import AppKit
-import Combine
 import SwiftUI
 
 /// The sidebar's Agents folder (docs/user/agents.md, "Follow along"): above the tray, while an agent works in this
@@ -124,42 +123,6 @@ final class SidebarAgentsView: NSView {
         refresh()
     }
 
-    // MARK: The pane task's approval, on its row (agentux, docs/design/agent-ux.md §6)
-
-    private var approvalPopover: NSPopover?
-    private var approvalSub: AnyCancellable?
-
-    /// "✋ Pay on …?" with Open task / Deny / Allow once, pointing at the row. An AppKit popover on a first-click hosting
-    /// view, so the first press on an inactive popover answers (SwiftUI's popover spent it on activation). It closes when
-    /// the approval is answered anywhere (one answer clears all).
-    func showApproval(at rowFrame: CGRect, open: @escaping () -> Void) {
-        guard approvalPopover?.isShown != true, let host, window != nil, rowFrame.height > 0, let a = AgentRunCenter.shared.approval else { return }
-        let p = NSPopover()
-        p.behavior = .applicationDefined
-        p.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        p.appearance = NSAppearance(named: model.theme.isDark ? .darkAqua : .aqua)
-        let v = AircFirstClickHostingView(rootView: AgentRowApproval(request: a, open: { [weak self] in self?.closeApproval(); open() },
-                                                                    close: { [weak self] in self?.closeApproval() }).testAnchorRoot())
-        v.frame.size = v.fittingSize
-        let vc = NSViewController()
-        vc.view = v
-        p.contentViewController = vc
-        p.contentSize = v.fittingSize
-        approvalPopover = p
-        p.show(relativeTo: rowFrame, of: host, preferredEdge: controller?.sidebarOnRight == true ? .minX : .maxX)
-        approvalSub = AgentRunCenter.shared.$approval.dropFirst().sink { [weak self] new in if new?.id != a.id { self?.closeApproval() } }
-    }
-
-    func closeApproval() {
-        approvalSub = nil
-        approvalPopover?.close()
-        approvalPopover = nil
-    }
-
-    #if AIRC_TESTING
-    var approvalPopoverView: NSView? { approvalPopover?.isShown == true ? approvalPopover?.contentViewController?.view : nil }
-    #endif
-
     func closeWatch() {
         guard let w = watch else { return }
         watch = nil
@@ -248,7 +211,6 @@ final class AgentsFolderModel: ObservableObject {
 }
 
 struct AgentsFolderContent: View {
-    static let space = "agentsFolder"
     @ObservedObject var model: AgentsFolderModel
     @State private var headerHovered = false
 
@@ -268,7 +230,6 @@ struct AgentsFolderContent: View {
         .padding(.top, SidebarAgentsView.topInset)
         .padding(.horizontal, AircMetrics.Sidebar.inset)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .coordinateSpace(name: Self.space)
         .animation(AircSpring.row.animation, value: model.items.map(\.id))
         .testAnchorRoot()
         .aircTheme(model.theme)
@@ -336,34 +297,8 @@ private struct AgentFolderRow: View {
     @State private var hovered = false
     @Environment(\.aircTheme) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    // agentux: the pane's own task (docs/design/agent-ux.md §7): it opens in the pane, and a waiting approval shows on
-    // the row (✋, "Waiting for your OK") and as a popover when the pane isn't showing the task.
-    @ObservedObject private var run = AgentRunCenter.shared
-
-    private var paneTask: Bool { AgentUI.usesPane && item.live && run.runWindowID == item.window && (item.client == AgentBridge.clientName || item.clientKey == "airc-panel") }
-    private var waiting: Bool { paneTask && run.approval != nil }
-    private var paneShown: Bool { model.view?.controller.flatMap { AgentPaneController.pane(of: $0) }?.isShown == true }
-
-    private func open() {
-        if paneTask, let c = model.view?.controller { AgentPaneController.show(c) } else if item.live { model.view?.openWatch(item.id) }
-    }
-
-    @State private var frameInFolder: CGRect = .zero
 
     var body: some View {
-        row
-            .background(GeometryReader { g in
-                Color.clear
-                    .onAppear { frameInFolder = g.frame(in: .named(AgentsFolderContent.space)) }
-                    .onChange(of: g.frame(in: .named(AgentsFolderContent.space))) { _, f in frameInFolder = f }
-            })
-            .onChange(of: run.approval) { _, a in
-                if a != nil, waiting, !paneShown { model.view?.showApproval(at: frameInFolder, open: { open() }) }
-            }
-            .onAppear { if waiting && !paneShown { model.view?.showApproval(at: frameInFolder, open: { open() }) } }
-    }
-
-    private var row: some View {
         HStack(spacing: 8) {
             icon
             VStack(alignment: .leading, spacing: 0) {
@@ -375,17 +310,13 @@ private struct AgentFolderRow: View {
                 // The app, then its state: a long device name gives way before "Done · 3 min ago" does.
                 HStack(spacing: 0) {
                     Text(item.client).lineLimit(1).truncationMode(.middle)
-                    Text(" · " + (waiting ? "Waiting for your OK" : item.status)).lineLimit(1).layoutPriority(1)
+                    Text(" · " + item.status).lineLimit(1).layoutPriority(1)
                 }
                 .aircFont(AircFont.caption)
                 .foregroundStyle(theme.textTertiary.color)
             }
             Spacer(minLength: 2)
-            if waiting, !hovered {
-                Image(systemName: "hand.raised.fill").font(.system(size: 11)).foregroundStyle(.orange).padding(.trailing, 2)
-                    .accessibilityLabel("Waiting for your OK")
-                    .testAnchor("agents-waiting-\(item.id)")
-            } else if hovered, item.live {
+            if hovered, item.live {
                 TrayButton(symbol: "stop.fill", help: "Stop \(item.client)") { model.view?.stop(item.id) }
                     .accessibilityLabel("Stop \(item.client)")
                     .testAnchor("agents-stop-\(item.id)")
@@ -404,13 +335,13 @@ private struct AgentFolderRow: View {
         .opacity(item.faded ? 0.55 : 1)
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
-        .onTapGesture { open() }
+        .onTapGesture { if item.live { model.view?.openWatch(item.id) } }
         .contextMenu { menu }
         .testAnchor("agents-row-\(item.id)")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(item.title)
         .accessibilityValue(item.client + ", " + (item.live ? (item.acting ? "Working: \(item.status)" : "Waiting") : item.status))
-        .accessibilityHint(paneTask ? "Open the task in the agent pane" : item.live ? "Watch what the agent does" : "")
+        .accessibilityHint(item.live ? "Watch what the agent does" : "")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { if item.live { model.view?.openWatch(item.id) } }
         .accessibilityAction(named: "Take over") { model.view?.takeOver(item.id) }
@@ -498,31 +429,4 @@ struct AgentPulseDot: NSViewRepresentable {
 
     /// The dots pulsing now (checks count them).
     static var pulsing: Set<ObjectIdentifier> = []
-}
-
-/// The popover's content: what the agent wants to do, and the three answers. Nothing is pre-selected.
-private struct AgentRowApproval: View {
-    let request: AgentApprovalRequest
-    let open: () -> Void
-    let close: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "hand.raised.fill").foregroundStyle(.orange)
-                Text(request.title).aircFont(AircFont.body.weight(.semibold))
-            }
-            Text(request.risk.reason).aircFont(AircFont.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 6) {
-                Button("Open task", action: open).buttonStyle(.airc(.secondary, size: .small)).testAnchor("agents-popover-open")
-                Spacer()
-                Button("Deny") { close(); AgentRunCenter.shared.answerApproval(allow: false) }.buttonStyle(.airc(.secondary, size: .small))
-                    .testAnchor("agents-popover-deny")
-                Button("Allow once") { close(); AgentRunCenter.shared.answerApproval(allow: true) }.buttonStyle(.airc(.secondary, size: .small))
-                    .testAnchor("agents-popover-allow")
-            }
-        }
-        .padding(14)
-        .frame(width: 300)
-    }
 }

@@ -343,8 +343,6 @@ final class WindowController: NSObject, NSWindowDelegate {
         let sidebarAlpha = 1 - min(1, libraryFraction * 1.6)
         if sidebar.alphaValue != sidebarAlpha { sidebar.alphaValue = sidebarAlpha }
         var pageFrame = mirroredForSidebar(NSRect(x: x, y: i, width: max(0, b.width - x - i), height: max(0, b.height - 2 * i)))
-        // agentux: the Airc Agent pane takes its card beside the page (Agent/Pane/AgentPane.swift); nothing while closed.
-        pageFrame = AgentPaneController.layout(self, page: pageFrame)
         if let toolbar = pageToolbar {
             toolbar.frame = NSRect(x: pageFrame.minX, y: pageFrame.minY, width: pageFrame.width, height: PageToolbarView.height)
             pageFrame.origin.y += PageToolbarView.height
@@ -1581,8 +1579,6 @@ final class WindowController: NSObject, NSWindowDelegate {
             if let p = profiles.engineProfile(for: s.profileID) { engineWindow.activeProfile = p }
         }
         if refreshesChrome { refreshChrome() }
-        // agentux: the agent pane is open or closed per Space.
-        AgentPaneController.pane(of: self)?.spaceChanged()
         // An inactive window's sidebar dims by this Space's palette (W07c): a Space switched while it's in the background.
         sidebar.updateInactiveDim(animated: false)
     }

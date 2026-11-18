@@ -15,21 +15,19 @@ order = """
 """
 checked = """
 - Agent: Settings › AI › Agent › Use → Your Claude Code or Your Codex instead of an API key; Airc runs the installed copy
-  with its own login, Airc never sees that login; only Airc's browser tools; still asks
+  with its own login, use counts against your plan, Airc never sees that login; only Airc's browser tools; still asks
   before it pays, sends, posts or deletes.
 - Security: Airc asks every app or script once before it can use the browser and recognises each by what actually runs
   (signed app by its signer, script by file and contents, unsigned program by its code, SSH by the computer); before,
   a plain script could use the approval of the app that started it; some allowed apps (mostly scripts, node/python3
   tools) are asked once more; the reporter thanked, unnamed (release043).
 - The Airc Agent is still a beta (0.1.22 Please know): the agent post says so.
-- Neutral on plans: no "your Claude plan/subscription" line (release044, 2026-11-18: owner decision pending), so the
-  post no longer says "it counts against your plan".
 """
 
 [[post]]
 label = "Airc Agent on your own Claude Code or Codex"
 text = """
-Airc Agent (beta) can now run on your own Claude Code or Codex instead of an API key. Airc uses the copy installed on your Mac, with its own login, which Airc never sees. It still asks before it pays or sends. New in Airc 0.1.31.
+Airc Agent (beta) can now run on your own Claude Code or Codex instead of an API key. Airc uses the copy on your Mac with its own login, so it counts against your plan and Airc never sees that login. It still asks before it pays or sends. New in Airc 0.1.31.
 """
 
 [[post]]

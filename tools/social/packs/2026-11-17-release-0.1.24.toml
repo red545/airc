@@ -58,9 +58,7 @@ Click a link in another app while Airc is closed, and its page now shows in abou
 
 [[post]]
 label = "Agent: hand it to Claude"
-# Text only since 2026-11-18: the hand-off card shows "with your Claude plan", and release044 asked for no plan or
-# subscription lines while the owner decides. The card stays built for later.
-media = []
+media = ["handoff:16x9"]
 text = """
 Airc Agent (beta) can now hand a task to Claude Desktop or Claude Code if you'd rather use your Claude app. Or run it in Airc on your own API key: replies stream in, Stop ends them at once, and "Ask Airc to…" in ⌘T starts a task.
 """
