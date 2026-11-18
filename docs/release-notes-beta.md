@@ -1,15 +1,24 @@
-# Airc 0.1.29 public beta
+# Airc 0.1.30 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.88.
-This update adds Arc's Copy Quote Link: a link that opens a page right at the text you selected. It includes
-everything from 0.1.28. The release manifest records the exact build, source and checksums.
+This update tidies the sidebar's Agents folder: rows say what an agent did and close by themselves. It includes
+everything from 0.1.29. The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.28
+## New since 0.1.29
+
+- **The Agents folder tidies itself.** When Claude or another AI app uses Airc, each row in the sidebar's Agents
+  folder now says what the agent did: the site and the kind of work, such as "Gmail · read 3 pages" or "Corner Shop ·
+  filled a form", or your task for the Airc Agent. Finished rows close by themselves after 5 minutes; choose 1, 5 or
+  30 minutes, or until you clear them, in Settings › Agents › Keep finished agents for. A row you're watching stays,
+  and Settings › Agents › Activity still lists what agents did. Apps that only connect, or only open a blank window, no
+  longer add empty rows.
+
+## Included from 0.1.29
 
 - **Copy Quote Link, like Arc.** Select some text on a page, then choose Copy Quote Link in the page's right-click
   menu (right after Copy), click Share Quote under the address, or use the button in the offer that appears after ⌘C.

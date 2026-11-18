@@ -298,5 +298,11 @@
     "detail": "Select text on a page, then choose Copy Quote Link in its right-click menu or click Share Quote under the address. The link opens the page right at that text, highlighted.",
     "action": "none",
     "image": "copy-quote-link"
+  },
+  "The Agents folder tidies itself": {
+    "title": "Tidier Agents folder",
+    "detail": "Rows in the sidebar's Agents folder now say what an agent did, like \"Gmail · read 3 pages\", and finished ones close after 5 minutes. Change that in Settings › Agents › Keep finished agents for.",
+    "action": "settingsAgents",
+    "image": null
   }
 }

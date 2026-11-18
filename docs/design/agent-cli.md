@@ -1,6 +1,6 @@
 # The Airc Agent on your own Claude Code or Codex
 
-Status: built (2026-11-18, agentcli: 1cd508e4 protocol layer, then the backend and its checks; artifacts/agentcli/REPORT.md). Memory is not used with the CLI backends yet. Builds on docs/design/agent.md (the panel, the tools, the risk gate). The UX
+Status: design (2026-11-17, agentcli). Builds on docs/design/agent.md (the panel, the tools, the risk gate). The UX
 around it (provider choice, first-run connect) is asideux's docs/design/agent-ux.md; this document is the backend and the
 wiring into today's panel, without restyling it.
 
@@ -123,9 +123,8 @@ extensions and T3 Code use, launched with `--disable shell_tool --disable unifie
 
 1. `initialize {clientInfo:{name:"airc", title:"Airc", version}}` → `initialized`.
 2. `config/read` → the names of the person's own `mcp_servers`; each is disabled for this thread.
-3. `thread/start {cwd: <Airc's work folder>, approvalPolicy:"never", sandbox:"read-only",
-   developerInstructions: <Airc's agent rules>, config:{mcp_servers:{airc:{command, args, env:{AIRC_MCP_TOKEN},
-   tool_timeout_sec:330},
+3. `thread/start {cwd: <Airc's work folder>, approvalPolicy:"never", sandbox:"read-only", ephemeral:false,
+   developerInstructions: <Airc's agent rules>, config:{mcp_servers:{airc:{command, args, env:{AIRC_MCP_TOKEN}},
    <theirs>:{enabled:false}}}}` → thread id.
 4. Per task: `turn/start {threadId, input:[{type:"text", text}]}` → turn id.
 5. Notifications: `item/agentMessage/delta` → live line; `item/completed` `agentMessage` → a "say" step;

@@ -2,6 +2,18 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.30",
+      "highlights": [
+        {
+          "title": "Tidier Agents folder",
+          "lead": "The Agents folder tidies itself",
+          "detail": "Rows in the sidebar's Agents folder now say what an agent did, like \"Gmail · read 3 pages\", and finished ones close after 5 minutes. Change that in Settings › Agents › Keep finished agents for.",
+          "icon": "sparkles",
+          "action": "settingsAgents"
+        }
+      ]
+    },
+    {
       "version": "0.1.29",
       "highlights": [
         {

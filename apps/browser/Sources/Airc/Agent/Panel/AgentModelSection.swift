@@ -11,26 +11,12 @@ struct AgentModelSection: View {
     @State private var keyHint = AgentModelSettings.shared.keyHint(AgentModelSettings.shared.values.provider)
     @State private var siteField = ""
     @State private var status: String?
-    @State private var cliRev = 0
 
     private var settings: AgentModelSettings { .shared }
 
     var body: some View {
         SettingsSection(title: "Agent",
-                        help: helpText) {
-            SettingsRow(title: "Use", subtitle: values.backend == .apiKey ? nil : "Airc runs your own \(values.backend.cli!.name) with the login you made in it, and gives it only Airc's browser tools.") {
-                Picker("", selection: Binding(get: { values.backend }, set: { b in
-                    settings.update { $0.backend = b }
-                    if let k = b.cli { AgentCLIDetector.shared.check(k, maxAge: 0) }
-                    reload()
-                })) {
-                    ForEach(AgentBackend.allCases, id: \.self) { Text($0.name).tag($0) }
-                }
-                .labelsHidden().fixedSize().testAnchor("ai.agent.backend")
-            }
-            if let kind = values.backend.cli {
-                cliRow(kind)
-            } else {
+                        help: "The Airc Agent (⌥⌘A) does tasks in your signed-in sites with your own AI. Your task, the pages it reads and its screenshots go from this Mac to \(values.provider.name), billed to your key; your key stays in your Keychain. It asks before paying, sending, posting or deleting, and never sees saved passwords, cookies or private windows.") {
             SettingsRow(title: "Provider") {
                 Picker("", selection: Binding(get: { values.provider }, set: { p in
                     settings.update { $0.provider = p }
@@ -58,7 +44,6 @@ struct AgentModelSection: View {
                     ForEach(values.provider.models) { Text($0.name).tag($0.id) }
                 }
                 .labelsHidden().fixedSize().testAnchor("ai.agent.model")
-            }
             }
             SettingsRow(title: "Tasks", subtitle: "Quick stops after 25 steps or 3 minutes; Keep going runs up to 200 steps or 30 minutes. Stop is always there.") {
                 Picker("", selection: Binding(get: { values.level }, set: { l in
@@ -95,27 +80,6 @@ struct AgentModelSection: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: AgentModelSettings.changed)) { _ in reload() }
-        .onReceive(NotificationCenter.default.publisher(for: AgentCLIDetector.changed)) { _ in cliRev += 1 }
-        .onAppear { if let k = values.backend.cli { AgentCLIDetector.shared.check(k) } }
-    }
-
-    private var helpText: String {
-        if let k = values.backend.cli {
-            return "The Airc Agent (⌥⌘A) does tasks in your signed-in sites with your own \(k.name), as if you ran it in Terminal: it uses the login you made in it, and its use counts against your plan with \(k.vendor). Airc never sees that login. Your task, the pages it reads and its screenshots go from this Mac to \(k.vendor). It may only use Airc's browser tools, asks before paying, sending, posting or deleting, and never sees saved passwords, cookies or private windows."
-        }
-        return "The Airc Agent (⌥⌘A) does tasks in your signed-in sites with your own AI. Your task, the pages it reads and its screenshots go from this Mac to \(values.provider.name), billed to your key; your key stays in your Keychain. It asks before paying, sending, posting or deleting, and never sees saved passwords, cookies or private windows."
-    }
-
-    /// The person's CLI: what Airc found ("Claude Code 2.1.322, logged in (Max)") and what to do when it isn't ready.
-    private func cliRow(_ kind: AgentCLIKind) -> some View {
-        let s = AgentCLIDetector.shared.status(kind) ?? .checking
-        return SettingsRow(title: kind.name, subtitle: (s.fix(kind) ?? "Ready. Memory isn't used with \(kind.name) yet.") + (cliRev < 0 ? "" : "")) {
-            HStack(spacing: 6) {
-                Text(s.summary(kind)).aircFont(AircFont.callout).lineLimit(1).testAnchor("ai.agent.cli.status")
-                Button("Check Again") { AgentCLIDetector.shared.check(kind, maxAge: 0) }
-                    .buttonStyle(.airc(.secondary)).disabled(s == .checking).testAnchor("ai.agent.cli.check")
-            }
-        }
     }
 
     private func reload() {

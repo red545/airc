@@ -63,7 +63,7 @@ enum AgentMCP {
                        gate: ((_ tool: String) -> String?)? = nil,
                        began: ((_ tool: String, _ args: [String: Any]) -> Void)? = nil,
                        log: @escaping (_ tool: String, _ result: AgentResult, _ ms: Double) -> Void,
-                       reply: @escaping (Data?) -> Void, timeout: TimeInterval? = nil) {
+                       reply: @escaping (Data?) -> Void) {
         guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else {
             return reply(encode(["jsonrpc": "2.0", "id": NSNull(), "error": ["code": -32700, "message": "Parse error"]]))
         }
@@ -130,8 +130,7 @@ enum AgentMCP {
             if let refusal = gate?(name) { return finish(.error(refusal)) }
             began?(name, args)
             let waits = (args["duration"] as? NSNumber)?.doubleValue ?? 0
-            // `timeout`: a CLI run's calls may wait for the person's approval (5 minutes) before they run.
-            DispatchQueue.main.asyncAfter(deadline: .now() + (timeout ?? max(60, min(300, waits) + 30))) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + max(60, min(300, waits) + 30)) {
                 finish(.error("\(name) timed out: the page didn't answer."))
             }
             tool.run(args, session, finish)

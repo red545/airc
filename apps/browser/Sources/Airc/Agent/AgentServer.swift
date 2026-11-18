@@ -63,8 +63,6 @@ final class AgentSession {
     /// A paired device on the Tailscale network (AgentRemote.swift): which one, and its address.
     struct Remote { let deviceID: String; let deviceName: String; let address: String }
     var remote: Remote?
-    /// The helper's run token (AIRC_MCP_TOKEN), for a CLI run's own socket (AgentCLIRun); nil otherwise.
-    var helloToken: String?
     /// HTTP requests are one-shot: their windows outlive the request and belong to the client's name instead.
     let persistent: Bool
     var ownerKey: String { persistent ? "session-\(id)" : "http-\(client)" }
@@ -309,7 +307,6 @@ final class AgentServer {
                     session.client = String((hello["client"] as? String ?? "unknown").prefix(64))
                     session.via = hello["via"] as? String == "ssh" ? "ssh" : "local"
                     session.requestedProfile = (hello["profile"] as? String).map { String($0.prefix(128)) }
-                    session.helloToken = (hello["token"] as? String).map { String($0.prefix(256)) }
                     server.helloAnswer(session) { [weak self] refusal in
                         self?.queue.async {
                             guard let self else { return }

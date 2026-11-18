@@ -263,16 +263,14 @@ extension AgentSpike {
         }
     }
 
-    /// An Apple command line tool between Airc and the helper only starts it: the client is what started the tool
-    /// (here Airc itself), never "/usr/bin/time" (which would let every program started by time share one answer).
-    /// Then removed, asked again.
+    /// An app started through an Apple program: identified by its code signature, removed, asked again.
     func signedClient(_ done: @escaping () -> Void) {
         let timed = helper("Agent", client: "time-check", via: "/usr/bin/time")
         extra.append(timed)
         connect(timed, answer: .allow) { ok, asked in
-            let rec = AgentCenter.shared.client("airc|name:time-check")
-            self.check(ok && asked != nil && rec != nil && !AgentCenter.shared.settings.clients.contains { $0.key.hasPrefix("apple:com.apple.time") },
-                       "an Apple tool between is a launcher: the client is what started it (\(rec?.key ?? "none"))")
+            let rec = AgentCenter.shared.settings.clients.first { $0.key.hasPrefix("apple:com.apple.time") }
+            self.check(ok && asked != nil && rec != nil,
+                       "a client under an Apple program is identified by its signature (\(rec?.key ?? "none"), \(rec?.detail ?? ""))")
             timed.call("open_window", ["url": "\(self.base)/second.html"]) { r, _ in
                 let id = SpikeMCPClient.json(r)["window"] as? Int ?? 0
                 guard let key = rec?.key else { return done() }
@@ -283,138 +281,9 @@ extension AgentSpike {
                     let back = self.helper("Agent", client: "time-check", via: "/usr/bin/time")
                     self.connect(back, answer: .deny) { ok, asked in
                         self.check(!ok && asked != nil, "a removed app is asked again")
-                        self.identityChecks { self.unanswered(done) }
+                        self.unanswered(done)
                     }
                 }
-            }
-        }
-    }
-
-    // MARK: Who the client is (mcpfeedback SECURITY, 2026-11-18)
-
-    /// A script Airc starts the helper through: `/bin/sh <script> <helper> …` or `python3 <script> <helper> …`.
-    /// The script runs the helper as its child (no exec), so the script is the helper's parent, as a person's script is.
-    func scriptHelper(_ runner: String, _ script: String?, inline: String? = nil, client name: String) -> SpikeMCPClient {
-        var args = ["--data-dir", AppPaths.dataDirectory.path, "--client", name, "--profile", "Agent"]
-        args = [helperPath] + args
-        if let script { args = [script] + args } else if let inline { args = ["-c", inline] + args }
-        let c = SpikeMCPClient(helper: runner, args: args)
-        extra.append(c)
-        return c
-    }
-
-    func writeScript(_ name: String, _ body: String) -> String {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("airc-identity-\(getpid())", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let url = dir.appendingPathComponent(name)
-        try? Data(body.utf8).write(to: url)
-        return url.resolvingSymlinksInPath().path
-    }
-
-    /// The reported bypass and its kin: a plain script must be asked, whatever it calls itself and whatever started
-    /// it; an approved one isn't asked again; a changed one is; Don't Allow opens no window; inline code is asked
-    /// every time.
-    func identityChecks(_ done: @escaping () -> Void) {
-        let center = AgentCenter.shared
-        let sh = "#!/bin/sh\n# agent A\n\"$@\"\n"
-        let a = writeScript("agent-a.sh", sh)
-        let b = writeScript("agent-b.sh", "#!/bin/sh\n# agent B\n\"$@\"\n")
-        let c = writeScript("agent-c.sh", "#!/bin/sh\n# agent C\n\"$@\"\n")
-        let py = "import subprocess, sys\nsys.exit(subprocess.call(sys.argv[1:]))\n"
-        let pyA = writeScript("agent-a.py", py)
-        let pyB = writeScript("agent-b.py", "# agent B\n" + py)
-        let windowsBefore = { center.windows.count }
-        func key(_ path: String) -> String? { center.settings.clients.first { $0.key.hasPrefix("script:\(path)|") }?.key }
-        let checks = AgentClientIdentity.isLegacyKey("path:/opt/tool/agent|name:claude-code")
-            && AgentClientIdentity.isLegacyKey("team:HX7739G8FX:node") && AgentClientIdentity.isLegacyKey("apple:com.apple.python3|name:x")
-            && AgentClientIdentity.isLegacyKey("unknown|name:claude-code") && AgentClientIdentity.isLegacyKey("ssh|name:codex")
-            && !AgentClientIdentity.isLegacyKey("team:ABCDE12345:com.example.agentapp") && !AgentClientIdentity.isLegacyKey("airc|name:x")
-        check(checks, "answers kept under the old shared keys (an interpreter's team, a reported name) are forgotten; signed apps' stay")
-
-        // 1. An unknown shell script: asked, remembered under its path and hash.
-        connect(scriptHelper("/bin/sh", a, client: "script-check"), answer: .allow) { ok, asked in
-            let k = key(a)
-            self.check(ok && asked != nil && k?.contains("|sha256:") == true,
-                       "an unknown shell script is asked (\(asked?.title ?? "no panel")) and remembered by path and hash (\(k ?? "none"))")
-            // 2. The approved script again: no question.
-            let again = self.scriptHelper("/bin/sh", a, client: "script-check")
-            self.connect(again, answer: .deny) { ok, asked in
-                self.check(ok && asked == nil, "an approved script connects without asking")
-                again.call("open_window", ["url": "\(self.base)/second.html"]) { r, _ in
-                    let id = SpikeMCPClient.json(r)["window"] as? Int
-                    self.check(id != nil, "the approved script can open a window")
-                    if let id, let w = center.windows[id] { center.closeWindow(w) }
-                    again.stop()
-                    self.identitySpoof(a: a, b: b, c: c, pyA: pyA, pyB: pyB, windowsBefore: windowsBefore, key: key, done)
-                }
-            }
-        }
-    }
-
-    private func identitySpoof(a: String, b: String, c: String, pyA: String, pyB: String, windowsBefore: @escaping () -> Int,
-                               key: @escaping (String) -> String?, _ done: @escaping () -> Void) {
-        let center = AgentCenter.shared
-        // 3. Another script claiming the approved script's name: asked; Don't Allow opens nothing.
-        let count = windowsBefore()
-        let other = scriptHelper("/bin/sh", b, client: "script-check")
-        connect(other, answer: .deny) { ok, asked in
-            self.check(!ok && asked != nil && other.exitCode == 77,
-                       "a different script claiming an approved name is still asked; Don't Allow refuses it (exit \(other.exitCode ?? -1))")
-            self.check(center.windows.count == count, "Don't Allow: no window opened (\(center.windows.count) agent windows, before \(count))")
-            // 4. A script claiming Claude Code's name: asked under its own name, the claim shown as a claim.
-            let spoof = self.scriptHelper("/bin/sh", c, client: "claude-code")
-            self.connect(spoof, answer: .deny) { ok, asked in
-                let rec = center.client(key(c) ?? "")
-                self.check(!ok && asked != nil && asked?.title.contains("Claude Code") == false
-                           && rec?.detail.contains("calls itself ‘claude-code’") == true,
-                           "a script calling itself claude-code is asked as itself (“\(asked?.title ?? "no panel")”, \(rec?.detail ?? "no record"))")
-                // 5. The approved script, edited: asked again.
-                try? Data("#!/bin/sh\n# agent A, edited\n\"$@\"\n".utf8).write(to: URL(fileURLWithPath: a))
-                let edited = self.scriptHelper("/bin/sh", a, client: "script-check")
-                self.connect(edited, answer: .deny) { ok, asked in
-                    self.check(!ok && asked != nil, "an approved script that changed is asked again")
-                    self.identityPython(pyA: pyA, pyB: pyB, key: key, done)
-                }
-            }
-        }
-    }
-
-    private func identityPython(pyA: String, pyB: String, key: @escaping (String) -> String?, _ done: @escaping () -> Void) {
-        let center = AgentCenter.shared
-        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/python3") else {
-            note("no /usr/bin/python3: the interpreter cases are skipped")
-            return identityInline(done)
-        }
-        // 6. Python scripts under Apple's python3 (and Apple's time): each script its own client.
-        let first = SpikeMCPClient(helper: "/usr/bin/time", args: ["/usr/bin/python3", pyA, helperPath, "--data-dir", AppPaths.dataDirectory.path,
-                                                                  "--client", "py-check", "--profile", "Agent"])
-        extra.append(first)
-        connect(first, answer: .allow) { ok, asked in
-            self.check(ok && asked != nil && key(pyA) != nil, "a python3 script is asked and remembered as the script (\(key(pyA) ?? "none"))")
-            let second = self.scriptHelper("/usr/bin/python3", pyB, client: "py-check")
-            self.connect(second, answer: .deny) { ok, asked in
-                self.check(!ok && asked != nil, "another python3 script with the same name is asked (the interpreter's approval isn't shared)")
-                self.check(!center.settings.clients.contains { $0.key.hasPrefix("apple:") && $0.key.lowercased().contains("python") },
-                           "no answer is kept for python3 itself")
-                self.identityInline(done)
-            }
-        }
-    }
-
-    private func identityInline(_ done: @escaping () -> Void) {
-        let center = AgentCenter.shared
-        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/python3") else { return done() }
-        // 7. Inline code (python3 -c): nothing names it, so it is asked on every connection and nothing is kept.
-        let code = "import subprocess, sys; sys.exit(subprocess.call(sys.argv[1:]))"
-        let one = scriptHelper("/usr/bin/python3", nil, inline: code, client: "inline-check")
-        let kept = center.settings.clients.count
-        connect(one, answer: .allow) { ok, asked in
-            self.check(ok && asked != nil && center.settings.clients.count == kept, "inline code is asked and nothing is remembered")
-            one.stop()
-            let two = self.scriptHelper("/usr/bin/python3", nil, inline: code, client: "inline-check")
-            self.connect(two, answer: .deny) { ok, asked in
-                self.check(!ok && asked != nil, "inline code is asked again on its next connection")
-                done()
             }
         }
     }

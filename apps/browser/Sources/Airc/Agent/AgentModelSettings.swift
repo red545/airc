@@ -12,8 +12,6 @@ final class AgentModelSettings {
     static let keychainService = "Airc Agent Model Key"
 
     struct Values: Codable, Equatable {
-        /// Who runs the agent: your API key (Airc's loop), or your own Claude Code / Codex (docs/design/agent-cli.md).
-        var backend: AgentBackend = .apiKey
         var provider: AgentProvider = .anthropic
         var anthropicModel = AgentProvider.anthropic.defaultModel.id
         var openaiModel = AgentProvider.openai.defaultModel.id
@@ -26,7 +24,6 @@ final class AgentModelSettings {
         init() {}
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
-            backend = (try? c.decode(AgentBackend.self, forKey: .backend)) ?? .apiKey
             provider = (try? c.decode(AgentProvider.self, forKey: .provider)) ?? .anthropic
             anthropicModel = (try? c.decode(String.self, forKey: .anthropicModel)) ?? AgentProvider.anthropic.defaultModel.id
             openaiModel = (try? c.decode(String.self, forKey: .openaiModel)) ?? AgentProvider.openai.defaultModel.id
@@ -103,8 +100,6 @@ final class AgentModelSettings {
 
     /// Whether the chosen provider has a key, cached (the Command Bar asks on every keystroke); refreshed on changes.
     var hasCurrentKey: Bool {
-        // The person's own CLI: usable unless Airc already knows it's missing or logged out.
-        if let k = values.backend.cli { return AgentCLIDetector.shared.status(k).map { $0.isReady || $0 == .checking } ?? true }
         if let c = hasKeyCache, c.provider == values.provider { return c.has }
         let has = hasKey(values.provider)
         hasKeyCache = (values.provider, has)
@@ -136,8 +131,6 @@ final class AgentModelSettings {
 
     #if AIRC_TESTING
     /// Checks: a fixture key for this run (memory only).
-    func setBackendForTesting(_ b: AgentBackend) { update { $0.backend = b } }
-
     func setTestKey(_ key: String?, provider: AgentProvider, base: String?) {
         inMemory = true
         memoryKeys[provider] = key
