@@ -18,6 +18,8 @@ final class ChromiumAgentDriver: AgentPageDriver {
                       "text": "native (DevTools Input)", "scroll": "native (DevTools Input)",
                       "right_click": "script (no context menu)", "screenshot": "engine (Page.captureScreenshot)"]
     private var kept: Set<ObjectIdentifier> = []
+    /// Scrolls the script did because the native wheel didn't answer (checks and reports).
+    private(set) var wheelFallbacks = 0
 
     private func core(_ tab: EngineTab) -> AircTab? { (tab as? ChromiumTab)?.core }
 
@@ -184,10 +186,21 @@ final class ChromiumAgentDriver: AgentPageDriver {
         call(tab, "Input.insertText", ["text": text]) { _, error in completion(error) }
     }
 
+    /// How long the native wheel may take. DevTools sends a wheel only after the renderer's next frame
+    /// (InsertVisualStateCallback), so with no frames (the display asleep or locked while an agent works) every scroll
+    /// timed out after 10 s while clicks went on working (0.1.28: "scroll failed five times in a row"). Past this, the
+    /// page is scrolled from a script, as WebKit does without a wheel event.
+    static var wheelTimeout: TimeInterval = 2
+
     func scroll(_ tab: EngineTab, at p: CGPoint, dx: CGFloat, dy: CGFloat, modifiers: AgentModifiers,
                 completion: @escaping (String?) -> Void) {
         call(tab, "Input.dispatchMouseEvent", ["type": "mouseWheel", "x": p.x, "y": p.y, "deltaX": dx, "deltaY": dy,
-                                               "modifiers": modifiers.rawValue]) { _, error in completion(error) }
+                                               "modifiers": modifiers.rawValue], timeout: Self.wheelTimeout) { [weak self] _, error in
+            guard let error, let self else { return completion(nil) }
+            if error.contains("closed") || tab.isClosed { return completion(error) }
+            self.wheelFallbacks += 1
+            self.scriptScroll(tab, at: p, dx: dx, dy: dy, completion: completion)
+        }
     }
 
     func evaluate(_ tab: EngineTab, _ script: String, completion: @escaping (Any?) -> Void) {

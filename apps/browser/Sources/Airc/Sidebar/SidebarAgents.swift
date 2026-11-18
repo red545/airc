@@ -223,6 +223,7 @@ final class AgentsFolderModel: ObservableObject {
             switch state {
             case .acting(let caption): acting = true; faded = false; status = caption ?? "Working"
             case .idle: acting = false; faded = false; status = "Waiting"
+            case .needsYou(let why): acting = false; faded = false; status = "Needs you · " + why
             case .justEnded(let end): acting = false; faded = false; status = Item.words(end)
             case .faded(let end, let minutes): acting = false; faded = true; status = Item.words(end) + " · \(minutes) min ago"
             }
@@ -300,6 +301,14 @@ private struct AgentsFolderHeader: View {
             Text("Agents")
                 .aircFont(AircFont.callout.weight(.semibold))
                 .foregroundStyle(theme.textSecondary.color)
+            if AgentActivity.shared.model.needsYouCount > 0 {
+                // An agent's page waits for the person (a sign-in, a captcha): AgentNeedsYou.swift.
+                Image(systemName: "person.crop.circle.badge.exclamationmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.orange)
+                    .accessibilityLabel("An agent needs you")
+                    .testAnchor("agents-needs-you")
+            }
             if !model.expanded, model.actingCount > 0 {
                 AgentPulseDot(acting: true, color: theme.accent.nsColor, reduceMotion: reduceMotion)
                     .frame(width: 8, height: 8)

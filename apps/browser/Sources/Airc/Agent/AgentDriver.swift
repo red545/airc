@@ -147,6 +147,8 @@ protocol AgentPageDriver: AnyObject {
     func editCommand(_ tab: EngineTab, _ command: String, completion: @escaping (String?) -> Void)
     /// Before an agent's page closes: no "Leave site?" (nobody would see it), in the page's own world.
     func dropUnloadQuestion(_ tab: EngineTab, completion: @escaping () -> Void)
+    /// upload_file (AgentFiles.swift): the file field at `p` (or the page's only one) set to `files`.
+    func setFiles(_ tab: EngineTab, at p: CGPoint?, files: [URL], completion: @escaping (String?) -> Void)
     /// AgentPageScripts.guards in the shown document (idempotent): after a load, and before a press.
     func installGuards(_ tab: EngineTab, completion: @escaping () -> Void)
     /// Watch (AgentWatchView): the page's latest picture, at most `maxPixels`, as cheaply as the engine can (a copy of

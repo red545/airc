@@ -100,6 +100,7 @@ extension AgentSpike {
     /// The fixture site's session: POST /login sets an HttpOnly cookie; /account greets whoever carries it.
     func sessionSite(_ r: LocalPageServer.Request) -> LocalPageServer.Page? {
         if let page = demoPages?(r) { return page }
+        if let page = feedbackPage(r) { return page }
         switch (r.method, r.path) {
         case ("GET", "/login"):
             return LocalPageServer.Page(body: Self.loginPage.replacingOccurrences(of: "REVEAL", with: loginPassword))
@@ -547,7 +548,12 @@ extension AgentSpike {
         guard let w = app.settingsWindow?.window else { check(false, "Settings › Agents opens"); return done() }
         w.setContentSize(NSSize(width: 780, height: 1180))
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            self.check(self.app.settingsWindow?.model.page == .agents && !NSApp.isActive, "Settings › Agents opens (without activating Airc in a scripted run)")
+            if self.deliberateActivations > 0 {
+                // After the FG real-input step (it activated Airc itself, as a person clicking in Settings would).
+                self.check(self.app.settingsWindow?.model.page == .agents, "Settings › Agents opens (after real input: activation not asserted)")
+            } else {
+                self.check(self.app.settingsWindow?.model.page == .agents && !NSApp.isActive, "Settings › Agents opens (without activating Airc in a scripted run)")
+            }
             // The marketing shots' renderer: SwiftUI's scroll content doesn't come out of cacheDisplay.
             if let img = self.runner.mkContentImage(w), let tiff = img.tiffRepresentation {
                 self.savePNG(NSBitmapImageRep(data: tiff), "agents-settings")

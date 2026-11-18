@@ -147,8 +147,32 @@ final class AgentActivity {
         return call
     }
 
+    /// AgentNeedsYou: the row's page waits for the person (nil: not any more).
+    func setNeedsYou(_ rowID: String, _ why: String?) {
+        guard model.setNeedsYou(rowID, why), let row = model.row(rowID) else { return }
+        center.onEvent?("needs-you \(rowID) \(why ?? "none")")
+        if let why {
+            AgentNeedsYou.notifyLater(rowID: rowID, client: row.client, site: AgentRedaction.siteName(title: row.title, url: row.url), why: why)
+        } else {
+            AgentNeedsYou.withdraw(rowID: rowID)
+        }
+        changed()
+    }
+
+    /// After an acting call (a click can land on a sign-in page): look at the page once it had a moment to load.
+    private func recheckNeedsYou(_ rowID: String) {
+        for delay in [0.8, 2.5] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, let row = self.model.row(rowID), row.isLive, !self.model.isBusy(rowID),
+                      let w = self.center.windows[row.window], let tab = w.tab(row.tab), !tab.isLoading || delay > 2 else { return }
+                self.center.checkNeedsYou(w, tab) { _ in }
+            }
+        }
+    }
+
     func finished(_ call: Call, isError: Bool) {
         let now = Date()
+        if let row = call.row, call.action.kind.isActing || model.row(row)?.needsYou != nil { recheckNeedsYou(row) }
         if let row = call.row {
             model.finished(row, at: now)
             describeClick(row)

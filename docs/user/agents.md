@@ -113,6 +113,42 @@ agents by default; switch one off in **Settings › Agents › Profiles**, and t
 
 An app can't change your settings, read your history, or see your tabs and windows.
 
+### Rules per app
+
+In **Settings › Agents › Apps**, **Rules…** next to an allowed app sets:
+
+- **Profile**: the one profile the app may use. With **Any open profile** (the default), the app chooses when several
+  are open, or gets the only one. With a profile set, the app works only there: asking for another one is refused, and
+  its windows in other profiles close.
+- **Never open these sites**: sites (with their subdomains) the app may never open. Airc refuses to load them, and if a
+  link or redirect lands on one, nothing the app does acts on or reads that page until it goes elsewhere.
+
+Sites on the Airc Agent's **Never use these sites** list (**Settings › AI**) are closed to every app as well.
+
+## Uploads and downloads
+
+Agents get your files only when you say so. **upload_file** fills a page's file field with files from:
+
+- the app's own folder, `Downloads/Airc Agents/<the app>`: what its pages downloaded, or what it put there itself;
+- the folder you choose in **Settings › Agents › Files agents may upload** (and its subfolders).
+
+Anything else is refused, including a link that points out of those folders, hidden files and files over 200 MB.
+
+What an agent's page downloads goes to the app's own folder, not your Downloads list, and **list_downloads** tells the
+app where it is. Airc doesn't keep a risky file (an app, a disk image, a script) for an agent: it's discarded, and the
+agent is told to ask you. **Settings › Agents › Agents' downloads › Show in Finder** opens the folder. Both engines
+work the same way.
+
+## Needs you
+
+When an agent's page asks for you, its row in the Agents folder says **Needs you · Sign in** (a sign-in form, a sign-in
+or single sign-on page, and with Chromium pages a "401 Unauthorized" answer) or **Needs you · Captcha**, and the Agents
+folder shows an orange badge. If it still needs you a few seconds later (the agent may fill a saved login itself), Airc
+shows a notification, once you allow Airc's notifications. Open the row to see the page; **Take over** lets you sign in
+right there. Your sign-in is the profile's, so the agent can go on in its own windows afterwards. The agent is told that
+the page waits for you, so it doesn't type passwords or keep trying. Airc only checks for a visible password field, a
+captcha frame, the page's address and its status: never what the page says.
+
 ## Passwords: filled, never shown
 
 An app can sign in with a login you saved in Airc: it clicks the username or password field and asks Airc to fill it
@@ -192,6 +228,7 @@ answers are in `Agents.json`. The Activity history is in `AgentActivity.json`. A
 | `read_page`, `find_element` | A page's text, or its links, buttons and fields with where to click them. Page text is marked as untrusted |
 | `screenshot`, `zoom`, `left_click`, `type`, `key`, `scroll`, … `computer` | Anthropic's computer-use tools, acting on the agent window |
 | `fill_saved_login` | Fills a saved login into the page's sign-in form |
+| `upload_file`, `list_downloads` | Fills a file field with files you allowed; the files the app's pages downloaded |
 
 ## From your other devices
 

@@ -153,6 +153,7 @@ struct AgentsPage: View {
                     ForEach(center.settings.clients.sorted { $0.decided > $1.decided }) { c in
                         SettingsRow(title: c.name, subtitle: clientLine(c)) {
                             HStack(spacing: 6) {
+                                if c.allowed { AgentAppRulesButton(client: c, center: center) }
                                 if c.stopped == true {
                                     Button("Allow Again") { center.allowAgain(c.key) }.buttonStyle(.airc(.secondary))
                                         .accessibilityLabel("Allow \(c.name) again")
@@ -162,6 +163,24 @@ struct AgentsPage: View {
                             }
                         }
                     }
+                }
+            }
+            SettingsSection(title: "Files", help: "Agents never get your files unless you say so here, and their downloads stay out of your Downloads list.") {
+                SettingsRow(title: "Files agents may upload", subtitle: center.settings.uploadFolder.map { "From \(($0 as NSString).abbreviatingWithTildeInPath) and each app's own folder." }
+                            ?? "Only from each app's own folder (what it downloaded). Choose a folder to let apps upload its files too.") {
+                    HStack(spacing: 6) {
+                        Button(center.settings.uploadFolder == nil ? "Choose Folder…" : "Change…") { chooseUploadFolder() }
+                            .buttonStyle(.airc(.secondary)).testAnchor("agents.uploadFolder")
+                        if center.settings.uploadFolder != nil {
+                            Button("Clear") { center.setUploadFolder(nil) }.buttonStyle(.airc(.plain)).accessibilityLabel("Clear the upload folder")
+                        }
+                    }
+                }
+                SettingsRow(title: "Agents' downloads", subtitle: "What an agent's page downloads goes to its app's own folder in \((AgentCenter.agentsDownloads.path as NSString).abbreviatingWithTildeInPath), and the app is told where.") {
+                    Button("Show in Finder") {
+                        try? FileManager.default.createDirectory(at: AgentCenter.agentsDownloads, withIntermediateDirectories: true)
+                        DownloadCenter.reveal([AgentCenter.agentsDownloads])
+                    }.buttonStyle(.airc(.secondary))
                 }
             }
             SettingsSection(title: "Profiles", help: "Agents use the logins and cookies of the profile they work in. Private windows are never open to agents.") {
@@ -286,10 +305,102 @@ struct AgentsPage: View {
 
     private var status: String { center.accessStatus }
 
+    private func chooseUploadFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose"
+        panel.message = "Agents may upload the files in this folder (and its subfolders)."
+        let done: (NSApplication.ModalResponse) -> Void = { r in
+            if r == .OK, let url = panel.url { center.setUploadFolder(url.path) }
+        }
+        if let w = NSApp.keyWindow { panel.beginSheetModal(for: w, completionHandler: done) } else { done(panel.runModal()) }
+    }
+
     private func clientLine(_ c: AgentClient) -> String {
+        var rules: [String] = []
+        if let id = c.profile, let p = center.profiles.first(where: { $0.id == id }) { rules.append("Only \(p.name)") }
+        if let sites = c.blockedSites, !sites.isEmpty { rules.append("Never opens " + sites.joined(separator: ", ")) }
+        return clientLineBase(c) + (rules.isEmpty ? "" : "\n" + rules.joined(separator: " · "))
+    }
+
+    private func clientLineBase(_ c: AgentClient) -> String {
         let f = RelativeDateTimeFormatter()
         f.unitsStyle = .full
         let when = (c.allowed ? c.lastUsed : c.decided).map { f.localizedString(for: $0, relativeTo: Date()) } ?? ""
         return (c.allowed ? "Allowed" : "Not allowed") + (when.isEmpty ? "" : " · " + (c.allowed ? "last used " : "") + when) + "\n" + c.detail
+    }
+}
+
+/// An allowed app's rules (Settings › Agents › Apps › Rules…): the one profile it may use and the sites it may never
+/// open. Airc enforces both in the agent tools (AgentCenter.siteRefusal, the hello's profile rule); the Airc Agent's own
+/// "never use" list (Settings › AI) applies to every app too.
+struct AgentAppRulesButton: View {
+    let client: AgentClient
+    let center: AgentCenter
+    @State private var shown = false
+
+    var body: some View {
+        Button("Rules…") { shown = true }.buttonStyle(.airc(.secondary))
+            .accessibilityLabel("Rules for \(client.name)")
+            .testAnchor("agents.rules.\(client.name)")
+            .popover(isPresented: $shown, arrowEdge: .bottom) { AgentAppRules(key: client.key, center: center) }
+    }
+}
+
+struct AgentAppRules: View {
+    let key: String
+    let center: AgentCenter
+    @ObservedObject private var agents = AgentsSettingsModel.shared
+    @State private var field = ""
+    @Environment(\.colorScheme) private var scheme
+
+    private var theme: ResolvedTheme { DesignTheme.default.resolved(systemIsDark: scheme == .dark) }
+    private var c: AgentClient? { center.client(key) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Rules for \(c?.name ?? "this app")").aircFont(AircFont.title3).foregroundStyle(theme.surfaceText.color)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Profile").aircFont(AircFont.callout).foregroundStyle(theme.surfaceText.color)
+                AircPopUp(options: [("Any open profile", "")] + center.grantedProfiles.map { ((($0.emoji.isEmpty ? "" : $0.emoji + " ") + $0.name), $0.id) },
+                          selection: c?.profile ?? "", width: 220) { center.setProfileRule(key, $0.isEmpty ? nil : $0) }
+                    .accessibilityLabel("Profile \(c?.name ?? "") may use")
+                Text("Any: the app picks one when there are several (or uses the only one).")
+                    .aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextTertiary.color)
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Never open these sites").aircFont(AircFont.callout).foregroundStyle(theme.surfaceText.color)
+                ForEach(c?.blockedSites ?? [], id: \.self) { site in
+                    HStack {
+                        Text(site).aircFont(AircFont.body).foregroundStyle(theme.surfaceText.color)
+                        Spacer()
+                        Button("Remove") { center.setBlockedSites(key, (c?.blockedSites ?? []).filter { $0 != site }) }
+                            .buttonStyle(.airc(.plain)).accessibilityLabel("Remove \(site)")
+                    }
+                }
+                HStack(spacing: 6) {
+                    TextField("example.com", text: $field).textFieldStyle(.roundedBorder).onSubmit(add)
+                        .accessibilityLabel("Site \(c?.name ?? "") may never open")
+                        .testAnchor("agents.rules.site")
+                    Button("Add", action: add).buttonStyle(.airc(.secondary)).disabled(field.isEmpty)
+                }
+                Text("Subdomains too. Sites on the Airc Agent's “never use” list (Settings › AI) are closed to every app.")
+                    .aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextTertiary.color)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(16)
+        .frame(width: 320, alignment: .leading)
+        .background(theme.surface.color)
+    }
+
+    private func add() {
+        defer { field = "" }
+        guard let host = AgentCenter.siteHost(field) else { return }
+        var sites = c?.blockedSites ?? []
+        if !sites.contains(host) { sites.append(host) }
+        center.setBlockedSites(key, sites)
     }
 }

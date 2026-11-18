@@ -50,6 +50,7 @@ extension AgentCenter {
                       schema: o(["url": ["type": "string"], "window": win], ["url"])) { [unowned self] a, s, done in
                 self.withWindow(a, s, done) { w in
                     guard let url = self.allowedURL(a["url"]) else { return done(.error("Only http(s) addresses (or about:blank).")) }
+                    if let why = self.siteRefusal(url, s) { return done(.error(why)) }
                     w.openTab(url) { id in done(.json(["window": w.id, "tab": id])) }
                 }
             },
@@ -67,14 +68,16 @@ extension AgentCenter {
             },
             AgentTool(name: "navigate", description: "Loads an http(s) address in the window's shown tab, then waits for it to load (up to 15 s).",
                       schema: o(["url": ["type": "string"], "window": win], ["url"])) { [unowned self] a, s, done in
-                self.withTab(a, s, done) { w, tab in
+                self.withTab(a, s, done, onBlockedPage: true) { w, tab in
                     guard let url = self.allowedURL(a["url"]) else { return done(.error("Only http(s) addresses (or about:blank).")) }
+                    if let why = self.siteRefusal(url, s) { return done(.error(why)) }
+                    self.noteAgentAction(tab)
                     w.engineWindow.load(url, in: tab)
                     self.waitForLoad(w, tab, timeout: 15, done)
                 }
             },
             AgentTool(name: "go_back", description: "Back in the shown tab's history.", schema: o(["window": win])) { [unowned self] a, s, done in
-                self.withTab(a, s, done) { w, tab in tab.goBack(); self.waitForLoad(w, tab, timeout: 10, done) }
+                self.withTab(a, s, done, onBlockedPage: true) { w, tab in tab.goBack(); self.waitForLoad(w, tab, timeout: 10, done) }
             },
             AgentTool(name: "go_forward", description: "Forward in the shown tab's history.", schema: o(["window": win])) { [unowned self] a, s, done in
                 self.withTab(a, s, done) { w, tab in tab.goForward(); self.waitForLoad(w, tab, timeout: 10, done) }
@@ -209,6 +212,14 @@ extension AgentCenter {
                       schema: o(["scroll_direction": ["type": "string", "enum": ["up", "down", "left", "right"]],
                                  "scroll_amount": ["type": "integer", "minimum": 1, "maximum": 50], "coordinate": c, "text": mods, "window": win],
                                 ["scroll_direction", "scroll_amount"])) { [unowned self] a, s, done in self.computer("scroll", a, s, done) },
+            AgentTool(name: "upload_file",
+                      description: "Sets a page's file field (at coordinate: the field, its label or the page's upload button; or the page's only one) to files. Only files the person allowed: in this app's Airc folder (list_downloads names it; files you downloaded or put there) or the folder chosen in Airc › Settings › Agents.",
+                      schema: o(["path": ["type": "string", "description": "Full path of the file."],
+                                 "paths": ["type": "array", "items": ["type": "string"], "maxItems": 20, "description": "Several files, for a field that takes more than one."],
+                                 "coordinate": c, "window": win])) { [unowned self] a, s, done in self.uploadFile(a, s, done) },
+            AgentTool(name: "list_downloads",
+                      description: "Files this app's agent pages downloaded: they go to this app's own folder, never the person's Downloads list. Paths, sizes, and downloads still running.",
+                      schema: o([:]), readOnly: true) { [unowned self] _, s, done in done(self.listDownloads(s)) },
             AgentTool(name: "type", description: "Types text where the keyboard focus is (click a field first).",
                       schema: o(["text": ["type": "string", "maxLength": 20000], "window": win], ["text"])) { [unowned self] a, s, done in
                 self.computer("type", a, s, done)
@@ -237,7 +248,7 @@ extension AgentCenter {
         return t
     }
 
-    private func point(_ v: Any?) -> CGPoint? {
+    func point(_ v: Any?) -> CGPoint? {
         guard let a = v as? [Any], a.count == 2, let x = (a[0] as? NSNumber)?.doubleValue, let y = (a[1] as? NSNumber)?.doubleValue else { return nil }
         return CGPoint(x: x, y: y)
     }
@@ -256,6 +267,7 @@ extension AgentCenter {
     func computer(_ action: String, _ a: [String: Any], _ s: AgentSession, _ done: @escaping (AgentResult) -> Void) {
         withTab(a, s, done) { [self] w, tab in
             let d = w.driver
+            noteAgentAction(tab)
             let ok: (String?) -> Void = { error in done(error.map { .error($0) } ?? .text("OK")) }
             guard let mods = AgentModifiers.parse(["key", "hold_key", "type"].contains(action) ? nil : a["text"] as? String) else {
                 return done(.error("Unknown modifier in text: use shift, ctrl, alt or super."))
@@ -273,7 +285,15 @@ extension AgentCenter {
             }
             switch action {
             case "screenshot":
-                screenshot(w, tab, region: nil, done)
+                screenshot(w, tab, region: nil) { r in
+                    // The page still waits for the person: say so beside the picture.
+                    var r = r
+                    if !r.isError, let id = w.tabs.first(where: { $0.tab === tab })?.id,
+                       let why = AgentActivity.shared.model.row(AgentActivityModel.rowID(window: w.id, tab: id))?.needsYou {
+                        r.content.append(["type": "text", "text": AgentNeedsYou.note(why, client: w.clientName ?? w.client)])
+                    }
+                    done(r)
+                }
             case "zoom":
                 guard let r = a["region"] as? [Any], r.count == 4 else { return done(.error("region is [x0, y0, x1, y1]")) }
                 let v = r.compactMap { ($0 as? NSNumber)?.doubleValue }
@@ -458,13 +478,37 @@ extension AgentCenter {
                 if complete || Date() > deadline {
                     var facts = s ?? [:]
                     facts["loaded"] = complete
-                    w.driver.installGuards(tab) { done(.json(facts)) }
+                    w.driver.installGuards(tab) {
+                        // "Needs you" (AgentNeedsYou.swift): a sign-in page or a captcha waits for the person.
+                        self.checkNeedsYou(w, tab) { why in
+                            if let why {
+                                facts["needsYou"] = why
+                                facts["note"] = AgentNeedsYou.note(why, client: w.clientName ?? w.client)
+                            }
+                            done(.json(facts))
+                        }
+                    }
                 } else {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: poll)
                 }
             }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: poll)
+    }
+
+    /// Settings › Agents › the app's rules, and the never-use list the Airc Agent has (Settings › AI): a site the app
+    /// may never open. nil: allowed.
+    func siteRefusal(_ url: URL?, _ s: AgentSession) -> String? {
+        guard let host = url?.host?.lowercased(), !host.isEmpty else { return nil }
+        func listed(_ list: [String]) -> Bool { list.contains { host == $0 || host.hasSuffix("." + $0) } }
+        let app = s.clientKey.flatMap(client)
+        if let app, listed(app.blockedSites ?? []) {
+            return "\(host) is on the sites \(app.name) may never open (Airc › Settings › Agents). Use another site, or ask the person."
+        }
+        if AgentModelSettings.shared.isBlocked(host) {
+            return "\(host) is on your “never use” list for agents (Airc › Settings › AI). Use another site, or ask the person."
+        }
+        return nil
     }
 
     func allowedURL(_ v: Any?) -> URL? {

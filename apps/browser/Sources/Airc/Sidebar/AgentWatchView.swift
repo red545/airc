@@ -155,6 +155,7 @@ final class AgentWatchView: NSView {
         overlay.live = row.isLive
         switch state {
         case .acting(let c): overlay.acting = true; overlay.caption = overlay.approval != nil ? "Waiting for your OK" : (c ?? "Working…")
+        case .needsYou(let why): overlay.acting = false; overlay.caption = "Needs you · \(why). Take over to do it here; \(row.client) can go on after"
         case .idle: overlay.acting = false; overlay.caption = overlay.approval != nil ? "Waiting for your OK" : "Waiting for \(row.client)"
         case .justEnded(let end), .faded(let end, _):
             overlay.acting = false
