@@ -214,17 +214,11 @@ final class ChromiumEngine: BrowserEngine {
                                                    anchorRect: NSRect, in view: NSView) -> Bool {
         guard let tab = tab as? ChromiumTab, let owner = tab.owner,
               view.window === owner.window else { return false }
-        // The app's panel, which follows the popup's size (ChromiumEngine+ActionPopup.swift); placed as Chrome places it.
-        let anchor = view.window.map { $0.convertToScreen(view.convert(anchorRect, to: nil)) } ?? .zero
-        let window = owner.window
-        return presentExtensionPopup(id, for: tab, anchorRect: anchorRect, in: view, performAction: true) { panel in
-            ExtensionPopupPanel.align(panel, under: anchor, in: window)
-        }
+        return owner.core.presentActionPopup(forExtension: id, tab: tab.core,
+                                              anchorRect: anchorRect, in: view) != nil
     }
     func closeExtensionPopup(in window: EngineWindow) {
-        guard let window = window as? ChromiumWindow else { return }
-        window.core.closeActionPopup()
-        ExtensionPopupPanel.close(ObjectIdentifier(window.core)) // chrome.action.openPopup's (ChromiumEngine+ActionPopup.swift)
+        (window as? ChromiumWindow)?.core.closeActionPopup()
     }
     #if AIRC_TESTING
     // Test hooks for the app's scripted extension run (--script extension): the same presentation with the popup's
@@ -873,14 +867,7 @@ final class ChromiumRuntime: NSObject, AircEngineDelegate {
         Self.permissionDismissedHandler?(requestId)
     }
     func engine(_ engine: AircEngine, extensionSidePanel panel: [String: Any], tab: AircTab) {}
-    /// chrome.action.openPopup (ChromiumEngine+ActionPopup.swift): the window showing `tab` presents the popup under
-    /// the extension's button. Without a handler (or a window showing that page) Chromium answers "Failed to open popup."
-    static var actionPopupHandler: ((ChromiumTab, String) -> Bool)?
-    func engine(_ engine: AircEngine, extensionActionPopup popup: [String: Any], tab: AircTab) -> Bool {
-        guard let id = popup["extensionId"] as? String, let page = tab.delegate as? ChromiumTab, !page.isClosed,
-              let handler = Self.actionPopupHandler else { return false }
-        return handler(page, id)
-    }
+    func engine(_ engine: AircEngine, extensionActionPopup popup: [String: Any], tab: AircTab) -> Bool { false }
     func engine(_ engine: AircEngine, extensionActionShortcut shortcut: [String: Any], tab: AircTab) -> Bool { false }
     func engineIsReservedKeyEvent(_ event: NSEvent) -> Bool { false }
     func engineIsReservedKey(_ key: String, unshiftedKey: String, modifiers: NSEvent.ModifierFlags) -> Bool { false }

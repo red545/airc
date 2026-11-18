@@ -249,7 +249,6 @@ final class SnapshotRunner {
         case "parityS09S11": parityS09S11Scenario()   // S09/S11: Move to › folders, a selection's Archive Tabs Below / Other Tabs, Command Bar
         case "parityp01c": parityP01cScenario()   // P01c: Move to ›, folder reset and Turn into Space, the Space header, Shared Quotes
         case "parityp09b": parityP09bScenario()
-        case "onepassword": onePasswordScenario()
         case "paritycontextmenu": parityContextMenuScenario()
         case "parityfedcm": parityFedCmScenario()   // FedCM on a fake IdP: no crash; Chromium falls back to the popup (ParityFedCmCheck.swift)
         case "paritypagebubbles": parityPageBubblesScenario()   // media remoting + WebAuthn ambient bubbles without a toolbar (ParityPageBubblesCheck.swift)

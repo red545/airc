@@ -2,6 +2,24 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.31",
+      "highlights": [
+        {
+          "title": "Every app asked once",
+          "lead": "Security: Airc now asks every app or script once before it can use the browser",
+          "detail": "Airc now recognises apps and scripts by what actually runs, not the name they give, and asks each one once before it can use the browser. Some apps you allowed before are asked once more; see them in Settings › Agents.",
+          "icon": "lock.shield",
+          "action": "settingsAgents"
+        },
+        {
+          "title": "Agent on your Claude Code",
+          "lead": "Run the Airc Agent on your own Claude Code or Codex",
+          "detail": "In Settings › AI › Agent › Use, choose Your Claude Code or Your Codex: the Airc Agent then runs your installed copy with its own login and only Airc's browser tools.",
+          "icon": "terminal"
+        }
+      ]
+    },
+    {
       "version": "0.1.30",
       "highlights": [
         {

@@ -1,15 +1,30 @@
-# Airc 0.1.30 public beta
+# Airc 0.1.31 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.88.
-This update tidies the sidebar's Agents folder: rows say what an agent did and close by themselves. It includes
-everything from 0.1.29. The release manifest records the exact build, source and checksums.
+This update is a security fix: Airc now asks every app or script once before it can use the browser. The Airc Agent
+can also run on your own Claude Code or Codex. It includes everything from 0.1.30. The release manifest records the
+exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.29
+## New since 0.1.30
+
+- **Security: Airc now asks every app or script once before it can use the browser.** Airc recognises an app by
+  what actually runs, not by the name it reports: a signed app by who signed it, a script by its file and contents, an
+  unsigned program by its code, and a connection over SSH by the computer it comes from. Before, a plain script on your
+  Mac could use the approval of the app that started it. Code Airc can't pin down, such as `python3 -c`, is asked every
+  time. Some apps you already allowed, mostly scripts and tools run with `node` or `python3`, are asked once more.
+  Allowed apps are listed in Settings › Agents › Apps. Thanks to the person who reported it.
+- **Run the Airc Agent on your own Claude Code or Codex.** In Settings › AI › Agent › Use, choose Your Claude Code or
+  Your Codex instead of an API key. Airc runs the copy installed on your Mac with the login you made in it, so its use
+  counts against your plan and Airc never sees that login. It gets only Airc's browser tools and still asks before it
+  pays, sends, posts or deletes. Settings shows the version Airc found and whether you're logged in, with the fix if
+  not.
+
+## Included from 0.1.30
 
 - **The Agents folder tidies itself.** When Claude or another AI app uses Airc, each row in the sidebar's Agents
   folder now says what the agent did: the site and the kind of work, such as "Gmail · read 3 pages" or "Corner Shop ·

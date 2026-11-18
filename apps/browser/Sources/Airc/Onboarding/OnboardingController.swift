@@ -1025,12 +1025,8 @@ final class OnboardingController {
                 let present = r.message == "Installed" || r.message.hasPrefix("Already installed")
                     || (ep.map { engine.installedExtensions(for: $0).contains { $0["id"] as? String == id } } ?? false)
                 if present, turnOff, let ep, engine.passwordsOffered(for: ep) != nil {
-                    app.setAircPasswords(false, profileID: r.profileID)
+                    engine.setPasswordsOffered(false, for: ep)
                     off.append(r.profileID)
-                }
-                // The step asked already: no later offer to let the extension handle passwords (PasswordManagerOffer.swift).
-                if present, !app.settings.values.passwordManagerOffered.contains(r.profileID) {
-                    app.settings.values.passwordManagerOffered.append(r.profileID)
                 }
                 rows.append(.init(profileID: r.profileID, profileName: r.profileName, message: r.message, present: present))
             }

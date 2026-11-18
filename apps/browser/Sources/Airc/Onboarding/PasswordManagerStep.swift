@@ -190,8 +190,8 @@ struct PasswordManagerStep: View {
                     }
                 }
                 .padding(.horizontal, 14).padding(.top, 10)
-                ImportCheckRow(title: "Turn off Airc's own password saving and filling",
-                               subtitle: "In these profiles, so \(m.name) is the one that asks and fills.",
+                ImportCheckRow(title: "Turn off Airc's offer to save passwords",
+                               subtitle: "In these profiles, so \(m.name) is the one that asks.",
                                isOn: $model.pmTurnOffSaving)
                     .testAnchor("onboarding.pm.turnOff")
             }
@@ -257,7 +257,7 @@ struct PasswordManagerStep: View {
                 }
             }
             if !model.pmSavingTurnedOff.isEmpty {
-                Text("Airc won't offer to save or fill passwords in \(model.pmSavingTurnedOff.count == 1 ? "that profile" : "those profiles"). Settings › Passwords turns it back on.")
+                Text("Airc won't offer to save passwords in \(model.pmSavingTurnedOff.count == 1 ? "that profile" : "those profiles"). Settings › Import turns it back on.")
                     .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color)
                     .fixedSize(horizontal: false, vertical: true)
                     .testAnchor("onboarding.pm.savingOff")

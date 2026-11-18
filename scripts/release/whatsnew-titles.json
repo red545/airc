@@ -304,5 +304,17 @@
     "detail": "Rows in the sidebar's Agents folder now say what an agent did, like \"Gmail · read 3 pages\", and finished ones close after 5 minutes. Change that in Settings › Agents › Keep finished agents for.",
     "action": "settingsAgents",
     "image": null
+  },
+  "Security: Airc now asks every app or script once before it can use the browser": {
+    "title": "Every app asked once",
+    "detail": "Airc now recognises apps and scripts by what actually runs, not the name they give, and asks each one once before it can use the browser. Some apps you allowed before are asked once more; see them in Settings › Agents.",
+    "action": "settingsAgents",
+    "image": null
+  },
+  "Run the Airc Agent on your own Claude Code or Codex": {
+    "title": "Agent on your Claude Code",
+    "detail": "In Settings › AI › Agent › Use, choose Your Claude Code or Your Codex: the Airc Agent then runs your installed copy with its own login and only Airc's browser tools.",
+    "action": "none",
+    "image": null
   }
 }

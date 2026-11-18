@@ -579,8 +579,6 @@ final class PromptPresenter {
 /// Routes the engine's prompts to the window that shows their page, and answers them. Only the Chromium engine asks.
 final class PromptCenter {
     private var presenters: [() -> PromptPresenter?] = []
-    /// Settings › Passwords: false for a page whose profile has Airc's saving and filling off (PasswordManagerOffer.swift).
-    static var fillsPasswords: ((EngineTab) -> Bool)?
     #if AIRC_TESTING
     /// Every answer, in order (kind and answer only), for the scripted checks.
     private(set) var answered: [(label: String, answer: PromptAnswer)] = []
@@ -610,12 +608,6 @@ final class PromptCenter {
         chromium.usesHostPasswordSuggestions = true
         chromium.autofillSuggestionsDidChange = { [weak self, weak chromium] page, items in
             guard let self else { return }
-            // Off in Settings › Passwords: Airc took Chromium's list so its own popup doesn't show either; drop it, and
-            // the password manager's extension has the field to itself.
-            if !items.isEmpty, PromptCenter.fillsPasswords?(page) == false {
-                chromium?.hideAutofillSuggestions(in: page)
-                return
-            }
             if let p = self.presenters.compactMap({ $0() }).first(where: { $0.host.promptOwns(page) }) {
                 p.passwords.update(items, page: page)
             } else if !items.isEmpty {
