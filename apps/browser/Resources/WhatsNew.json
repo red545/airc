@@ -2,6 +2,17 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.35",
+      "highlights": [
+        {
+          "title": "Password manager autofill",
+          "lead": "Your password manager fills logins on its own",
+          "detail": "Turn off Offer to save and fill passwords in Settings › Passwords, and Airc no longer fills a saved login when a page loads, so your password manager's extension does it instead.",
+          "icon": "key"
+        }
+      ]
+    },
+    {
       "version": "0.1.34",
       "highlights": [
         {
