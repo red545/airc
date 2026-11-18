@@ -1,15 +1,21 @@
-# Airc 0.1.34 public beta
+# Airc 0.1.35 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.88.
-This update imports from Dia and gives each connected app its own rules, files and a "Needs you" alert. It includes
-everything from 0.1.33. The release manifest records the exact build, source and checksums.
+This update lets your password manager's extension fill your logins on its own when you turn Airc's off. It includes
+everything from 0.1.34. The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.33
+## New since 0.1.34
+
+- **Your password manager fills logins on its own.** Turn off **Offer to save and fill passwords** for a profile in
+  Settings › Passwords, and Airc no longer fills in a site's saved login when the page loads either, so your password
+  manager's extension, such as 1Password or Proton Pass, fills it instead. With the switch on, Airc fills as before.
+
+## Included from 0.1.34
 
 - **Import from Dia.** Choose Dia on the first launch or in Airc › Import from Another Browser… to bring over its
   profiles, bookmarks, history, search engines and extensions (as a checklist to reinstall). With the Chromium engine,
@@ -41,8 +47,7 @@ everything from 0.1.33. The release manifest records the exact build, source and
   Browser…. A new page, Settings › Passwords, has **Offer to save and fill passwords** for each profile: turn it off
   and Airc stops asking to save logins and stops listing its saved logins under fields there, so your password
   manager's extension has them to itself. The first time a profile has a password manager's extension on, a small card
-  asks once whether to let it handle passwords there or keep both. For now, Airc may still fill in a site's only saved login when the page
-  loads, even with this off.
+  asks once whether to let it handle passwords there or keep both.
 
 ## Included from 0.1.31
 

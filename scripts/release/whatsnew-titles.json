@@ -346,5 +346,11 @@
     "detail": "When an agent reaches a sign-in page or a captcha, its row in the Agents folder says Needs you and Airc sends a notification. Open it and Take over to sign in.",
     "action": "none",
     "image": null
+  },
+  "Your password manager fills logins on its own": {
+    "title": "Password manager autofill",
+    "detail": "Turn off Offer to save and fill passwords in Settings › Passwords, and Airc no longer fills a saved login when a page loads, so your password manager's extension does it instead.",
+    "action": "none",
+    "image": null
   }
 }
