@@ -260,6 +260,8 @@ extension WindowController {
         if let id = EaselURL.easelID(url) { return EaselCenter.shared.editor(for: id, store: store) }
         // whatsnew2: the What's new tab's native page (Browser/WhatsNewPage.swift).
         if WhatsNewURL.isPage(url) { return WhatsNewPage.page(forTab: tabID, store: store, theme: currentPalette.resolved) }
+        // agentux: the All tasks tab (Agent/Pane/AgentTasksPage.swift).
+        if AgentTasksURL.isPage(url) { return AgentTasksPage.page(forTab: tabID, store: store, theme: currentPalette.resolved) }
         return nil
     }
 
@@ -279,7 +281,7 @@ extension WindowController {
 
     /// The card shows a page, a split, nothing, or another window's tab: no note or Easel in it.
     func hideNote(except keep: CardDocument? = nil) {
-        for v in card.subviews where (v is NoteEditorView || v is EaselEditorView || v is WhatsNewPageView) && v !== keep?.cardView {
+        for v in card.subviews where (v is NoteEditorView || v is EaselEditorView || v is WhatsNewPageView || v is AgentTasksPageView) && v !== keep?.cardView {
             if let r = v.window?.firstResponder as? NSView, r === v || r.isDescendant(of: v) { window.makeFirstResponder(nil) }
             v.removeFromSuperview()
         }

@@ -137,8 +137,10 @@ enum CommandMenus {
         [
             BrowserCommand("Show Toolbar", "d", [.command, .shift], id: "view.showToolbar") { $0.togglePageToolbar() },
             BrowserCommand("Toggle Sidebar", "s", .command, id: "view.toggleSidebar") { $0.toggleSidebar() },
-            // agentpanel: the Airc Agent (Agent/Panel/AgentPanel.swift). ⇧⌘A stays Search Tabs (the Command Bar).
-            BrowserCommand("Airc Agent", "a", [.command, .option], id: "view.agent", order: .browserFirst) { AgentPanelController.toggle($0) },
+            // agentpanel: the Airc Agent (agentux: the pane, Agent/Pane/AgentPane.swift; the old panel behind AgentUI's
+            // switch). ⇧⌘A stays Search Tabs (the Command Bar).
+            BrowserCommand("Airc Agent", "a", [.command, .option], id: "view.agent", order: .browserFirst) { AgentUI.toggle($0) },
+            BrowserCommand("New Agent Task", "a", [.command, .option, .shift], id: "view.agentNewTask", order: .browserFirst) { AgentUI.newTask($0) },
             BrowserCommand("Reload Page", "r", .command, id: "view.reload") { $0.reloadOrStop() },
             BrowserCommand("Reload Ignoring Cache", "r", [.command, .shift], id: "view.reloadIgnoringCache") { $0.reloadIgnoringCache() },
             // P20d, Arc's: only the site's cookies, or only its cache, then a reload (Browser/DeveloperModeCommands.swift).

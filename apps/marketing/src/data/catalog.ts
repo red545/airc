@@ -9,7 +9,7 @@
 // makes untrue, a Coming row it delivers); `from` shows a row only then. Previews show the state after the newest
 // release. `shot` names a file in src/assets/screens (scripts/sync-screenshots.mjs).
 
-export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "0.1.18" | "0.1.19" | "0.1.20" | "0.1.21" | "0.1.22" | "0.1.23" | "0.1.24" | "0.1.25" | "0.1.26" | "0.1.27" | "0.1.28" | "0.1.29" | "0.1.30" | "0.1.31" | "next" | "coming";
+export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "0.1.18" | "0.1.19" | "0.1.20" | "0.1.21" | "0.1.22" | "0.1.23" | "0.1.24" | "0.1.25" | "0.1.26" | "0.1.27" | "0.1.28" | "0.1.29" | "0.1.30" | "0.1.31" | "0.1.32" | "next" | "coming";
 
 export interface Feature {
   title: string;
@@ -277,7 +277,8 @@ export const groups: Group[] = [
       { title: "A Keychain No isn't the end", line: "If you don't let Airc use Arc's key, sites' storage still comes over, the results say why logins and cookies waited, and Try Again asks once more.", since: "0.1.14" },
       { title: "Extensions, checked off", line: "The reinstall checklist marks each extension to go, opened in the Web Store, installed, or not in the Web Store with how to get it back.", since: "0.1.3" },
       { title: "More from Arc", line: "Site storage, partitioned cookies and more kinds of logins come over too, with a result and a reason for each. A site may still ask you to sign in again.", since: "0.1.4" },
-      { title: "Your password manager", line: "Onboarding adds 1Password, Bitwarden, Apple Passwords or another one to the profiles you choose, or keeps Airc's own. Skip it, and find it later in Settings → Import.", since: "0.1.5" },
+      { title: "Your password manager", line: "Onboarding adds 1Password, Bitwarden, Apple Passwords or another one to the profiles you choose, or keeps Airc's own. Skip it, and find it later in Settings → Import.", since: "0.1.5", until: "0.1.32" },
+      { title: "Your password manager", line: "Onboarding adds 1Password, Bitwarden, Apple Passwords or another one to the profiles you choose, or keeps Airc's own. Skip it, and find it later in Settings → Passwords.", since: "0.1.5", from: "0.1.32" },
     ],
   },
   {
@@ -443,6 +444,7 @@ export const groups: Group[] = [
     features: [
       { title: "Chrome extensions", line: "Install from the Chrome Web Store, per profile.", since: "0.1.0" },
       { title: "Into the profiles you choose", line: "Review an extension once and install it into the profiles you pick, with a result for each. Arc import's checklist has Install all.", since: "0.1.4" },
+      { title: "Password manager extensions", line: "1Password's Unlock opens its popup, popups open at full size, and 1Password's extension finds its Mac app. In Settings → Passwords, let your password manager's extension save and fill logins instead of Airc.", since: "0.1.32" },
       { title: "Extensions in the toolbar", line: "With View › Show Toolbar (⇧⌘D) on, pinned extensions sit at the toolbar's top right, always visible, as in Arc.", since: "0.1.3", shot: "toolbar-extensions-card" },
       { title: "Airc's own prompts", line: "Camera, location, password and sign-in prompts appear in Airc's cards, over the right page.", since: "0.1.0" },
       { title: "Saved logins", line: "Pick a saved login from a list under the field.", since: "0.1.0" },

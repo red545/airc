@@ -1,16 +1,28 @@
-# Airc 0.1.31 public beta
+# Airc 0.1.32 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.88.
-This update is a security fix: Airc now asks every app or script once before it can use the browser. The Airc Agent
-can also run on your own Claude Code or Codex. It includes everything from 0.1.30. The release manifest records the
-exact build, source and checksums.
+This update makes password-manager extensions such as 1Password, Proton Pass and Bitwarden work better. It includes
+everything from 0.1.31. The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.30
+## New since 0.1.31
+
+- **Password-manager extensions work better.** 1Password's **Unlock 1Password** button on its in-page cards now opens
+  the extension's popup, under its button as in Chrome. Extension popups such as Proton Pass's, Bitwarden's and
+  1Password's open at the full size the extension asks for instead of being cut off. 1Password's extension can now
+  find the 1Password app on your Mac: Airc uses the connection files the app installed for Chrome, Arc, Chromium, Edge
+  or Brave. If the extension still stays locked, add Airc once in the 1Password app under Settings › Browser › Add
+  Browser…. A new page, Settings › Passwords, has **Offer to save and fill passwords** for each profile: turn it off
+  and Airc stops asking to save logins and stops listing its saved logins under fields there, so your password
+  manager's extension has them to itself. The first time a profile has a password manager's extension on, a small card
+  asks once whether to let it handle passwords there or keep both. Until the next update, Airc may still fill in a site's only saved login when
+  the page loads, even with this off.
+
+## Included from 0.1.31
 
 - **Security: Airc now asks every app or script once before it can use the browser.** Airc recognises an app by
   what actually runs, not by the name it reports: a signed app by who signed it, a script by its file and contents, an
@@ -19,10 +31,9 @@ exact build, source and checksums.
   time. Some apps you already allowed, mostly scripts and tools run with `node` or `python3`, are asked once more.
   Allowed apps are listed in Settings › Agents › Apps. Thanks to the person who reported it.
 - **Run the Airc Agent on your own Claude Code or Codex.** In Settings › AI › Agent › Use, choose Your Claude Code or
-  Your Codex instead of an API key. Airc runs the copy installed on your Mac with the login you made in it, so its use
-  counts against your plan and Airc never sees that login. It gets only Airc's browser tools and still asks before it
-  pays, sends, posts or deletes. Settings shows the version Airc found and whether you're logged in, with the fix if
-  not.
+  Your Codex instead of an API key. Airc runs the copy installed on your Mac with the login you made in it, and Airc
+  never sees that login. It gets only Airc's browser tools and still asks before it pays, sends, posts or deletes.
+  Settings shows the version Airc found and whether you're logged in, with the fix if not.
 
 ## Included from 0.1.30
 
@@ -477,3 +488,5 @@ Source: `9d102758d7059dd385f18d7bc2a4970c06c07c6e`. Build: `202611172236`. Chann
 Source: `f930c80c2818eb6bf034d0c5e26ac3f4f4027a07`. Build: `202611180104`. Channel: stable.
 
 Source: `be46a6d44ea224e21b3b63b21ef4ff472b36707a`. Build: `202611180334`. Channel: stable.
+
+Source: `cf89c99efbf785953a14c4329b0b337232bc2ca5`. Build: `202611180649`. Channel: stable.

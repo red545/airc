@@ -315,6 +315,7 @@ final class SnapshotRunner {
         case "parityagentrows": parityAgentRowsScenario()   // Agents folder rows: no row for nothing, titles, auto-close (ParityAgentRowsCheck.swift)
         case "agentpanel": agentPanelScenario()   // the Airc Agent panel against a fake model (AgentPanelCheck.swift)
         case "agentcli": agentCLIScenario()       // the panel on fake Claude Code / Codex CLIs (AgentCLICheck.swift)
+        case "agentpane": agentPaneScenario()   // the Airc Agent pane in the window (AgentPaneCheck.swift)
         case "parityconnect": parityConnectScenario()   // every way to connect Claude (ParityConnectCheck.swift)
         case "parityremote": parityRemoteScenario()   // Settings › Agents › Other devices, the tailnet listener (ParityRemoteCheck.swift)
         case "hiddenpaint": hiddenPaintScenario()   // MEM-6: hidden pages draw nothing, by window state (HiddenPaintCheck.swift)

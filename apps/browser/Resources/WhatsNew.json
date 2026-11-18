@@ -2,6 +2,17 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.32",
+      "highlights": [
+        {
+          "title": "Better password managers",
+          "lead": "Password-manager extensions work better",
+          "detail": "1Password's Unlock button now opens its popup, and Proton Pass, Bitwarden and 1Password popups open at full size. In Settings › Passwords you can let your password manager's extension save and fill logins instead of Airc.",
+          "icon": "puzzlepiece.extension"
+        }
+      ]
+    },
+    {
       "version": "0.1.31",
       "highlights": [
         {

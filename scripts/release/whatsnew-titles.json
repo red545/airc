@@ -316,5 +316,11 @@
     "detail": "In Settings › AI › Agent › Use, choose Your Claude Code or Your Codex: the Airc Agent then runs your installed copy with its own login and only Airc's browser tools.",
     "action": "none",
     "image": null
+  },
+  "Password-manager extensions work better": {
+    "title": "Better password managers",
+    "detail": "1Password's Unlock button now opens its popup, and Proton Pass, Bitwarden and 1Password popups open at full size. In Settings › Passwords you can let your password manager's extension save and fill logins instead of Airc.",
+    "action": "none",
+    "image": null
   }
 }

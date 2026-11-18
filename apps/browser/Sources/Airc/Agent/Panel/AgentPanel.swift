@@ -181,7 +181,7 @@ extension WindowController {
     var commandBarAgent: ((String) -> Void)? {
         { [weak self] text in
             guard let self else { return }
-            AgentPanelController.show(self).ask(text)
+            AgentUI.ask(self, text)
         }
     }
 }
