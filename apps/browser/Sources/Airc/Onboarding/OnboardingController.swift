@@ -776,6 +776,8 @@ final class OnboardingController {
         }
         model.result = result
         model.importedSource = model.source
+        model.unlockedBookmarks = nil
+        model.bookmarksNote = nil
         model.logins = .idle
         model.passwords = .idle
         if let browser { importHistory(browser, result: result) }
@@ -843,6 +845,10 @@ final class OnboardingController {
             if let pid = result.profileIDs[key] { engines[pid] = e }
         }
         importSearchEngines(engines)
+        // diaimport: Dia's extensions, as Arc's: a checklist to reinstall from.
+        if r.kind == .dia {
+            ArcExtensionChecklist.shared.merge(r.plan, profileIDs: result.profileIDs.filter { chosen.contains($0.key) }, key: \.id)
+        }
         NSLog("[import] %@: %ld profiles, %ld Spaces, %ld pinned tabs, %ld folders, %ld history entries (%ld new or changed)",
               r.kind?.rawValue ?? "file", profiles.count, result.spacesCreated + result.spacesUpdated, result.pinnedTabs, result.folders,
               model.historyImported, added)
@@ -941,30 +947,58 @@ final class OnboardingController {
     // MARK: Logins (IM-2): only on the explicit "Import logins" press
 
     private func importLogins() {
-        guard let app, app.credentialSink.acceptsCredentials else {
-            model.logins = .failed(CredentialImport.Unsupported().errorDescription!)
-            return
-        }
+        guard let app, let source = model.credentialSource else { return }
         #if AIRC_TESTING
-        // arcimport3: a check's scratch keychain item stands in for "Arc Safe Storage" (synthetic Arc only).
-        let testKeychain = TestArcKeychain.current != nil && Self.testArcDirectory != nil
+        // arcimport3: a check's scratch keychain item stands in for "Arc Safe Storage" (synthetic Arc only); diaimport:
+        // for "Dia Safe Storage" (synthetic Dia in a synthetic home only).
+        let synthetic = source == .arc ? Self.testArcDirectory != nil : BrowserImportLocator.testHome != nil
+        let testKeychain = TestArcKeychain.current != nil && synthetic
         #else
         let testKeychain = false
         #endif
         guard !LaunchOptions.current.isAutomated || testKeychain else {
-            model.logins = .failed("Automated runs never read Arc's logins.")
+            model.logins = .failed("Automated runs never read \(source.name)'s logins.")
             return
         }
-        guard let dir = arcDirectory, let result = model.result, let b = model.blueprint else {
+        guard let result = model.result, let b = model.blueprint,
+              let target = credentialFolder(source) else {
             model.logins = .failed("Import your Spaces first; logins follow their profiles.")
             return
         }
+        // diaimport: on WebKit Dia's logins can't come over, but its locked bookmarks can, with the same key.
+        guard app.credentialSink.acceptsCredentials else {
+            guard model.lockedBookmarkProfiles > 0 else {
+                model.logins = .failed(CredentialImport.Unsupported().errorDescription!)
+                return
+            }
+            model.logins = .reading(0)
+            CredentialImport.unlockKey(source: source) { [weak self] r in
+                guard let self else { return }
+                switch r {
+                case .success(let key):
+                    Task { @MainActor [weak self] in
+                        await self?.unlockBookmarks(key: key)
+                        self?.model.logins = .skipped
+                    }
+                case .failure(let e):
+                    self.model.logins = .failed(CredentialImport.keychainReason(e, source: source).map { $0.prefix(1).uppercased() + $0.dropFirst() }
+                                                ?? "\(source.name)'s key couldn't be read.")
+                }
+            }
+            return
+        }
         let map: [(directory: String, profileID: String)] = b.profiles.compactMap { p in
-            guard let id = result.profileIDs[p.sourceID], p.sourceID.hasPrefix("arc-profile:") else { return nil }
-            return (String(p.sourceID.dropFirst("arc-profile:".count)), id)
+            guard let id = result.profileIDs[p.sourceID], p.sourceID.hasPrefix(target.prefix) else { return nil }
+            return (String(p.sourceID.dropFirst(target.prefix.count)), id)
+        }
+        // diaimport: the key Dia's logins open with also opens its bookmarks, so macOS asks once.
+        var onKey: CredentialImport.KeyUse?
+        if model.lockedBookmarkProfiles > 0 {
+            weak var me = self
+            onKey = { key in await me?.unlockBookmarks(key: key) }
         }
         model.logins = .reading(0)
-        CredentialImport.run(arcDirectory: dir, profiles: map, sink: app.credentialSink, progress: { [weak self] p in
+        CredentialImport.run(source: source, arcDirectory: target.folder, profiles: map, sink: app.credentialSink, onKey: onKey, progress: { [weak self] p in
             self?.model.logins = .reading(p)
         }, completion: { [weak self] r in
             switch r {
@@ -972,10 +1006,48 @@ final class OnboardingController {
             case .failure(let e):
                 let declined = (e as? ImportError) == .keychainDeclined
                 self?.model.logins = .failed(declined
-                    ? "macOS didn't unlock Arc's logins. You can bring them over later from Settings → Import."
-                    : (e as? LocalizedError)?.errorDescription ?? "Arc's logins couldn't be read.")
+                    ? "macOS didn't unlock \(source.name)'s logins. You can bring them over later from Settings → Import."
+                    : (e as? LocalizedError)?.errorDescription ?? "\(source.name)'s logins couldn't be read.")
             }
         })
+    }
+
+    /// The folder holding the source's "User Data" and the prefix of its profiles' source keys: Arc's folder and
+    /// "arc-profile:"; diaimport: Dia's ("…/Dia") and "dia-profile:".
+    private func credentialFolder(_ source: CredentialSource) -> (folder: URL, prefix: String)? {
+        if source == .arc { return arcDirectory.map { ($0, "arc-profile:") } }
+        guard case .browser(let id)? = model.importedSource, let install = model.installs[id],
+              install.folder.lastPathComponent == "User Data" else { return nil }
+        return (install.folder.deletingLastPathComponent(), BrowserImport.Keys.profile(id, ""))
+    }
+
+    /// diaimport: Dia's locked bookmarks (`EncryptedBookmarks2`), opened with its key and merged into the Spaces its
+    /// profiles became (keyed on Dia's bookmark GUIDs, so nothing doubles). The key is used for the read and dropped.
+    @MainActor
+    private func unlockBookmarks(key: Data) async {
+        guard case .browser(let id)? = model.importedSource, let install = model.installs[id], let read = model.importedRead,
+              let result = model.result else { return }
+        let locked = read.profiles.filter { $0.lockedBookmarks && result.profileIDs[$0.sourceKey] != nil }
+        guard !locked.isEmpty else { return }
+        do {
+            // Every profile, so Spaces keep the names the import gave them ("Dia", "Dia 2"); only imported ones apply.
+            let r = try await BrowserImporter.read(install, includeHistory: false, bookmarksKey: key)
+            let b = BrowserImportAdapter.blueprint(from: r)
+            let chosen = Set(b.spaces.filter { result.profileIDs[$0.profileSourceID] != nil }.map(\.sourceID))
+            let applied = try store.applyImport(Self.blueprintToApply(b, store: store),
+                                                options: ImportOptions(spaces: chosen, includeToday: false, includeFavorites: false))
+            let lockedKeys = Set(locked.map(\.sourceKey))
+            let opened = r.profiles.filter { lockedKeys.contains($0.sourceKey) }
+            model.unlockedBookmarks = opened.reduce(0) { $0 + $1.bookmarks }
+            let failed = opened.filter { $0.unreadable.contains("bookmarks") }.count
+            model.bookmarksNote = failed == 0 ? nil
+                : (failed == 1 ? "One profile's bookmarks" : "\(failed) profiles' bookmarks") + " didn't open with \(install.name)'s key."
+            // Counts only.
+            NSLog("[import] %@: unlocked bookmarks: %ld profiles, %ld bookmarks, %ld pinned tabs, %ld folders", install.kind.rawValue,
+                  locked.count, model.unlockedBookmarks ?? 0, applied.pinnedTabs, applied.folders)
+        } catch {
+            model.bookmarksNote = "\(install.name)'s bookmarks couldn't be added: \(error.localizedDescription)"
+        }
     }
 
     // MARK: Password manager (2b)

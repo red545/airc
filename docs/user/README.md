@@ -57,6 +57,8 @@ Esc to collapse it to a small pill.
   folders by topic, one ⌘Z to undo), requiring Apple Intelligence.
 - [Importing from Arc](import-from-arc.md): what comes over and into which profile, Arc open, logins and the Keychain,
   Try Again, what can't come over and why, and the extension checklist.
+- [Importing from Dia](import-from-dia.md): profiles, bookmarks, history and extensions, then logins, cookies and
+  locked bookmarks with Dia's key ("Dia Safe Storage"), and why Dia's sidebar can't come over.
 - [Your password manager](password-manager.md): onboarding's optional step for 1Password, Bitwarden, Apple Passwords
   and others, added to the profiles you choose with a result for each, or Airc's own; again from Settings › Import.
 - [Extensions](extensions.md): Chrome extensions per profile, pinned in the URL field or at the toolbar's top right,

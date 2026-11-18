@@ -102,6 +102,9 @@ public struct ImportWarning: Codable, Sendable, Equatable {
         /// C08b: a profile's `Web Data` (search engines) couldn't be read; an engine whose address isn't a safe https
         /// search page was left out.
         case unreadableSearchEngines, unsafeSearchEngine
+        /// diaimport: a Dia profile's bookmarks are locked with Dia's key (`EncryptedBookmarks2`); they come over once
+        /// macOS lets Airc use "Dia Safe Storage".
+        case lockedBookmarks
     }
     public var code: Code
     /// Deliberately excludes source titles, URLs and identifiers.

@@ -1,0 +1,43 @@
+# Airc 0.1.34 (cut 9ae0d59a; build revision d3016be3; branch release/0.1.34-cut). Claims from its approved notes,
+# "New since 0.1.33". NOT TO POST before release046 reports LIVE for 0.1.34: plan and approve only then, after checking
+# the public repo shows the release (owner rule).
+slug = "2026-11-18-release-0.1.34"
+title = "Airc 0.1.34: import from Dia; rules for agents"
+kind = "release"
+since = "0.1.34"
+tag = ""
+summary = """
+Three text posts, one a day: Import from Dia (for Arc users who tried The Browser Company's next browser), then rules
+for each connected app, then agents telling you when a page needs you. No new shots in the cut.
+"""
+order = """
+1. Dia at 10:30 UTC on the first day after LIVE whose 10:30 can move; the two agent posts on the next two days,
+   afternoons.
+"""
+checked = """
+- Dia: profiles, bookmarks, history, search engines and extensions (as a checklist to reinstall); with the Chromium
+  engine and one macOS prompt for the "Dia Safe Storage" key, saved passwords, cookies and sites' data. Dia's sidebar
+  (pinned and open tabs) can't come over: the post says so plainly.
+- Rules: Settings › Agents › Apps › Rules… sets the one profile an app may use and sites it may never open; uploads only
+  from the app's folder or one you choose (Settings › Agents › Files); agent downloads go to Downloads › Airc Agents.
+- Needs you: an agent at a sign-in page or captcha shows Needs you, the folder gets a badge, and a notification follows
+  if you allow them; Take over to sign in, and the agent can go on.
+"""
+
+[[post]]
+label = "Import from Dia"
+text = """
+Tried Dia and want your stuff back in an Arc-style browser? Airc 0.1.34 imports from Dia: profiles, bookmarks, history, search engines, extensions, and with one macOS prompt, saved passwords and cookies. Dia's sidebar can't come over; Dia keeps it encrypted.
+"""
+
+[[post]]
+label = "Rules for each connected app"
+text = """
+New in Airc 0.1.34: rules for each AI app that uses your browser. Pick the one profile it may use and sites it may never open, and choose the only folder it can upload files from. What it downloads goes to its own folder.
+"""
+
+[[post]]
+label = "Agents tell you when a page needs you"
+text = """
+When an AI agent in Airc hits a sign-in page or a captcha, it now says so: its row shows Needs you, the Agents folder gets a badge, and you get a notification. Take over, sign in, and it carries on. New in Airc 0.1.34.
+"""

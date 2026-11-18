@@ -115,6 +115,7 @@ final class SnapshotRunner {
         case "pwmanager": passwordManagerScenario()   // onboarding's password manager step (PasswordManagerCheck.swift)
         case "arcaccept": importAcceptanceScenario()
         case "arcimport3": arcImport3Scenario()
+        case "diaimport": diaImportScenario()
         case "importux": importUXScenario()
         case "import-browsers": importBrowsersScenario()
         case "persist-write": persistWrite()

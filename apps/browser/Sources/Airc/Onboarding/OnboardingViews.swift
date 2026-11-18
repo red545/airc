@@ -488,6 +488,7 @@ struct ImportSourceStrip: View {
     private func help(_ s: OnboardingModel.SourceItem) -> String {
         switch s.source {
         case .arc: "Spaces, pinned tabs, Favorites and logins from Arc"
+        case .browser where s.kind?.credentialSource != nil: "Bookmarks, history, extensions and logins from \(s.name)"
         case .browser: "Bookmarks and history from \(s.name)"
         case .bookmarksFile: "Bookmarks from a file Safari (or any browser) exports"
         case .passwords: "Saved passwords from a CSV file you export"
@@ -1021,7 +1022,8 @@ struct LoginsStep: View {
     @Environment(\.aircTheme) private var theme
 
     var body: some View {
-        if model.importedFromArc { arc } else { passwords }
+        // diaimport: Arc's and Dia's logins come over with their Keychain key; other browsers' from a CSV file.
+        if let source = model.credentialSource { keychain(source) } else { passwords }
     }
 
     /// After another browser's import: its saved passwords, from a CSV file it exports (IM-4). Its own password store
@@ -1047,11 +1049,25 @@ struct LoginsStep: View {
         }
     }
 
-    private var arc: some View {
-        AircOnboardingPage(step: OnboardingStep.logins.dot, of: model.dots, title: "Bring your logins.",
-                           subtitle: model.loginsAvailable
-                               ? "Arc keeps passwords and cookies locked with a key in your Keychain, “Arc Safe Storage”. macOS asks you once whether Airc may use it."
-                               : "Arc keeps passwords and cookies locked with a key in your Keychain. They come over once Airc runs on its Chromium engine.",
+    private func keychain(_ source: CredentialSource) -> some View {
+        let name = source.name, item = source.item.service
+        let lockedBookmarks = model.lockedBookmarkProfiles > 0
+        // diaimport: on WebKit, Dia's key still opens its bookmarks.
+        let bookmarksOnly = !model.loginsAvailable && lockedBookmarks
+        let what: String = lockedBookmarks ? "passwords, cookies and bookmarks" : "passwords and cookies"
+        let stays: String = model.loginsAvailable
+            ? "Read even while \(name) is open, and re-encrypted here with Airc's own key. Nothing is sent anywhere."
+            : "Read even while \(name) is open. Nothing is sent anywhere."
+        let subtitle: String
+        if model.loginsAvailable {
+            subtitle = "\(name) keeps \(what) locked with a key in your Keychain, “\(item)”. macOS asks you once whether Airc may use it."
+        } else if bookmarksOnly {
+            subtitle = "\(name) keeps bookmarks locked with a key in your Keychain, “\(item)”. Passwords and cookies come over once Airc runs on its Chromium engine."
+        } else {
+            subtitle = "\(name) keeps passwords and cookies locked with a key in your Keychain. They come over once Airc runs on its Chromium engine."
+        }
+        return AircOnboardingPage(step: OnboardingStep.logins.dot, of: model.dots, title: "Bring your logins.",
+                           subtitle: subtitle,
                            drawsBackground: false) {
             SidebarPreview(model: model)
         } content: {
@@ -1062,17 +1078,23 @@ struct LoginsStep: View {
                     ImportResultsView(outcome: o, profileNames: model.profileNames, maxHeight: 200)
                 } else {
                 AircGroup {
-                    row("key", "Saved passwords", "Every Arc profile's, into the matching Airc profile.")
-                    row("checkmark.shield", "Cookies", "So you stay signed in where Arc had you signed in.")
-                    if model.siteStorageAvailable {
-                        row("internaldrive", "Sites' storage", "What the sites you visit most kept in Arc, like settings and drafts. It needs no key.")
-                    }
                     if model.loginsAvailable {
+                        row("key", "Saved passwords", "Every \(name) profile's, into the matching Airc profile.")
+                        row("checkmark.shield", "Cookies", "So you stay signed in where \(name) had you signed in.")
+                    }
+                    if lockedBookmarks {
+                        row("bookmark", "Bookmarks", "\(name) locks them with the same key. They join the Spaces its profiles became.")
+                    }
+                    if model.siteStorageAvailable {
+                        row("internaldrive", "Sites' storage", "What the sites you visit most kept in \(name), like settings and drafts. It needs no key.")
+                    }
+                    if model.loginsAvailable || bookmarksOnly {
                         // arcimport3: what the Keychain prompt is, before it appears, and what a Deny does.
-                        row("person.badge.key", "macOS asks first", "Enter your Mac password and choose Allow, so Airc can use “Arc Safe Storage”. If you deny it, the rest still comes over and you can try again.")
-                        row("lock", "Stays on this Mac", "Read even while Arc is open, and re-encrypted here with Airc's own key. Nothing is sent anywhere.")
-                    } else {
-                        row("lock", "Comes with the Chromium engine", "This build runs on WebKit, so nothing is read.")
+                        row("person.badge.key", "macOS asks first", "Enter your Mac password and choose Allow, so Airc can use “\(item)”. If you deny it, the rest still comes over and you can try again.")
+                        row("lock", "Stays on this Mac", stays)
+                    }
+                    if !model.loginsAvailable {
+                        row("lock", "Logins come with the Chromium engine", "This build runs on WebKit, so passwords and cookies aren't read.")
                     }
                 }
                 status
@@ -1082,6 +1104,18 @@ struct LoginsStep: View {
             Button("Back") { model.onBack?() }.buttonStyle(.airc(.plain, size: .large))
             Spacer()
             switch model.logins {
+            case .reading where bookmarksOnly:
+                Button("Importing…") {}.buttonStyle(.airc(.primary, size: .large)).disabled(true)
+            case .skipped where bookmarksOnly && model.unlockedBookmarks != nil:
+                Button("Continue") { model.onNext?() }.buttonStyle(.airc(.primary, size: .large)).keyboardShortcut(.defaultAction)
+            case .failed where bookmarksOnly:
+                Button("Try Again") { model.onImportLogins?() }.buttonStyle(.airc(.secondary, size: .large))
+                    .testAnchor("onboarding.logins.retry")
+                Button("Continue") { model.onSkipLogins?() }.buttonStyle(.airc(.primary, size: .large)).keyboardShortcut(.defaultAction)
+            case _ where bookmarksOnly:
+                Button("Not now") { model.onSkipLogins?() }.buttonStyle(.airc(.secondary, size: .large))
+                Button("Import bookmarks") { model.onImportLogins?() }.buttonStyle(.airc(.primary, size: .large)).keyboardShortcut(.defaultAction)
+                    .testAnchor("onboarding.logins.import")
             case _ where !model.loginsAvailable:
                 Button("Continue") { model.onSkipLogins?() }.buttonStyle(.airc(.primary, size: .large)).keyboardShortcut(.defaultAction)
             case .failed:
@@ -1119,6 +1153,19 @@ struct LoginsStep: View {
         default:
             EmptyView()
         }
+        if let line = bookmarksLine {
+            Label(line, systemImage: model.bookmarksNote == nil ? "bookmark.fill" : "exclamationmark.triangle")
+                .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color)
+                .fixedSize(horizontal: false, vertical: true)
+                .testAnchor("onboarding.logins.bookmarks")
+        }
+    }
+
+    /// diaimport: what Dia's key did for its locked bookmarks.
+    private var bookmarksLine: String? {
+        if let note = model.bookmarksNote { return note }
+        guard let n = model.unlockedBookmarks else { return nil }
+        return "\(n.formatted()) \(n == 1 ? "bookmark" : "bookmarks") added to your Spaces."
     }
 
     private func row(_ symbol: String, _ title: String, _ subtitle: String) -> some View {

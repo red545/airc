@@ -4,7 +4,8 @@ import Foundation
 
 // Other browsers (IM-4): bookmarks and history only. Their saved passwords never come from their own stores or
 // Keychain items; they come from a CSV file the user exported (PasswordCSV.swift). Nothing here reads a "Safe
-// Storage" item, a `Login Data` or a `Cookies` database, and nothing decrypts anything.
+// Storage" item, a `Login Data` or a `Cookies` database. The one exception is Dia (Dia.swift), whose logins, cookies
+// and locked bookmarks come over like Arc's (IM-2), with the key the app passes in after the user's consent.
 
 /// A browser Airc imports bookmarks and history from.
 public enum BrowserKind: String, Codable, Sendable, CaseIterable {
@@ -162,6 +163,7 @@ public enum BrowserImporter {
 
     static func hasChromiumData(_ profile: URL) -> Bool {
         isFile(profile.appendingPathComponent("Bookmarks")) || isFile(profile.appendingPathComponent("History"))
+            || isFile(profile.appendingPathComponent(DiaBookmarks.fileName))
     }
 
     /// Firefox's (and Zen's) `profiles.ini`: `[ProfileN]` sections with `Name`, `Path` and `IsRelative`, the default from

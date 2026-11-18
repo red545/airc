@@ -40,7 +40,6 @@ extension ArcImporter {
     static func readProfileData(into plan: inout ImportPlan, at root: URL, tempRoot: URL, now: Date,
                                 progress: ProgressHandler?) throws {
         plan.history = [:]; plan.extensions = [:]; plan.searchEngines = [:]
-        let fm = FileManager.default
         let userData = root.appendingPathComponent("User Data").resolvingSymlinksInPath()
         for (index, p) in plan.profiles.enumerated() where p.isAvailable {
             try Task.checkCancellation()
@@ -80,45 +79,11 @@ extension ArcImporter {
             }
             readSearchEngines(into: &plan, profileID: p.id, folder: folder, tempRoot: tempRoot)
             progress?(.init(stage: .extensions, completed: index, total: plan.profiles.count))
-            var settings: [String: Any] = [:]
-            for name in ["Preferences", "Secure Preferences"] {
-                guard let source = regular(name) else { continue }
-                let scratch = tempRoot.appendingPathComponent("AircImport-" + UUID().uuidString)
-                do {
-                    try fm.createDirectory(at: scratch, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-                    defer { try? fm.removeItem(at: scratch) }
-                    let copy = scratch.appendingPathComponent(name)
-                    try fm.copyItem(at: source, to: copy)
-                    guard (try copy.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) <= BrowserImporter.maxFileSize,
-                          let json = try JSONSerialization.jsonObject(with: Data(contentsOf: copy)) as? [String: Any] else {
-                        throw ImportError.fileTooLarge
-                    }
-                    let extensions = json["extensions"] as? [String: Any]
-                    settings.merge(extensions?["settings"] as? [String: Any] ?? [:]) { _, secure in secure }
-                } catch {
-                    try? fm.removeItem(at: scratch)
-                    plan.warnings.append(.init(code: .unreadableExtensions, message: "A profile's extension list couldn't be fully read."))
-                }
+            let read = ChromiumExtensions.read(profile: folder, tempRoot: tempRoot)
+            if read.unreadable {
+                plan.warnings.append(.init(code: .unreadableExtensions, message: "A profile's extension list couldn't be fully read."))
             }
-            plan.extensions?[p.id] = settings.compactMap { id, value in
-                guard id.count == 32, id.allSatisfy({ ("a"..."p").contains(String($0)) }),
-                      let entry = value as? [String: Any], let manifest = entry["manifest"] as? [String: Any] else { return nil }
-                // Chromium component/external-component locations; Arc's bundled helpers and Boosts.
-                let location = entry["location"] as? Int ?? 0
-                let path = (entry["path"] as? String ?? "").lowercased()
-                let update = (manifest["update_url"] as? String ?? "").lowercased()
-                let rawName = manifest["name"] as? String ?? id
-                guard ![5, 10].contains(location), !path.contains("arc.app/"), !path.contains("boosts/"),
-                      !update.contains("arc.net"), !update.contains("thebrowser.company"),
-                      !rawName.lowercased().hasPrefix("arc internal") else { return nil }
-                let fallback = (entry["name"] as? String).flatMap { $0.hasPrefix("__MSG_") || $0.isEmpty ? nil : $0 } ?? id
-                let name = rawName.hasPrefix("__MSG_")
-                    ? (ExtensionNames.resolve(id: id, entry: entry, profile: folder, tempRoot: tempRoot) ?? fallback)
-                    : rawName
-                let fromStore = entry["from_webstore"] as? Bool == true || ((entry["creation_flags"] as? Int ?? 0) & 2) != 0
-                return ImportedExtension(id: id, name: name, enabled: (entry["state"] as? Int ?? 0) == 1,
-                                         install: ImportedExtension.provenance(location: location, updateURL: update, fromWebStore: fromStore))
-            }.sorted { ($0.name, $0.id) < ($1.name, $1.id) }
+            plan.extensions?[p.id] = read.extensions
         }
     }
 }
@@ -157,5 +122,61 @@ extension ImportPlan {
             mapped[destination, default: []] += history?[p.id] ?? []
         }
         return mapped
+    }
+}
+
+/// The extensions a Chromium profile lists in `Preferences` and `Secure Preferences` (`extensions.settings`), read from
+/// private copies: Web Store IDs with their names and where they came from. The browser's own built-in ones (Arc's
+/// helpers and Boosts, Dia's) are left out. Shared by the Arc and Dia imports; never their code or data.
+enum ChromiumExtensions {
+    static func read(profile folder: URL, tempRoot: URL) -> (extensions: [ImportedExtension], unreadable: Bool) {
+        let fm = FileManager.default
+        var unreadable = false
+        func regular(_ name: String) -> URL? {
+            let url = folder.appendingPathComponent(name)
+            guard let v = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
+                  v.isRegularFile == true, v.isSymbolicLink != true else { return nil }
+            return url
+        }
+        var settings: [String: Any] = [:]
+        for name in ["Preferences", "Secure Preferences"] {
+            guard let source = regular(name) else { continue }
+            let scratch = tempRoot.appendingPathComponent("AircImport-" + UUID().uuidString)
+            do {
+                try fm.createDirectory(at: scratch, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+                defer { try? fm.removeItem(at: scratch) }
+                let copy = scratch.appendingPathComponent(name)
+                try fm.copyItem(at: source, to: copy)
+                guard (try copy.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) <= BrowserImporter.maxFileSize,
+                      let json = try JSONSerialization.jsonObject(with: Data(contentsOf: copy)) as? [String: Any] else {
+                    throw ImportError.fileTooLarge
+                }
+                let extensions = json["extensions"] as? [String: Any]
+                settings.merge(extensions?["settings"] as? [String: Any] ?? [:]) { _, secure in secure }
+            } catch {
+                try? fm.removeItem(at: scratch)
+                unreadable = true
+            }
+        }
+        let list: [ImportedExtension] = settings.compactMap { id, value in
+            guard id.count == 32, id.allSatisfy({ ("a"..."p").contains(String($0)) }),
+                  let entry = value as? [String: Any], let manifest = entry["manifest"] as? [String: Any] else { return nil }
+            // Chromium component/external-component locations; Arc's bundled helpers and Boosts.
+            let location = entry["location"] as? Int ?? 0
+            let path = (entry["path"] as? String ?? "").lowercased()
+            let update = (manifest["update_url"] as? String ?? "").lowercased()
+            let rawName = manifest["name"] as? String ?? id
+            guard ![5, 10].contains(location), !path.contains("arc.app/"), !path.contains("dia.app/"), !path.contains("boosts/"),
+                  !update.contains("arc.net"), !update.contains("thebrowser.company"), !update.contains("diabrowser"),
+                  !rawName.lowercased().hasPrefix("arc internal") else { return nil }
+            let fallback = (entry["name"] as? String).flatMap { $0.hasPrefix("__MSG_") || $0.isEmpty ? nil : $0 } ?? id
+            let name = rawName.hasPrefix("__MSG_")
+                ? (ExtensionNames.resolve(id: id, entry: entry, profile: folder, tempRoot: tempRoot) ?? fallback)
+                : rawName
+            let fromStore = entry["from_webstore"] as? Bool == true || ((entry["creation_flags"] as? Int ?? 0) & 2) != 0
+            return ImportedExtension(id: id, name: name, enabled: (entry["state"] as? Int ?? 0) == 1,
+                                     install: ImportedExtension.provenance(location: location, updateURL: update, fromWebStore: fromStore))
+        }.sorted { ($0.name, $0.id) < ($1.name, $1.id) }
+        return (list, unreadable)
     }
 }

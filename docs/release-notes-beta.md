@@ -1,15 +1,22 @@
-# Airc 0.1.32 public beta
+# Airc 0.1.33 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.88.
-This update makes password-manager extensions such as 1Password, Proton Pass and Bitwarden work better. It includes
-everything from 0.1.31. The release manifest records the exact build, source and checksums.
+This update brings dark mode to all of Airc: one setting for the whole app and every page. It includes everything
+from 0.1.32. The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.31
+## New since 0.1.32
+
+- **Dark mode works.** Settings › Appearance › Airc has Auto (follows your Mac), Light or Dark, for the whole app:
+  windows, the sidebar, Settings and every web page, live. Spaces follow it unless you give a Space its own Light or
+  Dark in Edit Theme Color…; those Spaces are listed under Settings › Appearance, each with a **Follow Airc** button to
+  undo that. Arc's light Space colours, such as cream and pastels, no longer stay light when your Mac is dark.
+
+## Included from 0.1.32
 
 - **Password-manager extensions work better.** 1Password's **Unlock 1Password** button on its in-page cards now opens
   the extension's popup, under its button as in Chrome. Extension popups such as Proton Pass's, Bitwarden's and
@@ -19,8 +26,8 @@ everything from 0.1.31. The release manifest records the exact build, source and
   Browser…. A new page, Settings › Passwords, has **Offer to save and fill passwords** for each profile: turn it off
   and Airc stops asking to save logins and stops listing its saved logins under fields there, so your password
   manager's extension has them to itself. The first time a profile has a password manager's extension on, a small card
-  asks once whether to let it handle passwords there or keep both. Until the next update, Airc may still fill in a site's only saved login when
-  the page loads, even with this off.
+  asks once whether to let it handle passwords there or keep both. For now, Airc may still fill in a site's only saved login when the page
+  loads, even with this off.
 
 ## Included from 0.1.31
 
@@ -490,3 +497,5 @@ Source: `f930c80c2818eb6bf034d0c5e26ac3f4f4027a07`. Build: `202611180104`. Chann
 Source: `be46a6d44ea224e21b3b63b21ef4ff472b36707a`. Build: `202611180334`. Channel: stable.
 
 Source: `cf89c99efbf785953a14c4329b0b337232bc2ca5`. Build: `202611180649`. Channel: stable.
+
+Source: `ba4c2862fde68d2e1b31c1dc953ff14c26f0661e`. Build: `202611181244`. Channel: stable.

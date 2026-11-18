@@ -25,12 +25,14 @@ final class ArcExtensionChecklist: ObservableObject {
         if let data = try? Data(contentsOf: file), let saved = try? JSONDecoder().decode([ArcExtensionRow].self, from: data) { rows = saved }
     }
     /// The plan's extensions replace the rows of the profiles it maps; a row importing again keeps its opened mark.
-    func merge(_ plan: ImportPlan, profileIDs: [String: String]) {
+    /// `key`: a plan profile's source key in `profileIDs` (Arc's "arc-profile:<dir>"; diaimport: a browser read's own
+    /// IDs, "dia-profile:<dir>").
+    func merge(_ plan: ImportPlan, profileIDs: [String: String], key: (ImportedProfile) -> String = ImportAdapter.profileKey) {
         let replaced = Set(profileIDs.values)
         let opened = Dictionary(rows.compactMap { r in r.openedAt.map { (r.id, $0) } }, uniquingKeysWith: { a, _ in a })
         rows.removeAll { replaced.contains($0.profileID) }
         for p in plan.profiles {
-            guard let pid = profileIDs[ImportAdapter.profileKey(p)] else { continue }
+            guard let pid = profileIDs[key(p)] else { continue }
             rows += (plan.extensions?[p.id] ?? []).map {
                 var row = ArcExtensionRow(profileID: pid, extensionInfo: $0)
                 row.openedAt = opened[row.id]

@@ -97,6 +97,8 @@ enum BrowserImportAdapter {
         }
         add(.unreadableBookmarks, "profile's bookmarks couldn't be read", "profiles' bookmarks couldn't be read",
             "Their Spaces and history still come over. Quitting the browser and importing again may help.")
+        add(.lockedBookmarks, "profile's bookmarks are locked with Dia's key", "profiles' bookmarks are locked with Dia's key",
+            "They come over in the Logins step, once macOS lets Airc use “Dia Safe Storage”. History comes over now.")
         add(.unreadableHistory, "profile's history couldn't be read", "profiles' history couldn't be read",
             "Their bookmarks still come over. Quitting the browser and importing again may help.")
         if counts[.tooManyBookmarks] != nil {

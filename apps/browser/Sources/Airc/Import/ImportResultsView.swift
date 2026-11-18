@@ -139,7 +139,7 @@ struct ImportResultsView: View {
             Image(systemName: "person.crop.circle").font(.system(size: 10, weight: .semibold)).frame(width: 14)
                 .foregroundStyle(theme.surfaceTextSecondary.color)
             (Text("Use “Sign in with \(CredentialImport.providerName(provider))”").fontWeight(.semibold)
-             + Text(" on " + shownSites + ": Arc keeps no password for " + (sites.count == 1 ? "it." : "these.")))
+             + Text(" on " + shownSites + ": \(shown.source.name) keeps no password for " + (sites.count == 1 ? "it." : "these.")))
                 .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color)
                 .fixedSize(horizontal: false, vertical: true)
         }

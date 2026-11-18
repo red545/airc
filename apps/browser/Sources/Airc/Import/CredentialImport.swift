@@ -375,6 +375,21 @@ enum CredentialImport {
         var locked: String?
         /// Why things failed, with counts (never a value).
         var problems: [String: Int] = [:]
+
+        /// diaimport: the readers word their reasons for Arc ("Already expired in Arc", "Arc's profile folder…"); for
+        /// another source, its name instead. Only whole words, so "Arc Safe Storage" never appears as "Dia Safe Storage"
+        /// unless it was said about Dia.
+        func naming(_ source: CredentialSource) -> Section {
+            guard source.name != "Arc" else { return self }
+            func n(_ t: String) -> String {
+                t.replacingOccurrences(of: #"\bArc\b(?! Safe Storage)"#, with: source.name, options: .regularExpression)
+            }
+            var out = self
+            out.rows = rows.map { var r = $0; r.reason = n(r.reason); return r }
+            out.wholeFailure = wholeFailure.map(n)
+            out.retryReason = retryReason.map(n)
+            return out
+        }
     }
 
     /// The honest totals the UI shows, computed from each profile's sections so a retry can replace just what it redid.
@@ -383,6 +398,8 @@ enum CredentialImport {
         var runID = UUID()
         var attempt = 1
         var sections: [Section] = []
+        /// diaimport: whose logins these are (Arc's or Dia's) and the Keychain item their key is in.
+        var source: CredentialSource = .arc
 
         var rows: [ResultRow] { sections.flatMap(\.rows) }
         /// Rows by status, counting each cookie.
@@ -466,7 +483,7 @@ enum CredentialImport {
             let mismatch = keyMismatchProfiles.count
             if mismatch > 0 {
                 parts.append((mismatch == 1 ? "One profile's" : "\(mismatch) profiles'")
-                             + " logins didn't open with the key in “Arc Safe Storage”; it may have changed since Arc saved them.")
+                             + " logins didn't open with the key in “\(source.item.service)”; it may have changed since \(source.name) saved them.")
             }
             return parts.joined(separator: " ")
         }
@@ -562,6 +579,9 @@ enum CredentialImport {
 
     /// How the key is got: the Keychain item "Arc Safe Storage" (macOS asks), or a synthetic key in checks.
     typealias KeySource = @Sendable () throws -> Data
+    /// diaimport: given the key once macOS gave it, before any profile is read (Dia's locked bookmarks open with it).
+    /// Off the main thread; the key isn't kept.
+    typealias KeyUse = @Sendable (Data) async -> Void
 
     /// The last Arc login import (P22), kept so "Try again" can redo only what failed. It holds no credential and no
     /// key: Arc's folder, which Arc profile goes into which Airc profile, where they go, and how the key is asked for
@@ -571,6 +591,8 @@ enum CredentialImport {
         @Published fileprivate(set) var outcome: Outcome?
         @Published fileprivate(set) var retrying = false
         fileprivate var arcDirectory: URL?
+        fileprivate var source: CredentialSource = .arc
+        fileprivate var onKey: KeyUse?
         fileprivate weak var sink: CredentialSink?
         fileprivate var keySource: KeySource?
         fileprivate var progress: ((Double) -> Void)?
@@ -585,29 +607,46 @@ enum CredentialImport {
     /// Asks macOS for "Arc Safe Storage" (the system password prompt), then reads every mapped profile's logins and
     /// cookies off the main thread, from private copies (Arc may be running), and hands each profile's to `sink`
     /// before reading the next. `profiles` maps Arc profile directories to Airc profile IDs.
-    static func run(arcDirectory: URL, profiles: [(directory: String, profileID: String)], sink: CredentialSink,
+    /// diaimport: `source` is Arc or Dia (its Keychain item); `arcDirectory` is the folder holding its "User Data".
+    static func run(source: CredentialSource = .arc, arcDirectory: URL, profiles: [(directory: String, profileID: String)], sink: CredentialSink,
+                    onKey: KeyUse? = nil,
                     progress: @escaping (Double) -> Void, completion: @escaping (Result<Outcome, Error>) -> Void) {
-        #if AIRC_TESTING
-        // arcimport3: a check's scratch keychain item stands in for "Arc Safe Storage" (TestArcKeychain).
-        if let test = TestArcKeychain.current {
-            return start(arcDirectory: arcDirectory, profiles: profiles, sink: sink, keySource: test.keySource,
-                         progress: progress, completion: completion)
-        }
-        #endif
-        precondition(!LaunchOptions.current.isAutomated, "credentials are never read in automated runs")
-        start(arcDirectory: arcDirectory, profiles: profiles, sink: sink,
-              keySource: { try ArcSafeStorage.deriveKey(password: ArcSafeStorage.readPassword()) },
+        start(source: source, arcDirectory: arcDirectory, profiles: profiles, sink: sink, keySource: keySource(for: source), onKey: onKey,
               progress: progress, completion: completion)
     }
 
-    /// arcimport3: what to say when macOS didn't give Airc Arc's key; nil for a failure that isn't the Keychain's answer.
-    static func keychainReason(_ error: Error) -> String? {
+    /// The real Keychain read of `source`'s item (macOS asks), or in a check, its scratch keychain item.
+    static func keySource(for source: CredentialSource) -> KeySource {
+        #if AIRC_TESTING
+        // arcimport3: a check's scratch keychain item stands in for "Arc Safe Storage" (TestArcKeychain); diaimport: for
+        // "Dia Safe Storage".
+        if let test = TestArcKeychain.current { return test.keySource }
+        #endif
+        precondition(!LaunchOptions.current.isAutomated, "credentials are never read in automated runs")
+        let item = source.item
+        return { try ArcSafeStorage.deriveKey(password: ArcSafeStorage.readPassword(item: item)) }
+    }
+
+    /// diaimport: only the key, for what it opens without the engine's stores (Dia's locked bookmarks on WebKit). The
+    /// same Keychain answers as `run`; `completion` on the main thread.
+    static func unlockKey(source: CredentialSource, completion: @escaping @MainActor (Result<Data, Error>) -> Void) {
+        let read = keySource(for: source)
+        Task.detached(priority: .userInitiated) {
+            let r = Result { try read() }
+            await MainActor.run { completion(r) }
+        }
+    }
+
+    /// arcimport3: what to say when macOS didn't give Airc the browser's key; nil for a failure that isn't the
+    /// Keychain's answer.
+    static func keychainReason(_ error: Error, source: CredentialSource = .arc) -> String? {
+        let name = source.name, item = source.item.service
         switch error as? ImportError {
-        case .keychainDeclined?: "Keychain access to “Arc Safe Storage” was denied, so Arc's saved passwords and cookies stayed locked. Try Again and choose Allow."
-        case .keychainLocked?: "your login keychain is locked, so macOS couldn't unlock Arc's key (“Arc Safe Storage”). Unlock it and Try Again."
-        case .keychainNotFound?: "Arc's key (“Arc Safe Storage”) isn't in this Mac's Keychain, so Arc's saved passwords and cookies can't be unlocked here."
-        case .keychainUnavailable?: "Arc's key (“Arc Safe Storage”) couldn't be read from Keychain. Try Again."
-        default: nil
+        case .keychainDeclined?: return "Keychain access to “\(item)” was denied, so \(name)'s saved passwords and cookies stayed locked. Try Again and choose Allow."
+        case .keychainLocked?: return "your login keychain is locked, so macOS couldn't unlock \(name)'s key (“\(item)”). Unlock it and Try Again."
+        case .keychainNotFound?: return "\(name)'s key (“\(item)”) isn't in this Mac's Keychain, so \(name)'s saved passwords and cookies can't be unlocked here."
+        case .keychainUnavailable?: return "\(name)'s key (“\(item)”) couldn't be read from Keychain. Try Again."
+        default: return nil
         }
     }
 
@@ -617,7 +656,7 @@ enum CredentialImport {
                     key: Data?, progress: @escaping (Double) -> Void,
                     completion: @escaping (Result<Outcome, Error>) -> Void) {
         guard let key else { return run(arcDirectory: arcDirectory, profiles: profiles, sink: sink, progress: progress, completion: completion) }
-        start(arcDirectory: arcDirectory, profiles: profiles, sink: sink, keySource: { key }, progress: progress, completion: completion)
+        start(source: .arc, arcDirectory: arcDirectory, profiles: profiles, sink: sink, keySource: { key }, onKey: nil, progress: progress, completion: completion)
     }
 
     /// The Keychain's answer simulated (ImportAcceptanceCheck): `status` goes through the real lookup's handling, and a
@@ -625,22 +664,24 @@ enum CredentialImport {
     static func run(arcDirectory: URL, profiles: [(directory: String, profileID: String)], sink: CredentialSink,
                     keychainStatus: @escaping @Sendable () -> OSStatus, password: Data, progress: @escaping (Double) -> Void,
                     completion: @escaping (Result<Outcome, Error>) -> Void) {
-        start(arcDirectory: arcDirectory, profiles: profiles, sink: sink, keySource: {
+        start(source: .arc, arcDirectory: arcDirectory, profiles: profiles, sink: sink, keySource: {
             let status = keychainStatus()
             return try ArcSafeStorage.deriveKey(password: ArcSafeStorage.readPassword { _, result in
                 if status == errSecSuccess { result?.pointee = password as CFData }
                 return status
             })
-        }, progress: progress, completion: completion)
+        }, onKey: nil, progress: progress, completion: completion)
     }
     #endif
 
-    private static func start(arcDirectory: URL, profiles: [(directory: String, profileID: String)], sink: CredentialSink,
-                              keySource: @escaping KeySource, progress: @escaping (Double) -> Void,
+    private static func start(source: CredentialSource, arcDirectory: URL, profiles: [(directory: String, profileID: String)], sink: CredentialSink,
+                              keySource: @escaping KeySource, onKey: KeyUse?, progress: @escaping (Double) -> Void,
                               completion: @escaping (Result<Outcome, Error>) -> Void) {
         guard sink.acceptsCredentials else { return completion(.failure(Unsupported())) }
         let session = Session.shared
         session.arcDirectory = arcDirectory
+        session.source = source
+        session.onKey = onKey
         session.sink = sink
         session.keySource = keySource
         session.progress = progress
@@ -666,6 +707,7 @@ enum CredentialImport {
         let session = Session.shared
         guard let arcDirectory = session.arcDirectory, let sink = session.sink, let keySource = session.keySource else { return }
         let progress = session.progress, completion = session.completion
+        let source = session.source, onKey = session.onKey
         // Profile by profile, in the order given, each with the kinds asked for.
         var order: [String] = []
         var kinds: [String: (directory: String, kinds: [ResultRow.Kind])] = [:]
@@ -681,8 +723,11 @@ enum CredentialImport {
                 // stay unread and say why; sites' storage, which isn't encrypted, still comes over.
                 var key = Data(count: 16)
                 var locked: String?, retry = true
-                do { key = try keySource() } catch {
-                    guard let why = keychainReason(error) else { throw error }
+                do {
+                    key = try keySource()
+                    if let onKey { await onKey(key) }
+                } catch {
+                    guard let why = keychainReason(error, source: source) else { throw error }
                     locked = why
                     // No item: asking again can't help.
                     retry = (error as? ImportError) != .keychainNotFound
@@ -720,7 +765,8 @@ enum CredentialImport {
                     let done = Double(i + 1) / Double(max(1, plan.count))
                     await MainActor.run { progress?(done) }
                 }
-                let result = previous?.replacing(fresh) ?? Outcome(sections: fresh)
+                fresh = fresh.map { $0.naming(source) }
+                let result = previous?.replacing(fresh) ?? Outcome(sections: fresh, source: source)
                 await MainActor.run {
                     session.outcome = result
                     session.retrying = false

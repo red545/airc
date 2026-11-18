@@ -28,6 +28,10 @@ public struct BrowserProfileSummary: Sendable, Equatable, Identifiable {
     public var searchEngines = 0
     /// The parts that couldn't be read ("bookmarks", "history"). Never why in terms of a value.
     public var unreadable: [String] = []
+    /// diaimport: its bookmarks are locked with the browser's key (Dia's `EncryptedBookmarks2`) and weren't read.
+    public var lockedBookmarks = false
+    /// diaimport: its extensions (Dia), for the reinstall checklist.
+    public var extensions = 0
     public var id: String { sourceKey }
 }
 
@@ -52,6 +56,8 @@ public struct BrowserImport: Sendable {
     public var bookmarks: Int { profiles.reduce(0) { $0 + $1.bookmarks } }
     public var folders: Int { profiles.reduce(0) { $0 + $1.folders } }
     public var historyEntries: Int { profiles.reduce(0) { $0 + $1.history } }
+    /// diaimport: profiles whose bookmarks wait for the browser's key.
+    public var lockedProfiles: [String] { profiles.filter(\.lockedBookmarks).map(\.sourceKey) }
 
     /// The source keys a browser import uses: "<install>-profile:<profile>", "<install>-space:<profile>" and
     /// "<install>-item:<profile>/<bookmark GUID>". The profile is part of an item's key because two profiles synced to
@@ -134,8 +140,11 @@ extension BrowserImporter {
     /// may hold them open under SQLite's exclusive lock (`DatabaseCopy`, deleted when the read ends). A profile whose
     /// bookmarks or history can't be read still brings the other part; the plan's warnings say which. Throws only for
     /// cancellation.
+    /// diaimport: `bookmarksKey` (Dia's, from "Dia Safe Storage") opens Dia's `EncryptedBookmarks2`; without it a profile
+    /// whose bookmarks are only there brings none and says so (`lockedBookmarks`). Dia's profiles also bring their
+    /// extensions (`plan.extensions`, keyed like `plan.profiles`).
     public static func read(_ install: BrowserInstall, profiles chosen: [String]? = nil, includeHistory: Bool = true,
-                            historyLimit: Int = defaultHistoryLimit,
+                            historyLimit: Int = defaultHistoryLimit, bookmarksKey: Data? = nil,
                             tempRoot: URL = FileManager.default.temporaryDirectory) async throws -> BrowserImport {
         try await Task.detached {
             var out = BrowserImport(kind: install.kind, installID: install.id,
@@ -163,7 +172,15 @@ extension BrowserImporter {
                     }
                 } else {
                     let file = p.folder.appendingPathComponent("Bookmarks")
-                    if BrowserImporter.isFile(file) {
+                    if install.kind == .dia, DiaBookmarks.isLocked(profile: p.folder) {
+                        if let bookmarksKey {
+                            do { roots = try ChromiumBookmarks.parse(try DiaBookmarks.decrypt(profile: p.folder, key: bookmarksKey), &builder) }
+                            catch { summary.unreadable.append("bookmarks") }
+                        } else {
+                            summary.lockedBookmarks = true
+                            out.plan.warnings.append(.init(code: .lockedBookmarks, message: "A profile's bookmarks are locked with the browser's key."))
+                        }
+                    } else if BrowserImporter.isFile(file) {
                         do { roots = try ChromiumBookmarks.parse(try BrowserImporter.readLimited(file), &builder) }
                         catch { summary.unreadable.append("bookmarks") }
                     }
@@ -183,6 +200,12 @@ extension BrowserImporter {
                     } catch {
                         summary.unreadable.append("search engines")
                         out.plan.warnings.append(.init(code: .unreadableSearchEngines, message: "A profile's search engines couldn't be read."))
+                    }
+                    if install.kind == .dia {
+                        let ext = ChromiumExtensions.read(profile: p.folder, tempRoot: tempRoot)
+                        out.plan.extensions = (out.plan.extensions ?? [:]).merging([key: ext.extensions]) { $1 }
+                        summary.extensions = ext.extensions.count
+                        if ext.unreadable { out.plan.warnings.append(.init(code: .unreadableExtensions, message: "A profile's extension list couldn't be fully read.")) }
                     }
                 }
                 try Task.checkCancellation()

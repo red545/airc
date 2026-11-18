@@ -9,7 +9,7 @@
 // makes untrue, a Coming row it delivers); `from` shows a row only then. Previews show the state after the newest
 // release. `shot` names a file in src/assets/screens (scripts/sync-screenshots.mjs).
 
-export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "0.1.18" | "0.1.19" | "0.1.20" | "0.1.21" | "0.1.22" | "0.1.23" | "0.1.24" | "0.1.25" | "0.1.26" | "0.1.27" | "0.1.28" | "0.1.29" | "0.1.30" | "0.1.31" | "0.1.32" | "next" | "coming";
+export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "0.1.18" | "0.1.19" | "0.1.20" | "0.1.21" | "0.1.22" | "0.1.23" | "0.1.24" | "0.1.25" | "0.1.26" | "0.1.27" | "0.1.28" | "0.1.29" | "0.1.30" | "0.1.31" | "0.1.32" | "0.1.33" | "next" | "coming";
 
 export interface Feature {
   title: string;
@@ -140,6 +140,7 @@ export const groups: Group[] = [
       { title: "Several windows", line: "⌘N opens another window on the same Spaces and tabs. A tab moves between windows without reloading.", since: "0.1.2", shot: "multiple-windows" },
       { title: "Tear a tab out", line: "Drag a tab out of the sidebar onto the desktop and it opens in a window of its own right there, without reloading. Hold ⌥ for a copy.", since: "0.1.9" },
       { title: "Sidebar on the right", line: "Settings → Appearance → Sidebar position.", since: "0.1.2", shot: "sidebar-right" },
+      { title: "Dark mode for all of Airc", line: "Settings → Appearance → Airc: Auto follows your Mac, or choose Light or Dark for windows, the sidebar, Settings and every page, live. Spaces follow it unless you give one its own look.", since: "0.1.33" },
       { title: "Dark icons on dark sidebars", line: "A site icon that's dark, like a black letter, gets a small light backing on a dark sidebar, as in Arc, so it doesn't vanish. In tabs, Favorites, the Command Bar and tab previews. Light themes and light icons look as before.", since: "0.1.17" },
       { title: "Chat and mail stay ready", line: "Pinned tabs and Favorites for chat and mail sites stay loaded when you switch away.", since: "0.1.2" },
       { title: "Set up a new profile", line: "Sign a new profile in to Google and pick suggested Favorites for it.", since: "0.1.2" },

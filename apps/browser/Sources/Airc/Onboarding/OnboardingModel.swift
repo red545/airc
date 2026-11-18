@@ -166,6 +166,9 @@ final class OnboardingModel: ObservableObject {
     @Published var bookmarksFileName: String?
     /// Where the last import came from (the accounts and logins steps say so).
     @Published var importedSource: ImportSource?
+    /// diaimport: Dia's locked bookmarks once its key opened them: how many came over, or why they didn't.
+    @Published var unlockedBookmarks: Int?
+    @Published var bookmarksNote: String?
     /// History entries the last browser import brought.
     @Published var historyImported = 0
     /// C08b: "1 default search engine · 3 search shortcuts"; nil when the import brought none.
@@ -286,6 +289,26 @@ final class OnboardingModel: ObservableObject {
     var importedName: String {
         guard let s = importedSource, let item = sources.first(where: { $0.source == s }) else { return "Arc" }
         return s == .bookmarksFile ? (browserReads["file"]?.kind?.name ?? "Safari") : item.name
+    }
+
+    /// diaimport: whose key the Logins step asks macOS for: Arc's after an Arc import, Dia's after a Dia import; nil after
+    /// a browser whose passwords come from a CSV file (IM-4).
+    var credentialSource: CredentialSource? {
+        if importedFromArc { return .arc }
+        if case .browser(let id)? = importedSource { return installs[id]?.kind.credentialSource }
+        return nil
+    }
+
+    /// diaimport: the imported browser's read (Dia's), for the bookmarks its key still locks.
+    var importedRead: BrowserImport? {
+        if case .browser(let id)? = importedSource { return browserReads[id] }
+        return nil
+    }
+
+    /// diaimport: imported profiles whose bookmarks are locked with Dia's key (they come over in the Logins step).
+    var lockedBookmarkProfiles: Int {
+        guard credentialSource != .arc, let r = importedRead, let result else { return 0 }
+        return r.lockedProfiles.filter { result.profileIDs[$0] != nil }.count
     }
 
     /// The logins step follows the accounts: Arc's when its logins are ticked; a passwords file after any other.

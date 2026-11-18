@@ -394,13 +394,16 @@ struct TestArcKeychain: Sendable {
     let keychainPassword: String
     /// The item's value, which the synthetic Arc's rows are encrypted with (never read from Arc).
     let secret: String
+    /// The item's account: "Arc"; diaimport's runner uses "Dia" (AIRC_TEST_ARC_ACCOUNT).
+    var account = "Arc"
 
     static var current: TestArcKeychain? {
         let env = ProcessInfo.processInfo.environment
         guard let path = env["AIRC_TEST_ARC_KEYCHAIN"], path.hasSuffix(".keychain-db"), !path.contains("/Library/Keychains/"),
-              let service = env["AIRC_TEST_ARC_SAFE_STORAGE"], service.hasPrefix("Airc Test "), service != ArcSafeStorage.Item.arc.service,
+              let service = env["AIRC_TEST_ARC_SAFE_STORAGE"], service.hasPrefix("Airc Test "), service != ArcSafeStorage.Item.arc.service, service != ArcSafeStorage.Item.dia.service,
               let secret = env["AIRC_TEST_ARC_SECRET"], !secret.isEmpty else { return nil }
-        return TestArcKeychain(path: path, service: service, keychainPassword: env["AIRC_TEST_ARC_KEYCHAIN_PASSWORD"] ?? "", secret: secret)
+        return TestArcKeychain(path: path, service: service, keychainPassword: env["AIRC_TEST_ARC_KEYCHAIN_PASSWORD"] ?? "", secret: secret,
+                               account: env["AIRC_TEST_ARC_ACCOUNT"].flatMap { $0.isEmpty ? nil : $0 } ?? "Arc")
     }
 
     final class State: @unchecked Sendable {
@@ -429,7 +432,7 @@ struct TestArcKeychain: Sendable {
             if !me.keychainPassword.isEmpty {
                 _ = SecKeychainUnlock(keychain, UInt32(me.keychainPassword.utf8.count), me.keychainPassword, true)
             }
-            return try ArcSafeStorage.deriveKey(password: ArcSafeStorage.readPassword(item: .init(service: me.service, account: "Arc"),
+            return try ArcSafeStorage.deriveKey(password: ArcSafeStorage.readPassword(item: .init(service: me.service, account: me.account),
                                                                                        searchList: [keychain]))
         }
     }
