@@ -1,7 +1,7 @@
 # Your password manager
 
 Onboarding has a step for the password manager you use, after the import and before the colours. It's optional:
-**Not now** changes nothing, and **Settings › Import › Your password manager › Choose…** opens the same step later.
+**Not now** changes nothing, and **Settings › Passwords › Choose…** opens the same step later.
 
 ## The choices
 
@@ -24,9 +24,10 @@ same review as **Install in all profiles…** ([extensions.md](extensions.md)). 
 Afterwards each profile has a line: installed, already installed, declined or failed (with the reason). A profile it
 didn't reach has **Open in Web Store**, which opens the extension's page in a Space of that profile.
 
-**Turn off Airc's offer to save passwords** is on by default: in the profiles that got the extension, Airc stops asking
-to save a login when you sign in, so your password manager is the one that asks. Turn it back on per profile in
-**Settings › Import › Your password manager**. Logins you already saved in Airc stay.
+**Turn off Airc's own password saving and filling** is on by default: in the profiles that got the extension, Airc
+stops asking to save a login when you sign in and stops listing its saved logins under a field, so your password
+manager is the one that asks and fills. Turn it back on per profile in **Settings › Passwords › Offer to save and fill
+passwords**. Logins you already saved in Airc stay.
 
 Then sign in to the extension: most of them connect to their Mac app, or ask for your account.
 

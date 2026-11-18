@@ -138,7 +138,7 @@ extension SnapshotRunner {
             check(app?.onboarding == nil, "pwmanager: the re-run closed")
             try? FileManager.default.createDirectory(at: home.appendingPathComponent("Applications/Bitwarden.app"), withIntermediateDirectories: true)
             TestAnchors.frames["settings.pm.choose"] = nil
-            app?.showSettings(page: .importing)
+            app?.showSettings(page: .passwords)
         }
         wait(1.0)
         step { [self] done in
@@ -269,7 +269,7 @@ extension SnapshotRunner {
         wait(0.8)
         run { [self] in
             check(app?.onboarding == nil, "pwmanager: Continue closes the step opened from Settings")
-            app?.showSettings(page: .importing)
+            app?.showSettings(page: .passwords)
         }
         wait(1.2)
         run { [self] in

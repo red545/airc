@@ -35,6 +35,11 @@ final class AppSettings: ObservableObject {
         var keepChatSitesLoaded = true
         /// Extensions shown in the URL field, per profile ID (engine/PASS7.md: pins are per profile).
         var pinnedExtensions: [String: [String]] = [:]
+        /// Settings › Passwords › "Offer to save and fill passwords" off: profile IDs whose saved logins Airc doesn't list
+        /// under fields (a password manager's extension does; saving is Chromium's own pref). Empty: on everywhere.
+        var passwordFillOff: [String] = []
+        /// Profiles that were offered once to let their password manager's extension handle passwords (either answer).
+        var passwordManagerOffered: [String] = []
         /// SB-55: a playing video or a call pops out into picture in picture when you leave its tab. Every profile.
         var pipAutomatic = true
         /// SB-55: per-site exceptions, origin ("https://meet.google.com") → always (true) or never (false).
@@ -124,6 +129,8 @@ final class AppSettings: ObservableObject {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             let d = Values()
             translucency = (try? c.decodeIfPresent(AircTranslucency.self, forKey: .translucency)) ?? d.translucency
+            passwordFillOff = (try? c.decodeIfPresent([String].self, forKey: .passwordFillOff)) ?? d.passwordFillOff
+            passwordManagerOffered = (try? c.decodeIfPresent([String].self, forKey: .passwordManagerOffered)) ?? d.passwordManagerOffered
             defaultThemePreset = try? c.decodeIfPresent(String.self, forKey: .defaultThemePreset)
             defaultAppearance = (try? c.decodeIfPresent(Appearance.self, forKey: .defaultAppearance)) ?? d.defaultAppearance
             onboardingStartedAt = try? c.decodeIfPresent(Date.self, forKey: .onboardingStartedAt)

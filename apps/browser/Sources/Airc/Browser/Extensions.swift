@@ -86,6 +86,7 @@ extension WindowController {
         let pinned = pinnedExtensionIDs
         let all = extensionActions()
         let actions = pinned.compactMap { id in all.first { $0.id == id && $0.isEnabled } }
+        PasswordManagerOffer.consider(in: self, actions: all)
         let field = pageView(for: currentSpaceID)?.urlField
         if let toolbar = pageToolbar {
             toolbar.setExtensions(actions)
@@ -157,15 +158,9 @@ extension WindowController {
     /// screen), else its leading edge on the button's; kept on the window's screen. (The engine puts the leading edge
     /// on the button's always, which leaves a toolbar popup hanging past the window.)
     func alignExtensionPopup(_ panel: NSWindow, under anchor: NSRect) {
-        let content = panel.contentRect(forFrameRect: panel.frame).size
-        let trailing = anchor.midX > window.frame.midX
-        let x = trailing ? anchor.maxX - content.width : anchor.minX
-        var frame = panel.frameRect(forContentRect: NSRect(x: x, y: anchor.minY - content.height, width: content.width, height: content.height))
-        if let screen = (window.screen ?? NSScreen.main)?.visibleFrame {
-            frame.origin.x = max(screen.minX, min(frame.origin.x, screen.maxX - frame.width))
-            frame.origin.y = max(screen.minY, min(frame.origin.y, screen.maxY - frame.height))
-        }
-        panel.setFrame(frame, display: false)
+        #if canImport(AircCore)
+        ExtensionPopupPanel.align(panel, under: anchor, in: window)
+        #endif
     }
 
     /// ⌘E and the puzzle button: every extension of this profile, with pin toggles, under the toolbar's puzzle while
@@ -257,8 +252,53 @@ extension WindowController {
         ChromiumRuntime.extensionInstallFailedHandler = { [weak app = self.app, weak self] message in
             (app?.controller ?? self)?.showToast("The extension couldn't be added: \(message)")
         }
+        // Settings › Passwords: a profile whose saving and filling are off gets no list of Airc's saved logins.
+        PromptCenter.fillsPasswords = { [weak app = self.app] page in
+            guard let app, let id = app.profiles.profileID(for: page.profile) else { return true }
+            return app.fillsPasswords(profileID: id)
+        }
+        // chrome.action.openPopup: the window showing the page presents it (only Chromium's active, key window asks).
+        ChromiumRuntime.actionPopupHandler = { [weak app = self.app] page, id in
+            guard let app else { return false }
+            let controller = app.controllers.first { c in
+                (c.shownTabID.flatMap { c.engineTab(for: $0) } as? ChromiumTab) === page
+            }
+            return controller?.openExtensionPopupForAPI(id, page: page) ?? false
+        }
         #endif
     }
+
+    #if canImport(AircCore)
+    /// chrome.action.openPopup for the shown page (e.g. 1Password's "Unlock 1Password" on its in-page card): the
+    /// extension's popup under its button, as Arc shows it: its pinned button (toolbar or URL field), else the toolbar's
+    /// puzzle or the URL field; with the sidebar and toolbar hidden, the window's top left. The action isn't performed
+    /// (no activeTab grant), as in Chrome. True: the popup will show, and the engine answers the extension once it has
+    /// loaded (or with an error after 10 s).
+    func openExtensionPopupForAPI(_ id: String, page: ChromiumTab) -> Bool {
+        guard let engine = app?.engine as? ChromiumEngine, extensionsUnavailable(on: page) == nil,
+              store.tab(shownTabID ?? "")?.profileID == currentProfileID else { return false }
+        // After Chromium's call returns: the popup's page opens like the button's, outside the extension API's call.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, (self.shownTabID.flatMap({ self.engineTab(for: $0) }) as? ChromiumTab) === page else { return }
+            self.extensionsPopover?.close()
+            let anchor = self.extensionPopupAnchor(for: id)
+            var rect = anchor.rect.intersection(anchor.view.bounds)
+            if rect.isEmpty { rect = anchor.view.bounds }
+            let screen = self.window.convertToScreen(anchor.view.convert(rect, to: nil))
+            engine.presentExtensionPopup(id, for: page, anchorRect: rect, in: anchor.view) { [weak self] panel in
+                self?.alignExtensionPopup(panel, under: screen)
+            }
+        }
+        return true
+    }
+
+    /// Where an openPopup popup anchors: the action's button or the extensions list's place, else the window's top left.
+    func extensionPopupAnchor(for id: String) -> (view: NSView, rect: NSRect) {
+        if pageToolbar != nil || !sidebarHidden, let anchor = extensionAnchor(for: id) { return anchor }
+        let top = card.isFlipped ? card.bounds.minY + 8 : card.bounds.maxY - 8
+        return (card, NSRect(x: 8, y: top, width: 1, height: 1))
+    }
+    #endif
 
     /// "Add to Chrome" in the Web Store: the extension, what it can do and the profile it goes to, on Airc's review
     /// card (ExtensionInstallSheet.swift); Add Extension or Cancel. Scripted runs (`--script extension`) accept only

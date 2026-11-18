@@ -7,7 +7,7 @@ import SwiftUI
 
 /// Settings categories (SET-1, design §7 "Settings page").
 enum SettingsPage: String, CaseIterable, Identifiable {
-    case general, boosts, links, profiles, siteSearch = "sitesearch", spaces, sync, appearance, ai, agents, shortcuts, importing = "import", privacy, about
+    case general, boosts, links, profiles, siteSearch = "sitesearch", spaces, sync, appearance, ai, agents, shortcuts, importing = "import", passwords, privacy, about
     var id: String { rawValue }
 
     var title: String {
@@ -24,6 +24,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .agents: "Agents"
         case .shortcuts: "Shortcuts"
         case .importing: "Import"
+        case .passwords: "Passwords"
         case .privacy: "Privacy"
         case .about: "About"
         }
@@ -43,6 +44,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .agents: "cursorarrow.rays"
         case .shortcuts: "command"
         case .importing: "square.and.arrow.down"
+        case .passwords: "key.fill"
         case .privacy: "hand.raised"
         case .about: "info.circle"
         }
@@ -63,6 +65,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .agents: AircColor(0xD9773F)
         case .shortcuts: AircColor.Stone.s700
         case .importing: AircColor(0xF08A4B)
+        case .passwords: AircColor(0x8E8E93)
         case .privacy: AircColor(0x5B63EE)
         case .about: AircColor.Stone.s500
         }
@@ -223,6 +226,7 @@ private struct SettingsRoot: View {
         case .agents: AgentsPage(model: model)
         case .shortcuts: ShortcutsPage(model: model)
         case .importing: ImportPage(model: model)
+        case .passwords: VStack(alignment: .leading, spacing: 0) { PasswordManagerSettingsSection(model: model) }
         case .privacy: PrivacyPage(model: model)
         case .about: AboutPage(model: model)
         }
@@ -902,7 +906,6 @@ private struct ImportPage: View {
                     }.buttonStyle(.airc(.secondary))
                 }
             }
-            PasswordManagerSettingsSection(model: model)
             ArcExtensionChecklistView(app: model.app).padding(.top, 20)
             if let o = CredentialImport.lastOutcome, !o.rows.isEmpty {
                 // Engine pass 8: what happened to each login and each site's cookies, problems first.
@@ -957,7 +960,9 @@ private struct ImportPage: View {
 
 // MARK: - Your password manager (onboarding step 2b, again)
 
-/// The onboarding step on its own, and each profile's "Offer to save passwords" (the step can turn it off).
+/// Settings › Passwords: the onboarding step on its own, and each profile's "Offer to save and fill passwords" (the
+/// step can turn it off): Chromium's saving pref, and whether Airc lists saved logins under a field (an extension's
+/// list takes over; PagePrompts.swift drops Airc's).
 private struct PasswordManagerSettingsSection: View {
     @ObservedObject var model: SettingsModel
     @State private var offered: [String: Bool] = [:]
@@ -973,9 +978,11 @@ private struct PasswordManagerSettingsSection: View {
                     .testAnchor("settings.pm.choose")
             }
             ForEach(model.store.orderedProfiles.filter { offered[$0.id] != nil }, id: \.id) { p in
-                SettingsRow(title: "Offer to save passwords in \(p.name)", subtitle: "Airc asks to save a login when you sign in.") {
-                    AircSwitch(isOn: Binding(get: { offered[p.id] ?? true }, set: { on in set(on, profileID: p.id) }))
-                        .accessibilityLabel("Offer to save passwords in \(p.name)")
+                SettingsRow(title: "Offer to save and fill passwords in \(p.name)",
+                            subtitle: "Airc asks to save a login when you sign in, and lists saved logins under the field. Turn it off to let your password manager's extension do both.") {
+                    AircSwitch(isOn: Binding(get: { (offered[p.id] ?? true) && !(model.app?.settings.values.passwordFillOff.contains(p.id) ?? false) },
+                                             set: { on in set(on, profileID: p.id) }))
+                        .accessibilityLabel("Offer to save and fill passwords in \(p.name)")
                         .testAnchor("settings.pm.offer." + p.id)
                 }
             }
@@ -996,7 +1003,7 @@ private struct PasswordManagerSettingsSection: View {
 
     private func set(_ on: Bool, profileID: String) {
         guard let app = model.app, let ep = app.profiles.engineProfile(for: profileID) else { return }
-        app.engine.setPasswordsOffered(on, for: ep)
+        app.setAircPasswords(on, profileID: profileID)
         offered[profileID] = app.engine.passwordsOffered(for: ep)
     }
 }
