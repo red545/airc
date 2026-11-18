@@ -207,7 +207,10 @@ final class OnboardingModel: ObservableObject {
     /// Chrome extensions run (the Chromium engine). WebKit says so on the step and offers only Airc's own.
     @Published var extensionsAvailable = true
     @Published var memberNumber = 1
-    let systemDark: Bool
+    /// Whether the app draws dark now (Airc's appearance, or macOS's on Auto). Follows `appAppearance` live.
+    @Published var systemDark: Bool
+    /// darkfix: the theme step's Appearance is Airc's own (Settings › Appearance), not the focused Space's.
+    @Published var appAppearance: Appearance = .auto
     let today = Date()
 
     // Intents, set by the controller.

@@ -203,6 +203,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         ProfileHost.migrateColors(in: store)
         settings = AppSettings(directory: AppPaths.dataDirectory)
+        // darkfix: Settings › Appearance (Auto follows macOS; Light / Dark force it), before any window draws.
+        AppAppearance.start(app: self)
         let services = LaunchTimeline.begin("telemetry, crash reports, feedback")
         AppTelemetry.shared.start(app: self, firstRun: firstRun)
         AppCrashReports.shared.start()

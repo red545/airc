@@ -31,7 +31,7 @@ function only(o, keys, what) {
 }
 
 /** Control characters other than tab and line breaks, and bidirectional overrides (text that hides what it says). */
-const HIDDEN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f؜‎‏‪-‮⁦-⁩]/;
+export const HIDDEN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f؜‎‏‪-‮⁦-⁩]/;
 const EMAIL = /^[^\s@<>"(),;:\\[\]]+@[^\s@<>"(),;:\\[\]]+\.[^\s@<>"(),;:\\[\]]+$/;
 
 /** The app details a request may carry, each in its exact format (AircKit FeedbackReport.AppInfo). */
@@ -224,6 +224,8 @@ export function appLine(a) {
 }
 
 export const INBOX = "hello@aircbrowser.com";
+/** The reply labels the admin page offers (api/_lib/reply.js sends them). */
+export const REPLY_LABELS = ["working-on-it", "released", "follow-up"];
 
 /**
  * Tells the owner: an email to hello@aircbrowser.com through Resend, the same way the waitlist does, which the
@@ -281,6 +283,35 @@ ${picturesOf(e).map((_, n) => {
     const src = `${path}?shot=${esc(e.id)}${n ? `&amp;n=${n}` : ""}`;
     return `<a href="${src}"><img alt="Picture ${n + 1} sent with this message" src="${src}" loading="lazy"></a>`;
   }).join("\n")}
+${repliesHTML(e, path)}
 <p class="actions">${e.done ? button("open", "Mark as open") : button("done", "Mark as done", "btn-open")}${button("delete", "Delete", "btn-quiet danger")}</p>
 </div>`;
 }
+
+/** The replies sent to an entry's sender, and a form for the next one (only with a reply address). @param {any} e
+ *  @param {string} path */
+function repliesHTML(e, path) {
+  const sent = Array.isArray(e.replies) ? e.replies : [];
+  const shown = sent.map((/** @type {any} */ r) => `<p class="meta reply-sent">Replied · ${esc(r.label)} · ${esc(r.sentAt)} · ${esc(r.subject)}</p>
+<pre aria-label="Reply ${esc(r.label)}">${esc(r.text)}</pre>`).join("\n");
+  if (!e.email) return shown;
+  const taken = new Set(sent.map((/** @type {any} */ r) => r.label));
+  const options = REPLY_LABELS.map((l) => `<option value="${l}"${taken.has(l) ? " disabled" : ""}>${l}${taken.has(l) ? " (sent)" : ""}</option>`).join("");
+  return `${shown}
+<details class="reply"><summary>Reply to ${esc(e.email)}…</summary>
+<form method="post" action="${path}"><input type="hidden" name="action" value="reply"><input type="hidden" name="id" value="${esc(e.id)}">
+<label>Label <select name="label" required>${options}</select></label>
+<label>Subject <input name="subject" maxlength="200" placeholder="Re: your Airc feedback"></label>
+<label>Text <textarea name="text" rows="8" maxlength="5000" required></textarea></label>
+<p class="meta">Sent from Airc &lt;${INBOX}&gt;, once per label. Keep the entry until the last reply is sent.</p>
+<button class="btn-open">Send reply</button></form></details>`;
+}
+
+/** The admin page's styles for replies. */
+export const REPLY_CSS = `.reply summary { margin: 12px 0 0; cursor: pointer; font-size: 14px; font-weight: 600; }
+.reply form { display: grid; gap: 10px; margin: 10px 0 0; }
+.reply label { display: grid; gap: 4px; font-size: 13px; color: var(--t3); }
+.reply input, .reply select, .reply textarea { font: inherit; font-size: 14px; padding: 8px 10px; border: 0; border-radius: 9px;
+  background: var(--bg-sunk); box-shadow: inset 0 0 0 1px var(--hl-strong); color: inherit; }
+.reply button { justify-self: start; }
+.reply-sent { color: #1d6b3a; }`;

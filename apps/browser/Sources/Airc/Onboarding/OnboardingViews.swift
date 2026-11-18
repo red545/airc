@@ -1199,8 +1199,9 @@ struct ThemeStep: View {
         model.onThemeChange?()
     }
 
+    /// darkfix: Airc's appearance for every window and page; each Space follows it unless it has its own.
     private var appearance: Binding<Appearance> {
-        Binding(get: { current.appearance }, set: { v in set { $0.appearance = v } })
+        Binding(get: { model.appAppearance }, set: { v in model.appAppearance = v })
     }
 
     private var intensity: Binding<Double> {

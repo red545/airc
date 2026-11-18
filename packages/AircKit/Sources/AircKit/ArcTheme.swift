@@ -35,16 +35,10 @@ public enum ArcTheme {
         return hex.isEmpty ? .neutral : SpaceTheme(colors: Array(hex.prefix(3)))
     }
 
-    /// Arc's per-theme light/dark choice, when present.
-    static func appearance(_ root: [String: Any]) -> Appearance {
-        for key in ["colorScheme", "appearance", "translucencyStyle"] {
-            if let s = label(root[key])?.lowercased() {
-                if s.contains("dark") { return .dark }
-                if s.contains("light") { return .light }
-            }
-        }
-        return .auto
-    }
+    /// darkfix: imported Spaces follow Airc's own appearance. Arc's Light / Dark / Auto applies to all Spaces (its help
+    /// centre), and the keys read here before were guesses with no Arc file behind them; a "light" in one of them pinned
+    /// imported Spaces light under a dark Mac. A Space can still choose its own in Edit Theme Color….
+    static func appearance(_ root: [String: Any]) -> Appearance { .auto }
 
     /// `{"_0": x}` → x (Swift enum payloads in Arc's JSON).
     static func unwrap(_ v: Any?) -> [String: Any] {

@@ -820,8 +820,49 @@ private struct AppearancePage: View {
     @ObservedObject var model: SettingsModel
     @Environment(\.aircTheme) private var theme
 
+    /// Spaces whose theme has its own Light or Dark (which wins over the app's), as of when the page opened.
+    @State private var ownAppearanceIDs: [String]?
+    private var ownAppearanceSpaces: [Space] {
+        let ids = ownAppearanceIDs ?? model.store.orderedSpaces.filter { $0.theme.appearance != .auto && !$0.isBlankWindow }.map(\.id)
+        return ids.compactMap { model.store.space($0) }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // darkfix: one appearance for all of Airc; Spaces follow it unless they have their own.
+            SettingsSection(title: "Appearance", help: "Auto follows macOS. Light and Dark set all of Airc: windows, the sidebar, Settings and web pages. Every Space follows this, unless you gave it its own Light or Dark in Edit Theme Color….") {
+                SettingsRow(title: "Airc") {
+                    AircSegmented(selection: Binding(get: { model.settings.values.appearance }, set: { model.settings.values.appearance = $0 }), segments: [
+                        .init(value: .auto, title: "Auto", symbol: "sparkles"),
+                        .init(value: .light, title: "Light", symbol: "sun.max"),
+                        .init(value: .dark, title: "Dark", symbol: "moon"),
+                    ])
+                    .frame(width: 260)
+                    .testAnchor("settings.appearance.app")
+                    .onAppear {
+                        ownAppearanceIDs = model.store.orderedSpaces.filter { $0.theme.appearance != .auto && !$0.isBlankWindow }.map(\.id)
+                    }
+                }
+                // The rows are the Spaces that had their own appearance when the page opened. A row stays after Follow
+                // Airc (it says so) so the page's layout doesn't change under the click: a row removed by its own button
+                // left a container over the control above it, which then took no clicks.
+                ForEach(ownAppearanceSpaces, id: \.id) { space in
+                    let follows = space.theme.appearance == .auto
+                    SettingsRow(title: space.name) {
+                        HStack(spacing: 10) {
+                            Text(follows ? "Follows Airc" : space.theme.appearance == .dark ? "Always Dark (its own theme)" : "Always Light (its own theme)")
+                                .aircFont(AircFont.body).foregroundStyle(theme.surfaceTextSecondary.color)
+                            Button("Follow Airc") {
+                                model.objectWillChange.send()
+                                try? model.store.updateSpace(space.id) { $0.theme.appearance = .auto }
+                            }
+                            .buttonStyle(.airc(.secondary, size: .small))
+                            .disabled(follows)
+                            .testAnchor("settings.appearance.follow." + space.id)
+                        }
+                    }
+                }
+            }
             SettingsSection(title: "Window", help: "The desktop shows through each Space's colour faintly, as in Arc. Text always keeps its contrast; inactive windows and Reduce Transparency go opaque.") {
                 SettingsRow(title: "Translucency") {
                     AircSegmented(selection: Binding(get: { model.settings.translucency }, set: { t in
@@ -831,7 +872,7 @@ private struct AppearancePage: View {
                     .frame(width: 240)
                 }
             }
-            SettingsSection(title: "New Spaces", help: "What a new Space looks like before you pick its colour.") {
+            SettingsSection(title: "New Spaces", help: "The colour a new Space starts with. New Spaces follow Airc's appearance above.") {
                 SettingsRow(title: "Theme") {
                     HStack(spacing: 4) {
                         ForEach(DesignTheme.presets.prefix(8)) { p in
@@ -841,14 +882,6 @@ private struct AppearancePage: View {
                                 .onTapGesture { model.settings.values.defaultThemePreset = p.id == "paper" ? nil : p.id }
                         }
                     }
-                }
-                SettingsRow(title: "Appearance") {
-                    AircSegmented(selection: Binding(get: { model.settings.values.defaultAppearance }, set: { model.settings.values.defaultAppearance = $0 }), segments: [
-                        .init(value: .auto, title: "Auto", symbol: "sparkles"),
-                        .init(value: .light, title: "Light", symbol: "sun.max"),
-                        .init(value: .dark, title: "Dark", symbol: "moon"),
-                    ])
-                    .frame(width: 260)
                 }
             }
             SettingsSection(title: "Sidebar") {

@@ -336,6 +336,7 @@ public struct AircThemePicker: View {
                     .init(value: .dark, title: "", symbol: "moon"),
                 ], height: 28)
                 .frame(width: 112)
+                .help("Auto follows Airc's appearance (Settings › Appearance). Light or Dark keeps this Space that way.")
             }
             .frame(height: 30)
             HStack(spacing: 4) {

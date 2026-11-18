@@ -8,18 +8,23 @@
 //   GET  /api/feedback               → 405: nothing is ever read back from here
 //   GET  /admin/feedback             the owner's list (vercel.json rewrites it to ?view=admin), behind the same
 //                                    sign-in as /admin/boosts (api/_lib/admin-gate.js); ?shot=<id> is an entry's picture
-//   POST /admin/feedback             action=done|open|delete&id=<entry>, from that page only (Origin)
+//   POST /admin/feedback             action=done|open|delete&id=<entry>, from that page only (Origin); action=reply with
+//                                    label, subject, text sends a reply (below) from the entry's form
+//   POST /api/admin/feedback-reply   the same sign-in, JSON { id, label, text, subject? } → 201 { sent: true, label, sentAt },
+//                                    or 200 { sent: false, already: true, … } when that label was sent before. Mails the
+//                                    entry's own reply address from hello@ (api/_lib/reply.js); never takes a recipient.
 // Each entry is a record in the sharing store (api/_lib/store.js) under feedback/, with a random id; its picture is a
 // file of its own. The owner gets an email per entry (Production only). Requests count per visitor like sharing's.
 // A message whose pictures never all arrived is swept a day later (api/sweep.js).
 import { gate, sameOrigin } from "./_lib/admin-gate.js";
 import {
-  clientKey, decodeFeedback, entryHTML, entryKey, imageKey, imageType, Invalid, MAX_BODY, MAX_IMAGE, notify, picturesOf, shotKey,
+  clientKey, decodeFeedback, entryHTML, REPLY_CSS, entryKey, imageKey, imageType, Invalid, MAX_BODY, MAX_IMAGE, notify, picturesOf, shotKey,
   stripMetadata,
 } from "./_lib/feedback.js";
 import { guarded, ID, json, newID, problem, readBytes, readText, sameSecret, sha256 } from "./_lib/http.js";
 import { page } from "./_lib/page.js";
 import { limit } from "./_lib/rate.js";
+import { decodeReply, ReplyError, sendReply } from "./_lib/reply.js";
 import { Conflict, getJSON, store, update } from "./_lib/store.js";
 
 const PATH = "/admin/feedback";
@@ -37,7 +42,7 @@ const notAllowed = () =>
 
 /** @param {Request} request */
 export function POST(request) {
-  if (isAdmin(request)) return adminAction(request);
+  if (isAdmin(request)) return new URL(request.url).searchParams.get("reply") === "1" ? replyRequest(request) : adminAction(request);
   return new URL(request.url).searchParams.get("publish") === "1" ? publishRequest(request) : submit(request);
 }
 
@@ -220,7 +225,7 @@ function adminPage(request) {
 Delete what you've dealt with, and anything someone asks you to delete.</p>
 <h2>Open</h2>${open.map((e) => entryHTML(e, PATH)).join("") || `<p class="lede">Nothing open.</p>`}
 <h2>Done</h2>${done.map((e) => entryHTML(e, PATH)).join("") || `<p class="lede">Nothing here.</p>`}`;
-    return page({ title: "Feedback · Airc", body, wide: true });
+    return page({ title: "Feedback · Airc", body, wide: true, css: REPLY_CSS });
   });
 }
 
@@ -230,7 +235,7 @@ function adminAction(request) {
     const closed = await gate(request);
     if (closed) return closed;
     if (!sameOrigin(request)) return problem(403, "origin", "Actions only come from the admin page itself.");
-    const form = new URLSearchParams(await readText(request, 4096));
+    const form = new URLSearchParams(await readText(request, 64 * 1024));
     const action = form.get("action") ?? "", id = form.get("id") ?? "";
     if (!ID.test(id)) return problem(400, "damaged", "No such entry.");
     const s = await store();
@@ -239,8 +244,55 @@ function adminAction(request) {
     if (action === "done" || action === "open") {
       await update(s, entryKey(id), (old) => ({ ...(old ?? r.value), done: action === "done" }));
     } else if (action === "delete") {
-      await s.del([entryKey(id), ...picturesOf(r.value).map((p) => p.key), ...(r.value.client ? [r.value.client] : [])]);
+      const claims = (await s.list(`feedback/replies/${id}/`)).map((b) => b.key);
+      await s.del([entryKey(id), ...picturesOf(r.value).map((p) => p.key), ...(r.value.client ? [r.value.client] : []), ...claims]);
+    } else if (action === "reply") {
+      const limited = await limit(s, request, "feedbackReply");
+      if (limited) return limited;
+      const sent = await reply(s, id, { label: form.get("label"), text: form.get("text"), subject: form.get("subject") });
+      if (sent.status >= 400) return sent;
     } else return problem(400, "damaged", "No such action.");
     return new Response(null, { status: 303, headers: { Location: `${PATH}${action === "delete" ? "" : `#f-${id}`}`, "Cache-Control": "no-store" } });
+  });
+}
+
+/** Sends a reply (api/_lib/reply.js) and answers with its result. @param {import("./_lib/store.js").Store} s
+ *  @param {string} id @param {{ label?: unknown, text?: unknown, subject?: unknown }} input */
+async function reply(s, id, input) {
+  try {
+    const r = await sendReply(s, id, decodeReply(input));
+    return json(r.body, r.status);
+  } catch (e) {
+    if (e instanceof ReplyError) return problem(e.status, e.code, e.message);
+    throw e;
+  }
+}
+
+/** POST /api/admin/feedback-reply (vercel.json rewrites it here): JSON only, so a form on another site can't send it.
+ *  @param {Request} request */
+function replyRequest(request) {
+  return guarded(async () => {
+    const closed = await gate(request);
+    if (closed) return closed;
+    if (request.headers.get("origin") && !sameOrigin(request)) return problem(403, "origin", "Replies only come from the admin page or the lead's tool.");
+    const type = (request.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+    if (type !== "application/json") return problem(415, "type", "Send the reply as JSON.");
+    const s = await store();
+    const limited = await limit(s, request, "feedbackReply");
+    if (limited) return limited;
+    let v;
+    try {
+      v = JSON.parse(await readText(request, 32 * 1024));
+    } catch (e) {
+      if (e instanceof SyntaxError) return problem(400, "invalid", "This isn't valid JSON.");
+      throw e;
+    }
+    if (typeof v !== "object" || v === null || Array.isArray(v)) return problem(400, "invalid", "This isn't a reply.");
+    for (const k of Object.keys(v)) {
+      if (!["id", "label", "text", "subject"].includes(k)) return problem(422, "invalid", `A reply has no field ${k.slice(0, 40)}; the address comes from the entry.`);
+    }
+    const id = typeof v.id === "string" ? v.id : "";
+    if (!ID.test(id)) return problem(404, "notFound", "No such entry.");
+    return reply(s, id, v);
   });
 }

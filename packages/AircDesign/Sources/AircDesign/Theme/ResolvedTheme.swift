@@ -174,11 +174,9 @@ extension SpaceTheme {
         case .light: return false
         case .dark: return true
         case .auto:
-            let cs = colors.prefix(SpaceTheme.maxColors)
-            guard !cs.isEmpty else { return systemIsDark }
-            let l = cs.map(\.oklab.l).reduce(0, +) / Double(cs.count)
-            if l >= 0.80 { return false }
-            if l <= 0.42 { return true }
+            // darkfix: Auto follows the app's appearance (Settings › Appearance; macOS when that is Auto), whatever
+            // the colours. It used to keep very light colours light and very dark ones dark, so an Arc-style pastel
+            // Space stayed light under a dark Mac and nothing in Settings could change it.
             return systemIsDark
         }
     }

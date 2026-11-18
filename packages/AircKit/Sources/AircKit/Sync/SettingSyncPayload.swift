@@ -65,7 +65,7 @@ public enum SyncSettings {
     /// Mac. docs/user/sync.md lists them for people.
     public static let synced: Set<String> = [
         // Appearance
-        "app.translucency", "app.defaultThemePreset", "app.defaultAppearance", "app.personalization",
+        "app.translucency", "app.defaultThemePreset", "app.defaultAppearance", "app.appearance", "app.personalization",
         "app.tabPreviews", "app.sidebarFeedbackButton", "app.showsSpaceHeaderOnSingleUnnamed", "app.servicePreviewsOff",
         "window.sidebarOnRight",
         // Command Bar, search and Site Search

@@ -12,7 +12,8 @@ import Foundation
 /// white (light) or black (dark) underlay, with grain on top.
 public struct SpaceTheme: Hashable, Sendable, Codable {
     public enum Appearance: String, Hashable, Sendable, Codable, CaseIterable {
-        /// Follows the system, except very light colours stay light and very dark colours stay dark.
+        /// `auto` follows the app's appearance (Settings › Appearance, which follows macOS on Auto); `light` and `dark`
+        /// are the Space's own choice and win over it.
         case auto, light, dark
     }
 
@@ -76,14 +77,15 @@ extension SpaceTheme {
         public let theme: SpaceTheme
     }
 
-    /// Twelve curated themes: six light, six dark. Shown in onboarding and the theme picker.
+    /// Twelve curated themes: six light ones that follow the app's appearance (darkfix: they used to pin Light) and six
+    /// dark ones. Shown in onboarding and the theme picker.
     public static let presets: [Preset] = [
         Preset(id: "paper", name: "Paper", theme: SpaceTheme()),
-        Preset(id: "mint", name: "Mint", theme: SpaceTheme(colors: [AircColor(0x53CA9F)], appearance: .light)),
-        Preset(id: "sky", name: "Sky", theme: SpaceTheme(colors: [AircColor(0x86CDF5), AircColor(0x6D8CF0)], grain: 0.25, appearance: .light)),
-        Preset(id: "lilac", name: "Lilac", theme: SpaceTheme(colors: [AircColor(0xB9A2F2), AircColor(0xEFA3C4)], grain: 0.25, appearance: .light)),
-        Preset(id: "peach", name: "Peach", theme: SpaceTheme(colors: [AircColor(0xF7B184), AircColor(0xF08A9A)], grain: 0.25, appearance: .light)),
-        Preset(id: "lemon", name: "Lemon", theme: SpaceTheme(colors: [AircColor(0xF4DA6E), AircColor(0x9BDB8A)], grain: 0.25, appearance: .light)),
+        Preset(id: "mint", name: "Mint", theme: SpaceTheme(colors: [AircColor(0x53CA9F)])),
+        Preset(id: "sky", name: "Sky", theme: SpaceTheme(colors: [AircColor(0x86CDF5), AircColor(0x6D8CF0)], grain: 0.25)),
+        Preset(id: "lilac", name: "Lilac", theme: SpaceTheme(colors: [AircColor(0xB9A2F2), AircColor(0xEFA3C4)], grain: 0.25)),
+        Preset(id: "peach", name: "Peach", theme: SpaceTheme(colors: [AircColor(0xF7B184), AircColor(0xF08A9A)], grain: 0.25)),
+        Preset(id: "lemon", name: "Lemon", theme: SpaceTheme(colors: [AircColor(0xF4DA6E), AircColor(0x9BDB8A)], grain: 0.25)),
         Preset(id: "ocean", name: "Ocean", theme: SpaceTheme(colors: [AircColor(0x2F6AF0), AircColor(0x13B5B0)], grain: 0.35, appearance: .dark)),
         Preset(id: "grape", name: "Grape", theme: SpaceTheme(colors: [AircColor(0x7A4CF0), AircColor(0xE0559F), AircColor(0x3A4FD8)], grain: 0.35, appearance: .dark)),
         Preset(id: "forest", name: "Forest", theme: SpaceTheme(colors: [AircColor(0x2A8A5C), AircColor(0x7A9A2E)], grain: 0.35, appearance: .dark)),

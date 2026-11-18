@@ -160,3 +160,7 @@
 
 # FILE chrome/browser/ui/views/bubble_anchor_util_views.cc | Bubbles aligned with Page Info (Safety Tip on lookalike domains, suspicious-site, wallet) get no anchor view and a point at the page's top left when there is no BrowserView (null deref of browser_view in both helpers). | Seam: the helpers are free functions over BrowserView with no embedder anchor.
 039-page-info-anchor.patch
+
+# Settings › Passwords: Airc's own filling off per profile.
+# FILE chrome/browser/password_manager/chrome_password_manager_client.cc | A profile whose Airc password filling is off (Settings › Passwords, so a password manager's extension fills instead) gets no fill on page load, no suggestions and no save prompts. | Seam: IsFillingEnabled has no embedder or pref override; credentials_enable_service only stops saving.
+040-password-filling.patch

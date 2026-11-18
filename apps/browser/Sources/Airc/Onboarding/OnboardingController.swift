@@ -45,6 +45,7 @@ final class OnboardingController {
         model = OnboardingModel(systemDark: dark)
         model.importApp = app
         model.translucency = settings.translucency
+        model.appAppearance = settings.values.appearance
         model.memberName = Self.memberName(settings: settings)
         model.memberNumber = Self.memberNumber(deviceID: store.deviceID)
         model.loginsAvailable = app.credentialSink.acceptsCredentials
@@ -267,6 +268,14 @@ final class OnboardingController {
             } else {
                 self?.model.closeBlockedReason = nil
             }
+        }.store(in: &subscriptions)
+        // darkfix: the Appearance control is Airc's own, live (App/AppAppearance.swift); the card redraws in it.
+        model.$appAppearance.removeDuplicates().dropFirst().sink { [weak self] a in
+            guard let self else { return }
+            self.settings.values.appearance = a
+            AppAppearance.apply(a)
+            self.model.systemDark = AppAppearance.isDark
+            self.model.onThemeChange?()
         }.store(in: &subscriptions)
         model.$translucency.removeDuplicates().dropFirst().sink { [weak self] t in
             self?.settings.translucency = t

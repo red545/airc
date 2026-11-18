@@ -160,6 +160,7 @@ source_set("core") {
     "airc_passkeys.h",
     "airc_passkeys.mm",
     "airc_password_prompt.h",
+    "airc_passwords.h",
     "airc_password_prompt.mm",
     "airc_permissions.h",
     "airc_permissions.mm",

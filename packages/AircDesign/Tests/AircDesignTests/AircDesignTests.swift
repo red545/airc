@@ -86,11 +86,19 @@ func close(_ a: AircColor, _ b: AircColor, _ tolerance: Double = 0.5 / 255) -> B
         #expect(t.overlay == AircColor(0x3A4FD8))
     }
 
-    @Test func autoAppearanceKeepsVeryLightAndVeryDarkColours() {
-        #expect(SpaceTheme(colors: [AircColor(0xF0EAE5)]).rendersDark(systemIsDark: true) == false)
-        #expect(SpaceTheme(colors: [AircColor(0x1B1E3A)]).rendersDark(systemIsDark: false) == true)
-        #expect(SpaceTheme(colors: [AircColor(0xE1676F)]).rendersDark(systemIsDark: true) == true)
+    @Test func autoAppearanceFollowsTheApp() {
+        // darkfix: Auto follows the app (and so macOS) for every colour; Light and Dark are the Space's own choice.
+        for c in [AircColor(0xF0EAE5), AircColor(0x1B1E3A), AircColor(0xE1676F), AircColor(0x90DDC1)] {
+            #expect(SpaceTheme(colors: [c]).rendersDark(systemIsDark: true) == true)
+            #expect(SpaceTheme(colors: [c]).rendersDark(systemIsDark: false) == false)
+        }
         #expect(SpaceTheme().rendersDark(systemIsDark: false) == false)
+        #expect(SpaceTheme().rendersDark(systemIsDark: true) == true)
+        #expect(SpaceTheme(colors: [AircColor(0xF0EAE5)], appearance: .light).rendersDark(systemIsDark: true) == false)
+        #expect(SpaceTheme(colors: [AircColor(0xF0EAE5)], appearance: .dark).rendersDark(systemIsDark: false) == true)
+        // The light presets follow the app now; the dark ones keep their own Dark.
+        #expect(SpaceTheme.presets.filter { $0.theme.appearance == .light }.isEmpty)
+        #expect(SpaceTheme.presets.filter { $0.theme.appearance == .dark }.count == 6)
     }
 
     @Test func tooStrongColoursAreWashedOutInsteadOfFailingContrast() {

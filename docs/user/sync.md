@@ -27,7 +27,7 @@ With **Sync settings** on, a setting you change on one Mac changes on your other
 
 | Synced | Settings |
 |---|---|
-| Appearance | The theme new Spaces start with (and light, dark or automatic), translucency, the app icon, sounds and haptics, tab previews, Site Previews, the Send Feedback button, the Space header, the sidebar's side |
+| Appearance | Airc's appearance (Auto, Light or Dark), the theme new Spaces start with, translucency, the app icon, sounds and haptics, tab previews, Site Previews, the Send Feedback button, the Space header, the sidebar's side |
 | Command Bar and search | Search suggestions, each profile's search engine and its suggestions, each profile's Site Searches (and which one is the default), Ask AI in the Command Bar, Instant Links |
 | Shortcuts | Your shortcut changes, and the ⌘1–9 and ⌥ sidebar choices |
 | Links | Air Traffic Control rules, where links from other apps open, Little Airc (its shortcut, looking up the selection, ⌥⌘-click, when Little Airc windows go to the Archive), Peek, Shared Quotes, dragging the window from the top of pages, picture in picture and its site choices |

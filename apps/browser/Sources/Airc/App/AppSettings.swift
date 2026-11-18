@@ -11,6 +11,13 @@ final class AppSettings: ObservableObject {
         var translucency: AircTranslucency = .default
         /// Preset id (AircDesign) new Spaces start with; nil keeps the neutral theme.
         var defaultThemePreset: String?
+        /// darkfix: Airc's own appearance (Settings › Appearance): Auto follows macOS, Light and Dark force it for every
+        /// window, Settings and every page (App/AppAppearance.swift). Spaces on Auto follow it; a Space's own Light or
+        /// Dark (Edit Theme Color…) wins for that Space.
+        var appearance: Appearance = .auto
+        /// Before darkfix, the only Appearance control in Settings (under New Spaces): the appearance new Spaces started
+        /// with. Not read any more (new Spaces follow the app); kept so older files and Macs still sync. A non-Auto value
+        /// in a file without `appearance` becomes the app's appearance once, since that's what choosing it meant.
         var defaultAppearance: Appearance = .auto
         var onboardingStartedAt: Date?
         var onboardingCompletedAt: Date?
@@ -133,6 +140,12 @@ final class AppSettings: ObservableObject {
             passwordManagerOffered = (try? c.decodeIfPresent([String].self, forKey: .passwordManagerOffered)) ?? d.passwordManagerOffered
             defaultThemePreset = try? c.decodeIfPresent(String.self, forKey: .defaultThemePreset)
             defaultAppearance = (try? c.decodeIfPresent(Appearance.self, forKey: .defaultAppearance)) ?? d.defaultAppearance
+            if let a = try? c.decodeIfPresent(Appearance.self, forKey: .appearance) {
+                appearance = a
+            } else if defaultAppearance != .auto {
+                appearance = defaultAppearance
+                defaultAppearance = .auto
+            }
             onboardingStartedAt = try? c.decodeIfPresent(Date.self, forKey: .onboardingStartedAt)
             onboardingCompletedAt = try? c.decodeIfPresent(Date.self, forKey: .onboardingCompletedAt)
             memberName = try? c.decodeIfPresent(String.self, forKey: .memberName)
@@ -204,7 +217,7 @@ final class AppSettings: ObservableObject {
 
     var defaultTheme: SpaceTheme {
         var t = values.defaultThemePreset.flatMap(DesignTheme.preset)?.model ?? .neutral
-        t.appearance = values.defaultAppearance
+        t.appearance = .auto   // darkfix: new Spaces follow the app's appearance
         return t
     }
 

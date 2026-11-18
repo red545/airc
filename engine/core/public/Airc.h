@@ -153,6 +153,9 @@ AIRC_EXPORT
 - (void)releaseNavigationHoldReady;
 - (void)watchCastRoutes;
 @property BOOL passwordsOffered;
+// Airc's own password filling (and saving) in this profile; off: no fill on page
+// load, no suggestions (Settings › Passwords). In memory: set it at every launch.
+@property BOOL passwordsFilled;
 @property BOOL addressesAutofilled;
 @property BOOL cardsAutofilled;
 - (void)clearBrowsingData:(NSArray<NSString*>*)types

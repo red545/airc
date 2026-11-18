@@ -34,6 +34,7 @@
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/unpacked_installer.h"
 #include "airc/core/airc_launch_switches.h"
+#include "airc/core/airc_passwords.h"
 #include "base/functional/bind.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/mojom/manifest.mojom-shared.h"
@@ -71,6 +72,10 @@ class ProfileGoneObserver : public ProfileObserver {
   __weak AircProfile* wrapper_;
   base::ScopedObservation<Profile, ProfileObserver> observation_{this};
 };
+
+// AircProfile.passwordsFilled off (airc_passwords.h): present on the original profile.
+const char kPasswordFillingOff = 0;
+struct PasswordFillingOff : base::SupportsUserData::Data {};
 
 bool BoolPref(Profile* profile, const char* name) {
   const PrefService::Preference* pref =
@@ -237,6 +242,20 @@ bool IsProfileDeleting(const Profile* profile) {
   SetBoolPref(_profile.get(), password_manager::prefs::kCredentialsEnableService, offered);
 }
 
+- (BOOL)passwordsFilled {
+  return airc::PasswordFillingAllowed(_profile.get());
+}
+
+- (void)setPasswordsFilled:(BOOL)filled {
+  if (!_profile) return;
+  Profile* original = _profile->GetOriginalProfile();
+  if (filled) {
+    original->RemoveUserData(&kPasswordFillingOff);
+  } else {
+    original->SetUserData(&kPasswordFillingOff, std::make_unique<PasswordFillingOff>());
+  }
+}
+
 - (BOOL)addressesAutofilled {
   return BoolPref(_profile.get(), autofill::prefs::kAutofillProfileEnabled);
 }
@@ -360,3 +379,9 @@ bool IsProfileDeleting(const Profile* profile) {
   installer->Load(base::FilePath(base::SysNSStringToUTF8(path)));
 }
 @end
+
+namespace airc {
+bool PasswordFillingAllowed(const Profile* profile) {
+  return !profile || !profile->GetOriginalProfile()->GetUserData(&kPasswordFillingOff);
+}
+}

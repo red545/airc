@@ -302,5 +302,9 @@
   "chrome/browser/ui/views/bubble_anchor_util_views.cc": {
     "before": "013004b459bcd5176b372c26d5d89d9f18b91fbbdd67a206bd3287331b696509",
     "after": "1171eadc2ee11146b3760248d3b0333c4dafc2870f3146afa6c319af4b2119f4"
+  },
+  "chrome/browser/password_manager/chrome_password_manager_client.cc": {
+    "before": "7f733ca72014891ee7cb31ec6cd0fba15adaaa67228635e0ba12b11847abe180",
+    "after": "264f07e67cd24b84f98bf03230253c823b31c8d4aa5009468457e913fabbceaa"
   }
 }

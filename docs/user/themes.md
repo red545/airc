@@ -7,8 +7,14 @@ blur, with the grain on top.
 
 ## Light, dark and automatic
 
-**Auto** follows your Mac's appearance, except that a very light theme stays light and a very dark one stays dark, as in
-Arc. **Light** and **Dark** keep the theme one way whatever the Mac does.
+Airc has one appearance for everything: **Settings › Appearance › Airc**. **Auto** follows your Mac (including its
+own Auto switch at sunset and sunrise); **Light** and **Dark** set all of Airc that way: windows, the sidebar, Settings
+and web pages. It changes at once, without a restart.
+
+Every Space follows that, whatever its colors: a theme set to **Auto** is just the app's appearance. A Space can still
+have its own: choose **Light** or **Dark** in its theme, and it stays that way. Settings › Appearance lists any Space
+with its own choice, with a **Follow Airc** button. New Spaces, Spaces made during setup and Spaces imported from Arc
+start on Auto. (Picking one of the dark preset themes, like Ocean or Midnight, gives that Space its own Dark.)
 
 Whatever the colors, the sidebar's text is kept readable: the theme gives way before the text does. Tab titles have at
 least 4.5:1 contrast on every part of the background, secondary labels and icons 3:1, placeholders 2.4:1, also at

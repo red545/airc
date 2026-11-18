@@ -1,0 +1,28 @@
+# Airc 0.1.33 (cut e1a9a5da; build revision ba4c2862; branch release/0.1.33-cut). Claims from its approved notes (one
+# line: Dark mode works). NOT TO POST before release045 posts LIVE for 0.1.33 in briefs/queue.md: plan and approve
+# only then, after checking the public repo shows the release (owner rule).
+slug = "2026-11-18-release-0.1.33"
+title = "Airc 0.1.33: dark mode for all of Airc"
+kind = "release"
+since = "0.1.33"
+tag = ""
+summary = """
+One text post. Dark mode is broadly wanted, so it gets 10:30. No new shots in the cut.
+"""
+order = """
+1. 10:30 UTC on the first day after LIVE whose 10:30 can move (move that day's 10:30 to a free afternoon slot).
+"""
+checked = """
+- 0.1.33's notes: Settings › Appearance › Airc has Auto (follows your Mac), Light or Dark for the whole app (windows,
+  the sidebar, Settings and every web page, live); Spaces follow it unless given their own Light or Dark in Edit Theme
+  Color…, listed under Settings › Appearance with Follow Airc; Arc's light Space colours no longer stay light when the
+  Mac is dark.
+- Please know, kept: a site with no dark style stays light, so the post says "pages that have a dark style follow".
+- Not claimed: anything about password filling (release045: the 0.1.32 caveat stays); no Claude plan wording.
+"""
+
+[[post]]
+label = "Dark mode for all of Airc"
+text = """
+Dark mode, for all of Airc: Settings › Appearance has Auto, Light or Dark. Windows, the sidebar and Settings switch live, and pages that have a dark style follow. Arc's cream and pastel Spaces go dark too. New in Airc 0.1.33.
+"""
