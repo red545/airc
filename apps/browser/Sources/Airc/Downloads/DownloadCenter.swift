@@ -61,11 +61,7 @@ final class DownloadCenter: ObservableObject {
         observed.removeAll()
     }
 
-    /// Agents (Agent/AgentFiles.swift): a download an agent's page started is the agent's, not in this list.
-    static var agentClaim: ((EngineDownload, String) -> Bool)?
-
     private func update(_ d: EngineDownload, profileID: String) {
-        if let claim = Self.agentClaim, claim(d, profileID) { return }
         let key = profileID + "/" + d.id
         if d.removed {
             byKey[key] = nil

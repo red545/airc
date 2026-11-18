@@ -23,25 +23,6 @@ final class AgentActivityTests: XCTestCase {
         XCTAssertEqual(m.row("agent-1-1")?.site, "mail.google.com", "host only: no path, query or fragment")
     }
 
-    func testNeedsYouWaitsForTheAgentAndClears() {
-        var m = AgentActivityModel()
-        m.tabOpened(row(1, 1))
-        let id = "agent-1-1"
-        XCTAssertTrue(m.setNeedsYou(id, "Sign in"))
-        XCTAssertFalse(m.setNeedsYou(id, "Sign in"), "no change, no update")
-        XCTAssertEqual(m.row(id)?.shown, true, "a row that needs the person shows")
-        XCTAssertEqual(m.needsYouCount, 1)
-        XCTAssertEqual(m.state(m.row(id)!, now: t0), .needsYou("Sign in"))
-        m.began(id, caption: "Typing", at: t0)
-        XCTAssertEqual(m.state(m.row(id)!, now: t0), .acting("Typing"), "while the agent acts (a saved login), it reads as acting")
-        m.finished(id, at: t0)
-        XCTAssertEqual(m.state(m.row(id)!, now: t0.addingTimeInterval(5)), .needsYou("Sign in"))
-        XCTAssertTrue(m.setNeedsYou(id, nil))
-        XCTAssertEqual(m.needsYouCount, 0)
-        m.sessionEnded("session-1", .done, at: t0.addingTimeInterval(6))
-        XCTAssertFalse(m.setNeedsYou(id, "Captcha"), "an ended row never needs the person")
-    }
-
     func testActingThenIdleThenDoneThenFadedThenGone() {
         var m = AgentActivityModel()
         m.tabOpened(row(1, 1))

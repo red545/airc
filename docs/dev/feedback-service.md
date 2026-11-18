@@ -66,30 +66,10 @@ password as /admin/boosts (`SHARING_ADMIN_SECRET`, `api/_lib/admin-gate.js`). It
 their message, reply address, app details and pictures (`?shot=<id>&n=<n>`), with Mark as done, Mark as open and
 Delete (which removes the entry, its pictures and its marker). Messages still waiting for pictures aren't listed. Delete anything someone asks to have deleted.
 
-## Replies
-
-The owner can answer a sender who left a reply address with a short email from `Airc <hello@aircbrowser.com>`
-(Reply-To hello@), sent by the site itself through Resend (`RESEND_API_KEY`, `api/_lib/reply.js`):
-
-- `POST /api/admin/feedback-reply` (rewritten to `/api/feedback?view=admin&reply=1`), the admin sign-in, JSON
-  `{ "id": "<entry>", "label": "working-on-it", "text": "…", "subject": "…" }` (subject optional, default
-  "Re: your Airc feedback"). The recipient is always the entry's own reply address; a request can't name one, and an
-  entry without an address is refused (422 `noAddress`). Answers 201 `{ sent: true, label, sentAt }`, or 200
-  `{ sent: false, already: true, … }` when that label was sent before: each (entry, label) goes out once (a claim
-  record under `feedback/replies/<id>/`, Resend's Idempotency-Key `reply-<id>-<label>`). A failed send records nothing
-  (502) and can be retried. JSON only, and from another Origin it's refused, so a page elsewhere can't send it.
-  30 replies an hour per visitor (`feedbackReply`).
-- The sent replies show on the entry (label, time, subject, text), with a Reply form for the next label
-  (working-on-it, released, follow-up). Keep an entry until its last reply is sent: Delete removes the address too.
-- The lead's tool on the Linux box, `tools/feedback-reply.py <entry-id> --label released --text-file <file>
-  [--subject …]`, posts the same request with the admin password from the secrets folder and prints only the status.
-
 ## Testing
 
 - `cd apps/marketing && node --test test/feedback.test.mjs`: validation, the resend marker, storage, the rate limit,
   the notice (Production only, no picture), the admin page's sign-in, listing, escaping, done/open/delete, the sweep.
-- `node --test test/feedback-reply.test.mjs`: replies against a fake Resend: sign-in, recipient from the entry only,
-  once per label (retries, concurrent sends, stale claims), validation, the form and the entry's list.
 - `SHARING_ADMIN_PASSWORD=… VERCEL_BYPASS=… node scripts/feedback-smoke.mjs <Preview URL>`: the whole flow against a
   Preview with the real store; it refuses aircbrowser.com and deletes what it sent.
 - `node scripts/sharing-dev.mjs [port]` serves it locally for `--script parityfeedback` (real keys and clicks:

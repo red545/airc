@@ -322,5 +322,11 @@
     "detail": "1Password's Unlock button now opens its popup, and Proton Pass, Bitwarden and 1Password popups open at full size. In Settings › Passwords you can let your password manager's extension save and fill logins instead of Airc.",
     "action": "none",
     "image": null
+  },
+  "Dark mode works": {
+    "title": "Dark mode for all of Airc",
+    "detail": "In Settings › Appearance › Airc, choose Auto to follow your Mac, or Light or Dark for windows, the sidebar, Settings and every page. Spaces follow it unless you gave one its own look.",
+    "action": "none",
+    "image": null
   }
 }

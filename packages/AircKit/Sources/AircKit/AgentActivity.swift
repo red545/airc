@@ -306,9 +306,6 @@ public struct AgentTabRow: Equatable, Identifiable, Sendable {
     /// The last time an ended row was held on screen (watched, or its taken-over page shown): its time to go counts
     /// from then, so it never vanishes under the person.
     public var heldAt: Date?
-    /// The page needs the person: "Sign in" (a sign-in page, a 401, an SSO step) or "Captcha". The row says "Needs
-    /// you", the folder gets a badge, until the page no longer asks.
-    public var needsYou: String?
 
     public init(id: String, sessionKey: String, clientKey: String?, client: String, profileID: String, window: Int, tab: Int,
                 title: String = "", url: URL? = nil, started: Date) {
@@ -333,8 +330,6 @@ public struct AgentTabRow: Equatable, Identifiable, Sendable {
 public enum AgentRowState: Equatable, Sendable {
     case acting(String?)
     case idle
-    /// "Needs you · Sign in": the agent's page waits for the person.
-    case needsYou(String)
     /// "Done" (or "Stopped", "You took over") right after the end.
     case justEnded(AgentTabRow.End)
     /// Faded: "Ended 5 min ago".
@@ -462,18 +457,6 @@ public struct AgentActivityModel: Sendable {
     }
 
     /// "Clear": the rows that ended go.
-    /// The page needs the person (nil: not any more). True when that changed. A row that needs the person shows.
-    @discardableResult
-    public mutating func setNeedsYou(_ id: String, _ reason: String?) -> Bool {
-        guard let i = rows.firstIndex(where: { $0.id == id }), rows[i].isLive, rows[i].needsYou != reason else { return false }
-        rows[i].needsYou = reason
-        if reason != nil { rows[i].shown = true }
-        return true
-    }
-
-    /// Live rows that wait for the person (the folder's badge).
-    public var needsYouCount: Int { rows.filter { $0.isLive && $0.shown && $0.needsYou != nil }.count }
-
     public mutating func clearEnded() { rows.removeAll { !$0.isLive } }
 
     /// Ended rows the person has on screen now (watching it, or its taken-over page shown) stay: their time to go
@@ -509,8 +492,6 @@ public struct AgentActivityModel: Sendable {
         }
         if inFlight[r.id] != nil { return .acting(r.caption) }
         if let last = r.lastAction, now.timeIntervalSince(last) < Self.actingTail { return .acting(r.caption) }
-        // Once the agent stops acting (it may still fill a saved login itself).
-        if let n = r.needsYou { return .needsYou(n) }
         return .idle
     }
 

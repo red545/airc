@@ -29,7 +29,6 @@ extension SnapshotRunner {
         step { done in spike.navigationChecks(done) }
         step { done in spike.loggedInChecks(done) }      // AgentsCheck.swift (mcp1)
         step { done in spike.approvalChecks(done) }
-        step { done in spike.feedbackChecks(done) }      // AgentFeedbackCheck.swift (mcpfeedback)
         step { done in spike.configChecks(done) }
         step { done in spike.hiddenComparison(done) }
         step { done in spike.idleCost(done) }
@@ -145,8 +144,6 @@ final class AgentSpike {
     var frontAtStart: String?
     /// Every time macOS made Airc the active app during the run (it must never happen: agents never activate Airc).
     var activations = 0
-    /// Activations the FG real-input step made itself (a person clicking in Settings), not an agent's.
-    var deliberateActivations = 0
     var activeObserver: NSObjectProtocol?
     var airIsFront: Bool { NSWorkspace.shared.frontmostApplication?.processIdentifier == getpid() || NSApp.isActive }
     var front: String { NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "none" }
@@ -818,15 +815,8 @@ final class AgentSpike {
             note("agentspike \(engine): demo setup: activation checks don't apply (the person is in Settings; \(activations) activations)")
         } else {
             check(!(runner.c?.window.isKeyWindow ?? false) || personWindowKeyAtStart, "the person's window kept its key state")
-            if deliberateActivations > 0 {
-                // FG real input: the step's own clicks made Airc active (a person in Settings); agents still mustn't.
-                check(activations - deliberateActivations == 0,
-                      "no agent made Airc active (\(activations - deliberateActivations) by agents, \(deliberateActivations) by the real-input step's own clicks)")
-                note("agentspike \(engine): front checks don't apply after real input (front at start \(frontAtStart ?? "none"), at end \(front)); the posted runs assert them")
-            } else {
-                check(activations == 0 && !airIsFront,
-                      "Airc never became the active app during the run (\(activations) activations; front at start \(frontAtStart ?? "none"), at end \(front))")
-            }
+            check(activations == 0 && !airIsFront,
+                  "Airc never became the active app during the run (\(activations) activations; front at start \(frontAtStart ?? "none"), at end \(front))")
         }
         personWindowUntouched()
         if let o = activeObserver { NotificationCenter.default.removeObserver(o) }

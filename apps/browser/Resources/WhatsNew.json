@@ -2,6 +2,17 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.33",
+      "highlights": [
+        {
+          "title": "Dark mode for all of Airc",
+          "lead": "Dark mode works",
+          "detail": "In Settings › Appearance › Airc, choose Auto to follow your Mac, or Light or Dark for windows, the sidebar, Settings and every page. Spaces follow it unless you gave one its own look.",
+          "icon": "moon"
+        }
+      ]
+    },
+    {
       "version": "0.1.32",
       "highlights": [
         {

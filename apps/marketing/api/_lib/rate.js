@@ -18,7 +18,6 @@ export const LIMITS = {
   admin: 20, // failed admin sign-ins
   feedback: 10, // feedback sent from Airc (api/feedback.js)
   feedbackImage: 60, // the pictures sent after a feedback message (at most 5 each)
-  feedbackReply: 30, // the admin's replies to feedback senders (api/_lib/reply.js)
 };
 
 /** @param {number} [now] */

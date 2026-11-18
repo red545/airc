@@ -893,8 +893,6 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,
                  initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping ([URL]?) -> Void) {
-        // An agent's upload_file (Agent/AgentFiles.swift) answers its own page's panel; nothing shows.
-        if let files = WebKitAgentFiles.take(for: webView) { return completionHandler(files) }
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = parameters.allowsMultipleSelection
         panel.canChooseDirectories = parameters.allowsDirectories

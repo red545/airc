@@ -39,9 +39,6 @@ final class AgentCenter {
         /// Settings › Agents › "Keep finished agents for": minutes a finished agent stays in the Agents folder (1, 5, 30);
         /// 0 until the person clears it. 5 by default.
         var keepFinishedMinutes = 5
-        /// Settings › Agents › "Files agents may upload": a folder whose files upload_file may use (nil: only the
-        /// app's own Airc folder).
-        var uploadFolder: String?
         var keepFinished: TimeInterval? { keepFinishedMinutes > 0 ? TimeInterval(keepFinishedMinutes) * 60 : nil }
 
         init() {}
@@ -54,15 +51,11 @@ final class AgentCenter {
             remoteEnabled = try c.decodeIfPresent(Bool.self, forKey: .remoteEnabled) ?? false
             remotePort = try c.decodeIfPresent(Int.self, forKey: .remotePort)
             keepFinishedMinutes = try c.decodeIfPresent(Int.self, forKey: .keepFinishedMinutes) ?? 5
-            uploadFolder = try c.decodeIfPresent(String.self, forKey: .uploadFolder)
         }
     }
 
     weak var app: AppDelegate?
     private(set) var settings = Settings()
-    /// Downloads agents' pages started (AgentFiles.swift), by profile/engine id, and each agent tab's last input.
-    var agentDownloads: [String: AgentDownload] = [:]
-    var lastAgentAction: [ObjectIdentifier: Date] = [:]
     private var runEnabled = false
     private var runGrants: [String] = []      // test builds: names or IDs from --agent-grant
     private var runHTTP = false
@@ -110,7 +103,6 @@ final class AgentCenter {
     func launch(app: AppDelegate) -> Bool {
         self.app = app
         launched = true
-        DownloadCenter.agentClaim = { [weak self] d, profileID in self?.claimDownload(d, profileID: profileID) ?? false }
         let args = CommandLine.arguments
         headless = args.contains("--agent-headless")
         #if AIRC_TESTING
@@ -316,43 +308,6 @@ final class AgentCenter {
     }
 
     /// Settings › Agents › "Keep finished agents for" (minutes; 0: until cleared).
-    /// Settings › Agents › an app's rules. A new profile rule ends the app's connections in other profiles (their
-    /// windows close); a new blocked site applies to the next call.
-    func setProfileRule(_ key: String, _ profileID: String?) {
-        guard let i = settings.clients.firstIndex(where: { $0.key == key }) else { return }
-        settings.clients[i].profile = profileID
-        saveSettings()
-        if let profileID {
-            let off = live.values.filter { $0.clientKey == key && $0.profileID != nil && $0.profileID != profileID }
-            for s in off {
-                for w in windows.values where w.ownerKey == s.ownerKey { closeWindow(w, end: .stopped) }
-                s.profileID = nil
-            }
-        }
-        onEvent?("client-profile \(key) \(profileID ?? "any")")
-    }
-
-    func setBlockedSites(_ key: String, _ sites: [String]) {
-        guard let i = settings.clients.firstIndex(where: { $0.key == key }) else { return }
-        settings.clients[i].blockedSites = sites.isEmpty ? nil : sites
-        saveSettings()
-        onEvent?("client-sites \(key) \(sites.joined(separator: ","))")
-    }
-
-    /// "example.com" from what the person typed ("https://www.Example.com/x", "example.com").
-    static func siteHost(_ raw: String) -> String? {
-        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !t.isEmpty else { return nil }
-        let host = URL(string: t.contains("://") ? t : "https://" + t)?.host ?? t
-        let h = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
-        return h.isEmpty || h.contains(" ") ? nil : h
-    }
-
-    func setUploadFolder(_ path: String?) {
-        settings.uploadFolder = path
-        saveSettings()
-    }
-
     func setKeepFinished(minutes: Int) {
         settings.keepFinishedMinutes = max(0, minutes)
         saveSettings()
@@ -574,13 +529,6 @@ final class AgentCenter {
             }
         }
         let resolved = AgentClientIdentity.resolve(session: session)
-        // The app's profile rule (Settings › Agents): it works in that profile only.
-        if let rule = client(resolved.key)?.profile, profiles.contains(where: { $0.id == rule }) {
-            if let asked = session.profileID, asked != rule, let p = profiles.first(where: { $0.id == rule }) {
-                return answer("\(client(resolved.key)?.name ?? "This app") may only use the profile \(p.name) (Airc › Settings › Agents).")
-            }
-            session.profileID = rule
-        }
         // Asked on every connection: this connection's own key, so no other connection shares its answer.
         let identity = resolved.remember ? resolved
             : AgentClientIdentity(key: "\(resolved.key)#\(session.id)", displayName: resolved.displayName,
@@ -675,25 +623,16 @@ final class AgentCenter {
     }
 
     func listProfiles(_ s: AgentSession) -> AgentResult {
-        let open = profileRule(s).map { r in grantedProfiles.filter { $0.id == r.id } } ?? grantedProfiles
+        let open = grantedProfiles
         let list: [[String: Any]] = open.map { ["id": $0.id, "name": $0.name, "emoji": $0.emoji, "inUse": $0.id == s.profileID] }
         return .json(["profiles": list, "otherProfiles": profiles.count - open.count,
                       "note": "Each profile has its own signed-in sites. Private windows are never open to agents."])
-    }
-
-    /// The profile an app is held to (Settings › Agents), if any and still there.
-    func profileRule(_ s: AgentSession) -> Profile? {
-        guard let id = s.clientKey.flatMap(client)?.profile else { return nil }
-        return profiles.first { $0.id == id }
     }
 
     func useProfile(_ ask: String, _ s: AgentSession) -> AgentResult {
         switch resolveProfile(ask) {
         case .failure(let why): return .error(why.text)
         case .success(let p):
-            if let rule = profileRule(s), rule.id != p.id {
-                return .error("This app may only use the profile \(rule.name) (Airc › Settings › Agents).")
-            }
             if let current = s.profileID, current != p.id, !mine(s).isEmpty {
                 return .error("This connection has windows in another profile. Close them, or reconnect, to use \(p.name).")
             }
@@ -739,7 +678,6 @@ final class AgentCenter {
         let url: URL?
         if let raw = a["url"] {
             guard let u = allowedURL(raw) else { return done(.error("Only http(s) addresses (or about:blank).")) }
-            if let why = siteRefusal(u, s) { return done(.error(why)) }
             url = u
         } else { url = nil }
         let width = CGFloat(max(320, min(2560, a["width"] as? Int ?? 1280)))
@@ -801,13 +739,9 @@ final class AgentCenter {
         body(w)
     }
 
-    /// `onBlockedPage`: the tool may run while the shown page is on a site the app may never open (navigate away, back).
-    func withTab(_ a: [String: Any], _ s: AgentSession, _ done: @escaping (AgentResult) -> Void, onBlockedPage: Bool = false,
-                 _ body: (AgentWindow, EngineTab) -> Void) {
+    func withTab(_ a: [String: Any], _ s: AgentSession, _ done: @escaping (AgentResult) -> Void, _ body: (AgentWindow, EngineTab) -> Void) {
         withWindow(a, s, done) { w in
             guard let tab = w.activeTab, !tab.isClosed else { return done(.error("The window has no tab: open_tab first.")) }
-            // A link or redirect can land on a blocked site: nothing acts on or reads it.
-            if !onBlockedPage, let why = siteRefusal(tab.url, s) { return done(.error(why + " Navigate elsewhere or close the tab.")) }
             body(w, tab)
         }
     }
@@ -917,10 +851,6 @@ struct AgentClient: Codable, Identifiable, Equatable {
     var lastUsed: Date?
     /// The person pressed Stop for this app (the Agents folder): it's refused until they allow it again.
     var stopped: Bool?
-    /// Settings › Agents rules: the one profile the app may use (nil: any open profile, asked or the only one), and
-    /// sites (hosts, subdomains included) it may never open.
-    var profile: String?
-    var blockedSites: [String]?
     var id: String { key }
 }
 

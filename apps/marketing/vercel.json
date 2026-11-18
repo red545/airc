@@ -113,10 +113,6 @@
     {
       "source": "/admin/feedback",
       "destination": "/api/feedback?view=admin"
-    },
-    {
-      "source": "/api/admin/feedback-reply",
-      "destination": "/api/feedback?view=admin&reply=1"
     }
   ],
   "crons": [
