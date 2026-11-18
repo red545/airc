@@ -79,8 +79,9 @@ your account password.
 
 **Passkeys with 1Password.** When 1Password saves and offers passkeys, its extension handles a site's passkey request
 before Airc does, the same as in Chrome: you see 1Password's **Save passkey?** card, not Airc's **Create a passkey**
-dialog. Dismiss the card (or choose its security key button) and the site's request goes on to Airc's own dialog
-([password-manager.md](password-manager.md), "Passkeys"). To keep using Airc's passkeys instead, turn this off in
+dialog. When 1Password is locked ("To save a passkey, unlock 1Password first"), close its card with ✕, or choose its
+security key button, and the site's request goes on to Airc's own dialog ([password-manager.md](password-manager.md),
+"Passkeys"). To keep using Airc's passkeys instead, turn this off in
 1Password: open its popup, choose the account menu at the top left, then **Settings › Autofill & save**, and turn off
 **Offer to sign in with passkeys** and **Offer to save passkeys**.
 

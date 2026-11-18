@@ -128,6 +128,8 @@ final class ProfileHost {
 
     private func finishLoading(_ e: EngineProfile, id: String) {
         let gate = LaunchTimeline.begin("profile gate \(store.profile(id)?.name ?? id)")
+        // Settings › Passwords, before the profile's first page can load (the engine keeps it in memory only).
+        PasswordFilling.apply(e, profileID: id)
         let ready = { [weak self] in
             gate()
             guard let self else { return }

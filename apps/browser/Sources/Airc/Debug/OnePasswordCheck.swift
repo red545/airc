@@ -94,6 +94,39 @@ extension SnapshotRunner {
             }
         }
 
+        /// Settings › Passwords off: a saved Airc login isn't filled when its page loads (engine patch 040); on, it is (the
+        /// control). `label` says which extensions are installed by then.
+        func fillOnLoad(_ label: String) {
+            for on in [true, false] {
+                step { [self] done in
+                    if label.contains("1Password") && opID.isEmpty || label.contains("Proton") && ppID.isEmpty { return done() }
+                    guard let app, let page = shownPage(), let pid = app.profiles.profileID(for: page.profile) else { return done() }
+                    app.setAircPasswords(on, profileID: pid)
+                    guard let t = try? c.store.openTab(url: "http://localhost:\(port)/login?fill=\(on)-\(label.count)", inSpace: c.currentSpaceID) else { return done() }
+                    c.reloadAll(animated: false)
+                    c.show(t.id, focus: false)
+                    waitUntil({ self.c.engineTab(for: t.id)?.title == "Login page" && self.c.engineTab(for: t.id)?.isLoading == false }, timeout: 10) {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                            let js = "['user', 'pass'].map(id => document.getElementById(id).matches(':autofill')).join(',')"
+                            self.c.engineTab(for: t.id)?.evaluate(js) { value in
+                                let filled = value as? String ?? "?"
+                                if on {
+                                    self.check(filled == "true,true", "onepassword: \(label): with Airc's passwords on, the saved login fills on page load (control: \(filled))")
+                                } else {
+                                    self.check(filled == "false,false", "onepassword: \(label): with them off, the saved login isn't filled on page load (\(filled))")
+                                }
+                                savePicture((self.c.engineTab(for: t.id) as? ChromiumTab)?.core, "fillonload-\(on ? "on" : "off")-\(label.replacingOccurrences(of: " ", with: "-"))") {
+                                    app.setAircPasswords(true, profileID: pid)
+                                    if let main = self.c.store.tab(mainTab) { self.c.show(main.id, focus: false) }
+                                    self.waitUntil({ shownPage() === opPage }, timeout: 5) { done() }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         step { done in
             server = LocalPageServer(pages: [
                 "/op": "<title>OP page</title><body style=\"background:#f3ece0;font:15px -apple-system\"><h1>A sign-in page</h1></body>",
@@ -115,6 +148,19 @@ extension SnapshotRunner {
                 done()
             }
         }
+        // A saved Airc login for the loopback login page (a made-up account), then fill on page load without extensions.
+        step { [self] done in
+            guard gate, let profile = shownPage()?.profile as? ChromiumProfile else { return done() }
+            let origin = "http://localhost:\(port)/"
+            profile.core.importLogins([["origin": origin + "login", "signonRealm": origin, "actionURL": origin + "done",
+                                        "username": "fixture@example.com", "password": "fixture-only-pass"]]) { result in
+                DispatchQueue.main.async {
+                    self.check((result["saved"] as? NSNumber)?.intValue == 1, "onepassword: a made-up Airc login is saved for the login page (\(result["saved"] ?? "?"))")
+                    done()
+                }
+            }
+        }
+        fillOnLoad("no extensions")
 
         // The synthetic extension.
         step { [self] done in
@@ -355,6 +401,18 @@ extension SnapshotRunner {
         // unlock 1Password first" → Unlock 1Password (a real click through DevTools input into its frame) opens its popup
         // through openPopup; then the card's ✕ hands the request on to Chromium's own passkey dialog.
         var cardTab: ChromiumTab?
+        // A platform authenticator only: Chromium then starts no hybrid ("use a phone") discovery, whose Bluetooth adapter
+        // makes macOS ask "would like to use Bluetooth" (kTCCServiceBluetoothAlways, shown by UserNotificationCenter) the
+        // first time each newly signed test build runs it (release044/045 attempt 1).
+        let createJS = """
+        window.__pk = 'pending';
+        navigator.credentials.create({publicKey: {rp: {name: 'Fixture', id: 'localhost'},
+          user: {id: new Uint8Array([1, 2, 3]), name: 'fixture@example.com', displayName: 'Fixture'},
+          challenge: new Uint8Array(32), pubKeyCredParams: [{type: 'public-key', alg: -7}],
+          authenticatorSelection: {authenticatorAttachment: 'platform', residentKey: 'required', userVerification: 'required'},
+          hints: ['client-device'], timeout: 60000}})
+          .then(r => { window.__pk = r ? 'created' : 'null'; }, e => { window.__pk = 'error:' + e.name; });
+        """
         var width = 0
         func cdpClick(_ x: Int, _ y: Int, _ then: @escaping () -> Void) {
             guard let tab = cardTab else { return then() }
@@ -371,15 +429,7 @@ extension SnapshotRunner {
             opPage?.reload()
             waitUntil({ shownPage()?.isLoading == false && shownPage()?.title == "OP page" }, timeout: 10) {
                 cardTab = shownPage()
-                let js = """
-                window.__pk = 'pending';
-                navigator.credentials.create({publicKey: {rp: {name: 'Fixture', id: 'localhost'},
-                  user: {id: new Uint8Array([1, 2, 3]), name: 'fixture@example.com', displayName: 'Fixture'},
-                  challenge: new Uint8Array(32), pubKeyCredParams: [{type: 'public-key', alg: -7}],
-                  authenticatorSelection: {residentKey: 'required', userVerification: 'required'}, timeout: 60000}})
-                  .then(() => { window.__pk = 'created'; }, e => { window.__pk = 'error:' + e.name; });
-                String(innerWidth)
-                """
+                let js = createJS + "String(innerWidth)"
                 cardTab?.evaluate(js) { w in
                     width = Int(w as? String ?? "") ?? 0
                     DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
@@ -407,23 +457,43 @@ extension SnapshotRunner {
                 }
             }
         }
-        step { [self] done in
-            guard !opID.isEmpty, width > 0, let tab = cardTab else { return done() }
-            // The card's ✕: 48 CSS px from the right edge, 46 down.
-            cdpClick(width - 48, 46) {
-                var dialogs = 0, stepName = ""
-                self.waitUntil({
-                    let state = engine.modalDialogState(for: tab)
-                    dialogs = (state["dialogs"] as? [Any])?.count ?? 0
-                    stepName = state["webauthnStep"] as? String ?? ""
-                    return dialogs > 0 && !stepName.isEmpty
-                }, timeout: 10) {
-                    self.check(dialogs > 0 && !stepName.isEmpty,
-                               "onepassword: dismissing 1Password's card hands the request to Chromium's own passkey dialog (step \(stepName.isEmpty ? "none" : stepName), dialogs \(dialogs))")
-                    engine.cancelModalDialog(in: tab)
-                    poll("window.__pk === 'pending' ? '' : window.__pk", in: tab, timeout: 8) { result in
-                        self.check(result.hasPrefix("error:"), "onepassword: cancelling it ends the page's request (\(result))")
-                        done()
+        // A fresh request each (Unlock above changed the card). On the locked card ("unlock 1Password first", the owner's
+        // case) both its ✕ and its security key button hand the request to the browser: Chromium's own passkey dialog
+        // (seen in every run since; 1Password's code cancels instead only on other card states).
+        for (name, fromRight, expectDialog) in [("dismiss", 48, true), ("security-key", 84, true)] {
+            step { [self] done in
+                guard !opID.isEmpty, width > 0, let tab = cardTab else { return done() }
+                tab.reload()
+                self.waitUntil({ tab.isLoading == false && tab.title == "OP page" }, timeout: 10) {
+                    tab.evaluate(createJS + "'started'", completion: nil)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                        savePicture(tab.core, "1password-card-before-\(name)") {
+                            cdpClick(width - fromRight, 46) {
+                                var dialogs = 0, stepName = ""
+                                self.waitUntil({
+                                    let state = engine.modalDialogState(for: tab)
+                                    dialogs = (state["dialogs"] as? [Any])?.count ?? 0
+                                    stepName = state["webauthnStep"] as? String ?? ""
+                                    return dialogs > 0 && !stepName.isEmpty && stepName != "kNotStarted"
+                                }, timeout: expectDialog ? 10 : 4) {
+                                    savePicture(tab.core, "1password-card-after-\(name)") {
+                                        let shown = dialogs > 0 && !stepName.isEmpty && stepName != "kNotStarted"
+                                        if expectDialog {
+                                            self.check(shown, "onepassword: 1Password's \(name == "dismiss" ? "✕" : "security key button") hands the request to Chromium's own passkey dialog (step \(stepName.isEmpty ? "none" : stepName), dialogs \(dialogs))")
+                                            engine.cancelModalDialog(in: tab)
+                                        }
+                                        poll("window.__pk === 'pending' ? '' : window.__pk", in: tab, timeout: 8) { result in
+                                            if expectDialog {
+                                                self.check(result.hasPrefix("error:"), "onepassword: cancelling Chromium's dialog ends the page's request (\(result))")
+                                            } else {
+                                                self.check(!shown && result == "null", "onepassword: 1Password's ✕ cancels the request (page gets \(result), browser dialog \(shown))")
+                                            }
+                                            done()
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -450,6 +520,7 @@ extension SnapshotRunner {
             } }
         }
 
+        fillOnLoad("1Password installed")
 
         // Proton Pass (no account): its 600 × 430 popup in full, and its in-page dropdown on a login form.
         step { [self] done in
@@ -494,6 +565,7 @@ extension SnapshotRunner {
             }
         }
 
+        fillOnLoad("1Password and Proton Pass installed")
         run { server?.stop() }
         #else
         check(false, "onepassword: requires the Chromium engine")

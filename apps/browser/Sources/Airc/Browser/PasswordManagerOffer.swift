@@ -2,6 +2,9 @@
 import AppKit
 import AircDesign
 import SwiftUI
+#if canImport(AircCore)
+import AircCore
+#endif
 
 // Settings › Passwords › "Offer to save and fill passwords" (docs/user/extensions.md, "Password managers"): with it off,
 // Airc neither asks to save a login (Chromium's credentials_enable_service) nor lists saved logins under a field (the
@@ -11,7 +14,10 @@ import SwiftUI
 extension AppDelegate {
     /// Airc's own saving and filling of passwords in a profile.
     func setAircPasswords(_ on: Bool, profileID: String) {
-        if let ep = profiles.engineProfile(for: profileID) { engine.setPasswordsOffered(on, for: ep) }
+        if let ep = profiles.engineProfile(for: profileID) {
+            engine.setPasswordsOffered(on, for: ep)
+            PasswordFilling.set(on, ep)
+        }
         var off = settings.values.passwordFillOff
         off.removeAll { $0 == profileID }
         if !on { off.append(profileID) }
@@ -26,6 +32,20 @@ extension AppDelegate {
         guard fillsPasswords(profileID: profileID) else { return false }
         guard let ep = profiles.engineProfile(for: profileID) else { return true }
         return engine.passwordsOffered(for: ep) ?? true
+    }
+}
+
+/// The engine's side of "fill": Chromium itself stops filling (no fill on page load either) in a profile with it off
+/// (AircProfile.passwordsFilled, engine patch 040). In memory, so it's applied to each profile as it loads.
+enum PasswordFilling {
+    static func apply(_ e: EngineProfile, profileID: String) {
+        guard let app = NSApp.delegate as? AppDelegate, let settings = app.settings else { return }
+        set(!settings.values.passwordFillOff.contains(profileID), e)
+    }
+    static func set(_ filled: Bool, _ e: EngineProfile) {
+        #if canImport(AircCore)
+        (e as? ChromiumProfile)?.core.passwordsFilled = filled
+        #endif
     }
 }
 
