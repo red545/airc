@@ -2,6 +2,31 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.34",
+      "highlights": [
+        {
+          "title": "Import from Dia",
+          "lead": "Import from Dia",
+          "detail": "Choose Dia in Airc › Import from Another Browser… to bring its profiles, bookmarks, history and extensions. With the Chromium engine, allow macOS to use Dia's key once and your passwords, cookies and sites' data come too.",
+          "icon": "square.and.arrow.down",
+          "action": "settingsImport"
+        },
+        {
+          "title": "Rules for connected apps",
+          "lead": "Rules for each connected app",
+          "detail": "In Settings › Agents › Apps, Rules… sets the one profile an app may use and sites it may never open. Agents upload only from folders you allow, and their downloads stay out of your list.",
+          "icon": "slider.horizontal.3",
+          "action": "settingsAgents"
+        },
+        {
+          "title": "When a page needs you",
+          "lead": "Agents tell you when a page needs you",
+          "detail": "When an agent reaches a sign-in page or a captcha, its row in the Agents folder says Needs you and Airc sends a notification. Open it and Take over to sign in.",
+          "icon": "bell.badge"
+        }
+      ]
+    },
+    {
       "version": "0.1.33",
       "highlights": [
         {

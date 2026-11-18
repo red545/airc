@@ -9,7 +9,7 @@
 // makes untrue, a Coming row it delivers); `from` shows a row only then. Previews show the state after the newest
 // release. `shot` names a file in src/assets/screens (scripts/sync-screenshots.mjs).
 
-export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "0.1.18" | "0.1.19" | "0.1.20" | "0.1.21" | "0.1.22" | "0.1.23" | "0.1.24" | "0.1.25" | "0.1.26" | "0.1.27" | "0.1.28" | "0.1.29" | "0.1.30" | "0.1.31" | "0.1.32" | "0.1.33" | "next" | "coming";
+export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "0.1.18" | "0.1.19" | "0.1.20" | "0.1.21" | "0.1.22" | "0.1.23" | "0.1.24" | "0.1.25" | "0.1.26" | "0.1.27" | "0.1.28" | "0.1.29" | "0.1.30" | "0.1.31" | "0.1.32" | "0.1.33" | "0.1.34" | "next" | "coming";
 
 export interface Feature {
   title: string;
@@ -272,6 +272,7 @@ export const groups: Group[] = [
     features: [
       { title: "From Arc", line: "Spaces, pinned tabs, folders, Favorites and logins, read from Arc's files on your Mac. Nothing is uploaded.", since: "0.1.0", shot: "onboarding-import" },
       { title: "Arc's history and extensions", line: "History comes over into the right profiles, with a checklist for reinstalling your extensions.", since: "0.1.2", shot: "arc-import-checklist" },
+      { title: "From Dia", line: "Profiles, bookmarks, history, search engines and an extensions checklist; with the Chromium engine and one macOS prompt for Dia's key, saved passwords, cookies and sites' data too. Dia's sidebar tabs can't come over: only Dia can read them.", since: "0.1.34" },
       { title: "From other browsers", line: "Bookmarks and history from Chrome, Brave, Edge, Vivaldi, Opera, Firefox, Zen and others, or from a bookmarks file.", since: "0.1.2", shot: "onboarding-import-browsers" },
       { title: "Passwords from a file", line: "Import passwords from a CSV file you export. Airc never reads another browser's password store.", since: "0.1.2" },
       { title: "Every login, explained", line: "After importing Arc's passwords and cookies, Airc lists what came over and what didn't, and why, in plain words. Try Again redoes only what failed.", since: "0.1.3", shot: "arc-import-logins" },
@@ -414,6 +415,9 @@ export const groups: Group[] = [
       { title: "Passwords filled, never shown", line: "An agent can sign in with a login saved in Airc: Airc fills the form in the page, and no tool returns a password, passkey or cookie. Private windows are never open to agents.", since: "0.1.13" },
       { title: "Follow along", line: "An Agents folder in the sidebar shows each agent tab, with a dot while it works. Click one to watch the page live with what the agent is doing, then take it over as your own tab, or stop the app.", since: "0.1.16" },
       { title: "A tidy Agents folder", line: "Each row says what the agent did, such as Gmail · read 3 pages, or your task. Finished rows close after 5 minutes (Settings › Agents › Keep finished agents for), and apps that only connect add no row.", since: "0.1.30" },
+      { title: "Rules for each app", line: "Settings → Agents → Apps → Rules… sets the one profile an app may use and sites it may never open.", since: "0.1.34" },
+      { title: "Uploads and downloads for agents", line: "Agents upload files only from the app's own folder or one you choose in Settings → Agents → Files, and their downloads go to Downloads › Airc Agents, out of your Downloads list.", since: "0.1.34" },
+      { title: "Needs you", line: "When an agent reaches a sign-in page or a captcha, its row says Needs you, the Agents folder gets a badge and Airc sends a notification. Take over to sign in, and the agent goes on.", since: "0.1.34" },
       { title: "From your other devices", line: "Claude Code on your other computers can use Airc on your Mac over Tailscale. Off until you turn it on in Settings → Agents; each device pairs once with a one-time code and can be revoked any time.", since: "0.1.18" },
       { title: "Airc Agent (beta)", line: "Press ⌥⌘A, describe a task, and Airc does it in your signed-in sites with your own Anthropic or OpenAI API key, added in Settings → AI → Agent. It asks before it pays, sends, posts or deletes; Quick or Keep going; Stop any time. Its runs show in the Agents folder.", since: "0.1.22" },
       { title: "Agent on your Claude Code or Codex", line: "In Settings → AI → Agent → Use, pick Your Claude Code or Your Codex instead of an API key: the Airc Agent runs your installed copy with its own login, with only Airc's browser tools.", since: "0.1.31" },

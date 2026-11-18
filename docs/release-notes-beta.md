@@ -1,15 +1,30 @@
-# Airc 0.1.33 public beta
+# Airc 0.1.34 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.88.
-This update brings dark mode to all of Airc: one setting for the whole app and every page. It includes everything
-from 0.1.32. The release manifest records the exact build, source and checksums.
+This update imports from Dia and gives each connected app its own rules, files and a "Needs you" alert. It includes
+everything from 0.1.33. The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.32
+## New since 0.1.33
+
+- **Import from Dia.** Choose Dia on the first launch or in Airc › Import from Another Browser… to bring over its
+  profiles, bookmarks, history, search engines and extensions (as a checklist to reinstall). With the Chromium engine,
+  choose Import logins and allow macOS to use the "Dia Safe Storage" key once, and your saved passwords, cookies and
+  sites' data come over too. Dia's sidebar (its pinned and open tabs) can't come over: Dia keeps it encrypted where only
+  Dia can read it. Details: `docs/user/import-from-dia.md`.
+- **Rules for each connected app.** In Settings › Agents › Apps, Rules… next to an app sets the one profile it may use
+  and sites it may never open. Agents can now upload files to a page, only from that app's own folder or the folder you
+  choose in Settings › Agents › Files, and what an agent's page downloads goes to Downloads › Airc Agents › the app's
+  name instead of your Downloads list.
+- **Agents tell you when a page needs you.** When an agent reaches a sign-in page or a captcha, its row in the Agents
+  folder says Needs you, the folder gets a badge, and a few seconds later Airc sends a notification (if you allow
+  them). Open the row and Take over to sign in; the agent can go on afterwards.
+
+## Included from 0.1.33
 
 - **Dark mode works.** Settings › Appearance › Airc has Auto (follows your Mac), Light or Dark, for the whole app:
   windows, the sidebar, Settings and every web page, live. Spaces follow it unless you give a Space its own Light or
