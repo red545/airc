@@ -352,5 +352,11 @@
     "detail": "Turn off Offer to save and fill passwords in Settings › Passwords, and Airc no longer fills a saved login when a page loads, so your password manager's extension does it instead.",
     "action": "none",
     "image": null
+  },
+  "Granola starts notes for your calls": {
+    "title": "Granola notes for calls",
+    "detail": "When a Meet, Zoom, Teams or Whereby tab turns on your microphone, Airc can start a Granola note, once per call. Turn it on in Settings › General › Calendar (shown when Granola is installed).",
+    "action": "settingsGeneral",
+    "image": null
   }
 }

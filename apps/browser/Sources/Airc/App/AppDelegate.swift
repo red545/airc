@@ -209,6 +209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppTelemetry.shared.start(app: self, firstRun: firstRun)
         AppCrashReports.shared.start()
         FeedbackCenter.shared.start(app: self)   // feedback saved while offline goes once the network is back
+        CallNotes.shared.start()   // Settings › Calendar › Start Granola notes (Call/CallNotes.swift)
         services()
         let historyOpen = LaunchTimeline.begin("history open")
         history = (try? HistoryStore(path: AppPaths.history.path)) ?? (try! HistoryStore(path: nil))

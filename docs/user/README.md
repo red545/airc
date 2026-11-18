@@ -72,6 +72,7 @@ Esc to collapse it to a small pill.
 - [Tab and site previews](previews.md): the card on a sidebar tab, its picture and quick actions, and the pages you
   visited recently on a pinned Notion, Confluence, Figma or Linear.
 - [Live Calendar](calendar.md): your next meetings on a calendar Favorite, Join, ⌃⌘J and each Favorite's settings.
+- [Call notes with Granola](call-notes.md): Granola starts a note when a call's microphone turns on, once per call.
 - [Scripting](scripting.md): AppleScript with Arc's dictionary: windows, spaces, tabs, making and closing tabs, and
   JavaScript when you allow it.
 - [Shortcuts](shortcuts.md): everyday keys, remapping and how shortcuts interact with websites; the sidebar from the

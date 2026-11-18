@@ -645,6 +645,15 @@ struct CalendarSettingsSection: View {
                     Button("Open System Settings") { CalendarCard.openPrivacySettings() }.buttonStyle(.airc(.secondary))
                 }
             }
+            if CallNotes.granolaApp != nil {
+                // Call/CallNotes.swift: Granola doesn't detect calls in Airc yet, so Airc starts its note.
+                AircToggleRow("Start Granola notes when a call starts",
+                              subtitle: "When a Meet, Zoom, Teams, Webex or Whereby tab turns on your microphone, Granola starts a note and "
+                                  + "records, once per call. Granola stops by itself when the call's audio ends, or when you stop it. "
+                                  + "Never in private windows.",
+                              isOn: Binding(get: { model.settings.values.granolaCallNotes },
+                                            set: { model.settings.values.granolaCallNotes = $0 }))
+            }
         }
     }
 }

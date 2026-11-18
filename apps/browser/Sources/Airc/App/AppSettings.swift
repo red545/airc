@@ -63,6 +63,8 @@ final class AppSettings: ObservableObject {
         var showsSpaceHeaderOnSingleUnnamed = false
         /// P01c: Arc's shareQuoteLinkEnabled ("Enable Shared Quotes when highlighting text."), on by default.
         var sharedQuotes = true
+        /// Settings › Calendar › "Start Granola notes when a call starts" (Call/CallNotes.swift): off until turned on.
+        var granolaCallNotes = false
         /// PK-1: ⇧-clicked links, and other sites a pinned tab or Favorite opens in a new tab, open in Peek.
         var peekEnabled = true
         /// SB-45: a card with the page's picture beside a sidebar tab under the pointer (Settings → Appearance).
@@ -169,6 +171,7 @@ final class AppSettings: ObservableObject {
             dragsWindowFromPageTop = (try? c.decodeIfPresent(Bool.self, forKey: .dragsWindowFromPageTop)) ?? d.dragsWindowFromPageTop
             showsSpaceHeaderOnSingleUnnamed = (try? c.decodeIfPresent(Bool.self, forKey: .showsSpaceHeaderOnSingleUnnamed)) ?? d.showsSpaceHeaderOnSingleUnnamed
             sharedQuotes = (try? c.decodeIfPresent(Bool.self, forKey: .sharedQuotes)) ?? d.sharedQuotes
+            granolaCallNotes = (try? c.decodeIfPresent(Bool.self, forKey: .granolaCallNotes)) ?? false
             peekEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .peekEnabled)) ?? d.peekEnabled
             tabPreviews = (try? c.decodeIfPresent(Bool.self, forKey: .tabPreviews)) ?? d.tabPreviews
             sidebarFeedbackButton = (try? c.decodeIfPresent(Bool.self, forKey: .sidebarFeedbackButton)) ?? d.sidebarFeedbackButton

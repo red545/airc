@@ -127,6 +127,7 @@ final class SnapshotRunner {
         case "events": eventsScenario()
         case "routing": routingCheck()
         case "launchtimeline": launchTimelineScenario()   // fastlaunch: window before blocking, first page protected (LaunchTimelineCheck.swift)
+        case "callnotes": callNotesScenario()   // Settings › Calendar › Start Granola notes (CallNotesCheck.swift)
         case "peekrules": peekRulesScenario()   // PK-1/AT-1: eTLD+1 same-site, rules for Peek links, real clicks (PeekRulesCheck.swift)
         case "shortcuts": shortcutsScenario()
         case "shortcutremap": shortcutRemapScenario()
