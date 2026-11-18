@@ -1,0 +1,28 @@
+# Airc 0.1.32 (cut 059f7285; build revision cf89c99e; notes on release/0.1.32-notes). Claims from its approved notes
+# (one line: Password-manager extensions work better). NOT TO POST before release044's LIVE note for 0.1.32: plan and
+# approve only then, after checking the public repo shows the release (owner rule).
+slug = "2026-11-18-release-0.1.32"
+title = "Airc 0.1.32: better password managers"
+kind = "release"
+since = "0.1.32"
+tag = ""
+summary = """
+One text post for people who use a password manager's extension (1Password, Bitwarden, Proton Pass).
+"""
+order = """
+1. One post on the first free day after LIVE.
+"""
+checked = """
+- 0.1.32's notes: 1Password's Unlock 1Password button opens the extension's popup; popups (Proton Pass, Bitwarden,
+  1Password) open at full size; 1Password's extension finds the Mac app via the files it installed for Chrome and
+  others (add Airc once in 1Password › Settings › Browser if it stays locked); Settings › Passwords › Offer to save and
+  fill passwords, per profile.
+- Caveat, kept: until the next update Airc may still fill a site's only saved login on page load even with it off, so
+  the post says Airc stops offering to save and claims nothing about filling.
+"""
+
+[[post]]
+label = "Password-manager extensions work better"
+text = """
+Use 1Password, Bitwarden or Proton Pass? Their extensions work better in Airc 0.1.32: popups open at full size, 1Password's Unlock button opens it, and Settings › Passwords can stop Airc offering to save logins, so your manager has them.
+"""
