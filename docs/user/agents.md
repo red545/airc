@@ -116,11 +116,18 @@ Filling saved logins works on the Chromium engine (the normal Airc download).
 ## Follow along
 
 While an agent works in a profile, the sidebar of a window showing that profile has an **Agents** folder, just above
-the downloads and players. It has one row per agent tab, named by the app and the site, such as **Claude · Gmail**,
-with the site's icon. A dot pulses while the agent is doing something, and a quiet ring shows while it waits. When the
-app is done, its rows say **Done**, fade after a minute and a half, and go 30 minutes later. **Clear** (on the folder's
-header) removes finished rows at once. Click the header to fold or unfold the folder; Airc remembers which. Private
-windows never show it.
+the downloads and players. It has one row per agent tab that did something: an app that only connects (as Claude Code
+does with every tool it knows, each time it starts) or only opens a blank window gets no row. Each row's title says
+what happened, with the site's icon: the main site and the kind of work, such as **Gmail · read 3 pages** or **Corner
+Shop · filled a form, paid (approved)**, or your task for the Airc Agent. Under it are the app (and the device, for
+other devices) and what it's doing, such as **Claude · Clicking ‘Archive’** or **Claude Code on studio · Done · 3 min
+ago**. Titles name sites and kinds of work only, never what a page said or what was typed. A dot pulses while the agent
+is doing something, and a quiet ring shows while it waits. When the app is done, its rows say **Done** and go by
+themselves after 5 minutes (**Settings › Agents › Keep finished agents for**: 1, 5 or 30 minutes, or until you clear
+them); a row you're watching, or whose page you took over and are looking at, stays until you leave it. They stay
+listed in **Settings › Agents › Activity**. **Clear** (on the folder's header) removes finished rows at once, and the
+folder goes away when it's empty. Click the header to fold or unfold the folder; Airc remembers which. Private windows
+never show it.
 
 When an agent starts, a small banner says so, such as **Claude is using Airc · Gmail**. It never takes your keyboard or
 brings a window forward.

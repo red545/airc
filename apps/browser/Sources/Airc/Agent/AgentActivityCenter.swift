@@ -65,19 +65,15 @@ final class AgentActivity {
         for t in w.tabs {
             let id = AgentActivityModel.rowID(window: w.id, tab: t.id)
             if model.row(id) == nil {
-                let row = AgentTabRow(id: id, sessionKey: w.ownerKey, clientKey: w.clientKey, client: w.clientName ?? w.client,
-                                      profileID: w.profileID, window: w.id, tab: t.id, title: t.tab.title, url: t.tab.url, started: now)
-                if model.tabOpened(row) {
-                    bannerPending.insert(w.ownerKey)
-                    let key = w.ownerKey
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.showBanner(key, force: true) }
-                }
-                if center.settings.showInFront {
-                    DispatchQueue.main.async { [weak self] in self?.showInFront(id) }
-                }
-                center.onEvent?("row-open \(id)")
+                model.tabOpened(AgentTabRow(id: id, sessionKey: w.ownerKey, clientKey: w.clientKey, client: w.clientName ?? w.client,
+                                            profileID: w.profileID, window: w.id, tab: t.id, started: now))
+                // Shown only once something real happens: a page with a site, or an acting call (`began`).
+                if model.update(id, title: t.tab.title, url: t.tab.url) { revealed(id, first: true) }
+                else { center.onEvent?("row-pending \(id)") }
             } else {
-                model.update(id, title: t.tab.title, url: t.tab.url)
+                let wasShown = model.row(id)?.shown == true
+                let first = model.update(id, title: t.tab.title, url: t.tab.url)
+                if !wasShown, model.row(id)?.shown == true { revealed(id, first: first) }
             }
         }
         for r in model.rows where r.window == w.id && r.isLive && !w.tabs.contains(where: { $0.id == r.tab }) {
@@ -85,6 +81,21 @@ final class AgentActivity {
         }
         showBanner(w.ownerKey, force: false)
         changed()
+    }
+
+    /// A row just showed (its agent did something real): the start banner for the connection's first, "show in front".
+    private func revealed(_ id: String, first: Bool) {
+        guard let row = model.row(id) else { return }
+        if first {
+            bannerPending.insert(row.sessionKey)
+            let key = row.sessionKey
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.showBanner(key, force: true) }
+        }
+        if center.settings.showInFront {
+            DispatchQueue.main.async { [weak self] in self?.showInFront(id) }
+        }
+        center.onEvent?("row-open \(id)")
+        showBanner(row.sessionKey, force: false)
     }
 
     func windowClosed(_ w: AgentWindow, _ end: AgentTabRow.End) {
@@ -127,6 +138,8 @@ final class AgentActivity {
         guard kind != .other, let rowID, model.row(rowID)?.isLive == true, let w else { return call }
         let caption = AgentRedaction.caption(action)
         callCount[rowID, default: 0] += 1
+        // An acting call shows the row before it runs (Watch can follow it); a look or a wait doesn't.
+        if kind.isActing, let first = model.reveal(rowID) { revealed(rowID, first: first) }
         model.began(rowID, caption: caption, at: Date())
         if isWatched(rowID), let tab = w.activeTab { annotate(rowID, kind, args, w, tab, keyName: keyName) }
         emit(rowID, .caption(caption))
@@ -143,8 +156,10 @@ final class AgentActivity {
             if action.kind == .type || (action.kind == .key && action.keyName == nil), passwordField.removeValue(forKey: row) == true {
                 action.isPasswordField = true
             }
-            if !isError { recordHistory(call.client, call.site, action, now) }
-        } else if !isError, call.action.kind == .open || call.action.kind == .navigate {
+            if !isError { model.did(row, action) }
+            // Activity lists work on sites only: a look at a blank window is no work (as it gets no row).
+            if !isError, call.site != nil { recordHistory(call.client, call.site, action, now) }
+        } else if !isError, call.site != nil, call.action.kind == .open || call.action.kind == .navigate {
             recordHistory(call.client, call.site, call.action, now)
         }
         changed()
@@ -230,6 +245,7 @@ final class AgentActivity {
         watchers[rowID]?[token] = nil
         if watchers[rowID]?.isEmpty == true { watchers[rowID] = nil }
         center.onEvent?("watch-stop \(rowID)")
+        changed()   // a finished row's time to go starts now
     }
 
     func isWatched(_ rowID: String) -> Bool { watchers[rowID]?.isEmpty == false }
@@ -308,11 +324,67 @@ final class AgentActivity {
         _ = AgentPaths.writePrivate(data, to: historyFile.path)
     }
 
+    // MARK: The Airc Agent
+
+    /// The panel's task: its row's title.
+    func setTask(_ ownerKey: String, _ task: String) {
+        model.setTask(ownerKey, task)
+        changed()
+    }
+
+    /// The person approved a risky action on the panel's approval card: the row's title says so ("paid (approved)").
+    func approved(_ s: AgentSession, _ category: AgentRiskCategory) {
+        guard let w = s.currentWindow.flatMap({ center.windows[$0] }), w.ownerKey == s.ownerKey, let tab = w.activeTabID else { return }
+        model.approved(AgentActivityModel.rowID(window: w.id, tab: tab), category)
+        changed()
+    }
+
+    // MARK: Finished rows
+
+    #if AIRC_TESTING
+    /// Checks: a shorter "keep finished" than Settings offers (seconds).
+    var keepOverrideForCheck: TimeInterval? { didSet { changed() } }
+    #endif
+
+    /// Settings › Agents › "Keep finished agents for": nil until the person clears them.
+    private var keepFinished: TimeInterval? {
+        #if AIRC_TESTING
+        if let keepOverrideForCheck { return keepOverrideForCheck }
+        #endif
+        return center.settings.keepFinished
+    }
+
+    /// Ended rows the person has in front of them: one they watch, or one whose page they took over and look at now.
+    private func heldRows() -> Set<String> {
+        var held = Set(watchers.keys)
+        let shown = (center.app?.controllers ?? []).compactMap { c in c.shownTabID.flatMap(c.engineTab(for:)) }
+        for r in model.rows where r.end == .takenOver {
+            if let page = takenOverPages[r.id]?.page, shown.contains(where: { $0 === page }) { held.insert(r.id) }
+        }
+        return held
+    }
+
+    private struct WeakPage { weak var page: EngineTab? }
+    /// Taken-over pages by row, to know when the person still looks at one.
+    private var takenOverPages: [String: WeakPage] = [:]
+
+    func tookOver(_ rowID: String, page: EngineTab) {
+        takenOverPages[rowID] = WeakPage(page: page)
+        ended(rowID, .takenOver)
+    }
+
+    /// Settings changed the keep time.
+    func keepChanged() { changed() }
+
     // MARK: Changes
 
     private func changed() {
         let now = Date()
-        if model.prune(now: now) { center.onEvent?("rows-pruned") }
+        model.keepFinished = keepFinished
+        if model.prune(now: now, held: heldRows()) {
+            center.onEvent?("rows-pruned")
+            takenOverPages = takenOverPages.filter { model.row($0.key) != nil }
+        }
         timer?.invalidate()
         timer = nil
         if let next = model.nextChange(after: now) {

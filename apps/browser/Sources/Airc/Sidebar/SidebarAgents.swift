@@ -5,8 +5,10 @@ import AppKit
 import SwiftUI
 
 /// The sidebar's Agents folder (docs/user/agents.md, "Follow along"): above the tray, while an agent works in this
-/// window's profile or did in the last 30 minutes. One row per agent tab, "Claude · Gmail" with the site's icon; a
-/// pulsing dot while the agent acts, a quiet ring while it waits; "Done" when it ends, then faded, then gone. Click a
+/// window's profile or finished in the last few minutes (Settings › Agents › "Keep finished agents for", 5 by default).
+/// One row per agent tab that did something real, titled by what happened ("Gmail · read 3 pages", or the Airc Agent's
+/// task) with the site's icon, and "Claude · Clicking ‘Archive’" / "Claude · Done · 3 min ago" under it; a pulsing dot
+/// while the agent acts, a quiet ring while it waits; "Done" when it ends, then faded, then gone. Click a
 /// row to Watch it (AgentWatchView); its menu has Take over and Stop. It folds like a folder and remembers that.
 /// Private windows have their own sidebar, which never shows it. With no rows it takes no space and runs nothing.
 final class SidebarAgentsView: NSView {
@@ -164,7 +166,10 @@ extension AgentCenter {
 final class AgentsFolderModel: ObservableObject {
     struct Item: Equatable, Identifiable {
         let id: String
+        /// "Claude · Gmail" (Watch, the demos).
         let label: String
+        /// What happened: "Gmail · read 3 pages", or the Airc Agent's task.
+        let title: String
         let client: String
         let clientKey: String?
         let window: Int
@@ -176,7 +181,7 @@ final class AgentsFolderModel: ObservableObject {
         let stopped: Bool
 
         init(row r: AgentTabRow, state: AgentRowState, stopped: Bool) {
-            id = r.id; label = r.label; client = r.client; clientKey = r.clientKey; window = r.window; tab = r.tab; live = r.isLive
+            id = r.id; label = r.label; title = r.rowTitle; client = r.client; clientKey = r.clientKey; window = r.window; tab = r.tab; live = r.isLive
             self.stopped = stopped
             switch state {
             case .acting(let caption): acting = true; faded = false; status = caption ?? "Working"
@@ -185,6 +190,9 @@ final class AgentsFolderModel: ObservableObject {
             case .faded(let end, let minutes): acting = false; faded = true; status = Item.words(end) + " · \(minutes) min ago"
             }
         }
+
+        /// The line under the title: the app (and its device), then what it does now or how it ended.
+        var subtitle: String { client + " · " + status }
 
         static func words(_ end: AgentTabRow.End) -> String {
             switch end { case .done: return "Done"; case .stopped: return "Stopped"; case .takenOver: return "Yours now" }
@@ -294,16 +302,18 @@ private struct AgentFolderRow: View {
         HStack(spacing: 8) {
             icon
             VStack(alignment: .leading, spacing: 0) {
-                Text(item.label)
+                Text(item.title)
                     .aircFont(AircFont.body)
                     .foregroundStyle(theme.text.color)
                     .lineLimit(1)
-                if item.acting || !item.live {
-                    Text(item.status)
-                        .aircFont(AircFont.caption)
-                        .foregroundStyle(theme.textTertiary.color)
-                        .lineLimit(1)
+                    .testAnchor("agents-title-\(item.id)")
+                // The app, then its state: a long device name gives way before "Done · 3 min ago" does.
+                HStack(spacing: 0) {
+                    Text(item.client).lineLimit(1).truncationMode(.middle)
+                    Text(" · " + item.status).lineLimit(1).layoutPriority(1)
                 }
+                .aircFont(AircFont.caption)
+                .foregroundStyle(theme.textTertiary.color)
             }
             Spacer(minLength: 2)
             if hovered, item.live {
@@ -329,8 +339,8 @@ private struct AgentFolderRow: View {
         .contextMenu { menu }
         .testAnchor("agents-row-\(item.id)")
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(item.label)
-        .accessibilityValue(item.live ? (item.acting ? "Working: \(item.status)" : "Waiting") : item.status)
+        .accessibilityLabel(item.title)
+        .accessibilityValue(item.client + ", " + (item.live ? (item.acting ? "Working: \(item.status)" : "Waiting") : item.status))
         .accessibilityHint(item.live ? "Watch what the agent does" : "")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { if item.live { model.view?.openWatch(item.id) } }

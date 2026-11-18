@@ -40,8 +40,100 @@ final class AgentActivityTests: XCTestCase {
         XCTAssertEqual(m.state(m.row(id)!, now: t0.addingTimeInterval(10 + 5 * 60)), .faded(.done, minutes: 5))
         m.began(id, caption: "late", at: t0.addingTimeInterval(11))
         XCTAssertFalse(m.isActing(id, now: t0.addingTimeInterval(11)), "an ended row never acts again")
-        XCTAssertFalse(m.prune(now: t0.addingTimeInterval(10 + 29 * 60)))
-        XCTAssertTrue(m.prune(now: t0.addingTimeInterval(10 + 31 * 60)), "30 minutes after its end, a row goes")
+        XCTAssertEqual(m.state(m.row(id)!, now: t0.addingTimeInterval(10 + 4 * 60)), .faded(.done, minutes: 4))
+        XCTAssertFalse(m.prune(now: t0.addingTimeInterval(10 + 4 * 60)))
+        XCTAssertTrue(m.prune(now: t0.addingTimeInterval(10 + 5 * 60)), "5 minutes after its end (the default), a row goes")
+        XCTAssertTrue(m.rows.isEmpty)
+    }
+
+    // MARK: agentrows: no row for nothing, titles, auto-close
+
+    func blank(_ window: Int, _ tab: Int, session: String = "session-1") -> AgentTabRow {
+        AgentTabRow(id: AgentActivityModel.rowID(window: window, tab: tab), sessionKey: session, clientKey: "k",
+                    client: "Claude Code on studio", profileID: "P1", window: window, tab: tab, started: t0)
+    }
+
+    func testABlankWindowGetsNoRowUntilRealWork() {
+        var m = AgentActivityModel()
+        XCTAssertFalse(m.tabOpened(blank(1, 1)), "a blank window is no row (no banner)")
+        XCTAssertTrue(m.rows(profileID: "P1").isEmpty)
+        XCTAssertFalse(m.update("agent-1-1", title: "", url: URL(string: "about:blank")))
+        XCTAssertFalse(m.did("agent-1-1", AgentAction(kind: .look)), "a screenshot of a blank page isn't work")
+        XCTAssertTrue(m.rows(profileID: "P1").isEmpty)
+        m.sessionEnded("session-1", .done, at: t0)
+        XCTAssertTrue(m.rows.isEmpty, "a session that never did anything leaves nothing behind")
+        XCTAssertNil(m.nextChange(after: t0))
+
+        XCTAssertFalse(m.tabOpened(blank(2, 2, session: "session-2")))
+        XCTAssertTrue(m.update("agent-2-2", title: "Corner Shop", url: URL(string: "https://cornershop.example/cart?id=99")),
+                      "its first page with a site shows the row, as the connection's first (banner)")
+        XCTAssertEqual(m.rows(profileID: "P1").map(\.id), ["agent-2-2"])
+        XCTAssertFalse(m.tabOpened(blank(2, 3, session: "session-2")))
+        XCTAssertEqual(m.reveal("agent-2-3"), false, "an acting call shows a blank tab's row, not as the first")
+        XCTAssertNil(m.reveal("agent-2-3"), "once")
+    }
+
+    func testTitlesSayWhatHappenedWithoutContent() {
+        var m = AgentActivityModel()
+        m.tabOpened(blank(1, 1))
+        let id = "agent-1-1"
+        m.update(id, title: "Inbox (3) - Gmail", url: URL(string: "https://mail.google.com/mail/u/0/#inbox"))
+        XCTAssertEqual(m.row(id)?.rowTitle, "Gmail", "only a page so far: the site")
+        m.did(id, AgentAction(kind: .read, host: "mail.google.com"))
+        XCTAssertEqual(m.row(id)?.rowTitle, "Gmail · read a page")
+        for path in ["a", "b"] {
+            m.update(id, title: "Message - Gmail", url: URL(string: "https://mail.google.com/mail/u/0/\(path)?secret=1"))
+            m.did(id, AgentAction(kind: .read))
+        }
+        XCTAssertEqual(m.row(id)?.rowTitle, "Gmail · read 3 pages")
+
+        m.tabOpened(blank(2, 2, session: "s2"))
+        let shop = "agent-2-2"
+        m.update(shop, title: "Your order – Corner Shop", url: URL(string: "https://cornershop.example/checkout"))
+        m.did(shop, AgentAction(kind: .click, label: "Pickup time"))
+        m.did(shop, AgentAction(kind: .type, label: "Note"))
+        m.did(shop, AgentAction(kind: .type, label: "Name"))
+        m.approved(shop, .payment)
+        let title = m.row(shop)!.rowTitle
+        XCTAssertEqual(title, "Corner Shop · filled a form, paid (approved)")
+        XCTAssertFalse(title.contains("Pickup") || title.contains("Note"), "never a label, typed text or a value")
+
+        m.tabOpened(blank(3, 3, session: "s3"))
+        m.update("agent-3-3", title: "Search", url: URL(string: "https://search.example/"))
+        m.did("agent-3-3", AgentAction(kind: .type))
+        m.did("agent-3-3", AgentAction(kind: .key, keyName: "Return"))
+        m.update("agent-3-3", title: "results - Search", url: URL(string: "https://search.example/results?q=private+words"))
+        m.update("agent-3-3", title: "Docs", url: URL(string: "https://docs.example/page"))
+        m.did("agent-3-3", AgentAction(kind: .click))
+        XCTAssertEqual(m.row("agent-3-3")?.rowTitle, "Search +1 · searched, browsed 3 pages")
+
+        m.setTask("s4", "Order   my usual\ncoffee beans from the corner shop and pick the earliest pickup time")
+        m.tabOpened(blank(4, 4, session: "s4"))
+        m.update("agent-4-4", title: "Corner Shop", url: URL(string: "https://cornershop.example/"))
+        XCTAssertEqual(m.row("agent-4-4")?.rowTitle, "Order my usual coffee beans from the corner…", "the Airc Agent: its task, one line")
+    }
+
+    func testFinishedRowsGoAfterTheKeepTimeUnlessHeld() {
+        var m = AgentActivityModel()
+        m.keepFinished = 60
+        m.tabOpened(row(1, 1))
+        m.tabOpened(row(1, 2))
+        m.sessionEnded("session-1", .done, at: t0)
+        XCTAssertEqual(m.state(m.row("agent-1-1")!, now: t0.addingTimeInterval(20)), .justEnded(.done))
+        XCTAssertEqual(m.nextChange(after: t0.addingTimeInterval(31)), t0.addingTimeInterval(60))
+        XCTAssertFalse(m.prune(now: t0.addingTimeInterval(59), held: ["agent-1-1"]))
+        XCTAssertTrue(m.prune(now: t0.addingTimeInterval(60), held: ["agent-1-1"]), "a watched row stays, the other goes")
+        XCTAssertEqual(m.rows.map(\.id), ["agent-1-1"])
+        XCTAssertFalse(m.prune(now: t0.addingTimeInterval(90), held: ["agent-1-1"]))
+        XCTAssertNotNil(m.nextChange(after: t0.addingTimeInterval(90)), "a held row is looked at again")
+        XCTAssertFalse(m.prune(now: t0.addingTimeInterval(149)), "the keep time starts again once nobody holds it")
+        XCTAssertTrue(m.prune(now: t0.addingTimeInterval(150)))
+
+        m.keepFinished = nil
+        m.tabOpened(row(2, 3, session: "s2"))
+        m.sessionEnded("s2", .stopped, at: t0)
+        XCTAssertFalse(m.prune(now: t0.addingTimeInterval(7 * 24 * 3600)), "Until I clear: it stays")
+        m.clearEnded()
         XCTAssertTrue(m.rows.isEmpty)
     }
 

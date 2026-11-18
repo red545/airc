@@ -170,6 +170,7 @@ final class AgentRunCenter: ObservableObject {
         event("state running")
         let b = bridge ?? AgentBridge(profileID: profileID)
         bridge = b
+        AgentActivity.shared.setTask(b.session.ownerKey, task)   // the Agents folder row's title
         b.openWindow { [weak self] error in
             guard let self else { return }
             if let error { return self.fail(error) }
@@ -376,6 +377,7 @@ final class AgentRunCenter: ObservableObject {
                 if allow {
                     self.steps.append(AgentStep(kind: .decision, text: "Allowed: \(risk.category.verb) on \(site)"))
                     AgentCenter.shared.log(["event": "approval", "category": risk.category.rawValue, "allowed": true, "site": site])
+                    if let s = self.bridge?.session { AgentActivity.shared.approved(s, risk.category) }
                     self.execute(call, next)
                 } else {
                     let why = self.stopRequested ?? "You declined: \(risk.category.verb) on \(site)."

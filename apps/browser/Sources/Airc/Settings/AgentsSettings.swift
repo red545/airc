@@ -134,6 +134,12 @@ struct AgentsPage: View {
                     AircSwitch(isOn: Binding(get: { center.settings.showInFront }, set: { center.setShowInFront($0) }))
                         .accessibilityLabel("Show agent pages in front")
                 }
+                SettingsRow(title: "Keep finished agents for", subtitle: "How long an agent stays in the sidebar's Agents folder after it's done. One you're watching stays. Settings › Agents › Activity keeps the last 7 days.") {
+                    AircPopUp(options: [("1 minute", 1), ("5 minutes", 5), ("30 minutes", 30), ("Until I clear", 0)],
+                              selection: center.settings.keepFinishedMinutes, width: 150) { center.setKeepFinished(minutes: $0) }
+                        .accessibilityLabel("Keep finished agents for")
+                        .testAnchor("agents.keepFinished")
+                }
                 if center.connectedCount > 0 || !center.windows.isEmpty {
                     SettingsRow(title: "Stop what agents are doing", subtitle: "Ends every connection and closes their windows. Apps can connect again.") {
                         Button("Stop Agents") { center.stopAgents(reason: "person") }.buttonStyle(.airc(.secondary))

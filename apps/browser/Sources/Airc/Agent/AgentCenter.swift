@@ -36,6 +36,10 @@ final class AgentCenter {
         var remoteEnabled = false
         /// The port it listens on (the same every launch, so a paired device's URL keeps working).
         var remotePort: Int?
+        /// Settings › Agents › "Keep finished agents for": minutes a finished agent stays in the Agents folder (1, 5, 30);
+        /// 0 until the person clears it. 5 by default.
+        var keepFinishedMinutes = 5
+        var keepFinished: TimeInterval? { keepFinishedMinutes > 0 ? TimeInterval(keepFinishedMinutes) * 60 : nil }
 
         init() {}
         init(from decoder: Decoder) throws {
@@ -46,6 +50,7 @@ final class AgentCenter {
             showInFront = try c.decodeIfPresent(Bool.self, forKey: .showInFront) ?? false
             remoteEnabled = try c.decodeIfPresent(Bool.self, forKey: .remoteEnabled) ?? false
             remotePort = try c.decodeIfPresent(Int.self, forKey: .remotePort)
+            keepFinishedMinutes = try c.decodeIfPresent(Int.self, forKey: .keepFinishedMinutes) ?? 5
         }
     }
 
@@ -298,6 +303,14 @@ final class AgentCenter {
         saveSettings()
     }
 
+    /// Settings › Agents › "Keep finished agents for" (minutes; 0: until cleared).
+    func setKeepFinished(minutes: Int) {
+        settings.keepFinishedMinutes = max(0, minutes)
+        saveSettings()
+        AgentActivity.shared.keepChanged()
+        changed()
+    }
+
     func setGranted(_ profileID: String, _ granted: Bool) {
         settings.blockedProfiles.removeAll { $0 == profileID }
         if !granted { settings.blockedProfiles.append(profileID) }
@@ -436,8 +449,9 @@ final class AgentCenter {
         else if let other = store.spaces(usingProfile: w.profileID).first { spaceID = other.id }
         else { return "No Space in this window uses the agent's profile." }
         let rowID = AgentActivityModel.rowID(window: id, tab: tabID)
-        // First, so the row reads "You took over" and not "Done" when the tab leaves the window.
-        AgentActivity.shared.ended(rowID, .takenOver)
+        // First, so the row reads "You took over" and not "Done" when the tab leaves the window. The row stays while the
+        // person looks at the page.
+        AgentActivity.shared.tookOver(rowID, page: page)
         guard let detached = w.detach(tabID) else { return "The agent's page is gone." }
         guard c.adoptMovedPage(detached, inSpace: spaceID) else {
             // The engine couldn't move it: the agent keeps it.
