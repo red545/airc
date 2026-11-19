@@ -2,6 +2,17 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.38",
+      "highlights": [
+        {
+          "title": "Stop shows in dark Spaces",
+          "lead": "The Stop button in the agent pane shows in dark Spaces",
+          "detail": "While the Airc Agent works, the round Stop button next to its message field is now visible in dark Spaces too.",
+          "icon": "stop.circle"
+        }
+      ]
+    },
+    {
       "version": "0.1.37",
       "highlights": [
         {
@@ -27,7 +38,7 @@
         {
           "title": "Settings stays put",
           "lead": "Settings stays put",
-          "detail": "Switching panes in Settings no longer moves the layout.",
+          "detail": "Switching panes in Settings no longer moves the layout: every pane keeps the same column, and Appearance no longer shifts left.",
           "icon": "gearshape"
         }
       ]
