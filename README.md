@@ -8,7 +8,8 @@ Arc stops working on 22 December 2026. Airc keeps what made it great: the sideba
 between work and personal accounts with a swipe, without a second window. It runs on real Chromium, so your
 Chrome extensions and Google logins just work.
 
-> Status: pre-alpha. Nothing to download yet. Follow along in [docs/spec.md](docs/spec.md).
+> Status: early beta. [Download Airc](https://aircbrowser.com) for macOS (Apple silicon); it updates itself.
+> The plan is in [docs/spec.md](docs/spec.md).
 
 ## What it does (v1)
 
@@ -69,3 +70,8 @@ Chromium's component updater downloads and verifies from Google, and Apple's sys
 with FairPlay for the streaming sites in [docs/user/protected-media.md](docs/user/protected-media.md)). Builds use Chromium's proprietary-codec setting (H.264/AAC through Chromium's FFmpeg).
 Signing certificates, update-signing keys and other credentials stay private. This repository is a snapshot of the
 development repository, synced from its reviewed main (one commit per sync), without its history.
+
+## Contributing
+
+Bug reports, ideas and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). For private feedback,
+use Send Feedback in Airc.

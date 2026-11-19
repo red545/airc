@@ -1,0 +1,15 @@
+name: Feature request
+description: Something Arc did that Airc should do, or a new idea
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What would you like?
+      description: If Arc did it, how did it work there?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it matters to you
