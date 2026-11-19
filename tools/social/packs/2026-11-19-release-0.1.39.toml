@@ -1,0 +1,59 @@
+# Airc 0.1.39 (cut e528f148; build revision d5b37cf4). Claims from its approved notes, "New since 0.1.38". NOT TO POST
+# before release051 posts LIVE for 0.1.39: plan and approve only then, after checking the public repo shows the release
+# (owner rule).
+slug = "2026-11-19-release-0.1.39"
+title = "Airc 0.1.39: DevTools in the window; agent setup; a quieter agent"
+kind = "release"
+since = "0.1.39"
+shots_rev = "e528f148"
+tag = "Beta in Airc 0.1.39"
+end_title = "Airc 0.1.39"
+end_line = "Free for Mac · aircbrowser.com"
+summary = """
+Three posts: DevTools docked in the window (text: the marketing shot isn't rendered yet and the test screenshots show a
+fixture page on loopback), the agent pane setting up your own Claude Code or Codex (card of agent-pane-connect, cropped
+to "Connect your AI"), and the agent pane's power use, with release051's numbers.
+"""
+order = """
+1. DevTools at 10:30 UTC on the first day after LIVE whose 10:30 can move (it's for developers, a big Arc-to-Chrome
+   gap); the agent posts on the next two days, afternoons.
+"""
+checked = """
+- DevTools: ⌥⌘I (⌥⌘J Console, ⌥⌘C element picker) open next to the page in the same window, bottom or side like Chrome;
+  ⇧⌘D switches the side; drag the divider; undock and redock; every panel works. With Safari's engine, Web Inspector
+  stays with its tab: not claimed otherwise (the post says "like Chrome" only for the docking).
+- Agent setup: Install… shows the install command from the tool's docs, with Copy and Open in Terminal (runs only after
+  Return); Sign in… starts the tool's own sign-in, and the task goes on by itself; Airc never sees a password or token.
+  Neutral wording: "your own Claude Code or Codex", never "use your Claude plan" (release051). Still a beta.
+- Power: "Thinking…" animates on Core Animation; release051's numbers: Chromium 16.35% to 0.12%, WebKit 12.67% to
+  0.03% of a core; the notes say about 16% to under 1%, so the post uses the notes' rounded line.
+- Shot: agent-pane-connect (in the cut), cropped to the pane's "Connect your AI": Claude Code and Codex (Install…),
+  Anthropic and OpenAI API keys (Add key…). Apple's developer site behind stays out.
+"""
+
+[[image]]
+id = "connect"
+shot = "agent-pane-connect"
+title = "Set up your own Claude Code or Codex."
+line = "Install… and Sign in…, right in the agent pane."
+clip = [1031, 100, 400, 440]
+alt = "The Airc Agent pane's Connect your AI: use your own Claude Code or Codex, or an API key, and Airc never sees your sign-in. Claude Code and Codex, each not installed, with Install…; Anthropic and OpenAI API keys, billed to your key, with Add key…."
+
+[[post]]
+label = "Developer Tools dock in the window"
+text = """
+Developer Tools now dock inside the window you're inspecting in Airc 0.1.39, at the bottom or the side like Chrome: ⌥⌘I, ⌥⌘J for the Console, ⌥⌘C to pick an element. ⇧⌘D switches sides, drag the divider, undock and redock.
+"""
+
+[[post]]
+label = "Agent: set up your own Claude Code or Codex"
+media = ["connect:16x9"]
+text = """
+No Claude Code or Codex yet? Airc Agent (beta) now sets them up from its pane: Install… shows the official install command, Sign in… starts the tool's own sign-in, and your task carries on by itself. Airc never sees a password or token. New in 0.1.39.
+"""
+
+[[post]]
+label = "A quieter agent pane"
+text = """
+Airc's agent pane got much lighter while it thinks: the "Thinking…" shimmer now runs on Core Animation, so its CPU use drops from about 16% of a core to under 1%. New in Airc 0.1.39.
+"""
