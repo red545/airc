@@ -523,6 +523,41 @@ final class AgentCenter {
         return nil
     }
 
+    /// Hand back: the person's tab `tabID` in `c` (a page they took over) goes back into agent window `w` as the same
+    /// page: the same WebContents / WKWebView, so its history, scroll position and typed form text stay; nothing is
+    /// loaded again. The tab leaves the person's sidebar (not archived: it's the agent's again), and the blank page the
+    /// run's new window opened with closes. Nil when done, else why not (then the person keeps the tab).
+    func handBack(tab tabID: String, from c: WindowController, into w: AgentWindow, as agentTabID: Int?) -> String? {
+        guard windows[w.id] === w else { return "The agent's window is gone." }
+        guard let page = c.engineTab(for: tabID), !page.isClosed else { return "The page is gone." }
+        guard page.profile === w.profile else { return "The page is in another profile than the agent's." }
+        let spaceID = c.store.tab(tabID)?.spaceID ?? c.currentSpaceID
+        if c.shownTabID == tabID || c.visibleTabIDs.contains(tabID) {
+            // The window shows its next tab first, so the page view isn't on its card when it leaves.
+            if let next = c.nextFreeTab(afterClosing: tabID, inSpace: spaceID) { c.show(next.id, focus: false) } else { c.showEmpty() }
+        }
+        guard let released = c.releasePage(tabID) else { return "The page is gone." }
+        do {
+            try w.engineWindow.moveTab(released, profile: w.profile, to: w.engineWindow.hostView)
+        } catch {
+            // The engine couldn't move it: the person keeps it.
+            c.adopt(released, as: tabID)
+            c.show(tabID)
+            return "Airc couldn't move this page back to the agent (\(error))."
+        }
+        try? c.store.forgetTab(tabID)
+        let blanks = w.tabs.filter { $0.tab !== released && ($0.tab.url == nil || $0.tab.url?.absoluteString == "about:blank") }.map(\.id)
+        let id = w.reattach(released, as: agentTabID)
+        blanks.forEach { w.closeTab($0) }
+        w.select(id)
+        // The window's "the person took over" note is over: the page is the agent's again.
+        takenOver[w.id] = nil
+        log(["event": "handed-back", "client": w.client, "window": w.id])
+        onEvent?("handed-back \(w.id) \(id)")
+        updateIndicator()
+        return nil
+    }
+
     // MARK: Profiles
 
     var profiles: [Profile] { app?.store.orderedProfiles ?? [] }

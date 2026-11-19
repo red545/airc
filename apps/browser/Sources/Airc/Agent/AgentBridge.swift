@@ -44,9 +44,18 @@ final class AgentBridge {
 
     var window: AgentWindow? { windowID.flatMap { center.windows[$0] } }
 
+    /// A page the person handed back (Hand back): it goes into the run's window as soon as there is one.
+    var pendingHandBack: ((AgentWindow) -> Void)?
+
+    private func applyHandBack() {
+        guard let w = window, let h = pendingHandBack else { return }
+        pendingHandBack = nil
+        h(w)
+    }
+
     /// Opens the run's agent window (the MCP `open_window`, same code), once.
     func openWindow(_ done: @escaping (String?) -> Void) {
-        if window != nil { return done(nil) }
+        if window != nil { applyHandBack(); return done(nil) }
         center.ensureDriver()
         center.admitPanel(session)
         guard let tool = center.tools.first(where: { $0.name == "open_window" }) else { return done("Airc isn't ready.") }
@@ -54,6 +63,7 @@ final class AgentBridge {
             guard let self else { return }
             if result.isError { return done(Self.text(result)) }
             self.windowID = (result.structured?["window"] as? Int) ?? self.session.currentWindow
+            self.applyHandBack()
             done(self.windowID == nil ? "No agent window." : nil)
         }
     }

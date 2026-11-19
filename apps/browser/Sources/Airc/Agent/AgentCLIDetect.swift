@@ -14,6 +14,8 @@ final class AgentCLIDetector {
     private var waiting: [AgentCLIKind: [(AgentCLIStatus) -> Void]] = [:]
     private let queue = DispatchQueue(label: "airc.agent.cli.detect", qos: .userInitiated)
     private var shellPATH: String?
+    /// npm's global bin folder (`npm prefix -g` + /bin), "" when there's no npm.
+    private var npmBin: String?
     /// Test builds: `--agent-cli-dir=<dir>` makes Airc look only there (the fake CLIs), never at a real install.
     private(set) var onlyDir: String?
 
@@ -35,7 +37,10 @@ final class AgentCLIDetector {
     func status(_ kind: AgentCLIKind) -> AgentCLIStatus? { statuses[kind] }
 
     /// Re-reads a CLI's status unless it was read in the last `maxAge` seconds. `done` gets it on the main thread.
-    func check(_ kind: AgentCLIKind, maxAge: TimeInterval = 30, _ done: ((AgentCLIStatus) -> Void)? = nil) {
+    /// `freshPATH`: read the login shell's PATH and npm's global folder again (an install that just finished may have
+    /// added a folder; the pane's Check again and its re-check when Airc becomes active).
+    func check(_ kind: AgentCLIKind, maxAge: TimeInterval = 30, freshPATH: Bool = false, _ done: ((AgentCLIStatus) -> Void)? = nil) {
+        if freshPATH, statuses[kind] != .checking { queue.async { self.shellPATH = nil; self.npmBin = nil } }
         if let s = statuses[kind], s != .checking, let at = checkedAt[kind], Date().timeIntervalSince(at) < maxAge {
             done?(s)
             return
@@ -94,7 +99,29 @@ final class AgentCLIDetector {
             let p = (String(dir) as NSString).appendingPathComponent(kind.binary)
             if fm.isExecutableFile(atPath: p) { return p }
         }
-        return kind.candidates(home: NSHomeDirectory()).first { fm.isExecutableFile(atPath: $0) }
+        if let p = kind.candidates(home: NSHomeDirectory()).first(where: { fm.isExecutableFile(atPath: $0) }) { return p }
+        // npm's global folder when it's somewhere else (a custom prefix, nvm, fnm).
+        if let bin = npmGlobalBin() {
+            let p = (bin as NSString).appendingPathComponent(kind.binary)
+            if fm.isExecutableFile(atPath: p) { return p }
+        }
+        return nil
+    }
+
+    /// `npm prefix -g` with the person's PATH (once, off the main thread), plus /bin.
+    private func npmGlobalBin() -> String? {
+        if let b = npmBin { return b.isEmpty ? nil : b }
+        let fm = FileManager.default
+        let npm = searchPATH.split(separator: ":").map { (String($0) as NSString).appendingPathComponent("npm") }.first { fm.isExecutableFile(atPath: $0) }
+        var bin = ""
+        if let npm {
+            var env = ProcessInfo.processInfo.environment
+            env["PATH"] = searchPATH
+            let r = Self.run(npm, ["prefix", "-g"], env: env, timeout: 5)
+            if r.code == 0, r.out.hasPrefix("/"), !r.out.contains("\n") { bin = (r.out as NSString).appendingPathComponent("bin") }
+        }
+        npmBin = bin
+        return bin.isEmpty ? nil : bin
     }
 
     /// The environment a CLI runs with: Airc's own, minus API keys (the CLI uses the login the person made in it) and

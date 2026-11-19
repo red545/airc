@@ -136,6 +136,8 @@ final class AgentRunCenter: ObservableObject {
     var canSend: Bool { !state.isActive }
     /// The run's agent window (its Agents folder row's), while it has one.
     var runWindowID: Int? { bridge?.windowID }
+    /// Hand back: given to the next run's bridge, which moves the page into its window when it opens.
+    var handBack: ((AgentWindow) -> Void)?
     /// Whether the chosen backend can take a task: a saved key, or the person's CLI not known to be missing or logged
     /// out (an unknown status is checked when the task is sent).
     var hasKey: Bool {
@@ -188,6 +190,7 @@ final class AgentRunCenter: ObservableObject {
         event("state running")
         let b = bridge ?? AgentBridge(profileID: profileID)
         bridge = b
+        if let h = handBack { handBack = nil; b.pendingHandBack = h }
         AgentActivity.shared.setTask(b.session.ownerKey, task)   // the Agents folder row's title
         b.openWindow { [weak self] error in
             guard let self else { return }
@@ -252,6 +255,7 @@ final class AgentRunCenter: ObservableObject {
 
     /// A fresh conversation: the run's window closes.
     func newConversation() {
+        handBack = nil
         stop()
         reset(keepSteps: false)
         approval = nil
@@ -664,6 +668,7 @@ extension AgentRunCenter {
         guard let kind = cliKind else { return }
         let b = bridge ?? AgentBridge(profileID: profileID ?? "", clientName: kind.clientName)
         bridge = b
+        if let h = handBack { handBack = nil; b.pendingHandBack = h }
         if let task { AgentActivity.shared.setTask(b.session.ownerKey, task) }   // the Agents folder row's title
         b.openWindow { [weak self] error in
             guard let self, self.state.isActive, self.stopRequested == nil else { return }

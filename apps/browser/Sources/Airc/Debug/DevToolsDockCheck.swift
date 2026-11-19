@@ -73,7 +73,7 @@ final class DevToolsDockCheck {
         var list: [() async -> Void] = [setUp]
         #if canImport(AircCore)
         if !isWebKit {
-            list += [chromiumOpen, chromiumDockMenu, chromiumPanels, chromiumSplitter, chromiumToggleSide, chromiumOverflow,
+            list += [chromiumOpen, chromiumDockMenu, chromiumPanels, chromiumContextMenus, chromiumSplitter, chromiumToggleSide, chromiumOverflow,
                      chromiumDark, chromiumUndock, chromiumFollowTab, chromiumShortcuts, chromiumSplit, chromiumLittle,
                      chromiumAgentPane, chromiumClose]
         }
@@ -431,13 +431,52 @@ final class DevToolsDockCheck {
         _ = tv
     }
 
+    /// Native menus in the docked frontend: a real ⌃-click (the driver has no right button) in Elements, Console and
+    /// Sources opens Chrome's context menu with DevTools' own items; Esc closes it.
+    func chromiumContextMenus() async {
+        guard real, let t = chromium, let tv = tools(t) else { return skip("context menus: DevTools aren't docked") }
+        menuTitles = nil
+        let observer = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { [weak self] n in
+            guard let m = n.object as? NSMenu, m !== NSApp.mainMenu, m.supermenu == nil else { return }
+            MainActor.assumeIsolated { self?.menuTitles = m.items.map(\.title).filter { !$0.isEmpty } }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        // Where to ⌃-click in each panel, and an item DevTools puts in that menu.
+        let cases: [(id: String, name: String, target: String, item: String)] = [
+            ("elements", "Elements", ".elements-disclosure li.selected", "Copy"),
+            ("console", "Console", ".console-message-wrapper, #console-messages", "Clear console"),
+            ("sources", "Sources", ".navigator-tabbed-pane .tree-outline li, .navigator-tabbed-pane", "")]
+        for c in cases {
+            if let r = (await strip())?.tabs[c.id] { _ = await clickFrontend(r, tools: tv) }
+            await sleep(0.8)
+            guard let r = await element(c.target), r.count == 4, let w = tv.window else { check(false, "\(c.name): something to ⌃-click in the panel"); continue }
+            menuTitles = nil
+            let g = global(windowPoint(r[0] + min(r[2], 120) / 2, r[1] + min(r[3], 16) / 2, in: tv), in: w)
+            let (ok, out) = await driver(["--click", "\(Int(g.x))", "\(Int(g.y))", "--mods", "ctrl"])
+            if !ok { note("devtools \(engine): driver ⌃-click: \(out)") }
+            // Elements builds its menu after resolving the node: give it time.
+            await until(8) { self.menuTitles != nil }
+            let titles = menuTitles ?? []
+            note("devtools \(engine): \(c.name) context menu: \(titles.prefix(12))")
+            if menuTitles != nil { _ = await key("escape") }
+            await sleep(0.4)
+            check(ok && !titles.isEmpty && (c.item.isEmpty || titles.contains { $0.hasPrefix(c.item) }),
+                  "\(c.name): a real ⌃-click opens DevTools' context menu (\(titles.count) items\(c.item.isEmpty ? "" : ", \"" + c.item + "\" among them"))")
+        }
+    }
+
     func chromiumSplitter() async {
         guard real, let t = chromium, let tv = tools(t), let host = t.core.view.superview, let w = host.window else { return skip("splitter: DevTools aren't docked") }
         let before = layout(t)
         guard before.side == "bottom" else { return check(false, "splitter: docked at the bottom first (\(before.side))") }
-        // The frontend's resizer is its top edge, just under the page.
-        let y = before.page.maxY + 3
-        let a = windowPoint(before.host.midX, y, in: host), b = windowPoint(before.host.midX, y - 120, in: host)
+        // The frontend's own resizer between the page and DevTools (a wide, thin element at its top edge); else the top
+        // edge right of the tabs.
+        let resizer = await frontend("(async () => {\(Self.js) const r = deep(document, '[class*=\"resizer\"]').map(rect).filter(r => r[2] > 300 && r[3] > 0 && r[3] <= 16 && Math.abs(r[1] - \(Int(before.page.maxY))) < 24); return r[0] || null; })()") as? [Double]
+        let resizerText = resizer.map { r in r.map { String(Int($0)) }.joined(separator: ",") } ?? "not found"
+        note("devtools \(engine): splitter: resizer \(resizerText)")
+        let x = resizer.map { $0[0] + $0[2] / 2 } ?? (before.host.width - 260)
+        let y = resizer.map { $0[1] + $0[3] / 2 } ?? (before.page.maxY + 2)
+        let a = windowPoint(x, y, in: host), b = windowPoint(x, y - 120, in: host)
         let dragged = await drag(a, b, in: w)
         let moved = await until(3) { self.layout(t).page.height < before.page.height - 80 }
         let after = layout(t)
@@ -470,17 +509,34 @@ final class DevToolsDockCheck {
         guard let s = await strip() else { return check(false, "»: the tab strip can be read") }
         check(s.more != nil && s.tabs.count < s.ids.count,
               "the tab strip shows » for the panels that don't fit (\(s.tabs.count) of \(s.ids.count) visible, DevTools \(Int(layout(t).host.width - layout(t).page.width)) pt wide)")
-        if let more = s.more, await clickFrontend(more, tools: tv) {
-            await sleep(0.4)
-            let hidden = Self.panels.first { s.ids.contains($0.id) && s.tabs[$0.id] == nil }
-            if let hidden, let item = await element(".soft-context-menu-item", text: hidden.name) {
+        // » opens Chrome's native menu (or DevTools' own soft menu): record a native one's items as it opens.
+        menuTitles = nil
+        let observer = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { [weak self] n in
+            guard let m = n.object as? NSMenu, m !== NSApp.mainMenu, m.supermenu == nil else { return }
+            MainActor.assumeIsolated { self?.menuTitles = m.items.map(\.title) }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        let hidden = Self.panels.first { s.ids.contains($0.id) && s.tabs[$0.id] == nil }
+        if let more = s.more, let hidden, await clickFrontend(more, tools: tv) {
+            await until(3) { self.menuTitles != nil }
+            if let titles = menuTitles {
+                // A native menu: choose the item with real keys (type-select, then Return).
+                note("devtools \(engine): » menu (native): \(titles)")
+                for k in UIDriverClient.keys(typing: hidden.name) ?? [] { _ = await key(k) }
+                _ = await key("return")
+                await sleep(0.8)
+                let p = await panelState()
+                check(titles.contains(hidden.name) && p?.id == hidden.id,
+                      "» lists the hidden panels (\(titles.count) items, \(hidden.name) among them), and choosing \(hidden.name) shows it (\(p?.id ?? "-"))")
+            } else if let item = await element(".soft-context-menu-item", text: hidden.name) {
                 let ok = await clickFrontend(item, tools: tv)
                 await sleep(0.5)
                 let p = await panelState()
                 check(ok && p?.id == hidden.id, "» lists \(hidden.name), and choosing it shows that panel (\(p?.id ?? "-"))")
-            } else { check(false, "» opens a list of the hidden panels"); _ = await key("escape") }
+            } else { check(false, "» opens a list of the hidden panels (no menu appeared)"); _ = await key("escape") }
         }
     }
+    var menuTitles: [String]?
 
     func chromiumDark() async {
         guard real, let t = chromium, let tv = tools(t) else { return skip("dark: DevTools aren't docked") }
@@ -504,10 +560,12 @@ final class DevToolsDockCheck {
         guard real, let t = chromium, let docked = tools(t) else { return skip("undock: DevTools aren't docked") }
         weak var view = docked
         let undocked = await dock("Undock into separate window")
-        let gone = await until(5) { self.tools(t) == nil && view?.window != nil && view?.window !== self.c.window }
+        // Undocked, Chrome keeps only its device-mode toolbox in the tab (GetInTabWebContents), never the frontend.
+        let gone = await until(5) { view?.window != nil && view?.window !== self.c.window && self.tools(t) !== view }
         let host = t.core.view.superview
-        check(undocked && gone && host.map { t.core.view.frame == $0.bounds } == true,
-              "⋮ › Undock: DevTools move to their own window and the page fills its card again (window \(view?.window.map { fmt($0.frame) } ?? "-"))")
+        let fills = await until(2) { host.map { t.core.view.frame == $0.bounds } == true }
+        check(undocked && gone && fills,
+              "⋮ › Undock: DevTools move to their own window and the page fills its card again (clicked \(undocked), window \(view?.window.map { fmt($0.frame) } ?? "-"), page \(fmt(t.core.view.frame)))")
         check(t.isDevToolsOpen, "undocked DevTools still count as open")
         // Dock again from that window: ⌘⇧D with the keyboard in it (Chrome's "last docking position").
         if let w = view?.window, let v = view {
@@ -554,7 +612,12 @@ final class DevToolsDockCheck {
         _ = await key("cmd+opt+c")
         await until(8) { self.layout(t).inWindow }
         await sleep(0.8)
-        let picking = await frontend("(async () => {\(Self.js) const b = deep(document, '[aria-label^=\"Select an element\"]')[0]; return {panel: tp.selectedTabId, on: b ? (b.getAttribute('aria-pressed') === 'true' || b.classList.contains('toggled-on')) : null}; })()") as? [String: Any]
+        var picking: [String: Any]?
+        for _ in 0..<8 {
+            picking = await frontend("(async () => {\(Self.js) const bs = deep(document, '[aria-label^=\"Select an element\"], [title^=\"Select an element\"]'); const on = bs.some(b => b.getAttribute('aria-pressed') === 'true' || b.hasAttribute('toggled') || b.toggled === true || b.classList.contains('toggled-on') || b.classList.contains('toggled')); return {panel: tp.selectedTabId, on, buttons: bs.length}; })()") as? [String: Any]
+            if picking?["on"] as? Bool == true { break }
+            await sleep(0.4)
+        }
         check(picking?["panel"] as? String == "elements" && picking?["on"] as? Bool == true,
               "⌥⌘C opens Elements with the element picker on (\(picking ?? [:]))")
         _ = await key("escape")

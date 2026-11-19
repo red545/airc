@@ -25,6 +25,7 @@
 #include "ui/views/interaction/element_tracker_views.h"
 #include "ui/views/widget/widget.h"
 #include "chrome/browser/ui/tab_contents/chrome_web_contents_menu_helper.h"
+#include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/ui/tab_contents/chrome_web_contents_view_delegate.h"
 #include "components/tabs/public/tab_interface.h"
 #include "content/public/browser/browser_context.h"
@@ -61,6 +62,17 @@ constexpr int kOpenLinkInProfileItems = 100;
 
 AircTab* TabOf(content::WebContents* contents) {
   return WindowHost::ForContents(contents) ? TabBridge::GetOrCreate(contents)->tab() : nil;
+}
+
+// A DevTools frontend docked in an Airc window: no tab of a Browser, but its
+// view is in the inspected page's window (the app hosts it next to the page).
+// Chrome's menu would look for a views widget there and drop every menu.
+WindowHost* DockedFrontendHost(content::WebContents* contents) {
+  if (!contents || TabOf(contents) || !DevToolsWindow::IsDevToolsWindow(contents)) {
+    return nullptr;
+  }
+  NSView* view = contents->GetNativeView().GetNativeNSView();
+  return view.window ? WindowHost::ForNSWindow(view.window) : nullptr;
 }
 
 NSArray* DescribeMenu(ui::MenuModel* model) {
@@ -152,6 +164,7 @@ class AircContextMenu : public RenderViewContextMenuMacCocoa {
         views::Widget::GetTopLevelWidgetForNativeView(contents->GetNativeView());
     if (!widget) {
       WindowHost* host = WindowHost::ForContents(contents);
+      if (!host) host = DockedFrontendHost(contents);
       widget = host ? host->widget() : nullptr;
     }
     NSView* parent = parent_view_;
@@ -482,6 +495,15 @@ class AircViewDelegate : public ChromeWebContentsViewDelegateViewsMac {
       content::RenderFrameHost& render_frame_host,
       const content::ContextMenuParams& params) override {
     content::RenderWidgetHostView* view = contents_->GetRenderWidgetHostView();
+    if (view && DockedFrontendHost(contents_)) {
+      // DevTools' own items only (no page or share items), shown through the
+      // window's widget.
+      auto menu = std::make_unique<AircContextMenu>(
+          render_frame_host, params, paste_enabled_, paste_and_match_style_enabled_,
+          view->GetNativeView().GetNativeNSView());
+      menu->Init();
+      return menu;
+    }
     if (!TabOf(contents_) || !view) {
       return ChromeWebContentsViewDelegateViewsMac::BuildMenu(render_frame_host,
                                                               params);
@@ -512,7 +534,7 @@ class AircViewDelegate : public ChromeWebContentsViewDelegateViewsMac {
       const content::ContextMenuParams& params,
       base::OnceCallback<void(std::unique_ptr<RenderViewContextMenuBase>)> callback)
       override {
-    if (!TabOf(contents_)) {
+    if (!TabOf(contents_) && !DockedFrontendHost(contents_)) {
       ChromeWebContentsViewDelegateViewsMac::BuildMenuAsync(render_frame_host, params,
                                                             std::move(callback));
       return;

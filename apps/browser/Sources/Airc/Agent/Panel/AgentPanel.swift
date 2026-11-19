@@ -305,7 +305,7 @@ struct AgentPanelView: View {
         return VStack(alignment: .leading, spacing: 6) {
             Divider().opacity(0.5).padding(.vertical, 2)
             Text(targets.isEmpty ? "Or use Claude Desktop or Claude Code, which can use Airc once they're connected."
-                 : "Or hand this task to Claude. It uses Airc through its connector, with your Claude plan.")
+                 : "Or hand this task to Claude. It uses Airc through its connector, with your own sign-in.")
                 .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color).fixedSize(horizontal: false, vertical: true)
             ForEach(targets, id: \.self) { t in
                 let ready = AgentHandoff.isConnected(t)

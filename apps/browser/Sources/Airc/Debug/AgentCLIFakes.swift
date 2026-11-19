@@ -27,9 +27,24 @@ def log(o):
     with open(os.path.join(D, "fake-log.jsonl"), "a") as f:
         f.write(json.dumps(o) + "\n")
 
+def write_state(st):
+    tmp = os.path.join(D, "fake-state.json.tmp")
+    with open(tmp, "w") as f:
+        json.dump(st, f)
+    os.replace(tmp, os.path.join(D, "fake-state.json"))
+
 args = sys.argv[1:]
 if args[:1] == ["--version"]:
     print("2.9.0 (Claude Code)")
+    sys.exit(0)
+if args[:2] == ["auth", "login"]:
+    # The CLI's own sign-in (in Terminal): the fake "finishes" after loginDelay seconds. No credential anywhere.
+    log({"event": "auth-login", "argv": args, "tty": sys.stdin.isatty()})
+    time.sleep(float(state().get("loginDelay", 1)))
+    st = state()
+    st["loggedIn"] = True
+    write_state(st)
+    print("Login successful.")
     sys.exit(0)
 if args[:2] == ["auth", "status"]:
     li = state().get("loggedIn", True)
@@ -261,9 +276,23 @@ def log(o):
     with open(os.path.join(D, "fake-log.jsonl"), "a") as f:
         f.write(json.dumps(o) + "\n")
 
+def write_state(st):
+    tmp = os.path.join(D, "fake-state.json.tmp")
+    with open(tmp, "w") as f:
+        json.dump(st, f)
+    os.replace(tmp, os.path.join(D, "fake-state.json"))
+
 args = sys.argv[1:]
 if args[:1] == ["--version"]:
     print("codex-cli 0.200.0")
+    sys.exit(0)
+if args[:1] == ["login"]:
+    log({"event": "cli-login", "argv": args})
+    time.sleep(float(state().get("loginDelay", 1)))
+    st = state()
+    st["loggedIn"] = True
+    write_state(st)
+    print("Successfully logged in")
     sys.exit(0)
 if args[:1] != ["app-server"]:
     sys.stderr.write("fake codex: only app-server is scripted\n")
@@ -467,6 +496,32 @@ for line in sys.stdin:
         li = state().get("loggedIn", True)
         emit({"id": i, "result": {"account": {"type": "chatgpt", "email": "p@example.com", "planType": "plus"} if li else None,
                                   "requiresOpenaiAuth": True}})
+    elif method == "account/login/start":
+        log({"event": "login-start", "params": p})
+        if state().get("noBrowserLogin"):
+            emit({"id": i, "error": {"code": -32601, "message": "fake codex: account/login/start"}})
+            continue
+        lid = str(uuid.uuid4())
+        emit({"id": i, "result": {"type": "chatgpt", "loginId": lid,
+                                  "authUrl": state().get("authUrl", "https://auth.example.com/fake-codex-login")}})
+        def complete(lid=lid):
+            # The person signs in on the page (the fake: after loginDelay seconds), then Codex says so.
+            time.sleep(float(state().get("loginDelay", 1.5)))
+            if state().get("loginCancelled") == lid:
+                return
+            st = state()
+            st["loggedIn"] = True
+            write_state(st)
+            notify("account/login/completed", {"loginId": lid, "success": True, "error": None})
+            notify("account/updated", {"authMode": "chatgpt", "planType": "plus"})
+        threading.Thread(target=complete, daemon=True).start()
+    elif method == "account/login/cancel":
+        log({"event": "login-cancel", "params": p})
+        st = state()
+        st["loginCancelled"] = p.get("loginId")
+        write_state(st)
+        emit({"id": i, "result": {}})
+        notify("account/login/completed", {"loginId": p.get("loginId"), "success": False, "error": "cancelled"})
     elif method == "config/read":
         emit({"id": i, "result": {"config": {"mcp_servers": {"personal-fs": {"command": "/usr/bin/false"}}}, "origins": {}}})
     elif method == "thread/start":

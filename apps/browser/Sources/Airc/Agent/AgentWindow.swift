@@ -118,9 +118,14 @@ final class AgentWindow: NSObject, EngineWindowDelegate, EngineTabDelegate {
     private static var nextTabID = 1
 
     @discardableResult
-    private func adopt(_ tab: EngineTab, show: Bool, completion: ((Int) -> Void)? = nil) -> Int {
-        let id = AgentWindow.nextTabID
-        AgentWindow.nextTabID += 1
+    private func adopt(_ tab: EngineTab, show: Bool, as wanted: Int? = nil, completion: ((Int) -> Void)? = nil) -> Int {
+        let id: Int
+        if let wanted, wanted < AgentWindow.nextTabID, !tabs.contains(where: { $0.id == wanted }) {
+            id = wanted
+        } else {
+            id = AgentWindow.nextTabID
+            AgentWindow.nextTabID += 1
+        }
         tab.delegate = self
         tabs.append(Tab(id: id, tab: tab))
         if show || activeTabID == nil { select(id) }
@@ -168,10 +173,12 @@ final class AgentWindow: NSObject, EngineWindowDelegate, EngineTabDelegate {
         return t.tab
     }
 
-    /// A detached page the person's window couldn't take comes back (a new tab id).
-    func reattach(_ tab: EngineTab) {
+    /// A detached page comes back: the person's window couldn't take it (a new tab id), or the person handed it back
+    /// (`as`: the tab id it had here before, so the agent's list_tabs still knows it).
+    @discardableResult
+    func reattach(_ tab: EngineTab, as id: Int? = nil) -> Int {
         engineWindow.activeProfile = profile
-        adopt(tab, show: true)
+        return adopt(tab, show: true, as: id)
     }
 
     func close() {

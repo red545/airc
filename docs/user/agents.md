@@ -15,17 +15,33 @@ new task). Type what you want done, like "find the cheapest train to Graz on Fri
 press Return. Or type it in the Command Bar and pick **Ask Airc to…**. The page you're on goes with the task as a chip
 (✕ removes it).
 The agent works in an agent window of the profile your current Space uses, so your signed-in sites work. While it works,
-the pane shows its page live at the top (click it to Watch, or **Take over** to use the page yourself and **Hand back**
-after), and each step as one line with the site's icon. When it's done, the steps fold into "Done in … · N steps", and
+the pane shows its page live at the top (click it to Watch, or **Take over** to use the page yourself), and each step as
+one line with the site's icon. **Take over** moves the agent's page into your window as a normal tab and pauses the task;
+**Hand back** moves that same tab back to the agent, as you left it (what you typed, where you scrolled, its history), and
+the agent goes on from there. When it's done, the steps fold into "Done in … · N steps", and
 the sites it used are chips under the answer. The task also shows in the sidebar's **Agents** folder; when it waits for
 your OK and the pane is closed, its row says so and asks there. **◷** in the pane lists all tasks (`airc://agents`).
 
-- **Your own AI.** The agent runs on your own Claude Code or Codex (your Claude or ChatGPT plan, with their own sign-in;
-  Airc never sees it), or your own Anthropic or OpenAI API key. The first time, the pane lists all four with what each
-  needs; the pill under the field switches between them. For a key, add it in **Settings › AI › Agent** and
-  pick a model (Claude Opus 5.5 by default). The key stays in your Keychain. Your task, the pages the agent reads and its
-  screenshots go from your Mac to that provider, billed to your key; nothing goes through Airc's servers. Answers stream
-  in as they're written.
+- **Your own AI.** The agent runs on your own Claude Code or Codex (with their own sign-in; Airc never sees it), or your
+  own Anthropic or OpenAI API key. The first time, the pane lists all four with what each needs; the pill under the
+  field switches between them.
+  - **Install…** (Claude Code or Codex isn't on this Mac): the pane shows the install command from the tool's own docs,
+    with **Copy** and **Open in Terminal** (Terminal shows the command and runs it only when you press Return; close
+    the window to cancel). Airc never installs anything by itself and never asks for an administrator
+    password. When you come back to Airc it looks again (or press **Check again**), and **Use it** picks it.
+    Claude Code: `curl -fsSL https://claude.ai/install.sh | bash` ([docs](https://code.claude.com/docs/en/setup); or
+    Homebrew `brew install --cask claude-code`). Codex: `npm install -g @openai/codex`
+    ([docs](https://developers.openai.com/codex/cli); or `brew install --cask codex`). Airc finds them on your PATH, in
+    `~/.local/bin`, Homebrew's folders and npm's global folder.
+  - **Sign in…** (it's signed out, or a task stopped because its sign-in expired): Airc starts the tool's own sign-in.
+    Claude Code: Terminal opens with `claude auth login`. Codex: its sign-in page opens in a tab (Codex itself waits for
+    it on this Mac). The pane says **Waiting for sign-in…** and, once the tool reports it's signed in, your task goes on
+    by itself. Airc never sees your password or token; **Cancel** stops waiting.
+  - For a key, add it in **Settings › AI › Agent** and pick a model (Claude Opus 5.5 by default). The key stays in your
+    Keychain.
+
+  Your task, the pages the agent reads and its screenshots go from your Mac to that provider; nothing goes through
+  Airc's servers. Answers stream in as they're written.
 - **Claude Desktop and Claude Code as apps.** To have them drive Airc from their own window instead, set up the connector
   in **Settings › Agents** (below); their work then shows in the Agents folder like any app's.
 - **It asks before risky actions.** Before anything that looks like paying, sending a message or email, posting,

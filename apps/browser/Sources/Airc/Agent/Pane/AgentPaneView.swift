@@ -32,6 +32,7 @@ struct AgentPaneView: View {
             }
             if let a = run.approval { AgentPaneApproval(request: a).padding(.horizontal, 12).padding(.bottom, 8).transition(.move(edge: .bottom).combined(with: .opacity)) }
             if let t = model.takenOver { takenOverBanner(t).padding(.horizontal, 12).padding(.bottom, 8) }
+            if let s = model.setup { AgentPaneSetupCard(setup: s, model: model).padding(.horizontal, 12).padding(.bottom, 8) }
             AgentPaneComposer(model: model)
         }
         .background(theme.surface.color)
@@ -105,14 +106,14 @@ struct AgentPaneView: View {
             Spacer(minLength: 30)
             mark
             Text("Connect your AI").aircFont(AircFont.title3).foregroundStyle(theme.surfaceText.color)
-            Text("Use a plan you already pay for, or your own API key. Airc never sees your sign-in.")
+            Text("Use your own Claude Code or Codex, or an API key. Airc never sees your sign-in.")
                 .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color).multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(spacing: 8) {
                 ForEach(model.providers) { p in AgentPaneProviderRow(provider: p, model: model) }
             }
             .padding(.top, 6)
-            Text("Claude Code and Codex run on this Mac with your own sign-in. Airc gives them only its browser tools; your tasks and the pages they read go to that provider under your plan's terms.")
+            Text("Claude Code and Codex run on this Mac with your own sign-in. Airc gives them only its browser tools; your tasks and the pages they read go to that provider under your agreement with it.")
                 .aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextTertiary.color).multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true).padding(.top, 4)
         }
@@ -172,7 +173,9 @@ struct AgentPaneView: View {
                     Button("Use \(other.name.replacingOccurrences(of: " API key", with: "")) instead") { model.switchProvider(other, retrying: true) }
                         .buttonStyle(.airc(.secondary, size: .small)).testAnchor("agentpane.error.switch")
                 }
-                if p.settings {
+                if let k = model.signInNeeded {
+                    Button("Sign in…") { model.signInAfterFailure(k) }.buttonStyle(.airc(.secondary, size: .small)).testAnchor("agentpane.error.signin")
+                } else if p.settings {
                     Button("Open Settings") { model.providers.first?.setUp() }.buttonStyle(.airc(.secondary, size: .small)).testAnchor("agentpane.error.settings")
                 }
                 if p.continues {
@@ -526,7 +529,7 @@ struct AgentPaneProviderRow: View {
             }
             Spacer(minLength: 6)
             if let fix = provider.fix {
-                Button(fix) { provider.setUp() }.buttonStyle(.airc(provider.group == .plan && fix != "Check" ? .primary : .secondary, size: .small)).testAnchor("agentpane.provider.\(provider.id).fix")
+                Button(fix) { provider.setUp(in: model) }.buttonStyle(.airc(provider.group == .plan && fix != "Check" ? .primary : .secondary, size: .small)).testAnchor("agentpane.provider.\(provider.id).fix")
             } else {
                 Button("Use") { model.switchProvider(provider, retrying: false) }.buttonStyle(.airc(.primary, size: .small))
                     .testAnchor("agentpane.provider.\(provider.id).use")
@@ -535,6 +538,113 @@ struct AgentPaneProviderRow: View {
         .padding(.horizontal, 12).padding(.vertical, 10)
         .background(RoundedRectangle(cornerRadius: 10).strokeBorder(theme.surfaceBorder.color))
         .testAnchor("agentpane.provider.\(provider.id)")
+    }
+}
+
+// MARK: Install and sign in
+
+/// Claude Code / Codex not installed or signed out (design §8, M4): the command from its docs with Copy and "Open Terminal
+/// with this command", then Use it; Sign in… with the CLI's own sign-in, and "Waiting for sign-in…" until it's done.
+struct AgentPaneSetupCard: View {
+    let setup: AgentPaneModel.Setup
+    @ObservedObject var model: AgentPaneModel
+    @Environment(\.aircTheme) private var theme
+    @State private var copied = false
+
+    private var name: String { setup.kind.name }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text(title).aircFont(AircFont.body).fontWeight(.semibold).foregroundStyle(theme.surfaceText.color)
+                    .fixedSize(horizontal: false, vertical: true).testAnchor("agentpane.setup.title")
+                Spacer(minLength: 4)
+                Button { model.cancelSetup() } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)) }
+                    .buttonStyle(.plain).foregroundStyle(theme.surfaceTextTertiary.color).help("Close").accessibilityLabel("Close")
+                    .testAnchor("agentpane.setup.close")
+            }
+            Text(detail).aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color)
+                .fixedSize(horizontal: false, vertical: true).testAnchor("agentpane.setup.detail")
+            switch setup.step {
+            case .install:
+                command
+                HStack(spacing: 6) {
+                    Button("Docs") { model.openSetupDocs() }.buttonStyle(.airc(.secondary, size: .small)).testAnchor("agentpane.setup.docs")
+                    Spacer(minLength: 0)
+                    Button("Check again") { model.recheckSetup() }.buttonStyle(.airc(.secondary, size: .small)).testAnchor("agentpane.setup.check")
+                    Button("Open in Terminal") { model.openSetupInTerminal() }.buttonStyle(.airc(.primary, size: .small))
+                        .help("Opens Terminal with this command. It runs only when you press Return there.")
+                        .testAnchor("agentpane.setup.terminal")
+                }
+            case .found:
+                HStack { Spacer(); Button("Use it") { model.useSetup() }.buttonStyle(.airc(.primary, size: .small)).testAnchor("agentpane.setup.use") }
+            case .signIn, .failed:
+                HStack {
+                    Spacer()
+                    Button("Sign in…") { model.signIn() }.buttonStyle(.airc(.primary, size: .small)).testAnchor("agentpane.setup.signin")
+                }
+            case .waiting(let url):
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Waiting for sign-in…").aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color).testAnchor("agentpane.setup.waiting")
+                    Spacer(minLength: 0)
+                    if url != nil {
+                        Button("Open page again") { model.reopenSignInPage() }.buttonStyle(.airc(.secondary, size: .small)).testAnchor("agentpane.setup.reopen")
+                    }
+                    Button("Cancel") { model.cancelSetup() }.buttonStyle(.airc(.secondary, size: .small)).testAnchor("agentpane.setup.cancel")
+                }
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(theme.tileFill.color))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(theme.surfaceBorder.color))
+        .accessibilityElement(children: .contain)
+        .testAnchor("agentpane.setup")
+    }
+
+    private var title: String {
+        switch setup.step {
+        case .install: return "Install \(name)"
+        case .found: return "\(name) is on this Mac"
+        case .signIn: return "Sign in to \(name)"
+        case .waiting: return "Signing in to \(name)"
+        case .failed: return "\(name) isn't signed in"
+        }
+    }
+
+    private var detail: String {
+        switch setup.step {
+        case .install:
+            return "Run this in Terminal (from \(setup.kind.install.docs.host ?? "its docs")). Airc checks again when you come back."
+        case .found:
+            let v = AgentCLIDetector.shared.status(setup.kind).map { $0.summary(setup.kind) } ?? name
+            return "Found: \(v)."
+        case .signIn:
+            return setup.kind == .claudeCode
+                ? "Claude Code signs in with its own sign-in in Terminal. Airc never sees your password or token."
+                : "Codex signs in with its own sign-in page, in a tab. Airc never sees your password or token."
+        case .waiting(let url):
+            return url == nil ? "Finish signing in in Terminal. Your task goes on by itself." : "Finish signing in in the tab that opened. Your task goes on by itself."
+        case .failed(let why):
+            return why
+        }
+    }
+
+    private var command: some View {
+        HStack(spacing: 6) {
+            Text(setup.kind.install.command).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(theme.surfaceText.color)
+                .textSelection(.enabled).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                .testAnchor("agentpane.setup.command")
+            Spacer(minLength: 4)
+            Button(copied ? "Copied" : "Copy") {
+                model.copySetupCommand()
+                copied = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copied = false }
+            }
+            .buttonStyle(.airc(.secondary, size: .small)).testAnchor("agentpane.setup.copy")
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 7).fill(theme.fieldFill.color))
     }
 }
 
@@ -636,10 +746,10 @@ struct AgentPaneComposer: View {
 
     private var providerPill: some View {
         Menu {
-            Section("Your plans") {
+            Section("On this Mac") {
                 ForEach(model.providers.filter { $0.group == .plan }) { p in
                     Button {
-                        if p.ready { model.switchProvider(p, retrying: false) } else { p.setUp() }
+                        if p.ready { model.switchProvider(p, retrying: false) } else { p.setUp(in: model) }
                     } label: {
                         Text(p.selected ? "✓ \(p.name)" : p.name) + Text(p.ready ? "  \(p.subtitle)" : "  \(p.fix ?? "")")
                     }
@@ -648,7 +758,7 @@ struct AgentPaneComposer: View {
             Section("API keys") {
                 ForEach(model.providers.filter { $0.group == .key }) { p in
                     Button {
-                        if p.ready { model.switchProvider(p, retrying: false) } else { p.setUp() }
+                        if p.ready { model.switchProvider(p, retrying: false) } else { p.setUp(in: model) }
                     } label: {
                         Text(p.selected ? "✓ \(p.name)" : p.name) + Text(p.ready ? "  \(p.status)" : "  \(p.fix ?? "")")
                     }

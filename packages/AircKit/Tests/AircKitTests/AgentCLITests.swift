@@ -57,6 +57,35 @@ final class AgentCLITests: XCTestCase {
         XCTAssertNil(AgentCLIStatus.ready(path: "/x", version: nil, account: nil).fix(.codex))
     }
 
+    /// The pane's Install… shows each CLI's documented command (never sudo) and its Terminal file waits for Return.
+    func testInstallCommandsAndScripts() {
+        XCTAssertEqual(AgentCLIKind.claudeCode.install.command, "curl -fsSL https://claude.ai/install.sh | bash")
+        XCTAssertEqual(AgentCLIKind.codex.install.command, "npm install -g @openai/codex")
+        XCTAssertEqual(AgentCLIKind.claudeCode.install.docs.host, "code.claude.com")
+        for k in AgentCLIKind.allCases {
+            XCTAssertFalse(([k.install.command] + k.install.alternatives).contains { $0.contains("sudo") }, "\(k): no sudo")
+            let file = "/tmp/airc-test-home/Install \(k.name).command"
+            let s = AgentCLIScript.install(k, file: file)
+            XCTAssertTrue(s.hasPrefix("#!/bin/zsh\n"))
+            XCTAssertTrue(s.contains("rm -f '\(file)'"), "it deletes itself")
+            XCTAssertTrue(s.contains("\n" + k.install.command + "\n"), "it runs the documented command")
+            let wait = s.range(of: "read -r")!, run = s.range(of: "\n" + k.install.command + "\n")!
+            XCTAssertTrue(wait.lowerBound < run.lowerBound, "only after Return")
+            XCTAssertTrue(s.contains("|| exit 1"), "closing the window (EOF) cancels")
+            XCTAssertFalse(s.contains("sudo"))
+        }
+    }
+
+    func testLoginScripts() {
+        XCTAssertEqual(AgentCLIKind.claudeCode.loginArguments, ["auth", "login"])
+        XCTAssertEqual(AgentCLIKind.codex.loginArguments, ["login"])
+        let s = AgentCLIScript.login(.claudeCode, executable: "/tmp/airc-test-home/my bin/claude", file: "/tmp/x.command")
+        XCTAssertTrue(s.contains("\n'/tmp/airc-test-home/my bin/claude' auth login\n"), s)
+        XCTAssertTrue(s.contains("rm -f /tmp/x.command"))
+        XCTAssertFalse(s.contains("sudo"))
+        XCTAssertEqual(AgentCLIScript.quote("it's"), "'it'\\''s'")
+    }
+
     // MARK: Claude Code
 
     func testClaudeArgumentsAllowOnlyAircTools() {

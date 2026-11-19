@@ -101,7 +101,7 @@ struct AgentModelSection: View {
 
     private var helpText: String {
         if let k = values.backend.cli {
-            return "The Airc Agent (⌥⌘A) does tasks in your signed-in sites with your own \(k.name), as if you ran it in Terminal: it uses the login you made in it, and its use counts against your plan with \(k.vendor). Airc never sees that login. Your task, the pages it reads and its screenshots go from this Mac to \(k.vendor). It may only use Airc's browser tools, asks before paying, sending, posting or deleting, and never sees saved passwords, cookies or private windows."
+            return "The Airc Agent (⌥⌘A) does tasks in your signed-in sites with your own \(k.name), as if you ran it in Terminal: it uses the login you made in it, and its use counts against your account with \(k.vendor). Airc never sees that login. Your task, the pages it reads and its screenshots go from this Mac to \(k.vendor). It may only use Airc's browser tools, asks before paying, sending, posting or deleting, and never sees saved passwords, cookies or private windows."
         }
         return "The Airc Agent (⌥⌘A) does tasks in your signed-in sites with your own AI. Your task, the pages it reads and its screenshots go from this Mac to \(values.provider.name), billed to your key; your key stays in your Keychain. It asks before paying, sending, posting or deleting, and never sees saved passwords, cookies or private windows."
     }

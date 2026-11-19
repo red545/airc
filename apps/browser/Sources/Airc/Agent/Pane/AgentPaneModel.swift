@@ -256,7 +256,7 @@ struct AgentPaneProvider: Identifiable, Equatable {
             case .checking?, nil: fix = "Check"
             }
             let status = st.map { $0 == .checking ? "Checking…" : $0.summary(k).replacingOccurrences(of: k.name + " ", with: "").replacingOccurrences(of: k.name + ": ", with: "") } ?? "Not checked yet"
-            return AgentPaneProvider(id: "cli-\(k.rawValue)", name: k.name, subtitle: k == .claudeCode ? "Your Claude plan" : "Your ChatGPT plan",
+            return AgentPaneProvider(id: "cli-\(k.rawValue)", name: k.name, subtitle: k == .claudeCode ? "Your own Claude Code" : "Your own Codex",
                                      status: status, ready: st?.isReady == true, group: .plan, fix: fix, hint: st?.fix(k),
                                      selected: backend.cli == k)
         }
@@ -279,10 +279,11 @@ struct AgentPaneProvider: Identifiable, Equatable {
         if let p = AgentProvider.allCases.first(where: { "api-\($0.rawValue)" == id }) { s.update { $0.backend = .apiKey; $0.provider = p } }
     }
 
-    /// Its set-up step. A CLI signs in with its own flow (Airc never sees the sign-in): "Check" looks again, and the
-    /// rest open Settings › AI › Agent, where its status, path and fix are; an API key's field is there too.
-    func setUp() {
+    /// Its set-up step. A CLI's Install… and Sign in… happen in the pane (`model.setUp`): the install command from its
+    /// docs, the CLI's own sign-in; "Check" looks again. An API key's field is in Settings › AI › Agent.
+    func setUp(in model: AgentPaneModel? = nil) {
         if let k = cli, fix == "Check" { return AgentCLIDetector.shared.check(k, maxAge: 0) }
+        if let k = cli, let model, fix == "Install…" || fix == "Sign in…" { return model.setUp(k) }
         if let k = cli { AgentCLIDetector.shared.check(k, maxAge: 5) }
         (NSApp.delegate as? AppDelegate)?.showSettings(page: .ai)
     }
@@ -303,20 +304,57 @@ final class AgentPaneModel: ObservableObject {
     /// The person took the agent's page (Take over): the run is paused for them until Hand back.
     @Published var takenOver: TakenOver?
     @Published var providerRevision = 0
+    /// Installing or signing in to Claude Code / Codex, in the pane (nil: not shown).
+    @Published var setup: Setup?
+    /// The task to send once that provider is ready (typed before it was, or the one that failed signed out).
+    private(set) var pendingTask: String?
+    private var login: AgentCLILogin?
     /// The field's text on the last send (↑ recalls it; Try again sends it again).
     private(set) var lastPrompt: String?
     private var removedChipForTab: String?
     private var subs: [AnyCancellable] = []
 
     struct PageChip: Equatable { let tabID: String; let title: String; let url: URL }
-    struct TakenOver: Equatable { let title: String; let url: URL? }
+    struct TakenOver: Equatable {
+        let title: String
+        let url: URL?
+        /// The person's tab the page became, and the agent tab it was (Hand back moves the same page back).
+        var tabID: String? = nil
+        var agentTabID: Int? = nil
+    }
+
+    /// The pane's Install… / Sign in… card for one CLI.
+    struct Setup: Equatable {
+        enum Step: Equatable {
+            /// Not installed: the documented command, Copy, Open Terminal with this command, Check again.
+            case install
+            /// It's on this Mac now: Use it.
+            case found
+            /// Signed out: Sign in… starts the CLI's own sign-in.
+            case signIn
+            /// The CLI's sign-in is open (in Terminal, or its page in a tab): waiting for it to report ready.
+            case waiting(browser: URL?)
+            case failed(String)
+        }
+        let kind: AgentCLIKind
+        var step: Step
+    }
 
     let run = AgentRunCenter.shared
     let timeline = AgentPaneTimeline.shared
 
     init() {
         subs.append(NotificationCenter.default.publisher(for: AgentModelSettings.changed).sink { [weak self] _ in self?.providerRevision += 1 })
-        subs.append(NotificationCenter.default.publisher(for: AgentCLIDetector.changed).sink { [weak self] _ in self?.providerRevision += 1 })
+        subs.append(NotificationCenter.default.publisher(for: AgentCLIDetector.changed).sink { [weak self] _ in
+            self?.providerRevision += 1
+            self?.setupStatusChanged()
+        })
+        // Back from Terminal or the CLI's sign-in page: look again (design §8: re-check when Airc becomes active).
+        subs.append(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification).sink { [weak self] _ in self?.recheckSetup() })
+        subs.append(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification).sink { [weak self] n in
+            guard let self, let w = n.object as? NSWindow, w === self.controller?.window else { return }
+            self.recheckSetup()
+        })
     }
 
     var controller: WindowController? { pane?.controller }
@@ -419,6 +457,7 @@ final class AgentPaneModel: ObservableObject {
     // MARK: Actions
 
     func newTask() {
+        cancelSetup()
         run.newConversation()
         takenOver = nil
         expanded = []
@@ -431,7 +470,10 @@ final class AgentPaneModel: ObservableObject {
         guard !typed.isEmpty else { return }
         guard connected else {
             if override != nil { text = typed }
-            providers.first?.setUp()
+            pendingTask = typed
+            // The selected CLI if it's the one that isn't ready, else the top row (design §3: Send opens its Set up).
+            let p = providers.first { $0.selected && !$0.ready } ?? providers.first
+            p?.setUp(in: self)
             return
         }
         // A pending approval: sending is Deny plus this text (sent once the run has stopped).
@@ -470,6 +512,7 @@ final class AgentPaneModel: ObservableObject {
 
     /// Another provider for the next run, then the same task again.
     func switchProvider(_ p: AgentPaneProvider, retrying: Bool) {
+        if setup?.kind == p.cli || p.cli == nil { cancelSetup() }
         p.choose()
         providerRevision += 1
         if retrying { retry() }
@@ -487,6 +530,147 @@ final class AgentPaneModel: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: check)
         }
         check()
+    }
+
+    // MARK: Install and sign in (Claude Code, Codex)
+
+    /// The pane's card for `kind`: install when it isn't on this Mac, sign in when it's signed out.
+    func setUp(_ kind: AgentCLIKind) {
+        let st = AgentCLIDetector.shared.status(kind)
+        switch st {
+        case .notLoggedIn?: setup = Setup(kind: kind, step: .signIn)
+        case .ready?: setup = Setup(kind: kind, step: .found)
+        default: setup = Setup(kind: kind, step: .install)
+        }
+        AgentCenter.shared.onEvent?("cli-setup \(kind.rawValue) \(setup.map { "\($0.step)" } ?? "")")
+    }
+
+    var setupCommand: String? { setup.map { $0.kind.install.command } }
+
+    func copySetupCommand() {
+        guard let c = setupCommand else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(c, forType: .string)
+    }
+
+    func openSetupInTerminal() {
+        guard let k = setup?.kind else { return }
+        if !AgentCLISetupFiles.openInstall(k) { setup?.step = .failed("Couldn't open Terminal. Copy the command and run it in Terminal.") }
+    }
+
+    func openSetupDocs() {
+        guard let k = setup?.kind, let c = controller else { return }
+        c.navigate(to: k.install.docs, newTab: true)
+    }
+
+    /// Check again (and on focus): the CLI's status, read fresh.
+    func recheckSetup() {
+        guard let s = setup else { return }
+        switch s.step {
+        case .install, .found, .signIn, .failed: AgentCLIDetector.shared.check(s.kind, maxAge: 0, freshPATH: true)
+        case .waiting: break
+        }
+    }
+
+    private func setupStatusChanged() {
+        guard var s = setup, let st = AgentCLIDetector.shared.status(s.kind), st != .checking else { return }
+        switch s.step {
+        case .install:
+            if st != .notInstalled { s.step = .found }
+        case .found, .failed:
+            if st == .notInstalled { s.step = .install }
+        case .signIn, .waiting:
+            break
+        }
+        if s != setup { setup = s }
+    }
+
+    /// Use it: the CLI becomes the agent's backend; signed out, its sign-in comes next; ready, the waiting task goes.
+    func useSetup() {
+        guard let k = setup?.kind else { return }
+        AgentModelSettings.shared.update { $0.backend = k == .claudeCode ? .claudeCode : .codex }
+        providerRevision += 1
+        switch AgentCLIDetector.shared.status(k) {
+        case .ready?: setupDone()
+        case .notLoggedIn?: setup = Setup(kind: k, step: .signIn)
+        default: AgentCLIDetector.shared.check(k, maxAge: 0)
+        }
+    }
+
+    /// Sign in…: the CLI's own sign-in (Terminal for Claude Code; Codex's page in a normal tab). Airc never sees it.
+    func signIn() {
+        guard let k = setup?.kind else { return }
+        guard let path = AgentCLIDetector.shared.status(k)?.path else {
+            // Still checking (the banner's Sign in… looks again): go on once the CLI's path is known.
+            AgentCLIDetector.shared.check(k, maxAge: 0) { [weak self] s in
+                guard let self, self.setup?.kind == k else { return }
+                if s.path != nil { self.signIn() } else { self.setup = Setup(kind: k, step: .install) }
+            }
+            return
+        }
+        login?.cancel()
+        let l = AgentCLILogin(kind: k, executable: path)
+        login = l
+        l.onRoute = { [weak self] route in
+            guard let self, self.login === l else { return }
+            if case .browser(let url) = route {
+                self.setup = Setup(kind: k, step: .waiting(browser: url))
+                self.controller?.navigate(to: url, newTab: true)
+            } else {
+                self.setup = Setup(kind: k, step: .waiting(browser: nil))
+            }
+        }
+        l.onDone = { [weak self] ok, why in
+            guard let self, self.login === l else { return }
+            self.login = nil
+            if ok { return self.setupDone() }
+            self.setup = why.map { Setup(kind: k, step: .failed($0)) } ?? Setup(kind: k, step: .signIn)
+        }
+        setup = Setup(kind: k, step: .waiting(browser: nil))
+        AgentModelSettings.shared.update { $0.backend = k == .claudeCode ? .claudeCode : .codex }
+        l.start()
+    }
+
+    /// "Open the sign-in page again" (Codex's page in a tab).
+    func reopenSignInPage() {
+        guard case .waiting(let url?)? = setup?.step else { return }
+        controller?.navigate(to: url, newTab: true)
+    }
+
+    func cancelSetup() {
+        login?.cancel()
+        login = nil
+        setup = nil
+        pendingTask = nil
+    }
+
+    /// Ready: the card goes, and the task that waited for it starts.
+    private func setupDone() {
+        guard let k = setup?.kind else { return }
+        setup = nil
+        AgentModelSettings.shared.update { $0.backend = k == .claudeCode ? .claudeCode : .codex }
+        providerRevision += 1
+        AgentCenter.shared.onEvent?("cli-setup-done \(k.rawValue)")
+        guard let t = pendingTask else { return }
+        pendingTask = nil
+        if text.trimmingCharacters(in: .whitespacesAndNewlines) == t { text = "" }
+        if run.state.isActive { return }
+        ask(t)
+    }
+
+    /// The error banner's Sign in…: the failed task is sent again once signed in.
+    func signInAfterFailure(_ kind: AgentCLIKind) {
+        pendingTask = lastPrompt ?? lastUserText.map(AgentPaneItem.promptText)
+        setup = Setup(kind: kind, step: .signIn)
+        AgentCLIDetector.shared.check(kind, maxAge: 0)
+    }
+
+    /// The CLI a failed run needs signed in (its run ended signed out).
+    var signInNeeded: AgentCLIKind? {
+        guard case .failed(let m) = run.state, let k = AgentModelSettings.shared.values.backend.cli else { return nil }
+        if m == k.loginHint || AgentCLIAuth.looksLikeLogin(m) || m.contains("signed out") { return k }
+        if case .notLoggedIn? = AgentCLIDetector.shared.status(k) { return k }
+        return nil
     }
 
     // MARK: The live page
@@ -509,23 +693,46 @@ final class AgentPaneModel: ObservableObject {
         guard let id = liveRowID, let c = controller, let row = AgentActivity.shared.model.row(id) else { return }
         let url = row.url
         let title = row.title.isEmpty ? (url?.host ?? "the page") : row.title
+        let before = c.shownTabID
         c.sidebar.agents.takeOver(id)
-        takenOver = TakenOver(title: title, url: url)
+        // The page is this window's shown tab now (AgentCenter.takeOver shows it); nil if it couldn't move.
+        let tab = c.shownTabID != before ? c.shownTabID : nil
+        takenOver = TakenOver(title: title, url: url, tabID: tab, agentTabID: row.tab)
         if run.state.isActive { run.stop("You took over the page.") }
     }
 
-    /// Hand back: the agent goes on from the page as the person left it.
+    /// Hand back: the same page (its history, scroll and typed text) goes back into the agent's window, and the agent
+    /// goes on from it as the person left it.
     func handBack() {
         guard let t = takenOver else { return }
         let extra = text.trimmingCharacters(in: .whitespacesAndNewlines)
         text = ""
         takenOver = nil
-        var msg = "I used the page myself and handed it back"
-        if let u = t.url { msg += " (\(u.absoluteString))" }
-        msg += ". Open it again and read it before continuing."
+        var msg: String
+        if let tabID = t.tabID, let c = controller, c.engineTab(for: tabID) != nil {
+            let agentTab = t.agentTabID
+            run.handBack = { [weak self, weak c] w in
+                guard let c else { return }
+                if let why = AgentCenter.shared.handBack(tab: tabID, from: c, into: w, as: agentTab) {
+                    c.showToast(why)
+                    self?.handBackFailed = why
+                }
+            }
+            msg = "I used the page myself and handed it back: it's the current tab of your window again, as I left it"
+            if let u = t.url { msg += " (it was \(u.absoluteString))" }
+            msg += ". Read it again (read_page or a screenshot) before continuing; don't open its address again."
+        } else {
+            // The person closed the tab: the agent opens the address again.
+            msg = "I used the page myself and handed it back"
+            if let u = t.url { msg += " (\(u.absoluteString))" }
+            msg += ". Open it again and read it before continuing."
+        }
         if !extra.isEmpty { msg += " " + extra }
         after { self.ask(msg) }
     }
+
+    /// Why the last Hand back couldn't move the page (checks).
+    private(set) var handBackFailed: String?
 
     func stopTask() {
         takenOver = nil

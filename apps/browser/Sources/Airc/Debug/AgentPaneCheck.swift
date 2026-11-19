@@ -48,12 +48,16 @@ final class AgentPaneCheck {
     var events: [String] = []
     var cliNone = URL(fileURLWithPath: "/nonexistent")
     var cliBin = URL(fileURLWithPath: "/nonexistent")
+    /// The name in PASS/FAIL lines (agentpane2 reuses this check's fixtures and helpers).
+    var label = "agentpane"
+    /// Extra fixture pages (agentpane2's form page, the fake Codex sign-in page).
+    var extraPages: [String: String] = [:]
 
     init(runner: SnapshotRunner) { self.runner = runner }
 
     var base: String { "http://127.0.0.1:\(port)" }
     func note(_ s: String) { runner.note(s) }
-    func check(_ ok: Bool, _ what: String) { note((ok ? "PASS " : "FAIL ") + "agentpane \(engine): " + what) }
+    func check(_ ok: Bool, _ what: String) { note((ok ? "PASS " : "FAIL ") + "\(label) \(engine): " + what) }
     func after(_ s: Double, _ body: @escaping () -> Void) { DispatchQueue.main.asyncAfter(deadline: .now() + s, execute: body) }
 
     var pane: AgentPaneController? { AgentPaneController.pane(of: c) }
@@ -79,7 +83,7 @@ final class AgentPaneCheck {
             fake.record(r)
             if r.method == "POST", r.path == "/v1/messages" || r.path == "/v1/responses" { return fake.answer(r) }
             if r.method == "POST" { return LocalPageServer.Page(body: "<title>Done</title>Posted \(r.path)") }
-            return pages[r.path].map { LocalPageServer.Page(body: $0) }
+            return (pages[r.path] ?? self.extraPages[r.path]).map { LocalPageServer.Page(body: $0) }
         }
         server = s
         s?.start { [self] p in

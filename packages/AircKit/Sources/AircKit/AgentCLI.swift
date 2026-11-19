@@ -52,18 +52,40 @@ public enum AgentCLIKind: String, Codable, Sendable, CaseIterable {
         return out
     }
 
+    /// The install command from the CLI's own docs (checked 2026-11-19), and the other documented ways. Airc only shows
+    /// these and, when the person asks, opens Terminal with the first one; it never runs an installer by itself, and
+    /// none of them needs sudo.
+    public var install: AgentCLIInstall {
+        switch self {
+        case .claudeCode:
+            // https://code.claude.com/docs/en/setup ("Native Install (Recommended)", Homebrew, npm without sudo).
+            return AgentCLIInstall(command: "curl -fsSL https://claude.ai/install.sh | bash",
+                                   alternatives: ["brew install --cask claude-code", "npm install -g @anthropic-ai/claude-code@latest"],
+                                   docs: URL(string: "https://code.claude.com/docs/en/setup")!)
+        case .codex:
+            // https://github.com/openai/codex (README "Installing and running Codex CLI") and developers.openai.com/codex/cli.
+            return AgentCLIInstall(command: "npm install -g @openai/codex",
+                                   alternatives: ["brew install --cask codex", "curl -fsSL https://chatgpt.com/codex/install.sh | sh"],
+                                   docs: URL(string: "https://developers.openai.com/codex/cli")!)
+        }
+    }
+
+    /// The CLI's own sign-in command (Claude Code: `claude auth login`, code.claude.com/docs/en/authentication; Codex:
+    /// `codex login`, the fallback when its app-server has no `account/login/start`).
+    public var loginArguments: [String] { self == .claudeCode ? ["auth", "login"] : ["login"] }
+
     public var installHint: String {
-        self == .claudeCode
-            ? "Install Claude Code (claude.com/claude-code), e.g. `npm install -g @anthropic-ai/claude-code`, then run `claude` once in Terminal."
-            : "Install Codex (developers.openai.com/codex), e.g. `npm install -g @openai/codex` or `brew install codex`, then run `codex` once in Terminal."
+        "Install \(name) with the command from its docs (\(install.docs.host ?? "")): `\(install.command)`" +
+            (self == .claudeCode ? " (or `npm install -g @anthropic-ai/claude-code@latest`)" : " (or `brew install --cask codex`)") +
+            ". Airc finds it by itself."
     }
     public var loginHint: String {
         self == .claudeCode
-            ? "Not logged in: run `claude` in Terminal and log in (/login), then come back."
-            : "Not logged in: run `codex` in Terminal and sign in (Sign in with ChatGPT), then come back."
+            ? "Not logged in: Sign in… in the agent pane, or run `claude` in Terminal and log in (`claude auth login`)."
+            : "Not logged in: Sign in… in the agent pane, or run `codex` in Terminal and sign in (`codex login`)."
     }
     public var updateHint: String {
-        self == .claudeCode ? "Too old for Airc: run `claude update` in Terminal." : "Too old for Airc: update Codex (`npm install -g @openai/codex@latest` or `brew upgrade codex`)."
+        self == .claudeCode ? "Too old for Airc: run `claude update` in Terminal." : "Too old for Airc: update Codex (`npm install -g @openai/codex@latest` or `brew upgrade --cask codex`)."
     }
 
     /// "2.1.322 (Claude Code)" → "2.1.322"; "codex-cli 0.165.0" → "0.165.0".
@@ -81,6 +103,58 @@ public enum AgentCLIKind: String, Codable, Sendable, CaseIterable {
 
     /// The major version, for "too old" (Claude Code before 2 has no `auth status`).
     public static func major(_ version: String?) -> Int? { version.flatMap { Int($0.split(separator: ".").first ?? "") } }
+}
+
+/// How a CLI is installed, from its own docs.
+public struct AgentCLIInstall: Equatable, Sendable {
+    public let command: String
+    public let alternatives: [String]
+    public let docs: URL
+}
+
+/// The one-time `.command` files Terminal runs for the pane's "Open Terminal with this command" and Claude Code's sign-in
+/// (docs/design/agent-ux.md §8, M4). Each deletes itself first, says what it runs, and runs only the CLI's own documented
+/// command, never with sudo. The install file waits for Return (closing the window cancels it).
+public enum AgentCLIScript {
+    public static func quote(_ s: String) -> String {
+        s.allSatisfy { $0.isLetter || $0.isNumber || "/._-".contains($0) } ? s : "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    public static func install(_ kind: AgentCLIKind, file: String) -> String {
+        let i = kind.install
+        return """
+            #!/bin/zsh
+            # Airc: installs \(kind.name) with the command from its docs (\(i.docs.absoluteString)).
+            rm -f \(quote(file))
+            cd ~
+            print -r -- \(quote("This installs \(kind.name) with the command from its docs (\(i.docs.absoluteString)):"))
+            print
+            print -r -- \(quote("    " + i.command))
+            print
+            read -r '?Press Return to run it, or close this window to cancel. ' || exit 1
+            \(i.command)
+            code=$?
+            print
+            if [ $code -eq 0 ]; then print -r -- \(quote("Done. Go back to Airc: it finds \(kind.name) by itself.")); else print -r -- "The installer stopped (exit $code)."; fi
+
+            """
+    }
+
+    public static func login(_ kind: AgentCLIKind, executable: String, file: String) -> String {
+        """
+        #!/bin/zsh
+        # Airc: signs in to \(kind.name) with its own sign-in. Airc never sees it.
+        rm -f \(quote(file))
+        cd ~
+        print -r -- \(quote("Signing in to \(kind.name) with its own sign-in. Airc never sees your password or token."))
+        print
+        \(([executable] + kind.loginArguments).map(quote).joined(separator: " "))
+        code=$?
+        print
+        if [ $code -eq 0 ]; then print -r -- \(quote("Signed in. Go back to Airc: your task goes on by itself.")); else print -r -- "\(kind.name) didn't sign in (exit $code)."; fi
+
+        """
+    }
 }
 
 /// What Settings and the panel show about a CLI.
