@@ -394,5 +394,23 @@
     "detail": "While the Airc Agent works, the round Stop button next to its message field is now visible in dark Spaces too.",
     "action": "none",
     "image": null
+  },
+  "Developer Tools dock inside the window you're inspecting": {
+    "title": "DevTools in the window",
+    "detail": "Press ⌥⌘I and Developer Tools open beside the page in the same window, at the bottom or the side; ⇧⌘D switches. Every panel works, including the » list and right-click menus.",
+    "action": "none",
+    "image": null
+  },
+  "The agent pane can set up your own Claude Code or Codex": {
+    "title": "Set up Claude Code, Codex",
+    "detail": "In the agent pane (⌥⌘A), Install… shows the command to install your own Claude Code or Codex, and Sign in… starts its own sign-in. Hand back gives the agent the same tab.",
+    "action": "none",
+    "image": null
+  },
+  "The agent pane uses far less power while it's thinking": {
+    "title": "A lighter agent pane",
+    "detail": "While the Airc Agent is thinking, its pane now uses almost no CPU, so long tasks cost far less battery.",
+    "action": "none",
+    "image": null
   }
 }
