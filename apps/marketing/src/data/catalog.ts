@@ -9,7 +9,7 @@
 // makes untrue, a Coming row it delivers); `from` shows a row only then. Previews show the state after the newest
 // release. `shot` names a file in src/assets/screens (scripts/sync-screenshots.mjs).
 
-export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "0.1.18" | "0.1.19" | "0.1.20" | "0.1.21" | "0.1.22" | "0.1.23" | "0.1.24" | "0.1.25" | "0.1.26" | "0.1.27" | "0.1.28" | "0.1.29" | "0.1.30" | "0.1.31" | "0.1.32" | "0.1.33" | "0.1.34" | "0.1.35" | "0.1.36" | "next" | "coming";
+export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "0.1.18" | "0.1.19" | "0.1.20" | "0.1.21" | "0.1.22" | "0.1.23" | "0.1.24" | "0.1.25" | "0.1.26" | "0.1.27" | "0.1.28" | "0.1.29" | "0.1.30" | "0.1.31" | "0.1.32" | "0.1.33" | "0.1.34" | "0.1.35" | "0.1.36" | "0.1.37" | "next" | "coming";
 
 export interface Feature {
   title: string;
@@ -398,6 +398,7 @@ export const groups: Group[] = [
     color: "#5b6170",
     features: [
       { title: "Arc's shortcuts", line: "The keys you know from Arc.", since: "0.1.0" },
+      { title: "Search in Settings", line: "Press ⌘F in Settings, or type in the field at the top of its sidebar, to find any setting; pick a result and Settings scrolls to it, highlighted.", since: "0.1.37" },
       { title: "Change any shortcut", line: "Record a new key in Settings → Shortcuts. A conflict offers Swap or Replace.", since: "0.1.2", shot: "settings-shortcuts" },
       { title: "Websites first or Airc first", line: "Choose who gets a key that a page also uses, as in Arc.", since: "0.1.2" },
       { title: "Edit and Help menus in Settings", line: "Give your own keys to Spelling and Grammar, Substitutions, Transformations, Speech and the Help menu, with the same conflict check as every other shortcut.", since: "0.1.16" },
@@ -424,7 +425,8 @@ export const groups: Group[] = [
       { title: "Agent on your Claude Code or Codex", line: "In Settings → AI → Agent → Use, pick Your Claude Code or Your Codex instead of an API key: the Airc Agent runs your installed copy with its own login, with only Airc's browser tools.", since: "0.1.31" },
       { title: "Agent replies stream in", line: "The Airc Agent's replies appear as they're written, and Stop ends them at once. Its approval card shows in the Agents folder's Watch too, and “Ask Airc to…” in the Command Bar starts a task.", since: "0.1.24" },
       { title: "Agent memory you can edit", line: "Off by default: turn it on in Settings → AI → Agent → Memory and the agent keeps short Markdown notes between tasks, which you can open, edit, undo or clear. It refuses to keep passwords, codes and card numbers.", since: "0.1.24" },
-      { title: "Hand to Claude", line: "Rather use your Claude app? The Airc Agent panel offers Hand to Claude Desktop or Hand to Claude Code, connects Airc to it first, then fills in your task.", since: "0.1.24" },
+      { title: "Hand to Claude", line: "Rather use your Claude app? The Airc Agent panel offers Hand to Claude Desktop or Hand to Claude Code, connects Airc to it first, then fills in your task.", since: "0.1.24", until: "0.1.37" },
+      { title: "The agent beside the page", line: "⌥⌘A opens the Airc Agent next to the page you're on. While it works, its page shows live above the conversation: click it to Watch, or Take over. Working tasks in the Agents folder show Watch on hover.", since: "0.1.37", shot: "agent-pane" },
     ],
   },
   {

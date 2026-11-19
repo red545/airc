@@ -2,6 +2,37 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.37",
+      "highlights": [
+        {
+          "title": "The agent beside the page",
+          "lead": "The Airc Agent opens beside the page",
+          "detail": "Press ⌥⌘A and the Airc Agent opens next to your page. While it works, you see the page it's on, live, above the conversation.",
+          "icon": "sidebar.right",
+          "image": "agent-pane"
+        },
+        {
+          "title": "Watch from the sidebar",
+          "lead": "Watch any working agent from the sidebar",
+          "detail": "Hover over a working task in the sidebar's Agents folder and click the eye to watch its page live.",
+          "icon": "eye"
+        },
+        {
+          "title": "Search in Settings",
+          "lead": "Search in Settings",
+          "detail": "Press ⌘F in Settings, or type in the field at the top of its sidebar. Pick a result to jump to that setting, highlighted.",
+          "icon": "magnifyingglass",
+          "action": "settingsGeneral"
+        },
+        {
+          "title": "Settings stays put",
+          "lead": "Settings stays put",
+          "detail": "Switching panes in Settings no longer moves the layout.",
+          "icon": "gearshape"
+        }
+      ]
+    },
+    {
       "version": "0.1.36",
       "highlights": [
         {
