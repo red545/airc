@@ -111,6 +111,8 @@ final class AgentPanelCheck {
     // MARK: Set up
 
     func setUp(_ done: @escaping () -> Void) {
+        // The old child panel's check: ⌥⌘A and the Command Bar go to it here (the pane is agentpane's, AgentPaneCheck).
+        AgentUI.forcedForTesting = false
         memoryDefault = AgentModelSettings.shared.values.memory
         engine = app.engine is WebKitEngine ? "webkit" : "chromium"
         let env = ProcessInfo.processInfo.environment
@@ -850,6 +852,7 @@ final class AgentPanelCheck {
     }
 
     func finish() {
+        AgentUI.forcedForTesting = nil
         run.newConversation()
         panel?.close()
         run.onEvent = nil

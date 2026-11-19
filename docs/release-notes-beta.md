@@ -1,15 +1,29 @@
-# Airc 0.1.35 public beta
+# Airc 0.1.36 public beta
 
-Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.88.
-This update lets your password manager's extension fill your logins on its own when you turn Airc's off. It includes
-everything from 0.1.34. The release manifest records the exact build, source and checksums.
+Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
+This update brings Chrome's latest security fixes to Airc's Chromium engine and can start Granola notes when a call
+starts. It includes everything from 0.1.35. The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.34
+## New since 0.1.35
+
+- **Security update: Airc's Chromium engine is now 156.0.8078.109.** It has Chrome's latest security fixes, from
+  Chrome's Extended Stable updates 156.0.8078.96, 156.0.8078.100 and 156.0.8078.109: 83 security issues in Chrome's
+  posts for .96 and .100, 4 of them critical, plus whatever .109 fixes (Chrome hasn't posted its list yet). Details:
+  [156.0.8078.96](https://chromereleases.googleblog.com/2026/11/extended-stable-update-for-desktop_0910980127.html),
+  [156.0.8078.100](https://chromereleases.googleblog.com/2026/11/extended-stable-update-for-desktop_01570615041.html).
+  Nothing to do: the update installs it.
+- **Granola starts notes for your calls.** Granola starts notes by itself only in browsers on its own list, and Airc
+  isn't on it yet. Turn on **Start Granola notes when a call starts** in Settings › General › Calendar, and when a
+  Meet, Zoom, Teams, Webex or Whereby tab turns on your microphone, Airc asks Granola to start a note, once per call
+  and never in private windows. The switch is off by default and only appears when Granola is installed. Airc sends
+  Granola nothing about the call. Details: `docs/user/call-notes.md`.
+
+## Included from 0.1.35
 
 - **Your password manager fills logins on its own.** Turn off **Offer to save and fill passwords** for a profile in
   Settings › Passwords, and Airc no longer fills in a site's saved login when the page loads either, so your password
@@ -523,3 +537,5 @@ Source: `ba4c2862fde68d2e1b31c1dc953ff14c26f0661e`. Build: `202611181244`. Chann
 Source: `d3016be304ded4d83b04b6fc2fe1a63afc370102`. Build: `202611181536`. Channel: stable.
 
 Source: `6d59d8c8591e57a478b14c1eb7f43cbe172321ad`. Build: `202611181828`. Channel: stable.
+
+Source: `a0e197dc2e4120ca42dc7ecf779ec37fc65443f3`. Build: `202611190200`. Channel: stable.

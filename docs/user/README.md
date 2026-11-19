@@ -20,7 +20,7 @@ Esc to collapse it to a small pill.
 - [Protected media](protected-media.md): streaming sites use Safari's engine inside Airc, with separate sign-in
   and extension limitations. Service availability can vary; the guide distinguishes tested paths from account checks.
 - [Find and Replace](find.md): ⌘F on the page, ⌥⌘F to replace in its editable fields (never a password field), with
-  the page's own undo; the Services menu for selected text.
+  the page's own undo; the Services menu for selected text; ⌘F in Settings searches Settings.
 - [Your search engine](search-engine.md): each profile's engine (Google, Bing, DuckDuckGo, Ecosia, Brave, Yahoo,
   Startpage, Perplexity, Kagi), its suggestions switch, and searching selected text.
 - [Opening links](links.md): a link's right-click Open Link in Space › (every Space, other profiles' too), ⌘-, ⇧- and

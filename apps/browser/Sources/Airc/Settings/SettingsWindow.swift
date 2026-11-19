@@ -76,12 +76,62 @@ enum SettingsPage: String, CaseIterable, Identifiable {
 final class SettingsModel: ObservableObject {
     @Published var page: SettingsPage = .general
     /// whatsnew2: a section title to scroll to (WhatsNewPage's "Show me"), with a count so the same one scrolls again.
-    @Published private(set) var revealRequest: (title: String, n: Int)?
+    /// settingsux: or a search result's row (its anchors, tried in order; the last one shown wins).
+    @Published private(set) var revealRequest: (targets: [String], n: Int)?
     /// The section the page scrolled to last (the checks read it).
     var revealed: String?
 
     func reveal(_ section: String) {
-        revealRequest = (section, (revealRequest?.n ?? 0) + 1)
+        revealRequest = ([section], (revealRequest?.n ?? 0) + 1)
+    }
+
+    // MARK: settingsux: search
+
+    /// The search field's text; results replace the pane list while it isn't empty.
+    @Published var query = "" {
+        didSet {
+            guard query != oldValue else { return }
+            results = SettingsSearch.results(for: query)
+            selection = nil
+        }
+    }
+    @Published private(set) var results: [SettingsSearch.Entry] = []
+    /// The result ↑↓ selected (nil: none yet; Return opens the first).
+    @Published var selection: Int?
+    /// Anchors highlighted now (a found row or section, for a moment).
+    @Published private(set) var highlight: Set<String> = []
+    private var highlightToken = 0
+    /// ⌘F: SettingsRoot's field takes the keyboard (a count, so the same request focuses again).
+    @Published private(set) var focusSearchRequest = 0
+    /// The result opened last (the checks read it).
+    private(set) var opened: SettingsSearch.Entry?
+
+    func focusSearch() { focusSearchRequest += 1 }
+
+    func moveSelection(_ delta: Int) {
+        guard !results.isEmpty else { return }
+        selection = max(0, min(results.count - 1, (selection ?? -1) + delta))
+    }
+
+    /// Opens a result: its pane, scrolled to its row or section, which is highlighted for a moment.
+    func open(_ entry: SettingsSearch.Entry) {
+        opened = entry
+        page = entry.page
+        guard entry.kind != .page else { return }
+        revealRequest = (entry.scrollTargets.reversed(), (revealRequest?.n ?? 0) + 1)
+        highlightToken += 1
+        let token = highlightToken
+        highlight = Set(entry.anchors)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
+            guard let self, self.highlightToken == token else { return }
+            self.highlight = []
+        }
+    }
+
+    /// Return in the field: the selected result, else the first.
+    func openSelection() {
+        guard !results.isEmpty else { return NSSound.beep() }
+        open(results[min(selection ?? 0, results.count - 1)])
     }
     weak var app: AppDelegate?
     let store: SpacesStore
@@ -121,7 +171,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     init(app: AppDelegate) {
         model = SettingsModel(app: app)
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 780, height: 600),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: SettingsLayout.windowWidth, height: 600),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                           backing: .buffered, defer: false)
         super.init()
@@ -129,13 +179,24 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
-        window.minSize = NSSize(width: 720, height: 560)
+        window.minSize = NSSize(width: SettingsLayout.windowWidth, height: 560)
         window.tabbingMode = .disallowed
         window.delegate = self
         let root = SettingsRoot(model: model)
         window.contentView = onMain { NSHostingView(rootView: root) }
         window.center()
+        // settingsux: ⌘F is Settings search here, not the browser window's Find (whose menu item would take it).
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, event.window === self.window,
+                  event.modifierFlags.intersection([.command, .option, .control, .shift]) == .command,
+                  event.charactersIgnoringModifiers?.lowercased() == "f" else { return event }
+            self.model.focusSearch()
+            return nil
+        }
     }
+    private var keyMonitor: Any?
+
+    deinit { if let keyMonitor { NSEvent.removeMonitor(keyMonitor) } }
 
     func show(focus: Bool) {
         if focus {
@@ -144,6 +205,18 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             window.orderFront(nil)
         }
     }
+}
+
+/// settingsux: the Settings window's fixed geometry. The pane's column is always `columnWidth` wide, and the window is
+/// never narrower than the sidebar, the column, its margins and a legacy (always shown) scroll bar, so switching panes
+/// never moves the layout. Before, the column took what was left of a 780-pt window (523 pt) while Appearance's App
+/// Icon row was 544 pt wide; a vertical ScrollView centres content wider than itself, so that pane moved left.
+enum SettingsLayout {
+    static let sidebarWidth: CGFloat = 200
+    static let columnWidth: CGFloat = 560
+    static let margin: CGFloat = 28
+    static let scrollerAllowance: CGFloat = 16
+    static var windowWidth: CGFloat { sidebarWidth + 0.5 + margin * 2 + columnWidth + scrollerAllowance }
 }
 
 private struct SettingsRoot: View {
@@ -163,8 +236,10 @@ private struct SettingsRoot: View {
                             .padding(.bottom, 4)
                         page
                     }
-                    .frame(maxWidth: 560, alignment: .leading)
-                    .padding(28)
+                    // A fixed width, leading: a row wider than the column can't make the ScrollView centre (move) it.
+                    .frame(width: SettingsLayout.columnWidth, alignment: .leading)
+                    .testAnchor("settings.column")
+                    .padding(SettingsLayout.margin)
                     .padding(.top, 12)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -173,22 +248,45 @@ private struct SettingsRoot: View {
                 .onAppear { reveal(proxy) }   // a window made for the request: no change to see
             }
             .background(theme.surface.color)
+            .environment(\.aircRowHighlight, model.highlight)   // settingsux: rows get scroll ids and the found-row highlight
         }
         .aircTheme(theme)
-        .frame(minWidth: 720, minHeight: 560)
+        .frame(minWidth: SettingsLayout.windowWidth, minHeight: 560)
         .ignoresSafeArea()
     }
 
     private func reveal(_ proxy: ScrollViewProxy) {
-        guard let title = model.revealRequest?.title else { return }
+        guard let targets = model.revealRequest?.targets, let first = targets.last else { return }
+        // A section goes to the top (whatsnew2); a found row a little below it, with its section title in view.
+        let anchor: UnitPoint = targets.count == 1 && !first.hasPrefix("row:") ? .top : UnitPoint(x: 0.5, y: 0.3)
         DispatchQueue.main.async {
-            withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(title, anchor: .top) }
-            model.revealed = title
+            withAnimation(.easeOut(duration: 0.2)) {
+                // Tried in order (the section, then the row): an id that isn't shown now does nothing, so the row wins
+                // when it's there.
+                for id in targets { proxy.scrollTo(id, anchor: anchor) }
+            }
+            model.revealed = first
         }
     }
 
     private var sourceList: some View {
         VStack(alignment: .leading, spacing: 2) {
+            SettingsSearchField(model: model)
+                .padding(.bottom, 8)
+            if model.query.trimmingCharacters(in: .whitespaces).isEmpty {
+                paneList
+            } else {
+                SettingsSearchResults(model: model)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, 44)
+        .frame(width: SettingsLayout.sidebarWidth)
+        .background((theme.isDark ? AircColor(0x171412) : AircColor.Stone.s50).color)
+    }
+
+    @ViewBuilder private var paneList: some View {
             ForEach(SettingsPage.allCases) { p in
                 let on = p == model.page
                 HStack(spacing: 8) {
@@ -203,13 +301,8 @@ private struct SettingsRoot: View {
                 .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(on ? theme.accent.alpha(0.14).color : .clear))
                 .contentShape(Rectangle())
                 .onTapGesture { model.page = p }
+                .testAnchor("settings.pane." + p.rawValue)
             }
-            Spacer()
-        }
-        .padding(.horizontal, 10)
-        .padding(.top, 52)
-        .frame(width: 200)
-        .background((theme.isDark ? AircColor(0x171412) : AircColor.Stone.s50).color)
     }
 
     @ViewBuilder private var page: some View {
@@ -245,6 +338,7 @@ struct SettingsSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title).aircFont(AircFont.title3).foregroundStyle(theme.surfaceText.color)
+                .background(SettingsSectionHighlight(anchor: SettingsSearch.sectionAnchor(title)))
             AircGroup { content }
             if let help {
                 Text(help).aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextTertiary.color)
@@ -278,6 +372,25 @@ struct SettingsRow<Trailing: View>: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .frame(minHeight: 44)
+        .aircRowAnchor(title)   // settingsux: search scrolls to and highlights it
+        .testAnchor("settings.row." + title)
+    }
+}
+
+/// settingsux: a found section's title is marked for a moment, as a found row is (AircRowAnchor).
+private struct SettingsSectionHighlight: View {
+    let anchor: String
+    @Environment(\.aircRowHighlight) private var highlight
+    @Environment(\.aircTheme) private var theme
+
+    var body: some View {
+        let on = highlight?.contains(anchor) == true
+        RoundedRectangle(cornerRadius: 5, style: .continuous)
+            .fill(theme.accent.alpha(theme.isDark ? 0.24 : 0.16).color)
+            .padding(.horizontal, -6).padding(.vertical, -2)
+            .opacity(on ? 1 : 0)
+            .animation(.easeOut(duration: on ? 0.15 : 0.6), value: on)
+            .allowsHitTesting(false)
     }
 }
 

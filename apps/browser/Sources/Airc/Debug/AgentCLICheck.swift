@@ -50,6 +50,7 @@ extension AgentPanelCheck {
     // MARK: Fixtures
 
     func cliSetUp(_ done: @escaping () -> Void) {
+        AgentUI.forcedForTesting = false   // this check drives the old panel (the pane's CLI rows: AgentPaneCheck)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("airc-fakecli-\(getpid())", isDirectory: true)
         try? FileManager.default.removeItem(at: root)
         Self.cliRoot = root
@@ -71,6 +72,7 @@ extension AgentPanelCheck {
     }
 
     func cliTearDown(_ done: @escaping () -> Void) {
+        AgentUI.forcedForTesting = nil
         let pids = cliLog(nil).flatMap { e -> [Int32] in
             [(e["pid"] as? NSNumber)?.int32Value, (e["helperPid"] as? NSNumber)?.int32Value].compactMap { $0 }
         }

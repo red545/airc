@@ -2,6 +2,24 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.36",
+      "highlights": [
+        {
+          "title": "Chromium security update",
+          "lead": "Security update: Airc's Chromium engine is now 156.0.8078.109",
+          "detail": "Airc's Chromium engine is now 156.0.8078.109, with Chrome's latest security fixes. Nothing to do: this update installs it.",
+          "icon": "lock.shield"
+        },
+        {
+          "title": "Granola notes for calls",
+          "lead": "Granola starts notes for your calls",
+          "detail": "When a Meet, Zoom, Teams, Webex or Whereby tab turns on your microphone, Airc can start a Granola note, once per call. Turn it on in Settings › General › Calendar (shown when Granola is installed).",
+          "icon": "video",
+          "action": "settingsGeneral"
+        }
+      ]
+    },
+    {
       "version": "0.1.35",
       "highlights": [
         {

@@ -20,6 +20,7 @@ extension SnapshotRunner {
         step { done in k.caseLayout(done) }
         step { done in k.caseNewTask(done) }
         step { done in k.caseRun(done) }
+        step { done in k.caseLiveMotion(done) }
         step { done in k.caseCommandBar(done) }
         step { done in k.caseApproval(done) }
         step { done in k.caseRowPopover(done) }
@@ -70,7 +71,9 @@ final class AgentPaneCheck {
         note("agentpane \(engine): input \(real ? "real (UI driver)" : "posted")")
         let pages: [String: String] = ["/article.html": AgentPanelCheck.article, "/shop.html": AgentPanelCheck.shop,
                                        "/mail.html": AgentPanelCheck.mail, "/saved.html": "<title>Saved</title>Saved.",
-                                       "/home.html": "<title>Corner Shop</title><h1>Corner Shop</h1><p>Groceries, delivered.</p>"]
+                                       "/home.html": "<title>Corner Shop</title><h1>Corner Shop</h1><p>Groceries, delivered.</p>",
+                                       // A page that keeps moving: a big block sliding across, for the live card's motion proof.
+                                       "/moving.html": "<title>Moving</title><style>body{margin:0;background:#fff}#b{position:absolute;top:40px;left:0;width:420px;height:300px;background:#e0306a;animation:m .8s linear infinite alternate}@keyframes m{to{left:760px}}</style><div id=b></div>"]
         let s = LocalPageServer(responses: [:])
         s?.requestHandler = { [fake] r in
             fake.record(r)
@@ -407,17 +410,96 @@ final class AgentPaneCheck {
                               "a site chip for the site it used")
                         check(model?.title == "What is the capital of Fixturia?", "the header shows the task title (\(model?.title ?? ""))")
                         check(point("agentpane.live") == nil, "the live card goes when the task ends")
-                        press("agentpane.summary", "the summary", fallback: { if case .summary(let id, _, _)? = items.first(where: { if case .summary = $0 { return true }; return false }) { self.model?.expanded.insert(id) } }) { [self] how in
+                        after(0.6) { [self] in press("agentpane.summary", "the summary", fallback: { if case .summary(let id, _, _)? = items.first(where: { if case .summary = $0 { return true }; return false }) { self.model?.expanded.insert(id) } }) { [self] how in
                             after(0.3) { [self] in
                                 check(point("agentpane.steps.expanded") != nil, "clicking the summary unfolds the steps [\(how) click]")
                                 shot("agentpane-done")
                                 done()
                             }
-                        }
+                        } }
                     }
                 }
             }
         }
+    }
+
+    // MARK: The agent's page moves in the pane while it works (owner feedback: no live render)
+
+    func caseLiveMotion(_ done: @escaping () -> Void) {
+        start("motion", [.tool("navigate", ["url": "\(base)/moving.html"]), .tool("wait", ["duration": 30]), .text("Never reached.")])
+        runner.waitUntil({ self.events.contains("tool wait") && AgentPaneLiveView.current?.window != nil && AgentPaneLiveView.current?.mode != "none" }, timeout: 20) { [self] in
+            after(1.2) { [self] in
+                let v = AgentPaneLiveView.current
+                let mode = v?.mode ?? "none"
+                let frames0 = v?.framesShown ?? 0
+                let a = livePixels()
+                after(0.45) { [self] in
+                    let b = livePixels()
+                    after(1.6) { [self] in
+                        let frames1 = v?.framesShown ?? 0
+                        check(point("agentpane.live.picture") != nil, "while the agent works, its page shows in the pane (live card, \(mode))")
+                        if a.isEmpty || b.isEmpty {
+                            note("FAIL-ENV agentpane \(engine): no window-server picture of our own window (AIRC_DISABLE_LEGACY_WINDOW_CAPTURE or none)")
+                        } else {
+                            let moved = zip(a, b).filter { abs($0.r - $1.r) + abs($0.g - $1.g) + abs($0.b - $1.b) > 60 }.count
+                            let pink = b.filter { $0.r > 150 && $0.g < 120 }.count
+                            check(pink > 0, "… the window server shows the page in the card (\(pink)/\(b.count) samples are the page's block)")
+                            check(moved > 0, "… and it moves as the page does: \(moved)/\(a.count) samples changed in 0.45 s")
+                        }
+                        if mode == "copies" { check(frames1 - frames0 >= 5, "… copies keep coming while visible (\(frames1 - frames0) in 1.6 s)") }
+                        if engine == "chromium" { check(mode == "live", "Chromium: the engine's own output, no copies (\(mode))") }
+                        watchFromRow(done)
+                    }
+                }
+            }
+        }
+    }
+
+    /// A background task (pane closed): its Agents folder row offers Watch on hover, which opens the live page.
+    func watchFromRow(_ done: @escaping () -> Void) {
+        pane?.close()
+        let folder: NSView = c.sidebar.agents
+        guard let row = AgentActivity.shared.model.rows.last(where: { $0.isLive && $0.window == run.runWindowID })?.id else {
+            check(false, "the working task has a live Agents folder row"); run.stop(); return untilIdle(5) { done() }
+        }
+        let hover: (@escaping () -> Void) -> Void = { [self] k in
+            guard real, let p = point("agents-row-\(row)", in: folder) else { return k() }
+            UIDriverClient.run(["--move", "\(p.x)", "\(p.y)"]) { _, _ in DispatchQueue.main.async { self.after(0.4, k) } }
+        }
+        hover { [self] in
+            if real { check(point("agents-watch-\(row)", in: folder) != nil, "hovering the background task's row shows Watch") }
+            press("agents-watch-\(row)", "Watch on the row", in: folder, fallback: { self.c.sidebar.agents.openWatch(row) }) { [self] how in
+                runner.waitUntil({ self.c.sidebar.agents.watch?.rowID == row }, timeout: 4) { [self] in
+                    let w = c.sidebar.agents.watch
+                    check(w != nil, "Watch on the row opens the agent's page over this window's page [\(how) click]")
+                    after(1.0) { [self] in
+                        check(w.map { $0.mode == "live" || $0.framesShown > 0 } == true, "… live (\(w?.mode ?? "none"), \(w?.framesShown ?? 0) copies)")
+                        c.sidebar.agents.closeWatch()
+                        AgentPaneController.show(c)
+                        run.stop()
+                        untilIdle(5) { done() }
+                    }
+                }
+            }
+        }
+    }
+
+    /// A grid of samples over the live card's picture, from the window server's image of our own window (no Screen
+    /// Recording). Empty when unavailable or switched off.
+    func livePixels() -> [(r: Int, g: Int, b: Int)] {
+        guard ProcessInfo.processInfo.environment["AIRC_DISABLE_LEGACY_WINDOW_CAPTURE"] != "1", let v = AgentPaneLiveView.current, let w = v.window,
+              let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return [] }
+        typealias Fn = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+        guard let img = unsafeBitCast(sym, to: Fn.self)(.null, 1 << 3, UInt32(w.windowNumber), (1 << 3) | (1 << 0))?.takeRetainedValue(),
+              img.width > 8 else { return [] }
+        let s = CGFloat(img.width) / w.frame.width
+        let r = v.convert(v.bounds, to: nil)
+        var out: [(r: Int, g: Int, b: Int)] = []
+        for i in 1...16 { for j in 1...8 {
+            let x = r.minX + r.width * CGFloat(i) / 17, y = r.minY + r.height * CGFloat(j) / 9
+            if let p = AgentImages.pixel(img, x: Int(x * s), y: Int((w.frame.height - y) * s)) { out.append(p) }
+        } }
+        return out
     }
 
     func firstUserText(_ body: String?) -> String {

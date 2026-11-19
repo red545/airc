@@ -22,3 +22,10 @@ field) go to the next and previous match, **Esc** closes the bar. In a note, the
 The **Airc › Services** menu has the Mac's services, as in any app: select text on a page (or in a note or a field)
 and choose a service to look it up, open it, make a note of it and so on. A service that changes text (making it
 upper case, for example) puts its result back into the page's text field or editable area where the selection was.
+
+## Search in Settings
+
+Settings has a search field at the top of its sidebar; **⌘F** in the Settings window puts the cursor there. It finds
+panes, section titles, settings and their descriptions, and common words for them ("dark", "password", "adblock").
+Each result says where it is (pane › section). **↑** and **↓** choose one, **↩** or a click opens it: Settings shows
+that pane, scrolls to the setting and highlights it for a moment. **Esc** clears the search and shows the panes again.

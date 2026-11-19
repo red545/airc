@@ -17,14 +17,8 @@ enum AgentUI {
         return paneIsDefault
     }
 
-    /// While the pane is being built it lands behind this switch; test builds turn it on with `--agent-pane`.
-    static var paneIsDefault: Bool {
-        #if AIRC_TESTING
-        let env = ProcessInfo.processInfo.environment
-        if CommandLine.arguments.contains("--agent-pane") || env["AIRC_AGENT_PANE"] == "1" { return true }
-        #endif
-        return false
-    }
+    /// The pane is the Airc Agent's UI (agentux step 2); the old panel stays only behind the test-only switch above.
+    static var paneIsDefault: Bool { true }
 
     #if AIRC_TESTING
     /// Checks switch between the two in one run.
@@ -46,6 +40,20 @@ enum AgentUI {
     static func ask(_ c: WindowController, _ text: String) {
         if usesPane { AgentPaneController.show(c).ask(text) } else { AgentPanelController.show(c).ask(text) }
     }
+
+    /// Closes the window's agent UI, either kind.
+    static func close(_ c: WindowController) {
+        AgentPaneController.pane(of: c)?.close()
+        AgentPanelController.panel(of: c)?.close()
+    }
+
+    #if AIRC_TESTING
+    /// What waits in the agent UI's field (cbflicker: the Command Bar's task, kept while nothing is connected).
+    static func draftForTesting(_ c: WindowController) -> String? {
+        if let p = AgentPaneController.pane(of: c), p.isShown { return p.model.text }
+        return AgentPanelController.panel(of: c)?.draftForTesting
+    }
+    #endif
 
     /// Whether the window shows its agent UI now (either kind).
     static func isShown(_ c: WindowController) -> Bool {

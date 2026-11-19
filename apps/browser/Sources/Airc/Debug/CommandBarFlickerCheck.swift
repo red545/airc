@@ -264,7 +264,7 @@ extension SnapshotRunner {
             var before = 0, tabsBefore = 0, index: Int?
             run { [self] in
                 c.closeCommandBar()
-                AgentPanelController.panel(of: c)?.close()
+                AgentUI.close(c)
                 if c.findBar != nil { c.closeFind(refocusPage: true) }
                 c.window.makeKeyAndOrderFront(nil)
                 c.openCommandBar(mode: .newTab)
@@ -360,7 +360,7 @@ extension SnapshotRunner {
             }
             run { [self] in
                 c.closeCommandBar()
-                AgentPanelController.panel(of: c)?.close()
+                AgentUI.close(c)
                 if c.findBar != nil { c.closeFind(refocusPage: true) }
                 // Back to the page tab the next case asks about.
                 if let id = c.store.state.tabs.values.first(where: { $0.url.hasPrefix(base() + "/page") })?.id, c.shownTabID != id { c.show(id) }
@@ -374,7 +374,7 @@ extension SnapshotRunner {
             let button = MainActor.assumeIsolated { card?.settingsButton.isHidden == false }
             return "Ask on Page (\(card?.refusal != nil ? "says: \(said)\(button ? " + Open Settings › AI" : "")" : "asking"))"
         }
-        let panelOpen = { () -> String? in AgentPanelController.panel(of: self.c) != nil ? "the Airc Agent panel" : nil }
+        let panelOpen = { () -> String? in AgentUI.isShown(self.c) ? "the Airc Agent pane" : nil }
         let barAsking = { () -> String? in
             if case .ask(let p)? = self.c.commandBar?.scope { return "the bar asking \(p.name)" }
             return nil
@@ -427,7 +427,7 @@ extension SnapshotRunner {
         choose("prompt, Ask Airc to… (no key)", type: "how do i boil eggs",
                pick: { $0.firstIndex { $0.title == CommandBarView.agentRowTitle } }) { panelOpen() }
         run { [self] in
-            let draft = AgentPanelController.panel(of: c)?.draftForTesting
+            let draft = AgentUI.draftForTesting(c)
             note("\(tag): agent panel draft after the no-key case: \(draft ?? "none")")
         }
         choose("Ask Claude… command", type: "ask cl",

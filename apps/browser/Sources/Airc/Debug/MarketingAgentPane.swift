@@ -12,6 +12,7 @@ extension SnapshotRunner {
         var server: LocalPageServer?
         var shop = ""
         var model = ""
+        var appearanceBefore: Appearance?
         step { [self] done in
             let s = LocalPageServer(responses: [:])
             let home = "<title>Corner Shop</title><body style=\"font:16px -apple-system,sans-serif;margin:24px\"><h1>Corner Shop</h1><p>Your orders · Sourdough loaf · Oat milk</p></body>"
@@ -45,7 +46,14 @@ extension SnapshotRunner {
         }
         for dark in [false, true] {
             let sfx = dark ? "-dark" : ""
-            run { NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua) }
+            run { [self] in
+                // The dark set is a dark Space, as quote-copy's (the window's theme decides the pane's colours).
+                if dark { appearanceBefore = c.store.space(c.currentSpaceID)?.theme.appearance }
+                NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+                if dark { try? c.store.updateSpace(c.currentSpaceID) { $0.theme.appearance = .dark } }
+                c.reloadAll(animated: false)
+            }
+            wait(0.8)
             // M3 B: nothing connected.
             step { [self] done in
                 AgentModelSettings.shared.setTestKey(nil, provider: .anthropic, base: nil)
@@ -89,6 +97,8 @@ extension SnapshotRunner {
         }
         run { [self] in
             NSApp.appearance = nil
+            if let a = appearanceBefore { try? c.store.updateSpace(c.currentSpaceID) { $0.theme.appearance = a } }
+            c.reloadAll(animated: false)
             AgentUI.forcedForTesting = nil
             AgentCLIDetector.shared.setDirForTesting(nil)
             AgentWatchView.ignoresOcclusion = false

@@ -123,13 +123,21 @@ struct AgentPaneView: View {
     // MARK: The conversation
 
     private var conversation: some View {
+        VStack(spacing: 0) {
+            // The live page stays put above the transcript (it scrolled away under new steps, and under a click).
+            if run.state.isActive || run.approval != nil, model.takenOver == nil, run.runWindowID != nil {
+                AgentPaneLiveCard(model: model).padding(.horizontal, 14).padding(.top, 10)
+            }
+            // An error stays at the top with its way out (it scrolled off under a click with the transcript).
+            if let p = model.problem { problem(p).padding(.horizontal, 14).padding(.top, 10) }
+            transcript
+        }
+    }
+
+    private var transcript: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
-                    if run.state.isActive || run.approval != nil, model.takenOver == nil, run.runWindowID != nil {
-                        AgentPaneLiveCard(model: model).id("live")
-                    }
-                    if let p = model.problem { problem(p).id("problem") }
                     ForEach(model.items) { item in AgentPaneItemView(item: item, model: model).id(item.id) }
                     if !run.partial.isEmpty {
                         Text(run.partial).aircFont(AircFont.body).foregroundStyle(theme.surfaceText.color)

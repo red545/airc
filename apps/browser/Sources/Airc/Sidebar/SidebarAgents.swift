@@ -395,6 +395,10 @@ private struct AgentFolderRow: View {
                     .accessibilityLabel("Waiting for your OK")
                     .testAnchor("agents-waiting-\(item.id)")
             } else if hovered, item.live {
+                // agentux: Watch is one click on any working row (a background agent's page is off screen otherwise).
+                TrayButton(symbol: "eye", help: "Watch the agent's page") { model.view?.openWatch(item.id) }
+                    .accessibilityLabel("Watch \(item.client)")
+                    .testAnchor("agents-watch-\(item.id)")
                 TrayButton(symbol: "stop.fill", help: "Stop \(item.client)") { model.view?.stop(item.id) }
                     .accessibilityLabel("Stop \(item.client)")
                     .testAnchor("agents-stop-\(item.id)")
@@ -422,6 +426,7 @@ private struct AgentFolderRow: View {
         .accessibilityHint(paneTask ? "Open the task in the agent pane" : item.live ? "Watch what the agent does" : "")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { if item.live { model.view?.openWatch(item.id) } }
+        .accessibilityAction(named: "Watch") { model.view?.openWatch(item.id) }
         .accessibilityAction(named: "Take over") { model.view?.takeOver(item.id) }
         .accessibilityAction(named: "Stop \(item.client)") { model.view?.stop(item.id) }
     }

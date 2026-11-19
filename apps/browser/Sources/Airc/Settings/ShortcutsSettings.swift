@@ -248,6 +248,7 @@ private struct ShortcutRow: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
         .frame(minHeight: 40)
+        .aircRowAnchor(ShortcutCenter.title(id))   // settingsux: Settings search finds the command
     }
 
     private var recording: Bool { editor.recording == id }

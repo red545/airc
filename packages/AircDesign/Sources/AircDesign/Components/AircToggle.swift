@@ -78,6 +78,7 @@ public struct AircToggleRow: View {
         .frame(minHeight: 44)
         .contentShape(Rectangle())
         .onTapGesture { withAircAnimation(AircSpring.toggle) { isOn.toggle() } }
+        .aircRowAnchor(title)   // settingsux: Settings search scrolls to and highlights it
     }
 }
 

@@ -80,7 +80,8 @@ struct AgentPaneLivePicture: NSViewRepresentable {
 
 final class AgentPaneLiveView: NSView {
     /// Frame copies per second where the engine can't host its own output.
-    static var copiesPerSecond: Double = 2
+    /// (WebKit has no zero-copy hosting; 5 small copies a second read as the page working, at a fraction of Watch's 15.)
+    static var copiesPerSecond: Double = 5
     private let image = CALayer()
     private let liveBox = CALayer()
     private var live: (layer: CALayer, id: UInt32, flipped: Bool)?
