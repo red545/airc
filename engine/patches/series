@@ -165,3 +165,8 @@
 # Settings › Passwords: Airc's own filling off per profile.
 # FILE chrome/browser/password_manager/chrome_password_manager_client.cc | A profile whose Airc password filling is off (Settings › Passwords, so a password manager's extension fills instead) gets no fill on page load, no suggestions and no save prompts. | Seam: IsFillingEnabled has no embedder or pref override; credentials_enable_service only stops saving.
 040-password-filling.patch
+
+# Safe Storage: never replace a key that can't be read; keep saved cookies while there's no key.
+# FILE components/os_crypt/async/browser/keychain_key_provider.mm | Stock Chromium makes a new key on "not found" (add-or-update) and goes on keyless when the read fails; Airc reads through airc_safe_storage.mm (add-if-absent only on a fresh data dir, key check for a different key), asks Try Again / Continue Without Saved Passwords for Now / Quit, and uses the file/scratch test keychain (--airc-test=keychain=file|scratch). | Seam: KeyProvider has no embedder hook for the Keychain read or its failure; KeychainPassword::GetPassword drops the status and creates the key itself.
+# FILE net/extras/sqlite/sqlite_persistent_cookie_store.cc | With no key this launch, a cookie that can't be decrypted makes the store delete its whole eTLD group at load, and later deletes by name can remove saved cookies this launch never loaded; Airc skips those deletes (and last-access updates) only while encrypting fails. | Seam: CookieCryptoDelegate has no "key unavailable" state; the load-recovery delete is unconditional.
+041-safe-storage-guard.patch

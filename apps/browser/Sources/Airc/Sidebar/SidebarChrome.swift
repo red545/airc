@@ -8,7 +8,10 @@ import CoreImage
 /// Header row (SB-1): sidebar toggle next to the traffic lights; back, forward, reload right-aligned. With the sidebar
 /// on the right (WIN-5) the traffic lights stay over the page, so the toggle starts the row where it does in full screen.
 final class SidebarHeaderView: NSView {
-    weak var controller: WindowController?
+    weak var controller: WindowController? { didSet { agentPill.controller = controller; agentPill.refresh() } }
+    /// "✦ Claude is using Airc" (Agent/AgentControlPill.swift): coloured here with the header, placed by SidebarView in
+    /// its own row right under the header (the header row has no room beside the traffic lights).
+    let agentPill = AgentControlPill()
     let toggle = GlyphButton(symbol: "sidebar.left", size: 14)
     let back = GlyphButton(symbol: "arrow.left", size: 14)
     let forward = GlyphButton(symbol: "arrow.right", size: 14)
@@ -52,6 +55,10 @@ final class SidebarHeaderView: NSView {
             b.tint = palette.glyph
             b.hoverFill = palette.hover
         }
+        agentPill.tint = palette.glyph
+        agentPill.fill = palette.tileFill
+        agentPill.hoverFill = palette.hover
+        agentPill.theme = palette.resolved
         back.isEnabled = canGoBack
         forward.isEnabled = canGoForward
         reload.isEnabled = hasPage
@@ -896,12 +903,17 @@ final class SidebarView: NSView {
         addSubview(tray)
         addSubview(update)
         addSubview(agents)
+        addSubview(header.agentPill)
     }
 
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true } // W07c: see RootView
+
+    /// The "✦ <app> is using Airc" row under the header, while an outside app works (else 0).
+    static let agentBarHeight: CGFloat = 24
+    var agentBarSpace: CGFloat { header.agentPill.isHidden ? 0 : Self.agentBarHeight + 6 }
 
     func connect(_ c: WindowController) {
         controller = c
@@ -924,7 +936,12 @@ final class SidebarView: NSView {
         tray.frame = NSRect(x: 0, y: h - AircMetrics.Footer.height - u - t, width: w, height: t)
         let a = agents.height
         agents.frame = NSRect(x: 0, y: h - AircMetrics.Footer.height - u - t - a, width: w, height: a)
-        pager.frame = NSRect(x: 0, y: AircMetrics.Sidebar.urlFieldTop, width: w, height: max(0, h - AircMetrics.Sidebar.urlFieldTop - AircMetrics.Footer.height - u - t - a))
+        // Like Chrome's "controlled by automated software" bar, in the sidebar: under the header row (next to the traffic
+        // lights, never over them), above the address field.
+        let bar = agentBarSpace
+        header.agentPill.frame = NSRect(x: 10, y: AircMetrics.Sidebar.urlFieldTop - 2, width: max(0, w - 20), height: Self.agentBarHeight)
+        let top = AircMetrics.Sidebar.urlFieldTop + bar
+        pager.frame = NSRect(x: 0, y: top, width: w, height: max(0, h - top - AircMetrics.Footer.height - u - t - a))
     }
 
     override func updateTrackingAreas() {
@@ -1001,7 +1018,7 @@ final class SidebarView: NSView {
         let target = main ? 1 : inactiveOpacity
         guard abs(target - dimmedTo) > 0.001 else { return }
         dimmedTo = target
-        let views: [NSView] = [header, pager, footer, tray, update, agents]
+        let views: [NSView] = [header, pager, footer, tray, update, agents, header.agentPill]
         if animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.2

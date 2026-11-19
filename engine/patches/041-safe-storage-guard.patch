@@ -1,0 +1,193 @@
+# Copyright 2026 The Airc Authors; Apache-2.0.
+# Safe Storage guard: a key that exists but can't be read is never replaced (airc_safe_storage.mm),
+# and with no key this launch the saved cookies are neither deleted nor touched.
+--- a/components/os_crypt/async/browser/keychain_key_provider.mm
++++ b/components/os_crypt/async/browser/keychain_key_provider.mm
+@@ -7,6 +7,7 @@
+ #include <array>
+ #include <memory>
+ 
++#include "airc/core/airc_content_hooks.h"  // nogncheck
+ #include "base/apple/osstatus_logging.h"
+ #include "base/command_line.h"
+ #include "base/functional/bind.h"
+@@ -32,11 +33,16 @@
+ constexpr size_t kIterations = 1003;
+ 
+ // This function runs on a worker thread and performs blocking Keychain IO.
+-base::expected<Encryptor::Key, KeyProvider::KeyError> GetKeyTask(
++// Airc: the error is the Keychain status (airc_safe_storage.mm reads the key and
++// never replaces one it can't read).
++base::expected<Encryptor::Key, int> GetKeyTask(
+     crypto::SubtlePassKey subtle_passkey,
+     crypto::apple::KeychainV2* keychain_for_testing) {
+   std::unique_ptr<crypto::apple::FakeKeychainV2> scoped_fake_keychain;
+   crypto::apple::KeychainV2* keychain_to_use = keychain_for_testing;
++  if (!keychain_to_use && g_airc_test_keychain) {
++    keychain_to_use = g_airc_test_keychain();
++  }
+   if (!keychain_to_use) {
+     if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+             os_crypt::switches::kUseMockKeychain)) {
+@@ -48,13 +54,23 @@
+     }
+   }
+ 
+-  KeychainPassword keychain_password(*keychain_to_use);
+-  std::string password = keychain_password.GetPassword();
++  std::string password;
++  if (g_airc_safe_storage_read) {
++    const int status = g_airc_safe_storage_read(
++        keychain_to_use, KeychainPassword::GetServiceName(),
++        KeychainPassword::GetAccountName(), &password);
++    if (status != noErr) {
++      return base::unexpected(status);
++    }
++  } else {
++    KeychainPassword keychain_password(*keychain_to_use);
++    password = keychain_password.GetPassword();
++  }
+ 
+   // `password` can be an empty string if keychain access is denied by the user
+   // or some other error occurs.
+   if (password.empty()) {
+-    return base::unexpected(KeyProvider::KeyError::kTemporarilyUnavailable);
++    return base::unexpected(errSecIO);
+   }
+ 
+   std::array<uint8_t, kDerivedKeySize> key_bytes;
+@@ -65,6 +81,55 @@
+   return Encryptor::Key(key_bytes, mojom::Algorithm::kAES128CBC);
+ }
+ 
++void FetchKey(crypto::SubtlePassKey subtle_passkey,
++              crypto::apple::KeychainV2* keychain_for_testing,
++              KeyProvider::KeyCallback callback);
++
++// Airc: a key that can't be read is never replaced. The person is asked (Try
++// Again / Continue Without Saved Passwords for Now / Quit); continuing gives no
++// key this launch, so nothing is encrypted, decrypted, deleted or re-encrypted.
++void OnKeyTask(crypto::SubtlePassKey subtle_passkey,
++               crypto::apple::KeychainV2* keychain_for_testing,
++               KeyProvider::KeyCallback callback,
++               base::expected<Encryptor::Key, int> key) {
++  if (key.has_value()) {
++    std::move(callback).Run(kKeyTag, std::move(*key));
++    return;
++  }
++  if (!g_airc_safe_storage_unreadable) {
++    std::move(callback).Run(
++        kKeyTag,
++        base::unexpected(KeyProvider::KeyError::kTemporarilyUnavailable));
++    return;
++  }
++  g_airc_safe_storage_unreadable(
++      key.error(),
++      base::BindOnce(
++          [](crypto::SubtlePassKey subtle_passkey,
++             crypto::apple::KeychainV2* keychain_for_testing,
++             KeyProvider::KeyCallback callback, bool try_again) {
++            if (try_again) {
++              FetchKey(subtle_passkey, keychain_for_testing,
++                       std::move(callback));
++              return;
++            }
++            std::move(callback).Run(
++                kKeyTag, base::unexpected(
++                             KeyProvider::KeyError::kTemporarilyUnavailable));
++          },
++          subtle_passkey, keychain_for_testing, std::move(callback)));
++}
++
++void FetchKey(crypto::SubtlePassKey subtle_passkey,
++              crypto::apple::KeychainV2* keychain_for_testing,
++              KeyProvider::KeyCallback callback) {
++  base::ThreadPool::PostTaskAndReplyWithResult(
++      FROM_HERE, {base::TaskPriority::USER_BLOCKING, base::MayBlock()},
++      base::BindOnce(&GetKeyTask, subtle_passkey, keychain_for_testing),
++      base::BindOnce(&OnKeyTask, subtle_passkey, keychain_for_testing,
++                     std::move(callback)));
++}
++
+ }  // namespace
+ 
+ KeychainKeyProvider::KeychainKeyProvider() = default;
+@@ -79,11 +144,8 @@
+   // Apple's documentation [1] recommends accessing the keychain on a worker
+   // thread. [1]
+   // https://developer.apple.com/documentation/security/secitemcopymatching%28_%3A_%3A%29#Performance-considerations
+-  base::ThreadPool::PostTaskAndReplyWithResult(
+-      FROM_HERE, {base::TaskPriority::USER_BLOCKING, base::MayBlock()},
+-      base::BindOnce(&GetKeyTask, crypto::SubtlePassKey{},
+-                     keychain_for_testing_),
+-      base::BindOnce(std::move(callback), kKeyTag));
++  FetchKey(crypto::SubtlePassKey{}, keychain_for_testing_,
++           std::move(callback));
+ }
+ 
+ bool KeychainKeyProvider::UseForEncryption() {
+--- a/net/extras/sqlite/sqlite_persistent_cookie_store.cc
++++ b/net/extras/sqlite/sqlite_persistent_cookie_store.cc
+@@ -56,6 +56,16 @@
+ 
+ namespace {
+ 
++// Airc: true when the cookie key couldn't be read this launch (encrypting
++// fails), so saved cookies must be neither read, rewritten nor deleted.
++bool AircKeyMissing(net::CookieCryptoDelegate* crypto) {
++  if (!crypto) {
++    return false;
++  }
++  std::string probe;
++  return !crypto->EncryptString("airc", &probe);
++}
++
+ static constexpr int kHoursInOneWeek = 24 * 7;
+ static constexpr int kHoursInOneYear = 24 * 365;
+ 
+@@ -952,7 +962,10 @@
+     // constraints and not go through.
+     //
+     // For data consistency, we drop the entire eTLD group.
+-    for (const std::string& domain : domains) {
++    // Airc: not when there's no key this launch (Safe Storage unreadable): the
++    // cookies are fine, they just can't be read until the key can.
++    for (const std::string& domain :
++         AircKeyMissing(crypto_.get()) ? std::set<std::string>() : domains) {
+       delete_statement.BindString(0, domain);
+       if (!delete_statement.Run()) {
+         // TODO(morlovich): Is something more drastic called for here?
+@@ -1336,6 +1349,13 @@
+   if (!transaction.Begin())
+     return;
+ 
++  // Airc: with no key this launch (Safe Storage unreadable, "Continue Without
++  // Saved Passwords for Now"), no cookie can be added, and the saved ones
++  // weren't loaded. Deleting by name would then remove a saved cookie this
++  // launch never saw (or touch its last access), so the saved cookies stay
++  // exactly as they are.
++  const bool keep_saved_cookies = AircKeyMissing(crypto_.get());
++
+   for (auto& kv : ops) {
+     for (std::unique_ptr<PendingOperation>& po_entry : kv.second) {
+       // Free the cookies as we commit them to the database.
+@@ -1399,6 +1419,9 @@
+           break;
+ 
+         case PendingOperation::OperationType::kUpdateLastAccessTime:
++          if (keep_saved_cookies) {
++            break;
++          }
+           update_access_statement.Reset(true);
+           update_access_statement.BindTime(0, po->cc().LastAccessDate());
+           update_access_statement.BindString(1, po->cc().Name());
+@@ -1419,6 +1442,9 @@
+           break;
+ 
+         case PendingOperation::OperationType::kDelete:
++          if (keep_saved_cookies) {
++            break;
++          }
+           delete_statement.Reset(true);
+           delete_statement.BindString(0, po->cc().Name());
+           delete_statement.BindString(1, po->cc().Domain());

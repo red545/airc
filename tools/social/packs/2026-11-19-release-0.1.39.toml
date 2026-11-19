@@ -24,7 +24,8 @@ checked = """
   stays with its tab: not claimed otherwise (the post says "like Chrome" only for the docking).
 - Agent setup: Install… shows the install command from the tool's docs, with Copy and Open in Terminal (runs only after
   Return); Sign in… starts the tool's own sign-in, and the task goes on by itself; Airc never sees a password or token.
-  Neutral wording: "your own Claude Code or Codex", never "use your Claude plan" (release051). Still a beta.
+  Wording (owner, 2026-11-19 20:45, common.md): lead with "use your ChatGPT subscription" (through the person's own
+  Codex sign-in), and "your own Claude Code". Still a beta.
 - Power: "Thinking…" animates on Core Animation; release051's numbers: Chromium 16.35% to 0.12%, WebKit 12.67% to
   0.03% of a core; the notes say about 16% to under 1%, so the post uses the notes' rounded line.
 - Shot: agent-pane-connect (in the cut), cropped to the pane's "Connect your AI": Claude Code and Codex (Install…),
@@ -49,7 +50,7 @@ Developer Tools now dock inside the window you're inspecting in Airc 0.1.39, at 
 label = "Agent: set up your own Claude Code or Codex"
 media = ["connect:16x9"]
 text = """
-No Claude Code or Codex yet? Airc Agent (beta) now sets them up from its pane: Install… shows the official install command, Sign in… starts the tool's own sign-in, and your task carries on by itself. Airc never sees a password or token. New in 0.1.39.
+Use your ChatGPT subscription in Airc's AI sidebar: no Codex yet? Install… shows the official install command, Sign in… starts Codex's own sign-in, and your task carries on. Your own Claude Code works the same way. Airc never sees a password. Beta, 0.1.39.
 """
 
 [[post]]

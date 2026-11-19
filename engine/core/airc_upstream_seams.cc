@@ -41,9 +41,13 @@ void (*g_airc_devtools_dock_changed)(BrowserWindowInterface* browser,
                                              content::WebContents* devtools) = nullptr;
 bool g_airc_auto_picture_in_picture_off = false;
 bool (*g_airc_auto_pip_allowed)(content::WebContents*) = nullptr;
-bool (*g_airc_safe_storage_key_may_be_created)() = nullptr;
-void (*g_airc_safe_storage_unreadable)(int status,
-                                              base::OnceClosure retry) = nullptr;
+int (*g_airc_safe_storage_read)(crypto::apple::KeychainV2* keychain,
+                                std::string_view service,
+                                std::string_view account,
+                                std::string* password) = nullptr;
+void (*g_airc_safe_storage_unreadable)(
+    int status,
+    base::OnceCallback<void(bool try_again)> answer) = nullptr;
 crypto::apple::KeychainV2* (*g_airc_test_keychain)() = nullptr;
 bool (*g_airc_restricted_component_extension)(
     const extensions::ExtensionId& extension_id) = nullptr;

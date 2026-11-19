@@ -53,10 +53,25 @@ extern int g_airc_disk_space_check_seconds;
 extern bool g_airc_auto_picture_in_picture_off;
 extern bool (*g_airc_auto_pip_allowed)(content::WebContents*);
 
-extern bool (*g_airc_safe_storage_key_may_be_created)();
+// Safe Storage (patch 041, airc_safe_storage.mm). Worker thread: reads the
+// "Airc Safe Storage" key into *password and returns noErr, or returns why it
+// can't be used. A key that exists is never replaced; only a missing one on a
+// fresh data dir is created (add-if-absent, never add-or-update). A key that
+// doesn't match the one the saved data was locked with returns
+// kAircSafeStorageWrongKey.
+// Not an OSStatus the Security framework uses (its errors are negative): 'AIRC'.
+inline constexpr int kAircSafeStorageWrongKey = 0x41495243;
+extern int (*g_airc_safe_storage_read)(crypto::apple::KeychainV2* keychain,
+                                       std::string_view service,
+                                       std::string_view account,
+                                       std::string* password);
 
-extern void (*g_airc_safe_storage_unreadable)(int status,
-                                              base::OnceClosure retry);
+// UI thread: the key couldn't be read. Runs `answer` with true to read it
+// again, false to go on without saved passwords and cookies for this launch
+// (nothing is encrypted, decrypted, deleted or re-encrypted).
+extern void (*g_airc_safe_storage_unreadable)(
+    int status,
+    base::OnceCallback<void(bool try_again)> answer);
 
 extern crypto::apple::KeychainV2* (*g_airc_test_keychain)();
 

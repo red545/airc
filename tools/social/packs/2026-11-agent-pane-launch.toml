@@ -1,0 +1,63 @@
+# DRAFT, NOT PLANNED UNTIL LIVE: promoting the agent pane (the AI sidebar, ⌥⌘A), the feature people like most (owner,
+# via the lead, 2026-11-19 20:30). Waits for two things: the release that ships the visible button and connecting your
+# own Claude Code or Codex in the pane (agentux2), and aidemo's X cut (a real screen capture of Airc, artifacts/aidemo).
+# At that LIVE: fill {version} and {button}, check every line against that release's notes, add the video, plan.
+slug = "2026-11-agent-pane-launch"
+title = "The agent pane: launch and onboarding"
+kind = "release"
+since = "{version}"
+tag = ""
+summary = """
+A launch post with aidemo's video, a short thread of replies (what it does, asks before paying, watches the page live,
+your own Claude Code or Codex), and an onboarding post for new followers (open, connect, ask), a few days later.
+Single posts beat threads on this account, so the thread is kept to the launch day only and each reply stands alone.
+"""
+order = """
+1. Launch day, 10:30 UTC: post 1 (video) with posts 2-4 as replies.
+2. Two days later, 10:30 UTC: the onboarding post (5), on its own.
+"""
+checked = """
+To fill in at the cut: every line against that release's notes. Wording (owner, 2026-11-19 20:45, common.md): lead
+with "use your ChatGPT subscription" (through the person's own Codex sign-in), and "your own Claude Code". Still a beta unless the notes say
+otherwise. The video is aidemo's real screen capture; its alt says what it shows and on what (demo or real site).
+"""
+
+[[post]]
+label = "Launch: the AI sidebar (video)"
+media = ["aidemo-video:16x9"]
+text = """
+Use your ChatGPT subscription in Airc's AI sidebar. {button}, tell it what you need, and it works in your signed-in sites while you watch, next to your page. Through your own Codex sign-in, or your own Claude Code. New in Airc {version}.
+"""
+
+[[post]]
+label = "It asks before it pays"
+reply = true
+text = """
+It asks first. Before the agent pays, sends, posts or deletes anything, Airc stops and asks: Allow Once or Deny. Stop it any time.
+"""
+
+[[post]]
+label = "It works where you can see it"
+reply = true
+text = """
+You see the page it's on, live, above the chat. Click it to watch up close, or take over and the tab is yours.
+"""
+
+[[post]]
+label = "Your own Claude Code or Codex"
+reply = true
+text = """
+Your ChatGPT subscription, through your own Codex: connect it right in the pane. Install… shows the official install command, Sign in… starts Codex's own sign-in. Your own Claude Code works too. Airc never sees a password or token.
+"""
+
+[[post]]
+label = "Onboarding: open, connect, ask"
+text = """
+New here? Three steps to Airc's AI sidebar:
+
+1. {button}
+2. Sign in with your ChatGPT subscription (through Codex), or your own Claude Code
+3. Ask it to do something on a site you're signed in to
+
+It asks before it pays or sends anything.
+"""

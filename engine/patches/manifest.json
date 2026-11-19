@@ -306,5 +306,13 @@
   "chrome/browser/password_manager/chrome_password_manager_client.cc": {
     "before": "7f733ca72014891ee7cb31ec6cd0fba15adaaa67228635e0ba12b11847abe180",
     "after": "264f07e67cd24b84f98bf03230253c823b31c8d4aa5009468457e913fabbceaa"
+  },
+  "components/os_crypt/async/browser/keychain_key_provider.mm": {
+    "before": "07f7a2bce138d25b9d8e09a9aa5c666a2f3d329461c7d200006c0da0e70a1c8f",
+    "after": "f399344ab519cf221334b2263e73946c0de05db21ff6584efd559cea98015309"
+  },
+  "net/extras/sqlite/sqlite_persistent_cookie_store.cc": {
+    "before": "cebb7f21100ed85ec40d53386e27c33e409fcff95d197d26da89c23805d8aaa9",
+    "after": "87d5bdf4174dde5e4e6e3a31efa5c15137f87c92c27f724b758d1f96e7a78b69"
   }
 }

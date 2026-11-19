@@ -19,7 +19,8 @@ order = """
 checked = """
 - Agent: ⌥⌘A or "Ask Airc to…" opens the agent next to your page; while it works you see the page it's on, live, above
   the conversation; click it to Watch, or Take over; runs on your own Claude Code or Codex, or your own Anthropic or
-  OpenAI API key. Still a beta (0.1.22 Please know). Never "use your Claude plan" (release049).
+  OpenAI API key. Still a beta (0.1.22 Please know). Wording (owner, 2026-11-19 20:45, common.md): lead with "use your
+  ChatGPT subscription" (through the person's own Codex sign-in), and "your own Claude Code".
 - Hand to Claude Desktop/Code went away with the old panel: not mentioned (and 0.1.24's queued post no longer says it).
 - Settings: ⌘F in Settings, or the field at the top of its sidebar, finds any setting and highlights it.
 - Shot: agent-pane (retaken, 2ca546f4), cropped to the agent pane: the task, the live page with Take over, the steps.
@@ -38,7 +39,7 @@ alt = "The top of the Airc Agent pane, on a demo shop: the task “Reorder last 
 label = "The Airc Agent beside your page"
 media = ["pane:16x9"]
 text = """
-Airc Agent (beta) now opens beside your page: press ⌥⌘A, describe a task, and watch the page it's working on, live, above the chat. Click it to watch up close, or take over. It runs on your own Claude Code, Codex or API key.
+Use your ChatGPT subscription in Airc's AI sidebar: press ⌥⌘A, describe a task, and watch the page it's working on, live, beside yours. It runs through your own Codex sign-in, or your own Claude Code. Beta, new in Airc 0.1.37.
 """
 
 [[post]]

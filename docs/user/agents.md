@@ -5,7 +5,10 @@ in the sites you're already signed in to. Airc has a built-in connector for this
 that these apps speak). It's on by default: **Settings › Agents › Let AI apps use Airc**.
 
 An app works in its own **agent windows**. They never come to the front, never take your keyboard or mouse, and sit off
-screen. Your own windows and tabs stay as they are. While an app is connected, Airc's Dock icon wears a small ✦.
+screen. Your own windows and tabs stay as they are. While an app is connected, Airc's Dock icon wears a small ✦, and
+while it works, the sidebar shows **✦ Claude is using Airc** (the app's name) in a row just under the window's close and
+minimize buttons, never over them. Click it to see what it means, **Watch** what the app is doing, or **Stop** it (it can come back once you allow it
+again in **Settings › Agents**).
 
 ## Ask Airc (the Airc Agent)
 

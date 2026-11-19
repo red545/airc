@@ -266,6 +266,8 @@ static NSString* Flag(NSString* key) {
   if ([Flag(@"--airc-smoke") isEqualToString:@"forms"]) { [self formStep:0 attempt:0]; return; }
   // safestorage (acceptance.mjs): a relaunch, possibly on a newer framework, fills the login "forms" saved.
   if ([Flag(@"--airc-smoke") isEqualToString:@"forms-read"]) { [self formStep:6 attempt:0]; return; }
+  // safestorage guard (acceptance.mjs): a launch without the Safe Storage key ("Continue Without Saved Passwords").
+  if ([Flag(@"--airc-smoke") isEqualToString:@"keyblocked"]) { [self keyBlocked:0]; return; }
   if ([Flag(@"--airc-smoke") isEqualToString:@"video"]) { [self videoStep:0]; return; }
   if ([Flag(@"--airc-smoke") isEqualToString:@"devtools"]) { [self devtoolsTest]; return; }
   if ([Flag(@"--airc-smoke") isEqualToString:@"download"]) { [self downloadTest]; return; }
@@ -828,6 +830,27 @@ static NSString* Flag(NSString* key) {
 }
 - (void)engine:(AircEngine*)engine memoryPressure:(NSInteger)level {
   self.evidence[@"pressureCallback"] = @(level);
+}
+// No key this launch: the saved cookies can't be read, and setting the same cookie twice (an add, then a
+// delete + add of the same name) must not reach the saved row. acceptance.mjs compares the databases.
+- (void)keyBlocked:(NSUInteger)index {
+  if (index == self.tabs.count) {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{ [self finish:nil]; });
+    return;
+  }
+  [self select:index];
+  NSString* expression = @"(()=>{const before=document.cookie;"
+    "document.cookie='airc_profile=blocked1; Max-Age=86400; Path=/';"
+    "document.cookie='airc_profile=blocked2; Max-Age=86400; Path=/';"
+    "document.cookie='airc_profile=; Max-Age=0; Path=/';"
+    "return {before, after:document.cookie, storage:localStorage.getItem('profile')};})()";
+  [self.tabs[index] devToolsCall:@"Runtime.evaluate" params:@{@"expression":expression, @"returnByValue":@YES} timeout:10
+        completion:^(NSDictionary* result, NSString* error) {
+    NSDictionary* value = result[@"result"][@"value"];
+    if (error || !value) { [self finish:error ?: @"keyblocked: no page result"]; return; }
+    self.evidence[index == 0 ? @"one" : @"two"] = value;
+    [self keyBlocked:index + 1];
+  }];
 }
 - (void)checkTab:(NSUInteger)index {
   if (index == self.tabs.count) {
