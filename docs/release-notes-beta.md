@@ -1,15 +1,32 @@
-# Airc 0.1.38 public beta
+# Airc 0.1.39 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update is a small fix: the agent pane's Stop button now shows in dark Spaces. It includes everything from
-0.1.37. The release manifest records the exact build, source and checksums.
+This update docks Developer Tools inside the window you're inspecting, lets the agent pane set up your own Claude Code
+or Codex, and makes the agent pane use far less power while it's thinking. It includes everything from 0.1.38. The
+release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.37
+## New since 0.1.38
+
+- **Developer Tools dock inside the window you're inspecting.** Press **⌥⌘I** (**⌥⌘J** for the Console, **⌥⌘C** to
+  pick an element) and DevTools open next to the page in the same window, at the bottom or the side like Chrome:
+  **⇧⌘D** switches the side, you can drag the divider, and you can undock them into their own window and back. Every
+  panel works, including the **»** list of more panels and right-click menus. With Safari's engine, Web Inspector
+  stays with its tab: it hides when you switch tabs and comes back with the tab.
+- **The agent pane can set up your own Claude Code or Codex.** If one isn't installed, **Install…** shows the install
+  command from its own documentation, with Copy and Open in Terminal (the command runs only after you press Return).
+  **Sign in…** starts that tool's own sign-in, and the task you typed goes on by itself once you're signed in; Airc
+  never sees a password or token. **Hand back** now gives the agent the same tab, with what you typed, the scroll
+  position and the tab's history kept.
+- **The agent pane uses far less power while it's thinking.** The moving "Thinking…" text now animates on Core
+  Animation instead of redrawing the window every frame, so the pane's CPU use while the agent works drops from about
+  16% of a core to under 1%.
+
+## Included from 0.1.38
 
 - **The Stop button in the agent pane shows in dark Spaces.** While the Airc Agent works, the round Stop button next
   to the message field used to be a white square on a white circle in a dark Space; the square now always contrasts
