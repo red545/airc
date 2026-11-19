@@ -92,7 +92,7 @@ final class ChromiumEngine: BrowserEngine {
     func showDevTools(for tab: EngineTab) { _ = (tab as? ChromiumTab)?.showDevTools(console: false) }
     func closeDevTools(for tab: EngineTab) { (tab as? ChromiumTab)?.dismissDevTools() }
     /// Whether `tab` has its DevTools open (SV-1: each pane its own).
-    func devToolsOpen(for tab: EngineTab) -> Bool { (tab as? ChromiumTab)?.toolsPanel != nil || (tab as? ChromiumTab)?.core.devToolsView != nil }
+    func devToolsOpen(for tab: EngineTab) -> Bool { (tab as? ChromiumTab)?.isDevToolsOpen == true }
     func snapshotDevTools(for tab: EngineTab, completion: @escaping (NSImage?) -> Void) {
         guard let tab = tab as? ChromiumTab else { completion(nil); return }
         tab.core.copyDevToolsPicture(5) { image in
@@ -324,6 +324,9 @@ final class ChromiumWindow: NSObject, EngineWindow, AircWindowDelegate {
     lazy var webKit = HybridWebKitSide(window: self)
     // Identity must survive callbacks; UI owns tab models independently of the active page.
     private var wrappedTabs: [ObjectIdentifier: ChromiumTab] = [:]
+    /// Its pages' docked DevTools (ChromiumDevToolsDock.swift).
+    lazy var devToolsDock = ChromiumDevToolsDock(window: self)
+    var dockTabs: [ChromiumTab] { Array(wrappedTabs.values) }
     private var selected: ChromiumTab?
     weak var delegate: EngineWindowDelegate?
     init(engine: ChromiumEngine, core: AircWindow) {
@@ -391,6 +394,7 @@ final class ChromiumWindow: NSObject, EngineWindow, AircWindowDelegate {
             tabs[index].core.attach(to: pane.host)
         }
         if tabs.contains(where: { $0 === focused }) { focusChromiumPane(focused) } else { selected = nil }
+        devToolsDock.watch()
     }
     func focusChromiumPane(_ tab: EngineTab) {
         guard let tab = tab as? ChromiumTab, tab.owner === self, tab.core.pageVisible else { return }
@@ -412,6 +416,7 @@ final class ChromiumWindow: NSObject, EngineWindow, AircWindowDelegate {
         }
         tab.owner = self
         wrappedTabs[key] = tab
+        devToolsDock.watch()
     }
     func openChromiumPeek(url: URL, opener: EngineTab, in host: NSView) throws -> EngineTab {
         guard let opener = opener as? ChromiumTab,
@@ -436,6 +441,7 @@ final class ChromiumWindow: NSObject, EngineWindow, AircWindowDelegate {
         selected = tab
         core.activate(tab.core)
         tab.core.attach(to: hostView)
+        devToolsDock.watch()
         // Do not steal first responder from the command bar. UI calls focus() explicitly.
     }
     func deactivateChromium() {
@@ -443,12 +449,14 @@ final class ChromiumWindow: NSObject, EngineWindow, AircWindowDelegate {
         wrappedTabs.values.forEach { $0.core.setPageVisible(false) }
         core.activeProfile = nil
         selected = nil
+        devToolsDock.sync()
     }
     /// Hides every Chromium page but keeps the active profile (a WebKit page is shown).
     func hideChromiumPages() {
         core.closeActionPopup()
         wrappedTabs.values.forEach { $0.core.setPageVisible(false) }
         selected = nil
+        devToolsDock.sync()
     }
     func chromiumTabs(for profile: EngineProfile) -> [EngineTab] {
         guard let profile = profile as? ChromiumProfile else { return [] }
@@ -593,8 +601,18 @@ final class ChromiumTab: NSObject, EngineTab, AircTabDelegate {
     func go(offset: Int) { core.go(toOffset: Int32(offset)) }
     func zoom(step: Int) { core.zoomStep(Int32(step.signum())) }
     var zoomFactor: Double { core.zoomFactor }
-    var isDevToolsOpen: Bool { toolsPanel?.panel.isVisible == true && core.devToolsView != nil }
-    var toolsPanel: ChromiumToolsPanel?
+    /// Docked in its window (ChromiumDevToolsDock.swift), or undocked in Chrome's DevTools window.
+    var isDevToolsOpen: Bool { !isClosed && (core.devToolsView != nil || isDevToolsUndocked) }
+    /// The frontend's view while docked here (ChromiumDevToolsDock); after it leaves, `undockedTools` while it lives in
+    /// another window (Chrome's DevTools window).
+    weak var dockedTools: NSView?
+    weak var undockedTools: NSView?
+    var isDevToolsUndocked: Bool {
+        guard let w = undockedTools?.window else { return false }
+        return w !== owner?.window
+    }
+    /// A command opened DevTools with the window key: the frontend gets the keyboard once it's docked (as Chrome's).
+    var focusToolsWhenDocked = false
     var toolsGeneration = 0
     func printPage(from window: NSWindow) -> Bool {
         guard owner?.window === window else { return false }
@@ -730,47 +748,6 @@ final class ChromiumTab: NSObject, EngineTab, AircTabDelegate {
     func tabDidChangeSecurity(_ tab: AircTab) { ChromiumSiteActivity.changed(self) }
     func tabDidChangeAudio(_ tab: AircTab) { delegate?.tabDidChangeAudio(self) }
     func tabDidChangeThemeColor(_ tab: AircTab) { delegate?.tabDidChangeThemeColor(self) }
-}
-// Chromium's docked DevTools view needs a native host in Airc. Keep it in an
-// owned utility panel; a successful command dispatch alone would leave it hidden.
-final class ChromiumToolsPanel: NSObject, NSWindowDelegate {
-    let panel: NSPanel
-    private let tab: AircTab
-    private weak var parentWindow: NSWindow?
-    var onClose: (() -> Void)?
-    init(tab: AircTab, parent: NSWindow) {
-        self.tab = tab
-        self.parentWindow = parent
-        panel = NSPanel(contentRect: NSRect(x: parent.frame.minX + 40, y: parent.frame.minY + 40,
-                                           width: 900, height: 500),
-                        styleMask: [.titled, .closable, .resizable, .nonactivatingPanel],
-                        backing: .buffered, defer: false)
-        super.init()
-        panel.title = "Developer Tools"
-        panel.level = .normal
-        panel.isReleasedWhenClosed = false
-        panel.delegate = self
-        parent.addChildWindow(panel, ordered: .above)
-    }
-    func show(_ view: NSView) {
-        guard let host = panel.contentView else { return }
-        if view.superview !== host {
-            tab.attachDevTools(to: host)
-        }
-        if parentWindow?.isKeyWindow == true || panel.isKeyWindow {
-            panel.makeKeyAndOrderFront(nil)
-            panel.makeFirstResponder(view)
-        } else {
-            panel.orderFront(nil) // Background tests must not activate the app.
-        }
-    }
-    func windowWillClose(_ notification: Notification) {
-        parentWindow?.removeChildWindow(panel)
-        tab.closeDevTools()
-        let callback = onClose
-        callback?()
-    }
-    deinit { panel.orderOut(nil) }
 }
 // Minimal startup bridge. Product permission/chooser UI must replace the default
 // dismissals below before daily use. Never silently grant a page permission.

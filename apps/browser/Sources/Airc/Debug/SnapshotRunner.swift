@@ -150,6 +150,7 @@ final class SnapshotRunner {
         case "ytads": videoAdsScenario()
         case "parityp20c", "parityp20c-probe", "parityp20c-memory-off", "parityp20c-memory-on": parityP20cScenario()
         case "devtoolscommands": devToolsCommandsScenario()
+        case "devtools": devToolsDockScenario()   // DevTools docked in the window they inspect, both engines (DevToolsDockCheck.swift)
         case "sitecontrols": siteControlsScenario()
         case "calendar": calendarScenario()
         case "updatebutton": updateButtonScenario()
@@ -324,6 +325,7 @@ final class SnapshotRunner {
         case "parityconnect": parityConnectScenario()   // every way to connect Claude (ParityConnectCheck.swift)
         case "parityremote": parityRemoteScenario()   // Settings › Agents › Other devices, the tailnet listener (ParityRemoteCheck.swift)
         case "hiddenpaint": hiddenPaintScenario()   // MEM-6: hidden pages draw nothing, by window state (HiddenPaintCheck.swift)
+        case "idlecpu": idleCPUScenario()   // MEM-6: idle CPU in front per state, both engines (IdleCPUCheck.swift)
         case "visiblecpu": visibleCPUScenario()   // a visible idle page draws only what changes (VisibleCPUCheck.swift)
         case "library2": library2Scenario()
         case "l04": l04Scenario()   // L04LibraryCheck.swift: Library media and recent files, real input
@@ -981,7 +983,10 @@ final class SnapshotRunner {
                 done()
             }
             let single = { (done: @escaping (NSImage?) -> Void) in
-                if let id = self.c.shownTabID, let page = self.c.engineTab(for: id) { page.snapshot(completion: done) } else { done(nil) }
+                guard let id = self.c.shownTabID, let page = self.c.engineTab(for: id) else { return done(nil) }
+                // Docked DevTools: the frontend fills the card and the page sits beside it (DevToolsDockCheck.swift).
+                if self.dockedDevToolsPicture(page, done) { return }
+                page.snapshot(completion: done)
             }
             let shown = { (done: @escaping (NSImage?) -> Void) in
                 guard !panes.isEmpty else { return single(done) }

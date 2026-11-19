@@ -365,6 +365,7 @@ final class WebKitWindow: EngineWindow {
             t.webView.isHidden = false
         }
         paneTabs = panes.map(\.tab)
+        WebKitInspectorDock.follow(tabs)
     }
 
     /// The pages on screen: the one shown alone, or a split's panes.
@@ -411,10 +412,12 @@ final class WebKitWindow: EngineWindow {
         attached.append(t)
         while attached.count > Self.keepAttached {
             let old = attached.removeFirst()
+            if old.inspectorView != nil { old.closeDevTools() }   // its attached Inspector goes with its page
             old.webView.removeFromSuperview()
             old.webView.isHidden = false
         }
         shown = t
+        WebKitInspectorDock.follow(tabs)
     }
 
     func deactivateAll() {
@@ -422,6 +425,7 @@ final class WebKitWindow: EngineWindow {
         shown?.webView.isHidden = true
         shown = nil
         leavePanes()
+        WebKitInspectorDock.follow(tabs)
     }
 
     func tabs(for profile: EngineProfile) -> [EngineTab] {
@@ -455,6 +459,10 @@ final class WebKitWindow: EngineWindow {
 }
 
 final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
+    /// Web Inspector's page while attached next to this tab's web view (WebKitInspectorDock).
+    weak var inspectorView: NSView?
+    /// Bumped by every show and close: a late attach or re-close from an older one does nothing.
+    var inspectorGeneration = 0
     private var closingMediaPresentations = false
     private var mediaPresentationCloseCompletions: [() -> Void] = []
 
@@ -679,16 +687,20 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
               inspector.responds(to: NSSelectorFromString("isVisible")) else { return false }
         return inspector.value(forKey: "visible") as? Bool ?? false
     }
+    /// ⌥⌘I toggles Web Inspector, ⌥⌘J shows its Console; both attach it to the window (WebKitInspectorDock.swift).
     func showDevTools(console: Bool) -> Bool {
         // isInspectable enables remote inspection; the local inspector also needs developer extras.
         let preferences = webView.configuration.preferences
         guard preferences.responds(to: NSSelectorFromString("_setDeveloperExtrasEnabled:")) else { return false }
         preferences.setValue(true, forKey: "developerExtrasEnabled")
-        guard webView.responds(to: NSSelectorFromString("_inspector")),
-              let inspector = webView.value(forKey: "_inspector") as? NSObject else { return false }
+        guard let inspector = WebKitInspectorDock.inspector(self) else { return false }
+        if !console, isDevToolsOpen { closeDevTools(); return true }
         let selector = NSSelectorFromString(console ? "showConsole" : "show")
         guard inspector.responds(to: selector) else { return false }
+        WebKitInspectorDock.prepare(self)
+        inspectorGeneration += 1
         inspector.perform(selector)
+        WebKitInspectorDock.attach(self)
         return true
     }
 

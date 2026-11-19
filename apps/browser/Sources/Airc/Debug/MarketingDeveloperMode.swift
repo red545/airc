@@ -51,6 +51,12 @@ extension SnapshotRunner {
         mkWindowShot("developer-mode-site-controls")
         run { [self] in if c.siteControls != nil { c.toggleSiteControls() } }
         wait(0.4)
+        // Developer Tools docked beside the page, in the window being inspected (as Chrome docks them).
+        run { [self] in _ = c.shownTabID.flatMap { c.engineTab(for: $0) }?.showDevTools(console: false) }
+        wait(3.0)
+        mkWindowShot("developer-tools")
+        run { [self] in c.shownTabID.flatMap { c.engineTab(for: $0) }?.closeDevTools() }
+        wait(0.6)
         run { [self] in
             NSApp.appearance = NSAppearance(named: .darkAqua)
             try? c.store.updateSpace(c.currentSpaceID) { $0.theme.appearance = .dark }

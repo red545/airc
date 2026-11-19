@@ -727,8 +727,19 @@ final class LittleArcController: NSObject, NSWindowDelegate {
             default: if m.handleKey(event) { return true }
             }
         }
+        let typed = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        // DevTools docked here with the keyboard get their own shortcuts first (⌘⇧D, ⌘F, ⌘P, ⌘Z …), as in the main window.
+        if DevToolsKeyboard.hasKeyboard(window), typed.contains(.command), typed.isDisjoint(with: [.option, .control]),
+           !["w", "q", "n", "t"].contains(event.charactersIgnoringModifiers?.lowercased() ?? "") {
+            KeyMonitor.deliverToPage(event, in: window)
+            return true
+        }
         guard let (key, mods) = command else { return false }
         switch (key, mods) {
+        // Developer Tools for Little Airc's own page, docked in its window.
+        case ("i", [.command, .option]): _ = page?.showDevTools(console: false); return true
+        case ("j", [.command, .option]): _ = page?.showDevTools(console: true); return true
+        case ("c", [.command, .option]): page?.inspectElements { _ in }; return true
         case ("o", .command): openInSpace(); return true
         case ("o", [.command, .option]): showOpenInMenu(searching: true); return true
         case ("o", [.command, .shift]): showOpenInMenu(); return true

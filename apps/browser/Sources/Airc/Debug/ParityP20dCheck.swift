@@ -359,8 +359,8 @@ extension SnapshotRunner {
             guard let a = pageA() else { return done() }
             a.inspectElements { result in
                 switch result {
-                case .success: self.check(!isWebKit, "\(tag): Inspect Elements starts Chromium's element picker")
-                case .failure(.unavailable): self.check(isWebKit, "\(tag): Safari's engine says it can't pick a panel (Web Inspector opens instead)")
+                case .success: self.check(true, "\(tag): Inspect Elements starts \(isWebKit ? "Web Inspector's" : "Chromium's") element picker")
+                case .failure(.unavailable), .failure(.partial): self.check(isWebKit, "\(tag): this WebKit has no element-picker command (Web Inspector opens instead)")
                 case .failure(let e): self.check(false, "\(tag): Inspect Elements: \(e.localizedDescription)")
                 }
                 done()

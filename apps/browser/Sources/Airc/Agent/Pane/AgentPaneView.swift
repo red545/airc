@@ -324,26 +324,78 @@ struct AgentPaneShimmerText: View {
     let on: Bool
     @Environment(\.aircTheme) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var phase: CGFloat = -1
 
     var body: some View {
         let base = Text(text).aircFont(AircFont.callout).lineLimit(1).truncationMode(.middle)
         if on && !reduceMotion {
+            // The sweep runs on Core Animation (idlecpu): a SwiftUI repeatForever redrew the pane every frame while an
+            // agent worked (the app's main thread at the display's rate); the render server now moves the band.
             base.foregroundStyle(theme.surfaceTextSecondary.color)
-                .overlay(
-                    GeometryReader { g in
-                        LinearGradient(colors: [.clear, theme.surfaceText.color.opacity(0.9), .clear], startPoint: .leading, endPoint: .trailing)
-                            .frame(width: g.size.width * 0.5)
-                            .offset(x: phase * g.size.width)
-                    }
-                    .mask(base)
-                )
-                .onAppear { withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) { phase = 1.5 } }
+                .overlay(AgentPaneShimmerSweep(content: AnyView(base.foregroundStyle(theme.surfaceText.color.opacity(0.9)))))
                 .testAnchor("agentpane.step.running")
         } else {
             base.foregroundStyle(on ? theme.surfaceText.color : theme.surfaceTextSecondary.color)
         }
     }
+}
+
+/// The bright copy of the text under a band-shaped gradient mask that slides across it, 1.4 s per sweep, linear, like
+/// the earlier SwiftUI version (band half the width, from one band left of the text to half a width past it). The
+/// copy is drawn once; Core Animation moves the mask, so the app does no work per frame.
+struct AgentPaneShimmerSweep: NSViewRepresentable {
+    let content: AnyView
+
+    final class SweepView: NSView {
+        let host: NSHostingView<AnyView>
+        let band = CAGradientLayer()
+        private var sweptWidth: CGFloat = -1
+        init(_ content: AnyView) {
+            host = NSHostingView(rootView: content)
+            super.init(frame: .zero)
+            wantsLayer = true
+            addSubview(host)
+            band.colors = [NSColor.clear.cgColor, NSColor.white.cgColor, NSColor.clear.cgColor]
+            band.startPoint = CGPoint(x: 0, y: 0.5)
+            band.endPoint = CGPoint(x: 1, y: 0.5)
+            layer?.mask = band
+        }
+        required init?(coder: NSCoder) { fatalError() }
+        override var isFlipped: Bool { true }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func layout() {
+            super.layout()
+            host.frame = bounds
+            sweep()
+        }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            sweptWidth = -1
+            sweep()
+        }
+        /// (Re)starts the sweep when the width changes or the animation went away (a window move drops it).
+        func sweep() {
+            let w = bounds.width
+            guard w > 0, window != nil else { return }
+            if w == sweptWidth, band.animation(forKey: "sweep") != nil { return }
+            sweptWidth = w
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            band.frame = CGRect(x: -w, y: 0, width: w * 0.5, height: bounds.height)
+            CATransaction.commit()
+            let a = CABasicAnimation(keyPath: "position.x")
+            a.fromValue = -0.75 * w
+            a.toValue = 1.75 * w
+            a.duration = 1.4
+            a.repeatCount = .infinity
+            a.timingFunction = CAMediaTimingFunction(name: .linear)
+            band.add(a, forKey: "sweep")
+        }
+        /// Whether the sweep runs (checks read it).
+        var sweeping: Bool { band.animation(forKey: "sweep") != nil }
+    }
+
+    func makeNSView(context: Context) -> SweepView { SweepView(content) }
+    func updateNSView(_ v: SweepView, context: Context) { v.host.rootView = content }
 }
 
 struct AgentPaneThinking: View {

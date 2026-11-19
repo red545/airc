@@ -301,7 +301,7 @@ extension SnapshotRunner {
                 }
                 #if canImport(AircCore)
                 if let chromium = tab as? ChromiumTab {
-                    check(chromium.toolsPanel == nil && chromium.core.devToolsView == nil,
+                    check(chromium.dockedTools == nil && chromium.core.devToolsView == nil,
                           "devtoolscommands: cycle \(cycle) releases docked view and native host")
                 }
                 #endif
@@ -515,7 +515,7 @@ extension SnapshotRunner {
                     serial += 1; let id = serial
                     var message: [String: Any] = ["id": id, "method": method, "params": params]
                     if let session { message["sessionId"] = session }
-                    try await socket.send(.data(try JSONSerialization.data(withJSONObject: message)))
+                    try await socket.send(.string(String(decoding: try JSONSerialization.data(withJSONObject: message), as: UTF8.self)))   // CDP takes text frames only
                     while true {
                         let response = try await socket.receive()
                         let bytes: Data
@@ -526,7 +526,8 @@ extension SnapshotRunner {
                 }
                 let targets = try await call("Target.getTargets", ["filter": [[:]]])
                 let list = targets["targetInfos"] as? [[String: Any]] ?? []
-                guard let target = list.first(where: { ($0["url"] as? String)?.hasPrefix("devtools://") == true }),
+                // The frontend's page target ("other"); its "tab" target has no Runtime domain.
+                guard let target = list.first(where: { ($0["url"] as? String)?.hasPrefix("devtools://") == true && $0["type"] as? String != "tab" }),
                       let id = target["targetId"] as? String else { completion(nil, nil); return }
                 let attached = try await call("Target.attachToTarget", ["targetId": id, "flatten": true])
                 let reply = try await call("Runtime.evaluate", ["expression": expression, "returnByValue": true, "awaitPromise": true], session: attached["sessionId"] as? String)

@@ -889,7 +889,7 @@
           "arc": "Developer Tools, View Source and the console",
           "status": "works",
           "where": "View › Developer (⌥⌘I)",
-          "note": "",
+          "note": "Docked in the window you're inspecting, at the bottom or the right, or in their own window, as in Chrome.",
           "since": "0.1.0"
         },
         {

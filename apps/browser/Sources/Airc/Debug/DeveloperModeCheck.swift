@@ -580,7 +580,7 @@ extension SnapshotRunner {
                 let cdp = try await CDP.open(port: port)
                 defer { cdp.socket.cancel(with: .goingAway, reason: nil) }
                 let list = (try await cdp.call("Target.getTargets", ["filter": [[:]]]))["targetInfos"] as? [[String: Any]] ?? []
-                guard let target = list.first(where: { ($0["url"] as? String)?.hasPrefix("devtools://") == true }), let tid = target["targetId"] as? String else {
+                guard let target = list.first(where: { ($0["url"] as? String)?.hasPrefix("devtools://") == true && $0["type"] as? String != "tab" }), let tid = target["targetId"] as? String else {
                     return done(nil, "no DevTools frontend target")
                 }
                 let session = (try await cdp.call("Target.attachToTarget", ["targetId": tid, "flatten": true]))["sessionId"] as? String

@@ -83,6 +83,11 @@ extension PrivateWindowController {
     func handleKeyPageFirst(_ event: NSEvent) -> Bool {
         guard let (key, mods) = Self.normalizedKey(event), let run = action(forTyped: key, modifiers: mods) else { return false }
         let cmd = CommandMenus.all.first { $0.key.lowercased() == key && $0.modifiers == mods } ?? BrowserCommand("", key, mods) { _ in }
+        // Docked DevTools with the keyboard get the keys a page may use first, as in the main window (KeyMonitor).
+        if DevToolsKeyboard.hasKeyboard(window), KeyMonitor.pageCanUse(cmd) {
+            KeyMonitor.deliverToPage(event, in: window)
+            return true
+        }
         if KeyMonitor.offerToPage(cmd, page: focusedPage, engine: app?.engine, window: window, run: run) {
             KeyMonitor.deliverToPage(event, in: window)
             return true

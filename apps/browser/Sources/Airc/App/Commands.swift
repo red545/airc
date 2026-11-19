@@ -663,6 +663,16 @@ enum KeyMonitor {
                 return pageDidNotUse(event) ? nil : event
             }
             let editingText = c.window.firstResponder is NSTextView
+            // DevTools with the keyboard (docked in this window, or WebKit's attached Inspector) get its shortcuts first, as
+            // in Chrome: ⌘F finds in a panel, ⌘⇧D switches the dock side, ⌘Z undoes an edit, ⌘P opens a file. A key DevTools
+            // doesn't use comes back to the menus (the engines' unhandled-key paths). Keys a page never gets (⌘T ⌘W ⌘N, ⌥
+            // and ⌃ combinations, so ⌥⌘I ⌥⌘J ⌥⌘C too) stay Airc's.
+            if DevToolsKeyboard.hasKeyboard(c.window) {
+                let cmd = CommandMenus.all.first { !$0.key.isEmpty && $0.key.lowercased() == chars && $0.modifiers == mods }
+                if let cmd, !pageCanUse(cmd) { cmd.run(c); return nil }
+                if cmd != nil || (chars == "z" && mods.contains(.command)) { deliverToPage(event, in: c.window); return nil }
+                return event
+            }
             // ⌘Z: a field being edited, ours or the page's, undoes its own typing (Docs, every web form). A page with
             // the keyboard elsewhere gets the key first (Figma's canvas undoes itself); otherwise ⌘Z restores closed
             // tabs (SB-23, SB-40), or runs the command the user gave ⌘Z (Settings → Shortcuts).

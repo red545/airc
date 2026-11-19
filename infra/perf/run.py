@@ -340,11 +340,22 @@ def budgets(data):
             else:
                 row.update(value=round(fair['ratio'], 3), reason=note + '; not every page loaded in both browsers')
         # MEM-6: idle CPU at or over 1% fails outright; under it, timer absence still isn't demonstrated.
+        # A shown page that runs animations isn't an idle window (idlecpu: the reference Wikipedia page's pulsing dot
+        # draws at the display's rate in Chrome too, ~10%). Then the number is reported, not judged: MEM-6's verdict
+        # for Airc itself comes from `--script idlecpu` (a static page in front, per state, both engines).
         cpu = a.get('idle_cpu_percent')
+        shown = [p for p in data.get('airc', {}).get('pages', []) if p.get('shown')]
+        moving = sum(int(p.get('animations') or 0) for p in shown)
         if isinstance(cpu, (int, float)):
             row = next(r for r in rows if r['id'] == 'MEM-6')
-            row.update(value=round(cpu, 3), status='fail' if cpu >= 1 else 'unknown',
-                       reason=f'idle CPU {cpu:.2f}% (all processes, 30 s)' + ('' if cpu >= 1 else '; no-timer criterion unproven'))
+            if moving and cpu >= 1:
+                row.update(value=round(cpu, 3), status='unknown',
+                           reason=f'idle CPU {cpu:.2f}% (all processes, 30 s) with the shown page running {moving} '
+                                  f'animation(s) ({shown[0].get("url", "?")}): page content, not an idle window; '
+                                  'judge MEM-6 with --script idlecpu')
+            else:
+                row.update(value=round(cpu, 3), status='fail' if cpu >= 1 else 'unknown',
+                           reason=f'idle CPU {cpu:.2f}% (all processes, 30 s)' + ('' if cpu >= 1 else '; no-timer criterion unproven'))
         # Composite requirements (frame drops, timer absence, pressure exclusions)
         # remain unknown until separately demonstrated; never infer from a proxy.
     return rows

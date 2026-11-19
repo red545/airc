@@ -321,6 +321,7 @@ export const groups: Group[] = [
       { title: "A strip of tools", line: "Under the address: Inspect, Hard Reload and a count of console errors.", since: "0.1.3" },
       { title: "Network and clearing data", line: "A Network button opens Developer Tools at that panel, and Control-click Hard Reload clears the site's data and reloads.", since: "0.1.4", shot: "developer-mode-toolbar-card" },
       { title: "Task Manager", line: "The Developer menu has Task Manager and Chromium's other page tools.", since: "0.1.4" },
+      { title: "Developer Tools in the window", line: "Developer Tools dock beside the page you're inspecting, at the bottom or the right, with every panel; ⌘⇧D switches sides and ⋮ › Dock side undocks them. Web Inspector attaches the same way.", since: "next" },
     ],
   },
   {

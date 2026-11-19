@@ -75,6 +75,7 @@ developer-mode-dark|Developer Mode, dark|Developer controls in a dark Space
 developer-mode-narrow|Developer Mode, narrow|Compact developer controls at the minimum sidebar width
 developer-mode|Developer Mode|A synthetic app on localhost, in Developer Mode by itself: its full URL, Inspect, Network, Hard Reload, the console error count and the outlined sidebar row
 developer-mode-site-controls|Developer Mode: Site Controls|Site Controls on the same local app: the Developer Mode switch for the site, which follows it to every tab and port
+developer-tools|Developer Tools, docked|Developer Tools docked beside a local app's page in the window it inspects, with every panel in its tab strip
 ai-ask-page|Ask on Page|⌘F in Ask mode on a synthetic Lisbon guide: Apple Intelligence'"'"'s answer, the page'"'"'s sentence behind it, scrolled to and highlighted
 ai-link-preview|Link previews|⇧ over a link on a synthetic reading list: the on-device summary and key points of the article it opens
 ai-tidy-downloads|Tidy downloads|Library › Downloads: a suggested name for "IMG_2041 (1).pdf" (a synthetic itinerary) and Rename

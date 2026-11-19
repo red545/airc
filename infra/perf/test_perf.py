@@ -86,6 +86,15 @@ class Mem4Tests(unittest.TestCase):
         self.assertEqual(next(b for b in run.budgets(data) if b['id']=='MEM-6')['status'],'fail')
         data['airc']['metrics']['idle_cpu_percent'] = 0.4
         self.assertEqual(next(b for b in run.budgets(data) if b['id']=='MEM-6')['status'],'unknown')
+
+    def test_idle_cpu_with_animating_shown_page_is_reported_not_judged(self):
+        pages = [{'shown': True, 'animations': 1, 'url': 'https://example.com/'}, {'shown': False, 'animations': 2}]
+        data = {'airc':{'metrics':{'idle_cpu_percent':20.0},'reference_verified':True,'pages':pages}}
+        row = next(b for b in run.budgets(data) if b['id']=='MEM-6')
+        self.assertEqual(row['status'],'unknown')
+        self.assertIn('idlecpu', row['reason'])
+        pages[0]['animations'] = 0   # a still shown page over budget still fails
+        self.assertEqual(next(b for b in run.budgets(data) if b['id']=='MEM-6')['status'],'fail')
     def test_process_kinds(self):
         self.assertEqual(run.kind('/x/Airc Helper (Renderer) --type=renderer --foo'),'renderer')
         self.assertEqual(run.kind('/x/Airc Helper --type=utility --utility-sub-type=network.mojom.NetworkService'),'utility:NetworkService')

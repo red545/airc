@@ -105,7 +105,9 @@ final class ChromiumAgentDriver: AgentPageDriver {
     }
 
     func liveLayer(_ tab: EngineTab, in window: NSWindow) -> (layer: CALayer, id: UInt32, flipped: Bool)? {
-        guard let cls = NSClassFromString("CALayerHost") as? CALayer.Type, let original = Self.pageHost(in: window),
+        // The page's own view first: with DevTools docked beside it, the frontend's host is the largest in the window.
+        let own = tab.view.layer.flatMap { Self.hostLayers($0).max { $0.bounds.width * $0.bounds.height < $1.bounds.width * $1.bounds.height } }
+        guard let cls = NSClassFromString("CALayerHost") as? CALayer.Type, let original = own ?? Self.pageHost(in: window),
               let id = (original.value(forKey: "contextId") as? NSNumber)?.uint32Value, id != 0 else { return nil }
         let host = cls.init()
         host.setValue(NSNumber(value: id), forKey: "contextId")

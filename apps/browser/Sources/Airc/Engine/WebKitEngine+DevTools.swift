@@ -14,10 +14,35 @@ extension WebKitTab {
         completion(showDevTools(console: true) ? .success(()) : .failure(.unavailable("WebKit's local Console selector is unavailable.")))
     }
     func closeDevTools() {
-        guard webView.responds(to: NSSelectorFromString("_inspector")),
-              let inspector = webView.value(forKey: "_inspector") as? NSObject,
+        guard let inspector = WebKitInspectorDock.inspector(self),
               inspector.responds(to: NSSelectorFromString("close")) else { return }
+        WebKitInspectorDock.remember(self)
+        inspectorGeneration += 1
+        let generation = inspectorGeneration
         inspector.perform(NSSelectorFromString("close"))
+        inspectorView = nil
+        // WebKit can drop a close while its frontend is still loading: close again if it's still up a moment later
+        // and nothing showed it since.
+        for delay in [0.25, 0.75] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, !self.isClosed, self.inspectorGeneration == generation, self.isDevToolsOpen else { return }
+                inspector.perform(NSSelectorFromString("close"))
+            }
+        }
+    }
+    /// ⌥⌘C: Web Inspector (attached) with its element picker on, as Safari's Start Element Selection.
+    func inspectElements(completion: @escaping (Result<Void, EngineDeveloperError>) -> Void) {
+        let open = isDevToolsOpen
+        guard open || showDevTools(console: false), let inspector = WebKitInspectorDock.inspector(self) else {
+            return completion(.failure(.unavailable("This macOS's WebKit can't open Web Inspector from a command.")))
+        }
+        let toggle = NSSelectorFromString("toggleElementSelection")
+        guard inspector.responds(to: toggle) else { return completion(.failure(.partial("Web Inspector opened, but this WebKit can't start its element picker."))) }
+        // A new Inspector's frontend loads first.
+        DispatchQueue.main.asyncAfter(deadline: .now() + (open ? 0 : 0.6)) {
+            if WebKitInspectorDock.bool(inspector, "isElementSelectionActive") != true { inspector.perform(toggle) }
+            completion(.success(()))
+        }
     }
     func inspectElement(at point: CGPoint, completion: @escaping (Result<Void, EngineDeveloperError>) -> Void) {
         completion(.failure(.unavailable("WebKit does not expose a supported point-inspection API. Use the page's Inspect Element context menu.")))

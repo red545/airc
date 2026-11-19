@@ -34,50 +34,45 @@ extension ChromiumTab {
             self.attachDeveloperTools(completion: completion)
         }
     }
+    /// The frontend docked in this page's window (ChromiumDevToolsDock lays it out next to the page), or undocked in
+    /// Chrome's DevTools window if the person chose that (⋮ › Dock side).
     fileprivate func attachDeveloperTools(completion: @escaping (Result<Void, EngineDeveloperError>) -> Void) {
-        guard let owner, let view = core.devToolsView else {
+        guard let owner, core.devToolsView != nil || isDevToolsUndocked else {
             completion(.failure(.unavailable("The docked developer tools view is unavailable."))); return
         }
-        if toolsPanel == nil {
-            let panel = ChromiumToolsPanel(tab: core, parent: owner.window)
-            toolsPanel = panel
-            panel.onClose = { [weak self, weak panel] in
-                if self?.toolsPanel === panel { self?.toolsGeneration += 1; self?.toolsPanel = nil }
-            }
-        }
-        toolsPanel?.show(view)
+        focusToolsWhenDocked = owner.window.isKeyWindow
+        owner.devToolsDock.watch()
         completion(.success(()))
     }
     func closeDevTools() { dismissDevTools() }
     func dismissDevTools() {
         toolsGeneration += 1
-        toolsPanel?.panel.close()
-        toolsPanel = nil
+        focusToolsWhenDocked = false
         core.closeDevTools()
-    }
-    /// Compatibility shortcut: Inspect toggles; Console is always an idempotent show.
-    func showDevTools(console: Bool) -> Bool {
-        guard !isClosed, developerCommandsAvailable else { return false }
-        if !console, toolsPanel != nil { dismissDevTools(); return true }
-        let generation = toolsGeneration
-        showDevTools(panel: console ? .console : .elements) { [weak self] result in
-            // An intentional close cancels the legacy request. Do not leave a
-            // modal error sheet over the next action after that cancellation.
-            guard let self, !self.isClosed, self.toolsGeneration == generation else { return }
-            if case .failure(let error) = result { self.reportDeveloperError(error) }
-            else if !console, !self.core.executeChromeCommand(40023) { // IDC_DEV_TOOLS_INSPECT
-                self.reportDeveloperError(.unavailable("The engine could not enter element selection mode."))
-            }
+        if let tools = dockedTools {
+            ChromiumDevToolsDock.docked.remove(tools)
+            if tools.superview === core.view.superview { tools.removeFromSuperview() }
+            dockedTools = nil
+            ChromiumDevToolsDock.restore(core.view)
         }
-        return true
+        undockedTools = nil
+        owner?.devToolsDock.watch()
     }
-    private func reportDeveloperError(_ error: EngineDeveloperError) {
-        // Legacy Bool callers cannot receive an asynchronous failure. Present it on
-        // their own window only; never activate the application to show an alert.
-        guard let window = owner?.window else { NSLog("Developer tools: %@", error.localizedDescription); return }
-        let alert = NSAlert(); alert.messageText = "Developer tools unavailable"
-        alert.informativeText = error.localizedDescription
-        alert.beginSheetModal(for: window)
+    /// ⌥⌘I (Developer Tools), ⌥⌘J (JavaScript Console) and ⌥⌘C (Inspect Elements) are Chrome's own commands, so they
+    /// behave as in Chrome: each opens DevTools (docked or in its own window, as the person left it), or closes the
+    /// docked DevTools when they're open; ⌥⌘J opens the Console, ⌥⌘C starts the element picker.
+    func showDevTools(console: Bool) -> Bool {
+        runDevToolsCommand(console ? 40005 : 40004)   // IDC_DEV_TOOLS_CONSOLE, IDC_DEV_TOOLS
+    }
+    @discardableResult func runDevToolsCommand(_ command: Int32) -> Bool {
+        guard !isClosed, let owner else { return false }
+        toolsGeneration += 1
+        focusToolsWhenDocked = owner.window.isKeyWindow
+        // Chrome's commands act on the Browser's active tab: a split's focused pane, or Little Airc's page, is made it.
+        if core.pageVisible { owner.core.activate(core) }
+        guard core.executeChromeCommand(command) else { return false }
+        owner.devToolsDock.watch()
+        return true
     }
     func siteDataDomain(completion: @escaping (Result<String, EngineDeveloperError>) -> Void) {
         guard !isClosed, core.responds(to: NSSelectorFromString("siteDataDomain")), let domain = core.siteDataDomain else {
@@ -99,11 +94,8 @@ extension ChromiumTab {
     }
     // P20d: Inspect Elements (⌥⌘C) as Chrome's: Elements, then its element picker (IDC_DEV_TOOLS_INSPECT).
     func inspectElements(completion: @escaping (Result<Void, EngineDeveloperError>) -> Void) {
-        showDevTools(panel: .elements) { [weak self] result in
-            guard case .success = result, let self else { return completion(result) }
-            completion(self.core.executeChromeCommand(40023) ? .success(())
-                       : .failure(.partial("Developer tools opened, but the element picker didn't start.")))
-        }
+        completion(runDevToolsCommand(40023) ? .success(())   // IDC_DEV_TOOLS_INSPECT
+                   : .failure(.unavailable("The engine could not open the element picker.")))
     }
     // P20d: View › Clear Cookies and Refresh / Clear Cache and Refresh. A private tab clears its own session's data:
     // the engine uses the tab's own storage partition.
@@ -152,29 +144,11 @@ private extension EngineTask {
                   killable: number("killable")?.boolValue ?? false)
     }
 }
-// Native frontend close/undock events also retire the app-owned host. Otherwise
-// closing from DevTools' own toolbar can leave an empty utility window behind.
+// The engine's docked-DevTools callback (when an engine reports it): lay out now instead of on the next frame.
 extension ChromiumWindow {
     @objc(window:devToolsDidChangeForTab:view:)
     func window(_ window: AircWindow, devToolsDidChangeFor tab: AircTab, view: NSView?) {
-        guard let page = tab.delegate as? ChromiumTab else { return }
-        let generation = page.toolsGeneration
-        let hadView = view != nil
-        DispatchQueue.main.async { [weak page, weak view] in
-            guard let page, !page.isClosed, page.toolsGeneration == generation else { return }
-            if hadView, let view, page.core.devToolsView === view {
-                page.attachDeveloperTools { result in
-                    if case .failure(let error) = result { NSLog("Developer tools host: %@", error.localizedDescription) }
-                }
-            } else if !hadView, page.core.devToolsView == nil, let host = page.toolsPanel {
-                page.toolsGeneration += 1
-                host.onClose = nil
-                host.panel.parent?.removeChildWindow(host.panel)
-                host.panel.delegate = nil
-                host.panel.close()
-                page.toolsPanel = nil
-            }
-        }
+        DispatchQueue.main.async { [weak self] in self?.devToolsDock.watch() }
     }
 }
 #endif
