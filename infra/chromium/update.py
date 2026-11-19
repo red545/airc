@@ -38,20 +38,24 @@ def report(snapshot, src, old, new, out):
     failed = set()
     for patch in module.patches():
         diff = patch.read_text().splitlines(keepends=True)
-        name = next(line[6:].strip() for line in diff if line.startswith('--- a/'))
-        data = staged.get(name, blob(src, new, name))
-        if data is None or name in failed:
-            lines.append(f'{patch.name}: DRIFT (missing file or earlier patch failed): {name}')
-            failed.add(name)
-            continue
-        try:
-            staged[name] = module.apply_diff(data, diff)
-            pinned = manifest.get(name, {}).get('before')
-            state = 'context exact' if hashlib.sha256(blob(src, new, name)).hexdigest() == pinned else 'context exact; manifest/base review required'
-            lines.append(f'{patch.name}: {state}: {name}')
-        except ValueError as error:
-            lines.append(f'{patch.name}: DRIFT: {name}: {error}')
-            failed.add(name)
+        # One report line per file section: a patch may touch several files (as apply.py applies them).
+        starts = [i for i, line in enumerate(diff) if line.startswith('--- a/')]
+        for start, end in zip(starts, [*starts[1:], len(diff)]):
+            section = diff[start:end]
+            name = section[0][6:].strip()
+            data = staged.get(name, blob(src, new, name))
+            if data is None or name in failed:
+                lines.append(f'{patch.name}: DRIFT (missing file or earlier patch failed): {name}')
+                failed.add(name)
+                continue
+            try:
+                staged[name] = module.apply_diff(data, section)
+                pinned = manifest.get(name, {}).get('before')
+                state = 'context exact' if hashlib.sha256(blob(src, new, name)).hexdigest() == pinned else 'context exact; manifest/base review required'
+                lines.append(f'{patch.name}: {state}: {name}')
+            except ValueError as error:
+                lines.append(f'{patch.name}: DRIFT: {name}: {error}')
+                failed.add(name)
     (out / 'patches.txt').write_text('\n'.join(lines) + '\n')
     import re
     includes = set()

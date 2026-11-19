@@ -9,7 +9,7 @@
  
  #include "base/functional/bind.h"
  #include "base/logging.h"
-@@ -1175,6 +1176,11 @@
+@@ -1208,6 +1209,11 @@
          web_contents()->GetTopLevelNativeWindow();
      views::Widget* top_level_widget =
          views::Widget::GetWidgetForNativeWindow(top_level_native_window);
@@ -21,7 +21,7 @@
      dialog_widget = base::WrapUnique(views::DialogDelegate::CreateDialogWidget(
          widget_delegate_.get()->AsDialogDelegate(),
          /*context=*/gfx::NativeWindow(),
-@@ -1233,8 +1239,13 @@
+@@ -1266,8 +1272,13 @@
  }
  
  views::View* FedCmAccountSelectionView::GetAnchorView() {

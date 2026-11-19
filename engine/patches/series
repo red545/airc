@@ -45,7 +45,8 @@
 # Route device selection to app-owned UI.
 023-device-chooser.patch
 
-# Per-file seam audit, Chromium 156.0.8078.88. Counts exclude retired hooks only
+# Per-file seam audit, Chromium 156.0.8078.88 (rechecked for 156.0.8078.109: of these files only
+# fedcm_account_selection_view_desktop.cc changed upstream, a UAF fix away from the hooks). Counts exclude retired hooks only
 # after exact restoration to upstream bytes. No weak/override linker symbols were
 # found for these concrete definitions; do not replace them by duplicate sources.
 # KeyedServiceFactory testing substitutions are not production registrations.

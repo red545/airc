@@ -288,8 +288,8 @@
     "after": "9960aed747ed9cccb7043af72fd0bf6b2c3c9f188ac49cd5628004058e653df5"
   },
   "chrome/browser/ui/views/webid/fedcm_account_selection_view_desktop.cc": {
-    "before": "bb122339540b28fc65b46decfe423ec202c921a1ae7715b0bdb79ee16707c020",
-    "after": "5d193adcf4bbf2f1660c5a2d5f025a6c4dbc40f223504c3946b65ca8d2371bd2"
+    "before": "4c77c6a5b6016267fba4e938c5c834cb7b680a30469524bde9f86e1578726455",
+    "after": "e410c645c7b68003333faafaa80a2088edcaa539ad9cd463d94143169025381a"
   },
   "chrome/browser/ui/views/media_router/media_remoting_dialog_view.cc": {
     "before": "7edcae3bf2b8b614541e5b6db70bfa5e3f923d61704389dc44fe53947986e8a0",
