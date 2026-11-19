@@ -478,6 +478,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     func prewarmEditing() {
         _ = window?.fieldEditor(true, for: input)
         TextInputWarmup.run()
+        rows.first?.prewarmArt(scale: window?.backingScaleFactor ?? 2)
     }
 
 
@@ -1956,6 +1957,12 @@ enum TextInputWarmup {
         field.contentType = .URL   // as the bar's field: no password or one-time-code AutoFill heuristics
         w.contentView?.addSubview(field)
         w.makeFirstResponder(field)
+        // One typed character: the text system's first insert loads AppKit's undo-coalescing strings from disk and
+        // sets up its typing state, ~1 ms that otherwise lands on the bar's first keystroke (cbperf3).
+        if let editor = field.currentEditor() as? NSTextView {
+            editor.insertText("a", replacementRange: NSRange(location: NSNotFound, length: 0))
+            editor.undoManager?.removeAllActions()
+        }
         w.makeFirstResponder(nil)
         w.close()
     }
@@ -2078,6 +2085,17 @@ final class CommandRowView: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
+
+    /// The official-site seal made and drawn once at idle (`CommandBarView.prewarmEditing`). Made cold, its SF Symbol
+    /// (CoreUI's glyph lookup, the SVG parse, the tint and the first raster) took ~1–1.5 ms of the first keystroke whose
+    /// rows show an official site (cbperf3). The symbol and tint are cached (LayerImage); this only moves when.
+    func prewarmArt(scale: CGFloat) {
+        guard let p = palette,
+              let img = LayerImage.symbol("checkmark.seal.fill", size: 12, weight: .semibold, color: p.resolved.accent.nsColor)
+        else { return }
+        var rect = NSRect(origin: .zero, size: img.size)
+        _ = img.cgImage(forProposedRect: &rect, context: nil, hints: [.ctm: AffineTransform(scale: scale)])
+    }
 
     func configure(_ r: CommandResult) {
         let parts = changes(to: r)

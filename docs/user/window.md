@@ -54,6 +54,20 @@ goes on to the tab you had open before.
 - Dropping on a Little Airc window does nothing, and in full screen a tab can't leave the window by dragging. Use
   **Move to New Window** in the tab's right-click menu instead (see below).
 
+## Closing a window
+
+Every Airc window closes the same way, whether you opened it with ⌘N, dragged a tab out of the sidebar, or used Move to
+New Window:
+
+- **The red button** at the window's top-left. With the sidebar hidden (⌘S), move the pointer to the top-left corner
+  and the window buttons appear there; they also show in the sidebar when it slides out from the edge.
+- **File › Close Window** (⇧⌘W) closes the window you're in.
+- **⌘W** closes the tab. On a window's last tab it closes the window too, and in a window with nothing open it closes
+  the window, as in Arc. Your last window stays open and shows its empty page instead.
+
+Closing a window doesn’t close its tabs: they stay in the sidebar of your other windows, on their Space (a blank
+window’s own tabs go to the Archive, as before).
+
 ## New windows in full screen
 
 When the window you're in is in full screen, a new window opens in full screen too, in a Space of its own, as in

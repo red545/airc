@@ -248,6 +248,9 @@ final class SnapshotRunner {
         case "parityw07": parityW07Scenario()   // W07: the window drags from the top of the page
         case "parityw07b": parityW07bScenario()   // W07: margins drag, inactive dimming, double-click (real input)
         case "parityw10drag": parityW10DragScenario()   // W10: tear-out, drops, ⌥ copy, Esc (real driver drags)
+        case "winclose": winCloseScenario()   // WIN-8: every window kind closes (real drags, clicks, keys)
+        case "winclose-write": winCloseWrite()
+        case "winclose-read": winCloseRead()
         case "ownerfs": ownerFullScreenScenario()   // new windows from full screen open in their own full-screen Space (OwnerFixesCheck.swift)
         case "paritysmallgaps": paritySmallGapsScenario()   // C06 Share Quote under the URL, K03 Edit/Help remaps and layout brackets
         case "quotecopy": quoteCopyScenario()   // C06 Copy Quote Link: page menu, Share Quote, Arc's toasts, opt-outs (QuoteCopyCheck.swift)

@@ -229,6 +229,10 @@ final class WindowController: NSObject, NSWindowDelegate {
     private(set) var autoArchiveClosing: Set<String> = []
     private(set) var autoArchiveRetryAt: [String: Date] = [:]
     var revealController: SidebarRevealController?
+    /// WIN-8 (winclose): the strip at the window's top-left that shows the traffic lights while the sidebar is hidden.
+    var trafficLightHover: TrafficLightHoverZone?
+    /// WIN-8: ⌘W's tab; if it was the window's last, the window closes with it (when another window stays open).
+    private var closingWindowWithTab: String?
     /// WIN-7: this window's own tab per Space, and "Open in another window" (Browser/MultiWindow.swift).
     var multiWindow = MultiWindowState()
     /// SB-3: the engine's permission, password and autofill prompts, under the URL field (PagePrompts.swift).
@@ -270,6 +274,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         flushObserver = observer
         scheduleArchive()
         revealController = SidebarRevealController(controller: self)
+        trafficLightHover = TrafficLightHoverZone(controller: self)
         setUpUnloading()
         setUpExtensionInstalls()
         setUpSplitFocus()
@@ -363,6 +368,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         layoutFindBar()
         layoutProtectedMediaToast()
         revealController?.layout()
+        trafficLightHover?.layout()
         layoutPeek()
         prompts.layout()
     }
@@ -394,7 +400,12 @@ final class WindowController: NSObject, NSWindowDelegate {
         // In full screen the buttons are in AppKit's titlebar window, which shows them only with the menu bar.
         // Hide as soon as hiding begins; the first animation frame still has fraction 1.
         // Show only once docking finishes, so visibility never depends on the last display-link tick.
-        let visible = isFullscreen || (!sidebarHidden && sidebarFraction >= 1 && revealController?.isRevealed != true)
+        // WIN-8 (winclose): with the sidebar hidden they show at the window's top-left while the pointer is there, and
+        // in the revealed sidebar once it's at rest (at the floating sidebar's inset), so every window can be closed.
+        let hiddenAtRest = sidebarHidden && sidebarFraction <= 0.001
+        let revealed = revealController?.isRevealed == true
+        let visible = isFullscreen || (!sidebarHidden && sidebarFraction >= 1 && !revealed)
+            || (hiddenAtRest && (revealController?.isAtRest == true || (!revealed && trafficLightHover?.isInside == true)))
         buttons.forEach { $0.isHidden = !visible }
         guard !isFullscreen else { return }
         // Never lay out a titlebar AppKit keeps in its full-screen titlebar window (a transition, or one that failed):
@@ -402,15 +413,22 @@ final class WindowController: NSObject, NSWindowDelegate {
         // leaving full screen (fsexit, 2026-11-06).
         guard container.window === window, !window.styleMask.contains(.fullScreen) else { return }
         let h = first.frame.height
-        let top = AircMetrics.Window.trafficLightCenters[0].y
+        let inset = trafficLightInset
+        let top = AircMetrics.Window.trafficLightCenters[0].y + inset
         let containerHeight = top + h / 2 + 2
         var cf = container.frame
         cf.size.height = containerHeight
         cf.origin.y = window.frame.height - containerHeight
         container.frame = cf
         for (b, c) in zip(buttons, AircMetrics.Window.trafficLightCenters) {
-            b.setFrameOrigin(NSPoint(x: c.x - b.frame.width / 2, y: containerHeight - c.y - h / 2))
+            b.setFrameOrigin(NSPoint(x: c.x + inset - b.frame.width / 2, y: containerHeight - c.y - inset - h / 2))
         }
+    }
+
+    /// WIN-8: with the sidebar hidden on the left the lights sit where the revealed sidebar has them, 5 pt in, both when
+    /// it's out and from the top-left hover strip, so they don't jump when it slides in under the pointer.
+    var trafficLightInset: CGFloat {
+        sidebarHidden && !sidebarOnRight && sidebarFraction <= 0.001 ? AircMetrics.Sidebar.floatingInset : 0
     }
 
     private func trafficLightsMoved() {
@@ -1214,15 +1232,43 @@ final class WindowController: NSObject, NSWindowDelegate {
         dropPage(tabID)
         for id in alsoClosing where store.tab(id) == nil { dropPage(id) }
         if wasShown {
-            if let next, store.tab(next.id) != nil { show(next.id, takeOver: false) } else { showEmpty() }
+            if let next, store.tab(next.id) != nil { show(next.id, takeOver: false) } else if closesWindowWhenEmptied(tabID) {
+                return
+            } else { showEmpty() }
         }
+        if closingWindowWithTab == tabID { closingWindowWithTab = nil }
+    }
+
+    /// WIN-8 (Arc): ⌘W on a window's last tab closes the window, unless it's the last browser window, which shows its
+    /// empty state. Only for ⌘W's own tab once it has left the sidebar (not a pinned tab's unload, a row's ✕,
+    /// auto-archive or another window's close).
+    private func closesWindowWhenEmptied(_ tabID: String) -> Bool {
+        guard closingWindowWithTab == tabID else { return false }
+        closingWindowWithTab = nil
+        guard store.tab(tabID) == nil, otherBrowserWindowOpen else { return false }
+        DispatchQueue.main.async { [weak self] in self?.window.performClose(nil) }
+        return true
+    }
+
+    /// Another ordinary or blank browser window is open (a private or Little Airc window doesn't count).
+    var otherBrowserWindowOpen: Bool {
+        app?.controllers.contains { $0 !== self && ($0.window.isVisible || $0.window.isMiniaturized) } == true
     }
 
     func closeCurrentTab() {
         if peek != nil { return closePeek() }
         // SB-36: with rows selected in the sidebar, ⌘W closes all of them.
         if let (page, ids) = sidebarSelection { return closeSelected(ids, spaceID: page.spaceID) }
-        if let id = shownTabID { closeTab(id) }
+        if let id = shownTabID {
+            closingWindowWithTab = id
+            closeTab(id)
+            // Still there and not waiting for its page's unload handlers (a pane, or the page kept it): forget it.
+            if store.tab(id) != nil, !closingTabs.contains(id) { closingWindowWithTab = nil }
+            return
+        }
+        // WIN-8: with nothing shown (the empty state) ⌘W closes the window, as the private window's does, unless it's
+        // the last one.
+        if otherBrowserWindowOpen { window.performClose(nil) }
     }
 
     /// SB-36: the pages of `ids` close, as ⌘W's do. Returns the tabs whose page has closed (or had none). A page with

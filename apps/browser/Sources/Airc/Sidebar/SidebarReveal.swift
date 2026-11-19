@@ -12,6 +12,8 @@ final class SidebarRevealController {
     private let floating = NSView()
     private let floatingBackground = ThemeBackgroundView(theme: DesignTheme.default.resolved(systemIsDark: false))
     private(set) var isRevealed = false
+    /// WIN-8: out and done sliding in; the traffic lights show on it then (WindowController.positionTrafficLights).
+    private(set) var isAtRest = false
     private var pending: DispatchWorkItem?
     private var monitor: Any?
     private var offset: CGFloat = 0   // 0 = shown, 1 = off to the side it comes from
@@ -149,6 +151,10 @@ final class SidebarRevealController {
         c.sidebar.animatorSpring(from: 1, to: 0, spring: Spring(AircSpring.reveal)) { [weak self] v in
             self?.offset = CGFloat(v)
             self?.layout()
+        } completion: { [weak self] in
+            guard let self, self.isRevealed, self.monitor != nil else { return }
+            self.isAtRest = true
+            self.controller?.positionTrafficLights()
         }
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged]) { [weak self] e in
             self?.pointerMoved(e)
@@ -170,6 +176,8 @@ final class SidebarRevealController {
         guard let c = controller, isRevealed else { return }
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
+        isAtRest = false
+        c.positionTrafficLights()
         c.sidebar.animatorSpring(from: Double(offset), to: 1, spring: Spring(AircSpring.conceal)) { [weak self] v in
             self?.offset = CGFloat(v)
             self?.layout()
@@ -194,6 +202,7 @@ final class SidebarRevealController {
     private func finish() {
         guard let c = controller else { return }
         isRevealed = false
+        isAtRest = false
         floating.isHidden = true
         c.sidebar.removeFromSuperview()
         c.root.addSubview(c.sidebar, positioned: .below, relativeTo: c.toast)

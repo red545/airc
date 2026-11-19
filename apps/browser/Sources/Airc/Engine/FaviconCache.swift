@@ -137,7 +137,11 @@ final class FaviconCache {
         }
     }
 
-    private func fileURL(for url: URL) -> URL? { directory?.appendingPathComponent(Self.stableName(url.absoluteString) + ".icon") }
+    /// With `isDirectory: false`: without the hint, URL asks the file system (an lstat on the main thread for every
+    /// Command Bar row on every keystroke, cbperf3).
+    private func fileURL(for url: URL) -> URL? {
+        directory?.appendingPathComponent(Self.stableName(url.absoluteString) + ".icon", isDirectory: false)
+    }
 
     /// `retrying`: the completion waits through the round's tries (it runs once, with the icon or with nil when the
     /// round fails). Otherwise it runs after this attempt; the round's tries go on in the background and fill the cache.

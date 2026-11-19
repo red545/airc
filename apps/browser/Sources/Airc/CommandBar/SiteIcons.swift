@@ -217,7 +217,8 @@ extension WindowController {
         #if canImport(AircCore)
         let profile = store.profile(ofSpace: currentSpaceID)
         guard let p = profiles.engineProfile(for: profile.id) as? ChromiumProfile else { return nil }
-        return URL(fileURLWithPath: p.core.path).appendingPathComponent("Favicons")
+        // Directory hints: without them, building the URL stats the disk twice, on every keystroke (cbperf3).
+        return URL(fileURLWithPath: p.core.path, isDirectory: true).appendingPathComponent("Favicons", isDirectory: false)
         #else
         return nil
         #endif
