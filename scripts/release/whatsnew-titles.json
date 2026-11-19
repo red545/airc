@@ -385,7 +385,13 @@
   },
   "Settings stays put": {
     "title": "Settings stays put",
-    "detail": "Switching panes in Settings no longer moves the layout.",
+    "detail": "Switching panes in Settings no longer moves the layout: every pane keeps the same column, and Appearance no longer shifts left.",
+    "action": "none",
+    "image": null
+  },
+  "The Stop button in the agent pane shows in dark Spaces": {
+    "title": "Stop shows in dark Spaces",
+    "detail": "While the Airc Agent works, the round Stop button next to its message field is now visible in dark Spaces too.",
     "action": "none",
     "image": null
   }

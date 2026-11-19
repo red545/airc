@@ -1,15 +1,21 @@
-# Airc 0.1.37 public beta
+# Airc 0.1.38 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update opens the Airc Agent beside the page, where you can watch the page it works on, and adds search to
-Settings. It includes everything from 0.1.36. The release manifest records the exact build, source and checksums.
+This update is a small fix: the agent pane's Stop button now shows in dark Spaces. It includes everything from
+0.1.37. The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.36
+## New since 0.1.37
+
+- **The Stop button in the agent pane shows in dark Spaces.** While the Airc Agent works, the round Stop button next
+  to the message field used to be a white square on a white circle in a dark Space; the square now always contrasts
+  with its circle.
+
+## Included from 0.1.37
 
 - **The Airc Agent opens beside the page.** Press **⌥⌘A**, or type a task in the Command Bar and pick **Ask Airc
   to…**, and the agent's pane opens next to the page you're on instead of a floating panel (drag its edge to make it
@@ -557,3 +563,5 @@ Source: `6d59d8c8591e57a478b14c1eb7f43cbe172321ad`. Build: `202611181828`. Chann
 Source: `a0e197dc2e4120ca42dc7ecf779ec37fc65443f3`. Build: `202611190200`. Channel: stable.
 
 Source: `35f49f84cd2840b63c5e0e7873d57177a9d8904d`. Build: `202611190422`. Channel: stable.
+
+Source: `42f92268662a36b0ee3b69395a4f9f90d5d69132`. Build: `202611190830`. Channel: stable.
