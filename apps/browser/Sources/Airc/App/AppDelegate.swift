@@ -834,12 +834,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// The WebKit dev engine. A scripted run keeps its cookies in memory only, except the quitdata pair, which checks that
-    /// they survive a quit and relaunch: its store persists, named from its data folder (as the Chromium build's WebKit
+    /// they survive a quit and relaunch (and chromeaccept's isolation pair): its store persists, named from its data folder (as the Chromium build's WebKit
     /// pages' stores are), so it never shares the daily one's (artifacts/wkcookie). Run it with CFFIXED_USER_HOME, as
     /// its runner does: the store is in that home's Library/WebKit.
     private static func makeWebKitEngine(_ options: LaunchOptions) -> WebKitEngine {
         #if AIRC_TESTING
-        if options.script.hasPrefix("quitdata-"), options.snapshotDir != nil, !options.ephemeral {
+        // chromeaccept-write/-read (ChromeAcceptCheck.swift): profile isolation across a relaunch, the same way.
+        if options.script.hasPrefix("quitdata-") || options.script.hasPrefix("chromeaccept-"), options.snapshotDir != nil, !options.ephemeral {
             return WebKitEngine(ephemeral: false, storeScope: AppPaths.dataDirectory.standardizedFileURL.path)
         }
         #endif

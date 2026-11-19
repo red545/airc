@@ -207,6 +207,7 @@ final class SnapshotRunner {
         case "telemetry": telemetryScenario()
         case "crashreports": crashReportsScenario()
         case "crashvis": crashVisibilityScenario()
+        case "chromeaccept", "chromeaccept-write", "chromeaccept-read": chromeAcceptScenario(script)   // ChromeAcceptCheck.swift
         case "followups": followupsScenario()
         case "splitparity": splitParityScenario()
         case "parityk07": parityK07Scenario()   // K07: Arc's AppleScript dictionary, in-process (Scripting/)

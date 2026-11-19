@@ -46,10 +46,11 @@ final class LocalPageServer {
         self.init(responses: pages.mapValues { Page(body: $0) })
     }
 
-    init?(responses: [String: Page]) {
+    /// `port`: a fixed loopback port (an origin that must stay the same across a relaunch), or 0 for any free one.
+    init?(responses: [String: Page], port: UInt16 = 0) {
         pages = responses
         let params = NWParameters.tcp
-        params.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: .any)
+        params.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: port == 0 ? .any : NWEndpoint.Port(rawValue: port) ?? .any)
         params.acceptLocalOnly = true
         guard let l = try? NWListener(using: params) else { return nil }
         listener = l

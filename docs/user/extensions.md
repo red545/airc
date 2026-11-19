@@ -75,13 +75,14 @@ locked even when the app is unlocked, and its in-page cards say "unlock 1Passwor
    asks the app (Touch ID).
 
 Without this step, **Unlock 1Password** opens the extension's popup under its button, where you can unlock it with
-your account password.
+your account password. The same happens when you click 1Password's button inside a login field while it's locked.
 
 **Passkeys with 1Password.** When 1Password saves and offers passkeys, its extension handles a site's passkey request
 before Airc does, the same as in Chrome: you see 1Password's **Save passkey?** card, not Airc's **Create a passkey**
 dialog. When 1Password is locked ("To save a passkey, unlock 1Password first"), close its card with ✕, or choose its
 security key button, and the site's request goes on to Airc's own dialog ([password-manager.md](password-manager.md),
-"Passkeys"). To keep using Airc's passkeys instead, turn this off in
+"Passkeys"). If you haven't signed in to an account in the extension yet, 1Password shows no card and the request goes
+straight to Airc's dialog. To keep using Airc's passkeys instead, turn this off in
 1Password: open its popup, choose the account menu at the top left, then **Settings › Autofill & save**, and turn off
 **Offer to sign in with passkeys** and **Offer to save passkeys**.
 

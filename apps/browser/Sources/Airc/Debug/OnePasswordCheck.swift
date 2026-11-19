@@ -17,9 +17,11 @@ import AircCore
 ///   runner before launch) are linked into the run's Chromium/NativeMessagingHosts at startup: first folder wins, a
 ///   manifest already in Airc's folder is kept, a stale link is removed; chrome.runtime.sendNativeMessage reaches each.
 /// - AIRC_OP_EXTENSION=<folder> (optional): the real 1Password extension unpacked with its Web Store key, no account.
-///   The message its in-page card's Unlock button sends (`request-managed-unlock`) opens its popup through openPopup;
-///   its popup also opens from the extensions list; a passkey request on a localhost page reaches Chromium's own
-///   passkey dialog (1Password, with no account, passes it on), which the page then cancels.
+///   Its "Unlock 1Password" button sends `request-managed-unlock`, which opens its popup through openPopup: clicked on
+///   its "Save passkey?" card or its locked in-field button when either shows. 1Password 8.12.46.29 with no account
+///   shows neither (both need an account), so that step is then a SKIP with the reason; with an account and neither
+///   shown it's a "fixture changed" red. The log names the 1Password version. Its popup also opens from the extensions
+///   list; a passkey request on a localhost page reaches Chromium's own passkey dialog, which the page then cancels.
 ///
 /// Needs the engine's test gate (`--airc-data-dir`, `--airc-test=unpackedExtension,modalDialogs`) and an active, key
 /// window (AIRC_UI_DEDICATED_SESSION=1): Chromium refuses openPopup in an inactive window. Chromium only.
@@ -372,6 +374,8 @@ extension SnapshotRunner {
         // 1Password with no account clears its action's popup (it sets "/popup/index.html" once an account or its Mac
         // app is there), so set it back from its own page, as a signed-in 1Password has it.
         var opExtPage: ChromiumTab?
+        var opVersion = "?"
+        var opNoAccount = false
         func setOPPopup() {
             opExtPage?.evaluate("chrome.action.setPopup({popup: '/popup/index.html'}).then(() => 'ok'); 'set'", completion: nil)
         }
@@ -379,8 +383,18 @@ extension SnapshotRunner {
             guard !opID.isEmpty else { return done() }
             show("chrome-extension://\(opID)/credits.html", title: "") {
                 opExtPage = shownPage()
-                setOPPopup()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { done() }
+                // Its own popup before the check sets it: "" = no account and no Mac app (1Password's own rule).
+                opExtPage?.evaluate("chrome.action.getPopup({}).then(p => { window.__opPopup = 'popup:' + p; }); 'asked'", completion: nil)
+                poll("window.__opPopup || ''", in: opExtPage, timeout: 5) { p in
+                    opNoAccount = p == "popup:"
+                    setOPPopup()
+                    // The fixture's version goes in the log: 1Password's in-page UI changes between releases (opcheck).
+                    opExtPage?.evaluate("chrome.runtime.getManifest().version") { v in
+                        opVersion = v as? String ?? "?"
+                        self.note("onepassword: 1Password version \(opVersion), its popup \(p.isEmpty ? "unknown" : "'\(p.dropFirst(6))'")\(opNoAccount ? " (no account)" : "")")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { done() }
+                    }
+                }
             }
         }
         // Its popup from the extensions list (the button's click).
@@ -400,7 +414,14 @@ extension SnapshotRunner {
         // The owner's case: webauthn.io-style Register on a page → 1Password's "Save passkey?" card, "To save a passkey,
         // unlock 1Password first" → Unlock 1Password (a real click through DevTools input into its frame) opens its popup
         // through openPopup; then the card's ✕ hands the request on to Chromium's own passkey dialog.
+        // In 1Password 8.12.46.29 (opcheck) the card needs an account: its save handler hands the request straight to
+        // the browser when it has no account ("no-accounts" → fallback-requested), and its sign-in handler does the same
+        // with no account in its database. Its locked in-field button (also "Unlock 1Password", same message) is off
+        // without accounts too (frame config inlineDisabled = !accounts), as is its Secret Key paste guard (an account
+        // flag). Accounts are off-limits here, so both are probed and clicked only if shown: with no account (its popup
+        // was "") the Unlock step is a SKIP; with an account and neither shown, a "fixture changed" red (opcheck r1).
         var cardTab: ChromiumTab?
+        var cardShown = false
         // A platform authenticator only: Chromium then starts no hybrid ("use a phone") discovery, whose Bluetooth adapter
         // makes macOS ask "would like to use Bluetooth" (kTCCServiceBluetoothAlways, shown by UserNotificationCenter) the
         // first time each newly signed test build runs it (release044/045 attempt 1).
@@ -413,13 +434,32 @@ extension SnapshotRunner {
           hints: ['client-device'], timeout: 60000}})
           .then(r => { window.__pk = r ? 'created' : 'null'; }, e => { window.__pk = 'error:' + e.name; });
         """
+        // 1Password's in-page UI: shadow hosts named com-1password-<part> (closed shadow roots; the host's box is its own).
+        func opHostJS(_ part: String) -> String {
+            "(() => { const e = document.getElementsByTagName('com-1password-\(part)')[0]; if (!e) return ''; "
+                + "const r = e.getBoundingClientRect(); if (!r.width || !r.height) return ''; return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)].join(','); })()"
+        }
         var width = 0
-        func cdpClick(_ x: Int, _ y: Int, _ then: @escaping () -> Void) {
-            guard let tab = cardTab else { return then() }
+        func cdpClick(_ x: Int, _ y: Int, in target: ChromiumTab? = nil, _ then: @escaping () -> Void) {
+            guard let tab = target ?? cardTab else { return then() }
             let base: [String: Any] = ["x": x, "y": y, "button": "left", "clickCount": 1]
-            engine.devToolsCall("Input.dispatchMouseEvent", params: base.merging(["type": "mousePressed"]) { $1 }, in: tab) { _, _ in
-                engine.devToolsCall("Input.dispatchMouseEvent", params: base.merging(["type": "mouseReleased"]) { $1 }, in: tab) { _, _ in
-                    DispatchQueue.main.async(execute: then)
+            engine.devToolsCall("Input.dispatchMouseEvent", params: base.merging(["type": "mouseMoved"]) { $1 }, in: tab) { _, _ in
+                engine.devToolsCall("Input.dispatchMouseEvent", params: base.merging(["type": "mousePressed"]) { $1 }, in: tab) { _, _ in
+                    engine.devToolsCall("Input.dispatchMouseEvent", params: base.merging(["type": "mouseReleased"]) { $1 }, in: tab) { _, _ in
+                        DispatchQueue.main.async(execute: then)
+                    }
+                }
+            }
+        }
+        func checkOpenPopup(_ how: String, _ done: @escaping () -> Void) {
+            waitUntil({ shownPopup()?.extensionID == opID }, timeout: 10) {
+                let panel = shownPopup()
+                self.check(panel?.popup?.url.contains("/popup/index.html") == true,
+                           "onepassword: clicking 1Password's Unlock 1Password opens its popup (openPopup) (\(how), 1Password \(opVersion), \(panel?.popup?.url ?? "none"))")
+                self.check(panelUnder(self.c.extensionPopupAnchor(for: opID), panel?.panel).isEmpty,
+                           "onepassword: under the URL field \(panelUnder(self.c.extensionPopupAnchor(for: opID), panel?.panel))")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    savePicture(panel?.popup, "1password-openpopup") { self.c.closeExtensionPopup(); done() }
                 }
             }
         }
@@ -433,25 +473,68 @@ extension SnapshotRunner {
                 cardTab?.evaluate(js) { w in
                     width = Int(w as? String ?? "") ?? 0
                     DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
-                        savePicture(cardTab?.core, "1password-card") { done() }
+                        cardTab?.evaluate(opHostJS("notification")) { r in
+                            let rect = r as? String ?? ""
+                            cardShown = !rect.isEmpty
+                            self.note("onepassword: 1Password \(opVersion) passkey card \(cardShown ? "shown (\(rect))" : "not shown (no account: it hands the request to the browser)")")
+                            savePicture(cardTab?.core, "1password-card") { done() }
+                        }
                     }
                 }
             }
         }
         step { [self] done in
-            guard !opID.isEmpty, width > 0 else { return done() }
+            guard !opID.isEmpty, width > 0, cardShown else { return done() }
             setOPPopup()
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 // "Unlock 1Password": 294 CSS px from the page's right edge, 130 down (the card at its top right).
-                cdpClick(width - 294, 130) {
-                    self.waitUntil({ shownPopup()?.extensionID == opID }, timeout: 10) {
-                        let panel = shownPopup()
-                        self.check(panel?.popup?.url.contains("/popup/index.html") == true,
-                                   "onepassword: clicking 1Password's Unlock 1Password opens its popup (openPopup) (\(panel?.popup?.url ?? "none"))")
-                        self.check(panelUnder(self.c.extensionPopupAnchor(for: opID), panel?.panel).isEmpty,
-                                   "onepassword: under the URL field \(panelUnder(self.c.extensionPopupAnchor(for: opID), panel?.panel))")
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                            savePicture(panel?.popup, "1password-openpopup") { self.c.closeExtensionPopup(); done() }
+                cdpClick(width - 294, 130) { checkOpenPopup("passkey card", done) }
+            }
+        }
+        // No card: the probe's request went straight to Chromium's own passkey dialog (platform only: no Bluetooth step).
+        step { [self] done in
+            guard !opID.isEmpty, !cardShown, let tab = cardTab else { return done() }
+            var dialogs = 0, stepName = ""
+            waitUntil({
+                let state = engine.modalDialogState(for: tab)
+                dialogs = (state["dialogs"] as? [Any])?.count ?? 0
+                stepName = state["webauthnStep"] as? String ?? ""
+                return dialogs > 0 && !stepName.isEmpty && stepName != "kNotStarted"
+            }, timeout: 10) {
+                self.check(dialogs > 0 && !stepName.isEmpty && stepName != "kNotStarted" && !stepName.contains("Ble"),
+                           "onepassword: with no account, 1Password \(opVersion) passes a passkey request to Chromium's own passkey dialog (step \(stepName.isEmpty ? "none" : stepName), dialogs \(dialogs))")
+                engine.cancelModalDialog(in: tab)
+                poll("window.__pk === 'pending' ? '' : window.__pk", in: tab, timeout: 8) { result in
+                    self.check(result.hasPrefix("error:"), "onepassword: cancelling Chromium's dialog ends the page's request (\(result))")
+                    done()
+                }
+            }
+        }
+        // No card: 1Password's locked in-field button ("Unlock 1Password") on a login field, the same openPopup path.
+        step { [self] done in
+            guard !opID.isEmpty, !cardShown else { return done() }
+            show("http://localhost:\(port)/login", title: "Login page") {
+                guard let page = shownPage() else { return done() }
+                page.evaluate("document.getElementById('pass').focus(); document.getElementById('pass').click(); 'focused'", completion: nil)
+                poll(opHostJS("button"), in: page, timeout: 6) { rect in
+                    let n = rect.split(separator: ",").compactMap { Int($0) }
+                    guard n.count == 4, n[2] > 0, n[3] > 0 else {
+                        if opNoAccount {
+                            // 8.12.46.29 with no account: the card needs one (save/sign-in handlers), the in-field
+                            // button too (inline UI is off without accounts), and so does Secret Key paste protection.
+                            // Accounts are off-limits here, so this step can't run; openPopup itself is covered above
+                            // with the synthetic extension (artifacts/opcheck/REPORT.md).
+                            self.skip("onepassword: clicking 1Password's Unlock 1Password opens its popup: 1Password \(opVersion) with no account shows neither its passkey card nor its in-field button, and the check uses no account")
+                        } else {
+                            self.check(false, "onepassword: fixture changed: 1Password \(opVersion) showed neither its passkey card nor its in-field Unlock 1Password button; see the check's notes and artifacts/opcheck")
+                        }
+                        return savePicture(page.core, "1password-no-unlock") { done() }
+                    }
+                    self.note("onepassword: 1Password's in-field button at \(rect) (CSS px)")
+                    savePicture(page.core, "1password-field-button") {
+                        setOPPopup()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                            cdpClick(n[0] + n[2] / 2, n[1] + n[3] / 2, in: page) { checkOpenPopup("in-field button", done) }
                         }
                     }
                 }
@@ -459,10 +542,11 @@ extension SnapshotRunner {
         }
         // A fresh request each (Unlock above changed the card). On the locked card ("unlock 1Password first", the owner's
         // case) both its ✕ and its security key button hand the request to the browser: Chromium's own passkey dialog
-        // (seen in every run since; 1Password's code cancels instead only on other card states).
+        // (seen in every run since; 1Password's code cancels instead only on other card states). Only with a card.
         for (name, fromRight, expectDialog) in [("dismiss", 48, true), ("security-key", 84, true)] {
             step { [self] done in
-                guard !opID.isEmpty, width > 0, let tab = cardTab else { return done() }
+                guard !opID.isEmpty, width > 0, cardShown, let tab = cardTab else { return done() }
+                if let t = c.store.tab(mainTab) { c.show(t.id, focus: false) }
                 tab.reload()
                 self.waitUntil({ tab.isLoading == false && tab.title == "OP page" }, timeout: 10) {
                     tab.evaluate(createJS + "'started'", completion: nil)

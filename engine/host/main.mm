@@ -264,6 +264,8 @@ static NSString* Flag(NSString* key) {
   if ([Flag(@"--airc-smoke") isEqual:@"pass12"]) { [self p12:0]; return; }
   if ([Flag(@"--airc-smoke") isEqualToString:@"autofill"]) { [self autofillForm:0 field:0 attempt:0]; return; }
   if ([Flag(@"--airc-smoke") isEqualToString:@"forms"]) { [self formStep:0 attempt:0]; return; }
+  // safestorage (acceptance.mjs): a relaunch, possibly on a newer framework, fills the login "forms" saved.
+  if ([Flag(@"--airc-smoke") isEqualToString:@"forms-read"]) { [self formStep:6 attempt:0]; return; }
   if ([Flag(@"--airc-smoke") isEqualToString:@"video"]) { [self videoStep:0]; return; }
   if ([Flag(@"--airc-smoke") isEqualToString:@"devtools"]) { [self devtoolsTest]; return; }
   if ([Flag(@"--airc-smoke") isEqualToString:@"download"]) { [self downloadTest]; return; }
@@ -355,6 +357,7 @@ static NSString* Flag(NSString* key) {
       }
     }]; return;
   }
+  if (step == 7 && [Flag(@"--airc-smoke") isEqualToString:@"forms-read"]) { [self finish:nil]; return; }
   if (step == 7) {
     [tab devToolsCall:@"Runtime.evaluate" params:@{@"expression":@"document.getElementById('upload').click()", @"userGesture":@YES} timeout:5 completion:^(NSDictionary* r, NSString* e) {
       [self formStep:8 attempt:0];

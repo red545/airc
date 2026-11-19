@@ -52,7 +52,7 @@ const server = createServer((req, res) => {
     res.writeHead(401, {'WWW-Authenticate': 'Basic realm="Synthetic Airc dialog"'});
     res.end('Synthetic auth cancelled'); return;
   }
-  if (scenario === 'pass12' || scenario === 'forms' || scenario === 'autofill' || scenario === 'native') {
+  if (scenario === 'pass12' || scenario === 'forms' || scenario === 'autofill' || scenario === 'native' || scenario === 'safestorage') {
     res.writeHead(200, {'Content-Type': 'text/html', 'Cache-Control': 'no-store'});
     if (req.url.startsWith('/submitted')) res.end('<!doctype html><title>Signed in fixture</title>Success');
     else if (scenario === 'autofill') {
@@ -78,13 +78,14 @@ const server = createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' });
   res.end('<!doctype html><title>Airc profile isolation</title><body style="height:5000px"><p>Local profile isolation fixture</p><input></body>');
 });
-await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+// safestorage relaunches on another framework: the login's origin (its port) must stay the same.
+await new Promise(resolve => server.listen(scenario === 'safestorage' ? Number(process.env.AIRC_HOST_PORT || 18594) : 0, '127.0.0.1', resolve));
 const url = scenario === "extension" ? "https://chromewebstore.google.com/detail/ublock-origin-lite/ddkjiahejlhfcafbddmgiahcphecmpfh" : `http://${scenario === "dialogs" ? "localhost" : "127.0.0.1"}:${server.address().port}/`;
-async function run(phase) {
+async function run(phase, host = app) {
   const report = path.join(dir, `${phase}.json`);
   const log = await fs.open(path.join(dir, `${phase}.log`), 'w');
   try {
-    const child = spawn('/usr/bin/open', ['-g', '-n', '-W', '--stdout', path.join(dir, `${phase}.app.log`), '--stderr', path.join(dir, `${phase}.app.log`), path.resolve(app), '--args',
+    const child = spawn('/usr/bin/open', ['-g', '-n', '-W', '--stdout', path.join(dir, `${phase}.app.log`), '--stderr', path.join(dir, `${phase}.app.log`), path.resolve(host), '--args',
       `--user-data-dir=${dir}/Chromium`, `--airc-data-dir=${dir}`, process.env.AIRC_NATIVE_CASE === "context" ? "--airc-test=memoryPressure" : `--airc-test=memoryPressure,contextMenu,modalDialogs${['pass12','pass13'].includes(scenario) ? ',systemMediaPermission=granted' : ''}`, `--airc-smoke=${phase}`, `--airc-test-url=${url}`,
       `--airc-extension-fixture=${path.resolve("engine/host/extension-fixture")}`, `--airc-native-case=${process.env.AIRC_NATIVE_CASE || "all"}`, `--airc-report=${report}`, `--airc-pid=${dir}/${phase}.pid`, `--airc-screenshot=${dir}/${phase}.png`, '--use-mock-keychain', '--disable-backgrounding-occluded-windows', '--use-fake-device-for-media-stream',
       ...(process.env.AIRC_NATIVE_CASE === 'media' || (scenario === 'pass13' && process.env.AIRC_CAPTURE_INDICATOR !== '1') ? ['--use-fake-ui-for-media-stream'] : []),
@@ -101,7 +102,7 @@ async function run(phase) {
             let command = '';
             ps.stdout.on('data', data => { command += data; });
             await new Promise(resolve => ps.once('close', resolve));
-            if (command.trim() === path.resolve(app, 'Contents/MacOS/AircHost')) {
+            if (command.trim() === path.resolve(host, 'Contents/MacOS/AircHost')) {
               const kill = spawn('/bin/kill', ['-TERM', pid]);
               await new Promise(resolve => kill.once('close', resolve));
             }
@@ -116,13 +117,21 @@ async function run(phase) {
     const appLog = await fs.readFile(path.join(dir, `${phase}.app.log`), 'utf8');
     if (/Received signal|FATAL:|Check failed:/.test(appLog)) throw Error(`${phase}: native crash in app log`);
     const result = JSON.parse(await fs.readFile(report, 'utf8'));
-    if (!result.ok || (!scenario && Object.keys(result.profiles).length !== 2)) throw Error(JSON.stringify(result));
-    console.log(`PASS ${phase}: ${scenario ? "scenario assertions" : "two profiles, isolated persistent cookie and localStorage"}`);
+    if (!result.ok || (['write', 'read'].includes(phase) && Object.keys(result.profiles).length !== 2)) throw Error(JSON.stringify(result));
+    console.log(`PASS ${phase} (${path.basename(host)}): ${['write', 'read'].includes(phase) ? "two profiles, isolated persistent cookie and localStorage" : "scenario assertions"}`);
     return result;
   } finally { await log.close(); }
 }
 try {
-  if (scenario) { console.log(JSON.stringify(await run(scenario), (key, value) => key === "icon" ? "[PNG data URL]" : value)); if (scenario === 'pass13') console.log(JSON.stringify(await run('pass13-read'))); } else {
+  if (scenario === 'safestorage') {
+    // Safe Storage across an engine update (mock keychain): AIRC_WRITE_APP (the older framework's host) writes
+    // encrypted cookies, localStorage and a saved login; <AircHost.app> (the newer one) reads and fills them.
+    const old = process.env.AIRC_WRITE_APP || app;
+    const results = {write: await run('write', old), forms: await run('forms', old), read: await run('read'), formsRead: await run('forms-read')};
+    if (!results.formsRead.profiles?.passwordFilled) throw Error('forms-read: the saved login did not fill');
+    await fs.writeFile(path.join(dir, 'results.json'), JSON.stringify(results, null, 2));
+    console.log(`PASS safestorage: ${path.basename(old)} wrote, ${path.basename(app)} decrypted cookies and filled the saved login`);
+  } else if (scenario) { console.log(JSON.stringify(await run(scenario), (key, value) => key === "icon" ? "[PNG data URL]" : value)); if (scenario === 'pass13') console.log(JSON.stringify(await run('pass13-read'))); } else {
   const write = await run('write');
   const read = await run('read');
   await fs.writeFile(path.join(dir, 'results.json'), JSON.stringify({ write, read }, null, 2));

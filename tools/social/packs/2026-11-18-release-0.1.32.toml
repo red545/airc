@@ -17,6 +17,7 @@ checked = """
   1Password) open at full size; 1Password's extension finds the Mac app via the files it installed for Chrome and
   others (add Airc once in 1Password › Settings › Browser if it stays locked); Settings › Passwords › Offer to save and
   fill passwords, per profile.
+- No "Unlock 1Password opens its popup" claim (release047/050, 2026-11-19): removed from the post.
 - Caveat, kept: until the next update Airc may still fill a site's only saved login on page load even with it off, so
   the post says Airc stops offering to save and claims nothing about filling.
 """
@@ -24,5 +25,5 @@ checked = """
 [[post]]
 label = "Password-manager extensions work better"
 text = """
-Use 1Password, Bitwarden or Proton Pass? Their extensions work better in Airc 0.1.32: popups open at full size, 1Password's Unlock button opens it, and Settings › Passwords can stop Airc offering to save logins, so your manager has them.
+Use 1Password, Bitwarden or Proton Pass? Their extensions work better in Airc 0.1.32: popups open at full size, 1Password's extension can find its Mac app, and Settings › Passwords can stop Airc offering to save logins.
 """
