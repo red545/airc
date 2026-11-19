@@ -128,12 +128,12 @@ profiles through Create Profile instead).
 | `agents-watch.webp` | Follow along | The sidebar's Agents folder (Claude · Mailbox working, Claude · Corner Shop) and Watch over the page: Claude typing in Mailbox's search field, outlined, with its caption (synthetic sites) | 2026-11-15 | 202611150942 (f1991861) |
 | `command-bar-connect-claude.webp` | Connect Claude | ⌘T “connect claude”: Connect Claude and other AI apps…, which opens Settings › Agents with setup first | 2026-11-15 | 202611150942 (f1991861) |
 | `agent-panel.webp` | Ask Airc | The Airc Agent panel (⌥⌘A) on a checkout: the task, its steps and “Pay on cornershop…?” with Deny and Allow Once, before anything is paid (synthetic shop, scripted model) | 2026-11-16 | 202611162257 (42813bb1) |
-| `agent-pane.webp` | Ask Airc, in the window | The Airc Agent pane beside the page (⌥⌘A): the task, one-line steps with site icons, the live page on top and the composer with the page chip, provider and Quick (synthetic shop, scripted model) | 2026-11-18 | test build (4cfa895e + step 2) |
-| `agent-pane-dark.webp` | Ask Airc, dark | The same agent pane in a dark Space | 2026-11-18 | test build (4cfa895e + step 2) |
-| `agent-pane-approval.webp` | Waiting for your OK | The agent pane pinning “Pay on cornershop…?” above the composer with Deny and Allow once, before anything is paid | 2026-11-18 | test build (4cfa895e + step 2) |
-| `agent-pane-approval-dark.webp` | Waiting for your OK, dark | The same approval in a dark Space | 2026-11-18 | test build (4cfa895e + step 2) |
-| `agent-pane-connect.webp` | Connect your AI | The agent pane's first run: Claude Code, Codex and the two API keys, each with its set-up step | 2026-11-18 | test build (4cfa895e + step 2) |
-| `agent-pane-connect-dark.webp` | Connect your AI, dark | The same first-run card in a dark Space | 2026-11-18 | test build (4cfa895e + step 2) |
+| `agent-pane.webp` | Ask Airc, in the window | The Airc Agent pane beside the page (⌥⌘A): the task, one-line steps with site icons, the live page on top and the composer with the page chip, provider and Quick (synthetic shop, scripted model) | 2026-11-19 | test build (2ca546f4 + Stop glyph) |
+| `agent-pane-dark.webp` | Ask Airc, dark | The same agent pane in a dark Space | 2026-11-19 | test build (2ca546f4 + Stop glyph) |
+| `agent-pane-approval.webp` | Waiting for your OK | The agent pane pinning “Pay on cornershop…?” above the composer with Deny and Allow once, before anything is paid | 2026-11-19 | test build (2ca546f4 + Stop glyph) |
+| `agent-pane-approval-dark.webp` | Waiting for your OK, dark | The same approval in a dark Space | 2026-11-19 | test build (2ca546f4 + Stop glyph) |
+| `agent-pane-connect.webp` | Connect your AI | The agent pane's first run: Claude Code, Codex and the two API keys, each with its set-up step | 2026-11-19 | test build (2ca546f4 + Stop glyph) |
+| `agent-pane-connect-dark.webp` | Connect your AI, dark | The same first-run card in a dark Space | 2026-11-19 | test build (2ca546f4 + Stop glyph) |
 | `agents-approval.webp` | Allow ‘Claude’ to use Airc? | The one-time question when a new app connects: the profiles it can use and who started it | 2026-11-15 | 202611150942 (f1991861) |
 | `settings-agents.webp` | Settings: Agents | Let AI apps use Airc (on), Show agent pages in front, the apps you answered, the profiles agents may use, Activity, and one-click setup | 2026-11-15 | 202611150942 (f1991861) |
 | `settings-agents-activity.webp` | Settings: Agents, Activity | What each app did lately: sites and kinds of actions (Clicked, Typed in a field), never page content or typed text; Clear History; setup | 2026-11-15 | 202611150942 (f1991861) |

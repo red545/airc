@@ -640,7 +640,9 @@ struct AgentPaneComposer: View {
     @ViewBuilder private var sendButton: some View {
         if run.state.isActive && run.approval == nil {
             Button { model.stop() } label: {
-                Image(systemName: "stop.fill").font(.system(size: 10, weight: .bold)).foregroundStyle(theme.onAccent.color)
+                // The glyph in the surface colour on a text-coloured circle: dark on light, light on dark (onAccent was white on
+                // white in dark Spaces).
+                Image(systemName: "stop.fill").font(.system(size: 10, weight: .bold)).foregroundStyle(theme.surface.color)
                     .frame(width: 28, height: 28).background(Circle().fill(theme.surfaceText.color))
             }
             .buttonStyle(.plain)

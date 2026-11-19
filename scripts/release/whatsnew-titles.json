@@ -364,5 +364,29 @@
     "detail": "Airc's Chromium engine is now 156.0.8078.109, with Chrome's latest security fixes. Nothing to do: this update installs it.",
     "action": "none",
     "image": null
+  },
+  "The Airc Agent opens beside the page": {
+    "title": "The agent beside the page",
+    "detail": "Press ⌥⌘A and the Airc Agent opens next to your page. While it works, you see the page it's on, live, above the conversation.",
+    "action": "none",
+    "image": "agent-pane"
+  },
+  "Watch any working agent from the sidebar": {
+    "title": "Watch from the sidebar",
+    "detail": "Hover over a working task in the sidebar's Agents folder and click the eye to watch its page live.",
+    "action": "none",
+    "image": null
+  },
+  "Search in Settings": {
+    "title": "Search in Settings",
+    "detail": "Press ⌘F in Settings, or type in the field at the top of its sidebar. Pick a result to jump to that setting, highlighted.",
+    "action": "settingsGeneral",
+    "image": null
+  },
+  "Settings stays put": {
+    "title": "Settings stays put",
+    "detail": "Switching panes in Settings no longer moves the layout.",
+    "action": "none",
+    "image": null
   }
 }

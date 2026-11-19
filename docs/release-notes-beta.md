@@ -1,15 +1,31 @@
-# Airc 0.1.36 public beta
+# Airc 0.1.37 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update brings Chrome's latest security fixes to Airc's Chromium engine and can start Granola notes when a call
-starts. It includes everything from 0.1.35. The release manifest records the exact build, source and checksums.
+This update opens the Airc Agent beside the page, where you can watch the page it works on, and adds search to
+Settings. It includes everything from 0.1.36. The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.35
+## New since 0.1.36
+
+- **The Airc Agent opens beside the page.** Press **⌥⌘A**, or type a task in the Command Bar and pick **Ask Airc
+  to…**, and the agent's pane opens next to the page you're on instead of a floating panel (drag its edge to make it
+  wider; **⇧⌥⌘A** starts a new task). While the agent works, the pane shows the page it's on, live, above the
+  conversation: click it to Watch, or **Take over** to use the page yourself. Each step is one line with the site's
+  icon, and when it's done the steps fold into "Done in …". It runs on your own Claude Code or Codex, or your own
+  Anthropic or OpenAI API key. Hand to Claude Desktop and Hand to Claude Code were part of the old panel and are gone;
+  to have those apps drive Airc, set up the connector in Settings › Agents. Details: `docs/user/agents.md`.
+- **Watch any working agent from the sidebar.** Hover over a working task in the Agents folder and click the eye to
+  watch its page live, even one running in the background.
+- **Search in Settings.** Type in the field at the top of the Settings sidebar, or press **⌘F** in Settings: it finds
+  panes, settings and their descriptions, and common words for them ("dark", "password", "adblock"). Pick a result
+  and Settings opens that pane, scrolls to the setting and highlights it.
+- **Settings stays put.** Switching panes no longer moves the layout; Appearance used to shift a little to the left.
+
+## Included from 0.1.36
 
 - **Security update: Airc's Chromium engine is now 156.0.8078.109.** It has Chrome's latest security fixes, from
   Chrome's Extended Stable updates 156.0.8078.96, 156.0.8078.100 and 156.0.8078.109: 83 security issues in Chrome's
@@ -539,3 +555,5 @@ Source: `d3016be304ded4d83b04b6fc2fe1a63afc370102`. Build: `202611181536`. Chann
 Source: `6d59d8c8591e57a478b14c1eb7f43cbe172321ad`. Build: `202611181828`. Channel: stable.
 
 Source: `a0e197dc2e4120ca42dc7ecf779ec37fc65443f3`. Build: `202611190200`. Channel: stable.
+
+Source: `35f49f84cd2840b63c5e0e7873d57177a9d8904d`. Build: `202611190422`. Channel: stable.
