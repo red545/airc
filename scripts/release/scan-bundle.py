@@ -10,14 +10,23 @@ Reviewed false positives live in scan-allowlist.json. A literal entry covers
 sections, at most `count` times. A resource entry covers one kind in one exact
 UTF-8 text resource containing public third-party data. Both require a reason.
 Other kinds, paths, symlinks and UTF-16 copies remain checked.
+
+A DMG is scanned by what it contains (scan_dmg): every file of its volume, read through a
+read-only mount (hdiutil on macOS) or a 7-Zip extraction elsewhere, and every byte of the
+image itself except the payload of its compressed chunks (see dmg_container_kinds). When the
+contents cannot be read, the scan fails closed ("DMG contents not scanned").
 """
 import json
 import mmap
 import os
 from pathlib import Path
+import plistlib
 import re
+import shutil
 import struct
+import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 ALLOWLIST = Path(__file__).with_name('scan-allowlist.json')
@@ -142,22 +151,45 @@ def content_kinds(data):
                 decoded |= kinds(block[start:].decode('utf-16-be', 'ignore').encode('utf8'))
     return raw, decoded
 
-def scan(app, allowlist=None):
+def link_escapes(path, target, top, override):
+    """True when a symlink leaves `top`. An `override` target (from an extractor's listing) is
+    resolved lexically, because the extracted link on disk may not carry it."""
+    if not override:
+        try:
+            path.resolve().relative_to(top.resolve())
+            return False
+        except ValueError:
+            return True
+    resolved = Path(os.path.normpath(target if os.path.isabs(target) else path.parent / target))
+    try:
+        resolved.relative_to(top)
+        return False
+    except ValueError:
+        return True
+
+def scan(app, allowlist=None, *, skip=(), link_targets=None, external_ok=(), title='Bundle scan'):
+    """Scan every entry under `app`. `skip`: top-level names left to another scan. `link_targets`:
+    absolute path -> true symlink target, when the tree on disk is an extraction. `external_ok`:
+    (relative path, exact target) pairs of symlinks allowed to leave the tree."""
     allowlist = load_allowlist() if allowlist is None else allowlist
+    link_targets = link_targets or {}
     used = set()
     failed = False
     def unreadable(error):
         raise error
     for root, dirs, files in os.walk(app, followlinks=False, onerror=unreadable):
+        if Path(root) == Path(app):
+            dirs[:] = [d for d in dirs if d not in skip]
+            files = [f for f in files if f not in skip]
         for name in dirs + files:
             path = Path(root) / name
             relative = path.relative_to(app)
             hits = kinds(str(relative).encode())
             if path.is_symlink():
-                hits |= kinds(os.readlink(path).encode())
-                try:
-                    path.resolve().relative_to(app.resolve())
-                except ValueError:
+                override = str(path) in link_targets
+                target = link_targets[str(path)] if override else os.readlink(path)
+                hits |= kinds(target.encode())
+                if (relative.as_posix(), target) not in external_ok and link_escapes(path, target, Path(app), override):
                     hits.add('external-symlink')
             elif path.is_file() and path.stat().st_size:
                 with path.open('rb') as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
@@ -186,13 +218,175 @@ def scan(app, allowlist=None):
                 failed = True
     for path in sorted(set(allowlist) - used):
         print(f'NOTE allowlist entry unused here: {label(path)}')
-    print('Bundle scan: FAIL' if failed else 'Bundle scan: PASS')
+    print(f'{title}: FAIL' if failed else f'{title}: PASS')
+    return int(failed)
+
+# --- DMG (UDIF) images -------------------------------------------------------------------------
+# Chunk types in a blkx table (Apple's UDIF "mish" block). Only these compressed kinds are skipped.
+UDIF_COMPRESSED = {0x80000004: 'adc', 0x80000005: 'zlib', 0x80000006: 'bzip2', 0x80000007: 'lzfse', 0x80000008: 'lzma'}
+UDIF_KNOWN = set(UDIF_COMPRESSED) | {0x00000000, 0x00000001, 0x00000002, 0x7ffffffe, 0xffffffff}
+# The volume's own Finder link, the only symlink in a DMG allowed to leave it.
+DMG_EXTERNAL_OK = {('Applications', '/Applications')}
+
+class ContentsNotScanned(Exception):
+    """The DMG's files could not be read; the scan must fail closed."""
+
+def udif_compressed_ranges(data):
+    """Sorted, non-overlapping (start, end) file ranges of the compressed chunks' payload, read from
+    the koly trailer's XML plist. Raises ValueError for anything that is not a well-formed UDIF image."""
+    size = len(data)
+    if size < 512 or data[size - 512:size - 508] != b'koly':
+        raise ValueError('not a UDIF image (no koly trailer)')
+    koly = data[size - 512:]
+    data_offset, data_length = struct.unpack_from('>QQ', koly, 24)
+    xml_offset, xml_length = struct.unpack_from('>QQ', koly, 216)
+    if not (0 < xml_length and xml_offset + xml_length <= size - 512 and data_offset + data_length <= size - 512):
+        raise ValueError('UDIF trailer points outside the file')
+    blkx = plistlib.loads(bytes(data[xml_offset:xml_offset + xml_length]))['resource-fork']['blkx']
+    ranges = []
+    for block in blkx:
+        mish = block['Data']
+        if mish[:4] != b'mish':
+            raise ValueError('UDIF block table without mish header')
+        base, = struct.unpack_from('>Q', mish, 24)
+        count, = struct.unpack_from('>I', mish, 200)
+        if len(mish) < 204 + 40 * count:
+            raise ValueError('truncated UDIF block table')
+        for i in range(count):
+            kind, _, _, _, offset, length = struct.unpack_from('>IIQQQQ', mish, 204 + 40 * i)
+            if kind not in UDIF_KNOWN:
+                raise ValueError('unknown UDIF chunk type')
+            if kind in UDIF_COMPRESSED and length:
+                start = data_offset + base + offset
+                if start + length > data_offset + data_length:
+                    raise ValueError('UDIF chunk outside the data fork')
+                ranges.append((start, start + length))
+    ranges.sort()
+    for (_, end), (start, _) in zip(ranges, ranges[1:]):
+        if start < end:
+            raise ValueError('overlapping UDIF chunks')
+    return ranges
+
+def dmg_container_kinds(data):
+    """Kinds in the image's own bytes, outside its compressed chunks: the koly trailer, the XML
+    plist and resource fork, raw (uncompressed) chunks, the code signature and any gap.
+
+    Compressed payload is not matched as text. Its bytes are lzfse/lzma/zlib/bzip2/ADC output,
+    which is effectively random: a six-byte run such as an IPv6 ULA prefix turns up by chance in
+    a 200 MB image (0.1.29, 0.1.30, 0.1.37), and real text inside is never visible there anyway,
+    because it is compressed. Skipping it is safe only because scan_dmg scans the decompressed
+    contents of every file in the image instead; this function must never be used on its own."""
+    raw, decoded = set(), set()
+    at = 0
+    for start, end in udif_compressed_ranges(data) + [(len(data), len(data))]:
+        if at < start:
+            r, d = content_kinds(data[at:start])
+            raw |= r
+            decoded |= d
+        at = max(at, end)
+    return raw, decoded
+
+def seven_zip():
+    """A 7-Zip binary (AIRC_7ZZ, or 7zz/7z on PATH), or None."""
+    named = os.environ.get('AIRC_7ZZ')
+    if named:
+        return named if os.access(named, os.X_OK) else None
+    return shutil.which('7zz') or shutil.which('7z')
+
+def mount_dmg(dmg, work):
+    """Read-only, unbrowsed mount on macOS. Returns (root, cleanup, link targets)."""
+    point = Path(work) / 'mount'
+    point.mkdir()
+    result = subprocess.run(['hdiutil', 'attach', '-readonly', '-nobrowse', '-noverify', '-noautoopen',
+                             '-mountpoint', str(point), str(dmg)], stdin=subprocess.DEVNULL,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if result.returncode or not os.path.ismount(point):
+        raise ContentsNotScanned(f'hdiutil attach failed (exit {result.returncode})')
+    def cleanup():
+        for extra in ([], ['-force']):
+            if subprocess.run(['hdiutil', 'detach', '-quiet', *extra, str(point)],
+                              stdin=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+                return
+    return point, cleanup, {}
+
+def extract_dmg(dmg, work, tool):
+    """7-Zip extraction (DMG, then its APFS/HFS+ volume). 7-Zip rewrites absolute symlink targets
+    on extraction, so the true targets come from its listing. Alternate streams are not extracted,
+    as a mount's walk does not read them either."""
+    out = Path(work) / 'volume'
+    base = [tool, '-sns-', '-bso0', '-bsp0']
+    listing = subprocess.run([tool, 'l', '-slt', '-sns-', str(dmg)], stdin=subprocess.DEVNULL,
+                             capture_output=True, text=True, errors='replace')
+    if listing.returncode:
+        raise ContentsNotScanned(f'7-Zip could not list the image (exit {listing.returncode})')
+    result = subprocess.run(base[:1] + ['x', '-snl'] + base[1:] + [f'-o{out}', str(dmg)],
+                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if result.returncode:
+        raise ContentsNotScanned(f'7-Zip extraction failed (exit {result.returncode})')
+    links = {}
+    body = listing.stdout.split('\n----------\n', 1)[-1]
+    for block in body.split('\n\n'):
+        fields = dict(line.split(' = ', 1) for line in block.splitlines() if ' = ' in line)
+        if fields.get('Symbolic Link') and fields.get('Path'):
+            links[str(out / fields['Path'])] = fields['Symbolic Link']
+    return out, (lambda: None), links
+
+def open_dmg_contents(dmg, work):
+    if sys.platform == 'darwin' and shutil.which('hdiutil'):
+        return mount_dmg(dmg, work)
+    tool = seven_zip()
+    if tool:
+        return extract_dmg(dmg, work, tool)
+    raise ContentsNotScanned('no hdiutil (macOS) and no 7-Zip (AIRC_7ZZ, 7zz or 7z)')
+
+def scan_dmg(dmg, allowlist=None, opener=open_dmg_contents):
+    """Container bytes (outside compressed chunks) plus every file of the volume. 0 on PASS, 1 otherwise."""
+    allowlist = load_allowlist() if allowlist is None else allowlist
+    dmg = Path(dmg)
+    failed = False
+    try:
+        with dmg.open('rb') as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
+            raw, decoded = dmg_container_kinds(data)
+    except (ValueError, KeyError, TypeError, struct.error) as error:
+        print(f'FAIL DMG container: {error if isinstance(error, ValueError) else "unreadable UDIF metadata"}')
+        print('DMG scan: FAIL: DMG contents not scanned')
+        return 1
+    for kind in sorted(raw | decoded):
+        print(f'FAIL DMG container (outside compressed chunks): {kind}')
+        failed = True
+    work = tempfile.mkdtemp(prefix='airc-dmg-scan.', dir=os.environ.get('AIRC_SCAN_WORK'))
+    cleanup = lambda: None
+    try:
+        try:
+            root, cleanup, links = opener(dmg, work)
+        except (ContentsNotScanned, OSError) as error:
+            reason = error if isinstance(error, ContentsNotScanned) else type(error).__name__
+            print(f'DMG scan: FAIL: DMG contents not scanned ({reason})')
+            return 1
+        root = Path(root)
+        apps = sorted(p.name for p in root.iterdir() if p.suffix == '.app' and (p / 'Contents').is_dir()
+                      and not p.is_symlink())
+        if not apps:
+            print('DMG scan: FAIL: DMG contents not scanned (no app bundle in the volume)')
+            return 1
+        for name in apps:
+            print(f'DMG volume app {label(name)}:')
+            failed |= bool(scan(root / name, allowlist, link_targets=links))
+        print('DMG volume, outside the app:')
+        failed |= bool(scan(root, {}, skip=set(apps), link_targets=links, external_ok=DMG_EXTERNAL_OK,
+                            title='Volume scan'))
+    finally:
+        cleanup()
+        shutil.rmtree(work, ignore_errors=True)
+    print('DMG scan: FAIL' if failed else 'DMG scan: PASS')
     return int(failed)
 
 if __name__ == '__main__':
     try:
+        if len(sys.argv) == 2 and sys.argv[1].endswith('.dmg') and Path(sys.argv[1]).is_file():
+            sys.exit(scan_dmg(Path(sys.argv[1])))
         if len(sys.argv) != 2 or not (Path(sys.argv[1]) / 'Contents').is_dir():
-            sys.exit('Expected an app bundle')
+            sys.exit('Expected an app bundle or a .dmg')
         sys.exit(scan(Path(sys.argv[1])))
-    except (OSError, ValueError, KeyError, json.JSONDecodeError, struct.error):
+    except (OSError, ValueError, KeyError, json.JSONDecodeError, struct.error, plistlib.InvalidFileException):
         sys.exit('Bundle scan: unreadable file, invalid allowlist or invalid bundle (details redacted)')

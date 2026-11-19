@@ -107,8 +107,12 @@ ln -s /Applications "$work/stage/Applications"
 swift "$ROOT/infra/release/background.swift" "$work/stage/.background/install.png" "$ROOT/assets/brand/airc-holographic.png"
 cp "$ROOT/assets/brand/AppIcon.icns" "$work/stage/.VolumeIcon.icns"
 hdiutil create -quiet -fs APFS -format UDRW -volname Airc -srcfolder "$work/stage" "$work/writable.dmg"
-mkdir "$mount"
-hdiutil attach -quiet -nobrowse -mountpoint "$mount" "$work/writable.dmg"
+# Mount at the default /Volumes/Airc (or "Airc 1" …), never under $work: the background alias written below records
+# the volume's mount-point path, and a path under the build folder put the build account's home path into the public
+# DMG's .DS_Store (0.1.37 and earlier; scan-bundle.sh now scans every file of the volume and fails on it).
+attached=$(hdiutil attach -plist -nobrowse -noautoopen "$work/writable.dmg")
+mount=$(printf '%s' "$attached" | python3 -c 'import plistlib,sys; print(*[e["mount-point"] for e in plistlib.loads(sys.stdin.buffer.read())["system-entities"] if "mount-point" in e])')
+[[ "$mount" == /Volumes/* && -d "$mount/.background" ]] || { echo 'Writable DMG did not mount under /Volumes' >&2; exit 1; }
 clang -Wno-deprecated-declarations -framework Foundation -framework CoreServices "$ROOT/infra/release/alias.m" -o "$work/alias"
 "$work/alias" "$mount/.background/install.png" "$work/background.alias"
 python3 "$ROOT/scripts/release/layout.py" "$mount" "$work/background.alias"

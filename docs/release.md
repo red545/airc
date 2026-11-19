@@ -144,7 +144,25 @@ Privacy strings come from the source plist and are not replaced during packaging
   app executable**, and **engine test switches only together with their run-time gate** (both below).
 - `scripts/release/scan-bundle.sh APP_OR_DMG` is deliberately strict: it reports file and category without printing
   the matched value, scans binary/UTF-16 text and symlink targets, and fails on home prefixes, tailnet hosts, private
-  addresses and dev/test-default key literals. It does not decode compressed payloads or replace a secret scanner.
+  addresses and dev/test-default key literals. It does not decode compressed resources inside the app or replace a
+  secret scanner.
+- **A DMG is scanned by what it contains** (`scan-bundle.sh FILE.dmg`, also run by `package.sh` on the final DMG):
+  1. every file of the volume, read through a read-only `hdiutil attach -readonly -nobrowse -noverify` mount on macOS,
+     or a 7-Zip extraction elsewhere (`AIRC_7ZZ`, `7zz` or `7z`; 25.01 works, and the true symlink targets come from
+     its listing). That covers the app with the allowlist above, and also `.DS_Store`, `.background/`,
+     `.VolumeIcon.icns` and anything else, with no allowlist. Only the volume's own `Applications → /Applications`
+     link may point outside it.
+  2. the image's own bytes outside its compressed chunks: koly trailer, XML plist/resource fork, raw chunks, the code
+     signature and any gap.
+  The compressed chunks' payload (lzfse/lzma/zlib/bzip2/ADC, per the image's blkx table) is not matched as text: it
+  is effectively random, so the old raw scan matched six random bytes as an IPv6 ULA in 0.1.29, 0.1.30 and 0.1.37,
+  and real text inside it is never visible anyway. That is safe only because step 1 scans the decompressed files.
+  If the contents cannot be read (no hdiutil or 7-Zip, attach fails, no app in the volume, malformed UDIF map) the
+  scan fails closed: `DMG scan: FAIL: DMG contents not scanned (…)`. No exemption is needed for compressed noise; a
+  DMG hit is now always a real file or metadata hit.
+- The writable image is mounted at the default `/Volumes/Airc` while `layout.py` writes `.DS_Store`: the background
+  picture's alias records the mount-point path, and a mount under the build folder put the build account's home path
+  into every DMG up to 0.1.37 (found by the contents scan).
   Reviewed false positives are listed in `scripts/release/scan-allowlist.json`, one entry per finding with its reason.
   An entry covers only `home-path`, in one exact file, as a bare NUL-terminated C string (nothing after `/Users/`)
   inside the named Mach-O sections, at most `count` times; a longer path, another section, one more occurrence, a
