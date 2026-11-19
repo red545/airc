@@ -253,12 +253,6 @@ final class ToastView: NSView {
 
     func show(_ text: String, palette: Palette, in container: NSRect, duration: Double = AircMetrics.Toast.defaultDuration,
               action: (title: String, run: () -> Void)? = nil, detail: String? = nil, symbol: String? = nil) {
-        // No card laid out yet (a window that just opened): centred on an empty rect it would land on the window's
-        // top-left corner, over the traffic lights. Not shown then.
-        guard container.width >= 120, container.height >= 60 else {
-            if let w = window { NSLog("Airc: toast “%@” not shown: no card in window %d yet", text, w.windowNumber) }
-            return
-        }
         label.stringValue = text
         label.textColor = palette.panelText
         detailLabel.stringValue = detail ?? ""

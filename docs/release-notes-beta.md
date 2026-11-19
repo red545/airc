@@ -1,16 +1,30 @@
-# Airc 0.1.39 public beta
+# Airc 0.1.40 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update docks Developer Tools inside the window you're inspecting, lets the agent pane set up your own Claude Code
-or Codex, and makes the agent pane use far less power while it's thinking. It includes everything from 0.1.38. The
-release manifest records the exact build, source and checksums.
+This update keeps your saved passwords and cookies safe when macOS can't unlock the keychain, lets you close every
+window (also with the sidebar hidden, and with ⌘W on its last tab), and makes typing in the Command Bar quicker. It
+includes everything from 0.1.39. The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.38
+## New since 0.1.39
+
+- **Your saved passwords and cookies are safe if macOS can't unlock the keychain.** When the keychain is locked, you
+  denied access, or the key there doesn't match the one your data was saved with, Airc now asks you to **Try Again**
+  instead of starting over: you can also continue without saved passwords for now, or quit. Nothing is deleted, and
+  no new key replaces yours, so once the keychain opens again your logins and cookies are all there. (Before, a key
+  that couldn't be read could be replaced and the saved cookies signed out.)
+- **Every window can be closed.** With the sidebar hidden, move the pointer to the window's top-left corner and the
+  window buttons appear there; they also show in the sidebar when it slides out. **⌘W** on a window's last tab closes
+  the window, as in Arc (your last window stays open with its empty page). Windows you made by dragging a tab out
+  close the same way.
+- **Typing in the Command Bar is quicker.** Each keystroke no longer checks files on disk for every row's icon, and
+  the first keystroke after opening the Command Bar no longer waits for its symbols and text system to load.
+
+## Included from 0.1.39
 
 - **Developer Tools dock inside the window you're inspecting.** Press **⌥⌘I** (**⌥⌘J** for the Console, **⌥⌘C** to
   pick an element) and DevTools open next to the page in the same window, at the bottom or the side like Chrome:

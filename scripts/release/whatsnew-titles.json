@@ -412,5 +412,23 @@
     "detail": "While the Airc Agent is thinking, its pane now uses almost no CPU, so long tasks cost far less battery.",
     "action": "none",
     "image": null
+  },
+  "Your saved passwords and cookies are safe if macOS can't unlock the keychain": {
+    "title": "Saved logins stay safe",
+    "detail": "If macOS can't unlock the keychain, Airc asks you to Try Again instead of starting over. Your saved passwords and cookies stay, and they're back once the keychain opens.",
+    "action": "none",
+    "image": null
+  },
+  "Every window can be closed": {
+    "title": "Close any window",
+    "detail": "With the sidebar hidden, move the pointer to a window's top-left corner and its close button appears. ⌘W on a window's last tab closes the window, as in Arc.",
+    "action": "none",
+    "image": null
+  },
+  "Typing in the Command Bar is quicker": {
+    "title": "A quicker Command Bar",
+    "detail": "Each keystroke in the Command Bar (⌘T) does less work, and the first one after opening it no longer waits, so results keep up with your typing.",
+    "action": "commandBar",
+    "image": null
   }
 }

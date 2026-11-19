@@ -2,6 +2,30 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.40",
+      "highlights": [
+        {
+          "title": "Saved logins stay safe",
+          "lead": "Your saved passwords and cookies are safe if macOS can't unlock the keychain",
+          "detail": "If macOS can't unlock the keychain, Airc asks you to Try Again instead of starting over. Your saved passwords and cookies stay, and they're back once the keychain opens.",
+          "icon": "key"
+        },
+        {
+          "title": "Close any window",
+          "lead": "Every window can be closed",
+          "detail": "With the sidebar hidden, move the pointer to a window's top-left corner and its close button appears. ⌘W on a window's last tab closes the window, as in Arc.",
+          "icon": "macwindow"
+        },
+        {
+          "title": "A quicker Command Bar",
+          "lead": "Typing in the Command Bar is quicker",
+          "detail": "Each keystroke in the Command Bar (⌘T) does less work, and the first one after opening it no longer waits, so results keep up with your typing.",
+          "icon": "bolt",
+          "action": "commandBar"
+        }
+      ]
+    },
+    {
       "version": "0.1.39",
       "highlights": [
         {
