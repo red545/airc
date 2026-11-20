@@ -98,7 +98,6 @@ extension SnapshotRunner {
             case "parityp12": mkParityP12Shots(d)   // MarketingParityP12.swift: a GitHub Live Folder
             case "arcbits": mkArcbitsShots()
             case "devmode": mkDeveloperModeShots()
-            case "aidemo": mkAgentDemo(d)   // MarketingAgentDemo.swift: the Airc Agent video (on screen, real input)
             case "ai": MainActor.assumeIsolated { mkAIShots(d) }
             case "favbadges": mkFavoriteBadgeShots(d)   // MarketingFeatureShots.swift: Favorites' own badges (S03b)
             case "mailcard": mkMailCardShot(d)   // MarketingFeatureShots.swift: the Gmail card (S04)

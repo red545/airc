@@ -59,10 +59,8 @@ your extensions, Chromium's sign-ins and the ad blocker, and plays their music w
 player (docs/design/fairplay-bridge.md; the approach is Ardia's):
 
 <!-- fairplay-bridge-origins -->
-`https://open.spotify.com`, `https://www.disneyplus.com`, `https://www.netflix.com`
+`https://open.spotify.com`
 <!-- /fairplay-bridge-origins -->
-
-(Typing `netflix.com` or `disneyplus.com` works too: those redirect to the listed address and stay in Chromium.)
 
 - The page is offered FairPlay instead of Widevine. Its own code gets the licence from the service, as in Safari; Airc
   never sees the keys and keeps nothing.
@@ -73,12 +71,7 @@ player (docs/design/fairplay-bridge.md; the approach is Ardia's):
   the same, both ways.
 - Off (the default), nothing changes: the site opens in WebKit as described above. Turning it off while a track plays
   stops it; pages opened from then on open in WebKit.
-- **Disney+** video plays the same way: the page's player feeds its stream to Airc, which decodes it with Apple's
-  FairPlay and draws the picture over the page's video (the page's controls stay underneath and keep working);
-  picture in picture is macOS's own window. Not tried with a real Disney+ account by the agents.
-- **Netflix** works the same way, and gets Safari's user agent on www.netflix.com only (Netflix gives its FairPlay
-  player only to Safari): requests and the page see Safari there (and on netflix.com, which redirects there), every
-  other site sees Chromium as before. Not tried with a real Netflix account by the agents.
+- Netflix and Disney+ aren't on the list yet: their video needs a native renderer drawn over the page (planned).
 
 To try it (with your own account): turn the setting on, open open.spotify.com in a new tab (it stays in Chromium:
 no "plays with Safari's engine" toast), sign in, play a song, then pause, seek and skip from the page, the media tray
@@ -216,16 +209,7 @@ the page supports them. This does not add account access or provider-specific pl
   only on the listed origin and only with the setting on, playback, pause, seek, ended, the tray and Now Playing, the
   media keys' path, a failure's media error and the Safari's-engine offer; EZDRM's public FairPlay stream (when
   reachable): the page's own licence exchange and playback. Muted; no account.
-- `--script fairplayvideo` (Chromium, network): a loopback page plays the part of a listed video site
-  (`AIRC_FAIRPLAY_TEST_VIDEO_ORIGIN`) and plays Axinom's public CMAF test vectors through MediaSource: clear (native
-  renderer, the layer over the page, pause, seek, the tray, picture in picture when macOS allows it) and FairPlay cbcs
-  (the page's own licence request to Axinom's public test licence server with its published test token, read from
-  their README at run time), and a rejected licence's media error and offer. No account.
-- `--script fairplayua` (Chromium): the engine's per-origin user agent: a loopback origin playing Netflix's part gets
-  Safari's in its requests (also after a redirect onto it), another origin keeps Chromium's, and the setting off
-  gives Chromium's back.
-- `swift test --package-path packages/AircKit --filter 'FairPlayBridgeTests|FairPlayMP4Tests'`: the bridge's sites,
-  routing, playlist rules and fMP4 key IDs.
+- `swift test --package-path packages/AircKit --filter FairPlayBridgeTests`: the bridge's sites, routing and playlist rules.
 - Test builds also read `AIRC_WEBKIT_DRM=0|1` (the setting, forced) and `AIRC_FAIRPLAY_BRIDGE=0|1`.
 - By hand, with real accounts (not done by the agents): Spotify plays track after track, Netflix and Disney+ play,
   and sign-in through Google or Apple comes back signed in.

@@ -1,5 +1,5 @@
 ---
-import { Image, Picture } from "astro:assets";
+import { Image } from "astro:assets";
 import "@fontsource-variable/newsreader/opsz.css";
 import CommandDemo from "../components/CommandDemo.astro";
 import Countdown from "../components/Countdown.astro";
@@ -24,11 +24,6 @@ import boostZap from "../assets/screens/boosts-zap-card.webp";
 import littleArc from "../assets/screens/little-arc-window.webp";
 import streamingCard from "../assets/screens/drm-site-controls-top.webp";
 import importCard from "../assets/shots/app-import-card.webp";
-// The Airc Agent: stills from aidemo's master take (2880×1800, the real window), extracted with ffmpeg.
-import agentPoster from "../assets/agent/poster.png";
-import cropButton from "../assets/agent/crop-button.png";
-import cropLive from "../assets/agent/crop-live.png";
-import cropApproval from "../assets/agent/crop-approval.png";
 
 // What works: the manifest (src/data/features.json) joined with the latest nightly run (src/data/status.json, written by
 // scripts/sync-status.mjs). A feature with a passing check shows as passing; one with no check yet says so.
@@ -44,46 +39,6 @@ const chromiumMajor = status.chromium.split(".")[0];
 const agentsOn = await agentsShown();
 const followOn = await followAlongShown();
 const remoteOn = await remoteShown();
-// The Airc Agent: a recording of the real app (artifacts aidemo; 2240-wide encodes and stills by herodesign).
-const agentVideo = {
-  width: 1600,
-  height: 1000,
-  seconds: 44.8,
-  alt: "A recording of Airc: in a demo shop, the agent button opens the Airc Agent pane, Codex signed in with ChatGPT is connected from its Connect card, and the task “Compare the two kettles under 70 euros and buy the cheaper one. Ask me before you pay.” is typed. The pane’s live card shows the agent searching the shop, opening both kettles, scrolling to their specs and adding the cheaper one to the cart. At Pay, Airc stops and asks. The run is opened from the sidebar’s Agents folder, Allow Once is clicked, the order is placed and the agent says what it bought.",
-};
-// Where each part of the recording starts, in seconds (aidemo's cuts.json, homepage cut).
-const agentChapters = [
-  { at: 0, label: "Click ✦" },
-  { at: 8.7, label: "Say what you need" },
-  { at: 12.5, label: "Watch it work" },
-  { at: 27.4, label: "It asks before it pays" },
-  { at: 37, label: "Done" },
-];
-const agentPoints = [
-  {
-    key: "button",
-    img: cropButton,
-    alt: "The bottom of Airc's sidebar, with the pointer on the ✦ Airc Agent button.",
-    title: "One click to start.",
-    body: "Click ✦ in the sidebar and connect Codex with your ChatGPT sign-in, or your own Claude Code. An API key works too.",
-  },
-  {
-    key: "live",
-    img: cropLive,
-    alt: "The agent's live page card in the Airc Agent pane: the demo shop's results for “electric kettle”, with a Take over button.",
-    title: "Sees the page live.",
-    body: "The agent's page plays in the pane while it clicks, types and scrolls. Take over any time, or watch a run from the Agents folder.",
-  },
-  {
-    key: "ask",
-    img: cropApproval,
-    alt: "Airc's question in the pane: “Pay on hearth.aircbrowser.com? The “Pay €49.00” button”, with Deny and Allow once.",
-    title: "Asks before it pays.",
-    body: "Paying, sending, posting and deleting wait for your OK. Allow it once, or press Esc to deny.",
-  },
-];
-const sparkle =
-  "M8 1.2c.5 3.3 1.5 4.3 4.8 4.8C9.5 6.5 8.5 7.5 8 10.8 7.5 7.5 6.5 6.5 3.2 6 6.5 5.5 7.5 4.5 8 1.2Zm4.6 7.4c.25 1.6.75 2.1 2.3 2.35-1.55.25-2.05.75-2.3 2.35-.25-1.6-.75-2.1-2.35-2.35 1.6-.25 2.1-.75 2.35-2.35Z";
 const agentsCommand = `claude mcp add --scope user airc -- \\\n  "$HOME/Library/Application Support/Airc/bin/airc-mcp"`;
 
 const facts = [
@@ -166,7 +121,7 @@ const faqs = [
       <div id="join" class="join"><Download from="hero" /></div>
     </div>
 
-    <a class="pointer" href="#tweet">
+    <a class="pointer" href="#tweet" aria-label="Jump to the announcement">
       <span class="pointer-label">The official announcement, from Arc's own company.</span>
       <svg class="arrow" viewBox="0 0 60 90" aria-hidden="true">
         <path class="arrow-line" pathLength="1" d="M30 4 C 8 30, 52 52, 30 80" />
@@ -189,90 +144,35 @@ const faqs = [
       ))}
     </ul>
 
-    <!-- ---------------------------------------------------------------- the Airc Agent (docs/user/agents.md) -->
+    <!-- ---------------------------------------------------------------- for AI agents (docs/user/agents.md) -->
     {agentsOn && (
-      <section id="agents" class="row agent" data-space={spaceOf("agents")}>
-        <header class="agent-head">
-          <p class="tag" style="--c: var(--t-peach)">New · Airc Agent</p>
-          <h2 class="title agent-title">Say what you need. <span class="soft">Airc does it, while you&nbsp;watch.</span></h2>
-          <p class="agent-pitch"><b>Use your ChatGPT subscription,</b> or your own Claude Code. The agent works in the sites you're signed in to, and asks before it&nbsp;pays.</p>
-          <div class="agent-cta">
-            <Download from="agent" bare />
-            <a class="try" href="#agent-film" data-agent-jump>
-              See how it works
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14m-6-6 6 6 6-6"></path></svg>
-            </a>
-          </div>
-          <p class="agent-keys">
-            Open it with <span class="agent-btn" role="img" aria-label="the Airc Agent button (✦)"><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d={sparkle} fill="currentColor" /></svg></span>
-            at the bottom of the sidebar, or press <kbd class="key" title="Option"><svg viewBox="0 0 16 16" role="img" aria-label="Option"><path d="M2 4.5h3.6l4.6 7H14M9.6 4.5H14" /></svg></kbd><kbd class="key" title="Command"><svg viewBox="0 0 16 16" role="img" aria-label="Command"><path d="M6 6V4.5A1.5 1.5 0 1 0 4.5 6h7A1.5 1.5 0 1 0 10 4.5v7a1.5 1.5 0 1 0 1.5-1.5h-7A1.5 1.5 0 1 0 6 11.5Z" /></svg></kbd><kbd>A</kbd>
-          </p>
+      <section id="agents" class="row" data-space={spaceOf("agents")}>
+        <header class="head">
+          <p class="tag" style="--c: var(--t-peach)">New · For AI agents</p>
+          <h2 class="title">Let Claude use your browser. <span class="soft">In the sites you're already signed in to, in windows of its own, after you say&nbsp;yes.</span></h2>
         </header>
-
-        <figure id="agent-film" class="agent-stage">
-          <div class="agent-player reveal" data-agent-player>
-            <Picture class="agent-poster" src={agentPoster} formats={["avif", "webp"]} widths={[800, 1200, 1600, 2240, 2880]} sizes="(max-width: 900px) calc(100vw - 32px), 1010px" alt="" fetchpriority="low" />
-            <video class="agent-video" muted loop playsinline preload="none" width={agentVideo.width} height={agentVideo.height} aria-label={agentVideo.alt} data-agent-video>
-              <source data-src="/video/agent-demo-2240.mp4" type="video/mp4" media="(min-width: 901px)" />
-              <source data-src="/video/agent-demo-2240.webm" type="video/webm" media="(min-width: 901px)" />
-              <source data-src="/video/agent-demo.webm" type="video/webm" />
-              <source data-src="/video/agent-demo.mp4" type="video/mp4" />
-              <track kind="captions" src="/video/agent-demo.en.vtt" srclang="en" label="English" />
-            </video>
-            <button type="button" class="agent-play" aria-label="Play the recording" data-agent-play>
-              <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l11-6.5a1 1 0 0 0 0-1.72l-11-6.5A1 1 0 0 0 8 5.5Z" /></svg>
-              <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="5" width="4" height="14" rx="1.2" /><rect x="13.5" y="5" width="4" height="14" rx="1.2" /></svg>
-            </button>
-          </div>
-          <div class="agent-bar">
-          <button type="button" class="agent-toggle" aria-label="Play the recording" data-agent-play>
-              <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l11-6.5a1 1 0 0 0 0-1.72l-11-6.5A1 1 0 0 0 8 5.5Z" /></svg>
-              <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="5" width="4" height="14" rx="1.2" /><rect x="13.5" y="5" width="4" height="14" rx="1.2" /></svg>
-          </button>
-          <ol class="agent-chapters" aria-label="Chapters" data-agent-chapters>
-            {agentChapters.map((c, i) => (
-              <li>
-                <button type="button" data-at={c.at} data-end={agentChapters[i + 1]?.at ?? agentVideo.seconds}>
-                  <span class="bar" aria-hidden="true"><i></i></span>
-                  <span class="label">{c.label.split("✦").map((t, k) => (k ? <><svg class="spark" viewBox="0 0 16 16" aria-label="✦" role="img"><path d={sparkle} fill="currentColor" /></svg>{t}</> : t))}</span>
-                </button>
-              </li>
-            ))}
-          </ol>
-          </div>
-          <figcaption>Recorded in Airc on a demo shop, with the agent's steps scripted for a repeatable take. Every click, keystroke and page is&nbsp;real.</figcaption>
-        </figure>
-
-        <ul class="cells cells-3 agent-points">
-          {agentPoints.map((p) => (
-            <li class="cell">
-              <div class="copy">
-                <h3>{p.title}</h3>
-                <p>{p.body.split("✦").map((t, k) => (k ? <><svg class="spark" viewBox="0 0 16 16" aria-label="✦" role="img"><path d={sparkle} fill="currentColor" /></svg>{t}</> : t))}</p>
-              </div>
-              <div class={`viz agent-crop agent-crop-${p.key}`}>
-                <Image src={p.img} widths={[p.img.width / 2, p.img.width]} sizes="(max-width: 900px) 92vw, 340px" alt={p.alt} loading="lazy" decoding="async" />
-              </div>
-            </li>
-          ))}
-        </ul>
-
-        <div class="agents-mcp">
-          <div>
-            <h3>Use Airc from Claude</h3>
-            <p class="agents-lead">Airc also has an MCP connector built in, and it's on. Claude Desktop, Claude Code and other AI apps open pages, read them, click and type for you while you keep working.</p>
+        <div class="agents">
+          <figure class="agents-demo">
+            <!-- Rendered frame by frame from a scripted run of the real app on a fixture site (scripts/make-agents-motion.mjs). -->
+            <picture>
+              <source media="(prefers-reduced-motion: reduce)" srcset="/motion/agents-still.webp" type="image/webp" />
+              <img src="/motion/agents.webp" width="960" height="600" loading="lazy" decoding="async" alt="Claude using Airc: it opens a bakery's site where the person is already signed in, fills the order form and places the order, in an agent window beside the conversation." />
+            </picture>
+          </figure>
+          <div class="agents-side">
+            <p class="agents-lead">Airc has an MCP connector built in, and it's on. Claude Desktop, Claude Code and other AI apps open pages, read them, click and type for you while you keep working.</p>
             <div class="agents-setup">
               <p><b>Set up in one click:</b> Settings → Agents → Add to Claude Desktop. For Claude Code:</p>
               <pre><code>{agentsCommand}</code></pre>
             </div>
+            <ul class="agents-safe">
+              <li><b>Asks once per app.</b> The first time Claude connects, Airc asks you. Remove it any time.</li>
+              <li><b>Never sees your passwords.</b> Airc fills saved logins into the page. No tool returns a password, passkey or cookie.</li>
+              <li><b>Never touches private windows.</b> Agents only reach the windows they open, never yours.</li>
+              {followOn && <li><b>Follow along.</b> An Agents folder in your sidebar shows what each agent is doing. Watch it live, take over the page, or stop it.</li>}
+              {remoteOn && <li><b>From your other devices.</b> Claude Code on your other computers can use Airc on your Mac over Tailscale, after you pair them. Off until you turn it on.</li>}
+            </ul>
           </div>
-          <ul class="agents-safe">
-            <li><b>Asks once per app.</b> The first time Claude connects, Airc asks you. Remove it any time.</li>
-            <li><b>Never sees your passwords.</b> Airc fills saved logins into the page. No tool returns a password, passkey or cookie.</li>
-            <li><b>Never touches private windows.</b> Agents only reach the windows they open, never yours.</li>
-            {followOn && <li><b>Follow along.</b> An Agents folder in your sidebar shows what each agent is doing. Watch it live, take over the page, or stop it.</li>}
-            {remoteOn && <li><b>From your other devices.</b> Claude Code on your other computers can use Airc on your Mac over Tailscale, after you pair them. Off until you turn it on.</li>}
-          </ul>
         </div>
       </section>
     )}
@@ -609,115 +509,6 @@ const faqs = [
 </Layout>
 
 <script>
-  // The Airc Agent recording. The poster (a <picture>, 2×) holds the frame; the video loads only near the viewport,
-  // plays muted while at least a quarter of it is on screen, and fades in over the poster once it plays. With reduced
-  // motion or Save-Data it waits for the play button. The chapters below it seek and show where it is.
-  const player = document.querySelector<HTMLElement>("[data-agent-player]");
-  const video = player?.querySelector<HTMLVideoElement>("video[data-agent-video]");
-  const playBtns = [...document.querySelectorAll<HTMLButtonElement>("[data-agent-play]")];
-  if (player && video && playBtns.length) {
-    const conn = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
-    const still =
-      matchMedia("(prefers-reduced-motion: reduce)").matches || !!conn?.saveData || /(^|-)2g$/.test(conn?.effectiveType ?? "");
-    const chapters = [...document.querySelectorAll<HTMLButtonElement>("[data-agent-chapters] button")];
-    let loaded = false;
-    let paused = still; // the person's choice: autoplay never overrides a pause
-    let visible = false;
-
-    const load = () => {
-      if (loaded) return;
-      loaded = true;
-      video.querySelectorAll<HTMLSourceElement>("source[data-src]").forEach((s) => (s.src = s.dataset.src!));
-      video.preload = "auto";
-      video.load();
-    };
-    const sync = () => {
-      const on = !video.paused;
-      player.closest("figure")?.classList.toggle("is-playing", on);
-      playBtns.forEach((b) => b.setAttribute("aria-label", on ? "Pause the recording" : "Play the recording"));
-    };
-    const play = () => {
-      load();
-      video.play().catch(() => {});
-    };
-    const toggle = () => {
-      paused = !video.paused;
-      if (paused) video.pause();
-      else play();
-    };
-
-    video.addEventListener("playing", () => player.classList.add("has-played"));
-    video.addEventListener("play", sync);
-    video.addEventListener("pause", sync);
-    playBtns.forEach((b) => b.addEventListener("click", toggle));
-    video.addEventListener("click", toggle);
-
-    // Chapters: a click seeks there (and plays); the bar of the current one fills as it runs.
-    chapters.forEach((b) =>
-      b.addEventListener("click", () => {
-        load();
-        const go = () => (video.currentTime = Number(b.dataset.at));
-        if (video.readyState >= 1) go();
-        else video.addEventListener("loadedmetadata", go, { once: true });
-        paused = false;
-        play();
-      }),
-    );
-    const list = document.querySelector<HTMLElement>("[data-agent-chapters]");
-    let current = -1;
-    const tick = () => {
-      const t = video.currentTime;
-      chapters.forEach((b, i) => {
-        const a = Number(b.dataset.at);
-        const e = Number(b.dataset.end);
-        const f = Math.min(1, Math.max(0, (t - a) / (e - a)));
-        b.style.setProperty("--p", f.toFixed(3));
-        if (t >= a && t < e && i !== current) {
-          current = i;
-          chapters.forEach((c, k) => c.toggleAttribute("aria-current", k === i));
-          // On a phone the row scrolls sideways: keep the current chapter in it, without moving the page.
-          if (list && list.scrollWidth > list.clientWidth)
-            list.scrollTo({ left: b.offsetLeft - 16, behavior: still ? "auto" : "smooth" });
-        }
-      });
-    };
-    let raf = 0;
-    const loop = () => {
-      tick();
-      raf = requestAnimationFrame(loop);
-    };
-    video.addEventListener("play", () => (raf = requestAnimationFrame(loop)));
-    video.addEventListener("pause", () => cancelAnimationFrame(raf));
-    video.addEventListener("seeked", tick);
-
-    // Load a screen ahead; play while a quarter is visible, unless paused by hand or in still mode.
-    new IntersectionObserver(([e]) => e.isIntersecting && !still && load(), { rootMargin: "600px 0px" }).observe(player);
-    new IntersectionObserver(
-      ([e]) => {
-        visible = e.isIntersecting;
-        if (visible && !paused) play();
-        else if (!visible && !video.paused) video.pause();
-      },
-      { threshold: 0.25 },
-    ).observe(player);
-    document.addEventListener("visibilitychange", () => {
-      if (document.hidden) video.pause();
-      else if (visible && !paused) play();
-    });
-  }
-
-  // "See how it works": to the recording, and start it (a click is the person asking to see it).
-  document.querySelector("[data-agent-jump]")?.addEventListener("click", (ev) => {
-    const film = document.getElementById("agent-film");
-    if (!film) return;
-    ev.preventDefault();
-    film.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
-    history.replaceState(null, "", "#agent-film");
-    document.querySelector<HTMLButtonElement>(".agent-toggle")?.focus({ preventScroll: true });
-  });
-</script>
-
-<script>
   // Small things that settle in once, when they first come into view.
   const io = new IntersectionObserver(
     (entries) => {
@@ -929,9 +720,8 @@ const faqs = [
     --t-peach: #d0603c;
     --t-pink: #c9467a;
     --line: rgb(var(--ink) / 0.075);
-    /* ≥ 3 : 1 for the large grey half of a headline, ≥ 4.5 : 1 for body text (WCAG AA). */
-    --soft: rgb(var(--ink) / 0.47);
-    --body: rgb(var(--ink) / 0.63);
+    --soft: rgb(var(--ink) / 0.42);
+    --body: rgb(var(--ink) / 0.56);
     --dots: radial-gradient(circle at 1px 1px, rgb(var(--ink) / 0.075) 1px, transparent 1.4px) 0 0 / 16px 16px;
     --px: clamp(24px, 4vw, 48px);
     width: min(1120px, calc(100% - 48px));
@@ -1074,202 +864,29 @@ const faqs = [
 
   .copy { padding: 32px var(--px) 28px; }
 
-  /* ------------------------------------------------------------------ the Airc Agent
-     The pitch centred over the recording; the recording framed like the app window on the cell's dotted grey; three
-     points, each with a crop of the same recording; the MCP connector below, quieter. */
-  .agent-head {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: clamp(56px, 7vw, 96px) var(--px) clamp(36px, 4.5vw, 52px);
-    text-align: center;
-  }
-  .agent-title { max-width: 760px; font-size: clamp(32px, 3.6vw, 48px); line-height: 1.08; letter-spacing: -0.035em; }
-  .agent-title .soft { display: block; }
-  .agent-pitch {
-    max-width: 600px;
-    margin-top: 18px;
-    font-size: clamp(17px, 1.5vw, 19px);
-    line-height: 1.5;
-    color: var(--body);
-    text-wrap: balance;
-  }
-  .agent-pitch b { font-weight: 600; color: rgb(var(--ink) / 0.9); }
-  .agent-cta { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 10px 12px; margin-top: 28px; }
-  .agent-cta .try { margin-top: 0; height: 46px; padding: 0 16px 0 18px; border-radius: 14px; font-size: 15px; }
-  .agent-cta .try svg { transition: transform 0.25s var(--spring-settle); }
-  .agent-cta .try:hover svg { transform: translateY(2px); }
-  .agent-keys { margin-top: 18px; font-size: 13.5px; color: rgb(var(--ink) / 0.63); }
-  .agent-keys .key svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
-  .agent-keys kbd { vertical-align: middle; margin: 0 1px; font-size: 11.5px; color: rgb(var(--ink) / 0.72); background: var(--surface); }
-  /* The button as the sidebar draws it: the glyph on a soft square. */
-  .agent-btn {
-    display: inline-grid;
-    place-items: center;
-    width: 22px;
-    height: 22px;
-    margin: 0 2px;
-    vertical-align: -6px;
-    border-radius: 6px;
-    background: var(--surface);
-    box-shadow: inset 0 0 0 0.5px var(--line-strong), 0 0.5px 0 var(--line);
-    color: rgb(var(--ink) / 0.85);
-  }
-  .agent-btn svg { width: 13px; height: 13px; }
-  /* ✦ in running text: drawn, so it never falls back to a missing glyph. */
-  .spark { display: inline-block; width: 0.85em; height: 0.85em; margin: 0 0.08em; vertical-align: -0.08em; color: #d0603c; }
-
-  /* The recording, on the grey with the dot grid, as large as the card allows. */
-  .agent-stage {
-    margin: 0;
-    padding: clamp(20px, 4vw, 52px) clamp(16px, 4.5vw, 56px) clamp(16px, 2.4vw, 26px);
-    background: var(--dots), var(--bg-sunk);
+  /* For AI agents: the demo, then what it is, the setup line and the three promises. */
+  .agents {
+    display: grid;
+    grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
     box-shadow: 0 -1px 0 var(--line);
-    scroll-margin-top: 96px;
   }
-  /* The window's own corners: about 13 pt on a 1440 pt-wide window (0.9 % × 1.45 % of the frame). */
-  .agent-player {
-    position: relative;
-    aspect-ratio: 16 / 10;
-    overflow: hidden;
-    border-radius: 0.95% / 1.5%;
-    background: #9be3c3;
-    box-shadow: var(--shadow-shot);
-    isolation: isolate;
+  .agents-demo {
+    margin: 0;
+    padding: clamp(18px, 2.4vw, 28px);
+    background: var(--dots), var(--bg-sunk);
+    box-shadow: 1px 0 0 var(--line);
   }
-  .agent-player :global(picture),
-  .agent-player :global(img),
-  .agent-video {
-    position: absolute;
-    inset: 0;
+  .agents-demo img {
     display: block;
     width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  .agent-video { opacity: 0; transition: opacity 0.4s var(--ease-out); cursor: pointer; }
-  .agent-player.has-played .agent-video { opacity: 1; }
-
-  /* Play on the still poster: a large glass button in the middle, gone once it plays (the bar below has play/pause). */
-  .agent-play {
-    position: absolute;
-    left: calc(50% - 36px);
-    top: calc(50% - 36px);
-    z-index: 2;
-    display: grid;
-    place-items: center;
-    width: 72px;
-    height: 72px;
-    padding: 0;
-    border: 0;
-    border-radius: 50%;
-    color: #fff;
-    background: rgb(20 17 15 / 0.55);
-    -webkit-backdrop-filter: blur(12px) saturate(1.4);
-    backdrop-filter: blur(12px) saturate(1.4);
-    box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.18), 0 6px 20px -6px rgb(0 0 0 / 0.4);
-    cursor: pointer;
-    transition: transform 0.35s var(--spring-settle), background-color 0.2s ease;
-  }
-  .agent-play:hover { background: rgb(20 17 15 / 0.68); transform: scale(1.04); }
-  .agent-play:active { transform: scale(0.95); }
-  .agent-play svg { width: 26px; height: 26px; margin-left: 3px; fill: currentColor; }
-  .agent-play .i-pause { display: none; }
-  .agent-player.has-played .agent-play { display: none; }
-  /* Autoplay shows the poster for a moment first; the button appears only if it hasn't started by then. */
-  @media (prefers-reduced-motion: no-preference) {
-    .agent-play { animation: fade 0.3s ease-out 1.6s both; }
-  }
-
-  /* The bar under the window: play/pause, then the chapters. */
-  .agent-bar { display: flex; align-items: flex-start; gap: 12px; margin-top: 14px; }
-  .agent-toggle {
-    flex: none;
-    display: grid;
-    place-items: center;
-    width: 36px;
-    height: 36px;
-    margin-top: 2px;
-    padding: 0;
-    border: 0;
-    border-radius: 50%;
-    color: rgb(var(--ink) / 0.86);
-    background: var(--surface);
-    box-shadow: inset 0 0 0 0.5px var(--line-strong), 0 1px 2px rgb(0 0 0 / 0.06);
-    cursor: pointer;
-    transition: transform 0.25s var(--spring-settle), box-shadow 0.15s ease;
-  }
-  .agent-toggle:hover { box-shadow: inset 0 0 0 1px rgb(var(--ink) / 0.2), 0 1px 2px rgb(0 0 0 / 0.06); }
-  .agent-toggle:active { transform: scale(0.92); }
-  .agent-toggle svg { width: 14px; height: 14px; fill: currentColor; }
-  .agent-toggle .i-play { margin-left: 2px; }
-  .agent-toggle .i-pause,
-  .is-playing .agent-toggle .i-play { display: none; }
-  .is-playing .agent-toggle .i-pause { display: block; }
-
-  /* Chapters: the story's steps, under the window; the current one's bar fills while it plays. */
-  .agent-chapters {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 6px;
-    position: relative;
-    flex: 1;
-    min-width: 0;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-  .agent-chapters button {
-    display: grid;
-    gap: 8px;
-    width: 100%;
-    padding: 8px 2px 6px;
-    border: 0;
-    background: none;
-    font: inherit;
-    font-size: 13px;
-    font-weight: 550;
-    letter-spacing: -0.008em;
-    text-align: left;
-    color: rgb(var(--ink) / 0.6);
-    cursor: pointer;
-    transition: color 0.25s ease;
-  }
-  .agent-chapters button:hover,
-  .agent-chapters button[aria-current] { color: rgb(var(--ink) / 0.88); }
-  .agent-chapters .bar { display: block; height: 3px; overflow: hidden; border-radius: 2px; background: rgb(var(--ink) / 0.1); }
-  .agent-chapters .bar i { display: block; height: 100%; background: #d0603c; transform: scaleX(var(--p, 0)); transform-origin: left; }
-  .agent-chapters .label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .agent-stage figcaption { margin-top: 10px; font-size: 12.5px; line-height: 1.5; color: rgb(var(--ink) / 0.63); }
-
-  /* The three points: copy over a crop of the recording, at the app's own size. */
-  .agent-points { box-shadow: 0 -1px 0 var(--line); }
-  .agent-crop { min-height: 0; padding: 28px 24px 32px; place-items: center; }
-  .agent-crop :global(img) {
-    width: auto;
-    max-width: 100%;
     height: auto;
-    border-radius: 12px;
-    box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.1), 0 1px 2px rgb(0 0 0 / 0.04), 0 18px 36px -18px rgb(30 25 20 / 0.32);
+    border-radius: 10px;
+    box-shadow: 0 0 0 0.5px var(--line-strong), 0 12px 32px -12px rgb(0 0 0 / 0.25);
   }
-  .agent-crop-button :global(img) { width: min(100%, 220px); border-radius: 12px 12px 12px 22px; }
-  .agent-crop-live :global(img) { width: min(100%, 320px); }
-  .agent-crop-ask :global(img) { width: min(100%, 340px); }
-
-  /* The MCP connector: the same section, a quieter note under it. */
-  .agents-mcp {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 18px 40px;
-    padding: 28px var(--px) 32px;
-    box-shadow: 0 -1px 0 var(--line);
-    font-size: 14px;
-  }
-  .agents-mcp > * { min-width: 0; }
-  .agents-mcp h3 { margin: 0 0 6px; font-size: 15px; font-weight: 600; letter-spacing: -0.012em; color: rgb(var(--ink) / 0.88); }
-  .agents-lead { margin: 0; font-size: 14px; color: var(--body); }
-  .agents-setup { margin-top: 14px; }
-  .agents-setup p { color: var(--body); font-size: 13.5px; }
+  .agents-side { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 18px; min-width: 0; padding: 28px var(--px) 30px 28px; }
+  .agents-side > * { min-width: 0; }
+  .agents-lead { color: var(--text-2); }
+  .agents-setup p { color: var(--text-2); font-size: 14px; }
   .agents-setup pre {
     margin: 10px 0 0;
     padding: 12px 14px;
@@ -1281,8 +898,8 @@ const faqs = [
     font: 12px/1.55 var(--mono);
     color: var(--text);
   }
-  .agents-safe { display: grid; gap: 10px; align-content: start; margin: 0; padding: 0; list-style: none; }
-  .agents-safe li { position: relative; padding-left: 22px; font-size: 13.5px; color: var(--body); }
+  .agents-safe { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+  .agents-safe li { position: relative; padding-left: 22px; font-size: 14px; color: var(--text-2); }
   .agents-safe li::before {
     content: "";
     position: absolute;
@@ -1290,46 +907,15 @@ const faqs = [
     top: 0.45em;
     width: 10px;
     height: 6px;
-    border-left: 1.5px solid rgb(var(--ink) / 0.45);
-    border-bottom: 1.5px solid rgb(var(--ink) / 0.45);
+    border-left: 2px solid #d9773f;
+    border-bottom: 2px solid #d9773f;
     transform: rotate(-45deg);
   }
-  .agents-safe b { color: rgb(var(--ink) / 0.86); font-weight: 600; }
-
+  .agents-safe b { color: var(--text); font-weight: 600; }
   @media (max-width: 900px) {
-    .agent-head { align-items: flex-start; text-align: left; padding-top: 48px; }
-    .agent-title .soft { display: inline; }
-    .agent-pitch { text-wrap: pretty; }
-    .agent-cta { justify-content: flex-start; }
-    .agent-stage { padding: 16px 16px 14px; }
-    .agent-play { transform: scale(0.8); }
-    .agent-chapters {
-      grid-template-columns: none;
-      grid-auto-flow: column;
-      grid-auto-columns: max-content;
-      gap: 14px;
-      margin-right: -16px;
-      padding-right: 16px;
-      overflow-x: auto;
-      scrollbar-width: none;
-      scroll-padding-inline: 16px;
-    }
-    .agent-chapters::-webkit-scrollbar { display: none; }
-    .agent-chapters button { min-width: 112px; min-height: 44px; }
-    .agent-points .copy { padding-bottom: 20px; }
-    .agent-crop { padding: 24px 20px 28px; }
-    .agents-mcp { grid-template-columns: minmax(0, 1fr); }
-  }
-  /* Tablet: each point is copy beside its crop, not a tall stack. */
-  @media (min-width: 601px) and (max-width: 900px) {
-    .agent-points .cell { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: none; grid-row: auto; }
-    .agent-points .copy { align-self: center; padding-bottom: 28px; }
-    .agent-points .viz { box-shadow: -1px 0 0 var(--line); }
-  }
-  /* Phone: the two buttons full width, stacked. */
-  @media (max-width: 600px) {
-    .agent-cta { flex-direction: column; align-items: stretch; width: 100%; }
-    .agent-cta .try { justify-content: center; }
+    .agents { grid-template-columns: minmax(0, 1fr); }
+    .agents-demo { box-shadow: 0 1px 0 var(--line); }
+    .agents-side { padding: 24px var(--px) 28px; }
   }
   .cells-3 .copy { padding-inline: 28px; }
 
@@ -1338,7 +924,7 @@ const faqs = [
     font-family: var(--mono);
     font-size: 12px;
     letter-spacing: 0.02em;
-    color: rgb(var(--ink) / 0.62);
+    color: rgb(var(--ink) / 0.4);
   }
 
   .cell h3 {
@@ -1648,7 +1234,7 @@ const faqs = [
 
   .run b { font-weight: 600; color: rgb(var(--ink) / 0.88); }
   .run-dot { margin-top: 6px; width: 8px; height: 8px; border-radius: 50%; background: #2f9e62; box-shadow: 0 0 0 3px rgb(47 158 98 / 0.2); }
-  .run-meta { align-self: center; font-size: 12.5px; color: rgb(var(--ink) / 0.62); white-space: nowrap; }
+  .run-meta { align-self: center; font-size: 12.5px; color: rgb(var(--ink) / 0.46); white-space: nowrap; }
   .run-meta code { font-family: var(--mono); font-size: 11.5px; }
 
   .works {

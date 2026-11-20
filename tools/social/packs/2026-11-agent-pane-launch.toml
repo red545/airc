@@ -1,11 +1,11 @@
 # DRAFT, NOT PLANNED UNTIL LIVE: promoting the agent pane (the AI sidebar, ⌥⌘A), the feature people like most (owner,
 # via the lead, 2026-11-19 20:30). Waits for two things: the release that ships the visible button and connecting your
 # own Claude Code or Codex in the pane (agentux2), and aidemo's X cut (a real screen capture of Airc, artifacts/aidemo).
-# At LIVE (0.1.42, filled below): check every line against the shipped notes, add aidemo's video, check its frames, plan.
+# At that LIVE: fill {version} and {button}, check every line against that release's notes, add the video, plan.
 slug = "2026-11-agent-pane-launch"
 title = "The agent pane: launch and onboarding"
 kind = "release"
-since = "0.1.42"
+since = "{version}"
 tag = ""
 summary = """
 A launch post with aidemo's video, a short thread of replies (what it does, asks before paying, watches the page live,
@@ -17,14 +17,7 @@ order = """
 2. Two days later, 10:30 UTC: the onboarding post (5), on its own.
 """
 checked = """
-0.1.42 (cut 0b0d6d50, build revision d384973d; release054): the ✦ button at the bottom of the sidebar or ⌥⌘A; Connect
-your AI in the pane (your own Claude Code, your own Codex sign-in, or an Anthropic or OpenAI API key, kept in the
-Keychain); the typed task goes on once connected. Still a beta (Please know). "Use your ChatGPT subscription" is
-accurate because Codex signs in with ChatGPT (release054); the ChatGPT-first Connect card is the next release, so no
-screen of it here. Video: aidemo's X cut (real window capture, fixture shop, a scripted fake Codex): its alt says the
-run was scripted, and no post says a real model did it. Before planning, check every frame matches 0.1.42's UI (the
-Connect card lists Claude Code, Codex and API keys).
-Originally: every line against that release's notes. Wording (owner, 2026-11-19 20:45, common.md): lead
+To fill in at the cut: every line against that release's notes. Wording (owner, 2026-11-19 20:45, common.md): lead
 with "use your ChatGPT subscription" (through the person's own Codex sign-in), and "your own Claude Code". Still a beta unless the notes say
 otherwise. The video is aidemo's real screen capture; its alt says what it shows and on what (demo or real site).
 """
@@ -33,7 +26,7 @@ otherwise. The video is aidemo's real screen capture; its alt says what it shows
 label = "Launch: the AI sidebar (video)"
 media = ["aidemo-video:16x9"]
 text = """
-Use your ChatGPT subscription in Airc's AI sidebar: click the new ✦ button, say what you need, and it works in your signed-in sites while you watch, beside your page. Through your own Codex sign-in, or your own Claude Code. Beta, new in Airc 0.1.42.
+Use your ChatGPT subscription in Airc's AI sidebar. {button}, tell it what you need, and it works in your signed-in sites while you watch, next to your page. Through your own Codex sign-in, or your own Claude Code. New in Airc {version}.
 """
 
 [[post]]
@@ -62,7 +55,7 @@ label = "Onboarding: open, connect, ask"
 text = """
 New here? Three steps to Airc's AI sidebar:
 
-1. Click ✦ at the bottom of the sidebar (or ⌥⌘A)
+1. {button}
 2. Sign in with your ChatGPT subscription (through Codex), or your own Claude Code
 3. Ask it to do something on a site you're signed in to
 

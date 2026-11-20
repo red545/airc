@@ -34,7 +34,7 @@ final class FairPlayBridgeTests: XCTestCase {
         // Another scheme or port, and the other services, keep today's rules.
         XCTAssertEqual(sites.engine(for: "https://open.spotify.com:8443/"), .webKit)
         XCTAssertEqual(sites.engine(for: "https://www.netflix.com/browse"), .webKit)
-        XCTAssertEqual(sites.engine(for: "https://www.disneyplus.com/"), .webKit, "only the listed origins: this test lists Spotify's")
+        XCTAssertEqual(sites.engine(for: "https://www.disneyplus.com/"), .webKit)
         // Setting "Play DRM sites with Safari's engine" off: Chromium as before.
         sites.isEnabled = false
         XCTAssertEqual(sites.engine(for: "https://www.netflix.com/browse"), .chromium)
@@ -96,6 +96,6 @@ final class FairPlayBridgeTests: XCTestCase {
         }
         let listed = doc[start.upperBound..<end.lowerBound].components(separatedBy: .whitespacesAndNewlines)
             .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "`,.")) }.filter { $0.hasPrefix("https://") }
-        XCTAssertEqual(listed, FairPlayBridgeSites.routedOrigins)
+        XCTAssertEqual(listed, FairPlayBridgeSites.origins)
     }
 }

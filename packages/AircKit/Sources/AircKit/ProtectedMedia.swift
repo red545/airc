@@ -253,7 +253,7 @@ public struct ProtectedMediaChoices: Codable, Equatable, Sendable {
     public func choosing(_ engine: PageEngine, for url: String) -> ProtectedMediaChoices {
         let r = ProtectedMediaSites.choosing(engine, for: url, added: added, removed: removed)
         var origins = webKitOrigins
-        if let o = FairPlayBridgeSites.origin(of: url), FairPlayBridgeSites.routedOrigins.contains(o) {
+        if let o = FairPlayBridgeSites.origin(of: url), FairPlayBridgeSites.origins.contains(o) {
             origins.removeAll { $0 == o }
             if engine == .webKit { origins.append(o) }
         }

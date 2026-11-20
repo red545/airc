@@ -2,6 +2,31 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.42",
+      "highlights": [
+        {
+          "title": "Airc Agent, one click away",
+          "lead": "New ✦ button opens Airc Agent",
+          "detail": "The new ✦ button at the bottom of the sidebar opens Airc Agent, or press ⌥⌘A. Right-click it for New Task, Watch or Settings › Agents.",
+          "icon": "sparkles",
+          "image": "agent-button"
+        },
+        {
+          "title": "Connect AI in the pane",
+          "lead": "Connect your AI right in the pane, with no trip to Settings",
+          "detail": "In Airc Agent (⌥⌘A), Connect your AI: your own Claude Code or Codex, or an API key. Keys stay in your Mac's Keychain.",
+          "icon": "key",
+          "image": "agent-pane-connect"
+        },
+        {
+          "title": "Spotify plays in Chromium",
+          "lead": "Play Spotify in a Chromium tab with FairPlay",
+          "detail": "Turn on Settings › Privacy › Protected content › Play protected media in Chromium with FairPlay (off by default): Spotify stays in a Chromium tab with your extensions.",
+          "icon": "music.note"
+        }
+      ]
+    },
+    {
       "version": "0.1.41",
       "highlights": [
         {

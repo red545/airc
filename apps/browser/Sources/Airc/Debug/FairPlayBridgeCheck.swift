@@ -216,7 +216,7 @@ extension SnapshotRunner {
                   "\(tag): seek (page \(num("time")), native \(bnum("time")))")
             check(abs(bnum("volume") - 0.5) < 0.01, "\(tag): volume reaches the native player (\(bnum("volume")))")
         }
-        step { done in poll(a, 8, until: { (($0["events"] as? [String]) ?? []).contains("ended") && $0["paused"] as? Bool == true }, done) }
+        step { done in poll(a, 8, until: { (($0["events"] as? [String]) ?? []).contains("ended") }, done) }
         run { [self] in
             guard clearLoaded else { return }
             check(events().contains("ended") && state["paused"] as? Bool == true, "\(tag): ended at the end (\(events().suffix(4)))")
@@ -282,7 +282,7 @@ extension SnapshotRunner {
             guard !has(state, "fetchError") else { return }
             check(num("time") > 30 && bnum("time") > 30 && events().contains("seeked"), "\(tag): EZDRM: seek (page \(num("time")), native \(bnum("time")))")
         }
-        step { done in poll(e, 10, until: { (($0["events"] as? [String]) ?? []).contains("ended") && $0["paused"] as? Bool == true }, done) }
+        step { done in poll(e, 10, until: { (($0["events"] as? [String]) ?? []).contains("ended") }, done) }
         run { [self] in
             guard !has(state, "fetchError") else { return }
             check(events().contains("ended") && state["paused"] as? Bool == true, "\(tag): EZDRM: ended at the end (\(events().suffix(4)))")

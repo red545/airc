@@ -1,17 +1,29 @@
-# Airc 0.1.41 public beta
+# Airc 0.1.42 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update gives a new profile a short setup (pick its Space's colour, sign in, done), shows your account's picture
-and name everywhere as soon as you sign in, and keeps the notice that an AI app is using Airc away from the window's
-close and minimize buttons. It includes everything from 0.1.40. The release manifest records the exact build, source
-and checksums.
+This update adds a ✦ button at the bottom of the sidebar that opens Airc Agent, where you can connect your AI right in
+the pane, and lets Spotify play in a Chromium tab with Apple's FairPlay (off by default). It includes everything from
+0.1.41. The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.40
+## New since 0.1.41
+
+- **New ✦ button opens Airc Agent.** It's at the bottom of the sidebar, next to the Archive button, or press **⌥⌘A**.
+  Click it again to close the pane; while a task runs, the button shows a dot. Right-click it for **New Task**,
+  **Watch** or **Settings › Agents**. New users see a short hint over the button once.
+- **Connect your AI right in the pane, with no trip to Settings.** If nothing is connected yet, the pane shows
+  **Connect your AI**: your own Claude Code, your own Codex sign-in, or an Anthropic or OpenAI API key. A key is kept in your Mac's Keychain and sent only to that provider. The task you typed
+  before connecting goes on by itself once you're connected.
+- **Play Spotify in a Chromium tab with FairPlay.** Turn on **Settings › Privacy › Protected content › Play protected
+  media in Chromium with FairPlay** (off by default). Spotify then stays in a Chromium page, with your extensions,
+  and plays with Apple's FairPlay; the sidebar's media controls, Now Playing and the keyboard's media keys follow it. If
+  a track can't play, Airc offers to open the page with Safari's engine. With the setting off, nothing changes.
+
+## Included from 0.1.41
 
 - **New profiles get a short setup: pick the Space's colour, sign in, done.** After **Create Profile** (from a Space's
   **Set Profile › New Profile…** or **Settings › Profiles**), the same card asks for a colour for the Space you ticked,

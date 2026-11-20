@@ -14,29 +14,6 @@ public enum FairPlayBridgeSites {
     /// routing uses it, and FairPlayBridgeTests checks docs/user/protected-media.md against it.
     public static let origins: [String] = ["https://open.spotify.com"]
 
-    /// Exact origins whose video plays through the sample-buffer bridge (step 2).
-    public static let videoOrigins: [String] = ["https://www.disneyplus.com", "https://www.netflix.com"]
-
-    /// Video origins that serve their FairPlay player only to Safari's user agent (in requests, not just
-    /// navigator.userAgent): served only when the engine can give one origin its own user agent
-    /// (AircProfile setUserAgent:forOrigin:), and then with Safari's.
-    public static let safariUserAgentOrigins: [String] = ["https://www.netflix.com"]
-
-    /// Every origin that stays in Chromium while the setting is on (with an engine that has per-origin user agents).
-    public static var routedOrigins: [String] { origins + videoOrigins }
-
-    /// Addresses people type that redirect to a listed origin: they stay in Chromium with it, so the redirect lands
-    /// there (a typed netflix.com would otherwise open in WebKit before it reaches www.netflix.com).
-    public static let aliases: [String: String] = [
-        "https://netflix.com": "https://www.netflix.com",
-        "https://disneyplus.com": "https://www.disneyplus.com",
-    ]
-
-    /// `origins` plus the aliases of those listed.
-    public static func withAliases(_ origins: [String]) -> [String] {
-        origins + aliases.filter { origins.contains($0.value) }.map(\.key).sorted()
-    }
-
     /// The key system the page is offered.
     public static let keySystem = "com.apple.fps.1_0"
 

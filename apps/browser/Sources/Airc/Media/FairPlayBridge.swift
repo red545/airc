@@ -41,20 +41,7 @@ final class FairPlayBridge: NSObject {
         return FairPlayBridgeSites.origins
     }
 
-    /// Every origin the bridge keeps in Chromium (audio and video; the routing exception in ProtectedMedia).
-    static var routedOrigins: [String] { FairPlayBridgeSites.withAliases(origins + FairPlayVideo.origins) }
-
     #if AIRC_TESTING
-    /// `--script fairplayvideo`: a loopback page's origin that plays a listed video site (any path is a player page).
-    static var testVideoOrigin: String? = ProcessInfo.processInfo.environment["AIRC_FAIRPLAY_TEST_VIDEO_ORIGIN"] {
-        didSet { shared.settingChanged() }
-    }
-    /// `--script fairplayua`: a loopback origin that gets Safari's user agent like Netflix.
-    static var testUserAgentOrigin: String? = ProcessInfo.processInfo.environment["AIRC_FAIRPLAY_TEST_UA_ORIGIN"] {
-        didSet { shared.settingChanged() }
-    }
-    /// `--script fairplayua`: an alias of the test's Netflix origin (as netflix.com is of www.netflix.com).
-    static var testUserAgentAlias: String?
     /// `--script fairplaybridge`: the setting, forced (nil: the setting).
     static var forcedForTest: Bool? { didSet { shared.settingChanged() } }
     /// A loopback page's origin that plays a listed site, where a clear playlist (no FairPlay key) also plays.
@@ -99,7 +86,6 @@ final class FairPlayBridge: NSObject {
             let source = FairPlayBridgeScript.source(origins: Self.origins, clearTestOrigin: Self.clearTestOrigin)
             scripts.set(Self.part, source: source) { [weak self] tab, m in self?.received(tab, m) }
             partSet = true
-            FairPlayVideo.shared.settingChanged(enabled: true)
         } else if partSet {
             partSet = false
             // Pages already open keep the part: they're told it's off (their element pauses), and the player goes.
@@ -110,7 +96,6 @@ final class FairPlayBridge: NSObject {
             }
             stop()
             scripts.remove(Self.part)
-            FairPlayVideo.shared.settingChanged(enabled: false)
         }
     }
 
@@ -149,11 +134,11 @@ final class FairPlayBridge: NSObject {
     weak var center: MediaCenter?
 
     /// Whether `tab` is the page the bridge plays for.
-    func owns(_ tab: EngineTab) -> Bool { (ownerTab === tab && track != nil) || FairPlayVideo.shared.owns(tab) }
+    func owns(_ tab: EngineTab) -> Bool { ownerTab === tab && track != nil }
 
     /// The tray's session for the page the bridge plays for (nil for any other page).
     func session(for tab: EngineTab) -> EngineMediaSession? {
-        guard ownerTab === tab, let track, let player else { return FairPlayVideo.shared.session(for: tab) }
+        guard owns(tab), let track, let player else { return nil }
         var s = EngineMediaSession()
         s.playback = player.timeControlStatus == .paused ? .paused : .playing
         s.active = true
@@ -172,7 +157,7 @@ final class FairPlayBridge: NSObject {
 
     /// The tray's buttons and the media keys (MediaCenter.perform): the page's own handlers, else the element.
     func perform(_ action: String, value: Double, in tab: EngineTab) -> Bool {
-        guard ownerTab === tab, track != nil else { return FairPlayVideo.shared.perform(action, value: value, in: tab) }
+        guard owns(tab) else { return false }
         var event: [String: Any] = ["event": "remote", "command": action]
         if action == "seekto" { event["time"] = value }
         deliver(event)

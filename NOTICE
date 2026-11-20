@@ -37,9 +37,6 @@ FairPlay bridge (docs/design/fairplay-bridge.md): apps/browser/Sources/Airc/Medi
 apps/browser/Sources/Airc/Media/FairPlayBridgeScript.swift and packages/AircKit/Sources/AircKit/FairPlayBridgeSites.swift
 are adapted from Ardia's own files (https://github.com/ardia-browser/ardia: packages/ardiacore/ios/ArdiaFairPlay.mm,
 packages/ardiacore/fairplay/main.swift and the FairPlay block of packages/ardiacore/ios/page_script.js),
-and apps/browser/Sources/Airc/Media/FairPlayVideo.swift, FairPlayVideoScript.swift and
-packages/AircKit/Sources/AircKit/FairPlayMP4.swift from ArdiaProtectedVideo.mm, ArdiaPVSession*.mm,
-ArdiaProtectedVideoMedia.mm and the protected-video block of page_script.js,
 Copyright 2026 Mantra Patel, Apache License 2.0; modified by The Airc Authors. Each keeps that copyright line.
 Nothing comes from Ardia's engine patches, Helium or uBlock Origin (GPL-3.0).
 
