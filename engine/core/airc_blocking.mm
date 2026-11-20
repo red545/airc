@@ -228,7 +228,12 @@ struct MatchContext {
     if (top.is_empty() && live_document) top=live_document->GetMainFrame()->GetLastCommittedURL();
     const auto host=Host(top);
     if (!host.empty() && state->Excepted(host)) return {};
-    auto source=request.request_initiator && !request.request_initiator->opaque()
+    // ganalytics: a top-level document is its own first party, as in uBlock Origin and Brave. A typed, bookmarked or
+    // new-tab navigation has no initiator (the tab's about:blank is opaque), so its source was empty and adblock-rust
+    // called it third-party: `||host^$third-party` rules (about 5,400 in the default lists, e.g. analytics.google.com,
+    // hotjar.com) showed "blocked by Airc" for the site itself, and its `$~third-party` exceptions never applied.
+    auto source=top_navigation ? request.url
+      : request.request_initiator && !request.request_initiator->opaque()
       ? request.request_initiator->GetURL() : initiator;
     std::string u=request.url.spec(), s=source.spec(), type=override_type ? override_type : RequestType(request);
     auto raw=airc_blocking_match(state->ActiveRules().get(),Bytes(u),u.size(),Bytes(s),s.size(),

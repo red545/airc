@@ -138,7 +138,9 @@ extension SnapshotRunner {
         let resources = await js(tab, "JSON.stringify(performance.getEntriesByType('resource').map(e => e.name).filter(n => n.includes('googletagmanager.com')))") as? String ?? "[]"
         let blocked = center.count(for: tab) ?? -1
         check(loaded, "Tag Assistant loads signed out")
-        check(blocked == 0, "Tag Assistant: none of its requests blocked (\(blocked); airc-exceptions.txt lets its googletagmanager.com calls through) \(resources.prefix(300))")
+        // Before airc-exceptions.txt: 2 blocked (its gtag + debug/api/cookiespresent on www.googletagmanager.com), on both
+        // engines. A Google log ping (play.google.com/log) can add one at times; that one stays blocked.
+        check(blocked >= 0 && blocked <= 1, "Tag Assistant: its googletagmanager.com calls aren't blocked (\(blocked) blocked, was 2) \(resources.prefix(300))")
         evidence.append(["engine": engineName, "target": url, "blockedRequests": blocked, "googletagmanagerResources": resources])
         tab.close()
     }
@@ -162,6 +164,67 @@ extension SnapshotRunner {
         tab.close()
     }
 
+    /// Typed visits to sites whose host carries a `||host^$third-party` list rule: the page itself must load (before the
+    /// engine's top-level first-party fix, Chromium showed "blocked by Airc" for them, as for analytics.google.com).
+    static let listedHosts = ["https://hotjar.com/", "https://mixpanel.com/", "https://segment.com/"]
+    func typedVisits(space: String) async {
+        for target in Self.listedHosts {
+            guard let tab = open(target, space: space) else { check(false, "typed \(target): tab opened"); continue }
+            var href = "", text = "", ready = false
+            for _ in 0..<150 {
+                href = await js(tab, "location.href") as? String ?? ""
+                if !tab.isLoading, await js(tab, "document.readyState") as? String == "complete", href.hasPrefix("http") || href.hasPrefix("chrome-error") {
+                    ready = true; break
+                }
+                await sleep(0.2)
+            }
+            text = (await js(tab, "document.body ? document.body.innerText : ''") as? String ?? "").lowercased()
+            // A blocked document ends on chrome-error:// (Chromium) or never loads; a site may redirect to another site
+            // (hotjar.com → contentsquare.com, segment.com → twilio.com), which still proves its own document loaded.
+            let landed = href.hasPrefix("https://") || href.hasPrefix("http://")
+            check(ready && landed && !text.contains("blocked by airc"),
+                  "typed \(target) loads, not Airc's block page (ends on \(href.prefix(80)))")
+            evidence.append(["engine": engineName, "target": target, "kind": "typed visit", "final": href, "loaded": ready && landed,
+                             "blockedPage": text.contains("blocked by airc"), "blockedRequests": center.count(for: tab) ?? -1])
+            tab.close()
+        }
+    }
+
+    /// The fix is for top-level documents only: a third-party tracker iframe, and a tracker script inside a third-party
+    /// frame, stay blocked. Loopback page on localhost; its second frame is on 127.0.0.1 (another site).
+    func trackerFrames(space: String) async {
+        let page = """
+            <title>ganalytics frames</title><body><script>
+            window.__msgs = []; addEventListener('message', e => window.__msgs.push(String(e.data)));
+            const a = document.createElement('iframe'); a.src = 'https://www.hotjar.com/'; document.body.appendChild(a);
+            const b = document.createElement('iframe'); b.src = 'http://127.0.0.1:' + location.port + '/frame'; document.body.appendChild(b);
+            </script></body>
+            """
+        let frame = """
+            <title>third-party frame</title><script src='https://static.hotjar.com/c/hotjar-1.js?sv=6'
+              onload="parent.postMessage('sub-loaded','*')" onerror="parent.postMessage('sub-blocked','*')"></script>
+            <script>parent.postMessage('frame-up','*')</script>
+            """
+        guard let server = LocalPageServer(pages: ["/": page, "/frame": frame]) else { check(false, "frames server"); return }
+        defer { server.stop() }
+        let port: UInt16? = await withCheckedContinuation { resume in server.start { resume.resume(returning: $0) } }
+        guard let port, let tab = open("http://localhost:\(port)/", space: space) else { check(false, "frames page opened"); return }
+        var msgs: [String] = []
+        for _ in 0..<100 {
+            if let text = await js(tab, "JSON.stringify(window.__msgs || [])") as? String,
+               let list = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String] { msgs = list }
+            if msgs.contains("frame-up") && (msgs.contains("sub-blocked") || msgs.contains("sub-loaded")) { break }
+            await sleep(0.1)
+        }
+        await sleep(1)
+        let blocked = center.count(for: tab) ?? -1
+        check(msgs.contains("frame-up") && msgs.contains("sub-blocked") && !msgs.contains("sub-loaded"),
+              "a tracker script inside a third-party frame stays blocked (\(msgs))")
+        check(blocked >= 2, "the third-party tracker iframe and the frame's tracker script are both blocked (\(blocked) blocked)")
+        evidence.append(["engine": engineName, "target": "tracker frames", "messages": msgs, "blockedRequests": blocked])
+        tab.close()
+    }
+
     func run() async {
         let home = c.currentSpaceID
         let profileID = c.store.profile(ofSpace: home).id
@@ -170,6 +233,8 @@ extension SnapshotRunner {
         await entries(profile: profileID, space: home, label: "default profile")
         await tagAssistant(space: home)
         await elsewhere(space: home)
+        await typedVisits(space: home)
+        await trackerFrames(space: home)
         // A Space with its own profile: its own engine profile and blocking context.
         if let other = try? c.profiles.createProfile(name: "Analytics", emoji: "📈", color: nil),
            let space = try? c.store.createSpace(name: "Analytics", icon: .emoji("📈"), profileID: other.id) {
