@@ -1,16 +1,34 @@
-# Airc 0.1.40 public beta
+# Airc 0.1.41 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update keeps your saved passwords and cookies safe when macOS can't unlock the keychain, lets you close every
-window (also with the sidebar hidden, and with ⌘W on its last tab), and makes typing in the Command Bar quicker. It
-includes everything from 0.1.39. The release manifest records the exact build, source and checksums.
+This update gives a new profile a short setup (pick its Space's colour, sign in, done), shows your account's picture
+and name everywhere as soon as you sign in, and keeps the notice that an AI app is using Airc away from the window's
+close and minimize buttons. It includes everything from 0.1.40. The release manifest records the exact build, source
+and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.39
+## New since 0.1.40
+
+- **New profiles get a short setup: pick the Space's colour, sign in, done.** After **Create Profile** (from a Space's
+  **Set Profile › New Profile…** or **Settings › Profiles**), the same card asks for a colour for the Space you ticked,
+  and the window shows each colour as you pick it (**Skip** or Esc keeps the old one). Then **Sign in to Google** opens
+  Google's sign-in page in the new profile (**Another site…** opens a new tab for any other account). Once you're
+  signed in, the card shows your account's picture and name and closes by itself.
+- **Your account's picture and name show up right away, including after signing in from the sidebar.** Signing in
+  from a new profile's **Sign in to Google** card in the sidebar (or during the setup above, or the first-run setup)
+  now puts the account's picture beside the Space name, in **Set Profile ›** menus and Manage Spaces, and in
+  **Settings › Profiles** ("Signed in as …") without a relaunch. Resting on a Space's icon at the bottom of the
+  sidebar names its profile and account.
+- **When Claude uses Airc, its notice no longer covers the window's close and minimize buttons.** While an AI app
+  such as Claude works in Airc, the sidebar shows **✦ Claude is using Airc** (with the app's name) in a row just under
+  the window's buttons, never over them. Click it to see what it means, **Watch** what the app is doing, or **Stop**
+  it.
+
+## Included from 0.1.40
 
 - **Your saved passwords and cookies are safe if macOS can't unlock the keychain.** When the keychain is locked, you
   denied access, or the key there doesn't match the one your data was saved with, Airc now asks you to **Try Again**

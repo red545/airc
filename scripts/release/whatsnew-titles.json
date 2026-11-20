@@ -430,5 +430,23 @@
     "detail": "Each keystroke in the Command Bar (⌘T) does less work, and the first one after opening it no longer waits, so results keep up with your typing.",
     "action": "commandBar",
     "image": null
+  },
+  "New profiles get a short setup: pick the Space's colour, sign in, done": {
+    "title": "A short new-profile setup",
+    "detail": "After Create Profile (a Space's Set Profile › New Profile…), pick a colour for the Space and sign in to Google in the new profile. The card then shows your account and closes.",
+    "action": "none",
+    "image": "profile-journey-colour"
+  },
+  "Your account's picture and name show up right away, including after signing in from the sidebar": {
+    "title": "Your account, right away",
+    "detail": "After you sign in, including from the sidebar's Sign in to Google card, your account's picture and name show beside the Space name, in Set Profile › and in Settings › Profiles, without a relaunch.",
+    "action": "none",
+    "image": "profile-journey-signed-in"
+  },
+  "When Claude uses Airc, its notice no longer covers the window's close and minimize buttons": {
+    "title": "Window buttons stay clear",
+    "detail": "While Claude or another AI app uses Airc, the sidebar shows \"✦ Claude is using Airc\" just under the window's buttons, never over them. Click it to Watch or Stop the app.",
+    "action": "settingsAgents",
+    "image": null
   }
 }
