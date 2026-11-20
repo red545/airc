@@ -24,12 +24,14 @@
 #include "third_party/blink/public/mojom/loader/resource_load_info.mojom.h"
 #include "airc/core/airc_browser_internal.h"
 #include "airc/core/airc_hooks.h"
+#include "airc/core/airc_user_agent_overrides.h"
 #import "airc/core/airc_internal.h"
 
 namespace airc {
 
 void TabBridge::DidStartNavigation(content::NavigationHandle* handle) {
   ScopedNotifying notifying(ScopedNotifying::Kind::kNavigation);
+  ApplyUserAgentOverride(handle, /*redirect=*/false, &overriding_user_agent_);
   if (handle->IsInPrimaryMainFrame() && !handle->IsSameDocument()) {
     rule_blocked_urls_.clear();
   }
@@ -38,6 +40,10 @@ void TabBridge::DidStartNavigation(content::NavigationHandle* handle) {
     discarded_ = false;
     [tab_ notify:@selector(tabDidChangeDiscarded:)];
   }
+}
+
+void TabBridge::DidRedirectNavigation(content::NavigationHandle* handle) {
+  ApplyUserAgentOverride(handle, /*redirect=*/true, &overriding_user_agent_);
 }
 
 void TabBridge::TitleWasSet(content::NavigationEntry* entry) {

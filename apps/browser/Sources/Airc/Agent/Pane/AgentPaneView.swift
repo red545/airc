@@ -33,6 +33,7 @@ struct AgentPaneView: View {
             if let a = run.approval { AgentPaneApproval(request: a).padding(.horizontal, 12).padding(.bottom, 8).transition(.move(edge: .bottom).combined(with: .opacity)) }
             if let t = model.takenOver { takenOverBanner(t).padding(.horizontal, 12).padding(.bottom, 8) }
             if let s = model.setup { AgentPaneSetupCard(setup: s, model: model).padding(.horizontal, 12).padding(.bottom, 8) }
+            if let p = model.keyEntry { AgentPaneKeyCard(provider: p, model: model).padding(.horizontal, 12).padding(.bottom, 8) }
             AgentPaneComposer(model: model)
         }
         .background(theme.surface.color)
@@ -645,6 +646,55 @@ struct AgentPaneSetupCard: View {
         }
         .padding(8)
         .background(RoundedRectangle(cornerRadius: 7).fill(theme.fieldFill.color))
+    }
+}
+
+/// An Anthropic or OpenAI API key, pasted in the pane: kept in the Mac's Keychain, sent only to that provider.
+struct AgentPaneKeyCard: View {
+    let provider: AgentProvider
+    @ObservedObject var model: AgentPaneModel
+    @Environment(\.aircTheme) private var theme
+    @State private var draft = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text("Add your \(provider.name) API key").aircFont(AircFont.body).fontWeight(.semibold).foregroundStyle(theme.surfaceText.color)
+                    .testAnchor("agentpane.key.title")
+                Spacer(minLength: 4)
+                Button { model.cancelSetup() } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)) }
+                    .buttonStyle(.plain).foregroundStyle(theme.surfaceTextTertiary.color).help("Close").accessibilityLabel("Close")
+                    .testAnchor("agentpane.key.close")
+            }
+            Text("It stays in your Mac's Keychain and goes only to \(provider.name). Use is billed to your key.")
+                .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color).fixedSize(horizontal: false, vertical: true)
+            SecureField(provider == .anthropic ? "sk-ant-…" : "sk-…", text: $draft)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12, design: .monospaced))
+                .padding(8)
+                .background(RoundedRectangle(cornerRadius: 7).fill(theme.fieldFill.color))
+                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(focused ? theme.focusRing.color.opacity(0.6) : theme.surfaceBorder.color))
+                .focused($focused)
+                .onSubmit { model.saveKey(draft) }
+                .accessibilityLabel("\(provider.name) API key")
+                .testAnchor("agentpane.key.field")
+            if let e = model.keyError {
+                Text(e).aircFont(AircFont.caption).foregroundStyle(Color.red).testAnchor("agentpane.key.error")
+            }
+            HStack(spacing: 6) {
+                Button("Get a key") { model.openKeyPage() }.buttonStyle(.airc(.secondary, size: .small)).testAnchor("agentpane.key.get")
+                Spacer(minLength: 0)
+                Button("Save") { model.saveKey(draft) }.buttonStyle(.airc(.primary, size: .small))
+                    .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .testAnchor("agentpane.key.save")
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(theme.tileFill.color))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(theme.surfaceBorder.color))
+        .onAppear { DispatchQueue.main.async { focused = true } }
+        .testAnchor("agentpane.key")
     }
 }
 

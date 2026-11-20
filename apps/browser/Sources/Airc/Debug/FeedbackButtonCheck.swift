@@ -68,19 +68,19 @@ extension SnapshotRunner {
             run { [self] in
                 c.sidebar.layoutSubtreeIfNeeded()
                 let bar = footer()
-                let lib = bar.libraryButton.frame, plus = bar.plusButton.frame, fb = bar.feedbackButton.frame
+                let lib = bar.libraryButton.frame, plus = bar.plusButton.frame, fb = bar.feedbackButton.frame, agent = bar.agentButton.frame
                 let cells = bar.cellViews.map(\.frame)
                 let left = cells.first?.minX ?? .infinity, right = cells.last?.maxX ?? -.infinity
                 let limit = bar.showsFeedback ? fb.minX : plus.minX
-                let inside = cells.isEmpty || (left >= lib.maxX - 0.5 && right <= limit + 0.5)
+                let inside = cells.isEmpty || (left >= agent.maxX - 0.5 && right <= limit + 0.5)
                 let ordered = zip(cells, cells.dropFirst()).allSatisfy { $0.maxX <= $1.minX + 0.5 }
                 // Centred in their region (SpaceBarLayout.region): equal room on both sides.
-                let region = SpaceBarLayout.region(sidebarWidth: Double(bar.bounds.width), feedback: bar.showsFeedback)
+                let region = SpaceBarLayout.region(sidebarWidth: Double(bar.bounds.width), feedback: bar.showsFeedback, agent: true)
                 let centred = cells.isEmpty || abs((left - CGFloat(region.x)) - (CGFloat(region.x + region.span) - right)) < 1
                 check(bar.showsFeedback == expectFeedback && cells.count == (n < 2 ? 0 : n) && inside && ordered && centred
-                      && plus.maxX <= bar.bounds.maxX + 0.5 && plus.minX > lib.maxX
+                      && plus.maxX <= bar.bounds.maxX + 0.5 && plus.minX > lib.maxX && agent.minX >= lib.maxX - 0.5 && abs(agent.midY - lib.midY) < 1
                       && (!bar.showsFeedback || (fb.maxX <= plus.minX + 0.5 && fb.maxX >= plus.minX - 4 && fb.minX > lib.maxX)),
-                      "feedbackbtn: \(n) Space(s) at \(Int(bar.bounds.width)) pt: Archive \(r(lib)) · Spaces \(cells.isEmpty ? "-" : r(NSRect(x: left, y: 0, width: right - left, height: 1))) (\(cells.map { Int($0.width) })) · Feedback \(bar.showsFeedback ? r(fb) : "hidden") · + \(r(plus)); expected Feedback \(expectFeedback ? "shown" : "hidden"), in order, centred, no overlap")
+                      "feedbackbtn: \(n) Space(s) at \(Int(bar.bounds.width)) pt: Archive \(r(lib)) · Agent \(r(agent)) · Spaces \(cells.isEmpty ? "-" : r(NSRect(x: left, y: 0, width: right - left, height: 1))) (\(cells.map { Int($0.width) })) · Feedback \(bar.showsFeedback ? r(fb) : "hidden") · + \(r(plus)); expected Feedback \(expectFeedback ? "shown" : "hidden"), in order, centred, no overlap")
             }
         }
         var added: [String] = []
@@ -115,8 +115,9 @@ extension SnapshotRunner {
             check(b.toolTip == "Send Feedback" && b.accessibilityLabel() == "Send Feedback" && b.accessibilityRole() == .button,
                   "feedbackbtn: tooltip and VoiceOver label unchanged (\(b.toolTip ?? "-"), \(b.accessibilityLabel() ?? "-"))")
         }
-        // 1, 5 and 12 Spaces at 260 pt: Feedback shows with 1 and 5, gives way with 12 (each icon would drop under 24 pt).
-        for (n, shows) in [(1, true), (5, true), (12, false)] {
+        // 1, 4, 5 and 12 Spaces at 260 pt, with the Airc Agent button after Archive (owner, 2026-11-20): Feedback shows
+        // with 1 and 4, gives way with 5 and 12 (each icon would drop under 24 pt).
+        for (n, shows) in [(1, true), (4, true), (5, false), (12, false)] {
             setSpaces(n)
             layoutCheck(n, expectFeedback: shows)
             renderFooter("feedbackbtn-footer-\(n)spaces")
@@ -129,11 +130,11 @@ extension SnapshotRunner {
         setSpaces(1)
         run { [self] in c.setSidebarWidth(AircMetrics.Sidebar.minWidth) }
         layoutCheck(1, expectFeedback: true)
-        setSpaces(5)
+        setSpaces(4)
         run { [self] in c.setSidebarWidth(260) }
-        layoutCheck(5, expectFeedback: true)
+        layoutCheck(4, expectFeedback: true)
 
-        // Feedback (5 Spaces, so it sits between the icons and +): a real click opens the sheet on this window.
+        // Feedback (4 Spaces, so it sits between the icons and +): a real click opens the sheet on this window.
         realClick({ footer().feedbackButton }, "the footer's Feedback button")
         step { [self] done in waitUntil({ FeedbackSheet.active != nil }, timeout: 4) { done() } }
         run { [self] in

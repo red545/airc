@@ -152,6 +152,9 @@ AIRC_EXPORT
 - (void)releaseNavigationHold:(NSString*)reason;
 - (void)releaseNavigationHoldReady;
 - (void)watchCastRoutes;
+/// One exact origin's user agent in this profile (request headers and navigator.userAgent of its main-frame documents);
+/// nil or empty removes it. The FairPlay bridge's Netflix (Safari's user agent).
+- (void)setUserAgent:(nullable NSString*)userAgent forOrigin:(NSString*)origin;
 @property BOOL passwordsOffered;
 // Airc's own password filling (and saving) in this profile; off: no fill on page
 // load, no suggestions (Settings › Passwords). In memory: set it at every launch.

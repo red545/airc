@@ -284,6 +284,8 @@ struct AgentPaneProvider: Identifiable, Equatable {
     func setUp(in model: AgentPaneModel? = nil) {
         if let k = cli, fix == "Check" { return AgentCLIDetector.shared.check(k, maxAge: 0) }
         if let k = cli, let model, fix == "Install…" || fix == "Sign in…" { return model.setUp(k) }
+        // An API key: pasted right in the pane (Keychain), Settings › AI › Agent stays the full page.
+        if let p = AgentProvider.allCases.first(where: { "api-\($0.rawValue)" == id }), let model, fix != nil { return model.enterKey(p) }
         if let k = cli { AgentCLIDetector.shared.check(k, maxAge: 5) }
         (NSApp.delegate as? AppDelegate)?.showSettings(page: .ai)
     }
@@ -306,6 +308,9 @@ final class AgentPaneModel: ObservableObject {
     @Published var providerRevision = 0
     /// Installing or signing in to Claude Code / Codex, in the pane (nil: not shown).
     @Published var setup: Setup?
+    /// Pasting an API key in the pane (nil: not shown).
+    @Published var keyEntry: AgentProvider?
+    @Published var keyError: String?
     /// The task to send once that provider is ready (typed before it was, or the one that failed signed out).
     private(set) var pendingTask: String?
     private var login: AgentCLILogin?
@@ -536,6 +541,7 @@ final class AgentPaneModel: ObservableObject {
 
     /// The pane's card for `kind`: install when it isn't on this Mac, sign in when it's signed out.
     func setUp(_ kind: AgentCLIKind) {
+        keyEntry = nil
         let st = AgentCLIDetector.shared.status(kind)
         switch st {
         case .notLoggedIn?: setup = Setup(kind: kind, step: .signIn)
@@ -641,7 +647,44 @@ final class AgentPaneModel: ObservableObject {
         login?.cancel()
         login = nil
         setup = nil
+        keyEntry = nil
+        keyError = nil
         pendingTask = nil
+    }
+
+    // MARK: An API key, in the pane
+
+    /// "Add key…": the key field in the pane (the task typed so far waits for it).
+    func enterKey(_ p: AgentProvider) {
+        login?.cancel()
+        login = nil
+        setup = nil
+        keyError = nil
+        keyEntry = p
+        AgentCenter.shared.onEvent?("key-entry \(p.rawValue)")
+    }
+
+    /// Save: into the Keychain (memory only in scripted runs), that provider becomes the agent's, the waiting task goes.
+    func saveKey(_ raw: String) {
+        guard let p = keyEntry else { return }
+        let k = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard k.count >= 20, !k.contains(" ") else { keyError = "That doesn't look like a \(p.name) API key."; return }
+        guard AgentModelSettings.shared.setKey(k, for: p) else { keyError = "The Keychain didn't save it. Try again, or use Settings › AI."; return }
+        AgentModelSettings.shared.update { $0.backend = .apiKey; $0.provider = p }
+        keyEntry = nil
+        keyError = nil
+        providerRevision += 1
+        AgentCenter.shared.onEvent?("key-saved \(p.rawValue)")
+        guard let t = pendingTask else { return }
+        pendingTask = nil
+        if text.trimmingCharacters(in: .whitespacesAndNewlines) == t { text = "" }
+        if !run.state.isActive { ask(t) }
+    }
+
+    /// "Get a key": the provider's key page in a tab.
+    func openKeyPage() {
+        guard let p = keyEntry, let u = URL(string: p.keyPage) else { return }
+        controller?.navigate(to: u, newTab: true)
     }
 
     /// Ready: the card goes, and the task that waited for it starts.

@@ -429,6 +429,12 @@ final class SidebarOrderTests: XCTestCase {
         XCTAssertFalse(SpaceBarLayout.showsFeedback(sidebarWidth: 164, spaces: 2))
         XCTAssertTrue(SpaceBarLayout.showsFeedback(sidebarWidth: 228, spaces: 4))
         XCTAssertFalse(SpaceBarLayout.showsFeedback(sidebarWidth: 228, spaces: 5))
+        // The Airc Agent button after the Library button: the icons start 34 pt later, Feedback gives way first.
+        XCTAssertEqual(SpaceBarLayout.region(sidebarWidth: 228, feedback: false, agent: true).x, 76)
+        XCTAssertEqual(SpaceBarLayout.region(sidebarWidth: 228, feedback: true, agent: true).span, 144 - 68)
+        XCTAssertTrue(SpaceBarLayout.showsFeedback(sidebarWidth: 228, spaces: 3, agent: true))
+        XCTAssertFalse(SpaceBarLayout.showsFeedback(sidebarWidth: 228, spaces: 4, agent: true))
+        XCTAssertEqual(SpaceBarLayout.region(sidebarWidth: 228, feedback: false).x, 42)
         XCTAssertTrue(SpaceBarLayout.showsFeedback(sidebarWidth: 320, spaces: 8))
         XCTAssertTrue(SpaceBarLayout.region(sidebarWidth: 228, feedback: true) == (42, 110))
         XCTAssertTrue(SpaceBarLayout.region(sidebarWidth: 228, feedback: false) == (42, 144))

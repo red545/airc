@@ -134,8 +134,10 @@ profiles through Create Profile instead).
 | `agent-pane-dark.webp` | Ask Airc, dark | The same agent pane in a dark Space | 2026-11-19 | test build (2ca546f4 + Stop glyph) |
 | `agent-pane-approval.webp` | Waiting for your OK | The agent pane pinning “Pay on cornershop…?” above the composer with Deny and Allow once, before anything is paid | 2026-11-19 | test build (2ca546f4 + Stop glyph) |
 | `agent-pane-approval-dark.webp` | Waiting for your OK, dark | The same approval in a dark Space | 2026-11-19 | test build (2ca546f4 + Stop glyph) |
-| `agent-pane-connect.webp` | Connect your AI | The agent pane's first run: your own Claude Code and Codex and the two API keys, each with its set-up step | 2026-11-19 | test build (agentux2: Install… / Sign in…) |
-| `agent-pane-connect-dark.webp` | Connect your AI, dark | The same first-run card in a dark Space | 2026-11-19 | test build (agentux2: Install… / Sign in…) |
+| `agent-pane-connect.webp` | Connect your AI | The agent pane's first run: your own Claude Code and Codex and the two API keys, each with its set-up step | 2026-11-20 | test build (agentux2: ✦ button) |
+| `agent-pane-connect-dark.webp` | Connect your AI, dark | The same first-run card in a dark Space | 2026-11-20 | test build (agentux2: ✦ button) |
+| `agent-button.webp` | The Airc Agent button | The ✦ button in the sidebar's bottom bar, with the one-time hint “Ask Airc to do things for you” | 2026-11-20 | test build (agentux2: ✦ button) |
+| `agent-button-dark.webp` | The Airc Agent button, dark | The same button and hint in a dark Space | 2026-11-20 | test build (agentux2: ✦ button) |
 | `agents-approval.webp` | Allow ‘Claude’ to use Airc? | The one-time question when a new app connects: the profiles it can use and who started it | 2026-11-15 | 202611150942 (f1991861) |
 | `settings-agents.webp` | Settings: Agents | Let AI apps use Airc (on), Show agent pages in front, the apps you answered, the profiles agents may use, Activity, and one-click setup | 2026-11-15 | 202611150942 (f1991861) |
 | `settings-agents-activity.webp` | Settings: Agents, Activity | What each app did lately: sites and kinds of actions (Clicked, Typed in a field), never page content or typed text; Clear History; setup | 2026-11-15 | 202611150942 (f1991861) |

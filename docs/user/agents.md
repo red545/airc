@@ -12,7 +12,8 @@ again in **Settings › Agents**).
 
 ## Ask Airc (the Airc Agent)
 
-You can also ask Airc itself. Press **⌥⌘A** (or **View › Airc Agent**) and the agent pane opens beside the page, on the
+You can also ask Airc itself. Click **✦** in the sidebar's bottom row (right of the Archive button), press **⌥⌘A**, or
+pick **View › Airc Agent**, and the agent pane opens beside the page, on the
 side away from the sidebar (drag its inner edge to make it wider, double-click the edge for the default; **⇧⌥⌘A** starts a
 new task). Type what you want done, like "find the cheapest train to Graz on Friday and fill in the booking form", and
 press Return. Or type it in the Command Bar and pick **Ask Airc to…**. The page you're on goes with the task as a chip
@@ -40,8 +41,14 @@ your OK and the pane is closed, its row says so and asks there. **◷** in the p
     Claude Code: Terminal opens with `claude auth login`. Codex: its sign-in page opens in a tab (Codex itself waits for
     it on this Mac). The pane says **Waiting for sign-in…** and, once the tool reports it's signed in, your task goes on
     by itself. Airc never sees your password or token; **Cancel** stops waiting.
-  - For a key, add it in **Settings › AI › Agent** and pick a model (Claude Opus 5.5 by default). The key stays in your
-    Keychain.
+  - **Add key…** (an Anthropic or OpenAI API key): paste it right in the pane and **Save**; it stays in your Mac's
+    Keychain and goes only to that provider (**Get a key** opens its key page). **Settings › AI › Agent** has the key,
+    the model (Claude Opus 5.5 by default) and the rest.
+
+  Whichever you pick, the task you typed before connecting goes on by itself once you're connected. The ✦ button turns
+  the accent colour while the pane is open and shows a small dot while a task runs; right-click it for **New Task**,
+  **Watch** and **Settings › Agents**. After your first onboarding, a one-time hint points at it ("Ask Airc to do things
+  for you"); **Not now** dismisses it for good.
 
   Your task, the pages the agent reads and its screenshots go from your Mac to that provider; nothing goes through
   Airc's servers. Answers stream in as they're written.

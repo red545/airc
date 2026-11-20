@@ -184,6 +184,8 @@ agent-pane-approval|Waiting for your OK|The agent pane pinning “Pay on corners
 agent-pane-approval-dark|Waiting for your OK, dark|The same approval in dark mode
 agent-pane-connect|Connect your AI|The agent pane'"'"'s first run: the providers it can use, each with its set-up step
 agent-pane-connect-dark|Connect your AI, dark|The same first-run card in dark mode
+agent-button|The Airc Agent button|The ✦ button in the sidebar'"'"'s bottom bar, with the one-time hint “Ask Airc to do things for you”
+agent-button-dark|The Airc Agent button, dark|The same button and hint in a dark Space
 agents-approval|Allow ‘Claude’ to use Airc?|The one-time question when a new app connects: the profiles it can use and who signed it
 settings-sync|Settings: Sync|iCloud sync on, up to date between two Macs, with what syncs and what never leaves the Mac
 settings-sync-first|First sync on another Mac|Both sidebars side by side, the other Mac'"'"'s Work profile matched to this one'"'"'s, then merge or replace (a backup first)

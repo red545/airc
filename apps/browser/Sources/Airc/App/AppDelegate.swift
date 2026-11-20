@@ -380,7 +380,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             done = true
             self.onboarding = nil
             self.windowSession.browserReady = true
-            if o.mode == .firstRun { self.didOpen(c) }
+            if o.mode == .firstRun { self.didOpen(c); AgentButtonHint.afterOnboarding(c) }
             o.onFinished?(c)
         }
         onMain { w.expand(into: target) { finish() } }

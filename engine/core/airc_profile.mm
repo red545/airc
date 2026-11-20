@@ -40,6 +40,7 @@
 #include "extensions/common/mojom/manifest.mojom-shared.h"
 #include "airc/core/airc_cast_dialog.h"
 #include "airc/core/airc_navigation_hold.h"
+#include "airc/core/airc_user_agent_overrides.h"
 #import "airc/core/airc_api_internal.h"
 #import "airc/core/airc_internal.h"
 
@@ -357,6 +358,13 @@ bool IsProfileDeleting(const Profile* profile) {
 
 - (void)watchCastRoutes {
   airc::WatchCastRoutes(_profile.get());
+}
+
+- (void)setUserAgent:(NSString*)userAgent forOrigin:(NSString*)origin {
+  if (_profile && origin.length) {
+    airc::SetUserAgentOverride(_profile.get(), base::SysNSStringToUTF8(origin),
+                               userAgent.length ? base::SysNSStringToUTF8(userAgent) : std::string());
+  }
 }
 
 @end

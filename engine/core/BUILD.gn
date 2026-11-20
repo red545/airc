@@ -149,6 +149,8 @@ source_set("core") {
     "airc_modal_dialog_host.mm",
     "airc_navigation_hold.mm",
     "airc_navigation_hold.h",
+    "airc_user_agent_overrides.h",
+    "airc_user_agent_overrides.mm",
     "airc_page_channel.h",
     "airc_page_limits.h",
     "airc_page_channel.mm",

@@ -373,6 +373,7 @@ class TabBridge : public content::WebContentsObserver,
   void DidChangeVisibleSecurityState() override;
   void WasDiscarded() override;
   void DidStartNavigation(content::NavigationHandle* handle) override;
+  void DidRedirectNavigation(content::NavigationHandle* handle) override;
   void ResourceLoadComplete(
       content::RenderFrameHost* render_frame_host,
       const content::GlobalRequestID& request_id,
@@ -423,6 +424,8 @@ class TabBridge : public content::WebContentsObserver,
   raw_ptr<blocked_content::PopupBlockerTabHelper> popups_ = nullptr;
   bool host_focusing_ = false;
   bool discarded_ = false;
+  // The last main-frame navigation used a per-origin user agent (airc_user_agent_overrides.h).
+  bool overriding_user_agent_ = false;
   bool frozen_ = false;
   NSDictionary* __strong media_access_;
   std::optional<std::pair<int, int>> unresponsive_;

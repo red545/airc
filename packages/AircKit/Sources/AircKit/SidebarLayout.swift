@@ -179,15 +179,21 @@ public enum SpaceBarLayout {
 
     /// Whether the footer has room for the Feedback button: with one Space (no icons), always; otherwise only while
     /// every Space icon keeps at least `feedbackMinCell` beside it. Narrower, it's left out (Help and ⌘T have it).
-    public static func showsFeedback(sidebarWidth: Double, spaces: Int) -> Bool {
-        guard spaces >= 2 else { return sidebarWidth >= 84 + feedbackButton }
-        return (span(sidebarWidth: sidebarWidth) - feedbackButton) / Double(spaces) >= feedbackMinCell
+    public static func showsFeedback(sidebarWidth: Double, spaces: Int, agent: Bool = false) -> Bool {
+        let base = span(sidebarWidth: sidebarWidth) - (agent ? agentButton : 0)
+        guard spaces >= 2 else { return base >= feedbackButton }
+        return (base - feedbackButton) / Double(spaces) >= feedbackMinCell
     }
 
-    /// Where the Space icons go: (left edge, span). The Feedback button, when it shows, sits just left of "+"
-    /// (owner, 2026-11-16: Archive · Spaces · Feedback · +), so it takes its room from the span's right end.
-    public static func region(sidebarWidth: Double, feedback: Bool) -> (x: Double, span: Double) {
-        let extra = feedback ? feedbackButton : 0
-        return (42, max(0, span(sidebarWidth: sidebarWidth) - extra))
+    /// The Airc Agent button's room after the Library button (its 32 pt plus a 2 pt gap). It always shows (owner,
+    /// 2026-11-20: the agent pane must be easy to find); Feedback gives way first.
+    public static let agentButton: Double = 34
+
+    /// Where the Space icons go: (left edge, span). Archive · Agent · Spaces · Feedback · +: the Agent button takes its
+    /// room from the span's left end, the Feedback button (owner, 2026-11-16), when it shows, from its right end.
+    public static func region(sidebarWidth: Double, feedback: Bool, agent: Bool = false) -> (x: Double, span: Double) {
+        let left = agent ? agentButton : 0
+        let extra = (feedback ? feedbackButton : 0) + left
+        return (42 + left, max(0, span(sidebarWidth: sidebarWidth) - extra))
     }
 }

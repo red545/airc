@@ -16,10 +16,13 @@ extension SnapshotRunner {
     func agentPane2Scenario() {
         let k = AgentPane2Check(runner: self)
         step { done in k.setUp(done) }
+        step { done in k.caseButton(done) }
         step { done in k.caseCLI(.claudeCode, done) }
         step { done in k.caseCLI(.codex, done) }
         step { done in k.caseSignedOutTurn(done) }
+        step { done in k.caseKey(done) }
         step { done in k.caseHandBack(done) }
+        step { done in k.caseHint(done) }
         run { k.finish() }
     }
 }
@@ -338,7 +341,8 @@ final class AgentPane2Check {
                     evaluate(page, "var f=document.getElementById('f');f.focus();f.value='Typed by the person';f.dispatchEvent(new Event('input',{bubbles:true}));window.scrollTo(0,1200);window.__aircKept='kept';return {y:scrollY,h:history.length}") { [self] typed in
                         let history = typed["h"] as? Int ?? -1
                         note("agentpane2 \(engine): before Hand back: \(typed)")
-                        k.fake.begin("handback2-after", Array(repeating: .text("Carrying on from your page."), count: 3), offset: 2)
+                        // However many model turns the stopped run made, any next one answers (the fake's index can't run past it).
+                        k.fake.begin("handback2-after", Array(repeating: .text("Carrying on from your page."), count: 10), offset: 0)
                         k.press("agentpane.handback", "Hand back", fallback: { self.model?.handBack() }) { [self] how in
                             wait({ self.k.fake.requests(for: "handback2-after") > 0 && !self.run.state.isActive }, 25) { [self] in
                                 let nw = run.runWindowID.flatMap { AgentCenter.shared.windows[$0] }
@@ -369,9 +373,182 @@ final class AgentPane2Check {
         }
     }
 
+    // MARK: The Airc Agent button (sidebar bottom bar)
+
+    var agentButton: NSView { c.sidebar.footer.agentButton }
+
+    /// A real click on a view's centre (the UI driver), else `fallback`. `done("real"|"posted")`.
+    func pressView(_ v: NSView?, _ what: String, fallback: @escaping () -> Void, _ done: @escaping (String) -> Void) {
+        guard k.real, let v, let w = v.window, NSApp.isActive, let main = NSScreen.screens.first else { fallback(); return done("posted") }
+        let r = w.convertToScreen(v.convert(v.bounds, to: nil))
+        UIDriverClient.run(["--click", "\(Int(r.midX.rounded()))", "\(Int((main.frame.maxY - r.midY).rounded()))"]) { ok, out in
+            DispatchQueue.main.async {
+                if !ok { self.note("FAIL-ENV agentpane2 \(self.engine): the driver refused \(what) (\(out)); posted"); fallback(); return done("posted") }
+                done("real")
+            }
+        }
+    }
+
+    func caseButton(_ done: @escaping () -> Void) {
+        AgentUI.close(c)
+        c.root.layoutSubtreeIfNeeded()
+        let b = agentButton
+        let lights = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap { c.window.standardWindowButton($0) }
+            .map { $0.convert($0.bounds, to: nil) }.reduce(NSRect.null) { $0.union($1) }
+        let bf = b.convert(b.bounds, to: nil)
+        let lib = c.sidebar.footer.libraryButton.convert(c.sidebar.footer.libraryButton.bounds, to: nil)
+        check(!b.isHiddenOrHasHiddenAncestor && b.window === c.window && bf.width >= 24, "the sidebar's bottom bar has the Airc Agent button (\(NSStringFromRect(bf)))")
+        check(abs(bf.midY - lib.midY) < 1 && bf.minX >= lib.maxX - 0.5, "… right of the Library button, on its row")
+        check(!bf.intersects(lights), "… nowhere near the traffic lights")
+        check(b.toolTip?.hasPrefix("Airc Agent (⌥⌘A)") == true && b.accessibilityLabel() == "Airc Agent", "… tooltip “\(b.toolTip ?? "")”, VoiceOver “\(b.accessibilityLabel() ?? "")”")
+        let titles = (b as? GlyphButton)?.contextMenuProvider?()?.items.map(\.title) ?? []
+        check(titles.contains("New Task") && titles.contains("Watch") && titles.contains("Settings › Agents…"), "… right-click: New Task, Watch, Settings › Agents (\(titles))")
+        k.front { [self] _ in
+            pressView(b, "the Airc Agent button", fallback: { AgentUI.toggle(self.c) }) { [self] how in
+                wait({ AgentUI.isShown(self.c) }, 4) { [self] in
+                    check(AgentUI.isShown(c), "a click on it opens the pane [\(how) click]")
+                    check(b.accessibilityValue() as? String == "open", "… and it shows the pane is open")
+                    after(0.5) { [self] in
+                        pressView(b, "the Airc Agent button", fallback: { AgentUI.toggle(self.c) }) { [self] how in
+                            wait({ !AgentUI.isShown(self.c) }, 4) { [self] in
+                                check(!AgentUI.isShown(c), "another click closes it [\(how) click]")
+                                // With the sidebar hidden the button goes with it (⌥⌘A stays).
+                                c.toggleSidebar()
+                                after(0.8) { [self] in
+                                    let r = b.window == nil ? NSRect.zero : b.convert(b.bounds, to: nil)
+                                    let gone = b.isHiddenOrHasHiddenAncestor || b.window == nil || r.maxX <= 1 || c.sidebar.alphaValue < 0.05
+                                    check(c.sidebarHidden && gone, "the sidebar hidden: the button goes with it (sidebar hidden \(c.sidebarHidden), hidden \(b.isHiddenOrHasHiddenAncestor), frame \(NSStringFromRect(r)))")
+                                    c.toggleSidebar()
+                                    after(0.8) { [self] in
+                                        check(!b.isHiddenOrHasHiddenAncestor, "… and back with it")
+                                        done()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: Connect with an API key, in the pane
+
+    func caseKey(_ done: @escaping () -> Void) {
+        run.newConversation()
+        uninstallFakes()
+        AgentCLIDetector.shared.setDirForTesting(pathDir.path)
+        AgentModelSettings.shared.setTestKey(nil, provider: .anthropic, base: k.base)
+        AgentModelSettings.shared.setTestKey(nil, provider: .openai, base: k.base)
+        AgentModelSettings.shared.setBackendForTesting(.apiKey)
+        AgentModelSettings.shared.update { $0.provider = .anthropic }
+        k.fake.begin("pane-key", [.tool("navigate", ["url": "\(k.base)/article.html"]), .tool("wait", ["duration": 3]), .text("Fixturia's capital is Testville.")])
+        AgentUI.close(c)
+        let task = "What is the capital of Fixturia?"
+        k.front { [self] _ in
+            pressView(agentButton, "the Airc Agent button", fallback: { AgentUI.toggle(self.c) }) { [self] how in
+                wait({ AgentUI.isShown(self.c) && self.model?.mode == .connect }, 6) { [self] in
+                    check(model?.mode == .connect, "nothing connected: the button opens the pane on “Connect your AI”, in the pane, not Settings [\(how) click]")
+                    model?.cancelSetup()
+                    k.type(task) { [self] typed in
+                        k.press("agentpane.send", "Send", fallback: { self.model?.send() }) { [self] _ in
+                            after(0.6) { [self] in
+                                check(model?.text == task && run.steps.isEmpty, "Send with nothing connected keeps the task [\(typed) keys]")
+                                k.press("agentpane.provider.api-anthropic.fix", "Add key… (Anthropic)", fallback: { self.model?.enterKey(.anthropic) }) { [self] how in
+                                    wait({ self.model?.keyEntry == .anthropic && self.k.point("agentpane.key.field") != nil }, 4) { [self] in
+                                        check(model?.keyEntry == .anthropic, "Add key… shows the key field in the pane [\(how) click]")
+                                        check(NSApp.windows.allSatisfy { !($0.isVisible && $0.title.contains("Settings")) }, "… and no Settings window")
+                                        k.shot("agentpane2-key")
+                                        typeKey { [self] how in
+                                            wait({ self.model?.keyEntry == nil }, 4) { [self] in
+                                                check(model?.keyEntry == nil && AgentModelSettings.shared.key(.anthropic) == k.key,
+                                                      "Save keeps the key (Keychain; memory in this run) and closes the card [\(how)]")
+                                                check(AgentModelSettings.shared.values.backend == .apiKey && AgentModelSettings.shared.values.provider == .anthropic, "… Anthropic is the agent's provider now")
+                                                wait({ self.run.state.isActive }, 6) { [self] in
+                                                    check(run.steps.first { $0.kind == .user }.map { AgentPaneItem.promptText($0.text) } == task, "… and the typed task goes by itself")
+                                                    wait({ self.c.sidebar.footer.agentDotShown && self.c.sidebar.footer.liveAgentRow != nil }, 8) { [self] in
+                                                        check(c.sidebar.footer.agentDotShown, "while it works, the button has its dot")
+                                                        let watch = (agentButton as? GlyphButton)?.contextMenuProvider?()?.items.first { $0.title == "Watch" }
+                                                        check(watch?.isEnabled == true, "… and right-click › Watch is on")
+                                                        wait({ !self.run.state.isActive }, 30) { [self] in
+                                                            check(run.state == .done && k.finalText == "Fixturia's capital is Testville.", "… to the end (“\(k.finalText)”)")
+                                                            after(0.3) { [self] in
+                                                                check(!c.sidebar.footer.agentDotShown, "the dot goes when it's done")
+                                                                done()
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The fixture key into the key field: a real click and real keys, then Save (real); else posted.
+    func typeKey(_ done: @escaping (String) -> Void) {
+        guard k.real, let keys = UIDriverClient.keys(typing: k.key) else { model?.saveKey(k.key); return done("posted") }
+        k.press("agentpane.key.field", "the key field", fallback: {}) { [self] _ in
+            after(0.3) { [self] in
+                UIDriverClient.press(keys, pid: getpid()) { [self] ok, _ in
+                    DispatchQueue.main.async { [self] in
+                        if !ok { model?.saveKey(k.key); return done("posted") }
+                        after(0.3) { [self] in
+                            k.press("agentpane.key.save", "Save", fallback: { self.model?.saveKey(self.k.key) }) { how in done("\(how) keys + \(how) click") }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: The first-run hint
+
+    func caseHint(_ done: @escaping () -> Void) {
+        run.newConversation()
+        AgentUI.close(c)
+        AgentButtonHint.resetForTesting()
+        k.front { [self] _ in
+            let p = AgentButtonHint.show(in: c)
+            wait({ AgentButtonHint.shownView != nil }, 3) { [self] in
+                let v = AgentButtonHint.shownView
+                check(p != nil && v != nil, "the first-run hint shows over the Airc Agent button")
+                if let v, let w = v.window {
+                    v.layoutSubtreeIfNeeded()
+                    check(TestAnchors.view("agenthint.title", in: v) != nil, "… “Ask Airc to do things for you”")
+                    let bf = agentButton.window.map { $0.convertToScreen(agentButton.convert(agentButton.bounds, to: nil)) } ?? .zero
+                    check(abs(w.frame.midX - bf.midX) < w.frame.width / 2 + 4 && (w.frame.minY >= bf.maxY - 4 || w.frame.maxY <= bf.minY + 4),
+                          "… pointing at the button (hint \(NSStringFromRect(w.frame)), button \(NSStringFromRect(bf)))")
+                    if let img = runner.render(v), let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+                       let png = rep.representation(using: .png, properties: [:]) {
+                        try? png.write(to: runner.dir.appendingPathComponent("agentpane2-hint-\(engine).png"))
+                    }
+                }
+                check(AgentButtonHint.wasShown, "… and it's remembered as shown on this Mac")
+                after(0.8) { [self] in
+                    let dismiss = AgentButtonHint.shownView.flatMap { TestAnchors.view("agenthint.dismiss", in: $0) }
+                    pressView(dismiss, "Not now", fallback: { AgentButtonHint.close() }) { [self] how in
+                        wait({ AgentButtonHint.shownView == nil }, 3) { [self] in
+                            check(AgentButtonHint.shownView == nil, "“Not now” dismisses it [\(how) click]")
+                            check(AgentButtonHint.show(in: c) == nil && AgentButtonHint.shownView == nil, "… and it doesn't show again")
+                            done()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: Finish
 
     func finish() {
+        AgentButtonHint.close()
         model?.cancelSetup()
         if let o = savedOpener { AgentCLISetupFiles.openInTerminal = o }
         for f in terminalFiles { try? FileManager.default.removeItem(at: f) }

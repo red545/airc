@@ -522,6 +522,16 @@ final class SpaceBarView: NSView {
     /// Whether the Feedback button shows now (the checks read it).
     var showsFeedback: Bool { !feedback.isHidden }
     var feedbackButton: NSView { feedback }
+    /// The Airc Agent (⌥⌘A, owner 2026-11-20: the pane must be easy to find): just right of the Library button. Opens
+    /// and closes the agent pane, shows a dot while a task runs, right-click: New Task, Watch, Settings › Agents.
+    private let agent = GlyphButton(symbol: "sparkles", size: 15)
+    private let agentDot = CALayer()
+    private var agentGlyph: NSColor = .secondaryLabelColor
+    private var agentSubs: [AnyCancellable] = []
+    /// The Airc Agent button (the checks click it; the first-run hint points at it).
+    var agentButton: NSView { agent }
+    /// Whether its "working" dot shows.
+    var agentDotShown: Bool { !agentDot.isHidden }
     private var visibleSpaces = 0
     private(set) var cells: [SpaceCell] = []
     private var spaceIDs: [String] = []
@@ -735,6 +745,65 @@ final class SpaceBarView: NSView {
             FeedbackSheet.show(from: c.window, app: app)
         }
         feedback.contextMenuProvider = { [weak self] in self?.feedbackMenu() }
+        addSubview(agent)
+        agent.toolTip = "Airc Agent (⌥⌘A)"
+        agent.setAccessibilityElement(true)
+        agent.setAccessibilityRole(.button)
+        agent.setAccessibilityLabel("Airc Agent")
+        agent.setAccessibilityHelp("Opens or closes the Airc Agent beside the page (⌥⌘A)")
+        agent.action = { [weak self] in
+            guard let c = self?.controller else { return }
+            AgentUI.toggle(c)
+            self?.refreshAgent()
+        }
+        agent.contextMenuProvider = { [weak self] in self?.agentMenu() }
+        wantsLayer = true
+        agentDot.backgroundColor = NSColor.controlAccentColor.cgColor
+        agentDot.cornerRadius = 3
+        agentDot.isHidden = true
+        layer?.addSublayer(agentDot)
+        agentSubs.append(AgentRunCenter.shared.$state.map(\.isActive).removeDuplicates().receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.refreshAgent() })
+        agentSubs.append(NotificationCenter.default.publisher(for: AgentPaneController.visibilityChanged)
+            .sink { [weak self] _ in self?.refreshAgent() })
+    }
+
+    /// The button follows the pane (accent while it's open in this window) and the run (the dot).
+    func refreshAgent() {
+        let open = controller.map { AgentUI.isShown($0) } ?? false
+        agent.tint = open ? .controlAccentColor : agentGlyph
+        agent.setAccessibilityValue(open ? "open" : "closed")
+        let working = AgentRunCenter.shared.state.isActive
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        agentDot.isHidden = !working
+        CATransaction.commit()
+        agent.toolTip = working ? "Airc Agent (⌥⌘A): working" : "Airc Agent (⌥⌘A)"
+    }
+
+    /// Right-click on the Airc Agent button.
+    private func agentMenu() -> NSMenu {
+        let m = NSMenu()
+        m.add("New Task") { [weak self] in if let c = self?.controller { AgentUI.newTask(c); self?.refreshAgent() } }
+        let watch = m.add("Watch") { [weak self] in self?.watchAgent() }
+        watch.isEnabled = liveAgentRow != nil
+        m.autoenablesItems = false
+        m.addItem(.separator())
+        m.add("Settings › Agents…") { (NSApp.delegate as? AppDelegate)?.showSettings(page: .agents) }
+        return m
+    }
+
+    /// The Airc Agent's live page, for Watch.
+    var liveAgentRow: String? {
+        guard let w = AgentRunCenter.shared.runWindowID else { return nil }
+        let rows = AgentActivity.shared.model.rows.filter { $0.window == w && $0.isLive }
+        let active = AgentCenter.shared.windows[w]?.activeTabID
+        return (rows.first { $0.tab == active } ?? rows.last)?.id
+    }
+
+    func watchAgent() {
+        guard let c = controller, let id = liveAgentRow else { return }
+        c.sidebar.agents.openWatch(id)
     }
 
     /// Right-click on the Feedback button.
@@ -791,6 +860,9 @@ final class SpaceBarView: NSView {
         plus.tint = palette.glyph
         library.hoverFill = palette.hover
         plus.hoverFill = palette.hover
+        agentGlyph = palette.glyph
+        agent.hoverFill = palette.hover
+        refreshAgent()
         // Quieter than Library and "+": it's there when wanted, not asking for attention.
         feedback.tint = palette.textSecondary
         feedback.hoverFill = palette.hover
@@ -868,12 +940,14 @@ final class SpaceBarView: NSView {
         let y = (bounds.height - b) / 2
         library.frame = Self.libraryButtonFrame(columnHeight: bounds.height)
         plus.frame = NSRect(x: bounds.width - AircMetrics.Footer.buttonInset - b, y: y, width: b, height: b)
+        agent.frame = NSRect(x: library.frame.minX + CGFloat(SpaceBarLayout.agentButton), y: y, width: b, height: b)
+        agentDot.frame = CGRect(x: agent.frame.maxX - 9, y: isFlipped ? agent.frame.minY + 4 : agent.frame.maxY - 10, width: 6, height: 6)
         let shows = feedbackEnabled && !hasProvisional
-            && SpaceBarLayout.showsFeedback(sidebarWidth: Double(bounds.width), spaces: visibleSpaces)
+            && SpaceBarLayout.showsFeedback(sidebarWidth: Double(bounds.width), spaces: visibleSpaces, agent: true)
         feedback.isHidden = !shows
         feedback.frame = NSRect(x: plus.frame.minX - CGFloat(SpaceBarLayout.feedbackButton), y: y, width: b, height: b)
         guard !reordering else { return }
-        let region = SpaceBarLayout.region(sidebarWidth: Double(bounds.width), feedback: shows)
+        let region = SpaceBarLayout.region(sidebarWidth: Double(bounds.width), feedback: shows, agent: true)
         let widths = SpaceBarLayout.cellWidths(count: cells.count, current: Int(position.rounded()), span: region.span)
         let total = widths.reduce(0, +)
         var x = CGFloat(region.x) + (CGFloat(region.span) - CGFloat(total)) / 2

@@ -2,6 +2,7 @@
 #if AIRC_TESTING // test builds only: public builds compile nothing in Debug/ (App/TestingGate.swift)
 import AircKit
 import AppKit
+import SwiftUI
 
 /// agent-pane, agent-pane-approval, agent-pane-connect (part "agents", each also "-dark"): the Airc Agent pane in the
 /// window (docs/design/agent-ux.md M1, M2, M3 B) on a synthetic Corner Shop. The model is the scripted fake from
@@ -54,6 +55,15 @@ extension SnapshotRunner {
                 c.reloadAll(animated: false)
             }
             wait(0.8)
+            // The Airc Agent button in the bottom bar, with its one-time hint.
+            step { [self] done in
+                AgentModelSettings.shared.setTestKey(nil, provider: .anthropic, base: nil)
+                AgentRunCenter.shared.newConversation()
+                AgentUI.close(c)
+                done()
+            }
+            wait(0.5)
+            mkWindowShot("agent-button" + sfx, dark: dark) { [self] frame in mkAgentHintLayer(frame, dark: dark) }
             // M3 B: nothing connected.
             step { [self] done in
                 AgentModelSettings.shared.setTestKey(nil, provider: .anthropic, base: nil)
@@ -108,6 +118,23 @@ extension SnapshotRunner {
             server?.stop()
         }
         wait(0.4)
+    }
+
+    /// The first-run hint as a card over the bottom bar's Airc Agent button (a popover draws in its own window, which
+    /// the window capture doesn't hold).
+    func mkAgentHintLayer(_ frame: NSRect, dark: Bool) -> [MarketingStudio.Layer] {
+        let theme = c.currentPalette.resolved
+        let host = NSHostingView(rootView: AgentButtonHintView(tryIt: {}, dismiss: {}).environment(\.aircTheme, theme).background(theme.surface.color))
+        host.appearance = NSAppearance(named: theme.isDark ? .darkAqua : .aqua)
+        host.frame.size = host.fittingSize
+        host.layoutSubtreeIfNeeded()
+        guard let img = render(host) else { return [] }
+        let b = c.sidebar.footer.agentButton
+        var r = b.convert(b.bounds, to: c.root)
+        if c.root.isFlipped { r.origin.y = c.root.bounds.height - r.maxY }
+        let size = host.frame.size
+        return [MarketingStudio.Layer(image: img, frame: NSRect(x: frame.minX + r.midX - 28, y: frame.minY + r.maxY + 10, width: size.width, height: size.height),
+                                      radius: 12, dark: dark, shadow: .panel)]
     }
 }
 #endif

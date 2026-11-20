@@ -68,6 +68,8 @@ enum AgentUI {
 final class AgentPaneController: NSObject {
     private static var panes: [ObjectIdentifier: AgentPaneController] = [:]
     static let defaultWidth: CGFloat = 400
+    /// The pane opened or closed in some window (the sidebar's Airc Agent button follows it).
+    static let visibilityChanged = Notification.Name("AircAgentPaneVisibilityChanged")
     static let minWidth: CGFloat = 340
     static let maxWidth: CGFloat = 560
     /// Below this window width the pane overlays the page instead of squeezing it.
@@ -134,6 +136,7 @@ final class AgentPaneController: NSObject {
         }
         if fresh, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { card?.layer?.fade(from: 0, to: 1, duration: 0.16) }
         focus()
+        NotificationCenter.default.post(name: Self.visibilityChanged, object: c)
     }
 
     func close() {
@@ -142,6 +145,7 @@ final class AgentPaneController: NSObject {
         teardown()
         c.layoutRoot()
         if c.window.firstResponder == nil || c.window.firstResponder === c.window { c.focusShownPage() }
+        NotificationCenter.default.post(name: Self.visibilityChanged, object: c)
     }
 
     /// A Space switch: the pane shows if it was open in that Space.
@@ -156,6 +160,7 @@ final class AgentPaneController: NSObject {
             teardown()
             c.layoutRoot()
         }
+        NotificationCenter.default.post(name: Self.visibilityChanged, object: c)
     }
 
     private func install(_ c: WindowController) {
