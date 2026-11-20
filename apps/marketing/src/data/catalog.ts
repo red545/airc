@@ -9,7 +9,7 @@
 // makes untrue, a Coming row it delivers); `from` shows a row only then. Previews show the state after the newest
 // release. `shot` names a file in src/assets/screens (scripts/sync-screenshots.mjs).
 
-export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "0.1.18" | "0.1.19" | "0.1.20" | "0.1.21" | "0.1.22" | "0.1.23" | "0.1.24" | "0.1.25" | "0.1.26" | "0.1.27" | "0.1.28" | "0.1.29" | "0.1.30" | "0.1.31" | "0.1.32" | "0.1.33" | "0.1.34" | "0.1.35" | "0.1.36" | "0.1.37" | "next" | "coming";
+export type Since = "0.1.0" | "0.1.2" | "0.1.3" | "0.1.4" | "0.1.5" | "0.1.6" | "0.1.7" | "0.1.8" | "0.1.9" | "0.1.10" | "0.1.11" | "0.1.12" | "0.1.13" | "0.1.14" | "0.1.15" | "0.1.16" | "0.1.17" | "0.1.18" | "0.1.19" | "0.1.20" | "0.1.21" | "0.1.22" | "0.1.23" | "0.1.24" | "0.1.25" | "0.1.26" | "0.1.27" | "0.1.28" | "0.1.29" | "0.1.30" | "0.1.31" | "0.1.32" | "0.1.33" | "0.1.34" | "0.1.35" | "0.1.36" | "0.1.37" | "0.1.42" | "next" | "coming";
 
 export interface Feature {
   title: string;
@@ -424,7 +424,7 @@ export const groups: Group[] = [
       { title: "From your other devices", line: "Claude Code on your other computers can use Airc on your Mac over Tailscale. Off until you turn it on in Settings → Agents; each device pairs once with a one-time code and can be revoked any time.", since: "0.1.18" },
       { title: "Airc Agent (beta)", line: "Press ⌥⌘A, describe a task, and Airc does it in your signed-in sites with your own Anthropic or OpenAI API key, added in Settings → AI → Agent. It asks before it pays, sends, posts or deletes; Quick or Keep going; Stop any time. Its runs show in the Agents folder.", since: "0.1.22" },
       { title: "Agent on your Claude Code or Codex", line: "In Settings → AI → Agent → Use, pick Your Claude Code or Your Codex instead of an API key: the Airc Agent runs your installed copy with its own login, with only Airc's browser tools.", since: "0.1.31" },
-      { title: "Agent button and Connect", line: "The ✦ button at the bottom of the sidebar opens the Airc Agent (or press ⌥⌘A). Connect it right in the pane: your ChatGPT subscription through your own Codex sign-in, your own Claude Code, or an API key.", since: "next" },
+      { title: "Agent button and Connect", line: "The ✦ button at the bottom of the sidebar opens the Airc Agent (or press ⌥⌘A). Connect it right in the pane: your ChatGPT subscription through your own Codex sign-in, your own Claude Code, or an API key.", since: "0.1.42" },
       { title: "Agent replies stream in", line: "The Airc Agent's replies appear as they're written, and Stop ends them at once. Its approval card shows in the Agents folder's Watch too, and “Ask Airc to…” in the Command Bar starts a task.", since: "0.1.24" },
       { title: "Agent memory you can edit", line: "Off by default: turn it on in Settings → AI → Agent → Memory and the agent keeps short Markdown notes between tasks, which you can open, edit, undo or clear. It refuses to keep passwords, codes and card numbers.", since: "0.1.24" },
       { title: "Hand to Claude", line: "Rather use your Claude app? The Airc Agent panel offers Hand to Claude Desktop or Hand to Claude Code, connects Airc to it first, then fills in your task.", since: "0.1.24", until: "0.1.37" },

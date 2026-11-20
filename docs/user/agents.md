@@ -26,20 +26,21 @@ the agent goes on from there. When it's done, the steps fold into "Done in … �
 the sites it used are chips under the answer. The task also shows in the sidebar's **Agents** folder; when it waits for
 your OK and the pane is closed, its row says so and asks there. **◷** in the pane lists all tasks (`airc://agents`).
 
-- **Your own AI.** The agent runs on your own Claude Code or Codex (with their own sign-in; Airc never sees it), or your
-  own Anthropic or OpenAI API key. The first time, the pane lists all four with what each needs; the pill under the
-  field switches between them.
-  - **Install…** (Claude Code or Codex isn't on this Mac): the pane shows the install command from the tool's own docs,
+- **Your own AI.** **Use your ChatGPT subscription** (through your own Codex: **Sign in with ChatGPT**), **your own Claude
+  Code** (it uses your Claude account), or an **API key** (Anthropic or OpenAI). Airc never sees your sign-in. The first
+  time, the pane lists them in that order with what each needs; the pill under the field switches between them.
+  - **Install…** (Codex or Claude Code isn't on this Mac): the pane shows the install command from the tool's own docs,
     with **Copy** and **Open in Terminal** (Terminal shows the command and runs it only when you press Return; close
     the window to cancel). Airc never installs anything by itself and never asks for an administrator
     password. When you come back to Airc it looks again (or press **Check again**), and **Use it** picks it.
-    Claude Code: `curl -fsSL https://claude.ai/install.sh | bash` ([docs](https://code.claude.com/docs/en/setup); or
-    Homebrew `brew install --cask claude-code`). Codex: `npm install -g @openai/codex`
-    ([docs](https://developers.openai.com/codex/cli); or `brew install --cask codex`). Airc finds them on your PATH, in
+    Codex: `npm install -g @openai/codex` ([docs](https://developers.openai.com/codex/cli); or
+    `brew install --cask codex`). Claude Code: `curl -fsSL https://claude.ai/install.sh | bash`
+    ([docs](https://code.claude.com/docs/en/setup); or Homebrew `brew install --cask claude-code`). Airc finds them on your PATH, in
     `~/.local/bin`, Homebrew's folders and npm's global folder.
-  - **Sign in…** (it's signed out, or a task stopped because its sign-in expired): Airc starts the tool's own sign-in.
-    Claude Code: Terminal opens with `claude auth login`. Codex: its sign-in page opens in a tab (Codex itself waits for
-    it on this Mac). The pane says **Waiting for sign-in…** and, once the tool reports it's signed in, your task goes on
+  - **Sign in with ChatGPT** / **Sign in…** (it's signed out, or a task stopped because its sign-in expired): Airc starts
+    the tool's own sign-in. Codex: ChatGPT's sign-in page opens in a tab (Codex itself waits for it on this Mac), so the
+    agent runs on your ChatGPT subscription. Claude Code: Terminal opens with `claude auth login`. The pane says
+    **Waiting for sign-in…** and, once the tool reports it's signed in, your task goes on
     by itself. Airc never sees your password or token; **Cancel** stops waiting.
   - **Add key…** (an Anthropic or OpenAI API key): paste it right in the pane and **Save**; it stays in your Mac's
     Keychain and goes only to that provider (**Get a key** opens its key page). **Settings › AI › Agent** has the key,

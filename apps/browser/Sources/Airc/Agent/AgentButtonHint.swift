@@ -75,7 +75,7 @@ struct AgentButtonHintView: View {
                 Text("Ask Airc to do things for you").aircFont(AircFont.body).fontWeight(.semibold)
                     .foregroundStyle(theme.surfaceText.color).testAnchor("agenthint.title")
             }
-            Text("Click here, or press ⌥⌘A. It works in your signed-in sites in the background and asks before paying, sending or posting. Use your own Claude Code or Codex, or an API key.")
+            Text("Click here, or press ⌥⌘A. It works in your signed-in sites in the background and asks before paying, sending or posting. Use your ChatGPT subscription, your own Claude Code, or an API key.")
                 .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 6) {
                 Spacer()

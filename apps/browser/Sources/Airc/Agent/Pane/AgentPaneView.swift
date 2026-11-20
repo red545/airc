@@ -107,7 +107,7 @@ struct AgentPaneView: View {
             Spacer(minLength: 30)
             mark
             Text("Connect your AI").aircFont(AircFont.title3).foregroundStyle(theme.surfaceText.color)
-            Text("Use your own Claude Code or Codex, or an API key. Airc never sees your sign-in.")
+            Text("Use your ChatGPT subscription through your own Codex, your own Claude Code, or an API key. Airc never sees your sign-in.")
                 .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color).multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(spacing: 8) {
@@ -175,7 +175,7 @@ struct AgentPaneView: View {
                         .buttonStyle(.airc(.secondary, size: .small)).testAnchor("agentpane.error.switch")
                 }
                 if let k = model.signInNeeded {
-                    Button("Sign in…") { model.signInAfterFailure(k) }.buttonStyle(.airc(.secondary, size: .small)).testAnchor("agentpane.error.signin")
+                    Button(k == .codex ? "Sign in with ChatGPT" : "Sign in…") { model.signInAfterFailure(k) }.buttonStyle(.airc(.secondary, size: .small)).testAnchor("agentpane.error.signin")
                 } else if p.settings {
                     Button("Open Settings") { model.providers.first?.setUp() }.buttonStyle(.airc(.secondary, size: .small)).testAnchor("agentpane.error.settings")
                 }
@@ -524,7 +524,7 @@ struct AgentPaneProviderRow: View {
     var body: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(provider.name).aircFont(AircFont.body).fontWeight(.semibold).foregroundStyle(theme.surfaceText.color)
+                Text(provider.title).aircFont(AircFont.body).fontWeight(.semibold).foregroundStyle(theme.surfaceText.color)
                 Text("\(provider.subtitle) · \(provider.status)").aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextSecondary.color).lineLimit(1)
                     .help(provider.hint ?? "")
             }
@@ -582,7 +582,7 @@ struct AgentPaneSetupCard: View {
             case .signIn, .failed:
                 HStack {
                     Spacer()
-                    Button("Sign in…") { model.signIn() }.buttonStyle(.airc(.primary, size: .small)).testAnchor("agentpane.setup.signin")
+                    Button(setup.kind == .codex ? "Sign in with ChatGPT" : "Sign in…") { model.signIn() }.buttonStyle(.airc(.primary, size: .small)).testAnchor("agentpane.setup.signin")
                 }
             case .waiting(let url):
                 HStack(spacing: 6) {
@@ -607,7 +607,7 @@ struct AgentPaneSetupCard: View {
         switch setup.step {
         case .install: return "Install \(name)"
         case .found: return "\(name) is on this Mac"
-        case .signIn: return "Sign in to \(name)"
+        case .signIn: return setup.kind == .codex ? "Sign in with ChatGPT" : "Sign in to \(name)"
         case .waiting: return "Signing in to \(name)"
         case .failed: return "\(name) isn't signed in"
         }
@@ -623,7 +623,7 @@ struct AgentPaneSetupCard: View {
         case .signIn:
             return setup.kind == .claudeCode
                 ? "Claude Code signs in with its own sign-in in Terminal. Airc never sees your password or token."
-                : "Codex signs in with its own sign-in page, in a tab. Airc never sees your password or token."
+                : "Use your ChatGPT subscription: Codex opens ChatGPT's own sign-in page in a tab. Airc never sees your password or token."
         case .waiting(let url):
             return url == nil ? "Finish signing in in Terminal. Your task goes on by itself." : "Finish signing in in the tab that opened. Your task goes on by itself."
         case .failed(let why):
@@ -801,7 +801,7 @@ struct AgentPaneComposer: View {
                     Button {
                         if p.ready { model.switchProvider(p, retrying: false) } else { p.setUp(in: model) }
                     } label: {
-                        Text(p.selected ? "✓ \(p.name)" : p.name) + Text(p.ready ? "  \(p.subtitle)" : "  \(p.fix ?? "")")
+                        Text(p.selected ? "✓ \(p.title)" : p.title) + Text(p.ready ? "  \(p.subtitle)" : "  \(p.fix ?? "")")
                     }
                 }
             }

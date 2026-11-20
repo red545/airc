@@ -448,5 +448,23 @@
     "detail": "While Claude or another AI app uses Airc, the sidebar shows \"✦ Claude is using Airc\" just under the window's buttons, never over them. Click it to Watch or Stop the app.",
     "action": "settingsAgents",
     "image": null
+  },
+  "New ✦ button opens Airc Agent": {
+    "title": "Airc Agent, one click away",
+    "detail": "The new ✦ button at the bottom of the sidebar opens Airc Agent, or press ⌥⌘A. Right-click it for New Task, Watch or Settings › Agents.",
+    "action": "none",
+    "image": "agent-button"
+  },
+  "Connect your AI right in the pane, with no trip to Settings": {
+    "title": "Connect AI in the pane",
+    "detail": "In Airc Agent (⌥⌘A), Connect your AI: your own Claude Code or Codex, or an API key. Keys stay in your Mac's Keychain.",
+    "action": "none",
+    "image": "agent-pane-connect"
+  },
+  "Play Spotify in a Chromium tab with FairPlay": {
+    "title": "Spotify plays in Chromium",
+    "detail": "Turn on Settings › Privacy › Protected content › Play protected media in Chromium with FairPlay (off by default): Spotify stays in a Chromium tab with your extensions.",
+    "action": "none",
+    "image": null
   }
 }

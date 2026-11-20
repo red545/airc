@@ -230,6 +230,8 @@ struct AgentPaneProvider: Identifiable, Equatable {
     enum Group { case plan, key }
     let id: String
     let name: String
+    /// The Connect card's headline (owner, 2026-11-19 20:45: lead with the ChatGPT subscription).
+    let title: String
     let subtitle: String
     let status: String
     let ready: Bool
@@ -244,26 +246,29 @@ struct AgentPaneProvider: Identifiable, Equatable {
         let s = AgentModelSettings.shared
         let backend = s.values.backend
         let current = s.values.provider
-        var out: [AgentPaneProvider] = AgentCLIKind.allCases.map { k in
+        // Owner (2026-11-19 20:45): "Use your ChatGPT subscription" (Codex) first, then your own Claude Code, then keys.
+        var out: [AgentPaneProvider] = [AgentCLIKind.codex, .claudeCode].map { k in
             let st = AgentCLIDetector.shared.status(k)
             let fix: String?
             switch st {
             case .ready?: fix = nil
             case .notInstalled?: fix = "Install…"
-            case .notLoggedIn?: fix = "Sign in…"
+            case .notLoggedIn?: fix = k == .codex ? "Sign in with ChatGPT" : "Sign in…"
             case .tooOld?: fix = "Update…"
             case .broken?: fix = "Fix…"
             case .checking?, nil: fix = "Check"
             }
             let status = st.map { $0 == .checking ? "Checking…" : $0.summary(k).replacingOccurrences(of: k.name + " ", with: "").replacingOccurrences(of: k.name + ": ", with: "") } ?? "Not checked yet"
-            return AgentPaneProvider(id: "cli-\(k.rawValue)", name: k.name, subtitle: k == .claudeCode ? "Your own Claude Code" : "Your own Codex",
+            return AgentPaneProvider(id: "cli-\(k.rawValue)", name: k.name,
+                                     title: k == .codex ? "Use your ChatGPT subscription" : "Your own Claude Code",
+                                     subtitle: k == .codex ? "Through your own Codex" : "Uses your Claude account",
                                      status: status, ready: st?.isReady == true, group: .plan, fix: fix, hint: st?.fix(k),
                                      selected: backend.cli == k)
         }
         out += AgentProvider.allCases.map { p in
             let has = s.hasKey(p)
             let model = p == current ? s.model.name : p.defaultModel.name
-            return AgentPaneProvider(id: "api-\(p.rawValue)", name: "\(p.name) API key", subtitle: "Billed to your key",
+            return AgentPaneProvider(id: "api-\(p.rawValue)", name: "\(p.name) API key", title: "\(p.name) API key", subtitle: "Billed to your key",
                                      status: has ? "Key \(s.keyHint(p) ?? "") · \(model)" : "No key yet", ready: has, group: .key,
                                      fix: has ? nil : "Add key…", hint: nil, selected: backend == .apiKey && has && p == current)
         }
@@ -283,7 +288,7 @@ struct AgentPaneProvider: Identifiable, Equatable {
     /// docs, the CLI's own sign-in; "Check" looks again. An API key's field is in Settings › AI › Agent.
     func setUp(in model: AgentPaneModel? = nil) {
         if let k = cli, fix == "Check" { return AgentCLIDetector.shared.check(k, maxAge: 0) }
-        if let k = cli, let model, fix == "Install…" || fix == "Sign in…" { return model.setUp(k) }
+        if let k = cli, let model, fix == "Install…" || fix?.hasPrefix("Sign in") == true { return model.setUp(k) }
         // An API key: pasted right in the pane (Keychain), Settings › AI › Agent stays the full page.
         if let p = AgentProvider.allCases.first(where: { "api-\($0.rawValue)" == id }), let model, fix != nil { return model.enterKey(p) }
         if let k = cli { AgentCLIDetector.shared.check(k, maxAge: 5) }

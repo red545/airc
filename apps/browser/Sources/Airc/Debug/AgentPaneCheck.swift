@@ -227,7 +227,9 @@ final class AgentPaneCheck {
                 check(model?.mode == .connect, "no provider connected: the pane shows “Connect your AI” (mode \(String(describing: model?.mode)))")
                 check(point("agentpane.connect") != nil, "… on screen")
                 let rows = model?.providers ?? []
-                check(rows.map(\.name) == ["Claude Code", "Codex", "Anthropic API key", "OpenAI API key"], "the providers in the design's order (\(rows.map(\.name).joined(separator: ", ")))")
+                check(rows.map(\.name) == ["Codex", "Claude Code", "Anthropic API key", "OpenAI API key"]
+                      && rows.first?.title == "Use your ChatGPT subscription" && rows.dropFirst().first?.title == "Your own Claude Code",
+                      "the providers in the owner's order: your ChatGPT subscription (Codex), your own Claude Code, API keys (\(rows.map(\.title).joined(separator: ", ")))")
                 check(rows.count == 4 && rows.allSatisfy { !$0.ready && $0.fix != nil }, "… each provider row has its fix (\(rows.map { "\($0.name): \($0.fix ?? "ready")" }.joined(separator: ", ")))")
                 check(point("agentpane.provider.api-anthropic.fix") != nil, "… “Add key…” on the Anthropic row")
                 // Detection is asynchronous: the CLI rows read "Check" until it has looked.
@@ -260,7 +262,7 @@ final class AgentPaneCheck {
             let rows = model?.providers ?? []
             check(rows.prefix(2).allSatisfy(\.ready), "fake Claude Code and Codex found: both rows ready (\(rows.prefix(2).map { "\($0.name): \($0.status)" }.joined(separator: ", ")))")
             after(0.3) { [self] in
-                press("agentpane.provider.cli-claude-code.use", "Use on Claude Code", fallback: { if let r = rows.first { self.model?.switchProvider(r, retrying: false) } }) { [self] how in
+                press("agentpane.provider.cli-claude-code.use", "Use on Claude Code", fallback: { if let r = rows.first(where: { $0.cli == .claudeCode }) { self.model?.switchProvider(r, retrying: false) } }) { [self] how in
                     after(0.4) { [self] in
                         check(AgentModelSettings.shared.values.backend == .claudeCode, "Use on the Claude Code row makes it the agent's backend [\(how) click]")
                         check(model?.mode == .newTask && model?.providerLabel == "Claude Code", "… the pane is ready for a task, the pill says Claude Code (\(model?.providerLabel ?? ""))")
