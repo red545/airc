@@ -1,0 +1,52 @@
+# Airc 0.1.43 (cut 56d7654b; build revision 7fe40b24; notes on release/0.1.43-notes). Claims from its approved notes,
+# "New since 0.1.42". NOT TO POST before "0.1.43 LIVE" in briefs/queue.md: plan and approve only then, after checking
+# the public repo shows the release (owner rule).
+slug = "2026-11-20-release-0.1.43"
+title = "Airc 0.1.43: your ChatGPT subscription first; Netflix and Disney+ with FairPlay"
+kind = "release"
+since = "0.1.43"
+shots_rev = "56d7654b"
+tag = "New in Airc 0.1.43"
+end_title = "Airc 0.1.43"
+end_line = "Free for Mac · aircbrowser.com"
+summary = """
+Two posts: the Connect card now starts with "Use your ChatGPT subscription" (card of the cut's agent-pane-connect), and
+Netflix and Disney+ in a Chromium tab with FairPlay (text).
+"""
+order = """
+1. The ChatGPT post at 10:30 UTC a few days after the ✦ launch (21 Nov), so the two don't crowd; Netflix in an
+   afternoon slot.
+"""
+checked = """
+- ChatGPT: the Connect your AI card (✦ or ⌥⌘A) starts with Use your ChatGPT subscription: your own Codex with Sign in
+  with ChatGPT, on ChatGPT's own page; your own Claude Code (your Claude account) or an Anthropic or OpenAI API key too;
+  Airc never sees your sign-in. Still a beta (Please know).
+- Netflix and Disney+: Settings › Privacy › Protected content › Play protected media in Chromium with FairPlay (off by
+  default, the same setting as Spotify); they stay in a Chromium tab with your extensions, play with FairPlay, with
+  picture in picture and the sidebar's media controls; if a title can't play, Airc offers Safari's engine.
+- Caveat (release055): tested only on public test streams, not a real Netflix or Disney+ account, so the post says
+  what the setting does and that Airc offers Safari's engine if a title can't play; it never says it's been tried on
+  real accounts.
+- Shot: agent-pane-connect (ChatGPT-first, in the cut), cropped to Connect your AI; Apple's site behind stays out.
+"""
+
+[[image]]
+id = "connect"
+shot = "agent-pane-connect"
+title = "Use your ChatGPT subscription."
+line = "In Airc's AI sidebar, through your own Codex."
+clip = [1031, 100, 400, 440]
+alt = "The Airc Agent pane's Connect your AI card: use your ChatGPT subscription through your own Codex, your own Claude Code, or an API key, and Airc never sees your sign-in. First row: Use your ChatGPT subscription, through your own Codex, with Install…; then Your own Claude Code (uses your Claude account), and Anthropic and OpenAI API keys with Add key…."
+
+[[post]]
+label = "Use your ChatGPT subscription in Airc Agent"
+media = ["connect:16x9"]
+text = """
+Use your ChatGPT subscription in Airc's AI sidebar: press ✦, choose Sign in with ChatGPT, and your own Codex signs in on ChatGPT's own page. Airc never sees it. Prefer Claude? Your own Claude Code works too. Beta, new in Airc 0.1.43.
+"""
+
+[[post]]
+label = "Netflix and Disney+ in a Chromium tab"
+text = """
+Netflix and Disney+ can now play in a regular Chromium tab in Airc, with your extensions and picture in picture, using Apple's FairPlay: turn it on in Settings › Privacy › Protected content. Off by default. New in Airc 0.1.43.
+"""
