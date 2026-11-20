@@ -11,7 +11,17 @@ import SwiftUI
 enum ProfileAvatarImage {
     private static var cache: [String: NSImage] = [:]
 
-    static func image(_ p: Profile, size: CGFloat) -> NSImage { image(emoji: p.googleAccount == nil ? p.emoji : "", name: p.googleAccount ?? p.name, color: p.color.aircColor, size: size) }
+    /// SB-22 / SP-12: the profile's avatar everywhere AppKit draws one (menus, the Space header, Little Airc): its Google
+    /// account's picture once signed in and fetched, else the account's initial, else the emoji. A menu built after a
+    /// sign-in shows the picture without a relaunch.
+    static func image(_ p: Profile, size: CGFloat) -> NSImage {
+        GoogleAccountPhoto.photoAvatar(p, size: size) ?? initial(p, size: size)
+    }
+
+    /// The drawn avatar without the picture (the emoji, or the account's initial).
+    static func initial(_ p: Profile, size: CGFloat) -> NSImage {
+        image(emoji: p.googleAccount == nil ? p.emoji : "", name: p.googleAccount ?? p.name, color: p.color.aircColor, size: size)
+    }
 
     static func image(emoji: String, name: String, color: AircColor, size: CGFloat) -> NSImage {
         let key = "\(emoji)|\(emoji.isEmpty ? name.prefix(1) : "")|\(color.hexString)|\(size)"

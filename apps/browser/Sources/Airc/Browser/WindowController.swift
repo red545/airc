@@ -99,6 +99,9 @@ final class WindowController: NSObject, NSWindowDelegate {
     var prerenderToken = 0
     /// Arc's Create Profile card (SP-11) while open.
     var createProfilePanel: CreateProfilePanelHost?
+    /// ON-3: the journey after Create Profile while it runs (its card is the Create Profile card, gone on to colour and
+    /// sign-in).
+    var profileJourney: ProfileJourney?
     var stepObserver: AnyCancellable?
     /// Renders the empty view of the Space the New Space card would make, a moment after its name, icon or profile
     /// changes.
@@ -364,6 +367,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         if let spare = spareCommandBar, !spare.isLaidOut(in: root.bounds, contentFrame: card.frame) { scheduleSpareBarRefresh() }
         newSpacePanel?.layoutIn(root.bounds, sidebarFrame: sidebar.frame)
         createProfilePanel?.layoutIn(page: card.frame)
+        if let j = profileJourney, j.panel.superview != nil { j.panel.layoutIn(page: card.frame) }
         pendingExtensionReview?.layoutIn(page: card.frame)
         layoutFindBar()
         layoutProtectedMediaToast()

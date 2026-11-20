@@ -27,6 +27,8 @@ profiles through Create Profile instead).
 | `arc-import-checklist.webp` | Arc import | Per-profile history counts, installed status and the extension reinstall checklist with its count, from synthetic Arc data | 2026-11-13 | 202611130706 (importcard) |
 | `arc-import-logins.webp` | Logins from Arc | Synthetic HTTP-auth and federated logins, partitioned cookies and site storage, precise skipped/failed rows, provider sign-in guidance and Try Again | 2026-11-10 | 202611100450 (0833b87f + P22b app side and suite fixes) |
 | `profile-sign-in.webp` | Google sign-in | A new profile signed in as a synthetic account: its picture and name, with Gmail, Calendar and Drive offered as Favorites | 2026-11-16 | 202611161627 (profilesignin) |
+| `profile-journey-colour.webp` | New profile: a colour | Right after Create Profile, the same card asks for a colour for the Space that moved; the window already shows Lilac | 2026-11-20 | 202611200138 (8d54b5c3) |
+| `profile-journey-signed-in.webp` | New profile: signed in | The journey's last step: the synthetic account's picture and name, before the card closes by itself | 2026-11-20 | 202611200138 (8d54b5c3) |
 | `boost-import.webp` | Share a Boost | A shared Boost reviewed before it's added: a sketch of what it changes, the full CSS and JavaScript with its warning, and Try It On | 2026-11-08 | 202611080059 (ec4ae90) |
 | `share-space.webp` | Share a Space | Share Space… over the Travel Space: exactly what the link will hold, in order, what's left out, and Create Link | 2026-11-10 | 202611100411 (2c94f7b) |
 | `share-import.webp` | Open a shared Space | A shared Space opened from its link: what it holds, the profile to add it to, and Add as New Space | 2026-11-10 | 202611100411 (2c94f7b) |

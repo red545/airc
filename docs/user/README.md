@@ -21,6 +21,8 @@ Esc to collapse it to a small pill.
   and extension limitations. Service availability can vary; the guide distinguishes tested paths from account checks.
 - [Find and Replace](find.md): ⌘F on the page, ⌥⌘F to replace in its editable fields (never a password field), with
   the page's own undo; the Services menu for selected text; ⌘F in Settings searches Settings.
+- [Profiles](profiles.md): a new profile's short journey (a colour for its Space, then Sign in to Google), and how a
+  sign-in shows the account's picture and name everywhere at once.
 - [Your search engine](search-engine.md): each profile's engine (Google, Bing, DuckDuckGo, Ecosia, Brave, Yahoo,
   Startpage, Perplexity, Kagi), its suggestions switch, and searching selected text.
 - [Opening links](links.md): a link's right-click Open Link in Space › (every Space, other profiles' too), ⌘-, ⇧- and

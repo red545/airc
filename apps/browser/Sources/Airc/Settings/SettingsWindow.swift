@@ -744,6 +744,7 @@ private struct ProfileSection: View {
     let onClear: () -> Void
     @State private var name = ""
     @State private var problem: String?
+    @State private var photoTick = 0
     @Environment(\.aircTheme) private var theme
 
     private var spaces: [Space] { model.store.spaces(usingProfile: profile.id) }
@@ -752,8 +753,19 @@ private struct ProfileSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
-                AircProfileAvatar(emoji: profile.emoji, name: profile.name, color: profile.color.aircColor, size: 28)
-                Text(profile.name).aircFont(AircFont.title3).foregroundStyle(theme.surfaceText.color)
+                // SP-12: the account's picture once signed in (from the sidebar card, onboarding or the Create Profile
+                // journey); redrawn when it arrives, without a relaunch.
+                AircProfileAvatar(profile.avatarIdentity, size: 28)
+                    .id(photoTick)
+                    .testAnchor("settings.profile.avatar." + profile.id)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(profile.name).aircFont(AircFont.title3).foregroundStyle(theme.surfaceText.color)
+                    if let account = profile.googleAccount {
+                        Text(profile.googleAccountLine.map { "Signed in as " + $0 } ?? account)
+                            .aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextTertiary.color).lineLimit(1)
+                            .testAnchor("settings.profile.account." + profile.id)
+                    }
+                }
                 if profile.isDefault {
                     Text("Default").aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextTertiary.color)
                         .padding(.horizontal, 6).padding(.vertical, 2)
@@ -804,7 +816,7 @@ private struct ProfileSection: View {
                                 : "Off for every profile in Privacy.",
                               isOn: Binding(get: { profile.includesSearchSuggestions },
                                             set: { v in try? model.store.updateProfile(profile.id) { $0.searchSuggestions = v } }))
-                SettingsRow(title: "Google account", subtitle: profile.googleAccount ?? "Not signed in") {
+                SettingsRow(title: "Google account", subtitle: profile.googleAccountLine ?? "Not signed in") {
                     Button(profile.googleAccount == nil ? "Sign In…" : "Switch…") { SettingsActions.signIn(profile: profile, model: model) }
                         .buttonStyle(.airc(.secondary))
                 }
@@ -821,6 +833,9 @@ private struct ProfileSection: View {
             if let problem { Text(problem).aircFont(AircFont.callout).foregroundStyle(AircColor.destructive.color) }
         }
         .padding(.top, 24)
+        .onReceive(NotificationCenter.default.publisher(for: GoogleAccountPhoto.didLoad)) { n in
+            if profile.googleAccountPhoto == n.object as? String { photoTick += 1 }
+        }
     }
 
     private func rename() {

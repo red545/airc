@@ -1,4 +1,5 @@
 // Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
+import AircDesign
 import AircKit
 import AppKit
 
@@ -161,10 +162,12 @@ enum GoogleAccountPhoto {
 
     /// SB-22: the profile's avatar. Its Google account's picture once signed in and fetched, else the account's
     /// initial (ProfileAvatarImage). Cached per picture and size.
-    static func avatar(_ p: Profile, size: CGFloat) -> NSImage {
-        guard p.googleAccount != nil, let address = p.googleAccountPhoto, let photo = cached(address) else {
-            return ProfileAvatarImage.image(p, size: size)
-        }
+    static func avatar(_ p: Profile, size: CGFloat) -> NSImage { ProfileAvatarImage.image(p, size: size) }
+
+    /// The account's picture as a round avatar, or nil while there is none (not signed in, or not fetched yet: the
+    /// fetch starts here and `didLoad` says when to draw again).
+    static func photoAvatar(_ p: Profile, size: CGFloat) -> NSImage? {
+        guard p.googleAccount != nil, let address = p.googleAccountPhoto, let photo = cached(address) else { return nil }
         let key = "\(address)|\(size)"
         if let hit = avatars[key] { return hit }
         let img = NSImage(size: NSSize(width: size, height: size), flipped: false) { r in
@@ -186,5 +189,21 @@ enum GoogleAccountPhoto {
         if url.isFileURL, LaunchOptions.current.isAutomated { return true }
         #endif
         return url.scheme == "https"
+    }
+}
+
+extension Profile {
+    /// "Alex Example · alex@example.com" (the email alone when Google gave no name); nil when not signed in.
+    var googleAccountLine: String? {
+        guard let email = googleAccount else { return nil }
+        let name = googleAccountLabel.flatMap { $0 == email ? nil : $0 }
+        return name.map { "\($0) · \(email)" } ?? email
+    }
+
+    /// SP-12: the profile as SwiftUI avatars draw it (Settings › Profiles, Manage Spaces, the Create Profile journey):
+    /// its name, emoji and colour, plus the account's picture once fetched and the account itself.
+    var avatarIdentity: AircProfileIdentity {
+        AircProfileIdentity(name: name, emoji: emoji, color: color.aircColor,
+                            photo: googleAccount == nil ? nil : GoogleAccountPhoto.cached(googleAccountPhoto), account: googleAccount)
     }
 }

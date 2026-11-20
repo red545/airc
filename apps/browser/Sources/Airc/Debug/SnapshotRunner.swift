@@ -107,6 +107,7 @@ final class SnapshotRunner {
         case "watchdog-smoke":
             run { [self] in check(true, "watchdog smoke: subsequent launch runs and finishes") }
         case "profilesignin": profileSignInScenario()
+        case "profilejourney": profileJourneyScenario()
         case "arcbits": arcbitsScenario()
         case "showcase": showcase()
         case "onboarding": onboardingScenario()

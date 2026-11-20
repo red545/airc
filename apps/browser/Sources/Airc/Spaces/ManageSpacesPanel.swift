@@ -57,7 +57,7 @@ final class ManageSpacesModel: ObservableObject {
             let p = store.profile(ofSpace: s.id)
             let emoji: String? = if case .emoji(let e)? = s.icon { e } else { nil }
             return Row(id: s.id, name: s.name, emoji: emoji, theme: c.palette(for: s).resolved,
-                       profile: AircProfileIdentity(name: p.name, emoji: p.emoji, color: p.color.aircColor),
+                       profile: p.avatarIdentity,
                        pinned: store.state.items.values.filter { $0.spaceID == s.id && !$0.isFavorite && $0.kind != .folder }.count,
                        today: store.todayTabs(ofSpace: s.id).count, isCurrent: s.id == c.currentSpaceID)
         }

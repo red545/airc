@@ -38,27 +38,27 @@ extension SnapshotRunner {
         SignInCase(name: "Sign-in Second", before: "blair@example.com", signIn: "alex@example.com", answer: AircSignInCopy.add, index: 1),
     ]
 
-    private func profileSignInMain(_ action: @escaping @MainActor () -> Void) {
+    func profileSignInMain(_ action: @escaping @MainActor () -> Void) {
         run { MainActor.assumeIsolated { action() } }
     }
 
-    private var signInReal: Bool {
+    var signInReal: Bool {
         UIDriverClient.available && ProcessInfo.processInfo.environment["AIRC_UI_DEDICATED_SESSION"] == "1"
     }
 
-    private func signInFind<T: NSView>(_ root: NSView?, _: T.Type) -> T? {
+    func signInFind<T: NSView>(_ root: NSView?, _: T.Type) -> T? {
         guard let root else { return nil }
         if let v = root as? T { return v }
         return root.subviews.lazy.compactMap { self.signInFind($0, T.self) }.first
     }
 
-    private func signInCard(_ spaceID: String) -> AircSignInCardView? {
+    func signInCard(_ spaceID: String) -> AircSignInCardView? {
         signInFind(c.pageView(for: spaceID), AircSignInCardView.self)
     }
 
     /// The card button's centre in window points: from the hosting view's accessibility tree, else from the card's
     /// layout (AircSidebarCard: 12/10 pt insets, the ✕ 7 pt in from the top right).
-    @MainActor private func signInButtonPoint(_ card: AircSignInCardView, _ title: String) -> (NSPoint, String)? {
+    @MainActor func signInButtonPoint(_ card: AircSignInCardView, _ title: String) -> (NSPoint, String)? {
         guard let window = card.window else { return nil }
         let cardRect = card.convert(card.bounds, to: nil)
         func walk(_ e: Any, _ depth: Int) -> NSRect? {
@@ -85,7 +85,7 @@ extension SnapshotRunner {
     }
 
     /// Presses `title` on the space's card: a real click when this run may, else the card's own action.
-    private func signInPress(_ tag: String, _ spaceID: @escaping () -> String, _ title: String) {
+    func signInPress(_ tag: String, _ spaceID: @escaping () -> String, _ title: String) {
         step { [self] done in
             c.window.contentView?.layoutSubtreeIfNeeded()
             guard let card = signInCard(spaceID()) else { check(false, "profilesignin \(tag): the card is drawn to press \(title)"); return done() }
@@ -123,7 +123,7 @@ extension SnapshotRunner {
     }
 
     /// Our window in front and key for real clicks (one click on the gap below the page, which does nothing else).
-    private func signInFront() {
+    func signInFront() {
         activateForRealInput()
         step { [self] done in
             guard signInReal, !(NSApp.isActive && c.window.isKeyWindow) else { return done() }
@@ -137,7 +137,7 @@ extension SnapshotRunner {
     }
 
     /// Loads `url` in a page and waits until `ready` (JavaScript) says true; `then(ok)`.
-    private func signInPage(_ tab: @escaping () -> EngineTab?, until ready: String, timeout: Double = 12, _ then: @escaping (Bool) -> Void) {
+    func signInPage(_ tab: @escaping () -> EngineTab?, until ready: String, timeout: Double = 12, _ then: @escaping (Bool) -> Void) {
         let deadline = Date().addingTimeInterval(timeout)
         func poll() {
             guard let t = tab() else {
@@ -299,7 +299,7 @@ extension SnapshotRunner {
                 check(indicator?.toolTip?.contains("\(fixture.names[email]!), \(email)") == true,
                       "profilesignin \(tag): the profile indicator names the account (\(indicator?.toolTip ?? "none"))")
                 check(indicator?.avatarImage != nil && indicator?.avatarImage === GoogleAccountPhoto.avatar(p, size: 16)
-                      && indicator?.avatarImage !== ProfileAvatarImage.image(p, size: 16),
+                      && indicator?.avatarImage !== ProfileAvatarImage.initial(p, size: 16),
                       "profilesignin \(tag): the profile indicator shows the account's picture")
                 let card = signInCard(sid())
                 check(card?.account == email && card?.accountName == fixture.names[email] && card?.photo != nil

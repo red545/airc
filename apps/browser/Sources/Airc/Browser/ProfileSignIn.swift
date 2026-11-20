@@ -120,7 +120,15 @@ final class ProfileSignInCoordinator {
         guard let pick = GoogleSignInChoice.account(accounts, before: before[id]) else { return }
         _ = GoogleAccountPhoto.cached(pick.account.photoURL)   // the avatar redraws when it arrives
         try? app?.store.receiveGoogleSignIn(id, account: pick.account, index: pick.index)
+        // SP-12: the store change already redraws every window's chip, footer and Settings › Profiles; this tells the
+        // Create Profile journey waiting for this profile that its sign-in is done.
+        if app?.store.profile(id)?.googleAccount == pick.account.email {
+            NotificationCenter.default.post(name: Self.didSignIn, object: id)
+        }
     }
+
+    /// Posted on the main queue when a profile's sign-in is detected (object: the profile's id).
+    static let didSignIn = Notification.Name("AircProfileDidSignIn")
 
     private func stopProbe() {
         pollingProfiles = []

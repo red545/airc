@@ -64,6 +64,8 @@ remembered-profiles|Little Arc profiles|Settings → Links, with remembered prof
 arc-import-checklist|Arc import|Per-profile history counts and localized extension names in the reinstall checklist, from synthetic Arc data
 arc-import-logins|Logins from Arc|Logins, partitioned cookies and site storage, with sign-in-provider guidance: what couldn’t come over and why, and Try Again for the profile whose passwords couldn’t be read, from synthetic Arc data
 profile-sign-in|Google sign-in|A new profile signed in as a synthetic account, with Gmail and Calendar offered as Favorites
+profile-journey-colour|New profile: a colour|Right after Create Profile, the same card asks for a colour for the Space that moved; the window already shows Lilac
+profile-journey-signed-in|New profile: signed in|The journey'"'"'s last step: the synthetic account'"'"'s picture and name, before the card closes by itself
 boost-import|Share a Boost|A shared Boost reviewed before it'"'"'s added: a sketch of what it changes, the full CSS and JavaScript with its warning, and Try It On
 share-space|Share a Space|Share Space… over the Travel Space: exactly what the link will hold, in order, what'"'"'s left out, and Create Link
 share-import|Open a shared Space|A shared Space opened from its link: what it holds, the profile to add it to, and Add as New Space
@@ -75,7 +77,7 @@ developer-mode-dark|Developer Mode, dark|Developer controls in a dark Space
 developer-mode-narrow|Developer Mode, narrow|Compact developer controls at the minimum sidebar width
 developer-mode|Developer Mode|A synthetic app on localhost, in Developer Mode by itself: its full URL, Inspect, Network, Hard Reload, the console error count and the outlined sidebar row
 developer-mode-site-controls|Developer Mode: Site Controls|Site Controls on the same local app: the Developer Mode switch for the site, which follows it to every tab and port
-developer-tools|Developer Tools, docked|Developer Tools docked beside a local app's page in the window it inspects, with every panel in its tab strip
+developer-tools|Developer Tools, docked|Developer Tools docked beside a local app'"'"'s page in the window it inspects, with every panel in its tab strip
 ai-ask-page|Ask on Page|⌘F in Ask mode on a synthetic Lisbon guide: Apple Intelligence'"'"'s answer, the page'"'"'s sentence behind it, scrolled to and highlighted
 ai-link-preview|Link previews|⇧ over a link on a synthetic reading list: the on-device summary and key points of the article it opens
 ai-tidy-downloads|Tidy downloads|Library › Downloads: a suggested name for "IMG_2041 (1).pdf" (a synthetic itinerary) and Rename

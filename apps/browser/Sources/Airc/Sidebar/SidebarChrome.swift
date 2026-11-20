@@ -523,7 +523,7 @@ final class SpaceBarView: NSView {
     var showsFeedback: Bool { !feedback.isHidden }
     var feedbackButton: NSView { feedback }
     private var visibleSpaces = 0
-    private var cells: [SpaceCell] = []
+    private(set) var cells: [SpaceCell] = []
     private var spaceIDs: [String] = []
     /// While a cell is dragged, layout leaves the cells where the drag puts them.
     private var reordering = false
@@ -817,7 +817,11 @@ final class SpaceBarView: NSView {
             if c.hasEmoji != emoji { c.hasEmoji = emoji; c.needsLayout = true }
             c.dot.backgroundColor = palette.textSecondary.cgColor
             c.hoverColor = palette.hover.cgColor
-            if c.toolTip != s.name { c.toolTip = s.name }
+            // SP-15 / SP-12: with several profiles in use, the Space's profile and its signed-in account, refreshed
+            // with every store change (a sign-in shows here without a relaunch).
+            let owner = multipleProfiles ? profiles[s.profileID] : nil
+            let tip = owner.map { p in "\(s.name) · \(p.name)" + (p.googleAccountLabel.map { " (\($0))" } ?? "") } ?? s.name
+            if c.toolTip != tip { c.toolTip = tip }
             let isProvisional = hasProvisional && c === cells[spaces.count - 1]
             c.plate.isHidden = !isProvisional
             c.plate.backgroundColor = palette.tileFill.cgColor

@@ -1,0 +1,39 @@
+# Airc 0.1.41 (cut b0f9a1ee; build revision 6265e36e). Claims from its approved notes, "New since 0.1.40". NOT TO
+# POST before release053 posts LIVE for 0.1.41 in briefs/queue.md: plan and approve only then, after checking the
+# public repo shows the release (owner rule).
+slug = "2026-11-20-release-0.1.41"
+title = "Airc 0.1.41: a short setup for new profiles"
+kind = "release"
+since = "0.1.41"
+shots_rev = "b0f9a1ee"
+tag = "New in Airc 0.1.41"
+end_title = "Airc 0.1.41"
+end_line = "Free for Mac · aircbrowser.com"
+summary = """
+One post on a card of the cut's profile-journey-colour shot (the whole window, tinted as you pick). The other two items
+(account picture right away; the Claude notice moved) are small.
+"""
+order = """
+1. One afternoon post on the first free day after LIVE.
+"""
+checked = """
+- 0.1.41's notes: after Create Profile, the same card asks for a colour for the Space (the window shows each colour as
+  you pick it; Skip or Esc keeps the old one), then Sign in to Google opens Google's sign-in page in the new profile
+  (Another site… for any other account), then shows the account's picture and name and closes by itself.
+- Not in 0.1.41 (release053): the agent button and Connect card (agentux2), fpbridge.
+- Shot: profile-journey-colour (landed), the made-up profile "Freelance" / Space "Side project"; nobody's identity.
+"""
+
+[[image]]
+id = "colour"
+shot = "profile-journey-colour"
+title = "New profile, set up in three steps."
+line = "Pick its colour, sign in, done."
+alt = "Airc creating a new profile: a card says Pick a colour for Side project, with twelve Space colours (a lilac one picked) and Skip and Next, while the whole window already shows the lilac; the sidebar offers Sign in to Google for the fresh profile."
+
+[[post]]
+label = "New profiles get a short setup"
+media = ["colour:16x9"]
+text = """
+New profile in Airc? It now walks you through it: pick the Space's colour and watch the window change as you choose, sign in to Google in that profile, done. Your account's picture shows up right away. New in Airc 0.1.41.
+"""

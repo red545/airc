@@ -56,7 +56,7 @@ extension SnapshotRunner {
             case "feedback": mkFeedbackShots(d)   // MarketingFeedback.swift: Help › Send Feedback…
             case "whatsnew": mkWhatsNewShots(d)   // MarketingWhatsNew.swift: the What's new card after an update
             case "agents": mkAgentsShots(d)   // MarketingAgents.swift: the Agents folder and Watch
-            case "profilesignin": mkProfileSignInShot()
+            case "profilesignin": mkProfileSignInShot(); mkProfileJourneyShots()
             case "browser": mkBrowserShots(d)
             case "smallwins": mkSmallwinsShots()
             case "archive": mkArchiveShots()

@@ -152,7 +152,7 @@ struct NewSpaceForm: View {
         CardRow(label: "Profile", ui: ui, action: { model.onProfileMenu?() }) {
             HStack(spacing: 5) {
                 if let p = model.profile {
-                    AircProfileAvatar(AircProfileIdentity(name: p.name, emoji: p.emoji, color: p.color.aircColor, account: p.googleAccount), size: 16)
+                    AircProfileAvatar(p.avatarIdentity, size: 16)
                     Text(p.name).aircFont(AircTextStyle(size: 12, weight: .medium, lineHeight: 15)).foregroundStyle(ui.text.color).lineLimit(1)
                 }
                 Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).foregroundStyle(ui.textSecondary.color)

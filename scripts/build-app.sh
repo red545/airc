@@ -373,6 +373,8 @@ if [[ -n "$SNAPSHOTS" ]]; then
     }
     # SP-12: a new profile's sidebar sign-in on a loopback stand-in for Google (made-up hosts; WebKit uses a per-profile proxy).
     for pass in write read; do launch --script profilesignin --data-dir "$home/ProfileSignIn" "--host-resolver-rules=MAP *.airc-fixture.co.uk 127.0.0.1" --disable-features=HttpsUpgrades; done
+    # ON-3 + SP-12: the journey after Create Profile and the avatar/name refresh everywhere, on the same fixture.
+    launch --script profilejourney --ephemeral --data-dir "$home/ProfileJourney" "--host-resolver-rules=MAP *.airc-fixture.co.uk 127.0.0.1" --disable-features=HttpsUpgrades
     launch --script showcase --ephemeral --data-dir "$home/Airc"
     # YouTube-shaped responses on loopback only: no public-video dependency in CI.
     launch --script ytads --ephemeral --data-dir "$home/VideoAds"
