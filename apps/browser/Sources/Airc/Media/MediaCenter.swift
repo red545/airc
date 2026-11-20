@@ -64,6 +64,13 @@ final class MediaCenter: ObservableObject {
 
     init(engine: EngineMedia) {
         self.engine = engine
+        FairPlayBridge.shared.center = self
+    }
+
+    /// The FairPlay bridge's player for a Chromium page changed (docs/design/fairplay-bridge.md): its session stands in
+    /// for the engine's, which hears nothing from a natively played track.
+    func bridgeSessionChanged(_ tab: EngineTab) {
+        sessionChanged(tab, rawSessions[ObjectIdentifier(tab)] ?? engine.mediaSession(of: tab))
     }
 
     // MARK: Engine
@@ -103,7 +110,8 @@ final class MediaCenter: ObservableObject {
             watched[key] = nil
             trackStates[key] = nil
             rawSessions[key] = nil
-            if let id = watchedTabIDs.removeValue(forKey: key) ?? library?.tabID(for: tab) { sessionEnded(id) }
+            if let id = watchedTabIDs.removeValue(forKey: key) ?? library?.tabID(for: tab),
+               FairPlayBridge.shared.session(for: tab) == nil { sessionEnded(id) }
         }
         for tab in all where watched[ObjectIdentifier(tab)] == nil {
             watched[ObjectIdentifier(tab)] = tab
@@ -118,7 +126,7 @@ final class MediaCenter: ObservableObject {
     private func sessionChanged(_ tab: EngineTab, _ raw: EngineMediaSession) {
         let key = ObjectIdentifier(tab)
         rawSessions[key] = raw
-        var s = raw
+        var s = FairPlayBridge.shared.session(for: tab) ?? raw
         if let (mic, cam) = trackStates[key] {
             s.microphoneActive = mic ?? s.microphoneActive
             s.cameraActive = cam ?? s.cameraActive
@@ -217,6 +225,7 @@ final class MediaCenter: ObservableObject {
     func perform(_ action: String, _ p: Player, value: Double = 0) -> Bool {
         guard let page = library?.page(for: p.tabID), p.session.actions.contains(action)
             || (["play", "pause"].contains(action) && p.session.playback != .none) else { return false }
+        if FairPlayBridge.shared.owns(page) { return FairPlayBridge.shared.perform(action, value: value, in: page) }
         return engine.performMediaAction(action, value: value, in: page)
     }
 

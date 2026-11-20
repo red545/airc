@@ -136,12 +136,18 @@ extension ProtectedMedia {
           return null;
         }
         """) { page, message in
-            guard message.kind == "widevine", let host = URL(string: message.origin)?.host?.lowercased() ?? page.url?.host?.lowercased()
-            else { return }
-            widevinePages = widevinePages.filter { $0.value.ref.page != nil }
-            widevinePages[ObjectIdentifier(page)] = (Weak(page), page.url?.host?.lowercased() ?? host)
-            NotificationCenter.default.post(name: widevineAsked, object: page)
+            guard message.kind == "widevine" else { return }
+            noteWidevineAsked(page, origin: message.origin)
         }
+    }
+
+    /// `page` asked for Widevine (the probe, or the FairPlay bridge refusing it on its sites): Site Controls offers
+    /// Safari's engine for it.
+    static func noteWidevineAsked(_ page: EngineTab, origin: String) {
+        guard let host = URL(string: origin)?.host?.lowercased() ?? page.url?.host?.lowercased() else { return }
+        widevinePages = widevinePages.filter { $0.value.ref.page != nil }
+        widevinePages[ObjectIdentifier(page)] = (Weak(page), page.url?.host?.lowercased() ?? host)
+        NotificationCenter.default.post(name: widevineAsked, object: page)
     }
     private static var probeInstalled = false
     static let widevineAsked = Notification.Name("AircProtectedMediaWidevineAsked")

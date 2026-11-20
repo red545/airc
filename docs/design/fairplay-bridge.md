@@ -67,6 +67,23 @@ with keys from an `AVContentKeySession` whose recipients are the renderers; the 
 rectangle and a click-through copy of the site's controls is drawn on top; PiP is `AVPictureInPictureController` on
 the sample-buffer layer. That is roughly 3,000 lines in Ardia and lands separately, with its own check.
 
+What it takes in Airc, in landing order (each with a fixture check on clear fMP4 served through MediaSource):
+1. The part grows a MediaSource/SourceBuffer stand-in for listed video origins (Ardia's `PROTECTED_VIDEO_ORIGINS`
+   block): appends go to the app in ≤62 kB parts, `buffered`/`duration`/`seekable` come back from the native side.
+2. `FairPlayVideoSession` (Media/): fMP4 init/fragment parsing into `CMSampleBuffer`s (`AVStreamDataParser`), video and
+   audio lanes with eviction, `AVSampleBufferDisplayLayer` + `AVSampleBufferAudioRenderer` under an
+   `AVSampleBufferRenderSynchronizer`, `expectMinimumUpcomingSampleBufferPresentationTime` for B-frames.
+3. Keys: one `AVContentKeySession` per page with the renderers as recipients, one EME session per key ID, raw
+   (`cenc` pssh → FairPlay key ID) and `sinf` init data, licence timeouts, renewals.
+4. The layer view over the Chromium page's video rectangle (the page reports it; Airc's page host places an NSView
+   above the engine's view), clipped by the tab's split pane, hidden with the tab; a black-backdrop fix as Ardia does.
+5. The controls copy (Ardia's `video_mirror.js` + `ArdiaVideoMirror.mm`): a transparent overlay that copies the site's
+   control DOM above the layer and forwards clicks, so the site's own controls stay usable.
+6. Native PiP on the sample-buffer layer, and the tray/Now Playing session like step 1.
+7. Netflix serves FairPlay only to Safari: a per-origin Safari user agent for www.netflix.com (Ardia uses a component
+   extension's request rule; Airc would need its own way, which may be an engine change: ask the engine owner).
+8. YouTube's DRM films (Safari's FairPlay HLS path in an `AVPlayer` under the mirrored controls) after that.
+
 ## Threat model
 
 - **Only listed origins.** The part does nothing unless `window === top` and `location.origin` is in the list it was

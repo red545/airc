@@ -52,6 +52,31 @@ sites send their "Sign in with Spotify" through them, and that has to finish in 
   engine at once. These choices and the toasts you closed are kept in the data folder's `protected-media.json`.
 - The toast stays until its **✕** (then it never comes back for that service); **Why?** opens Site Controls.
 
+## Spotify in Chromium, with FairPlay (off by default)
+
+**Settings → Privacy → "Play protected media in Chromium with FairPlay"** keeps these sites in a Chromium page, with
+your extensions, Chromium's sign-ins and the ad blocker, and plays their music with Apple's FairPlay through a native
+player (docs/design/fairplay-bridge.md; the approach is Ardia's):
+
+<!-- fairplay-bridge-origins -->
+`https://open.spotify.com`
+<!-- /fairplay-bridge-origins -->
+
+- The page is offered FairPlay instead of Widevine. Its own code gets the licence from the service, as in Safari; Airc
+  never sees the keys and keeps nothing.
+- The track plays in Airc itself (AVFoundation), so the sidebar's media tray, Now Playing and the media keys show and
+  control it as any player; the page's own buttons work as usual.
+- If it can't play (no licence, the player failed), the page gets a media error and Airc offers **Open in Safari's
+  engine**, which sends the site back to a WebKit page and remembers that. Site Controls' "Safari's engine" switch does
+  the same, both ways.
+- Off (the default), nothing changes: the site opens in WebKit as described above. Turning it off while a track plays
+  stops it; pages opened from then on open in WebKit.
+- Netflix and Disney+ aren't on the list yet: their video needs a native renderer drawn over the page (planned).
+
+To try it (with your own account): turn the setting on, open open.spotify.com in a new tab (it stays in Chromium:
+no "plays with Safari's engine" toast), sign in, play a song, then pause, seek and skip from the page, the media tray
+and the keyboard's media keys.
+
 ## Your data on WebKit pages
 
 Each Airc profile has its own persistent WebKit store (cookies, storage, cache), named from the data folder plus the
@@ -179,6 +204,12 @@ the page supports them. This does not add account access or provider-specific pl
   this HLS stream; the modern EME path gives a decode error for it.
 - `--script drmservices` (needs the network, never signs in): the real services' pages open in WebKit and say
   nothing like "browser not supported".
-- Test builds also read `AIRC_WEBKIT_DRM=0|1` (the setting, forced).
+- `--script fairplaybridge` (Chromium; the FairPlay bridge, docs/design/fairplay-bridge.md): a loopback page plays the
+  part of a listed site (`AIRC_FAIRPLAY_TEST_ORIGIN`). A clear HLS audio fixture made in the run: the key system offered
+  only on the listed origin and only with the setting on, playback, pause, seek, ended, the tray and Now Playing, the
+  media keys' path, a failure's media error and the Safari's-engine offer; EZDRM's public FairPlay stream (when
+  reachable): the page's own licence exchange and playback. Muted; no account.
+- `swift test --package-path packages/AircKit --filter FairPlayBridgeTests`: the bridge's sites, routing and playlist rules.
+- Test builds also read `AIRC_WEBKIT_DRM=0|1` (the setting, forced) and `AIRC_FAIRPLAY_BRIDGE=0|1`.
 - By hand, with real accounts (not done by the agents): Spotify plays track after track, Netflix and Disney+ play,
   and sign-in through Google or Apple comes back signed in.

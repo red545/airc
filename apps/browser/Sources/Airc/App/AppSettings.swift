@@ -89,6 +89,9 @@ final class AppSettings: ObservableObject {
         /// Settings → Privacy → "Play DRM sites with Safari's engine" (docs/user/protected-media.md): Spotify, Netflix
         /// and the other services whose DRM needs more than Chromium's Widevine open in a WebKit page. On by default.
         var webKitProtectedMedia = true
+        /// Settings → Privacy → "Play protected media in Chromium with FairPlay" (docs/design/fairplay-bridge.md):
+        /// FairPlayBridgeSites' origins stay in Chromium and play through the FairPlay bridge. Off by default.
+        var fairPlayInChromium = false
         /// Onboarding's "Default browser" answer and the later reminder card (DefaultBrowserPrompt.swift).
         var defaultBrowser = DefaultBrowserState()
         /// Live Calendar (Calendar/CalendarCenter.swift): off until the person turns it on.
@@ -163,6 +166,7 @@ final class AppSettings: ObservableObject {
             pinnedExtensions = (try? c.decodeIfPresent([String: [String]].self, forKey: .pinnedExtensions)) ?? [:]
             pipAutomatic = (try? c.decodeIfPresent(Bool.self, forKey: .pipAutomatic)) ?? d.pipAutomatic
             webKitProtectedMedia = (try? c.decodeIfPresent(Bool.self, forKey: .webKitProtectedMedia)) ?? d.webKitProtectedMedia
+            fairPlayInChromium = (try? c.decodeIfPresent(Bool.self, forKey: .fairPlayInChromium)) ?? d.fairPlayInChromium
             pipSites = (try? c.decodeIfPresent([String: Bool].self, forKey: .pipSites)) ?? [:]
             linkRules = (try? c.decodeIfPresent([LinkRule].self, forKey: .linkRules)) ?? []
             littleArcProfiles = (try? c.decodeIfPresent(LittleArcProfiles.self, forKey: .littleArcProfiles)) ?? LittleArcProfiles()

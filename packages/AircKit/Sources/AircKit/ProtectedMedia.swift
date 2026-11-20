@@ -96,6 +96,9 @@ public struct ProtectedMediaSites: Equatable, Sendable {
     public var isEnabled: Bool
     /// Lower-cased entries without a leading dot, some with a path or a "*" top-level domain.
     public private(set) var entries: [String]
+    /// Exact origins ("https://open.spotify.com") that stay in Chromium although their host is listed: the FairPlay
+    /// bridge's sites while its setting is on (FairPlayBridgeSites, docs/design/fairplay-bridge.md). Empty: today's rules.
+    public var chromiumOrigins: Set<String> = []
 
     /// `extraHosts` add to the list (a test's loopback host, sites the person sent to WebKit); `removedHosts` take
     /// entries off it.
@@ -127,6 +130,7 @@ public struct ProtectedMediaSites: Equatable, Sendable {
     /// The listed entry `url` falls under, or nil (also while off, for a sign-in host, and for every scheme but http(s)).
     public func entry(for url: String) -> String? {
         guard isEnabled, let host = Self.webHost(of: url), !Self.isSignInHost(host: host) else { return nil }
+        if !chromiumOrigins.isEmpty, let origin = FairPlayBridgeSites.origin(of: url), chromiumOrigins.contains(origin) { return nil }
         let path = URLComponents(string: url.trimmingCharacters(in: .whitespaces))?.path.lowercased() ?? ""
         return entries.first { Self.matches($0, host: host, path: path) }
     }
@@ -225,11 +229,15 @@ public struct ProtectedMediaChoices: Codable, Equatable, Sendable {
     public var removed: [String]
     /// Services whose toast was closed with its ✕.
     public var told: [String]
+    /// FairPlay bridge origins the person sent back to WebKit (the bridge's failure toast, or Site Controls' "Safari's
+    /// engine" switch on such a page): they open in WebKit even with the bridge on.
+    public var webKitOrigins: [String] = []
 
-    public init(added: [String] = [], removed: [String] = [], told: [String] = []) {
+    public init(added: [String] = [], removed: [String] = [], told: [String] = [], webKitOrigins: [String] = []) {
         self.added = added
         self.removed = removed
         self.told = told
+        self.webKitOrigins = webKitOrigins
     }
 
     public init(from decoder: Decoder) throws {
@@ -237,16 +245,24 @@ public struct ProtectedMediaChoices: Codable, Equatable, Sendable {
         added = try c.decodeIfPresent([String].self, forKey: .added) ?? []
         removed = try c.decodeIfPresent([String].self, forKey: .removed) ?? []
         told = try c.decodeIfPresent([String].self, forKey: .told) ?? []
+        webKitOrigins = try c.decodeIfPresent([String].self, forKey: .webKitOrigins) ?? []
     }
 
-    /// After choosing `engine` for `url`'s site.
+    /// After choosing `engine` for `url`'s site. On a FairPlay bridge origin the choice is also kept per origin, so it
+    /// holds while the bridge is on: WebKit sends it back to WebKit, Chromium lets the bridge have it again.
     public func choosing(_ engine: PageEngine, for url: String) -> ProtectedMediaChoices {
         let r = ProtectedMediaSites.choosing(engine, for: url, added: added, removed: removed)
-        return ProtectedMediaChoices(added: r.added, removed: r.removed, told: told)
+        var origins = webKitOrigins
+        if let o = FairPlayBridgeSites.origin(of: url), FairPlayBridgeSites.origins.contains(o) {
+            origins.removeAll { $0 == o }
+            if engine == .webKit { origins.append(o) }
+        }
+        return ProtectedMediaChoices(added: r.added, removed: r.removed, told: told, webKitOrigins: origins)
     }
 
     /// After the person closed `service`'s toast.
     public func telling(_ service: String) -> ProtectedMediaChoices {
-        told.contains(service) ? self : ProtectedMediaChoices(added: added, removed: removed, told: told + [service])
+        told.contains(service) ? self
+            : ProtectedMediaChoices(added: added, removed: removed, told: told + [service], webKitOrigins: webKitOrigins)
     }
 }

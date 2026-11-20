@@ -33,6 +33,13 @@ Safari's user-agent token and the picture in picture preference are adapted from
 same copyright and licence. The protected-media design (docs/user/protected-media.md) follows Cra's
 docs/protected-media.md.
 
+FairPlay bridge (docs/design/fairplay-bridge.md): apps/browser/Sources/Airc/Media/FairPlayBridge.swift,
+apps/browser/Sources/Airc/Media/FairPlayBridgeScript.swift and packages/AircKit/Sources/AircKit/FairPlayBridgeSites.swift
+are adapted from Ardia's own files (https://github.com/ardia-browser/ardia: packages/ardiacore/ios/ArdiaFairPlay.mm,
+packages/ardiacore/fairplay/main.swift and the FairPlay block of packages/ardiacore/ios/page_script.js),
+Copyright 2026 Mantra Patel, Apache License 2.0; modified by The Airc Authors. Each keeps that copyright line.
+Nothing comes from Ardia's engine patches, Helium or uBlock Origin (GPL-3.0).
+
 packages/AircKit/Resources/public_suffix_list.dat: the Public Suffix List (https://publicsuffix.org/list/),
 Mozilla Public License 2.0 (https://mozilla.org/MPL/2.0/), as shipped with Chromium
 (net/base/registry_controlled_domains/effective_tld_names.dat), unmodified.

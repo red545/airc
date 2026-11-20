@@ -1190,6 +1190,14 @@ private struct PrivacyPage: View {
                                                  set: { model.settings.values.webKitProtectedMedia = $0 }))
                             .accessibilityLabel("Play DRM sites with Safari's engine")
                     }
+                    // docs/design/fairplay-bridge.md: Spotify stays in Chromium (extensions, ad blocking) and plays with
+                    // Apple's FairPlay through a native player. Off by default.
+                    SettingsRow(title: "Play protected media in Chromium with FairPlay",
+                                subtitle: "Spotify stays in a Chromium page, with your extensions, and plays with Apple's FairPlay. If it can't play, Airc offers Safari's engine.") {
+                        AircSwitch(isOn: Binding(get: { model.settings.values.fairPlayInChromium },
+                                                 set: { model.settings.values.fairPlayInChromium = $0 }))
+                            .accessibilityLabel("Play protected media in Chromium with FairPlay")
+                    }
                 }
             }
             SettingsSection(title: "What else leaves this Mac", help: "No account, no sign-up. Your Spaces, tabs and history stay in Airc's data folder.") {

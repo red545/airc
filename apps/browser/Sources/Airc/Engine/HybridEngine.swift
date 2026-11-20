@@ -42,6 +42,11 @@ final class ProtectedMedia {
     var sites: ProtectedMediaSites {
         var s = base
         s.isEnabled = isEnabled
+        // docs/design/fairplay-bridge.md: with the bridge on, its sites stay in Chromium, unless the person sent one
+        // back to WebKit. Off: no exception, today's rules.
+        if FairPlayBridge.isEnabled {
+            s.chromiumOrigins = Set(FairPlayBridge.origins).subtracting(choices.webKitOrigins)
+        }
         return s
     }
 

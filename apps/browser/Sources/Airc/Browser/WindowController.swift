@@ -284,7 +284,10 @@ final class WindowController: NSObject, NSWindowDelegate {
         DefaultBrowserReminder.attach(self)
         app?.promptCenter?.register(prompts)
         #if canImport(AircCore)
-        if app?.engine is ChromiumEngine { ProtectedMedia.installWidevineProbe() }
+        if app?.engine is ChromiumEngine {
+            ProtectedMedia.installWidevineProbe()
+            FairPlayBridge.installOffer()
+        }
         #endif
         setUpMediaLibrary()
     }
