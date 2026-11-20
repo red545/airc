@@ -11,7 +11,7 @@ import Layout from "../layouts/Layout.astro";
 import featureList from "../data/features.json";
 import status from "../data/status.json";
 import { spaceOf } from "../lib/nav";
-import { agentsShown, followAlongShown, remoteShown } from "../lib/agents";
+import { agentHeroShown, agentsShown, followAlongShown, remoteShown } from "../lib/agents";
 import { CONTACT_EMAIL } from "../lib/site";
 import nikPhoto from "../assets/nik.webp";
 import claudeLogo from "../assets/logos/claude.svg";
@@ -39,6 +39,13 @@ const chromiumMajor = status.chromium.split(".")[0];
 const agentsOn = await agentsShown();
 const followOn = await followAlongShown();
 const remoteOn = await remoteShown();
+// The Airc Agent hero: a recording of the real app (artifacts aidemo), once the release with the agent button is out.
+const heroOn = await agentHeroShown();
+const agentVideo = {
+  width: 1600,
+  height: 1000,
+  alt: "A recording of Airc: in a demo shop, the agent button opens the Airc Agent pane, Codex signed in with ChatGPT is connected from its Connect card, and the task “Compare the two kettles under 70 euros and buy the cheaper one. Ask me before you pay.” is typed. The pane’s live card shows the agent searching the shop, opening both kettles, scrolling to their specs and adding the cheaper one to the cart. At Pay, Airc stops and asks. The run is opened from the sidebar’s Agents folder, Allow Once is clicked, the order is placed and the agent says what it bought.",
+};
 const agentsCommand = `claude mcp add --scope user airc -- \\\n  "$HOME/Library/Application Support/Airc/bin/airc-mcp"`;
 
 const facts = [
@@ -147,33 +154,77 @@ const faqs = [
     <!-- ---------------------------------------------------------------- for AI agents (docs/user/agents.md) -->
     {agentsOn && (
       <section id="agents" class="row" data-space={spaceOf("agents")}>
-        <header class="head">
-          <p class="tag" style="--c: var(--t-peach)">New · For AI agents</p>
-          <h2 class="title">Let Claude use your browser. <span class="soft">In the sites you're already signed in to, in windows of its own, after you say&nbsp;yes.</span></h2>
-        </header>
-        <div class="agents">
-          <figure class="agents-demo">
-            <!-- Rendered frame by frame from a scripted run of the real app on a fixture site (scripts/make-agents-motion.mjs). -->
-            <picture>
-              <source media="(prefers-reduced-motion: reduce)" srcset="/motion/agents-still.webp" type="image/webp" />
-              <img src="/motion/agents.webp" width="960" height="600" loading="lazy" decoding="async" alt="Claude using Airc: it opens a bakery's site where the person is already signed in, fills the order form and places the order, in an agent window beside the conversation." />
-            </picture>
-          </figure>
-          <div class="agents-side">
-            <p class="agents-lead">Airc has an MCP connector built in, and it's on. Claude Desktop, Claude Code and other AI apps open pages, read them, click and type for you while you keep working.</p>
-            <div class="agents-setup">
-              <p><b>Set up in one click:</b> Settings → Agents → Add to Claude Desktop. For Claude Code:</p>
-              <pre><code>{agentsCommand}</code></pre>
+        {heroOn ? (
+          <>
+            <header class="head">
+              <p class="tag" style="--c: var(--t-peach)">New · Airc Agent</p>
+              <h2 class="title">An agent in your browser. <span class="soft">Say what you need. It does it in the sites you're signed in to, and you can watch every&nbsp;step.</span></h2>
+            </header>
+            <div class="agents agent-hero">
+              <figure class="agents-demo">
+                <video class="agent-video" muted loop playsinline preload="metadata" poster="/video/agent-demo.jpg" width={agentVideo.width} height={agentVideo.height} aria-label={agentVideo.alt} tabindex="0" data-agent-video>
+                  <source src="/video/agent-demo.webm" type="video/webm" />
+                  <source src="/video/agent-demo.mp4" type="video/mp4" />
+                </video>
+                <figcaption>Recorded in Airc on a demo shop. The agent's steps were scripted for a repeatable take; every click, keystroke and page in it is&nbsp;real.</figcaption>
+              </figure>
+              <div class="agents-side">
+                <p class="agents-lead">Use your ChatGPT subscription: click <svg class="agent-glyph" viewBox="0 0 16 16" width="14" height="14" role="img" aria-label="the Airc Agent button (✦)"><path d="M8 1.2c.5 3.3 1.5 4.3 4.8 4.8C9.5 6.5 8.5 7.5 8 10.8 7.5 7.5 6.5 6.5 3.2 6 6.5 5.5 7.5 4.5 8 1.2Zm4.6 7.4c.25 1.6.75 2.1 2.3 2.35-1.55.25-2.05.75-2.3 2.35-.25-1.6-.75-2.1-2.35-2.35 1.6-.25 2.1-.75 2.35-2.35Z" fill="currentColor"/></svg>, connect Codex with your ChatGPT sign-in, and hand Airc the errand. Or use your own Claude Code.</p>
+                <ul class="agents-safe">
+                  <li><b>Sees the page live.</b> The agent's page shows beside yours while it clicks, types and scrolls. Watch any run from the Agents folder.</li>
+                  <li><b>Asks before it pays.</b> Paying, sending, posting and deleting wait for your OK.</li>
+                  <li><b>Use your ChatGPT subscription.</b> Through your own Codex sign-in, or your own Claude Code. An Anthropic or OpenAI API key works too, connected right in the pane.</li>
+                </ul>
+                <p class="agent-keys">Open it with <svg class="agent-glyph" viewBox="0 0 16 16" width="14" height="14" role="img" aria-label="the Airc Agent button (✦)"><path d="M8 1.2c.5 3.3 1.5 4.3 4.8 4.8C9.5 6.5 8.5 7.5 8 10.8 7.5 7.5 6.5 6.5 3.2 6 6.5 5.5 7.5 4.5 8 1.2Zm4.6 7.4c.25 1.6.75 2.1 2.3 2.35-1.55.25-2.05.75-2.3 2.35-.25-1.6-.75-2.1-2.35-2.35 1.6-.25 2.1-.75 2.35-2.35Z" fill="currentColor"/></svg> at the bottom of the sidebar, or press <kbd>⌥</kbd><kbd>⌘</kbd><kbd>A</kbd>.</p>
+              </div>
             </div>
-            <ul class="agents-safe">
-              <li><b>Asks once per app.</b> The first time Claude connects, Airc asks you. Remove it any time.</li>
-              <li><b>Never sees your passwords.</b> Airc fills saved logins into the page. No tool returns a password, passkey or cookie.</li>
-              <li><b>Never touches private windows.</b> Agents only reach the windows they open, never yours.</li>
-              {followOn && <li><b>Follow along.</b> An Agents folder in your sidebar shows what each agent is doing. Watch it live, take over the page, or stop it.</li>}
-              {remoteOn && <li><b>From your other devices.</b> Claude Code on your other computers can use Airc on your Mac over Tailscale, after you pair them. Off until you turn it on.</li>}
-            </ul>
-          </div>
-        </div>
+            <div class="agents-mcp">
+              <h3>Use Airc from Claude</h3>
+              <p class="agents-lead">Airc has an MCP connector built in, and it's on. Claude Desktop, Claude Code and other AI apps open pages, read them, click and type for you while you keep working.</p>
+              <div class="agents-setup">
+                <p><b>Set up in one click:</b> Settings → Agents → Add to Claude Desktop. For Claude Code:</p>
+                <pre><code>{agentsCommand}</code></pre>
+              </div>
+              <ul class="agents-safe">
+                <li><b>Asks once per app.</b> The first time Claude connects, Airc asks you. Remove it any time.</li>
+                <li><b>Never sees your passwords.</b> Airc fills saved logins into the page. No tool returns a password, passkey or cookie.</li>
+                <li><b>Never touches private windows.</b> Agents only reach the windows they open, never yours.</li>
+                {followOn && <li><b>Follow along.</b> An Agents folder in your sidebar shows what each agent is doing. Watch it live, take over the page, or stop it.</li>}
+                {remoteOn && <li><b>From your other devices.</b> Claude Code on your other computers can use Airc on your Mac over Tailscale, after you pair them. Off until you turn it on.</li>}
+              </ul>
+            </div>
+          </>
+        ) : (
+          <>
+            <header class="head">
+              <p class="tag" style="--c: var(--t-peach)">New · For AI agents</p>
+              <h2 class="title">Let Claude use your browser. <span class="soft">In the sites you're already signed in to, in windows of its own, after you say&nbsp;yes.</span></h2>
+            </header>
+            <div class="agents">
+              <figure class="agents-demo">
+                <!-- Rendered frame by frame from a scripted run of the real app on a fixture site (scripts/make-agents-motion.mjs). -->
+                <picture>
+                  <source media="(prefers-reduced-motion: reduce)" srcset="/motion/agents-still.webp" type="image/webp" />
+                  <img src="/motion/agents.webp" width="960" height="600" loading="lazy" decoding="async" alt="Claude using Airc: it opens a bakery's site where the person is already signed in, fills the order form and places the order, in an agent window beside the conversation." />
+                </picture>
+              </figure>
+              <div class="agents-side">
+                <p class="agents-lead">Airc has an MCP connector built in, and it's on. Claude Desktop, Claude Code and other AI apps open pages, read them, click and type for you while you keep working.</p>
+                <div class="agents-setup">
+                  <p><b>Set up in one click:</b> Settings → Agents → Add to Claude Desktop. For Claude Code:</p>
+                  <pre><code>{agentsCommand}</code></pre>
+                </div>
+                <ul class="agents-safe">
+                  <li><b>Asks once per app.</b> The first time Claude connects, Airc asks you. Remove it any time.</li>
+                  <li><b>Never sees your passwords.</b> Airc fills saved logins into the page. No tool returns a password, passkey or cookie.</li>
+                  <li><b>Never touches private windows.</b> Agents only reach the windows they open, never yours.</li>
+                  {followOn && <li><b>Follow along.</b> An Agents folder in your sidebar shows what each agent is doing. Watch it live, take over the page, or stop it.</li>}
+                  {remoteOn && <li><b>From your other devices.</b> Claude Code on your other computers can use Airc on your Mac over Tailscale, after you pair them. Off until you turn it on.</li>}
+                </ul>
+              </div>
+            </div>
+          </>
+        )}
       </section>
     )}
 
@@ -507,6 +558,26 @@ const faqs = [
     </section>
   </div>
 </Layout>
+
+<script>
+  // The Airc Agent recording: plays muted while on screen, controls while hovered or focused; with reduced motion only
+  // its poster shows until someone presses play.
+  const agentVideo = document.querySelector<HTMLVideoElement>("video[data-agent-video]");
+  if (agentVideo) {
+    const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const show = (on: boolean) => (agentVideo.controls = on || (reduce && agentVideo.paused));
+    agentVideo.addEventListener("mouseenter", () => show(true));
+    agentVideo.addEventListener("mouseleave", () => show(document.activeElement === agentVideo));
+    agentVideo.addEventListener("focus", () => show(true));
+    agentVideo.addEventListener("blur", () => show(false));
+    if (reduce) {
+      agentVideo.preload = "none";
+      agentVideo.controls = true;
+    } else {
+      new IntersectionObserver(([e]) => (e.isIntersecting ? agentVideo.play().catch(() => {}) : agentVideo.pause()), { threshold: 0.25 }).observe(agentVideo);
+    }
+  }
+</script>
 
 <script>
   // Small things that settle in once, when they first come into view.
@@ -912,10 +983,49 @@ const faqs = [
     transform: rotate(-45deg);
   }
   .agents-safe b { color: var(--text); font-weight: 600; }
+  /* The Airc Agent hero: the recording, the pitch, three promises and how to open it; the MCP block below it. */
+  .agent-video {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 10;
+    border-radius: 10px;
+    background: var(--bg-sunk);
+    box-shadow: 0 0 0 0.5px var(--line-strong), 0 12px 32px -12px rgb(0 0 0 / 0.25);
+  }
+  .agents-demo figcaption { margin-top: 10px; font-size: 12px; color: var(--text-3, var(--text-2)); }
+  .agent-hero .agents-lead { font-size: 17px; color: var(--text); }
+  .agent-keys { font-size: 14px; color: var(--text-2); }
+  .agent-keys kbd {
+    display: inline-block;
+    min-width: 1.6em;
+    margin: 0 1px;
+    padding: 1px 5px;
+    border-radius: 5px;
+    background: var(--fill);
+    box-shadow: inset 0 0 0 0.5px var(--line-strong), 0 1px 0 var(--line-strong);
+    font: 12px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI Symbol", "Apple Symbols", system-ui, sans-serif;
+    text-align: center;
+    color: var(--text);
+  }
+  .agent-glyph { display: inline-block; vertical-align: -0.12em; color: #d9773f; }
+  .agents-mcp {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 14px 28px;
+    padding: 24px var(--px) 28px;
+    box-shadow: 0 -1px 0 var(--line);
+  }
+  .agents-mcp > * { min-width: 0; }
+  .agents-mcp h3 { grid-column: 1 / -1; margin: 0; font-size: 15px; font-weight: 600; }
+  .agents-mcp .agents-lead { font-size: 14px; margin: 0; }
+  .agents-mcp .agents-safe { grid-column: 2; grid-row: 2 / span 2; align-content: start; }
   @media (max-width: 900px) {
     .agents { grid-template-columns: minmax(0, 1fr); }
     .agents-demo { box-shadow: 0 1px 0 var(--line); }
     .agents-side { padding: 24px var(--px) 28px; }
+    .agents-mcp { grid-template-columns: minmax(0, 1fr); }
+    .agents-mcp .agents-safe { grid-column: auto; grid-row: auto; }
   }
   .cells-3 .copy { padding-inline: 28px; }
 

@@ -31,10 +31,12 @@
 #import "components/remote_cocoa/app_shim/native_widget_mac_frameless_nswindow.h"
 #include "components/sessions/core/serialized_navigation_entry.h"
 #include "components/sessions/core/serialized_user_agent_override.h"
+#include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/mac/coordinate_conversion.h"
 #include "url/gurl.h"
+#include "airc/core/airc_user_agent_overrides.h"
 #include "airc/core/airc_browser.h"
 #include "airc/core/airc_contents_background.h"
 #include "airc/core/airc_extension_view.h"
@@ -103,7 +105,11 @@
     return nil;
   }
   const bool ahead = !url.length;
-  NavigateParams params(browser, GURL(ahead ? "about:blank" : base::SysNSStringToUTF8(url)),
+  const GURL target(base::SysNSStringToUTF8(url));
+  // A page whose origin has its own user agent (airc_user_agent_overrides.h) starts on about:blank and loads once
+  // the tab's bridge observes it: Navigate() starts its navigation before the tab exists, too early to override.
+  const bool own_user_agent = !ahead && airc::UserAgentOverrideFor(profile.chromeProfile, target).has_value();
+  NavigateParams params(browser, (ahead || own_user_agent) ? GURL("about:blank") : target,
                         ui::PAGE_TRANSITION_TYPED);
   params.disposition = foreground ? WindowOpenDisposition::NEW_FOREGROUND_TAB
                                   : WindowOpenDisposition::NEW_BACKGROUND_TAB;
@@ -120,6 +126,12 @@
   if (ahead) {
     bridge->set_made_ahead();
     airc::MarkAheadBlank(contents);
+  }
+  if (own_user_agent) {
+    content::NavigationController::LoadURLParams load(target);
+    load.transition_type = ui::PAGE_TRANSITION_TYPED;
+    load.should_replace_current_entry = true;
+    contents->GetController().LoadURLWithParams(load);
   }
   // MEM-6: a background tab is hidden until the host shows it. The first tab of a profile's Browser (its tab strip's
   // active tab) was found visible though never shown: pages nobody could see drew every frame (two of the perf
