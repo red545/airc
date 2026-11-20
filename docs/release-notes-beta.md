@@ -1,16 +1,28 @@
-# Airc 0.1.42 public beta
+# Airc 0.1.43 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update adds a ✦ button at the bottom of the sidebar that opens Airc Agent, where you can connect your AI right in
-the pane, and lets Spotify play in a Chromium tab with Apple's FairPlay (off by default). It includes everything from
-0.1.41. The release manifest records the exact build, source and checksums.
+This update lets you use your ChatGPT subscription in Airc Agent, plays Netflix and Disney+ in a Chromium tab with
+Apple's FairPlay (off by default). It includes everything from 0.1.42. The release manifest records the
+exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.41
+## New since 0.1.42
+
+- **Use your ChatGPT subscription in Airc Agent.** The pane's **Connect your AI** card (the ✦ button or **⌥⌘A**) now
+  starts with **Use your ChatGPT subscription**: connect your own Codex with **Sign in with ChatGPT**, on ChatGPT's own
+  sign-in page. You can also use your own Claude Code (it uses your Claude account) or an Anthropic or OpenAI API key.
+  Airc never sees your sign-in.
+- **Netflix and Disney+ play in a Chromium tab with FairPlay.** Turn on **Settings › Privacy › Protected content › Play
+  protected media in Chromium with FairPlay** (off by default, the same setting as Spotify). Netflix and Disney+ then
+  stay in a Chromium tab, with your extensions, and their video plays with Apple's FairPlay, with picture in picture
+  and the sidebar's media controls. If a title can't play, Airc offers to open the page with Safari's engine. With the
+  setting off, nothing changes.
+
+## Included from 0.1.42
 
 - **New ✦ button opens Airc Agent.** It's at the bottom of the sidebar, next to the Archive button, or press **⌥⌘A**.
   Click it again to close the pane; while a task runs, the button shows a dot. Right-click it for **New Task**,

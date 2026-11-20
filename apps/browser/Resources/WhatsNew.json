@@ -2,6 +2,24 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.43",
+      "highlights": [
+        {
+          "title": "Your ChatGPT subscription",
+          "lead": "Use your ChatGPT subscription in Airc Agent",
+          "detail": "In Airc Agent (the ✦ button or ⌥⌘A), Connect your AI now starts with your ChatGPT subscription: connect your own Codex with Sign in with ChatGPT. Your own Claude Code or an API key work too.",
+          "icon": "sparkles",
+          "image": "agent-pane-connect"
+        },
+        {
+          "title": "Netflix and Disney+",
+          "lead": "Netflix and Disney+ play in a Chromium tab with FairPlay",
+          "detail": "Turn on Settings › Privacy › Protected content › Play protected media in Chromium with FairPlay (off by default): Netflix and Disney+ stay in a Chromium tab and play with Apple's FairPlay.",
+          "icon": "square.on.square"
+        }
+      ]
+    },
+    {
       "version": "0.1.42",
       "highlights": [
         {
