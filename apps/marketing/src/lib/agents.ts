@@ -27,12 +27,10 @@ export async function agentsShown(): Promise<boolean> {
   return row ? shown(row, await getPublished(), SHOW_UNRELEASED) : false;
 }
 
-// The Airc Agent hero (the agent button and the pane's Connect card, recorded from the app: public/video/agent-demo.*):
-// shown once the release that brings the button is published; previews and `astro dev` show it now. Until then the
-// section keeps its MCP lead.
+// The Airc Agent hero (the agent button and the pane's Connect card, recorded from the app: public/video/agent-demo.*).
+// Owner decision 2026-11-20: always shown, no longer waiting for the release that brings the button (0.1.42).
 export const AGENT_BUTTON_ROW = "Agent button and Connect";
 
 export async function agentHeroShown(): Promise<boolean> {
-  const row = groups.flatMap((g) => g.features).find((f) => f.title === AGENT_BUTTON_ROW);
-  return row ? shown(row, await getPublished(), SHOW_UNRELEASED) : SHOW_UNRELEASED;
+  return true;
 }

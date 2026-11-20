@@ -3,6 +3,9 @@ import { getImage, Image } from "astro:assets";
 import "@fontsource-variable/inter/wght.css";
 import "@fontsource-variable/figtree/wght.css";
 import "../styles/global.css";
+// Preloaded, so the headline and body text don't reflow when the web fonts arrive (that shift was most of the page's CLS).
+import figtreeLatin from "@fontsource-variable/figtree/files/figtree-latin-wght-normal.woff2?url";
+import interLatin from "@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url";
 import iconSmall from "../assets/icon-small.png";
 import icon from "../assets/icon.png";
 import socialCard from "../assets/social-card.png"; // assets/brand/kit/airc-social-card.png (the brand kit)
@@ -39,6 +42,8 @@ const groups = allGroups.map((g) => ({ ...g, items: g.items.filter((s) => !s.gat
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <link rel="preload" href={figtreeLatin} as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href={interLatin} as="font" type="font/woff2" crossorigin />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <!-- Light only, whatever the Mac or phone is set to. -->
     <meta name="color-scheme" content="light only" />
@@ -95,8 +100,9 @@ const groups = allGroups.map((g) => ({ ...g, items: g.items.filter((s) => !s.gat
           </button>
         </div>
 
-        <button type="button" class="url" data-act="command" aria-label="Open the command bar">
+        <button type="button" class="url" data-act="command">
           <span class="url-text" data-url>aircbrowser.com</span>
+          <span class="sr">: open the command bar</span>
           <kbd>⌘K</kbd>
         </button>
 
@@ -600,8 +606,9 @@ const groups = allGroups.map((g) => ({ ...g, items: g.items.filter((s) => !s.gat
     flex: none;
     margin: 0;
     font-size: 11px;
-    opacity: 0.8;
   }
+
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
   .favs {
     display: grid;

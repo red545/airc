@@ -1,0 +1,24 @@
+WEBVTT
+
+NOTE The recording has no sound; these captions say what happens on screen.
+
+00:00.000 --> 00:03.500
+Airc, on a demo shop. The ✦ button at the bottom of the sidebar opens the Airc Agent.
+
+00:03.500 --> 00:08.700
+Connect your AI: Codex, signed in with ChatGPT, is picked with Use.
+
+00:08.700 --> 00:12.500
+The task: “Compare the two kettles under 70 euros and buy the cheaper one. Ask me before you pay.”
+
+00:12.500 --> 00:27.400
+The agent's page plays live in the pane: it searches the shop, opens both kettles, reads their specs and adds the cheaper one to the cart.
+
+00:27.400 --> 00:32.400
+At Pay, Airc stops it and asks: “Pay on hearth.aircbrowser.com?” Deny, or Allow once.
+
+00:32.400 --> 00:37.000
+The run is opened from the sidebar's Agents folder, and Allow once is clicked.
+
+00:37.000 --> 00:44.800
+The order is placed, and the agent says which kettle it bought and why.
