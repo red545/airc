@@ -1,0 +1,38 @@
+# Airc 0.1.44 (cut c65b43d0; build revision e66fd734; notes on release/0.1.44-notes). Claims from its approved notes,
+# "New since 0.1.43", and release056's numbers. NOT TO POST before release056 says 0.1.44 is LIVE: plan and approve
+# only then, after checking the public repo shows the release (owner rule).
+slug = "2026-11-20-release-0.1.44"
+title = "Airc 0.1.44: a faster Chromium engine"
+kind = "release"
+since = "0.1.44"
+tag = ""
+summary = """
+Two text posts: the faster engine, with measured numbers (the account's speed story), and sites you type no longer
+blocked by mistake, plus Google Tag Assistant working with blocking on.
+"""
+order = """
+1. The engine post at 10:30 UTC on the first day after LIVE whose 10:30 can move (it's the speed post the plan asked
+   for); the blocking post in an afternoon slot a day later.
+"""
+checked = """
+- Engine: built the way Chrome is (profile-guided, whole-program link-time optimisation). In the tests on the build
+  Mac: a Chromium window usable about a quarter sooner after launch (982 → 712 ms, release056), a busy animated page
+  nearly a quarter less CPU (−23 %), the engine about 200 MB smaller (454 → 253 MB). The post says "in our tests" and
+  compares Airc only with itself, not with Chrome or Arc.
+- Blocking: in Chromium tabs, sites you open yourself (typed or from a bookmark) that a tracker list names, such as
+  analytics.google.com (about 5,400 sites in the default lists), no longer show "blocked by Airc"; trackers inside
+  pages stay blocked. Google's Tag Assistant, Tag Manager and Analytics: Google's tag and analytics scripts are let
+  through there so preview and debug connect; everywhere else they stay blocked.
+"""
+
+[[post]]
+label = "A faster Chromium engine"
+text = """
+Airc 0.1.44's Chromium engine is now built the way Chrome's is: profile-guided and link-time optimised. In our tests a window was usable about a quarter sooner after launch (982 → 712 ms), busy pages used 23% less CPU, and the engine is 200 MB smaller.
+"""
+
+[[post]]
+label = "Sites you type are no longer blocked"
+text = """
+Typed analytics.google.com and got "blocked by Airc"? Fixed in 0.1.44: sites you open yourself now load, while trackers inside pages stay blocked. And Google Tag Assistant and Tag Manager preview work with blocking on.
+"""
