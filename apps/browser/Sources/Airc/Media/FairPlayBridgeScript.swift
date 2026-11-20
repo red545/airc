@@ -147,6 +147,7 @@ function (post) {
     ...getOwnPropertyDescriptor(accessHolder, "requestMediaKeySystemAccess"),
     value: asNative(requestAccess, (target, self, args) => {
       if (!enabled) return apply(target, self, args);
+      send("asked", { keySystem: String(args[0]).slice(0, 64) });
       if (args[0] !== KEY_SYSTEM) {
         // Widevine and PlayReady are refused, so the player picks FairPlay; anything else is Chromium's answer.
         if (!/^com\.(?:widevine|microsoft\.playready)(?:\.|$)/.test(String(args[0]))) return apply(target, self, args);

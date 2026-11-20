@@ -36,9 +36,10 @@ final class FairPlayBridge: NSObject {
     /// The exact origins the bridge serves (FairPlayBridgeSites; a test adds its loopback page's).
     static var origins: [String] {
         #if AIRC_TESTING
-        if let t = testOrigin { return FairPlayBridgeSites.origins + [t] }
-        #endif
+        return FairPlayBridgeSites.origins + [testOrigin, testExtraAudioOrigin].compactMap { $0 }
+        #else
         return FairPlayBridgeSites.origins
+        #endif
     }
 
     /// Every origin the bridge keeps in Chromium (audio and video; the routing exception in ProtectedMedia).
@@ -53,6 +54,8 @@ final class FairPlayBridge: NSObject {
     static var testUserAgentOrigin: String? = ProcessInfo.processInfo.environment["AIRC_FAIRPLAY_TEST_UA_ORIGIN"] {
         didSet { shared.settingChanged() }
     }
+    /// `--script spotifyprobe`: a real origin the audio part serves for the record (open.spotify.com).
+    static var testExtraAudioOrigin: String? { didSet { shared.settingChanged() } }
     /// `--script fairplayua`: an alias of the test's Netflix origin (as netflix.com is of www.netflix.com).
     static var testUserAgentAlias: String?
     /// `--script fairplaybridge`: the setting, forced (nil: the setting).
@@ -186,8 +189,9 @@ final class FairPlayBridge: NSObject {
         let d = (try? JSONSerialization.jsonObject(with: Data(m.json.utf8))) as? [String: Any] ?? [:]
         if m.kind == "load" { return loadPart(tab, m, d) }
         if m.kind == "offered" { return }
+        if m.kind == "asked" { return noteAsked(d) }
         // Site Controls offers Safari's engine on a page whose Widevine the bridge refused (as on any Widevine page).
-        if m.kind == "widevine" { return ProtectedMedia.noteWidevineAsked(tab, origin: m.origin) }
+        if m.kind == "widevine" { return widevineRefused(tab, origin: m.origin) }
         guard ownerTab === tab, m.frame == ownerFrame, m.origin == ownerOrigin else { return }
         switch m.kind {
         case "license":
@@ -223,6 +227,49 @@ final class FairPlayBridge: NSObject {
         }
     }
 
+    // MARK: A page that never reaches FairPlay
+
+    /// Pages that asked for Widevine (refused here) and haven't started FairPlay playback: after this long, the offer.
+    /// A player that only takes FairPlay from Safari's own API (Spotify's checks WebKitMediaKeys) stops at Widevine and
+    /// shows its own error; without this the person would have no way to Safari's engine.
+    static let stalledOfferDelay: TimeInterval = 10
+    private var stalled: [ObjectIdentifier: DispatchWorkItem] = [:]
+    private var offeredFor: [ObjectIdentifier: String] = [:]
+
+    func widevineRefused(_ tab: EngineTab, origin: String) {
+        ProtectedMedia.noteWidevineAsked(tab, origin: origin)
+        let key = ObjectIdentifier(tab)
+        guard stalled[key] == nil, offeredFor[key] != origin else { return }
+        let item = DispatchWorkItem { [weak self, weak tab] in
+            guard let self else { return }
+            self.stalled[key] = nil
+            guard let tab, !tab.isClosed, !self.owns(tab),
+                  FairPlayBridgeSites.origin(of: tab.url?.absoluteString ?? "") == FairPlayBridgeSites.origin(of: origin) else { return }
+            self.offeredFor[key] = origin
+            NotificationCenter.default.post(name: Self.failed, object: tab, userInfo: ["step": "keysystem"])
+        }
+        stalled[key] = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.stalledOfferDelay, execute: item)
+    }
+
+    /// FairPlay playback started for `tab`: no stalled offer.
+    func bridgeStarted(_ tab: EngineTab) {
+        stalled.removeValue(forKey: ObjectIdentifier(tab))?.cancel()
+    }
+
+    func noteAskedFromVideo(_ d: [String: Any]) { noteAsked(d) }
+
+    private func noteAsked(_ d: [String: Any]) {
+        #if AIRC_TESTING
+        if let k = Self.text(d["keySystem"], 64) { Self.askedKeySystems.append(k) }
+        #endif
+    }
+
+    #if AIRC_TESTING
+    /// Key systems pages asked for, in order (`--script spotifyprobe`).
+    static var askedKeySystems: [String] = []
+    #endif
+
     private func loadPart(_ tab: EngineTab, _ m: EnginePageMessage, _ d: [String: Any]) {
         guard let gen = Self.whole(d["gen"]), gen >= 1, let total = Self.whole(d["parts"]), (1...FairPlayBridgeSites.maxParts).contains(total),
               let part = Self.whole(d["part"]), (0..<total).contains(part),
@@ -237,6 +284,7 @@ final class FairPlayBridge: NSObject {
             pageMuted = d["muted"] as? Bool ?? false
         }
         guard partsTab === tab, partsFrame == m.frame, partsGeneration == gen, parts.count == part else { return }
+        bridgeStarted(tab)
         parts.append(text)
         guard parts.count == total else { return }
         let playlist = parts.joined()

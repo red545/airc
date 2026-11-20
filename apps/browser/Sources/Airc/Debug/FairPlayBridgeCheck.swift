@@ -99,8 +99,8 @@ extension SnapshotRunner {
             ProtectedMedia.shared.testHosts = ["localhost"]   // the listed site is a WebKit service by today's rules
             FairPlayBridge.testOrigin = listed
             FairPlayBridge.forcedForTest = true
-            let source = FairPlayBridgeScript.source(origins: FairPlayBridgeSites.origins, clearTestOrigin: nil)
-            check(source.contains("[\"https://open.spotify.com\"]") && !source.contains("__AIRC_"),
+            let source = FairPlayBridgeScript.source(origins: ["https://example.com"], clearTestOrigin: nil)
+            check(source.contains("[\"https://example.com\"]") && !source.contains("__AIRC_"),
                   "\(tag): the page script is composed with exactly the bridge's origins")
         }
         wait(0.6)   // the part reaches the engine's page script
@@ -296,6 +296,68 @@ extension SnapshotRunner {
             ProtectedMedia.shared.testHosts = []
             server?.stop()
             try? FileManager.default.removeItem(at: dir)
+        }
+    }
+
+    /// `--script spotifyprobe` (Chromium, network, never signs in): the real open.spotify.com with the setting on opens in
+    /// Safari's engine (owner, 2026-11-20: Spotify's player takes FairPlay only through Safari's own WebKitMediaKeys, and
+    /// Airc doesn't impersonate Safari). Then, for the record, the same page forced into Chromium with the setting on:
+    /// which key systems its player asks for, and that Airc offers Safari's engine when it stops at Widevine.
+    func spotifyProbeScenario() {
+        guard app?.engine is ChromiumEngine else { return run { self.note("spotifyprobe: Chromium only") } }
+        let tag = "spotifyprobe"
+        var id = "", forced = ""
+        var page: [String: Any] = [:]
+        func open(_ url: String) -> String {
+            guard let t = try? c.store.openTab(url: url, inSpace: c.currentSpaceID) else { return "" }
+            c.reloadAll(animated: false)
+            c.show(t.id, focus: true)
+            return t.id
+        }
+        run { [self] in
+            FairPlayBridge.forcedForTest = true
+            FairPlayBridge.askedKeySystems = []
+            FairPlayBridge.lastOffer = nil
+        }
+        wait(0.6)
+        run { [self] in
+            id = open("https://open.spotify.com/")
+            check(ProtectedMedia.shared.engine(for: URL(string: "https://open.spotify.com/")) == .webKit,
+                  "\(tag): with the setting on, Airc's rules send open.spotify.com to Safari's engine")
+        }
+        wait(3)
+        run { [self] in
+            check(ProtectedMedia.isWebKitPage(c.engineTab(for: id)), "\(tag): open.spotify.com opened in Safari's engine")
+            c.engineTab(for: id)?.close()
+            // The same page in Chromium (as with a website rule), the player's own choices recorded.
+            ProtectedMedia.shared.choose(.chromium, for: URL(string: "https://open.spotify.com/")!)
+            FairPlayBridge.testExtraAudioOrigin = "https://open.spotify.com"
+        }
+        wait(0.6)
+        run { forced = open("https://open.spotify.com/") }
+        step { [self] done in
+            waitUntil({ FairPlayBridge.lastOffer != nil }, timeout: FairPlayBridge.stalledOfferDelay + 25, then: done)
+        }
+        step { [self] done in
+            c.engineTab(for: forced)?.evaluate("JSON.stringify({ webkitMediaKeys: typeof WebKitMediaKeys, title: document.title })") { v in
+                page = (v as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] } ?? [:]
+                done()
+            }
+        }
+        run { [self] in
+            let asked = FairPlayBridge.askedKeySystems
+            note("\(tag): in Chromium, key systems asked in order: \(asked.isEmpty ? "none" : asked.joined(separator: ", ")); WebKitMediaKeys \(page["webkitMediaKeys"] ?? "-")")
+            check(!ProtectedMedia.isWebKitPage(c.engineTab(for: forced)), "\(tag): forced into Chromium for the record")
+            if asked.contains(where: { $0.contains("widevine") }) {
+                check(FairPlayBridge.lastOffer?.service == "Spotify",
+                      "\(tag): Widevine refused and no FairPlay playback: Airc offers Safari's engine (\(FairPlayBridge.lastOffer?.service ?? "no offer"))")
+            } else {
+                note("NOTE \(tag): the player asked for no Widevine this time; no offer expected")
+            }
+            c.engineTab(for: forced)?.close()
+            ProtectedMedia.shared.choose(.webKit, for: URL(string: "https://open.spotify.com/")!)
+            FairPlayBridge.testExtraAudioOrigin = nil
+            FairPlayBridge.forcedForTest = nil
         }
     }
 

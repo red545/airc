@@ -12,7 +12,10 @@ import Foundation
 public enum FairPlayBridgeSites {
     /// Exact https origins (scheme, host, default port). The only list: the page script is composed with it, the
     /// routing uses it, and FairPlayBridgeTests checks docs/user/protected-media.md against it.
-    public static let origins: [String] = ["https://open.spotify.com"]
+    /// None: Spotify was the only one, and it plays in WebKit (owner, 2026-11-20). Its web player takes FairPlay only
+    /// through Safari's own `WebKitMediaKeys` (in Chromium it asks for Widevine first and treats FairPlay files as
+    /// unplayable without it), and offering it would mean impersonating Safari, which the owner ruled out.
+    public static let origins: [String] = []
 
     /// Exact origins whose video plays through the sample-buffer bridge (step 2).
     public static let videoOrigins: [String] = ["https://www.disneyplus.com", "https://www.netflix.com"]

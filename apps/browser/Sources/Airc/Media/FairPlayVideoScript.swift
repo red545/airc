@@ -328,6 +328,7 @@ function (post) {
       ...getOwnPropertyDescriptor(accessHolder, "requestMediaKeySystemAccess"),
       value: asNative(requestAccess, (target, self, args) => {
         const keySystem = String(args[0]);
+        send("asked", { keySystem: keySystem.slice(0, 64) });
         if (FAIRPLAY.test(keySystem)) {
           const configuration = pickConfiguration(args[1]);
           send("offered", {});

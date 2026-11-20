@@ -125,9 +125,11 @@ final class FairPlayVideo {
     private func received(_ tab: EngineTab, _ m: EnginePageMessage) {
         guard FairPlayBridge.isEnabled, m.isMainFrame, !(tab is WebKitTab),
               FairPlayBridgeSites.serves(origin: m.origin, in: Self.origins) else { return }
-        if m.kind == "offered" { return }
-        if m.kind == "widevine" { return ProtectedMedia.noteWidevineAsked(tab, origin: m.origin) }
         let d = (try? JSONSerialization.jsonObject(with: Data(m.json.utf8))) as? [String: Any] ?? [:]
+        if m.kind == "offered" { return }
+        if m.kind == "asked" { return FairPlayBridge.shared.noteAskedFromVideo(d) }
+        if m.kind == "widevine" { return FairPlayBridge.shared.widevineRefused(tab, origin: m.origin) }
+        if m.kind == "attach" { FairPlayBridge.shared.bridgeStarted(tab) }
         sessions = sessions.filter { $0.value.tab != nil && $0.value.tab?.isClosed == false }
         let key = ObjectIdentifier(tab)
         var session = sessions[key]
