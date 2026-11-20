@@ -265,6 +265,7 @@ final class SnapshotRunner {
         case "onepassword": onePasswordScenario()
         case "paritycontextmenu": parityContextMenuScenario()
         case "parityfedcm": parityFedCmScenario()   // FedCM on a fake IdP: no crash; Chromium falls back to the popup (ParityFedCmCheck.swift)
+        case "ganalytics": googleAnalyticsScenario()   // Google Analytics' sign-in entry and Tag Assistant, signed out, real network (GoogleAnalyticsCheck.swift)
         case "paritypagebubbles": parityPageBubblesScenario()   // media remoting + WebAuthn ambient bubbles without a toolbar (ParityPageBubblesCheck.swift)
         case "menulang": menuLanguageScenario()   // English-only app strings under a German test locale (MenuLanguageCheck)
         case "parityp08c": parityP08cScenario()   // P08c: Capture in Portrait Mode in View and the Site Control Center

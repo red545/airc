@@ -46,14 +46,23 @@ struct BlockingListDescriptor: Identifiable {
         root = directory.appendingPathComponent("Blocking/Lists", isDirectory: true)
         self.seeds = seeds; self.networkAllowed = networkAllowed
         self.fetch = networkAllowed ? (fetch ?? Self.fetchFromAuthors) : { _ in throw StoreError.updatesDisabled }
+        aircExceptions = seeds.flatMap { Self.readBounded($0.appendingPathComponent(Self.aircExceptionsFile)) }
+            .flatMap { String(data: $0, encoding: .utf8) } ?? ""
         load()
     }
+    /// ganalytics: Airc's own scoped exceptions (Resources/BlockingLists/airc-exceptions.txt), e.g. Google's tag tools on
+    /// Google's own sites. Joined after the selected lists, so they apply on both engines and survive list updates;
+    /// scripts/precompile-blocking-rules.py joins the same bytes for the bundled WebKit rule list.
+    static let aircExceptionsFile = "airc-exceptions.txt"
+    let aircExceptions: String
     func text(for selected: Set<String>, replacing: (id: String, text: String)? = nil) throws -> String {
-        try selected.sorted().map { id in
+        var parts = try selected.sorted().map { id in
             if let replacing, replacing.id == id { return replacing.text }
             guard let snapshot = snapshots[id], let text = String(data: snapshot.bytes, encoding: .utf8) else { throw StoreError.unavailable }
             return text
-        }.joined(separator: "\n")
+        }
+        if !parts.isEmpty, !aircExceptions.isEmpty { parts.append(aircExceptions) }
+        return parts.joined(separator: "\n")
     }
     func has(_ id: String) -> Bool { snapshots[id] != nil }
 

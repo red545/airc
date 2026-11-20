@@ -11,3 +11,6 @@ representation and omits unsupported WebKit rules; see the conversion report.
 
 The Rust library and Airc integration code retain their respective licenses;
 this notice applies to the lists and their converted rulesets.
+
+airc-exceptions.txt is Airc's own short list of scoped exceptions (Apache-2.0),
+applied after the selected lists; it isn't part of EasyList or EasyPrivacy.

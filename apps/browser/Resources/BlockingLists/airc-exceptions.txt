@@ -1,0 +1,12 @@
+[Adblock Plus 2.0]
+! Title: Airc exceptions
+! Airc's own additions (Apache-2.0, not part of EasyList/EasyPrivacy). BlockingListStore.text(for:) joins this file
+! after the selected lists, on both engines; scripts/precompile-blocking-rules.py does the same for the bundled
+! WebKit rule list. Keep every rule scoped to the sites that need it.
+!
+! Google's own analytics and tag tools. EasyPrivacy blocks googletagmanager.com and google-analytics.com everywhere, so
+! on Tag Assistant, Tag Manager and Google Analytics themselves their debug and preview requests failed (Tag
+! Assistant's www.googletagmanager.com/debug/api/... calls). Only on those three sites: on every other site both
+! hosts stay blocked.
+@@||googletagmanager.com^$domain=tagassistant.google.com|tagmanager.google.com|analytics.google.com
+@@||google-analytics.com^$domain=tagassistant.google.com|tagmanager.google.com|analytics.google.com

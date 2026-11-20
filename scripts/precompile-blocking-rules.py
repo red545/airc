@@ -31,6 +31,13 @@ for name in sorted(['easylist', 'easyprivacy']):   # the defaults (BlockingSetti
     if data.startswith(b'\xef\xbb\xbf'): sys.exit(f'precompile-blocking-rules: {name}.txt starts with a BOM')
     data.decode('utf-8')
     parts.append(data)
+# ganalytics: Airc's own exceptions, joined last as BlockingListStore.text(for:) joins them (read as UTF-8 there too).
+exceptions = seeds / 'airc-exceptions.txt'
+if exceptions.is_file():
+    data = exceptions.read_bytes()
+    if data.startswith(b'\xef\xbb\xbf'): sys.exit('precompile-blocking-rules: airc-exceptions.txt starts with a BOM')
+    data.decode('utf-8')
+    if data: parts.append(data)
 text = b'\n'.join(parts)
 identifier = m.group(1) + hashlib.sha256(text).hexdigest()
 
