@@ -143,6 +143,8 @@ final class SnapshotRunner {
         case "drmwebkit-read": drmWebKitScenario(read: true)
         case "fairplay": fairPlayScenario()
         case "fairplaybridge": fairPlayBridgeScenario()   // FairPlayBridgeCheck.swift
+        case "fairplayvideo": fairPlayVideoScenario()   // FairPlayVideoCheck.swift
+        case "fairplayua": fairPlayUserAgentScenario()   // FairPlayVideoCheck.swift
         case "drmservices": drmServicesScenario()
         #endif
         case "perf": perfScenario()

@@ -1,6 +1,7 @@
 # FairPlay bridge: protected media in Chromium pages
 
-Status: step 1 (Spotify, audio) in progress; Netflix/Disney+ video and YouTube DRM films come after it.
+Status: step 1 (Spotify, audio) landed; step 2 (video) in progress: the sample-buffer bridge for Disney+, Netflix waits
+for a per-origin request user agent in the engine; the controls copy and YouTube DRM films come after.
 User-facing behaviour: docs/user/protected-media.md, "Play protected media in Chromium with FairPlay".
 
 ## Why
@@ -59,7 +60,7 @@ exactly today's. Other hosts of a service (accounts.spotify.com, spotify.com) ar
 6. The Media Session's metadata and action handlers are mirrored to the app; the tray and the media keys call the
    page's own handlers (or the element), as for any page.
 
-### Netflix and Disney+ (step 2, not yet)
+### Netflix and Disney+ (step 2)
 
 Ardia's design: the part intercepts the player's `MediaSource`/`SourceBuffer` appends and EME, the app feeds the
 samples to `AVSampleBufferDisplayLayer` + `AVSampleBufferAudioRenderer` under an `AVSampleBufferRenderSynchronizer`,

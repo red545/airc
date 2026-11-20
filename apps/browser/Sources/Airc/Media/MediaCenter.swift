@@ -78,6 +78,9 @@ final class MediaCenter: ObservableObject {
     func attach(_ profile: EngineProfile, profileID: String) {
         guard observedProfiles[profileID] == nil else { return }
         observedProfiles[profileID] = profile
+        #if canImport(AircCore)
+        FairPlayVideo.shared.profileLoaded(profile)
+        #endif
         engine.observeMediaTabs(in: profile) { [weak self] tabs in
             // PASS13: a callback mustn't change the engine's structures synchronously.
             DispatchQueue.main.async { self?.mediaTabsChanged(profileID, tabs) }
