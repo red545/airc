@@ -61,7 +61,7 @@ done
 if [ "$ON_MAC" = 1 ]; then
   # ---- On the build Mac (macOS bash 3.2: plain [ ] tests only). ----
   cd "$ROOT"
-  export CHROMIUM_OUT="${CHROMIUM_OUT:-$HOME/arcfork/chromium/src/out/AircRelease}"
+  export CHROMIUM_OUT="${CHROMIUM_OUT:-$HOME/arcfork/chromium/src/out/AircOfficial}"
   if [ "$BUILD" = 1 ]; then
     free=$(diskutil info /System/Volumes/Data | sed -n 's/.*Container Free Space:.*(\([0-9]*\) Bytes).*/\1/p')
     [ -n "$free" ] || free=0

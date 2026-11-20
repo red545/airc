@@ -1,0 +1,37 @@
+# Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
+# Opt-in Apple silicon candidate; engine/build.sh's default stays unchanged.
+# Copy to a NEW out/AircOfficial/args.gn, then run gn gen and build
+# chrome_framework there. Never copy this over a qualified release output.
+# Prerequisite: checkout_pgo_profiles=True in .gclient custom_vars, then:
+# python3 tools/update_pgo_profiles.py --target=mac-arm update \
+#   --gs-url-base=chromium-optimization-profiles/pgo_profiles
+# python3 v8/tools/builtins-pgo/download_profiles.py download \
+#   --depot-tools third_party/depot_tools --check-v8-revision
+# The checkout's chrome/build/mac-arm.pgo.txt and V8 revision pin the profiles.
+is_debug = false
+is_official_build = true
+dcheck_always_on = false
+is_component_build = false
+chrome_pgo_phase = 2
+use_thin_lto = true
+# Keep crash-symbol generation out of this disk-constrained qualification build.
+# Upstream official builds default to symbol_level=2; this matches AircRelease.
+symbol_level = 0
+blink_symbol_level = 0
+# Preserve Airc's newer-SDK compatibility policy, independently of optimization.
+treat_warnings_as_errors = false
+# Match the official Mac builder: optional tracing is enabled there too.
+optional_trace_events_enabled = true
+init_stack_vars = true
+init_stack_vars_zero = true
+# Mac chrome_framework already uses chrome/app/framework.order. The
+# chrome_orderfile_path argument is Android-only; do not set it on Mac.
+generate_about_credits = true
+target_cpu = "arm64"
+use_remoteexec = false
+branding_file_path = "//airc/core/BRANDING"
+enable_widevine = true
+enable_library_cdms = true
+bundle_widevine_cdm = false
+proprietary_codecs = true
+ffmpeg_branding = "Chrome"

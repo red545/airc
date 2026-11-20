@@ -135,8 +135,33 @@ scripts/perf.sh --app build/Airc.app
 
 For a nondefault source also export `CHROMIUM_OUT="$CHROMIUM_SRC/out/Airc"` and
 `CHROME_APP_SRC="$CHROMIUM_SRC/chrome/app"` before building the host. build.sh
-currently builds an unsigned/nonofficial arm64 framework, not a release artifact.
+builds an unsigned arm64 framework (official by default, `--variant release` for the non-official one), not a release artifact.
 Use its eight-job limit and incremental output; never run two builds together.
+
+## Security releases and the official engine
+
+Releases ship the **official** engine: `out/AircOfficial`, built by `engine/build.sh --variant official`
+(PGO + ThinLTO, engine/BUILD-VARIANTS.md). A version bump makes it a **cold** build (about 86k steps:
+3.5 h of compile, but a day on a shared, busy build Mac), and the PGO profile hooks must run first. The
+non-official `out/AircRelease` rebuilds incrementally in a few hours. Security speed comes first, so:
+
+1. **Rebase and gate on AircRelease.** Update the pin, refresh the hooks (sections above), build
+   `engine/build.sh --run --variant release` in place, and run the release gates on a test build of it
+   (`AIRC_ENGINE_OUT=release scripts/build-app.sh`).
+2. **Ship the security release on it, explicitly:** `AIRC_ENGINE_OUT=release scripts/release/package.sh …`.
+   Without the variable `package.sh` refuses a non-official engine. With it, it prints the choice, writes
+   `engine-variant.txt` next to the package, `build-app.sh` stamps `AircEngineBuild=release` into the
+   app's Info.plist (the build identity), and the release record line ends in
+   `Engine: release (non-official, AIRC_ENGINE_OUT=release).` (`scripts/release/manifest.py`). Name it in
+   the release's queue posts too. Expect about 1.3× the page CPU of the official engine
+   (artifacts/engineofficial) until step 3.
+3. **Rebuild the official engine and switch back next release.** Re-run the PGO hooks for the new
+   version (`tools/update_pgo_profiles.py --target=mac-arm update …` and V8's
+   `download_profiles.py download … --check-v8-revision`), then `engine/build.sh --run --variant official`
+   into the existing `out/AircOfficial` (its siso state keeps unchanged steps). Requalify it (the release
+   gates on a test build), then the next release packages without the variable, `Engine: official.`
+
+Never ship `AIRC_ENGINE_OUT=release` for a feature release, and never leave it set in a shell or a unit.
 
 ## Acceptance and promotion
 

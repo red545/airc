@@ -53,7 +53,11 @@ def generate(stage, notes, channel, qualified, whatsnew_resources=None):
     if channel not in ('stable', 'nightly') or not re.fullmatch(r'\d+\.\d+\.\d+', version) or not re.fullmatch(r'\d{12}', build):
         raise ValueError('Invalid release identifiers')
     prefix = f'https://aircbrowser.com/releases/{version}/{build}/'
-    text = notes.read_text()+f"\nSource: `{info['AircRevision']}`. Build: `{build}`. Channel: {channel}.\n"
+    # The engine variant (scripts/build-app.sh AircEngineBuild): official, or release when a security release was
+    # packaged on the non-official engine with AIRC_ENGINE_OUT=release (docs/rebase.md). Never silent.
+    engine = {'official': 'official', 'release': 'release (non-official, AIRC_ENGINE_OUT=release)'}.get(
+        str(info.get('AircEngineBuild', '')), 'unrecorded')
+    text = notes.read_text()+f"\nSource: `{info['AircRevision']}`. Build: `{build}`. Channel: {channel}. Engine: {engine}.\n"
     (stage/'notes.md').write_text(text)
     (stage/'notes.html').write_text(render(text))
     signature = json.loads((stage/'signature.json').read_text())

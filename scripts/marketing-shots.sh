@@ -10,7 +10,7 @@
 #
 # From the Linux box, through scripts/mac.sh (copy name: AIRC_MAC_WORK, default marketingshots). On the build Mac:
 #   1. scripts/build-app.sh --no-test, linking the Chromium framework at CHROMIUM_OUT (default: the release build,
-#      ~/arcfork/chromium/src/out/AircRelease).
+#      ~/arcfork/chromium/src/out/AircOfficial).
 #   2. build/Airc-Chromium.app --script marketing (apps/browser/Sources/Airc/Debug/Marketing*.swift), one launch per
 #      part: `open -g`, never focused, the window off screen, everything it writes in build/marketing-home (deleted
 #      afterwards). It loads real public sites, so it needs the network. The call, film, radio and shared-folder pages
@@ -213,7 +213,7 @@ if [ "$ON_MAC" = 1 ]; then
   if ioreg -n Root -d1 2>/dev/null | grep -q '"CGSSessionScreenIsLocked"=Yes'; then
     echo "== warning: the screen is locked: the call and picture-in-picture shots need the window server and will be missing"
   fi
-  export CHROMIUM_OUT="${CHROMIUM_OUT:-$HOME/arcfork/chromium/src/out/AircRelease}"
+  export CHROMIUM_OUT="${CHROMIUM_OUT:-$HOME/arcfork/chromium/src/out/AircOfficial}"
   if [ "$BUILD" = 1 ]; then caffeinate -i -s scripts/build-app.sh --no-test; fi
   app="${AIRC_MARKETING_APP:-$ROOT/build/Airc-Chromium.app}"
   [ -d "$app" ] || { echo "error: no $app (does $CHROMIUM_OUT have the framework?)" >&2; exit 1; }
@@ -280,7 +280,7 @@ REV="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo "${AIRC_SOURCE_
 if git -C "$ROOT" rev-parse HEAD >/dev/null 2>&1 && ! git -C "$ROOT" diff --quiet HEAD -- apps packages engine; then REV="$REV, with uncommitted changes"; fi
 ARGS="--on-mac --parts $(echo "$PARTS" | tr ' ' ',')"
 [ "$BUILD" = 1 ] || ARGS="$ARGS --no-build"
-"$ROOT/scripts/mac.sh" -w "$WORK" run "AIRC_SOURCE_REV='${REV%%,*}' CHROMIUM_OUT=\${CHROMIUM_OUT:-\$HOME/arcfork/chromium/src/out/AircRelease} bash scripts/marketing-shots.sh $ARGS"
+"$ROOT/scripts/mac.sh" -w "$WORK" run "AIRC_SOURCE_REV='${REV%%,*}' CHROMIUM_OUT=\${CHROMIUM_OUT:-\$HOME/arcfork/chromium/src/out/AircOfficial} bash scripts/marketing-shots.sh $ARGS"
 # This run's shots arrive in a folder of their own first, so the README dates only what was retaken.
 INCOMING="$ORIGINALS/.incoming"
 rm -rf "$INCOMING"; mkdir -p "$INCOMING" "$ROOT/assets/screenshots"

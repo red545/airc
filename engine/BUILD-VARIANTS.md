@@ -32,3 +32,26 @@ CHROMIUM_OUT="$HOME/arcfork/chromium/src/out/Airc" engine/host/build.sh build/di
 
 Disabling DCHECKs is packaging policy, not a fix for invalid modal ownership.
 Dialog qualification must pass with the developer framework.
+
+## Official variant (PGO + ThinLTO)
+
+**This is the default engine** for `engine/build.sh`, `scripts/build-app.sh`, `scripts/release/package.sh`, marketing
+and social frames (artifacts/engineofficial: 156.0.8078.109, 0 correctness regressions, launch and memory no worse,
+pulse page CPU −23 %). Relinks go to `out/AircOfficial`; `--variant release` still builds the non-official `out/AircRelease`.
+
+`engine/build.sh --run --variant official` builds `out/AircOfficial` with the args in
+`engine/args/official.gn`: `is_official_build`, `chrome_pgo_phase = 2`, `use_thin_lto`,
+zero-initialized stack variables, and otherwise the release variant's choices (symbols 0,
+branding, codecs, Widevine not bundled, non-component). Measured on 156.0.8078.88
+(artifacts/enginepgo): visible-page CPU −21 to −23 %, framework 452 → 252 MB.
+
+It needs Chromium's PGO profile. Set `"checkout_pgo_profiles": True` in `.gclient`
+`custom_vars`, then in `src` run the two hooks that `build.sh` prints when the profile is
+missing (`tools/update_pgo_profiles.py … update` and V8's `download_profiles.py`). **Run them
+again after every Chromium version bump**: `chrome/build/mac-arm.pgo.txt` pins one profile per
+version, and a stale profile builds but loses most of the gain.
+
+Cost: an engine/core change relinks the whole framework with ThinLTO (the cache in
+`out/AircOfficial/thinlto-cache` makes small changes a few minutes; a cold link is
+15–30 min); a Chromium version bump is a cold full build (~40k steps). The output with its
+ThinLTO cache takes ~12 GiB.

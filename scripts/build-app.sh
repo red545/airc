@@ -21,6 +21,10 @@
 #                                        Sparkle from ~/arcfork/tools/sparkle; Airc-Chromium.app checks at launch and
 #                                        hourly, downloads by itself and offers "Restart to update"
 #   AIRC_SOURCE_REV=<commit>             the AircRevision of a copy without .git
+#   AIRC_ENGINE_OUT=official|release     which engine output links when CHROMIUM_OUT is unset: official (default,
+#                                        out/AircOfficial, PGO + ThinLTO) or release (out/AircRelease, non-official; the
+#                                        explicit opt-in for a Chromium security release, docs/rebase.md). Logged, and
+#                                        stamped into Airc-Chromium.app's Info.plist as AircEngineBuild.
 #   AIRC_SIGN_IDENTITY=<identity>        sign with this certificate instead of ad hoc (the owner's dev builds: an
 #                                        Apple-issued one keeps Keychain's "Always Allow" across updates, docs/release.md)
 #   AIRC_BUNDLE_ID=… AIRC_LAUNCH_ARGS='…'   a test install's own identity and default options (update proofs)
@@ -30,7 +34,7 @@
 #                                        build with -D AIRC_TESTING. The two keep separate SwiftPM build folders.
 #
 # The app is a SwiftPM executable (apps/browser) wrapped into a bundle here; no Xcode project needed.
-# Chromium: when `Airc Framework.framework` exists at $CHROMIUM_OUT (default ~/arcfork/chromium/src/out/AircRelease, else out/Airc), a second
+# Chromium: when `Airc Framework.framework` exists at $CHROMIUM_OUT (default ~/arcfork/chromium/src/out/AircOfficial, else out/AircRelease, else out/Airc), a second
 # bundle, build/Airc-Chromium.app, links and embeds it and runs on Chromium (scripts/perf.sh --app
 # build/Airc-Chromium.app). build/Airc.app is always the fast WebKit build. Without the framework: WebKit only, said so.
 set -euo pipefail
@@ -53,13 +57,28 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-# The release engine (out/AircRelease) is the current one: the ship loop, nightly and owner builds link it. out/Airc
+# The release engine is the official PGO + ThinLTO build (out/AircOfficial, engine/build.sh --variant official; see
+# engine/BUILD-VARIANTS.md): releases, nightly and owner builds link it. out/AircRelease (non-official) is the fallback. out/Airc
 # (DCHECK) is only rebuilt on request (its objects were removed for disk), so it is used only when asked for or alone.
+case ${AIRC_ENGINE_OUT:-official} in official|release) ;; *) echo "AIRC_ENGINE_OUT must be official or release" >&2; exit 2;; esac
 if [[ -z ${CHROMIUM_OUT:-} ]]; then
-  CHROMIUM_OUT="$HOME/arcfork/chromium/src/out/AircRelease"
+  if [[ ${AIRC_ENGINE_OUT:-official} == release ]]; then
+    CHROMIUM_OUT="$HOME/arcfork/chromium/src/out/AircRelease"
+  else
+    CHROMIUM_OUT="$HOME/arcfork/chromium/src/out/AircOfficial"
+    [[ -d "$CHROMIUM_OUT/Airc Framework.framework" ]] || CHROMIUM_OUT="$HOME/arcfork/chromium/src/out/AircRelease"
+  fi
   [[ -d "$CHROMIUM_OUT/Airc Framework.framework" ]] || CHROMIUM_OUT="$HOME/arcfork/chromium/src/out/Airc"
 fi
 FRAMEWORK="$CHROMIUM_OUT/Airc Framework.framework"
+# What the linked engine is, from its own args (never from the folder name): official = PGO + ThinLTO.
+ENGINE_BUILD=release
+grep -Eq '^[[:space:]]*is_official_build[[:space:]]*=[[:space:]]*true' "$CHROMIUM_OUT/args.gn" 2>/dev/null && ENGINE_BUILD=official
+if [[ $ENGINE_BUILD == release ]]; then
+  echo "== Chromium ENGINE: non-official build ($CHROMIUM_OUT, no PGO/ThinLTO)$([[ ${AIRC_ENGINE_OUT:-} == release ]] && echo ', chosen by AIRC_ENGINE_OUT=release')"
+else
+  echo "== Chromium engine: official PGO + ThinLTO ($CHROMIUM_OUT)"
+fi
 WITH_CHROMIUM=0
 if [[ "$ENGINE" != webkit ]]; then
   if [[ -f "$FRAMEWORK/Airc Framework" ]]; then
@@ -215,6 +234,8 @@ PY
   /usr/libexec/PlistBuddy -c "Add :NSAppleScriptEnabled bool true" -c "Add :OSAScriptingDefinition string Airc.sdef" \
     "$app/Contents/Info.plist" 2>/dev/null || true
   /usr/libexec/PlistBuddy -c "Add :AircRevision string $GIT_REV" "$app/Contents/Info.plist" 2>/dev/null || true
+  # The engine variant (official / release) goes into the build identity and the release record (manifest.py).
+  [[ -z "$chromium" ]] || /usr/libexec/PlistBuddy -c "Add :AircEngineBuild string $ENGINE_BUILD" "$app/Contents/Info.plist" 2>/dev/null || true
   [[ -z "$TELEMETRY_KEY" ]] || /usr/libexec/PlistBuddy -c "Add :AircTelemetryHost string $TELEMETRY_HOST" \
     -c "Add :AircTelemetryKey string $TELEMETRY_KEY" "$app/Contents/Info.plist"
   # A test install (an update proof in a throwaway folder) keeps its options across Sparkle's relaunch, which drops the

@@ -17,6 +17,24 @@ class ManifestTests(unittest.TestCase):
   self.assertIn('<strong>Bold</strong>',text)
   self.assertEqual(text.count('<ul>'),text.count('</ul>'))
   self.assertEqual(text.count('<li>'),2)
+
+ def test_engine_variant_in_the_release_record(self):
+  # docs/rebase.md: a security release on the non-official engine (AIRC_ENGINE_OUT=release) is never silent.
+  for key, want in (('official', 'Engine: official.'), ('release', 'Engine: release (non-official, AIRC_ENGINE_OUT=release).'), (None, 'Engine: unrecorded.')):
+   with tempfile.TemporaryDirectory() as tmp:
+    p=Path(tmp)
+    info=dict(CFBundleShortVersionString='0.1.0',CFBundleVersion='202611061600',AircRevision='a'*40,LSMinimumSystemVersion='14.0')
+    if key: info['AircEngineBuild']=key
+    (p/'Info.plist').write_bytes(plistlib.dumps(info))
+    (p/'Airc-0.1.0.dmg').write_bytes(b'dmg'); (p/'Airc-0.1.0.zip').write_bytes(b'zip')
+    (p/'signature.json').write_text(json.dumps(dict(signature='s',size=3)))
+    (p/'deltas.json').write_text('[]')
+    notes=p/'source.md'; notes.write_text('# Notes\n\n- Text')
+    m.generate(p,notes,'stable',True)
+    line=(p/'notes.md').read_text().strip().splitlines()[-1]
+    self.assertTrue(line.startswith('Source: `'+'a'*40+'`. Build: `202611061600`. Channel: stable.'), line)
+    self.assertTrue(line.endswith(want), line)
+
  def test_signed_delta_feed_and_inventory(self):
   with tempfile.TemporaryDirectory() as tmp:
    p=Path(tmp)

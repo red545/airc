@@ -16,10 +16,26 @@ work=$(mktemp -d "$out/.package.XXXXXX"); mount="$work/mount"
 cleanup() { hdiutil detach "$mount" -quiet 2>/dev/null || true; rm -rf "$work"; }
 trap cleanup EXIT
 if [[ $build_app == 1 ]]; then
-  chromium_out=${CHROMIUM_OUT:-$HOME/arcfork/chromium/src/out/AircRelease}
+  # Releases ship the official PGO + ThinLTO engine. AIRC_ENGINE_OUT=release is the explicit, logged opt-in for a
+  # Chromium security release on the non-official out/AircRelease while the official engine rebuilds (docs/rebase.md).
+  engine_out=${AIRC_ENGINE_OUT:-official}
+  case $engine_out in
+    official) chromium_out=${CHROMIUM_OUT:-$HOME/arcfork/chromium/src/out/AircOfficial} ;;
+    release) chromium_out=${CHROMIUM_OUT:-$HOME/arcfork/chromium/src/out/AircRelease} ;;
+    *) echo "AIRC_ENGINE_OUT must be official or release" >&2; exit 2 ;;
+  esac
   [[ -f "$chromium_out/Airc Framework.framework/Airc Framework" ]] || {
     echo 'Release framework missing; set CHROMIUM_OUT to a qualified existing build.' >&2; exit 1;
   }
+  engine_build=release
+  grep -Eq '^[[:space:]]*is_official_build[[:space:]]*=[[:space:]]*true' "$chromium_out/args.gn" 2>/dev/null && engine_build=official
+  if [[ $engine_build != official && $engine_out != release ]]; then
+    echo "Refusing: $chromium_out is a non-official engine. A release on it needs AIRC_ENGINE_OUT=release (docs/rebase.md)." >&2; exit 1
+  fi
+  if [[ $engine_build == release ]]; then
+    echo "== RELEASE ON THE NON-OFFICIAL ENGINE (AIRC_ENGINE_OUT=release): $chromium_out. Recorded in the build identity and the release notes record; rebuild the official engine and switch back next release (docs/rebase.md)."
+  fi
+  printf 'engine=%s\nengine_out=%s\nchromium_out=%s\n' "$engine_build" "$engine_out" "$chromium_out" > "$out/engine-variant.txt"
   # An engine built without generate_about_credits has Chromium's sample page: make the real one from its checkout.
   credits="$chromium_out/gen/components/resources/about_credits.html"
   if [[ ! -f "$credits" || $(wc -c < "$credits") -lt 10000 ]]; then

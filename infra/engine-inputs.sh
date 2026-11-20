@@ -5,7 +5,7 @@
 # hosts (engine/host/**) are not inputs, and neither is where a commit sits in history: a marker commit on a release
 # branch is as good as main's if the inputs are byte-identical.
 
-ENGINE_INPUT_PATHS=(engine/core engine/patches ':(glob)engine/*.gn' ':(glob)engine/*.gni' ':(glob)engine/BUILD*' CHROMIUM_VERSION)
+ENGINE_INPUT_PATHS=(engine/core engine/patches engine/args ':(glob)engine/*.gn' ':(glob)engine/*.gni' ':(glob)engine/BUILD*' CHROMIUM_VERSION)
 
 # engine_inputs_diff <repo> <marker-commit> <rev>
 # Prints the paths whose engine inputs differ between the two commits, one per line. Returns 0 when there are none

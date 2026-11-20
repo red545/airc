@@ -118,7 +118,7 @@ if [[ $HOST == buildmac ]]; then
     step engine-ready bash -c 'echo "engine owner must reconcile this revision first; differing engine inputs: $1"; exit 75' sh "${differ//$'\n'/ }"
     finish
   fi
-  step engine-framework mac 'test -f "$HOME/arcfork/chromium/src/out/AircRelease/Airc Framework.framework/Versions/Current/Airc Framework"' || finish
+  step engine-framework mac 'test -f "$HOME/arcfork/chromium/src/out/AircOfficial/Airc Framework.framework/Versions/Current/Airc Framework"' || finish
 fi
 GREEN=1   # every step so far passed: only a green run is published
 for name in $(git -C "$ROOT" ls-tree --name-only "$REV" packages/ | xargs -n1 basename 2>/dev/null); do
@@ -131,14 +131,14 @@ if [[ ${AIRC_PREPARATION:-0} == 1 && $GREEN != 1 ]]; then finish; fi
 if in_head scripts/build-app.sh; then
   # --ship gates on Chromium only (with the framework present); WebKit's checks follow the publish below.
   SNAPSHOT_GATE=""
-  if [[ $SHIP == 1 && ${AIRC_PREPARATION:-0} != 1 ]] && ssh -o ConnectTimeout=15 "$HOST" 'test -d ~/arcfork/chromium/src/out/AircRelease/"Airc Framework.framework"'; then
+  if [[ $SHIP == 1 && ${AIRC_PREPARATION:-0} != 1 ]] && ssh -o ConnectTimeout=15 "$HOST" 'test -d ~/arcfork/chromium/src/out/AircOfficial/"Airc Framework.framework"'; then
     SNAPSHOT_GATE="--snapshot-engines chromium"
   fi
   # Builds Airc.app and runs the scripted scenario, which writes window snapshots.
-  # The owner's build uses the DCHECK-off framework (out/AircRelease, like Chrome stable) once it exists;
+  # The owner's build uses the DCHECK-off framework (out/AircOfficial, like Chrome stable) once it exists;
   # agents test against out/Airc with DCHECKs on.
   # The export has no .git: the bundles record the commit through AIRC_SOURCE_REV.
-  step build-app mac "cd ~/$REMOTE && export AIRC_SOURCE_REV=$(cat "$RUN/rev.txt"); R=~/arcfork/chromium/src/out/AircRelease; if [ -d \"\$R/Airc Framework.framework\" ]; then export CHROMIUM_OUT=\$R; echo \"framework: \$R\"; fi; AIRC_SIGN_IDENTITY=- AIRC_SHIP_GATE=$SHIP caffeinate -i -s python3 scripts/build-lock.py scripts/build-app.sh --snapshots build/snapshots $SNAPSHOT_GATE" \
+  step build-app mac "cd ~/$REMOTE && export AIRC_SOURCE_REV=$(cat "$RUN/rev.txt"); R=~/arcfork/chromium/src/out/AircOfficial; if [ -d \"\$R/Airc Framework.framework\" ]; then export CHROMIUM_OUT=\$R; echo \"framework: \$R\"; fi; AIRC_SIGN_IDENTITY=- AIRC_SHIP_GATE=$SHIP caffeinate -i -s python3 scripts/build-lock.py scripts/build-app.sh --snapshots build/snapshots $SNAPSHOT_GATE" \
     || GREEN=0
   # Keep the gate evidence before publishing or ending the run. Exit 75 is waiting/ENV,
   # never green; a package/build failure still wins over a locked UI phase.

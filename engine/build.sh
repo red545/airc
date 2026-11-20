@@ -7,17 +7,19 @@ fetch_log=${AIRC_FETCH_LOG:-$HOME/arcfork/fetch-chromium.log}
 export PATH="${DEPOT_TOOLS:-$HOME/arcfork/depot_tools}:$PATH"
 export DEPOT_TOOLS_UPDATE=0
 mode=--start
-variant=release
+variant=official
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --start|--run) mode=$1 ;;
     --variant) variant=${2:?missing variant}; shift ;;
-    *) echo 'Usage: engine/build.sh [--start|--run] [--variant release|dev]' >&2; exit 2 ;;
+    *) echo 'Usage: engine/build.sh [--start|--run] [--variant official|release|dev] (default official)' >&2; exit 2 ;;
   esac
   shift
 done
 case "$variant" in
   release) out=out/AircRelease; dchecks=false ;;
+  # Official Chromium optimization (PGO + ThinLTO), args in engine/args/official.gn; see engine/BUILD-VARIANTS.md.
+  official) out=out/AircOfficial; dchecks=false ;;
   dev) out=out/Airc; dchecks=true ;;
   *) echo "Unknown variant: $variant" >&2; exit 2 ;;
 esac
@@ -50,6 +52,18 @@ echo "START $(date -u +%FT%TZ)"
 mkdir -p "$src/$out"
 # Deliberately overwrite args only when changed, preserving Ninja's incremental build.
 args="$src/$out/args.gn.airc-tmp"
+if [[ $variant == official ]]; then
+  # PGO needs the profile pinned by chrome/build/mac-arm.pgo.txt. A missing or stale profile still builds
+  # (warnings aren't errors) but loses most of the gain, so refuse instead.
+  grep -q '"checkout_pgo_profiles": True' "$src/../.gclient" || { echo "official: set checkout_pgo_profiles=True in .gclient custom_vars" >&2; exit 1; }
+  profile=$(tr -d '[:space:]' < "$src/chrome/build/mac-arm.pgo.txt")
+  [[ -s "$src/chrome/build/pgo_profiles/$profile" ]] || {
+    echo "official: PGO profile $profile missing. In $src run:" >&2
+    echo "  python3 tools/update_pgo_profiles.py --target=mac-arm update --gs-url-base=chromium-optimization-profiles/pgo_profiles" >&2
+    echo "  python3 v8/tools/builtins-pgo/download_profiles.py download --depot-tools third_party/depot_tools --check-v8-revision" >&2
+    exit 1; }
+  cp "$here/args/official.gn" "$args"
+else
 cat > "$args" <<GN
 # Release code, one distributable framework (not many component dylibs).
 is_debug = false
@@ -82,6 +96,7 @@ bundle_widevine_cdm = false
 proprietary_codecs = true
 ffmpeg_branding = "Chrome"
 GN
+fi
 if ! cmp -s "$args" "$src/$out/args.gn"; then mv "$args" "$src/$out/args.gn"; else rm "$args"; fi
 cd "$src"
 gn gen "$out"
