@@ -1,9 +1,7 @@
 # FairPlay bridge: protected media in Chromium pages
 
-Status: landed, off by default. Step 2 (video) serves Disney+ and Netflix (Netflix with a Safari user agent on its
-origin). Step 1 (audio) serves no site any more: Spotify plays in WebKit (owner, 2026-11-20), because its web
-player takes FairPlay only through Safari's own `WebKitMediaKeys` and Airc doesn't impersonate Safari. Ardia
-removed FairPlay in Chromium altogether on 2026-11-17 over the services' licence terms; see REPORT.
+Status: step 1 (Spotify, audio) landed; step 2 (video) in progress: the sample-buffer bridge for Disney+, Netflix waits
+for a per-origin request user agent in the engine; the controls copy and YouTube DRM films come after.
 User-facing behaviour: docs/user/protected-media.md, "Play protected media in Chromium with FairPlay".
 
 ## Why

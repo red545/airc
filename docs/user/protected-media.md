@@ -52,35 +52,37 @@ sites send their "Sign in with Spotify" through them, and that has to finish in 
   engine at once. These choices and the toasts you closed are kept in the data folder's `protected-media.json`.
 - The toast stays until its **✕** (then it never comes back for that service); **Why?** opens Site Controls.
 
-## Netflix and Disney+ in Chromium, with FairPlay (off by default)
+## Spotify in Chromium, with FairPlay (off by default)
 
 **Settings → Privacy → "Play protected media in Chromium with FairPlay"** keeps these sites in a Chromium page, with
-your extensions, Chromium's sign-ins and the ad blocker, and plays their video with Apple's FairPlay through a native
+your extensions, Chromium's sign-ins and the ad blocker, and plays their music with Apple's FairPlay through a native
 player (docs/design/fairplay-bridge.md; the approach is Ardia's):
 
 <!-- fairplay-bridge-origins -->
-`https://www.disneyplus.com`, `https://www.netflix.com`
+`https://open.spotify.com`, `https://www.disneyplus.com`, `https://www.netflix.com`
 <!-- /fairplay-bridge-origins -->
 
 (Typing `netflix.com` or `disneyplus.com` works too: those redirect to the listed address and stay in Chromium.)
 
 - The page is offered FairPlay instead of Widevine. Its own code gets the licence from the service, as in Safari; Airc
   never sees the keys and keeps nothing.
-- The page's player feeds its stream to Airc, which decodes it with Apple's FairPlay and draws the picture over the
-  page's video (the page's controls stay underneath and keep working); picture in picture is macOS's own window; the
-  media tray, Now Playing and the media keys control it as any player.
-- Netflix gets Safari's user agent on www.netflix.com (and netflix.com, which redirects there) only, because it gives
-  its FairPlay player only to Safari; every other site sees Chromium as before.
-- If it can't play (no licence, the player failed, or the site stopped at Widevine), the page gets a media error or
-  the site's own message, and Airc offers **Open in Safari's engine**, which sends the site back to a WebKit page and
-  remembers that. Site Controls' "Safari's engine" switch does the same, both ways.
-- **Spotify stays in Safari's engine**, setting on or off: its web player takes FairPlay only through Safari's own
-  API, and Airc doesn't pretend to be Safari to get it.
-- Off (the default), nothing changes: the sites open in WebKit as described above. Turning it off while a video plays
+- The track plays in Airc itself (AVFoundation), so the sidebar's media tray, Now Playing and the media keys show and
+  control it as any player; the page's own buttons work as usual.
+- If it can't play (no licence, the player failed), the page gets a media error and Airc offers **Open in Safari's
+  engine**, which sends the site back to a WebKit page and remembers that. Site Controls' "Safari's engine" switch does
+  the same, both ways.
+- Off (the default), nothing changes: the site opens in WebKit as described above. Turning it off while a track plays
   stops it; pages opened from then on open in WebKit.
-- Not tried with real Netflix or Disney+ accounts by the agents. To try (your own account): turn the setting on, open
-  netflix.com or disneyplus.com in a new tab (it stays in Chromium: no "plays with Safari's engine" toast), sign in,
-  play a title, then pause, seek, picture in picture, the tray and the media keys.
+- **Disney+** video plays the same way: the page's player feeds its stream to Airc, which decodes it with Apple's
+  FairPlay and draws the picture over the page's video (the page's controls stay underneath and keep working);
+  picture in picture is macOS's own window. Not tried with a real Disney+ account by the agents.
+- **Netflix** works the same way, and gets Safari's user agent on www.netflix.com only (Netflix gives its FairPlay
+  player only to Safari): requests and the page see Safari there (and on netflix.com, which redirects there), every
+  other site sees Chromium as before. Not tried with a real Netflix account by the agents.
+
+To try it (with your own account): turn the setting on, open open.spotify.com in a new tab (it stays in Chromium:
+no "plays with Safari's engine" toast), sign in, play a song, then pause, seek and skip from the page, the media tray
+and the keyboard's media keys.
 
 ## Your data on WebKit pages
 
@@ -209,10 +211,8 @@ the page supports them. This does not add account access or provider-specific pl
   this HLS stream; the modern EME path gives a decode error for it.
 - `--script drmservices` (needs the network, never signs in): the real services' pages open in WebKit and say
   nothing like "browser not supported".
-- `--script spotifyprobe` (Chromium, network, never signs in): with the setting on, open.spotify.com opens in Safari's
-  engine; forced into Chromium for the record, the key systems its player asks for, and Airc's Safari's-engine offer.
-- `--script fairplaybridge` (Chromium; the bridge's audio path, which no real site uses now,
-  docs/design/fairplay-bridge.md): a loopback page plays the part of a listed site (`AIRC_FAIRPLAY_TEST_ORIGIN`). A clear HLS audio fixture made in the run: the key system offered
+- `--script fairplaybridge` (Chromium; the FairPlay bridge, docs/design/fairplay-bridge.md): a loopback page plays the
+  part of a listed site (`AIRC_FAIRPLAY_TEST_ORIGIN`). A clear HLS audio fixture made in the run: the key system offered
   only on the listed origin and only with the setting on, playback, pause, seek, ended, the tray and Now Playing, the
   media keys' path, a failure's media error and the Safari's-engine offer; EZDRM's public FairPlay stream (when
   reachable): the page's own licence exchange and playback. Muted; no account.

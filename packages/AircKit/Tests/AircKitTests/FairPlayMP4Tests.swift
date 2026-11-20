@@ -58,7 +58,7 @@ final class FairPlayMP4Tests: XCTestCase {
     }
 
     func testRoutedOrigins() {
-        XCTAssertEqual(FairPlayBridgeSites.routedOrigins, ["https://www.disneyplus.com", "https://www.netflix.com"])
+        XCTAssertEqual(FairPlayBridgeSites.routedOrigins, ["https://open.spotify.com", "https://www.disneyplus.com", "https://www.netflix.com"])
         XCTAssertEqual(FairPlayBridgeSites.safariUserAgentOrigins, ["https://www.netflix.com"])
         XCTAssertEqual(FairPlayBridgeSites.withAliases(["https://www.disneyplus.com"]), ["https://www.disneyplus.com", "https://disneyplus.com"])
         var sites = ProtectedMediaSites()

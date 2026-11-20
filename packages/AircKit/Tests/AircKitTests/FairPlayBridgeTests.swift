@@ -6,20 +6,17 @@ import XCTest
 /// The FairPlay bridge's sites, routing and input checks (docs/design/fairplay-bridge.md).
 final class FairPlayBridgeTests: XCTestCase {
     func testOrigins() {
-        // Spotify plays in WebKit (owner, 2026-11-20): its player takes FairPlay only through Safari's own API.
-        XCTAssertEqual(FairPlayBridgeSites.origins, [])
-        XCTAssertFalse(FairPlayBridgeSites.routedOrigins.contains("https://open.spotify.com"))
-        for o in FairPlayBridgeSites.routedOrigins { XCTAssertEqual(FairPlayBridgeSites.origin(of: o), o, "exact origins only") }
+        XCTAssertEqual(FairPlayBridgeSites.origins, ["https://open.spotify.com"])
+        for o in FairPlayBridgeSites.origins { XCTAssertEqual(FairPlayBridgeSites.origin(of: o), o, "exact origins only") }
         XCTAssertEqual(FairPlayBridgeSites.origin(of: "https://Open.Spotify.com/track/x?si=1"), "https://open.spotify.com")
         XCTAssertEqual(FairPlayBridgeSites.origin(of: "https://open.spotify.com:443/"), "https://open.spotify.com")
         XCTAssertEqual(FairPlayBridgeSites.origin(of: "https://open.spotify.com:8443/"), "https://open.spotify.com:8443")
         XCTAssertEqual(FairPlayBridgeSites.origin(of: "http://localhost:4321/x"), "http://localhost:4321")
         XCTAssertNil(FairPlayBridgeSites.origin(of: "data:text/html,x"))
-        let listed = ["https://open.spotify.com"]
-        XCTAssertTrue(FairPlayBridgeSites.serves(origin: "https://open.spotify.com", in: listed))
+        XCTAssertTrue(FairPlayBridgeSites.serves(origin: "https://open.spotify.com"))
         for o in ["http://open.spotify.com", "https://spotify.com", "https://accounts.spotify.com", "https://open.spotify.com:8443",
                   "https://open.spotify.com.example.com", "https://evil.example", "", "null"] {
-            XCTAssertFalse(FairPlayBridgeSites.serves(origin: o, in: listed), o)
+            XCTAssertFalse(FairPlayBridgeSites.serves(origin: o), o)
         }
     }
 
@@ -31,7 +28,7 @@ final class FairPlayBridgeTests: XCTestCase {
 
     func testRoutingOnKeepsOnlyTheExactOriginInChromium() {
         var sites = ProtectedMediaSites()
-        sites.chromiumOrigins = ["https://open.spotify.com"]
+        sites.chromiumOrigins = Set(FairPlayBridgeSites.origins)
         XCTAssertEqual(sites.engine(for: "https://open.spotify.com/track/x"), .chromium)
         XCTAssertNil(sites.handoff(from: .chromium, to: "https://open.spotify.com/album/y"))
         // Another scheme or port, and the other services, keep today's rules.
@@ -44,17 +41,15 @@ final class FairPlayBridgeTests: XCTestCase {
     }
 
     func testThePersonsWebKitChoiceIsKeptPerOrigin() {
-        var c = ProtectedMediaChoices().choosing(.webKit, for: "https://www.netflix.com/watch/1")
-        XCTAssertEqual(c.webKitOrigins, ["https://www.netflix.com"])
+        var c = ProtectedMediaChoices().choosing(.webKit, for: "https://open.spotify.com/track/x")
+        XCTAssertEqual(c.webKitOrigins, ["https://open.spotify.com"])
         XCTAssertEqual(c.added, [], "a listed site isn't added again")
-        c = c.choosing(.webKit, for: "https://www.netflix.com/browse")
-        XCTAssertEqual(c.webKitOrigins, ["https://www.netflix.com"], "once")
+        c = c.choosing(.webKit, for: "https://open.spotify.com/album/y")
+        XCTAssertEqual(c.webKitOrigins, ["https://open.spotify.com"], "once")
         let data = try! JSONEncoder().encode(c)
         XCTAssertEqual(try! JSONDecoder().decode(ProtectedMediaChoices.self, from: data), c)
-        c = c.choosing(.chromium, for: "https://www.netflix.com/")
+        c = c.choosing(.chromium, for: "https://open.spotify.com/")
         XCTAssertEqual(c.webKitOrigins, [])
-        XCTAssertEqual(ProtectedMediaChoices().choosing(.webKit, for: "https://open.spotify.com/").webKitOrigins, [],
-                       "Spotify isn't a bridge site: nothing to remember")
         // A file from before the bridge reads with none.
         let old = try! JSONDecoder().decode(ProtectedMediaChoices.self, from: Data(#"{"added":[],"removed":[],"told":["Spotify"]}"#.utf8))
         XCTAssertEqual(old.webKitOrigins, [])
