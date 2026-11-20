@@ -34,5 +34,5 @@ Airc 0.1.44's Chromium engine is now built the way Chrome's is: profile-guided a
 [[post]]
 label = "Sites you type are no longer blocked"
 text = """
-Typed analytics.google.com and got "blocked by Airc"? Fixed in 0.1.44: sites you open yourself now load, while trackers inside pages stay blocked. And Google Tag Assistant and Tag Manager preview work with blocking on.
+Typed in Google Analytics and got "blocked by Airc"? Fixed in 0.1.44: sites you open yourself now load, while trackers inside pages stay blocked. And Google Tag Assistant and Tag Manager preview work with blocking on.
 """

@@ -2,6 +2,29 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.44",
+      "highlights": [
+        {
+          "title": "A faster Chromium engine",
+          "lead": "A faster Chromium engine",
+          "detail": "Airc's Chromium engine is now built the way Chrome is, so windows are ready sooner after launch, busy pages use less CPU and Airc takes about 200 MB less space.",
+          "icon": "bolt"
+        },
+        {
+          "title": "Typed sites not blocked",
+          "lead": "Sites you type in are no longer blocked by mistake",
+          "detail": "A site you type or open from a bookmark, such as analytics.google.com, no longer shows \"blocked by Airc\" in Chromium tabs. Trackers inside pages stay blocked.",
+          "icon": "checkmark.shield"
+        },
+        {
+          "title": "Google tag tools work",
+          "lead": "Google Tag Assistant and Tag Manager preview work with Airc's content blocking on",
+          "detail": "On Google's Tag Assistant, Tag Manager and Analytics, Airc lets Google's tag scripts through so preview and debug mode connect. Everywhere else they stay blocked.",
+          "icon": "tag"
+        }
+      ]
+    },
+    {
       "version": "0.1.43",
       "highlights": [
         {

@@ -1,16 +1,30 @@
-# Airc 0.1.43 public beta
+# Airc 0.1.44 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update lets you use your ChatGPT subscription in Airc Agent, plays Netflix and Disney+ in a Chromium tab with
-Apple's FairPlay (off by default). It includes everything from 0.1.42. The release manifest records the
-exact build, source and checksums.
+This update builds Airc's Chromium engine the way Chrome is built, so it launches faster, uses less CPU and makes the
+app about 200 MB smaller, and it stops blocking sites you type in by mistake. It includes everything from 0.1.43. The
+release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.42
+## New since 0.1.43
+
+- **A faster Chromium engine.** Airc's Chromium engine is now built the way Chrome is: optimised from profiles of how
+  it really runs, and across the whole program when it is linked. In our tests on the build Mac, a Chromium window became usable
+  about a quarter sooner after launch, a busy animated page used nearly a quarter less CPU, and the
+  engine is about 200 MB smaller, so Airc takes less space on your Mac. Your tabs, sign-ins and settings stay as they are.
+- **Sites you type in are no longer blocked by mistake.** In Chromium tabs, some sites you open yourself, by typing
+  the address or from a bookmark, showed "blocked by Airc" because a tracker list names them, such as
+  analytics.google.com (about 5,400 sites in the default lists). Airc now opens the site you asked for, and
+  trackers inside pages stay blocked as before.
+- **Google Tag Assistant and Tag Manager preview work with Airc's content blocking on.** On Google's own tag tools
+  (Tag Assistant, Tag Manager and Analytics), Airc now lets Google's tag and analytics scripts through, so preview and
+  debug mode connect to your site. Everywhere else they stay blocked as before.
+
+## Included from 0.1.43
 
 - **Use your ChatGPT subscription in Airc Agent.** The pane's **Connect your AI** card (the ✦ button or **⌥⌘A**) now
   starts with **Use your ChatGPT subscription**: connect your own Codex with **Sign in with ChatGPT**, on ChatGPT's own
@@ -648,3 +662,5 @@ Source: `6265e36e66c2c964c796c26641769380c3e267ce`. Build: `202611200250`. Chann
 Source: `d384973d52c1a72f15ea1309612452f80cc46ac6`. Build: `202611200840`. Channel: stable.
 
 Source: `7fe40b24ca536cb520ac86099f623106bb7413ab`. Build: `202611201407`. Channel: stable.
+
+Source: `e66fd734687e06822304d76a9d6a1c71f120f1e5`. Build: `202611202114`. Channel: stable. Engine: official.
