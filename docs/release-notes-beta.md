@@ -1,15 +1,29 @@
-# Airc 0.1.45 public beta
+# Airc 0.1.46 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update fixes Spotify with the FairPlay setting on: Spotify now always opens in Airc's Safari engine, where it
-plays. It includes everything from 0.1.44. The release manifest records the exact build, source and checksums.
+This update gives each Airc Agent task its own view: see every step, what it found and the page it's working on, live,
+and reply or approve from there. It includes everything from 0.1.45. The release manifest records the exact build,
+source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.44
+## New since 0.1.45
+
+- **Airc Agent tasks get their own view.** Open a task from the sidebar, a Recent tasks card or the Command Bar and
+  it fills the page: every step on a timeline with what it found, the answer as it's written, and the page the agent
+  is working on, live, beside the steps (click it to watch, or **Take over**). Reply below to keep going, or choose
+  **Deny** or **Allow once** when it asks first. The **Agents** folder in the sidebar lists your tasks, with a spinner
+  while one works, ✋ while it waits for you and a blue dot when it has finished; **Show all** opens every task.
+  The agent pane (⌥⌘A or ✦) stays the compact form of the same task.
+- **⌘T can Ask as well as Search.** Press ⌘T, type what you want done and press **Tab** (or click **Ask**). Chips
+  under the field show what the task gets and who runs it: use your ChatGPT subscription through Codex, your own Claude
+  Code, or an API key. **Recent tasks** shows this Space's newest tasks as cards, and **Return** starts the task in its
+  own tab. Tab still does what it did before wherever it has another job, such as a site's search or a completion.
+
+## Included from 0.1.45
 
 - **Spotify opens in Airc's Safari engine, where it plays.** Spotify's web player plays only through Safari's own
   protected-media support, so with the FairPlay setting on it couldn't play in a Chromium tab and Airc offered nothing. Spotify now always opens in
@@ -676,3 +690,5 @@ Source: `7fe40b24ca536cb520ac86099f623106bb7413ab`. Build: `202611201407`. Chann
 Source: `e66fd734687e06822304d76a9d6a1c71f120f1e5`. Build: `202611202114`. Channel: stable. Engine: official.
 
 Source: `66a83bd8d20414c2fc584621bb031bbee16880c8`. Build: `202611210133`. Channel: stable. Engine: official.
+
+Source: `ec9a93692770b83f46a3fa42c9d92599cbf2b199`. Build: `202611210945`. Channel: stable. Engine: official.

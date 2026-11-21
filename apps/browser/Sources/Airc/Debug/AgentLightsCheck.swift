@@ -166,8 +166,12 @@ final class AgentLightsCheck {
             let layer = info[kCGWindowLayer as String] as? Int ?? 0
             let name = info[kCGWindowName as String] as? String ?? ""
             let pid = info[kCGWindowOwnerPID as String] as? Int ?? -1
-            all.append("\(seenOurs ? "below" : "ABOVE") \(owner)\(pid == Int(getpid()) ? " (ours)" : "") layer \(layer) \(name.isEmpty ? "" : "“\(name)” ")\(Int(r.minX)),\(Int(r.minY)) \(Int(r.width))x\(Int(r.height))")
-            if !seenOurs { above.append(["owner": owner, "layer": layer, "pid": pid, "rect": r]) }
+            // macOS 26 keeps a full-screen Notification Centre window at layer 21 on screen at all times (it comes straight
+            // back after a NotificationCenter restart). It isn't an overlay of ours and takes no clicks: log it, don't count it.
+            let systemNotificationLayer = pid != Int(getpid()) && layer == 21
+                && (owner == "Notification Centre" || owner == "Notification Center")
+            all.append("\(seenOurs ? "below" : "ABOVE") \(owner)\(pid == Int(getpid()) ? " (ours)" : "") layer \(layer) \(name.isEmpty ? "" : "“\(name)” ")\(Int(r.minX)),\(Int(r.minY)) \(Int(r.width))x\(Int(r.height))\(systemNotificationLayer ? " (ignored: system Notification Centre layer)" : "")")
+            if !seenOurs, !systemNotificationLayer { above.append(["owner": owner, "layer": layer, "pid": pid, "rect": r]) }
         }
         return (above, all)
     }
