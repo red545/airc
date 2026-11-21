@@ -107,8 +107,8 @@ profiles through Create Profile instead).
 | `tab-menu.webp` | Tab menus | The Kyoto tab's menu in Personal, as Arc's: Copy Link, Share, Rename, Mute, Customize Page, Add Split View, Move to, Archive | 2026-11-08 | 202611080343 (e9abd05, with this part's own commit) |
 | `folder-markdown.webp` | Folder links as Markdown | The Recipes folder's menu: Copy All Links and Copy All Links as Markdown, titles and order kept | 2026-11-08 | 202611080343 (e9abd05, with this part's own commit) |
 | `quote-link.webp` | A link to copied text | After ⌘C on a sentence in Wikipedia's Typography article: Share a link directly to this text instead? with Copy Quote Link | 2026-11-17 | 202611172149 (quotecopy, with this part's own commit) |
-| `quote-copy.webp` | Share Quote | A sentence selected in a made-up article of our own (Field Notes): Share Quote in the address pill, and the toast Copied Link · With Quote | 2026-11-21 | test build (sidebarchrome: Share Quote in the pill) |
-| `quote-copy-dark.webp` | Share Quote, dark | The same quote link copied in a dark Space | 2026-11-21 | test build (sidebarchrome: Share Quote in the pill) |
+| `quote-copy.webp` | Share Quote | A sentence selected in Wikipedia's Typography article: Share Quote under the address, and the toast Copied Link · With Quote | 2026-11-17 | 202611172149 (quotecopy, with this part's own commit) |
+| `quote-copy-dark.webp` | Share Quote, dark | The same quote link copied in a dark Space | 2026-11-17 | 202611172149 (quotecopy, with this part's own commit) |
 | `essential-shortcuts.webp` | Essential Keyboard Shortcuts | Help › Essential Keyboard Shortcuts: tabs, Spaces, pages, Split View and notes, each with the key it has now | 2026-11-08 | 202611080343 (e9abd05, with this part's own commit) |
 | `library-media.webp` | Library: Media | Library › Media in the Work Space: downloaded pictures and films and a Capture, newest first, as a grid of thumbnails | 2026-11-13 | 202611130233 (73e9dbfd with the shot code) |
 | `library-recent.webp` | Library: recent files | The pointer resting on the Library button: the five newest downloads and Captures in a card above it | 2026-11-07 | 202611070859 (ac85637, with uncommitted changes) |
@@ -142,8 +142,8 @@ profiles through Create Profile instead).
 | `agent-task-view-dark.webp` | A task, full width, dark | The same task view in a dark Space | 2026-11-21 | 202611210727 (171fe802) |
 | `agent-task-approval.webp` | Waiting for your OK, in the task | The task view asking “Pay on cornershop…?” above the composer with Deny and Allow once, before anything is paid | 2026-11-21 | 202611210727 (171fe802) |
 | `agent-task-approval-dark.webp` | Waiting for your OK, in the task, dark | The same approval in a dark Space | 2026-11-21 | 202611210727 (171fe802) |
-| `agent-button.webp` | The Airc Agent button | The ✦ button in the sidebar's toolbar row, with the one-time hint “Ask Airc to do things for you” | 2026-11-21 | test build (sidebarchrome: ✦ in the toolbar) |
-| `agent-button-dark.webp` | The Airc Agent button, dark | The same button and hint in a dark Space | 2026-11-21 | test build (sidebarchrome: ✦ in the toolbar) |
+| `agent-button.webp` | The Airc Agent button | The ✦ button in the sidebar's bottom bar, with the one-time hint “Ask Airc to do things for you” | 2026-11-20 | test build (agentux2: ChatGPT subscription first) |
+| `agent-button-dark.webp` | The Airc Agent button, dark | The same button and hint in a dark Space | 2026-11-20 | test build (agentux2: ChatGPT subscription first) |
 | `agents-approval.webp` | Allow ‘Claude’ to use Airc? | The one-time question when a new app connects: the profiles it can use and who started it | 2026-11-15 | 202611150942 (f1991861) |
 | `settings-agents.webp` | Settings: Agents | Let AI apps use Airc (on), Show agent pages in front, the apps you answered, the profiles agents may use, Activity, and one-click setup | 2026-11-15 | 202611150942 (f1991861) |
 | `settings-agents-activity.webp` | Settings: Agents, Activity | What each app did lately: sites and kinds of actions (Clicked, Typed in a field), never page content or typed text; Clear History; setup | 2026-11-15 | 202611150942 (f1991861) |

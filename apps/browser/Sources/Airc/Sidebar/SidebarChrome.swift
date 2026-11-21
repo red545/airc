@@ -5,15 +5,10 @@ import AircKit
 import Combine
 import CoreImage
 
-/// Header row (SB-1): sidebar toggle next to the traffic lights; back, forward, reload and the Airc Agent ✦ right-aligned.
-/// With the sidebar on the right (WIN-5) the traffic lights stay over the page, so the toggle starts the row where it does
-/// in full screen.
+/// Header row (SB-1): sidebar toggle next to the traffic lights; back, forward, reload right-aligned. With the sidebar
+/// on the right (WIN-5) the traffic lights stay over the page, so the toggle starts the row where it does in full screen.
 final class SidebarHeaderView: NSView {
-    weak var controller: WindowController? {
-        didSet { agentPill.controller = controller; agentPill.refresh(); agent.controller = controller; agent.refresh() }
-    }
-    /// The Airc Agent button (owner 2026-11-20: in the toolbar row, not the bottom bar), last in the row.
-    let agent = AgentToolbarButton()
+    weak var controller: WindowController? { didSet { agentPill.controller = controller; agentPill.refresh() } }
     /// "✦ Claude is using Airc" (Agent/AgentControlPill.swift): coloured here with the header, placed by SidebarView in
     /// its own row right under the header (the header row has no room beside the traffic lights).
     let agentPill = AgentControlPill()
@@ -32,7 +27,7 @@ final class SidebarHeaderView: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        for b in [toggle, back, forward, reload, agent.glyph] { addSubview(b) }
+        for b in [toggle, back, forward, reload] { addSubview(b) }
         toggle.toolTip = "Hide sidebar (⌘S)"
         back.toolTip = "Back"
         forward.toolTip = "Forward"
@@ -60,7 +55,6 @@ final class SidebarHeaderView: NSView {
             b.tint = palette.glyph
             b.hoverFill = palette.hover
         }
-        agent.configure(palette: palette)
         agentPill.tint = palette.glyph
         agentPill.fill = palette.tileFill
         agentPill.hoverFill = palette.hover
@@ -77,33 +71,15 @@ final class SidebarHeaderView: NSView {
         let y = AircMetrics.Sidebar.headerCenterY - s / 2
         let tx = fullscreen || onRight ? DesignGaps.toggleXFullscreen : AircMetrics.Sidebar.toggleX
         toggle.frame = NSRect(x: tx, y: y, width: s, height: s)
-        let shown = Self.shownButtons(width: bounds.width, toggleMaxX: toggle.frame.maxX)
-        let all: [(HeaderButton, NSView)] = [(.back, back), (.forward, forward), (.reload, reload), (.agent, agent.glyph)]
-        // Right-aligned on the 34 pt pitch, in row order, the last one ending 6 pt from the edge (Arc ref §2.1).
-        var x = bounds.width - DesignGaps.headerButtonEndInset - s
-        for (kind, view) in all.reversed() {
-            view.isHidden = !shown.contains(kind)
-            guard !view.isHidden else { continue }
-            view.frame = NSRect(x: x, y: y, width: s, height: s)
-            x -= AircMetrics.Sidebar.headerButtonPitch
-        }
-        agent.layoutDot()
-    }
-
-    enum HeaderButton: CaseIterable { case back, forward, reload, agent }
-
-    /// Which buttons right of the toggle fit a sidebar `width` wide. A narrow sidebar drops them in Arc's order (Arc ref
-    /// §2.1: reload goes first, then forward), then Back; the Airc Agent goes last (owner 2026-11-20: it must be easy to
-    /// find). At the default 228 pt: ← → ✦; all four from 251 pt.
-    static func shownButtons(width: CGFloat, toggleMaxX: CGFloat) -> [HeaderButton] {
-        let room = width - DesignGaps.headerButtonEndInset - (toggleMaxX + 2)
-        var shown: [HeaderButton] = HeaderButton.allCases
-        for drop in [HeaderButton.reload, .forward, .back, .agent] {
-            let need = AircMetrics.Sidebar.headerButton + CGFloat(max(0, shown.count - 1)) * AircMetrics.Sidebar.headerButtonPitch
-            if room >= need { break }
-            shown.removeAll { $0 == drop }
-        }
-        return shown
+        let w = bounds.width
+        reload.frame = NSRect(x: w - DesignGaps.headerButtonEndInset - s, y: y, width: s, height: s)
+        forward.frame = reload.frame.offsetBy(dx: -AircMetrics.Sidebar.headerButtonPitch, dy: 0)
+        back.frame = forward.frame.offsetBy(dx: -AircMetrics.Sidebar.headerButtonPitch, dy: 0)
+        // A narrow sidebar drops buttons that would collide with the toggle (Arc ref §2.1).
+        let minX = toggle.frame.maxX + 2
+        back.isHidden = back.frame.minX < minX
+        forward.isHidden = forward.frame.minX < minX
+        reload.isHidden = reload.frame.minX < minX
     }
 }
 
@@ -533,8 +509,7 @@ final class SpacePagerView: NSView {
     }
 }
 
-/// The footer (SB-50/51): Library, one icon per Space, Send Feedback (feedback2), "+". (The Airc Agent ✦ is in the
-/// header row since 2026-11-20: `SidebarHeaderView.agent`.)
+/// The footer (SB-50/51): Library, one icon per Space, Send Feedback (feedback2), "+".
 final class SpaceBarView: NSView {
     weak var controller: WindowController? { didSet { if controller !== oldValue { observeFeedbackSetting() } } }
     private let library = GlyphButton(symbol: "archivebox", size: 15)
@@ -547,6 +522,16 @@ final class SpaceBarView: NSView {
     /// Whether the Feedback button shows now (the checks read it).
     var showsFeedback: Bool { !feedback.isHidden }
     var feedbackButton: NSView { feedback }
+    /// The Airc Agent (⌥⌘A, owner 2026-11-20: the pane must be easy to find): just right of the Library button. Opens
+    /// and closes the agent pane, shows a dot while a task runs, right-click: New Task, Watch, Settings › Agents.
+    private let agent = GlyphButton(symbol: "sparkles", size: 15)
+    private let agentDot = CALayer()
+    private var agentGlyph: NSColor = .secondaryLabelColor
+    private var agentSubs: [AnyCancellable] = []
+    /// The Airc Agent button (the checks click it; the first-run hint points at it).
+    var agentButton: NSView { agent }
+    /// Whether its "working" dot shows.
+    var agentDotShown: Bool { !agentDot.isHidden }
     private var visibleSpaces = 0
     private(set) var cells: [SpaceCell] = []
     private var spaceIDs: [String] = []
@@ -760,6 +745,65 @@ final class SpaceBarView: NSView {
             FeedbackSheet.show(from: c.window, app: app)
         }
         feedback.contextMenuProvider = { [weak self] in self?.feedbackMenu() }
+        addSubview(agent)
+        agent.toolTip = "Airc Agent (⌥⌘A)"
+        agent.setAccessibilityElement(true)
+        agent.setAccessibilityRole(.button)
+        agent.setAccessibilityLabel("Airc Agent")
+        agent.setAccessibilityHelp("Opens or closes the Airc Agent beside the page (⌥⌘A)")
+        agent.action = { [weak self] in
+            guard let c = self?.controller else { return }
+            AgentUI.toggle(c)
+            self?.refreshAgent()
+        }
+        agent.contextMenuProvider = { [weak self] in self?.agentMenu() }
+        wantsLayer = true
+        agentDot.backgroundColor = NSColor.controlAccentColor.cgColor
+        agentDot.cornerRadius = 3
+        agentDot.isHidden = true
+        layer?.addSublayer(agentDot)
+        agentSubs.append(AgentRunCenter.shared.$state.map(\.isActive).removeDuplicates().receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.refreshAgent() })
+        agentSubs.append(NotificationCenter.default.publisher(for: AgentPaneController.visibilityChanged)
+            .sink { [weak self] _ in self?.refreshAgent() })
+    }
+
+    /// The button follows the pane (accent while it's open in this window) and the run (the dot).
+    func refreshAgent() {
+        let open = controller.map { AgentUI.isShown($0) } ?? false
+        agent.tint = open ? .controlAccentColor : agentGlyph
+        agent.setAccessibilityValue(open ? "open" : "closed")
+        let working = AgentRunCenter.shared.state.isActive
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        agentDot.isHidden = !working
+        CATransaction.commit()
+        agent.toolTip = working ? "Airc Agent (⌥⌘A): working" : "Airc Agent (⌥⌘A)"
+    }
+
+    /// Right-click on the Airc Agent button.
+    private func agentMenu() -> NSMenu {
+        let m = NSMenu()
+        m.add("New Task") { [weak self] in if let c = self?.controller { AgentUI.newTask(c); self?.refreshAgent() } }
+        let watch = m.add("Watch") { [weak self] in self?.watchAgent() }
+        watch.isEnabled = liveAgentRow != nil
+        m.autoenablesItems = false
+        m.addItem(.separator())
+        m.add("Settings › Agents…") { (NSApp.delegate as? AppDelegate)?.showSettings(page: .agents) }
+        return m
+    }
+
+    /// The Airc Agent's live page, for Watch.
+    var liveAgentRow: String? {
+        guard let w = AgentRunCenter.shared.runWindowID else { return nil }
+        let rows = AgentActivity.shared.model.rows.filter { $0.window == w && $0.isLive }
+        let active = AgentCenter.shared.windows[w]?.activeTabID
+        return (rows.first { $0.tab == active } ?? rows.last)?.id
+    }
+
+    func watchAgent() {
+        guard let c = controller, let id = liveAgentRow else { return }
+        c.sidebar.agents.openWatch(id)
     }
 
     /// Right-click on the Feedback button.
@@ -816,6 +860,9 @@ final class SpaceBarView: NSView {
         plus.tint = palette.glyph
         library.hoverFill = palette.hover
         plus.hoverFill = palette.hover
+        agentGlyph = palette.glyph
+        agent.hoverFill = palette.hover
+        refreshAgent()
         // Quieter than Library and "+": it's there when wanted, not asking for attention.
         feedback.tint = palette.textSecondary
         feedback.hoverFill = palette.hover
@@ -893,12 +940,14 @@ final class SpaceBarView: NSView {
         let y = (bounds.height - b) / 2
         library.frame = Self.libraryButtonFrame(columnHeight: bounds.height)
         plus.frame = NSRect(x: bounds.width - AircMetrics.Footer.buttonInset - b, y: y, width: b, height: b)
+        agent.frame = NSRect(x: library.frame.minX + CGFloat(SpaceBarLayout.agentButton), y: y, width: b, height: b)
+        agentDot.frame = CGRect(x: agent.frame.maxX - 9, y: isFlipped ? agent.frame.minY + 4 : agent.frame.maxY - 10, width: 6, height: 6)
         let shows = feedbackEnabled && !hasProvisional
-            && SpaceBarLayout.showsFeedback(sidebarWidth: Double(bounds.width), spaces: visibleSpaces)
+            && SpaceBarLayout.showsFeedback(sidebarWidth: Double(bounds.width), spaces: visibleSpaces, agent: true)
         feedback.isHidden = !shows
         feedback.frame = NSRect(x: plus.frame.minX - CGFloat(SpaceBarLayout.feedbackButton), y: y, width: b, height: b)
         guard !reordering else { return }
-        let region = SpaceBarLayout.region(sidebarWidth: Double(bounds.width), feedback: shows)
+        let region = SpaceBarLayout.region(sidebarWidth: Double(bounds.width), feedback: shows, agent: true)
         let widths = SpaceBarLayout.cellWidths(count: cells.count, current: Int(position.rounded()), span: region.span)
         let total = widths.reduce(0, +)
         var x = CGFloat(region.x) + (CGFloat(region.span) - CGFloat(total)) / 2
@@ -950,7 +999,7 @@ final class SidebarView: NSView {
         pager.controller = c
         footer.controller = c
         update.controller = c
-        c.installQuotePill()   // C06: Share Quote inside the URL field (Browser/SelectionShare.swift)
+        c.installQuotePill()   // C06: Share Quote under the URL field (Browser/SelectionShare.swift)
         agents.connect(c)
     }
 

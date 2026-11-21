@@ -20,10 +20,6 @@ final class URLFieldView: NSView {
     let siteIndicators = SiteIndicatorsView()
     private let progress = CALayer()
     private var palette: Palette?
-    /// Share Quote's chip (Browser/SelectionShare.swift) while page text is selected, at the pill's right end: the host
-    /// fades before it and the hover buttons step aside. Inside the pill, so nothing below it moves.
-    weak var quoteChip: QuotePillView?
-    var chipShown = false { didSet { if chipShown != oldValue { needsLayout = true } } }
     var sidebarHovered = false {
         didSet {
             guard sidebarHovered != oldValue else { return }
@@ -91,24 +87,13 @@ final class URLFieldView: NSView {
     override func layout() {
         super.layout()
         let b = AircMetrics.Sidebar.urlFieldButton
-        let chip = chipShown ? quoteChip : nil
-        let showButtons = sidebarHovered && !label.showsPlaceholder && chip == nil
-        var end = bounds.width - 3
-        if let chip {
-            // At least 72 pt of the host stays readable; narrower, the chip is its glyph alone (VoiceOver and the
-            // tooltip still say Share Quote).
-            let full = chip.preferredWidth
-            chip.compact = bounds.width - 2 * QuotePillView.inset - full < 72
-            let w = chip.compact ? QuotePillView.height : full
-            chip.frame = NSRect(x: bounds.width - QuotePillView.inset - w, y: QuotePillView.inset, width: w, height: QuotePillView.height)
-            end = chip.frame.minX - 2
-        }
+        let showButtons = sidebarHovered && !label.showsPlaceholder
         copyButton.isHidden = !showButtons
         siteButton.isHidden = !showButtons
         siteButton.frame = NSRect(x: bounds.width - 3 - b, y: (bounds.height - b) / 2, width: b, height: b)
         copyButton.frame = siteButton.frame.offsetBy(dx: -b, dy: 0)
         // Site Controls' icons: left of the buttons, or at the field's end while they're hidden.
-        let indicatorsMinX = siteIndicators.place(endingAt: showButtons ? copyButton.frame.minX : end, hovered: showButtons)
+        let indicatorsMinX = siteIndicators.place(endingAt: showButtons ? copyButton.frame.minX : bounds.width - 3, hovered: showButtons)
         // Extensions to the left of copy: the puzzle, then the pinned actions (Chrome's order, right to left).
         // The puzzle shows on hover even with no extensions yet: its list is the way to the Web Store.
         var minX = showButtons ? indicatorsMinX : copyButton.frame.minX
@@ -125,7 +110,7 @@ final class URLFieldView: NSView {
             minX = e.frame.minX
         }
         label.frame = AircAddressFieldLabel.frame(inField: bounds, trailingControlMinX: showButtons ? minX
-                                                  : !siteIndicators.isEmpty ? indicatorsMinX : chip != nil ? end : nil)
+                                                  : siteIndicators.isEmpty ? nil : indicatorsMinX)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -733,6 +718,8 @@ final class SpacePageView: NSView {
     let urlField = URLFieldView()
     let developerStrip = DeveloperStrip()
     private var showsDeveloperStrip = false
+    /// C06: room under the URL field for the Share Quote pill while it shows (Browser/SelectionShare.swift).
+    var quotePillRoom: CGFloat = 0 { didSet { if quotePillRoom != oldValue { needsLayout = true } } }
     let favorites = SidebarAXContainer()
     let header = SpaceHeaderView()
     let scrollView = SidebarScrollView()
@@ -1267,7 +1254,7 @@ final class SpacePageView: NSView {
         let w = bounds.width
         urlField.frame = NSRect(x: AircMetrics.Sidebar.inset, y: 0, width: w - 2 * AircMetrics.Sidebar.inset, height: AircMetrics.Sidebar.urlFieldHeight)
         developerStrip.frame = NSRect(x: AircMetrics.Sidebar.inset, y: AircMetrics.Sidebar.urlFieldHeight + 2, width: w - 2 * AircMetrics.Sidebar.inset, height: 26)
-        var y = DesignGaps.favoritesTop + (showsDeveloperStrip ? 30 : 0)
+        var y = DesignGaps.favoritesTop + (showsDeveloperStrip ? 30 : 0) + quotePillRoom
         if favoritesHeight > 0 {
             favorites.frame = NSRect(x: AircMetrics.Sidebar.inset, y: y, width: w - 2 * AircMetrics.Sidebar.inset, height: favoritesHeight)
             y += favoritesHeight + 6

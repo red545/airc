@@ -2,6 +2,26 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.46",
+      "highlights": [
+        {
+          "title": "Agent tasks, full view",
+          "lead": "Airc Agent tasks get their own view",
+          "detail": "Open a task from the Agents folder to see every step, what it found and the agent's page live; reply or approve from there. ✦ or ⌥⌘A opens the compact pane.",
+          "icon": "sparkles",
+          "image": "agent-task-view"
+        },
+        {
+          "title": "Ask from ⌘T",
+          "lead": "⌘T can Ask as well as Search",
+          "detail": "Press ⌘T, type what you want done and press Tab to ask the Airc Agent. Recent tasks show as cards under the field.",
+          "icon": "magnifyingglass",
+          "action": "commandBar",
+          "image": "agent-tasks-ask"
+        }
+      ]
+    },
+    {
       "version": "0.1.45",
       "highlights": [
         {

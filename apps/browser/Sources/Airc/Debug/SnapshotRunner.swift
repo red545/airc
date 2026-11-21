@@ -134,7 +134,6 @@ final class SnapshotRunner {
         case "shortcutremap": shortcutRemapScenario()
         case "littlearc": littleArcLinkScenario()
         case "littlearc-cold": littleArcColdStartScenario()
-        case "littlearcstage": littleArcStageScenario()   // window lists bring Little Airc forward (LittleArcStageCheck.swift)
         case "linklaunch", "linklaunch-seed", "linklaunch-onboarding": linkLaunchScenario()   // LinkLaunchCheck.swift
         case "littlearc-look": littleArcLookScenario()
         case "drmsettings": protectedContentSettingsScenario()

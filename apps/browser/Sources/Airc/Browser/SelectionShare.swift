@@ -306,14 +306,13 @@ extension WindowController {
     }
 }
 
-// MARK: Arc's Share Quote, inside the address pill (C06; sidebarchrome 2026-11-20)
+// MARK: Arc's Share Quote under the URL (C06)
 
-/// Arc's Share Quote ("Share Quote", decoded from Arc 1.171) while page text is selected: a chip that slides in at the
-/// address pill's right end (owner 2026-11-20: inside the pill, so nothing below it moves: 0 px layout shift). The host
-/// fades earlier to make room. A click copies the page's link to the selected text, the same whole-word text fragment as
-/// the ⌘C offer, cleaned by the Super Copy policy (LinkCopyPolicy). It appears once a selection is made (after the
-/// mouse-up or the key that made it, never during a drag) and goes when the selection does, when another page is on
-/// screen, the sidebar hides, or Shared Quotes is turned off.
+/// Arc's affordance below the URL field while page text is selected ("Share Quote", decoded from Arc 1.171): a small
+/// pill that copies the page's link to the selected text, the same whole-word text fragment as the ⌘C offer, cleaned by
+/// the Super Copy policy (LinkCopyPolicy). It appears once a selection is made (after the mouse-up or the key that made
+/// it, never during a drag) and goes when the selection does, when another page is on screen, the sidebar hides, or
+/// Shared Quotes is turned off.
 final class QuotePillView: NSView {
     static let title = "Share Quote"
     weak var controller: WindowController?
@@ -323,35 +322,28 @@ final class QuotePillView: NSView {
     private(set) var link = ""
     /// The page's address and the selection out to whole words, which the copy goes by.
     private var pageURL = "", selection = ""
-    /// The page the link is for (the chip goes when another one is on screen).
+    /// The page the link is for (the pill goes when another one is on screen).
     private weak var page: EngineTab?
     private var poll: Timer?
     /// Each new look at the selection; a slower, older answer is ignored.
     private var generation = 0
     private var hovered = false
-    private var pressed = false
-    /// Sliding out: still on screen, already gone as far as a new selection is concerned.
-    private var leaving = false
     /// How often it appeared (a drag shows it once, after the mouse-up).
     private(set) var shows = 0
-    /// The address field it sits in now (the current Space's).
-    private(set) weak var field: URLFieldView?
 
-    /// Inset from the pill's edges: the chip's corners stay concentric with the pill's (radius 12 − 4).
-    static let inset: CGFloat = 4
-    static var height: CGFloat { AircMetrics.Sidebar.urlFieldHeight - 2 * inset }
-    /// The slide: in ≤ 150 ms (owner), out a little faster; a few points, with the fade.
-    static let slideIn: CFTimeInterval = 0.14, slideOut: CFTimeInterval = 0.11, slideDistance: CGFloat = 10
+    static let height: CGFloat = 22
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.cornerRadius = AircRadius.row - Self.inset
+        layer?.cornerRadius = Self.height / 2
         layer?.cornerCurve = .continuous
-        icon.image = NSImage(systemSymbolName: "quote.opening", accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 10, weight: .semibold))
+        layer?.shadowOpacity = 0.12
+        layer?.shadowRadius = 4
+        layer?.shadowOffset = CGSize(width: 0, height: -1)
+        icon.image = NSImage(systemSymbolName: "quote.bubble", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
         label.font = AircFont.callout.weight(.medium).appFont
-        label.lineBreakMode = .byClipping
         addSubview(icon)
         addSubview(label)
         isHidden = true
@@ -366,8 +358,8 @@ final class QuotePillView: NSView {
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    /// The whole chip takes the click (not its label or glyph), and never while it slides out.
-    override func hitTest(_ point: NSPoint) -> NSView? { !isHidden && !leaving && frame.contains(point) ? self : nil }
+    /// The whole pill takes the click (not its label or glyph).
+    override func hitTest(_ point: NSPoint) -> NSView? { !isHidden && frame.contains(point) ? self : nil }
     override func accessibilityPerformPress() -> Bool { copyLink(); return true }
 
     override func updateTrackingAreas() {
@@ -381,12 +373,10 @@ final class QuotePillView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         if openContextMenuForControlClick(event) { return }
-        pressed = true
-        paint()
+        layer?.backgroundColor = controller?.currentPalette.pressed.cgColor
     }
 
     override func mouseUp(with event: NSEvent) {
-        pressed = false
         if bounds.contains(convert(event.locationInWindow, from: nil)) { copyLink() } else { paint() }
     }
 
@@ -401,59 +391,40 @@ final class QuotePillView: NSView {
     }
 
     func copyLink() {
-        guard !isHidden, !leaving, !link.isEmpty else { return }
+        guard !isHidden, !link.isEmpty else { return }
         let (url, text, on) = (pageURL, selection, page)
         hide()
         guard let on else { return }
         controller?.copyQuoteLink(page: on, url: url, selection: text)
     }
 
-    /// A raised chip in the pill, like a selected row (its fill and, where the theme has one, its soft shadow), so it
-    /// reads in light, dark and every Space colour; hover brings the text up, a press takes the pressed fill.
     private func paint() {
         guard let c = controller else { return }
         let p = c.currentPalette
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer?.backgroundColor = (pressed ? p.pressed : hovered ? p.tileHover : p.selected).cgColor
-        let shadow = p.resolved.selectedHasShadow && !pressed
-        layer?.shadowOpacity = shadow ? 0.10 : 0
-        layer?.shadowRadius = 1.5
-        layer?.shadowOffset = CGSize(width: 0, height: -0.5)
-        layer?.shadowColor = NSColor.black.cgColor
-        CATransaction.commit()
+        layer?.backgroundColor = (hovered ? p.tileHover : p.urlFieldFill).cgColor
+        layer?.borderWidth = 0.5
+        layer?.borderColor = p.separator.cgColor
         icon.contentTintColor = hovered ? p.textPrimary : p.glyph
-        label.textColor = hovered || pressed ? p.textPrimary : p.textSecondary
+        label.textColor = hovered ? p.textPrimary : p.textSecondary
     }
 
-    /// The chip's width for its title: 9 pt · glyph · 4 pt · title · 10 pt.
-    var preferredWidth: CGFloat {
-        label.sizeToFit()
-        return 9 + 11 + 4 + ceil(label.frame.width) + 10
-    }
-
-    /// The glyph alone, in a narrow sidebar.
-    var compact = false { didSet { if compact != oldValue { label.isHidden = compact; needsLayout = true } } }
-
-    /// Lays out the glyph and title (URLFieldView places the chip itself).
-    override func layout() {
-        super.layout()
-        label.sizeToFit()
-        let h = bounds.height, glyph: CGFloat = 11
-        icon.frame = NSRect(x: compact ? ((bounds.width - glyph) / 2).rounded() : 9, y: ((h - glyph) / 2).rounded(), width: glyph, height: glyph)
-        label.frame.origin = NSPoint(x: 9 + glyph + 4, y: ((h - label.frame.height) / 2).rounded())
-        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: layer?.cornerRadius ?? 8, cornerHeight: layer?.cornerRadius ?? 8, transform: nil)
-    }
-
-    /// Into the current Space's address field (a Space switch shows another page's field).
+    /// Centred under the URL field (the sidebar's coordinates are flipped: the field is at the top).
     func place() {
-        guard let c = controller, let f = c.pageView(for: c.currentSpaceID)?.urlField else { return }
-        if f !== field {
-            field?.quoteChip = nil
-            field = f
+        label.sizeToFit()
+        let h = Self.height, gap: CGFloat = 5, side: CGFloat = 10, glyph: CGFloat = 13
+        let w = side + glyph + gap + ceil(label.frame.width) + side
+        let sidebar = superview?.bounds.width ?? 0
+        // Under the URL field, or under Developer Mode's strip while it shows there.
+        var below = AircMetrics.Sidebar.urlFieldTop + AircMetrics.Sidebar.urlFieldHeight
+        if let c = controller, let page = c.pageView(for: c.currentSpaceID), let sup = superview {
+            let strip = page.developerStrip
+            let anchor: NSView = strip.superview != nil && !strip.isHidden ? strip : page.urlField
+            if anchor.window != nil { below = anchor.convert(anchor.bounds, to: sup).maxY }
         }
-        if superview !== f { f.addSubview(self) }
-        f.quoteChip = self
+        frame = NSRect(x: ((sidebar - w) / 2).rounded(), y: below + 3, width: w, height: h)
+        icon.frame = NSRect(x: side, y: (h - glyph) / 2, width: glyph, height: glyph)
+        label.frame.origin = NSPoint(x: side + glyph + gap, y: ((h - label.frame.height) / 2).rounded())
+        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: h / 2, cornerHeight: h / 2, transform: nil)
     }
 
     /// The page's selection may have changed (a mouse-up or a key in the window): look again, and show the pill for a
@@ -489,72 +460,51 @@ final class QuotePillView: NSView {
     private func show(_ link: String, for page: EngineTab) {
         self.link = link
         self.page = page
+        superview?.addSubview(self)   // over the pager, the header and anything added since
         place()
         paint()
+        // Hidden, or still fading out from a moment ago.
+        makeRoom(true)
+        if isHidden || (layer?.opacity ?? 1) < 1 {
+            let from: Float = isHidden ? 0 : layer?.presentation()?.opacity ?? 0
+            if isHidden { shows += 1 }
+            isHidden = false
+            layer?.fade(from: from, to: 1, duration: AircCurve.previewIn.duration)
+        }
         poll?.invalidate()
         poll = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.refresh(poll: true) }
-        guard isHidden || leaving, let field, let layer else { return }
-        let from = leaving ? layer.presentation() : nil
-        if isHidden { shows += 1 }
-        leaving = false
-        isHidden = false
-        // The field makes room at once (the host fades earlier, inside the pill); only the chip moves.
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        field.chipShown = true
-        field.layoutSubtreeIfNeeded()
-        layer.opacity = 1
-        CATransaction.commit()
-        animate(layer, opacity: (Float(from?.opacity ?? 0), 1), dx: (from == nil ? Self.slideDistance : 0, 0), duration: Self.slideIn,
-                curve: CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1))
     }
 
     func hide() {
         poll?.invalidate()
         poll = nil
         generation += 1
-        pressed = false
-        guard !isHidden, !leaving, let layer else { return }
-        leaving = true
+        guard !isHidden, (layer?.opacity ?? 1) > 0 else { return }
+        makeRoom(false)
         hovered = false
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer.opacity = 0
-        CATransaction.commit()
-        animate(layer, opacity: (1, 0), dx: (0, Self.slideDistance), duration: Self.slideOut, curve: CAMediaTimingFunction(name: .easeIn))
+        layer?.fade(from: 1, to: 0, duration: AircCurve.toastOut.duration)
         let shown = shows
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.slideOut) { [weak self] in
-            guard let self, self.shows == shown, self.leaving else { return }
-            self.leaving = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + AircCurve.toastOut.duration) { [weak self] in
+            guard let self, self.shows == shown, self.poll == nil else { return }
             self.isHidden = true
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            self.layer?.opacity = 1
-            // The host has its room back once the chip is gone (never under the sliding chip).
-            self.field?.chipShown = false
-            self.field?.layoutSubtreeIfNeeded()
-            CATransaction.commit()
         }
     }
 
-    /// Opacity and a sideways slide in the render server (no layout pass; Reduce Motion: the fade alone).
-    private func animate(_ layer: CALayer, opacity: (Float, Float), dx: (CGFloat, CGFloat), duration: CFTimeInterval,
-                         curve: CAMediaTimingFunction) {
-        let fade = CABasicAnimation(keyPath: "opacity")
-        fade.fromValue = opacity.0
-        fade.toValue = opacity.1
-        var anims: [CAAnimation] = [fade]
-        if !AircMotion.prefersReducedMotion, dx.0 != dx.1 {
-            let slide = CABasicAnimation(keyPath: "transform.translation.x")
-            slide.fromValue = dx.0
-            slide.toValue = dx.1
-            anims.append(slide)
+    /// The Space's list moves down to make room under the URL field (and back), on the row spring, so the pill never
+    /// covers Favorites or the Space's name.
+    private func makeRoom(_ on: Bool) {
+        guard let c = controller else { return }
+        let room: CGFloat = on ? Self.height + 4 : 0
+        let pages = c.sidebar.pager.pages.filter { $0.quotePillRoom != (on && $0.spaceID == c.currentSpaceID ? room : 0) }
+        guard !pages.isEmpty else { return }
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = AircCurve.previewIn.duration * 2
+            ctx.allowsImplicitAnimation = true
+            for p in pages {
+                p.quotePillRoom = on && p.spaceID == c.currentSpaceID ? room : 0
+                p.layoutSubtreeIfNeeded()
+            }
         }
-        let g = CAAnimationGroup()
-        g.animations = anims
-        g.duration = duration
-        g.timingFunction = curve
-        layer.add(g, forKey: "quoteChip")
     }
 
     // MARK: Where selections change
@@ -582,17 +532,15 @@ final class QuotePillView: NSView {
 }
 
 extension WindowController {
-    private static let quoteChips = NSMapTable<WindowController, QuotePillView>.weakToStrongObjects()
+    /// The Share Quote pill under this window's URL field.
+    var quotePill: QuotePillView? { sidebar.subviews.first { $0 is QuotePillView } as? QuotePillView }
 
-    /// The Share Quote chip of this window (in the current Space's address pill while it shows).
-    var quotePill: QuotePillView? { Self.quoteChips.object(forKey: self) }
-
-    /// From the sidebar (SidebarView.connect): the chip, and the app's selection monitor.
+    /// From the sidebar (SidebarView.connect): the pill, and the app's selection monitor.
     func installQuotePill() {
         guard quotePill == nil else { return }
         let pill = QuotePillView()
         pill.controller = self
-        Self.quoteChips.setObject(pill, forKey: self)
+        sidebar.addSubview(pill)
         QuotePillView.installMonitor()
     }
 }

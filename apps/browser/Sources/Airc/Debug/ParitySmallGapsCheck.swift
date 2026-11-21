@@ -159,11 +159,8 @@ extension SnapshotRunner {
         // 1. A real drag: no pill while dragging, Share Quote after the mouse-up, under the URL field.
         var showsBefore = 0
         locate()
-        var layoutBefore: [(String, NSRect)] = []
-        quoteChipFixtureRows()
         run { showsBefore = pill()?.shows ?? -1; pill()?.hide() }
         wait(0.3)
-        run { [self] in layoutBefore = quoteChipLayout() }
         drag { [self] during, selection in
             let p = pill()
             want = expected(selection)
@@ -175,12 +172,16 @@ extension SnapshotRunner {
             let words = Set(sentence.split(separator: " ").map(String.init))
             check(p?.link == want && want.contains("#:~:text=") && fragment.split(whereSeparator: { $0 == " " || $0 == "," }).allSatisfy { words.contains(String($0)) },
                   label("its link is the page's whole-word link to the text (\(p?.link ?? "-"))"))
-            if let p {
-                // sidebarchrome (owner 2026-11-20): inside the address pill, at its right end; nothing below it moved.
-                let place = quoteChipPlacement(p)
-                check(place.ok, label("it sits inside the address pill, at its right end (\(place.why))"))
-                let shift = quoteChipShift(layoutBefore, quoteChipLayout())
-                check(shift.isEmpty, label("and nothing below the pill moved, to the pixel (\(shift.isEmpty ? "first Favorite, first pinned row, Space name, list: unchanged" : shift))"))
+            if let p, let pv = c.pageView(for: c.currentSpaceID) {
+                // Under the URL field, or under Developer Mode's strip (a loopback page shows it).
+                let anchor: NSView = pv.developerStrip.superview != nil && !pv.developerStrip.isHidden ? pv.developerStrip : pv.urlField
+                let f = anchor.convert(anchor.bounds, to: c.sidebar)
+                check(p.superview === c.sidebar && p.frame.minY >= f.maxY && p.frame.minY - f.maxY < 8 && abs(p.frame.midX - f.midX) < 2,
+                      label("it sits centred under the URL field\(anchor === pv.urlField ? "" : " and Developer Mode's strip") (pill \(NSStringFromRect(p.frame)), field \(NSStringFromRect(f)))"))
+                // The Space's list moved down to make room: nothing under the pill (Favorites, the Space's name, the rows).
+                let content = ([pv.favorites.frame.height > 0 ? pv.favorites : nil, pv.header.isHidden ? nil : pv.header, pv.scrollView] as [NSView?])
+                    .compactMap { $0 }.map { $0.convert($0.bounds, to: c.sidebar).minY }.min() ?? 0
+                check(p.frame.maxY <= content, label("and covers nothing: the list starts below it (pill ends \(p.frame.maxY), list starts \(content))"))
             }
         }
         wait(0.3)

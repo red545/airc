@@ -119,21 +119,8 @@ final class LittleArcController: NSObject, NSWindowDelegate {
         w.level = .normal
         (w as? NSPanel)?.isFloatingPanel = false
         w.styleMask.remove(.nonactivatingPanel)
-        // littlearcstage: the window server keeps the panel's "doesn't activate the app" tag from its creation; the style
-        // change alone doesn't clear it. Left set, Stage Manager, Mission Control and the Dock showed the window but could
-        // not bring it forward (choosing it left Airc inactive and the window not key), nor did a click on it.
-        if !Self.stageFixOff { w.setPreventsActivation(false) }
         w.collectionBehavior.remove([.canJoinAllSpaces, .moveToActiveSpace])
         w.collectionBehavior.formUnion(Self.spacesBehaviour)
-    }
-
-    /// Test builds, AIRC_LAS_BEFORE=1: the littlearcstage check's "before" arm (the window-list fixes off).
-    static var stageFixOff: Bool {
-        #if AIRC_TESTING
-        return ProcessInfo.processInfo.environment["AIRC_LAS_BEFORE"] == "1"
-        #else
-        return false
-        #endif
     }
 
     static var systemDark: Bool { NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua }
@@ -596,12 +583,6 @@ final class LittleArcController: NSObject, NSWindowDelegate {
         archiveTimer?.invalidate()
         archiveTimer = nil
         prompts.dropAll()
-        // littlearcstage: the hidden window is kept for "back to tab" only. Out of the Window and Dock menus (choosing it
-        // there showed a window whose page still played in the picture in picture).
-        if !Self.stageFixOff {
-            window.isExcludedFromWindowsMenu = true
-            NSApp.removeWindowsItem(window)
-        }
         window.orderOut(nil)
     }
 
@@ -639,7 +620,6 @@ final class LittleArcController: NSObject, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        if !Self.stageFixOff { NSApp.removeWindowsItem(window) }
         openInMenu?.close()
         archiveTimer?.invalidate()
         prompts.dropAll()
@@ -647,9 +627,6 @@ final class LittleArcController: NSObject, NSWindowDelegate {
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
-        // littlearcstage: the hidden mini player's window came forward by another way (a window list): it's the window
-        // again, as "back to tab" makes it.
-        if isMiniPlayer, !Self.stageFixOff { restoreFromMiniPlayer() }
         // Back in use: a close the page kept open ("Stay") is over.
         if page != nil { closing = false }
         noteActivity()
@@ -662,9 +639,7 @@ final class LittleArcController: NSObject, NSWindowDelegate {
     }
 
     private func bringForward(_ w: NSWindow) {
-        if w === window { w.isExcludedFromWindowsMenu = false }
         if app?.options.isAutomated == true, !Self.actsAsOwner { w.orderFront(nil) } else { w.makeKeyAndOrderFront(nil); NSApp.activate() }
-        (w as? LittleArcPanel)?.listInWindowsMenu()
     }
 
     /// `w` is below `other` as the window server orders this app's windows on screen (AppKit's own list can lag behind
@@ -884,26 +859,6 @@ extension LittleArcController: PromptHost {
     func promptToast(_ text: String) { toast.show(text, palette: palette, in: card.frame) }
 }
 
-extension NSWindow {
-    /// littlearcstage: the window server's own "a click or a window list doesn't activate the app" tag, which NSPanel's
-    /// `.nonactivatingPanel` sets only at creation (the engine sets it the same way for picture in picture,
-    /// airc_pip_window.inc). Nothing if AppKit lacks it.
-    func setPreventsActivation(_ prevents: Bool) {
-        let sel = NSSelectorFromString("_setPreventsActivation:")
-        guard responds(to: sel), let imp = method(for: sel) else { return }
-        typealias Setter = @convention(c) (AnyObject, Selector, Bool) -> Void
-        unsafeBitCast(imp, to: Setter.self)(self, sel, prevents)
-    }
-
-    /// The tag's value as AppKit has it (nil: AppKit lacks the getter), for the checks.
-    var preventsActivationTag: Bool? {
-        let sel = NSSelectorFromString("_preventsActivation")
-        guard responds(to: sel), let imp = method(for: sel) else { return nil }
-        typealias Getter = @convention(c) (AnyObject, Selector) -> Bool
-        return unsafeBitCast(imp, to: Getter.self)(self, sel)
-    }
-}
-
 /// LA-1: Little Arc's window. The engine hangs an invisible dialog anchor on every window that hosts its pages
 /// (WindowHost::UpdateModalParent). Chromium orders the anchor in just below the app's main window
 /// (NativeWidgetNSWindowBridge, a show without activation), and that is the browser window until Little Arc is key in an
@@ -962,26 +917,11 @@ final class LittleArcPanel: NSPanel {
     override func orderFront(_ sender: Any?) {
         front.ordered()
         super.orderFront(sender)
-        listInWindowsMenu()
     }
 
     override func makeKeyAndOrderFront(_ sender: Any?) {
         front.ordered()
         super.makeKeyAndOrderFront(sender)
-        listInWindowsMenu()
-    }
-
-    override func orderFrontRegardless() {
-        super.orderFrontRegardless()
-        listInWindowsMenu()
-    }
-
-    /// littlearcstage: AppKit puts only NSWindows (never panels) in the Window menu, and so in the Dock's window list;
-    /// Little Airc is listed as its window is.
-    func listInWindowsMenu() {
-        guard !isExcludedFromWindowsMenu, isVisible, !LittleArcController.stageFixOff,
-              NSApp.windowsMenu?.items.contains(where: { ($0.target as AnyObject?) === self }) != true else { return }
-        NSApp.addWindowsItem(self, title: title, filename: false)
     }
 
     override func orderOut(_ sender: Any?) {

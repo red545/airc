@@ -508,5 +508,17 @@
     "detail": "Airc prepares the Command Bar while you're idle, so the first letter you type after ⌘T shows sooner.",
     "action": "commandBar",
     "image": null
+  },
+  "Airc Agent tasks get their own view": {
+    "title": "Agent tasks, full view",
+    "detail": "Open a task from the Agents folder to see every step, what it found and the agent's page live; reply or approve from there. ✦ or ⌥⌘A opens the compact pane.",
+    "action": "none",
+    "image": "agent-task-view"
+  },
+  "⌘T can Ask as well as Search": {
+    "title": "Ask from ⌘T",
+    "detail": "Press ⌘T, type what you want done and press Tab to ask the Airc Agent. Recent tasks show as cards under the field.",
+    "action": "commandBar",
+    "image": "agent-tasks-ask"
   }
 }

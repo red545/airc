@@ -6,9 +6,9 @@ bottom right of the sidebar, next to the + button.
 
 ## The sidebar's Feedback button
 
-The speech bubble sits in the sidebar's bottom row (Archive · your Spaces · speech bubble · +), just left
-of +. It stays there however many Spaces you have: as in Arc, the Space icons get narrower instead (the current one
-keeps its icon, the others turn into dots when room is short).
+The speech bubble sits in the sidebar's bottom row (Archive · ✦ Airc Agent · your Spaces · speech bubble · +), just left
+of +. It steps aside when the sidebar is too narrow for it and your Space icons (it never squeezes them below 24
+points); Help and ⌘T still have Send Feedback then.
 Little Airc has no sidebar, so no button. Don't want it? Right-click it and choose **Hide Feedback Button**. Turn it
 back on in **Settings › Appearance › Sidebar › Show Feedback button**.
 

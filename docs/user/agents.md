@@ -12,7 +12,7 @@ again in **Settings › Agents**).
 
 ## Ask Airc (the Airc Agent)
 
-You can also ask Airc itself. Click **✦** at the top of the sidebar (in the toolbar row, after Back and Forward), press **⌥⌘A**, or
+You can also ask Airc itself. Click **✦** in the sidebar's bottom row (right of the Archive button), press **⌥⌘A**, or
 pick **View › Airc Agent**, and the agent pane opens beside the page, on the
 side away from the sidebar (drag its inner edge to make it wider, double-click the edge for the default; **⇧⌥⌘A** starts a
 new task). Type what you want done, like "find the cheapest train to Graz on Friday and fill in the booking form", and
@@ -49,9 +49,7 @@ your OK and the pane is closed, its row says so and asks there. **◷** in the p
   Whichever you pick, the task you typed before connecting goes on by itself once you're connected. The ✦ button turns
   the accent colour while the pane is open and shows a small dot while a task runs; right-click it for **New Task**,
   **Watch** and **Settings › Agents**. After your first onboarding, a one-time hint points at it ("Ask Airc to do things
-  for you"); **Not now** dismisses it for good. In a narrow sidebar the toolbar row drops Reload first, then
-  Forward, then Back; ✦ stays longest. With the sidebar hidden, ✦ comes back with the sidebar (hover the window's edge),
-  and ⌥⌘A works with it hidden too.
+  for you"); **Not now** dismisses it for good.
 
   Your task, the pages the agent reads and its screenshots go from your Mac to that provider; nothing goes through
   Airc's servers. Answers stream in as they're written.

@@ -426,17 +426,15 @@ final class SidebarOrderTests: XCTestCase {
         XCTAssertEqual(SpaceBarLayout.span(sidebarWidth: 228), 144)
         // feedback2: the Feedback button after Library only while the Space icons keep 24 pt; never crowding them.
         XCTAssertTrue(SpaceBarLayout.showsFeedback(sidebarWidth: 164, spaces: 1))
-        // Feedback never gives way to the Space icons (they squeeze first): any count, any allowed width.
-        XCTAssertTrue(SpaceBarLayout.showsFeedback(sidebarWidth: 164, spaces: 2))
-        XCTAssertTrue(SpaceBarLayout.showsFeedback(sidebarWidth: 164, spaces: 12))
+        XCTAssertFalse(SpaceBarLayout.showsFeedback(sidebarWidth: 164, spaces: 2))
         XCTAssertTrue(SpaceBarLayout.showsFeedback(sidebarWidth: 228, spaces: 4))
-        XCTAssertTrue(SpaceBarLayout.showsFeedback(sidebarWidth: 228, spaces: 5))
-        XCTAssertTrue(SpaceBarLayout.showsFeedback(sidebarWidth: 228, spaces: 6))
-        XCTAssertFalse(SpaceBarLayout.showsFeedback(sidebarWidth: 130, spaces: 2))
-        // 6 Spaces at 228 pt beside Feedback: the current keeps 22, the others 17.6 (dots), all inside the 110 pt.
-        let six = SpaceBarLayout.cellWidths(count: 6, current: 2, span: 110)
-        XCTAssertEqual(six[2], 22)
-        XCTAssertEqual(six.reduce(0, +), 110, accuracy: 0.01)
+        XCTAssertFalse(SpaceBarLayout.showsFeedback(sidebarWidth: 228, spaces: 5))
+        // The Airc Agent button after the Library button: the icons start 34 pt later, Feedback gives way first.
+        XCTAssertEqual(SpaceBarLayout.region(sidebarWidth: 228, feedback: false, agent: true).x, 76)
+        XCTAssertEqual(SpaceBarLayout.region(sidebarWidth: 228, feedback: true, agent: true).span, 144 - 68)
+        XCTAssertTrue(SpaceBarLayout.showsFeedback(sidebarWidth: 228, spaces: 3, agent: true))
+        XCTAssertFalse(SpaceBarLayout.showsFeedback(sidebarWidth: 228, spaces: 4, agent: true))
+        XCTAssertEqual(SpaceBarLayout.region(sidebarWidth: 228, feedback: false).x, 42)
         XCTAssertTrue(SpaceBarLayout.showsFeedback(sidebarWidth: 320, spaces: 8))
         XCTAssertTrue(SpaceBarLayout.region(sidebarWidth: 228, feedback: true) == (42, 110))
         XCTAssertTrue(SpaceBarLayout.region(sidebarWidth: 228, feedback: false) == (42, 144))

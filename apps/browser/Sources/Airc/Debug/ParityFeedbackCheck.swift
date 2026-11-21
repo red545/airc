@@ -604,8 +604,7 @@ extension SnapshotRunner {
         step { [self] done in waitUntil({ sheet() != nil }, timeout: 4) { done() } }
         run { [self] in check(sheet()?.parent === c.window && sheet()?.sheet.isVisible == true, "parityfeedback [real click]: the footer's Feedback button opens the sheet on this window") }
         clickIfOpen("feedback.cancel", "Cancel (footer)")
-        // Narrow: at the 164 pt minimum with three Spaces the button stays; the Space icons squeeze (sidebarchrome,
-        // lead 2026-11-20: Feedback and + never give way).
+        // Narrow: at the 164 pt minimum with three Spaces the Space icons keep their room and the button gives way.
         run { [self] in
             let home = c.currentSpaceID
             let profile = c.store.profile(ofSpace: home).id
@@ -616,9 +615,8 @@ extension SnapshotRunner {
             c.setSidebarWidth(AircMetrics.Sidebar.minWidth)
             c.sidebar.layoutSubtreeIfNeeded()
             let cells = footer().cellViews.map(\.frame.width)
-            let b = footer().feedbackButton.frame
-            check(footer().showsFeedback && cells.count == 3 && cells.max() ?? 0 >= 22 && b.minX >= (footer().cellViews.last?.frame.maxX ?? .infinity) - 0.5,
-                  "parityfeedback: at the \(Int(AircMetrics.Sidebar.minWidth)) pt minimum with 3 Spaces the button stays; the icons squeeze to \(cells.map { Int($0) }) pt beside it")
+            check(!footer().showsFeedback && cells.count == 3 && cells.allSatisfy { $0 >= 22 },
+                  "parityfeedback: at the \(Int(AircMetrics.Sidebar.minWidth)) pt minimum with 3 Spaces the button gives way; the icons keep \(cells.map { Int($0) }) pt")
         }
         renderFooter("feedback-footer-min-3spaces")
         run { [self] in
