@@ -135,7 +135,6 @@ extension SnapshotRunner {
     }
 
     @MainActor func parityP18bScenario() {
-        TidyTabsFeature.appliesWithoutPreview = true   // the preview and its Apply: TidyUXCheck.swift
         switch script {
         case "parityp18b-write": return p18bRelaunch(write: true)
         case "parityp18b-read": return p18bRelaunch(write: false)
@@ -171,24 +170,17 @@ extension SnapshotRunner {
         }
         wait(0.6)
 
-        // 1. Without Apple Intelligence: Tidy groups by site (tidyux), and the model is never asked.
+        // 1. Without Apple Intelligence: nothing.
         run { [self] in
             c.pageView(for: space)?.sidebarHovered = true
             let d = p18bDivider(space)
             d?.layoutSubtreeIfNeeded()
             let commands = p18bCommands()
-            check(d != nil && d?.tidy.isHidden == false && d?.tidy.toolTip?.contains("by site") == true && commands.contains("Tidy Tabs"),
-                  "\(tag): without Apple Intelligence Tidy still shows (by site) and the Command Bar has Tidy Tabs (divider \(d != nil), "
-                    + "hidden \(d?.tidy.isHidden ?? true))")
-            before = p18bLayout(space)
             press()
-        }
-        waitIdle()
-        run { [self] in
-            // travel.example.com has the two Lisbon flight tabs (one page) only: no site has two pages, so nothing moves.
-            check(fake.asked.isEmpty && TidyTabsFeature.lastMessage == "No site has two pages open in Today" && p18bLayout(space) == before,
-                  "\(tag): by site, a Today with no site twice makes no folder and asks no model (asked \(fake.asked.count), "
-                    + "\(TidyTabsFeature.lastMessage ?? "-"))")
+            check(d != nil && d?.tidy.isHidden == true && !commands.contains("Tidy Tabs") && !TidyTabsFeature.isRunning(space)
+                    && fake.asked.isEmpty,
+                  "\(tag): without Apple Intelligence the Today header has no Tidy and the Command Bar no Tidy Tabs (divider \(d != nil), "
+                    + "hidden \(d?.tidy.isHidden ?? false), asked \(fake.asked.count))")
         }
 
         // 2. With it: Tidy left of Clear while the pointer is over the sidebar, and in the Command Bar.
@@ -204,7 +196,7 @@ extension SnapshotRunner {
             let width = d?.bounds.width ?? 0
             let placed = t.map { $0.frame.width > 10 && $0.frame.maxX < width - 20 && $0.frame.minX > width / 2 } ?? false
             let commands = p18bCommands()
-            check(hiddenAway && t?.isHidden == false && t?.toolTip?.hasPrefix("Organize Today Tabs") == true && placed && commands.contains("Tidy Tabs"),
+            check(hiddenAway && t?.isHidden == false && t?.toolTip == "Organize Today Tabs" && placed && commands.contains("Tidy Tabs"),
                   "\(tag): with Apple Intelligence, Tidy shows left of Clear on hover (\(t.map { NSStringFromRect($0.frame) } ?? "none") in "
                     + "width \(width), away hidden \(hiddenAway)) and the Command Bar has Tidy Tabs")
         }

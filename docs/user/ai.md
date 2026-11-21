@@ -190,9 +190,7 @@ puts them back.
 - Tabs about the same topic go into a folder with a short name ("Lisbon Trip", "Swift Concurrency"). A folder needs at
   least two different pages. A page that fits no topic stays in Today. Two tabs of the same page go into the same
   folder.
-- **Nothing moves until you apply it.** The folders Tidy would make show first in a card at the top of Today, each
-  with its number of tabs: **Apply** makes them, **Cancel** leaves Today as it is.
-- **The folders go at the top of Today**, as in Arc ("Grouped 6 tabs into 2 folders", with **Undo**). The tabs in them
+- **The folders go at the top of Today**, as in Arc ("Grouped 6 tabs into 2 folders. ⌘Z to undo"). The tabs in them
   are still Today tabs: each archives on its own after the Space's archive time, Clear clears them, and a folder goes
   when its last tab does. Drag a folder above the divider to pin it with its tabs. See
   [folders in Today](sidebar.md).
@@ -201,14 +199,11 @@ puts them back.
 - While the model works, the label reads **Tidying…**. Click it (or choose **Stop Tidying Tabs** in the Command Bar) to
   stop: nothing changes. Nothing changes either until the model has answered for the whole list. Tabs you close, pin or
   move while it works are left where they are.
-- **Undo** on the message, or **⌘Z** right after, puts every tab back where it was in Today and removes the folders, in one step. After you quit
+- **⌘Z** right after puts every tab back where it was in Today and removes the folders, in one step. After you quit
   and open Airc again, ⌘Z still puts back that Space's last tidy (the tabs that are still in its folders), as long as
   nothing else is left to undo. You can also drag tabs out of the folders by hand, or right-click a folder and choose
   **Ungroup**.
 - "No tab groups found" means the model saw no topic shared by two pages: nothing changed.
-- **Without Apple Intelligence, Tidy groups by site** instead: one folder per site with two pages or more open in Today,
-  named after the site ("news.example.com"). It reads only each tab's site, uses no model and is instant. The preview
-  says "Grouped by site". "No site has two pages open in Today" means there was nothing to group.
 - Long lists are sorted in parts of up to 24 pages (the model's context is small), at most 240 pages per tidy, and each
   part keeps the folder names the earlier parts made. The same tabs get the same folders: the model always picks its
   most likely answer.
@@ -226,9 +221,9 @@ folder on this Mac: it isn't synced or exported.
 The AI features need Apple Intelligence: macOS 26 or later on a Mac that supports it, with Apple Intelligence turned on
 in **System Settings → Apple Intelligence & Siri** and its model downloaded. Without it, Settings → AI says what's
 missing, the switches are greyed out and nothing changes: tabs show their pages' titles, ⌘F has no ✦, links get no
-previews and downloads keep their names, and Tidy Tabs groups by site instead of by topic. Airc still runs on macOS 14
-and 15; the features just aren't there. No other model stands in on a Mac without Apple Intelligence: the owner decided
-on 2026-11-09 that Airc's AI runs only on the model on your Mac. (Tidy by site is a plain rule, not a model.)
+previews and downloads keep their names, and there's no Tidy in the Today header or the Command Bar. Airc still runs
+on macOS 14 and 15; the features just aren't there. No other model stands in on a Mac without Apple Intelligence: the
+owner decided on 2026-11-09 that Airc's AI runs only on the model on your Mac.
 
 ## Usage data
 

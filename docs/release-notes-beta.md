@@ -1,8 +1,8 @@
-# Airc 0.1.46 public beta
+# Airc 0.1.47 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update gives each Airc Agent task its own view: see every step, what it found and the page it's working on, live,
-and reply or approve from there. It includes everything from 0.1.45. The release manifest records the exact build,
+This update moves the ✦ Airc Agent button to the sidebar's toolbar, puts Share Quote inside the address bar and keeps
+the Feedback button in view. It includes everything from 0.1.46. The release manifest records the exact build,
 source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
@@ -10,7 +10,25 @@ source and checksums.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.45
+## New since 0.1.46
+
+- **The ✦ button now sits in the toolbar.** The Airc Agent button moved to the top of the sidebar, next to Back
+  and Forward, so the agent is one click away (or press ⌥⌘A). In a narrow sidebar, ✦ is the last button to give way.
+- **Share Quote appears inside the address bar.** Select text on a page and **Share Quote** slides in at the right
+  end of the address bar. It no longer pushes the sidebar around: nothing below the address bar moves.
+- **The Feedback button stays visible however many Spaces you have.** As in Arc, the Space icons at the bottom of
+  the sidebar get narrower instead (the others turn into dots when room is short).
+- **Little Airc windows come back properly from Stage Manager and the Dock.** A Little Airc that opened over a
+  full-screen app now comes to the front when you choose it in Stage Manager, Mission Control or the Dock, and Little
+  Airc windows are listed in the Window menu.
+- **When an agent needs you, one click takes you there.** Click its notification, its row in the Agents folder, ✦
+  or the Dock icon, and Airc brings up the right window with the agent's question (**Allow once** is the default)
+  or the page that needs you, such as a sign-in. The live page in the agent pane no longer flickers while the agent
+  works.
+- **Fewer sites blocked by mistake.** Sites you open yourself, such as sentry.io, are no longer shown as
+  "blocked by Airc" just because a tracker list names them; trackers inside pages stay blocked.
+
+## Included from 0.1.46
 
 - **Airc Agent tasks get their own view.** Open a task from the sidebar, a Recent tasks card or the Command Bar and
   it fills the page: every step on a timeline with what it found, the answer as it's written, and the page the agent

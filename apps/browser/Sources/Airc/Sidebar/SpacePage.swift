@@ -791,11 +791,8 @@ final class SpacePageView: NSView {
     }
 
     enum RowModel {
-        case entry(SidebarEntry), divider, newTab, signIn, defaultBrowser, tidyHint
+        case entry(SidebarEntry), divider, newTab, signIn, defaultBrowser
     }
-    /// Whether the last render's list was taller than the sidebar (the tidy card's overflow rule, AI/TidyHint.swift).
-    private(set) var todayOverflows = false
-    private var tidyHintShown = false
 
     private(set) var isParkedForNewSpace = false
     #if AIRC_TESTING
@@ -1009,10 +1006,6 @@ final class SpacePageView: NSView {
             models.append(("newtab", .newTab))
             if c.showsSignInCard(space: space) { models.append(("signin", .signIn)) }
             if c.showsDefaultBrowserCard { models.append(("defaultbrowser", .defaultBrowser)) }
-            let hint = TidyHint.shows(c, spaceID: spaceID, today: today, overflows: todayOverflows)
-            if hint { models.append(("tidyhint", .tidyHint)) }
-            if hint, !tidyHintShown { TidyHint.noteAppeared(spaceID) }
-            tidyHintShown = hint
             models += today.map { ($0.id, .entry($0)) }
             order = models.map { (id: $0.0, entry: $0.1) }
         }
@@ -1128,12 +1121,6 @@ final class SpacePageView: NSView {
                 v.configure(palette: palette)
                 view = v
                 height = DefaultBrowserCardView.height(width: w, theme: palette.resolved)
-            case .tidyHint:
-                let v = (rows[id] as? TidyHintCardView) ?? TidyHintCardView()
-                v.controller = c
-                if !viewportOnly || v.spaceID.isEmpty { v.configure(spaceID: spaceID, palette: palette) }
-                view = v
-                height = TidyHintCardView.height(c, spaceID: spaceID)
             }
             view.page = self
             switch model {
@@ -1176,7 +1163,6 @@ final class SpacePageView: NSView {
                 if let r = v as? TabRowView { c.tabRowPool.give(r) }
             }
         }
-        if !viewportOnly { todayOverflows = y > scrollView.contentSize.height }
         list.frame = NSRect(x: 0, y: 0, width: w, height: max(y + 12, scrollView.contentSize.height))
         if reduceMotion { list.layer?.add(AircMotion.crossfadeTransition(), forKey: kCATransition) }
         if !viewportOnly {

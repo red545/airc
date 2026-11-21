@@ -232,15 +232,6 @@ extension WindowController {
         let kept = visibleTabIDs
         let ids = store.todayRowTabs(ofSpace: currentSpaceID).map(\.id).filter { !kept.contains($0) }
         closeThenArchive(ids, reason: .clear, label: "Clear Today")
-        // tidyux: a toast with Undo once the pages closed at once (one asking "Leave site?" keeps ⌘Z only); the first
-        // time also says where they went.
-        let n = ids.filter { store.tab($0) == nil }.count
-        guard n > 0, archiveQueue == nil else { return }
-        let firstKey = "tidyHint.clearExplained"
-        let first = store.localValue(firstKey) == nil
-        if first { store.setLocalValue(firstKey, "1") }
-        showUndoToast("Archived \(n) \(n == 1 ? "tab" : "tabs")", detail: first ? "Clear moves Today’s tabs to Library › Archive" : nil,
-                      label: "Clear Today")
     }
 
     func toggleFolder(_ id: String) { try? store.toggleFolder(id) }

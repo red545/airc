@@ -291,7 +291,6 @@ final class SnapshotRunner {
         case "linkpreview": MainActor.assumeIsolated { linkPreviewScenario() }
         case "tidydownloads": MainActor.assumeIsolated { tidyDownloadsScenario() }
         case "paritytidydl": MainActor.assumeIsolated { parityTidyDownloadsScenario() }   // tidydl: Rename automatically, Undo (ParityTidyDownloadsCheck.swift)
-        case "tidyux": MainActor.assumeIsolated { tidyUXScenario() }   // the sidebar's tidy card, real clicks (TidyUXCheck.swift)
         case "parityp18b", "parityp18b-write", "parityp18b-read", "parityp18b-real":   // P18b: Tidy Tabs (ParityP18bCheck.swift)
             MainActor.assumeIsolated { parityP18bScenario() }
         case "paritytodayfolders", "paritytodayfolders-write", "paritytodayfolders-read":   // folders in Today (ParityTodayFoldersCheck.swift)

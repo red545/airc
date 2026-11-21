@@ -520,5 +520,41 @@
     "detail": "Press ⌘T, type what you want done and press Tab to ask the Airc Agent. Recent tasks show as cards under the field.",
     "action": "commandBar",
     "image": "agent-tasks-ask"
+  },
+  "The ✦ button now sits in the toolbar": {
+    "title": "✦ in the toolbar",
+    "detail": "The Airc Agent button is now at the top of the sidebar, next to Back and Forward. Click ✦ or press ⌥⌘A to open the agent.",
+    "action": "none",
+    "image": "agent-button"
+  },
+  "Share Quote appears inside the address bar": {
+    "title": "Share Quote in address bar",
+    "detail": "Select text on a page and Share Quote slides in at the end of the address bar. Nothing in the sidebar moves any more.",
+    "action": "none",
+    "image": "quote-copy"
+  },
+  "The Feedback button stays visible however many Spaces you have": {
+    "title": "Feedback always in view",
+    "detail": "The speech bubble at the bottom of the sidebar stays there with many Spaces; the Space icons get narrower instead, as in Arc.",
+    "action": "none",
+    "image": null
+  },
+  "Little Airc windows come back properly from Stage Manager and the Dock": {
+    "title": "Little Airc, Stage Manager",
+    "detail": "A Little Airc window now comes to the front when you choose it in Stage Manager, Mission Control or the Dock, and it is listed in the Window menu.",
+    "action": "none",
+    "image": null
+  },
+  "When an agent needs you, one click takes you there": {
+    "title": "Needs you, in one click",
+    "detail": "When an agent waits for you, click its notification, its Agents row, ✦ or the Dock icon to go straight to its question or page. The live page in the pane no longer flickers.",
+    "action": "none",
+    "image": null
+  },
+  "Fewer sites blocked by mistake": {
+    "title": "Fewer false blocks",
+    "detail": "Sites you open yourself, such as sentry.io, no longer show \"blocked by Airc\" because a tracker list names them. Trackers inside pages stay blocked.",
+    "action": "none",
+    "image": null
   }
 }

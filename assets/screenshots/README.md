@@ -57,8 +57,6 @@ profiles through Create Profile instead).
 | `live-folders.webp` | Live Folders | A Pull Requests folder in Work that fills itself from GitHub, from a synthetic GitHub on loopback with fictional pull requests | 2026-11-10 | 202611100714 (6528de0c + polish4) |
 | `task-manager.webp` | Task Manager | Help › Troubleshooting › Open Task Manager over Work: each tab, the browser and its helpers with memory, CPU and process ID | 2026-11-10 | 202611101039 (7de42be) |
 | `tidy-tabs.webp` | Tidy Tabs | Tidy in Personal's Today header: Apple's on-device model groups the Today tabs into folders by topic at the top of Today, and ⌘Z puts them back | 2026-11-10 | 202611100841 (822c7e5 + todayfolders) |
-| `tidy-hint.webp` | Tidy card | A long Today in Personal: the card at the top offers Tidy into folders, Archive idle tabs, Pin a site to Favorites and the auto-archive time, each with Undo | 2026-11-21 | 202611211418 (ec3c00f9) |
-| `tidy-hint-dark.webp` | Tidy card, dark | The same card in the dark Work Space | 2026-11-21 | 202611211418 (ec3c00f9) |
 | `today-folders.webp` | Folders in Today | Personal's Today with a Japan Trip folder open and a closed Reading folder: Today tabs in folders still archive like any Today tab | 2026-11-10 | 202611100841 (822c7e5 + todayfolders) |
 | `profiles.webp` | Profiles | Create Profile, step 2: which Spaces move to the new profile, each in its own colour | 2026-11-06 | 202611061538 (6312e1a) |
 | `split-view-2.webp` | Split View | Two panes in Studio: Apple design pages beside Color theory | 2026-11-06 | 202611061538 (6312e1a) |

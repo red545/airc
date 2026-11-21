@@ -268,8 +268,7 @@ public enum TidyTabsPlanner {
             }
             if Task.isCancelled { return .cancelled }
             for a in answers {
-                // Site folders (TidyTabsBySite) are named after the host as it is ("news.example.com").
-                guard let name = model is TidyTabsBySite ? a.name : TidyTabsRules.folderName(a.name) else { continue }
+                guard let name = TidyTabsRules.folderName(a.name) else { continue }
                 let k = TidyTabsRules.key(name)
                 for n in a.tabs where n >= 1 && n <= chunk.count {
                     let page = chunk[n - 1].page

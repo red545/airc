@@ -2,6 +2,49 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.47",
+      "highlights": [
+        {
+          "title": "✦ in the toolbar",
+          "lead": "The ✦ button now sits in the toolbar",
+          "detail": "The Airc Agent button is now at the top of the sidebar, next to Back and Forward. Click ✦ or press ⌥⌘A to open the agent.",
+          "icon": "sparkles",
+          "image": "agent-button"
+        },
+        {
+          "title": "Share Quote in address bar",
+          "lead": "Share Quote appears inside the address bar",
+          "detail": "Select text on a page and Share Quote slides in at the end of the address bar. Nothing in the sidebar moves any more.",
+          "icon": "quote.bubble",
+          "image": "quote-copy"
+        },
+        {
+          "title": "Feedback always in view",
+          "lead": "The Feedback button stays visible however many Spaces you have",
+          "detail": "The speech bubble at the bottom of the sidebar stays there with many Spaces; the Space icons get narrower instead, as in Arc.",
+          "icon": "bubble.left"
+        },
+        {
+          "title": "Little Airc, Stage Manager",
+          "lead": "Little Airc windows come back properly from Stage Manager and the Dock",
+          "detail": "A Little Airc window now comes to the front when you choose it in Stage Manager, Mission Control or the Dock, and it is listed in the Window menu.",
+          "icon": "macwindow.on.rectangle"
+        },
+        {
+          "title": "Needs you, in one click",
+          "lead": "When an agent needs you, one click takes you there",
+          "detail": "When an agent waits for you, click its notification, its Agents row, ✦ or the Dock icon to go straight to its question or page. The live page in the pane no longer flickers.",
+          "icon": "hand.raised"
+        },
+        {
+          "title": "Fewer false blocks",
+          "lead": "Fewer sites blocked by mistake",
+          "detail": "Sites you open yourself, such as sentry.io, no longer show \"blocked by Airc\" because a tracker list names them. Trackers inside pages stay blocked.",
+          "icon": "checkmark.shield"
+        }
+      ]
+    },
+    {
       "version": "0.1.46",
       "highlights": [
         {

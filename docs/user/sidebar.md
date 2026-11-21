@@ -60,36 +60,3 @@ Everywhere in the sidebar, ⌃-click does what a right-click does, as elsewhere 
 Favorites, folders, split rows, the Space name, the Space bar's icons, the empty space under your tabs and the buttons
 on the footer and on a tab's row. A ⌃-click on a tab opens its menu. It doesn't open or select the tab, and a ⌃-click on a
 tab's ✕ opens the tab's menu instead of closing it.
-
-## Keeping your sidebar tidy
-
-A long Today list is tiring to scan. Airc has Arc's tools for it, and a small card that points to them when you need
-them. Nothing here ever runs by itself: each is one click, and each can be undone.
-
-- **The tidy card.** When a Space's Today has 12 tabs or more outside folders (or 6 or more and Today is taller than
-  the sidebar), a card shows at the top of Today. It offers:
-  - **Tidy N tabs into folders**: see Tidy below.
-  - **Archive N tabs idle X h**: the tabs you haven't looked at for 6, 3 or 1 hours (the longest that finds three or
-    more). The page on screen is never one of them.
-  - **Pin a site** (to Favorites): the one or two sites with the most Today tabs, so the Favorites grid at the top
-    starts working for you. The tab becomes the Favorite; the site's other tabs stay.
-  - **Archive after**: the Space's profile's auto-archive time, the same choice as **Settings → Profiles**
-    (12 hours, 24 hours, 7 days, 30 days).
-  - **Not now**: no card again today.
-
-  The card shows at most once a day on this Mac: any choice, or Not now, puts it away until tomorrow. Each action
-  leaves a message with **Undo** (⌘Z works too).
-- **Tidy** (in the card, in the Today header next to Clear, or "Tidy Tabs" in the Command Bar) groups Today's tabs into
-  folders: by topic with Apple Intelligence, by site without it. It shows the folders first, with **Apply** and
-  **Cancel**; nothing moves until you apply. See [Tidy Tabs](ai.md#tidy-tabs).
-- **Clear** (in the Today header) moves every Today tab except the one on screen to the Archive (Library → Archive).
-  A message says how many, with **Undo**; the first time it also says where they went.
-- **Auto-archive** does the same over time: a Today tab you haven't looked at for the profile's archive time (12
-  hours unless you change it) goes to the Archive on its own. Tabs in a Pinned folder never do; tabs in a Today folder
-  do, each on its own.
-- **Folders and pinned tabs** are for what you keep: drag a tab above the divider (or press ⌘D) to pin it, and use
-  **+ → New Folder…** for a folder. **Favorites** are the grid at the top: drag a tab up into it, choose **Add to
-  Favorites** in the Command Bar, or use the card's Pin.
-
-Arc had no card: it relied on auto-archive and its broom. Airc keeps Arc's tools and defaults (12 hours, Clear without
-asking) and only adds the reminder, once a day at most.

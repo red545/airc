@@ -198,12 +198,8 @@ public final class SpacesStore {
     public struct UndoEntry: Sendable {
         public var label: String
         var before: [EntityRef: EntitySnapshot]
-        /// Which step this is (one number per step this store made): a toast's Undo checks its step is still the last
-        /// one, which the stack's count can't tell once the stack is full (`maxUndo`).
-        public var serial = 0
     }
     public private(set) var undoStack: [UndoEntry] = []
-    private var undoSerial = 0
 
     private var observers: [Int: (StoreChange) -> Void] = [:]
     private var nextObserver = 0
@@ -546,8 +542,7 @@ public final class SpacesStore {
         let changed = txChanged
         let windowChanged = txWindowChanged
         if txUndoable, let label = txLabel, !txBefore.isEmpty {
-            undoSerial += 1
-            undoStack.append(UndoEntry(label: label, before: txBefore, serial: undoSerial))
+            undoStack.append(UndoEntry(label: label, before: txBefore))
             if undoStack.count > Self.maxUndo { undoStack.removeFirst(undoStack.count - Self.maxUndo) }
         }
         if txDeferred {
