@@ -104,10 +104,19 @@ final class ChromiumAgentDriver: AgentPageDriver {
         (Self.pageHost(in: window)?.value(forKey: "contextId") as? NSNumber)?.uint32Value
     }
 
+    /// The host `liveLayer` copies: the page's own view first (with DevTools docked beside it, the frontend's host is
+    /// the largest in the window), else the window's largest.
+    private static func sourceHost(_ tab: EngineTab, in window: NSWindow) -> CALayer? {
+        let own = tab.view.layer.flatMap { hostLayers($0).max { $0.bounds.width * $0.bounds.height < $1.bounds.width * $1.bounds.height } }
+        return own ?? pageHost(in: window)
+    }
+
+    func liveContextID(_ tab: EngineTab, in window: NSWindow) -> UInt32? {
+        (Self.sourceHost(tab, in: window)?.value(forKey: "contextId") as? NSNumber)?.uint32Value
+    }
+
     func liveLayer(_ tab: EngineTab, in window: NSWindow) -> (layer: CALayer, id: UInt32, flipped: Bool)? {
-        // The page's own view first: with DevTools docked beside it, the frontend's host is the largest in the window.
-        let own = tab.view.layer.flatMap { Self.hostLayers($0).max { $0.bounds.width * $0.bounds.height < $1.bounds.width * $1.bounds.height } }
-        guard let cls = NSClassFromString("CALayerHost") as? CALayer.Type, let original = own ?? Self.pageHost(in: window),
+        guard let cls = NSClassFromString("CALayerHost") as? CALayer.Type, let original = Self.sourceHost(tab, in: window),
               let id = (original.value(forKey: "contextId") as? NSNumber)?.uint32Value, id != 0 else { return nil }
         let host = cls.init()
         host.setValue(NSNumber(value: id), forKey: "contextId")

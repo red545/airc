@@ -182,16 +182,17 @@ final class AgentWatchView: NSView {
         // Live where the engine can host its own output and the tab is the one its window shows: nothing to copy, only a
         // look once a second that the context is still the one shown.
         if Self.allowsLive, !Self.ignoresOcclusion, w.activeTabID == row.tab {
-            let current = w.driver.liveContextID(in: w.window)
+            // agentux3: checked as the host is made (the tab's own first), 10 times a second, and swapped in one commit.
+            let current = w.driver.liveContextID(tab, in: w.window)
             if let live, live.id == current {
                 liveChecks += 1
-                return DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.requestFrame() }
+                return DispatchQueue.main.asyncAfter(deadline: .now() + AgentPaneLiveView.liveCheckInterval) { [weak self] in self?.requestFrame() }
+            }
+            if current != nil, let made = w.driver.liveLayer(tab, in: w.window) {
+                installLive(made)
+                return DispatchQueue.main.asyncAfter(deadline: .now() + AgentPaneLiveView.liveCheckInterval) { [weak self] in self?.requestFrame() }
             }
             removeLive()
-            if let made = w.driver.liveLayer(tab, in: w.window) {
-                installLive(made)
-                return DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.requestFrame() }
-            }
         } else if live != nil {
             removeLive()
         }
@@ -226,13 +227,15 @@ final class AgentWatchView: NSView {
     private func installLive(_ made: (layer: CALayer, id: UInt32, flipped: Bool)) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        let old = liveBox.sublayers ?? []
         live = made
         mode = "live"
-        liveBox.sublayers?.forEach { $0.removeFromSuperlayer() }
         liveBox.bounds = CGRect(origin: .zero, size: pageSize)
         made.layer.anchorPoint = .zero
         made.layer.frame = liveBox.bounds
+        // The new host first, then the old one goes (one commit, never an empty frame).
         liveBox.addSublayer(made.layer)
+        old.forEach { $0.removeFromSuperlayer() }
         if liveBox.contentsAreFlipped() != made.flipped { liveBox.isGeometryFlipped.toggle() }
         liveBox.isHidden = false
         image.isHidden = true
@@ -387,7 +390,20 @@ final class AgentWatchView: NSView {
     override func scrollWheel(with event: NSEvent) {}
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 53 { escape() }   // Esc
+        // agentux3: landed here from "needs you": Return takes over (the page waits for the person to sign in).
+        if event.keyCode == 36 || event.keyCode == 76, overlay.landed, overlay.live { takeOver() }
     }
+
+    /// A "needs you" click landed here (AgentAttention): Take over is the default button and has the keys.
+    func land() {
+        overlay.landed = true
+        controller?.window.makeFirstResponder(self)
+    }
+
+    var isLanded: Bool { overlay.landed }
+    #if AIRC_TESTING
+    var landedForTesting: Bool { overlay.landed }
+    #endif
     override func keyUp(with event: NSEvent) {}
     override func cancelOperation(_ sender: Any?) { escape() }
 
@@ -417,12 +433,22 @@ final class AgentWatchView: NSView {
 
     // MARK: The bar's actions
 
-    func takeOver() { controller?.sidebar.agents.takeOver(rowID) }
+    func takeOver() {
+        // The pane task's page with its pane open: the pane's Take over, which keeps Hand back.
+        if let c = controller, let row = AgentActivity.shared.model.row(rowID), row.window == AgentRunCenter.shared.runWindowID, AgentUI.usesPane,
+           let p = AgentPaneController.pane(of: c), p.isShown {
+            c.sidebar.agents.closeWatch()
+            return p.model.takeOver()
+        }
+        controller?.sidebar.agents.takeOver(rowID)
+    }
     func stopAgent() { controller?.sidebar.agents.stop(rowID) }
     func close() { controller?.sidebar.agents.closeWatch() }
 }
 
 final class AgentWatchModel: ObservableObject {
+    /// Opened by a "needs you" click: Take over is the default button (Return).
+    @Published var landed = false
     @Published var label = ""
     @Published var client = ""
     @Published var caption: String?
@@ -490,7 +516,8 @@ struct AgentWatchOverlay: View {
             Spacer(minLength: 8)
             if model.live {
                 Button("Take Over") { model.view?.takeOver() }
-                    .buttonStyle(.airc(.secondary, size: .small))
+                    .buttonStyle(.airc(model.landed ? .primary : .secondary, size: .small))
+                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.focusRing.color.opacity(model.landed ? 0.8 : 0), lineWidth: 2).padding(-3))
                     .accessibilityLabel("Take over this page")
                     .help("Make this page one of your tabs. \(model.client) stops working in it.")
                     .testAnchor("agentwatch-takeover")

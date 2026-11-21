@@ -17,13 +17,23 @@ extension SnapshotRunner {
     func agentPane2Scenario() {
         let k = AgentPane2Check(runner: self)
         step { done in k.setUp(done) }
-        step { done in k.caseButton(done) }
-        step { done in k.caseCLI(.claudeCode, done) }
-        step { done in k.caseCLI(.codex, done) }
-        step { done in k.caseSignedOutTurn(done) }
-        step { done in k.caseKey(done) }
-        step { done in k.caseHandBack(done) }
-        step { done in k.caseHint(done) }
+        if AgentPane2Check.only == nil {
+            step { done in k.caseButton(done) }
+            step { done in k.caseCLI(.claudeCode, done) }
+            step { done in k.caseCLI(.codex, done) }
+            step { done in k.caseSignedOutTurn(done) }
+            step { done in k.caseKey(done) }
+            step { done in k.caseHandBack(done) }
+            step { done in k.caseHint(done) }
+        }
+        // agentux3 (AgentPane3Check.swift): the live card frame by frame.
+        if AgentPane2Check.runs("flicker") { step { done in k.caseFlicker(done) } }
+        // agentux3 (AgentPane3NeedsYou.swift): "needs you" in one click from every entry point.
+        if AgentPane2Check.runs("needsyou") {
+            step { done in k.caseNeedsYouApprovals(done) }
+            step { done in k.caseNeedsYouFullScreen(done) }
+            step { done in k.caseNeedsYouPages(done) }
+        }
         run { k.finish() }
     }
 }

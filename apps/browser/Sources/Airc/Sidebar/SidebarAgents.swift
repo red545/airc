@@ -94,6 +94,10 @@ final class SidebarAgentsView: NSView {
 
     func openTask(_ id: String) {
         guard let c = controller else { return }
+        // agentux3: the running task waits for an OK: straight to the answer (AgentAttention).
+        if AgentTaskRecorder.shared.currentID == id, let it = AgentAttention.items().first(where: { $0.kind == .approval }) {
+            return AgentAttention.go(it, from: "taskRow")
+        }
         AgentTasksPage.openTask(id, in: c)
     }
 
@@ -334,6 +338,7 @@ struct AgentsFolderContent: View {
 
 private struct AgentsFolderHeader: View {
     @ObservedObject var model: AgentsFolderModel
+    @ObservedObject private var run = AgentRunCenter.shared
     @Binding var hovered: Bool
     @Environment(\.aircTheme) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -351,13 +356,21 @@ private struct AgentsFolderHeader: View {
             Text("Agents")
                 .aircFont(AircFont.callout.weight(.semibold))
                 .foregroundStyle(theme.textSecondary.color)
-            if AgentActivity.shared.model.needsYouCount > 0 {
-                // An agent's page waits for the person (a sign-in, a captcha): AgentNeedsYou.swift.
-                Image(systemName: "person.crop.circle.badge.exclamationmark")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.orange)
-                    .accessibilityLabel("An agent needs you")
-                    .testAnchor("agents-needs-you")
+            if AgentActivity.shared.model.needsYouCount > 0 || run.approval != nil {
+                // An agent waits for the person (a sign-in, a captcha: AgentNeedsYou.swift; an approval): one click goes
+                // there, the next to the next one waiting (AgentAttention).
+                Button { AgentAttention.goNext(from: "folderBadge") } label: {
+                    Image(systemName: "person.crop.circle.badge.exclamationmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.orange)
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("An agent needs you: go there")
+                .accessibilityLabel("An agent needs you")
+                .accessibilityHint("Goes to what it waits for")
+                .testAnchor("agents-needs-you")
             }
             if !model.expanded, model.actingCount > 0 {
                 AgentPulseDot(acting: true, color: theme.accent.nsColor, reduceMotion: reduceMotion)
@@ -404,6 +417,8 @@ private struct AgentFolderRow: View {
     private var paneShown: Bool { model.view?.controller.flatMap { AgentPaneController.pane(of: $0) }?.isShown == true }
 
     private func open() {
+        // agentux3: a row that waits for the person goes straight to the answer (the approval card, or its page in front).
+        if item.live, AgentAttention.go(row: item.id, from: "row") { return }
         if paneTask, let c = model.view?.controller { AgentPaneController.show(c) } else if item.live { model.view?.openWatch(item.id) }
     }
 

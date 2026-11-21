@@ -211,6 +211,8 @@ extension AppDelegate {
     /// The Dock icon with no browser window open (as Chrome): the last session's windows come back.
     /// After a link launch (linklaunch), the session's windows too: Little Airc alone counts as no browser window.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // agentux3: with an agent waiting for the person (the Dock badge's number), the Dock icon goes there.
+        if !controllers.isEmpty, AgentAttention.goNext(from: "dock") { return false }
         if controllers.isEmpty, windowSession.browserReady, onboarding == nil {
             LinkLog.write("reopen (the Dock, or opening the running app): no browser window open\(windowSession.windowsDeferred ? " since the link launch" : ""); "
                           + "the session's windows come back")
@@ -226,6 +228,12 @@ extension AppDelegate {
         m.addItem(DockMenuItem("New Private Window") { [weak self] in if let self { PrivateBrowsing.shared.open(app: self) } })
         LittleArcGlobalActions.shared.addDockItems(to: m)
         AgentCenter.shared.addDockItems(to: m)   // Agents: who is connected, Stop Agents, Settings
+        // agentux3: what waits for the person, at the very top (above Agents, which inserts itself first).
+        let waiting = AgentAttention.items().prefix(5)
+        if !waiting.isEmpty { m.insertItem(.separator(), at: 0) }
+        for it in waiting.reversed() {
+            m.insertItem(DockMenuItem("\(it.client): \(it.title)") { AgentAttention.go(it, from: "dockMenu") }, at: 0)
+        }
         return m
     }
 

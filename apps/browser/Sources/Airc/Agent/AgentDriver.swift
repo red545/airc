@@ -160,6 +160,8 @@ protocol AgentPageDriver: AnyObject {
     /// Watch without copies (default: none). See the extension.
     func liveLayer(_ tab: EngineTab, in window: NSWindow) -> (layer: CALayer, id: UInt32, flipped: Bool)?
     func liveContextID(in window: NSWindow) -> UInt32?
+    /// The context `liveLayer(tab, in:)` would show now: checked the same way it's made (agentux3).
+    func liveContextID(_ tab: EngineTab, in window: NSWindow) -> UInt32?
 }
 
 extension AgentPageDriver {
@@ -168,6 +170,7 @@ extension AgentPageDriver {
     func liveLayer(_ tab: EngineTab, in window: NSWindow) -> (layer: CALayer, id: UInt32, flipped: Bool)? { nil }
     /// The context a live layer shows now (nil: none any more), so Watch can tell when to make a new one.
     func liveContextID(in window: NSWindow) -> UInt32? { nil }
+    func liveContextID(_ tab: EngineTab, in window: NSWindow) -> UInt32? { liveContextID(in: window) }
 
     /// A right click without the engine's context menu, which is a modal menu on the owner's screen: the page gets
     /// the mouse events and `contextmenu`, from a script.

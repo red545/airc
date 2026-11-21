@@ -25,6 +25,10 @@ final class AgentControlPill: NSView {
     private var hovering = false { didSet { needsDisplay = true } }
     private var popover: NSPopover?
     private var sub: NSObjectProtocol?
+    private var attentionSub: NSObjectProtocol?
+    /// agentux3: one of these apps' pages waits for the person (a sign-in, a captcha): the row says so, and a click
+    /// goes there (AgentAttention) instead of opening the explanation.
+    private(set) var waiting: AgentAttention.Item?
     /// Narrow header: only the ✦.
     var compact = false { didSet { if compact != oldValue { needsDisplay = true } } }
 
@@ -36,10 +40,25 @@ final class AgentControlPill: NSView {
         sub = NotificationCenter.default.addObserver(forName: AgentCenter.changed, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
         }
+        attentionSub = NotificationCenter.default.addObserver(forName: AgentAttention.changed, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
+        }
     }
 
     required init?(coder: NSCoder) { fatalError() }
-    deinit { if let sub { NotificationCenter.default.removeObserver(sub) } }
+    deinit {
+        if let sub { NotificationCenter.default.removeObserver(sub) }
+        if let attentionSub { NotificationCenter.default.removeObserver(attentionSub) }
+    }
+
+    /// The oldest page of these apps that waits for the person.
+    static func waiting(for apps: [App]) -> AgentAttention.Item? {
+        let keys = Set(apps.map(\.key))
+        return AgentAttention.items().first { it in
+            guard case .page = it.kind, let id = it.rowID, let r = AgentActivity.shared.model.row(id) else { return false }
+            return keys.contains(r.clientKey ?? r.sessionKey)
+        }
+    }
 
     override var mouseDownCanMoveWindow: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -63,16 +82,19 @@ final class AgentControlPill: NSView {
 
     /// "Claude is using Airc" (VoiceOver, tooltip, checks).
     var sentence: String {
-        apps.isEmpty ? "" : (apps.count == 1 ? "\(apps[0].name) is using Airc" : "\(apps.map(\.name).joined(separator: ", ")) are using Airc")
+        if let w = waiting { return "\(w.client) needs you" }
+        return apps.isEmpty ? "" : (apps.count == 1 ? "\(apps[0].name) is using Airc" : "\(apps.map(\.name).joined(separator: ", ")) are using Airc")
     }
 
     func refresh() {
         let now = Self.current()
-        guard now != apps || isHidden != now.isEmpty else { return }
+        let w = now.isEmpty ? nil : Self.waiting(for: now)
+        guard now != apps || isHidden != now.isEmpty || w != waiting else { return }
         apps = now
+        waiting = w
         isHidden = now.isEmpty
         if now.isEmpty { popover?.close() }
-        toolTip = now.isEmpty ? nil : sentence + ". Click for what it can do, Watch and Stop."
+        toolTip = now.isEmpty ? nil : w != nil ? sentence + " (\(w!.title)). Click to go there." : sentence + ". Click for what it can do, Watch and Stop."
         setAccessibilityLabel(sentence)
         needsDisplay = true
         superview?.needsLayout = true
@@ -95,7 +117,7 @@ final class AgentControlPill: NSView {
         (hovering ? hoverFill : fill).setFill()
         path.fill()
         let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: tint]
-        let markAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.controlAccentColor]
+        let markAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: waiting != nil ? NSColor.systemOrange : NSColor.controlAccentColor]
         let s = NSMutableAttributedString(string: Self.mark, attributes: markAttrs)
         if !compact { s.append(NSAttributedString(string: " " + sentence, attributes: attrs)) }
         // "›": it opens something.
@@ -127,6 +149,7 @@ final class AgentControlPill: NSView {
 
     func open() {
         guard !apps.isEmpty, window != nil else { return }
+        if let w = Self.waiting(for: apps) { popover?.close(); return AgentAttention.go(w, from: "pill") }
         if popover?.isShown == true { popover?.close(); return }
         let names = Dictionary((controller?.store.orderedProfiles ?? []).map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
         let content = AgentControlPopover(apps: apps, profileNames: names,

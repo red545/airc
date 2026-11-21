@@ -156,7 +156,9 @@ Codex reach pages only through the Airc MCP tools, so the same `AgentRisk` check
    task / Deny / Allow once), opened once when the request arrives if the window is key, otherwise the row pulses once
    and keeps the ✋ glyph;
 4. in **Watch** (existing mirror).
-One answer clears all. Nothing is pre-selected. Esc = Deny; ⌘↩ = Allow once only while the card has focus (it takes
+One answer clears all. Nothing is pre-selected when the request appears (agentux3: a "needs you" click is the person
+choosing to answer, so it lands with Allow once as the default button: Return allows once, Esc denies; see
+Agent/AgentAttention.swift for every entry point). Esc = Deny; ⌘↩ = Allow once only while the card has focus (it takes
 focus when it appears if the composer is empty). Typing in the composer and sending = Deny plus that text, sent at
 once ("Not like that: …"). 5 minutes unanswered = Deny (agent.md), but the task then waits ("Denied after 5 minutes.
 Tell it how to go on.") instead of failing.

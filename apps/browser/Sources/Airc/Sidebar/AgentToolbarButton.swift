@@ -28,7 +28,8 @@ final class AgentToolbarButton {
         glyph.setAccessibilityHelp("Opens or closes the Airc Agent beside the page (⌥⌘A)")
         glyph.action = { [weak self] in
             guard let self, let c = self.controller else { return }
-            AgentUI.toggle(c)
+            // agentux3: while an agent waits for the person (the orange dot), the click goes there.
+            if !AgentAttention.goNext(from: "agentButton", in: c) { AgentUI.toggle(c) }
             self.refresh()
         }
         glyph.contextMenuProvider = { [weak self] in self?.menu() }
@@ -42,7 +43,12 @@ final class AgentToolbarButton {
             .sink { [weak self] _ in self?.refresh() })
         subs.append(NotificationCenter.default.publisher(for: AgentPaneController.visibilityChanged)
             .sink { [weak self] _ in self?.refresh() })
+        subs.append(NotificationCenter.default.publisher(for: AgentAttention.changed)
+            .sink { [weak self] _ in self?.refresh() })
     }
+
+    /// The dot says something waits for the person (checks read it).
+    var dotWaiting: Bool { dotShown && AgentAttention.count > 0 }
 
     /// The header's colours (`SidebarHeaderView.configure`).
     func configure(palette: Palette) {
@@ -66,11 +72,14 @@ final class AgentToolbarButton {
         glyph.tint = open ? .controlAccentColor : tint
         glyph.setAccessibilityValue(open ? "open" : "closed")
         let working = AgentRunCenter.shared.state.isActive
+        let waiting = AgentAttention.count
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        dot.isHidden = !working
+        dot.isHidden = !working && waiting == 0
+        dot.backgroundColor = (waiting > 0 ? NSColor.systemOrange : NSColor.controlAccentColor).cgColor
         CATransaction.commit()
-        glyph.toolTip = working ? "Airc Agent (⌥⌘A): working" : "Airc Agent (⌥⌘A)"
+        glyph.toolTip = waiting > 0 ? "Airc Agent: \(waiting == 1 ? "an agent needs" : "\(waiting) agents need") you. Click to go there."
+            : working ? "Airc Agent (⌥⌘A): working" : "Airc Agent (⌥⌘A)"
     }
 
     /// Right-click on the button.

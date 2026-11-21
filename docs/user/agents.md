@@ -222,6 +222,21 @@ right there. Your sign-in is the profile's, so the agent can go on in its own wi
 the page waits for you, so it doesn't type passwords or keep trying. Airc only checks for a visible password field, a
 captcha frame, the page's address and its status: never what the page says.
 
+### One click to where you answer
+
+Whatever an agent waits for, an approval ("Pay on …?") or a page that needs you, one click takes you there: the
+notification, Airc's own message at the top of the page (**Show**), the task's row in the Agents folder or the folder's
+orange badge, the **✦** button (its dot turns orange while something waits), the Dock icon (its badge counts what waits)
+or its menu, and the "… needs you" row an outside app's work shows under the window's header. Airc comes to the front,
+even from another app, a full-screen app or another desktop, and shows the task's window on its Space:
+
+- an approval: the agent pane on that task with the approval card's **Allow once** ready: **Return** allows it once,
+  **Esc** denies, typing writes to the agent instead;
+- a sign-in or a captcha: the agent's page itself over your page, with **Take over** ready: **Return** makes it your
+  tab so you can sign in.
+
+When several wait, the first click goes to the one waiting longest, the next click to the next one.
+
 ## Passwords: filled, never shown
 
 An app can sign in with a login you saved in Airc: it clicks the username or password field and asks Airc to fill it

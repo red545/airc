@@ -110,6 +110,7 @@ final class AgentCenter {
     func launch(app: AppDelegate) -> Bool {
         self.app = app
         launched = true
+        AgentAttention.install()
         DownloadCenter.agentClaim = { [weak self] d, profileID in self?.claimDownload(d, profileID: profileID) ?? false }
         let args = CommandLine.arguments
         headless = args.contains("--agent-headless")
@@ -901,14 +902,17 @@ final class AgentCenter {
 
     // MARK: What the person sees
 
-    /// ✦ on the Dock icon while an agent is connected or has a window open.
+    /// The Dock icon: how many tasks wait for the person (agentux3: a click there goes to the oldest), else ✦ while an
+    /// agent is connected or has a window open.
     func updateIndicator() {
         let busy = !live.isEmpty || !windows.isEmpty
-        if busy != badgeShown { NSApp.dockTile.badgeLabel = busy ? "✦" : nil }
+        let waiting = launched ? AgentAttention.count : 0
+        let label: String? = waiting > 0 ? "\(waiting)" : busy ? "✦" : nil
+        if NSApp.dockTile.badgeLabel != label { NSApp.dockTile.badgeLabel = label }
         changed()
     }
 
-    var badgeShown: Bool { NSApp.dockTile.badgeLabel == "✦" }
+    var badgeShown: Bool { NSApp.dockTile.badgeLabel != nil }
 
     /// The connected apps' names, for the Dock menu and Settings.
     var connectedNames: [String] { Array(Set(live.values.map { $0.clientName ?? $0.client })).sorted() }

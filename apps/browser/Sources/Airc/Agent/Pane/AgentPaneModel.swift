@@ -307,6 +307,14 @@ final class AgentPaneModel: ObservableObject {
     /// The page attached to the next prompt (the window's page when the pane opened; ✕ removes it).
     @Published var page: PageChip?
     @Published var armedStop = false
+    /// The keys are on the approval card (a "needs you" click landed here): Return allows once, Esc denies.
+    @Published var approvalFocused = false
+    /// The live card's picture: one per pane, kept while SwiftUI rebuilds the card (agentux3: never restarts empty).
+    lazy var liveView: AgentPaneLiveView = {
+        let v = AgentPaneLiveView(frame: .zero)
+        v.isPaneOwned = true
+        return v
+    }()
     @Published var expanded: Set<UUID> = []
     /// The person took the agent's page (Take over): the run is paused for them until Hand back.
     @Published var takenOver: TakenOver?
@@ -358,6 +366,12 @@ final class AgentPaneModel: ObservableObject {
         subs.append(NotificationCenter.default.publisher(for: AgentCLIDetector.changed).sink { [weak self] _ in
             self?.providerRevision += 1
             self?.setupStatusChanged()
+        })
+        // The approval answered (anywhere): the keys go back to the composer.
+        subs.append(run.$approval.sink { [weak self] a in
+            guard a == nil, let self, self.approvalFocused else { return }
+            self.approvalFocused = false
+            self.pane?.focus()
         })
         // Back from Terminal or the CLI's sign-in page: look again (design §8: re-check when Airc becomes active).
         subs.append(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification).sink { [weak self] _ in self?.recheckSetup() })
@@ -509,7 +523,10 @@ final class AgentPaneModel: ObservableObject {
             prompt += AgentPaneItem.pageLine + "“\(chip.title)” — \(chip.url.absoluteString)"
         }
         takenOver = nil
-        if let c = controller { AgentTaskRecorder.shared.willAsk(spaceID: c.currentSpaceID, profileID: p.id) }
+        if let c = controller {
+            AgentTaskRecorder.shared.willAsk(spaceID: c.currentSpaceID, profileID: p.id)
+            AgentAttention.taskAsked(in: c)
+        }
         run.ask(prompt, profileID: p.id, profileName: p.name)
     }
 

@@ -190,6 +190,27 @@ final class AgentPaneController: NSObject {
         DispatchQueue.main.async { [weak self] in self?.card?.focusField() }
     }
 
+    /// agentux3: a "needs you" click landed here (AgentAttention): the keys go to the approval card, its Allow once
+    /// drawn as the default button; Return allows once, Esc denies, typing goes to the composer (sending = Deny + text).
+    func focusApproval() {
+        guard let id = AgentRunCenter.shared.approval?.id else { return }
+        model.approvalFocused = true
+        // Again for a moment: a Space switch or a closing Watch hands the keys to the page a little later.
+        for delay in [0.0, 0.15, 0.4, 0.8, 1.5] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, AgentRunCenter.shared.approval?.id == id else { return }
+                if !self.isShown { self.open() }
+                guard let card = self.card, let w = card.window, w.firstResponder !== card else { return }
+                let had = w.firstResponder.map { String(describing: type(of: $0)) } ?? "none"
+                card.approvalKeys = true
+                self.model.approvalFocused = true
+                let ok = w.makeFirstResponder(card)
+                if !ok { card.approvalKeys = false; self.model.approvalFocused = false }
+                AgentCenter.shared.onEvent?("focus-approval +\(delay) s: shown \(self.isShown), had \(had), took \(ok)")
+            }
+        }
+    }
+
     // MARK: Layout
 
     /// Called from WindowController.layoutRoot with the page's frame; returns the page's frame with the pane taken out.
@@ -309,6 +330,29 @@ final class AgentPaneCardView: NSView {
     }
 
     override func cancelOperation(_ sender: Any?) { pane?.escape() }
+
+    /// The approval card has the keys (AgentPaneController.focusApproval).
+    var approvalKeys = false
+    override var acceptsFirstResponder: Bool { approvalKeys }
+
+    override func keyDown(with event: NSEvent) {
+        guard approvalKeys, AgentRunCenter.shared.approval != nil else { return super.keyDown(with: event) }
+        switch event.keyCode {
+        case 36, 76: AgentRunCenter.shared.answerApproval(allow: true)    // Return, Enter
+        case 53: AgentRunCenter.shared.answerApproval(allow: false)       // Esc
+        default:
+            // Typing: into the composer, as if it had the keys.
+            focusField()
+            if let field = window?.firstResponder as? NSView, field !== self { field.keyDown(with: event) }
+        }
+    }
+
+    override func resignFirstResponder() -> Bool {
+        if approvalKeys { AgentCenter.shared.onEvent?("focus-approval: the card gave up the keys") }
+        approvalKeys = false
+        if pane?.model.approvalFocused == true { pane?.model.approvalFocused = false }
+        return true
+    }
 
     func focusField() {
         guard let w = window, let field = Self.findField(in: host) else { return }

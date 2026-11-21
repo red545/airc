@@ -67,8 +67,9 @@ enum AgentNeedsYou {
             notified.insert(key)
             AgentCenter.shared.onEvent?("needs-you-notified \(rowID) \(why)")
             if (NSApp.delegate as? AppDelegate)?.options.isAutomated == true { return }
-            post(rowID: rowID, title: "\(client) needs you", body: why == "Captcha" ? "A captcha on \(site). Open it in Airc's Agents folder."
-                                                                                    : "Sign in to \(site) so \(client) can go on. Open it in Airc's Agents folder.")
+            // agentux3: a click on it goes straight to the page (AgentAttention.NotificationDelegate).
+            post(rowID: rowID, title: "\(client) needs you", body: why == "Captcha" ? "A captcha on \(site). Click to solve it in Airc."
+                                                                                    : "Sign in to \(site) so \(client) can go on. Click to sign in.")
         }
     }
 

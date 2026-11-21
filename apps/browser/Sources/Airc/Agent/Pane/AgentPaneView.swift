@@ -30,7 +30,7 @@ struct AgentPaneView: View {
             case .newTask: ScrollView { newTask.padding(16) }.frame(maxHeight: .infinity)
             case .conversation: conversation
             }
-            if let a = run.approval { AgentPaneApproval(request: a).padding(.horizontal, 12).padding(.bottom, 8).transition(.move(edge: .bottom).combined(with: .opacity)) }
+            if let a = run.approval { AgentPaneApproval(request: a, focused: model.approvalFocused).padding(.horizontal, 12).padding(.bottom, 8).transition(.move(edge: .bottom).combined(with: .opacity)) }
             if let t = model.takenOver { takenOverBanner(t).padding(.horizontal, 12).padding(.bottom, 8) }
             if let s = model.setup { AgentPaneSetupCard(setup: s, model: model).padding(.horizontal, 12).padding(.bottom, 8) }
             if let p = model.keyEntry { AgentPaneKeyCard(provider: p, model: model).padding(.horizontal, 12).padding(.bottom, 8) }
@@ -703,6 +703,8 @@ struct AgentPaneKeyCard: View {
 /// Pay, send, post, delete: pinned above the composer. Nothing is pre-selected; Esc denies.
 struct AgentPaneApproval: View {
     let request: AgentApprovalRequest
+    /// The keys are here (a "needs you" click landed on it): Allow once is the default button, Return presses it.
+    var focused = false
     @Environment(\.aircTheme) private var theme
 
     var body: some View {
@@ -714,11 +716,13 @@ struct AgentPaneApproval: View {
             Text(request.risk.reason).aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 6) {
-                Text("Esc denies").aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextTertiary.color)
+                Text(focused ? "Return allows once · Esc denies" : "Esc denies").aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextTertiary.color)
+                    .testAnchor("agentpane.approval.keys")
                 Spacer()
                 Button("Deny") { AgentRunCenter.shared.answerApproval(allow: false) }.buttonStyle(.airc(.secondary, size: .small))
                     .testAnchor("agentpane.deny")
-                Button("Allow once") { AgentRunCenter.shared.answerApproval(allow: true) }.buttonStyle(.airc(.secondary, size: .small))
+                Button("Allow once") { AgentRunCenter.shared.answerApproval(allow: true) }.buttonStyle(.airc(focused ? .primary : .secondary, size: .small))
+                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.focusRing.color.opacity(focused ? 0.8 : 0), lineWidth: 2).padding(-3))
                     .testAnchor("agentpane.allow")
             }
         }

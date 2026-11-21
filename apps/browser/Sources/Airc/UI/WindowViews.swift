@@ -281,7 +281,8 @@ final class ToastView: NSView {
         if let action {
             // Clickable: on top of everything else in its window's root (the command bar's view included).
             if let sv = superview, sv.subviews.last !== self { sv.addSubview(self, positioned: .above, relativeTo: nil) }
-            let b = NSButton(title: action.title, target: self, action: #selector(runAction))
+            // agentux3: one click from another app ("Show" on a "needs you" toast in a background window).
+            let b = ToastActionButton(title: action.title, target: self, action: #selector(runAction))
             b.isBordered = false
             b.font = AircFont.body.weight(.semibold).appFont
             b.contentTintColor = .controlAccentColor
@@ -333,6 +334,11 @@ final class ToastView: NSView {
         dismiss()
         run?()
     }
+}
+
+/// The toast's button acts on the click that activates the window, too.
+private final class ToastActionButton: NSButton {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 /// A view whose empty areas drag the window (Arc: empty sidebar space and margins move it).
