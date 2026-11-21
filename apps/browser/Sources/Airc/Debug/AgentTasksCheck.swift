@@ -44,7 +44,7 @@ final class AgentTasksCheck {
     init(runner: SnapshotRunner) {
         k = AgentPaneCheck(runner: runner)
         k.label = "agenttasks"
-        k.extraPages = ["/park.html": "<title>Brightport Parks</title><style>body{font:16px sans-serif;margin:40px;background:#e8f3e8}</style><h1>Brightport Parks</h1><p>Brightport Commons is the largest, at 412 hectares.</p>"]
+        k.extraPages = ["/park.html": SnapshotRunner.parksPage]
     }
 
     func check(_ ok: Bool, _ what: String) { k.check(ok, what) }
@@ -152,6 +152,8 @@ final class AgentTasksCheck {
                             barKey("tab") { [self] _ in
                                 check(bar.askMode, "… and Tab again is Ask again")
                                 barKey("@") { [self] how in
+                                    // Search's history and suggestions for the same words answer late: none may show in Ask.
+                                    check(bar.results.isEmpty, "Ask stays free of search rows that arrive late (\(bar.results.count))")
                                     let attached = bar.askPanel?.model.attached ?? []
                                     check(attached.count == 1 && attached.first?.url.path == "/home.html", "“@” attaches the window's page as a chip [\(how)] (\(attached.map(\.title)))")
                                     check(inAsk("agentask.attached"), "… shown in the chips")

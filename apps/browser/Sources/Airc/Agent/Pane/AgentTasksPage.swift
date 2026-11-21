@@ -19,7 +19,15 @@ final class AgentTaskRecorder: ObservableObject {
     private var saveQueued = false
 
     private init() {
-        tasks = AgentTaskRecord.ordered(store.all())
+        // A task can't be running when Airc starts (one conversation, in this process): a record a quit or crash
+        // left running or waiting says Stopped.
+        var loaded = store.all()
+        for i in loaded.indices where [.running, .waiting, .takenOver].contains(loaded[i].status) {
+            loaded[i].status = .stopped
+            loaded[i].endedAt = loaded[i].endedAt ?? loaded[i].updatedAt
+            try? store.save(loaded[i])
+        }
+        tasks = AgentTaskRecord.ordered(loaded)
         DispatchQueue.main.async { _ = AgentTaskThumbs.shared }
         let run = AgentRunCenter.shared
         subs.append(run.$steps.sink { [weak self] s in DispatchQueue.main.async { self?.stepsChanged(s) } })
@@ -31,7 +39,17 @@ final class AgentTaskRecorder: ObservableObject {
     func willAsk(spaceID: String, profileID: String) { space = (spaceID, profileID) }
 
     private func stepsChanged(_ steps: [AgentStep]) {
-        if steps.isEmpty { currentID = nil; return }
+        if steps.isEmpty {
+            // A new conversation leaves the old task where it was; one still marked working was cut off.
+            if let id = currentID, var r = tasks.first(where: { $0.id == id }), [.running, .waiting, .takenOver].contains(r.status) {
+                r.status = .stopped
+                r.endedAt = Date()
+                r.updatedAt = Date()
+                upsert(r)
+            }
+            currentID = nil
+            return
+        }
         if currentID == nil, let first = steps.first(where: { $0.kind == .user }) {
             let v = AgentModelSettings.shared.values
             let provider = v.backend.cli?.name ?? v.provider.name + " API key"

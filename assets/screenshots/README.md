@@ -136,6 +136,12 @@ profiles through Create Profile instead).
 | `agent-pane-approval-dark.webp` | Waiting for your OK, dark | The same approval in a dark Space | 2026-11-19 | test build (2ca546f4 + Stop glyph) |
 | `agent-pane-connect.webp` | Connect your AI | The agent pane's first run: Use your ChatGPT subscription (Codex), your own Claude Code, then the two API keys, each with its set-up step | 2026-11-20 | test build (agentux2: ChatGPT subscription first) |
 | `agent-pane-connect-dark.webp` | Connect your AI, dark | The same first-run card in a dark Space | 2026-11-20 | test build (agentux2: ChatGPT subscription first) |
+| `agent-tasks-ask.webp` | Ask from the Command Bar | ⌘T, then Tab: Ask mode with the chips (attach a tab, this Mac, asks first, provider, effort) and Recent tasks as cards: one working now with its live page, two finished with their answers (synthetic sites, scripted model) | 2026-11-21 | 202611210727 (171fe802) |
+| `agent-tasks-ask-dark.webp` | Ask from the Command Bar, dark | The same Ask mode and Recent tasks in a dark Space | 2026-11-21 | 202611210727 (171fe802) |
+| `agent-task-view.webp` | A task, full width | A task in its own tab: the steps on a timeline with the page each one opened, the agent's page floating live beside them, and the composer with its chips and Stop; the sidebar lists the tasks with a spinner and an unread dot | 2026-11-21 | 202611210727 (171fe802) |
+| `agent-task-view-dark.webp` | A task, full width, dark | The same task view in a dark Space | 2026-11-21 | 202611210727 (171fe802) |
+| `agent-task-approval.webp` | Waiting for your OK, in the task | The task view asking “Pay on cornershop…?” above the composer with Deny and Allow once, before anything is paid | 2026-11-21 | 202611210727 (171fe802) |
+| `agent-task-approval-dark.webp` | Waiting for your OK, in the task, dark | The same approval in a dark Space | 2026-11-21 | 202611210727 (171fe802) |
 | `agent-button.webp` | The Airc Agent button | The ✦ button in the sidebar's bottom bar, with the one-time hint “Ask Airc to do things for you” | 2026-11-20 | test build (agentux2: ChatGPT subscription first) |
 | `agent-button-dark.webp` | The Airc Agent button, dark | The same button and hint in a dark Space | 2026-11-20 | test build (agentux2: ChatGPT subscription first) |
 | `agents-approval.webp` | Allow ‘Claude’ to use Airc? | The one-time question when a new app connects: the profiles it can use and who started it | 2026-11-15 | 202611150942 (f1991861) |

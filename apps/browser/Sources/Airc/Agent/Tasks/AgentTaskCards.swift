@@ -56,7 +56,8 @@ final class AgentTaskThumbs: ObservableObject {
         let title = tab.title
         let host = tab.url?.host.map(AgentPaneTimeline.trimmed)
         w.driver.watchFrame(tab, maxPixels: Self.maxPixels) { [weak self] picture in
-            guard let self, let picture else { return }
+            // A frame copied before the page painted is one colour (black or white): keep the site's tile instead.
+            guard let self, let picture, !Self.isBlank(picture) else { return }
             let shot = Shot(image: picture, title: title, host: host)
             if let step { self.steps[step] = shot }
             self.tasks[task] = shot
@@ -64,6 +65,23 @@ final class AgentTaskThumbs: ObservableObject {
             if self.tasks.count > Self.keep { self.tasks = [task: shot] }
             self.revision += 1
         }
+    }
+
+    /// Whether a picture is (nearly) one colour: drawn into 8×8 pixels, every channel within 6 of the first pixel.
+    static func isBlank(_ image: CGImage) -> Bool {
+        var px = [UInt8](repeating: 0, count: 8 * 8 * 4)
+        let drawn: Bool = px.withUnsafeMutableBytes { buf in
+            guard let ctx = CGContext(data: buf.baseAddress, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 32,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            ctx.interpolationQuality = .low
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: 8, height: 8))
+            return true
+        }
+        guard drawn else { return false }
+        for i in stride(from: 4, to: px.count, by: 4) {
+            for c in 0..<3 where abs(Int(px[i + c]) - Int(px[c])) > 6 { return false }
+        }
+        return true
     }
 
     #if AIRC_TESTING

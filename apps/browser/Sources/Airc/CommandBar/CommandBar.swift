@@ -1428,8 +1428,9 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     /// An explicit keyboard/hover choice survives late history and suggestions. Untouched selection
     /// follows the new top result. Query edits still reset normally, without changing inline completion.
     private func replaceAsyncResults(_ updated: [CommandResult]) {
-        // Instant Links' rows stay until it's done or cancelled.
-        guard instant == nil else { return }
+        // Instant Links' rows stay until it's done or cancelled; Ask mode lists none (asidepass: late history and
+        // suggestions for what was typed in Search drew rows under Ask's panel).
+        guard instant == nil, !askMode else { return }
         let identity = userSelectedResult, index = selected
         results = updated
         reloadRows()
