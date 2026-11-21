@@ -496,5 +496,17 @@
     "detail": "On Google's Tag Assistant, Tag Manager and Analytics, Airc lets Google's tag scripts through so preview and debug mode connect. Everywhere else they stay blocked.",
     "action": "none",
     "image": null
+  },
+  "Spotify opens in Airc's Safari engine, where it plays": {
+    "title": "Spotify in Safari engine",
+    "detail": "Spotify now always opens in Airc's Safari engine, where its player works. Netflix and Disney+ still play in Chromium with the FairPlay setting, and Airc offers Safari's engine if a site can't play.",
+    "action": "none",
+    "image": null
+  },
+  "The Command Bar answers your first keystroke sooner": {
+    "title": "Faster first keystroke",
+    "detail": "Airc prepares the Command Bar while you're idle, so the first letter you type after ⌘T shows sooner.",
+    "action": "commandBar",
+    "image": null
   }
 }

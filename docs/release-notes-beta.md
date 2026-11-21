@@ -1,16 +1,26 @@
-# Airc 0.1.44 public beta
+# Airc 0.1.45 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update builds Airc's Chromium engine the way Chrome is built, so it launches faster, uses less CPU and makes the
-app about 200 MB smaller, and it stops blocking sites you type in by mistake. It includes everything from 0.1.43. The
-release manifest records the exact build, source and checksums.
+This update fixes Spotify with the FairPlay setting on: Spotify now always opens in Airc's Safari engine, where it
+plays. It includes everything from 0.1.44. The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.43
+## New since 0.1.44
+
+- **Spotify opens in Airc's Safari engine, where it plays.** Spotify's web player plays only through Safari's own
+  protected-media support, so with the FairPlay setting on it couldn't play in a Chromium tab and Airc offered nothing. Spotify now always opens in
+  Airc's Safari engine (WebKit), whatever the protected-media setting says. Netflix and Disney+ still play in a
+  Chromium tab when **Settings › Privacy › Protected content › Play protected media in Chromium with FairPlay** is on, and if a site can't
+  play there, Airc offers **Open in Safari's engine**.
+- **The Command Bar answers your first keystroke sooner.** Airc now prepares the Command Bar's icons, commands and
+  text field while you're idle, so the first letter you type after ⌘T shows sooner: in our tests on the build Mac
+  about 6 ms instead of about 10 ms with Chromium, and about 5 ms instead of 8 ms with WebKit.
+
+## Included from 0.1.44
 
 - **A faster Chromium engine.** Airc's Chromium engine is now built the way Chrome is: optimised from profiles of how
   it really runs, and across the whole program when it is linked. In our tests on the build Mac, a Chromium window became usable
@@ -664,3 +674,5 @@ Source: `d384973d52c1a72f15ea1309612452f80cc46ac6`. Build: `202611200840`. Chann
 Source: `7fe40b24ca536cb520ac86099f623106bb7413ab`. Build: `202611201407`. Channel: stable.
 
 Source: `e66fd734687e06822304d76a9d6a1c71f120f1e5`. Build: `202611202114`. Channel: stable. Engine: official.
+
+Source: `66a83bd8d20414c2fc584621bb031bbee16880c8`. Build: `202611210133`. Channel: stable. Engine: official.
