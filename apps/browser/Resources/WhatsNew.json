@@ -2,6 +2,24 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.45",
+      "highlights": [
+        {
+          "title": "Spotify in Safari engine",
+          "lead": "Spotify opens in Airc's Safari engine, where it plays",
+          "detail": "Spotify now always opens in Airc's Safari engine, where its player works. Netflix and Disney+ still play in Chromium with the FairPlay setting, and Airc offers Safari's engine if a site can't play.",
+          "icon": "music.note"
+        },
+        {
+          "title": "Faster first keystroke",
+          "lead": "The Command Bar answers your first keystroke sooner",
+          "detail": "Airc prepares the Command Bar while you're idle, so the first letter you type after ⌘T shows sooner.",
+          "icon": "bolt",
+          "action": "commandBar"
+        }
+      ]
+    },
+    {
       "version": "0.1.44",
       "highlights": [
         {
