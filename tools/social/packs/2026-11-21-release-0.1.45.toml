@@ -1,0 +1,28 @@
+# Airc 0.1.45 (cut 53fc52f8; build revision 66a83bd8; notes on release/0.1.45-notes). Claims from its approved notes,
+# "New since 0.1.44". NOT TO POST before "0.1.45 LIVE" in briefs/queue.md: plan and approve only then, after checking
+# the public repo shows the release (owner rule).
+slug = "2026-11-21-release-0.1.45"
+title = "Airc 0.1.45: ⌘T answers your first keystroke sooner"
+kind = "release"
+since = "0.1.45"
+tag = ""
+summary = """
+One text post, a speed tip with numbers: the first letter after ⌘T shows in about 6 ms. The Spotify change is a fix
+of 0.1.42's claim, so it isn't posted as news; 0.1.42's Spotify post is held (wrong in practice).
+"""
+order = """
+1. One post at 10:30 UTC on the first day after LIVE whose 10:30 can move, or an afternoon slot.
+"""
+checked = """
+- Command Bar: Airc prepares the Command Bar's icons, commands and text field while you're idle; in tests on the build
+  Mac the first letter after ⌘T showed in about 6 ms instead of about 10 ms (Chromium), about 5 instead of 8 (WebKit).
+  The post says "in our tests" and gives the Chromium numbers (the default engine).
+- Spotify: now always opens in Airc's Safari engine, where it plays. Not posted (it corrects 0.1.42); 0.1.42's
+  "Spotify in a Chromium tab" post was unapproved on 2026-11-21 before it went out.
+"""
+
+[[post]]
+label = "⌘T answers your first keystroke sooner"
+text = """
+Press ⌘T in Airc and start typing: in our tests your first letter now shows in about 6 ms, down from about 10. Airc gets the Command Bar ready while you're idle. New in Airc 0.1.45.
+"""

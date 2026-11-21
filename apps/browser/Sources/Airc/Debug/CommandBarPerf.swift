@@ -79,6 +79,8 @@ extension SnapshotRunner {
         }
         run { Perf.reset() }   // the opening's sections are reported above; from here, the keystrokes'
         var mainMs: [Double] = [], frameMs: [Double] = [], historyMs: [Double] = []
+        // cbperf4: the first key's sections in its own event only (the report below also holds the late history pass).
+        var firstSync: String?
         // askai's A/B: AIRC_CBPERF_PROMPTS=1 adds two prompts (both arms type them); AIRC_CBPERF_ASK=chatgpt|off sets the
         // profile's Ask AI, so one arm makes the "Ask ChatGPT" row on them and the other doesn't.
         let env = ProcessInfo.processInfo.environment
@@ -109,7 +111,12 @@ extension SnapshotRunner {
                 var hits = 0
                 bar.onHistoryApplied = { n in arrived = CACurrentMediaTime(); hits = n }
                 var mainWork = 0.0, frame = 0.0
+                // AIRC_CBPERF_EVENT=<query>: that key's own event sections too (a later key, to compare with the first).
+                let event = env["AIRC_CBPERF_EVENT"] == text
+                if event { Perf.reset() }
                 FrameTiming.measure({ bar.type(text) }) { t in mainWork = t.work; frame = t.frame }
+                if firstSync == nil { firstSync = Perf.reportTotals() }
+                if event { note("cbperf: “\(text)” event sections (ms total/count) " + Perf.reportTotals()) }
                 waitUntil({ arrived != nil }, timeout: 1) { [self] in
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [self] in
                         let h = arrived.map { ($0 - t0) * 1000 } ?? -1
@@ -119,6 +126,7 @@ extension SnapshotRunner {
                         if mainMs.count == 1 {
                             // The first keystroke on its own: what a cold path costs (cbfirstkey).
                             note("cbperf: first key sections (avg ms) " + Perf.report())
+                            note("cbperf: first key event sections (ms total/count) " + (firstSync ?? ""))
                             Perf.reset()
                         }
                         // askai's prompts match no synthetic page: timed, not asserted.

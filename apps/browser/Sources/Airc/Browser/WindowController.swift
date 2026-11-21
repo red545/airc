@@ -607,11 +607,71 @@ final class WindowController: NSObject, NSWindowDelegate {
                 bar.prewarmEditing()
                 bar.prepareForNextOpening(palette: self.currentPalette, in: self.root.bounds, sidebarFrame: self.sidebar.frame,
                                           contentFrame: self.card.frame)
+                self.scheduleSpareRowsWarmup()
             } else {
                 self.scheduleSpareBarRefresh()
             }
             // The menu bar's commands for ⌘T's first key, in idle slices after the first frames (cbfirstkey).
             self.commandIndex.schedule(after: 0.5)
+        }
+    }
+
+    /// cbperf4: a second after the spare bar is made, when nothing is moving, its rows are shown once with a typed
+    /// query's kinds of results (`CommandBarView.prewarmRows`), drawn in an idle frame of their own, and what ⌘T shows
+    /// is put back in the frame after, then the rows' symbols are made (`warmRowSymbols`). Well after the window's first
+    /// paint; while a bar is open it waits.
+    private func scheduleSpareRowsWarmup(after delay: TimeInterval = 1.0, tries: Int = 0) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self else { return }
+            // Something moving, or the bar open (it is the spare then): later, while the window stays idle long enough.
+            if self.isBusyForIdleWork || self.commandBar != nil {
+                if tries < 120 { self.scheduleSpareRowsWarmup(after: 0.5, tries: tries + 1) }
+                return
+            }
+            guard let bar = self.spareCommandBar, bar.superview === self.root else { return }
+            guard bar.prewarmRows() else { return }
+            // A timer, not `async`: the warmed rows are drawn in this turn's commit first.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+                guard let self, let bar = self.spareCommandBar, self.commandBar == nil, bar.superview === self.root else { return }
+                bar.prepareForNextOpening(palette: self.currentPalette, in: self.root.bounds, sidebarFrame: self.sidebar.frame,
+                                          contentFrame: self.card.frame)
+                self.warmRowSymbols()
+            }
+        }
+    }
+
+    /// The inks whose row symbols are made (`warmRowSymbols`), once per process.
+    private static var warmedSymbolInks = Set<String>()
+
+    /// cbperf4: the SF Symbols the Command Bar's rows show (the commands', the search and AI rows'), made in the rows'
+    /// size, weight and ink and drawn once, a few at a time at idle. Each one used to be made cold by the first keystroke
+    /// whose rows listed it (CoreUI's glyph lookup, its SVG, the tint and the first raster): ~2.5 ms of the first key's
+    /// 8 rows (cbperf4's event sections), ~0.5 ms on later keys. LayerImage keeps them, as it would after that key.
+    private func warmRowSymbols() {
+        guard CommandBarView.firstKeyWarm else { return }
+        let ink = currentPalette.textSecondary
+        let c = ink.usingColorSpace(.sRGB) ?? ink
+        let inkKey = String(format: "%.4f,%.4f,%.4f,%.4f", c.redComponent, c.greenComponent, c.blueComponent, c.alphaComponent)
+        guard Self.warmedSymbolInks.insert(inkKey).inserted else { return }
+        var names = Set(commandActions(prepared: true).map(\.symbol))
+        names.formUnion(CommandRowView.rowSymbols)
+        warmSymbolSlice(names.sorted(), ink: ink)
+    }
+
+    /// One idle slice of `warmRowSymbols`: at most ~2 ms, then the next a moment later; waits while anything moves or
+    /// a bar is open (typing is what this is for).
+    private func warmSymbolSlice(_ names: [String], ink: NSColor) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
+            guard let self else { return }
+            if self.isBusyForIdleWork || self.commandBar != nil { return self.warmSymbolSlice(names, ink: ink) }
+            let scale = self.window.backingScaleFactor
+            let t0 = CACurrentMediaTime()
+            var rest = names[...]
+            while let name = rest.first, CACurrentMediaTime() - t0 < 0.002 {
+                rest = rest.dropFirst()
+                CommandRowView.prewarmSymbol(name, ink: ink, scale: scale)
+            }
+            if !rest.isEmpty { self.warmSymbolSlice(Array(rest), ink: ink) }
         }
     }
 

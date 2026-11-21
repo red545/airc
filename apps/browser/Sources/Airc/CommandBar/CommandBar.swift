@@ -477,8 +477,57 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     /// without moving the keyboard: the editor directly, the rest by a field in a window that is never shown.
     func prewarmEditing() {
         _ = window?.fieldEditor(true, for: input)
+        // cbperf4: the typing warm-ups moved to `prewarmRows`, a second later at idle: this prewarm can run before a
+        // link launch's first paint (linkpaint +30 ms). `AIRC_CB_FIRSTKEY_WARM=0` keeps them here, as before.
+        if !Self.firstKeyWarm { prewarmTyping(completion: false) }
+    }
+
+    /// The first keystroke's one-time text and art setup (cbperf3, cbperf4): AppKit's first insert, the bar's TextKit 1
+    /// editor typing and selecting a completion, the official-site seal.
+    private func prewarmTyping(completion: Bool) {
         TextInputWarmup.run()
+        if completion {
+            TextInputWarmup.runCompletion(font: input.font ?? AircFont.commandInput.appFont,
+                                          attributes: palette.resolved.inlineCompletionAttributes)
+        }
         rows.first?.prewarmArt(scale: window?.backingScaleFactor ?? 2)
+    }
+
+    /// cbperf4 A/B in one binary: `AIRC_CB_FIRSTKEY_WARM=0` leaves the rows an empty ⌘T doesn't show cold until the
+    /// first keystroke shows them.
+    #if AIRC_TESTING
+    static let firstKeyWarm = ProcessInfo.processInfo.environment["AIRC_CB_FIRSTKEY_WARM"] != "0"
+    #else
+    static let firstKeyWarm = true
+    #endif
+    private var rowsWarmed = false
+
+    /// At idle, parked, once per bar: the typing warm-ups (`prewarmTyping`), then every row shown once with a typed
+    /// query's kinds of results (cbperf4). An empty
+    /// ⌘T shows 6 of the 8 rows; the first keystroke used to fill all 8, so it paid the last rows' first restyle
+    /// (labels' text storage, icon views), their first unhide and layout, and a typed query's first
+    /// composition (the non-empty ranking paths). The idle frame after this draws them (the rows' layer backings);
+    /// `WindowController` then puts back what ⌘T shows (`prepareForNextOpening`). Nothing is searched or fetched:
+    /// no history request, no suggestions, no icon lookups (letter tiles, symbols, an emoji only). No shortcuts: the
+    /// keycap views a row makes for one stay with it (hidden), and a command's few cost ~0.1 ms when first shown.
+    /// Returns false when there was nothing to do.
+    @discardableResult func prewarmRows() -> Bool {
+        guard Self.firstKeyWarm, isParked, !rowsWarmed, host != nil else { return false }
+        rowsWarmed = true
+        let timing = Perf.enabled
+        Perf.enabled = false
+        defer { Perf.enabled = timing }
+        prewarmTyping(completion: true)
+        _ = composedResults("a", history: [], suggestions: [])
+        let icons: [CommandResult.Icon] = [.monogram(page: "https://example.com/"), .symbol("magnifyingglass"),
+                                           .favicon(image: nil, url: nil, page: nil), .emoji("⭐️")]
+        let badges = ["Open", "Search", "Switch to Tab", "Run"]
+        results = (0..<max(rows.count, AircMetrics.CommandBar.maxRows)).map { i in
+            CommandResult(title: "Airc \(i)", subtitle: "example.com", badge: badges[i % badges.count],
+                          icon: icons[i % icons.count], matches: [0], action: .run {})
+        }
+        reloadRows()
+        return true
     }
 
 
@@ -638,8 +687,14 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         // its viewport and made a new fragment view (so a layer tree rebuild) for every keystroke: ~2 ms of the frame
         // for one line of text.
         _ = Self.keyframe2   // sets AircKit's switches (test builds) before the first ranking
-        let editor = Self.keyframe ? CommandBarFieldEditor(usingTextLayoutManager: false) : CommandBarFieldEditor(frame: .zero)
+        let editor = Self.makeFieldEditor()
         editor.bar = self
+        return editor
+    }()
+
+    /// The bar's field editor as configured, without a bar (cbperf4: TextInputWarmup types into one off screen).
+    static func makeFieldEditor() -> CommandBarFieldEditor {
+        let editor = Self.keyframe ? CommandBarFieldEditor(usingTextLayoutManager: false) : CommandBarFieldEditor(frame: .zero)
         editor.isFieldEditor = true
         editor.isContinuousSpellCheckingEnabled = false
         editor.isGrammarCheckingEnabled = false
@@ -662,7 +717,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
             }
         }
         return editor
-    }()
+    }
 
     #if AIRC_TESTING
     /// keyframe A/B in one binary: `AIRC_CB_KEYFRAME=0` keeps the keystroke frame as it was before.
@@ -1050,7 +1105,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
             return enterScope(.site(s), origin: before)
         }
         // Marked text is the input method's: nothing completes over it (a pinyin "bai" must stay "bai", not baidu.com).
-        update(allowCompletion: !deleting && !isComposing)
+        Perf.time("cb.update") { update(allowCompletion: !deleting && !isComposing) }
     }
 
     func update(allowCompletion: Bool = true) {
@@ -1096,38 +1151,40 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
             return s.match
         }
         inlineSite = site
-        if let editor = input.currentEditor() as? NSTextView, !composing {
-            // The completion goes after the caret, selected so typing on replaces it (Chrome, Arc), drawn in the
-            // theme's completion ink on its highlight, never the system selection colour (design §7, review #8).
-            let r = palette.resolved
-            let attributes = inline == nil ? r.textSelectionAttributes : r.inlineCompletionAttributes
-            // Set only when they change: setting them redraws the selection (cbfirstkey, ~0.3 ms a keystroke).
-            if !(editor.selectedTextAttributes as NSDictionary).isEqual(to: attributes) { editor.selectedTextAttributes = attributes }
-            if let m = inline {
-                let start = (q as NSString).length
-                let text = m.text as NSString, shown = editor.string as NSString
-                if shown.length >= start, text.length >= start, shown.substring(to: start) == text.substring(to: start) {
-                    // What's typed is already there: only the completion after it changes. Setting the field's whole
-                    // value instead ends and restarts the field editor's text (cbfirstkey: ~1 ms of every completing
-                    // keystroke). The cell takes the editor's text, as setting the value would have left it.
-                    let rest = NSRange(location: start, length: shown.length - start)
-                    if shown.substring(with: rest) != text.substring(from: start) {
-                        editor.replaceCharacters(in: rest, with: text.substring(from: start))
+        Perf.time("cb.editor") {
+            if let editor = input.currentEditor() as? NSTextView, !composing {
+                // The completion goes after the caret, selected so typing on replaces it (Chrome, Arc), drawn in the
+                // theme's completion ink on its highlight, never the system selection colour (design §7, review #8).
+                let r = palette.resolved
+                let attributes = inline == nil ? r.textSelectionAttributes : r.inlineCompletionAttributes
+                // Set only when they change: setting them redraws the selection (cbfirstkey, ~0.3 ms a keystroke).
+                if !(editor.selectedTextAttributes as NSDictionary).isEqual(to: attributes) { editor.selectedTextAttributes = attributes }
+                if let m = inline {
+                    let start = (q as NSString).length
+                    let text = m.text as NSString, shown = editor.string as NSString
+                    if shown.length >= start, text.length >= start, shown.substring(to: start) == text.substring(to: start) {
+                        // What's typed is already there: only the completion after it changes. Setting the field's whole
+                        // value instead ends and restarts the field editor's text (cbfirstkey: ~1 ms of every completing
+                        // keystroke). The cell takes the editor's text, as setting the value would have left it.
+                        let rest = NSRange(location: start, length: shown.length - start)
+                        if shown.substring(with: rest) != text.substring(from: start) {
+                            editor.replaceCharacters(in: rest, with: text.substring(from: start))
+                        }
+                        input.validateEditing()
+                    } else {
+                        input.stringValue = m.text
                     }
-                    input.validateEditing()
-                } else {
-                    input.stringValue = m.text
-                }
-                let selection = NSRange(location: start, length: text.length - start)
-                if editor.selectedRange() != selection { editor.selectedRange = selection }
-            } else if typingAhead {
-                // Typed on into a completion that no longer completes (typeAheadIntoCompletion): what's typed, alone,
-                // as replacing the completion with the character would have left it.
-                let shown = editor.string as NSString, start = (q as NSString).length
-                if shown.length > start, shown.substring(to: start) == q {
-                    editor.replaceCharacters(in: NSRange(location: start, length: shown.length - start), with: "")
-                    editor.setSelectedRange(NSRange(location: start, length: 0))
-                    input.validateEditing()
+                    let selection = NSRange(location: start, length: text.length - start)
+                    if editor.selectedRange() != selection { editor.selectedRange = selection }
+                } else if typingAhead {
+                    // Typed on into a completion that no longer completes (typeAheadIntoCompletion): what's typed, alone,
+                    // as replacing the completion with the character would have left it.
+                    let shown = editor.string as NSString, start = (q as NSString).length
+                    if shown.length > start, shown.substring(to: start) == q {
+                        editor.replaceCharacters(in: NSRange(location: start, length: shown.length - start), with: "")
+                        editor.setSelectedRange(NSRange(location: start, length: 0))
+                        input.validateEditing()
+                    }
                 }
             }
         }
@@ -1929,7 +1986,7 @@ final class CommandBarFieldEditor: NSTextView {
         if let text = string as? String, let bar, bar.typeAheadIntoCompletion(text, replacementRange: replacementRange, in: self) {
             return
         }
-        super.insertText(string, replacementRange: replacementRange)
+        Perf.time("cb.insert") { super.insertText(string, replacementRange: replacementRange) }
     }
 }
 
@@ -1964,6 +2021,46 @@ enum TextInputWarmup {
             editor.undoManager?.removeAllActions()
         }
         w.makeFirstResponder(nil)
+        w.close()
+    }
+
+    private static var completionDone = false
+    /// Hands the warm-up window's field its own editor: the bar's kind (TextKit 1, `CommandBarView.makeFieldEditor`).
+    private final class EditorSource: NSObject, NSWindowDelegate {
+        let editor = CommandBarView.makeFieldEditor()
+        func windowWillReturnFieldEditor(_ sender: NSWindow, to client: Any?) -> Any? { client is NSTextField ? editor : nil }
+    }
+
+    /// cbperf4: what the first keystroke did for the first time in the bar's own kind of editor, once per process off
+    /// screen: the bar's field editor is TextKit 1 (`run()`'s plain field gets AppKit's TextKit 2 one), so its first
+    /// typesetting (NSATSTypesetter, the field font's glyphs), the first inline completion written after the caret, its
+    /// completion-ink selection attributes and the selection itself all landed on the first key.
+    static func runCompletion(font: NSFont, attributes: [NSAttributedString.Key: Any]) {
+        guard !completionDone else { return }
+        completionDone = true
+        let source = EditorSource()
+        let w = NSWindow(contentRect: NSRect(x: -20_000, y: -20_000, width: 480, height: 40), styleMask: .borderless,
+                         backing: .buffered, defer: true)
+        w.isReleasedWhenClosed = false
+        w.isRestorable = false
+        w.delegate = source
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 480, height: 24))
+        field.contentType = .URL
+        field.font = font
+        w.contentView?.addSubview(field)
+        w.makeFirstResponder(field)
+        if let editor = field.currentEditor() as? NSTextView, editor === source.editor {
+            editor.insertText("a", replacementRange: NSRange(location: NSNotFound, length: 0))
+            // As CommandBarView.update writes a completion: the rest after the caret, selected, in the completion ink.
+            editor.selectedTextAttributes = attributes
+            editor.replaceCharacters(in: NSRange(location: 1, length: 0), with: "irc.example.com")
+            field.validateEditing()
+            editor.selectedRange = NSRange(location: 1, length: 15)
+            if let lm = editor.layoutManager, let tc = editor.textContainer { lm.ensureLayout(for: tc) }
+            editor.undoManager?.removeAllActions()
+        }
+        w.makeFirstResponder(nil)
+        w.delegate = nil
         w.close()
     }
 }
@@ -2089,6 +2186,15 @@ final class CommandRowView: NSView {
     /// The official-site seal made and drawn once at idle (`CommandBarView.prewarmEditing`). Made cold, its SF Symbol
     /// (CoreUI's glyph lookup, the SVG parse, the tint and the first raster) took ~1–1.5 ms of the first keystroke whose
     /// rows show an official site (cbperf3). The symbol and tint are cached (LayerImage); this only moves when.
+    /// The symbols rows show besides the commands' own (search, Ask AI, Instant Links, a page with no icon).
+    static let rowSymbols: Set<String> = ["magnifyingglass", "sparkles", "square.stack", "globe"]
+
+    /// A row icon's symbol (FaviconView: 14 pt semibold in the ink) made and rasterised as a row would show it.
+    static func prewarmSymbol(_ name: String, ink: NSColor, scale: CGFloat) {
+        guard let img = LayerImage.symbol(name, size: 14, weight: .semibold, color: ink) else { return }
+        _ = img.layerContents(forContentsScale: img.recommendedLayerContentsScale(scale))
+    }
+
     func prewarmArt(scale: CGFloat) {
         guard let p = palette,
               let img = LayerImage.symbol("checkmark.seal.fill", size: 12, weight: .semibold, color: p.resolved.accent.nsColor)
@@ -2607,6 +2713,15 @@ extension WindowController: CommandBarHost {
         if NoteURL.isNote(current) { current = "" }   // a note's address is nothing to edit
         Perf.time("cb.open.focus") { bar.focus(with: URLRules.isNewTab(current) ? "" : current) }
         pageView(for: currentSpaceID)?.refreshNewTabRow()
+        // cbperf4: this opening's commands (and, a timer later, their prepared texts: `sessionCommands`) right after its
+        // commit, while nothing is typed yet, so the first keystroke ranks them as the later ones do instead of making
+        // them in its own frame. A timer, not `async`: the main queue drains before the commit.
+        if CommandBarView.firstKeyWarm, CommandBarView.keyframe2 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.002) { [weak self, weak bar] in
+                guard let self, let bar, self.commandBar === bar, bar.query.isEmpty else { return }
+                _ = self.sessionCommands()
+            }
+        }
     }
 
     func closeCommandBar() { closeCommandBar(focusingPage: true) }

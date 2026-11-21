@@ -393,6 +393,11 @@ enum Perf {
 
     static func reset() { totals = [:]; order = [] }
 
+    /// "name total ms/count" per section, in first-seen order (cbperf4: one event's sums).
+    static func reportTotals() -> String {
+        order.map { k in String(format: "%@ %.2f/%d", k, totals[k]!.sum, totals[k]!.n) }.joined(separator: ", ")
+    }
+
     /// "name avg ms (n)" per section, in first-seen order.
     static func report() -> String {
         order.map { k in
