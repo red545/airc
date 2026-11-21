@@ -1,5 +1,6 @@
 // Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
 #if AIRC_TESTING // test builds only: public builds compile nothing in Debug/ (App/TestingGate.swift)
+import AircDesign
 import AppKit
 import AircKit
 
@@ -373,9 +374,9 @@ final class AgentPane2Check {
         }
     }
 
-    // MARK: The Airc Agent button (sidebar bottom bar)
+    // MARK: The Airc Agent button (the sidebar's toolbar row, sidebarchrome 2026-11-20)
 
-    var agentButton: NSView { c.sidebar.footer.agentButton }
+    var agentButton: NSView { c.sidebar.header.agent.button }
 
     /// A real click on a view's centre (the UI driver), else `fallback`. `done("real"|"posted")`.
     func pressView(_ v: NSView?, _ what: String, fallback: @escaping () -> Void, _ done: @escaping (String) -> Void) {
@@ -396,10 +397,27 @@ final class AgentPane2Check {
         let lights = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap { c.window.standardWindowButton($0) }
             .map { $0.convert($0.bounds, to: nil) }.reduce(NSRect.null) { $0.union($1) }
         let bf = b.convert(b.bounds, to: nil)
-        let lib = c.sidebar.footer.libraryButton.convert(c.sidebar.footer.libraryButton.bounds, to: nil)
-        check(!b.isHiddenOrHasHiddenAncestor && b.window === c.window && bf.width >= 24, "the sidebar's bottom bar has the Airc Agent button (\(NSStringFromRect(bf)))")
-        check(abs(bf.midY - lib.midY) < 1 && bf.minX >= lib.maxX - 0.5, "… right of the Library button, on its row")
-        check(!bf.intersects(lights), "… nowhere near the traffic lights")
+        let h = c.sidebar.header
+        let nav = h.back.convert(h.back.bounds, to: nil)
+        check(!b.isHiddenOrHasHiddenAncestor && b.window === c.window && b.superview === h && bf.width >= 24,
+              "the sidebar's toolbar row has the Airc Agent button (\(NSStringFromRect(bf)))")
+        check(abs(bf.midY - nav.midY) < 0.5 && bf.size == nav.size && (b as? GlyphButton)?.symbolSize == h.back.symbolSize
+              && (b as? GlyphButton)?.hoverFill == h.back.hoverFill,
+              "… on the Back button's row, its size (\(Int(bf.width))×\(Int(bf.height)) vs \(Int(nav.width))×\(Int(nav.height))), glyph size and hover plate")
+        let rowButtons = [h.back, h.forward, h.reload, b].filter { !$0.isHidden }.map { $0.convert($0.bounds, to: nil) }.sorted { $0.minX < $1.minX }
+        let pitches = zip(rowButtons, rowButtons.dropFirst()).map { $1.minX - $0.minX }
+        check(rowButtons.last == bf && pitches.allSatisfy { abs($0 - AircMetrics.Sidebar.headerButtonPitch) < 0.5 }
+              && abs(h.convert(h.bounds, to: nil).maxX - bf.maxX - DesignGaps.headerButtonEndInset) < 0.5,
+              "… last in the row, on the row's 34 pt pitch (\(pitches.map { Int($0) })), 6 pt from the edge")
+        check(!bf.intersects(lights) && bf.minX > h.toggle.convert(h.toggle.bounds, to: nil).maxX, "… nowhere near the traffic lights, right of the sidebar toggle")
+        let footerHasIt = c.sidebar.footer.subviews.contains { $0.accessibilityLabel() == "Airc Agent" }
+        check(!footerHasIt, "… and the bottom bar has no ✦ any more")
+        // Narrow sidebars drop Reload, then Forward, then Back; the ✦ goes last (lead 2026-11-20, Arc ref §2.1).
+        let tx = AircMetrics.Sidebar.toggleX + AircMetrics.Sidebar.headerButton
+        let at: (CGFloat) -> [SidebarHeaderView.HeaderButton] = { w in SidebarHeaderView.shownButtons(width: w, toggleMaxX: tx) }
+        check(at(AircMetrics.Sidebar.defaultWidth) == [.back, .forward, .agent] && at(251) == [.back, .forward, .reload, .agent]
+              && at(AircMetrics.Sidebar.minWidth) == [.agent] && at(200) == [.back, .agent],
+              "… collapse order: 228 pt \(at(AircMetrics.Sidebar.defaultWidth)), 251 pt \(at(251)), 200 pt \(at(200)), 164 pt \(at(AircMetrics.Sidebar.minWidth))")
         check(b.toolTip?.hasPrefix("Airc Agent (⌥⌘A)") == true && b.accessibilityLabel() == "Airc Agent", "… tooltip “\(b.toolTip ?? "")”, VoiceOver “\(b.accessibilityLabel() ?? "")”")
         let titles = (b as? GlyphButton)?.contextMenuProvider?()?.items.map(\.title) ?? []
         check(titles.contains("New Task") && titles.contains("Watch") && titles.contains("Settings › Agents…"), "… right-click: New Task, Watch, Settings › Agents (\(titles))")
@@ -466,14 +484,14 @@ final class AgentPane2Check {
                                                 check(AgentModelSettings.shared.values.backend == .apiKey && AgentModelSettings.shared.values.provider == .anthropic, "… Anthropic is the agent's provider now")
                                                 wait({ self.run.state.isActive }, 6) { [self] in
                                                     check(run.steps.first { $0.kind == .user }.map { AgentPaneItem.promptText($0.text) } == task, "… and the typed task goes by itself")
-                                                    wait({ self.c.sidebar.footer.agentDotShown && self.c.sidebar.footer.liveAgentRow != nil }, 8) { [self] in
-                                                        check(c.sidebar.footer.agentDotShown, "while it works, the button has its dot")
+                                                    wait({ self.c.sidebar.header.agent.dotShown && self.c.sidebar.header.agent.liveAgentRow != nil }, 8) { [self] in
+                                                        check(c.sidebar.header.agent.dotShown, "while it works, the button has its dot")
                                                         let watch = (agentButton as? GlyphButton)?.contextMenuProvider?()?.items.first { $0.title == "Watch" }
                                                         check(watch?.isEnabled == true, "… and right-click › Watch is on")
                                                         wait({ !self.run.state.isActive }, 30) { [self] in
                                                             check(run.state == .done && k.finalText == "Fixturia's capital is Testville.", "… to the end (“\(k.finalText)”)")
                                                             after(0.3) { [self] in
-                                                                check(!c.sidebar.footer.agentDotShown, "the dot goes when it's done")
+                                                                check(!c.sidebar.header.agent.dotShown, "the dot goes when it's done")
                                                                 done()
                                                             }
                                                         }
@@ -523,8 +541,8 @@ final class AgentPane2Check {
                     v.layoutSubtreeIfNeeded()
                     check(TestAnchors.view("agenthint.title", in: v) != nil, "… “Ask Airc to do things for you”")
                     let bf = agentButton.window.map { $0.convertToScreen(agentButton.convert(agentButton.bounds, to: nil)) } ?? .zero
-                    check(abs(w.frame.midX - bf.midX) < w.frame.width / 2 + 4 && (w.frame.minY >= bf.maxY - 4 || w.frame.maxY <= bf.minY + 4),
-                          "… pointing at the button (hint \(NSStringFromRect(w.frame)), button \(NSStringFromRect(bf)))")
+                    check(abs(w.frame.midX - bf.midX) < w.frame.width / 2 + 4 && w.frame.maxY <= bf.minY + 4,
+                          "… under the toolbar's button, pointing up at it (hint \(NSStringFromRect(w.frame)), button \(NSStringFromRect(bf)))")
                     if let img = runner.render(v), let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
                        let png = rep.representation(using: .png, properties: [:]) {
                         try? png.write(to: runner.dir.appendingPathComponent("agentpane2-hint-\(engine).png"))

@@ -78,8 +78,9 @@ each pinned folder in the Space (⌘Z puts the tab back).
   page's clean link instead, and the toast says just "Copied Link": PDFs, pages that aren't websites (a browser
   page, a file), and sites that ask browsers to always open them at the top (`Document-Policy: force-load-at-top`).
   To find that out, Airc asks the site once for the page's headers. Private windows offer no quote links at all.
-- **Share Quote under the address.** While you have text selected on a page, a small **Share Quote** button shows just
-  below the address at the top of the sidebar, as in Arc (the sidebar's list moves down a little to make room). Click it to copy the same link to that text (whole words,
+- **Share Quote in the address.** While you have text selected on a page, a small **❝ Share Quote** button slides in at
+  the right end of the address at the top of the sidebar (the address fades a little earlier to make room; nothing else
+  in the sidebar moves). In a narrow sidebar it's just the ❝. Click it to copy the same link to that text (whole words,
   without trackers); "Copied Link · With Quote" confirms it. It appears once you let go of the mouse (or the key
   that made the selection), never while you're still dragging, and goes when the selection does, when you switch
   tabs, or when you hide the sidebar. Text you select inside a field or an editor gets no button: a link can't point

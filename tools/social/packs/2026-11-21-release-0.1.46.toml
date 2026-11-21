@@ -1,0 +1,60 @@
+# Airc 0.1.46 (cut cc098eff; build revision ec9a9369; notes on release/0.1.46-notes). Claims from its approved notes,
+# "New since 0.1.45". NOT TO POST before "0.1.46 LIVE" in briefs/queue.md: plan and approve only then, after checking
+# the public repo shows the release (owner rule).
+slug = "2026-11-21-release-0.1.46"
+title = "Airc 0.1.46: tasks get their own view; ⌘T can Ask"
+kind = "release"
+since = "0.1.46"
+shots_rev = "cc098eff"
+tag = "New in Airc 0.1.46"
+end_title = "Airc 0.1.46"
+end_line = "Free for Mac · aircbrowser.com"
+summary = """
+Two posts on cards of the cut's synthetic shots: Airc Agent tasks in their own view (agent-task-view, whole window),
+and ⌘T Ask as well as Search (agent-tasks-ask, cropped to the Command Bar).
+"""
+order = """
+1. ⌘T Ask at 10:30 UTC on the first day after LIVE whose 10:30 can move (a concrete ⌘T tip, the kind that does best);
+   the task view in an afternoon slot a day later.
+"""
+checked = """
+- Task view: open a task from the sidebar, a Recent tasks card or the Command Bar and it fills the page: every step on a
+  timeline with what it found, the answer as it's written, the page the agent is on, live, beside the steps; reply
+  below to keep going, or Deny / Allow once when it asks first. The Agents folder lists tasks (spinner, ✋, blue dot);
+  Show all opens every task. The ✦ pane stays the compact form.
+- ⌘T Ask: type what you want done and press Tab (or click Ask); chips show what the task gets and who runs it (your
+  ChatGPT subscription through Codex, your own Claude Code, or an API key); Recent tasks shows the Space's newest tasks;
+  Return starts the task in its own tab.
+- Still a beta (Please know). Wording (owner, 2026-11-19 20:45): lead with "use your ChatGPT subscription".
+- Shots: agent-task-view and agent-tasks-ask (asidepass, synthetic: Corner Shop and made-up tasks). The model chip in
+  them reads Anthropic · Claude Opus 5.5 (the shot's setup); the posts don't name a model.
+"""
+
+[[image]]
+id = "ask"
+shot = "agent-tasks-ask"
+title = "⌘T can Ask, not just Search."
+line = "Type what you want done, press Tab."
+clip = [338, 282, 764, 376]
+alt = "Airc's Command Bar in Ask mode: “Book a table for two at a quiet place near Brightport” typed, Search and Ask with Ask chosen, chips for where it runs and that it asks first, and Recent tasks as cards: one working, two finished with their answers. Made-up tasks."
+
+[[image]]
+id = "taskview"
+shot = "agent-task-view"
+title = "Every task, its own view."
+line = "Each step, the answer, and the page it's on, live."
+alt = "An Airc Agent task filling the page: “Reorder last week's groceries from Corner Shop”, working, with a timeline of steps (opened cornershop.aircbrowser.com with a preview of the page, reading it, finding something on it), a live view of the page beside the steps, and a field to tell it something while it works; the sidebar's Agents folder lists the tasks. A demo shop."
+
+[[post]]
+label = "⌘T can Ask"
+media = ["ask:16x9"]
+text = """
+⌘T in Airc can now Ask as well as Search: type what you want done, press Tab, and it starts an agent task in its own tab. Use your ChatGPT subscription through Codex, or your own Claude Code. Beta, new in Airc 0.1.46.
+"""
+
+[[post]]
+label = "Agent tasks get their own view"
+media = ["taskview:16x9"]
+text = """
+Airc Agent tasks now get their own view: every step on a timeline, the answer as it's written, and the page it's working on, live, beside it. Reply to keep it going, or Allow once when it asks first. New in Airc 0.1.46.
+"""

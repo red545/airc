@@ -116,7 +116,7 @@ multi-select|Multi-selection|Three Today tabs ⌘-clicked in Personal, with thei
 tab-menu|Tab menus|The Kyoto tab'"'"'s menu in Personal, as Arc'"'"'s: Copy Link, Share, Rename, Mute, Customize Page, Add Split View, Move to, Archive
 folder-markdown|Folder links as Markdown|The Recipes folder'"'"'s menu: Copy All Links and Copy All Links as Markdown, titles and order kept
 quote-link|A link to copied text|After ⌘C on a sentence in Wikipedia'"'"'s Typography article: Share a link directly to this text instead? with Copy Quote Link
-quote-copy|Share Quote|A sentence selected in Wikipedia'"'"'s Typography article: Share Quote under the address, and the toast Copied Link · With Quote
+quote-copy|Share Quote|A sentence selected in a made-up article of our own (Field Notes): Share Quote in the address pill, and the toast Copied Link · With Quote
 quote-copy-dark|Share Quote, dark|The same quote link copied in a dark Space
 essential-shortcuts|Essential Keyboard Shortcuts|Help › Essential Keyboard Shortcuts: tabs, Spaces, pages, Split View and notes, each with the key it has now
 library-media|Library: Media|Library › Media in the Work Space: downloaded pictures and films and a Capture, newest first, as a grid of thumbnails
@@ -190,7 +190,7 @@ agent-task-view|A task, full width|A task in its own tab: the steps on a timelin
 agent-task-view-dark|A task, full width, dark|The same task view in a dark Space
 agent-task-approval|Waiting for your OK, in the task|The task view asking “Pay on cornershop…?” above the composer with Deny and Allow once, before anything is paid
 agent-task-approval-dark|Waiting for your OK, in the task, dark|The same approval in a dark Space
-agent-button|The Airc Agent button|The ✦ button in the sidebar'"'"'s bottom bar, with the one-time hint “Ask Airc to do things for you”
+agent-button|The Airc Agent button|The ✦ button in the sidebar'"'"'s toolbar row, with the one-time hint “Ask Airc to do things for you”
 agent-button-dark|The Airc Agent button, dark|The same button and hint in a dark Space
 agents-approval|Allow ‘Claude’ to use Airc?|The one-time question when a new app connects: the profiles it can use and who signed it
 settings-sync|Settings: Sync|iCloud sync on, up to date between two Macs, with what syncs and what never leaves the Mac

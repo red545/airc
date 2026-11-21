@@ -3,7 +3,7 @@ import AircDesign
 import AppKit
 import SwiftUI
 
-/// The one-time hint after onboarding: "Ask Airc to do things for you", pointing at the sidebar's Airc Agent button.
+/// The one-time hint after onboarding: "Ask Airc to do things for you", pointing at the Airc Agent ✦ in the sidebar's toolbar row.
 /// Once per Mac (remembered in the user defaults), dismissable, never during onboarding (it shows a few seconds after the
 /// browser window took over) and never in scripted runs unless a check asks.
 enum AgentButtonHint {
@@ -28,7 +28,7 @@ enum AgentButtonHint {
     @discardableResult
     static func show(in c: WindowController, force: Bool = false) -> NSPopover? {
         guard force || !wasShown, c.app?.onboarding == nil, c.window.isVisible, !c.window.isMiniaturized else { return nil }
-        let button = c.sidebar.footer.agentButton
+        let button = c.sidebar.header.agent.button
         guard button.window === c.window, !button.isHiddenOrHasHiddenAncestor, button.bounds.width > 0 else { return nil }
         popover?.close()
         let theme = c.currentPalette.resolved
@@ -47,10 +47,11 @@ enum AgentButtonHint {
         p.contentViewController = vc
         p.contentSize = v.fittingSize
         popover = p
-        p.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
+        // Below the ✦ (the toolbar row is at the window's top): GlyphButton isn't flipped, so its bottom is minY.
+        p.show(relativeTo: button.bounds, of: button, preferredEdge: button.isFlipped ? .maxY : .minY)
         UserDefaults.standard.set(true, forKey: shownKey)
         NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
-                             userInfo: [.announcement: "Ask Airc to do things for you: the Airc Agent button, or Option Command A.",
+                             userInfo: [.announcement: "Ask Airc to do things for you: the Airc Agent button in the sidebar's toolbar, or Option Command A.",
                                         .priority: NSAccessibilityPriorityLevel.medium.rawValue])
         AgentCenter.shared.onEvent?("agent-button-hint shown")
         return p

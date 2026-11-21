@@ -6,8 +6,10 @@ import AppKit
 
 /// `--script feedbackbtn` (both engines): the sidebar footer reads Archive · Space icons · Feedback · + (owner,
 /// 2026-11-16). Real driver clicks (AIRC_REAL_KEYS=1, the stable UI driver, AIRC_UI_DEDICATED_SESSION=1):
-///   - with 1, 5 and 12 Spaces: Feedback sits just left of "+", the Space icons stay between Archive and it (or, when
-///     it gives way, between Archive and "+"), centred in their region, never overlapping either button;
+///   - with 1, 5 and 12 Spaces: Feedback sits just left of "+", the Space icons stay between Archive and it, centred in
+///     their region, never overlapping either button; Feedback never gives way (the icons squeeze);
+///   - 6 and 8 Spaces, emoji and dots mixed, at the default 228 pt: Archive, every icon, Feedback and + visible and hit
+///     at their centres; real clicks on Feedback and on a dot Space;
 ///   - Feedback opens the feedback sheet on this window (Cancel closes it); tooltip and VoiceOver label unchanged;
 ///   - "+" opens its menu (Esc closes it); Archive opens the Library and a second click in place closes it.
 extension SnapshotRunner {
@@ -68,23 +70,31 @@ extension SnapshotRunner {
             run { [self] in
                 c.sidebar.layoutSubtreeIfNeeded()
                 let bar = footer()
-                let lib = bar.libraryButton.frame, plus = bar.plusButton.frame, fb = bar.feedbackButton.frame, agent = bar.agentButton.frame
+                let lib = bar.libraryButton.frame, plus = bar.plusButton.frame, fb = bar.feedbackButton.frame
                 let cells = bar.cellViews.map(\.frame)
                 let left = cells.first?.minX ?? .infinity, right = cells.last?.maxX ?? -.infinity
                 let limit = bar.showsFeedback ? fb.minX : plus.minX
-                let inside = cells.isEmpty || (left >= agent.maxX - 0.5 && right <= limit + 0.5)
+                let inside = cells.isEmpty || (left >= lib.maxX - 0.5 && right <= limit + 0.5)
                 let ordered = zip(cells, cells.dropFirst()).allSatisfy { $0.maxX <= $1.minX + 0.5 }
                 // Centred in their region (SpaceBarLayout.region): equal room on both sides.
-                let region = SpaceBarLayout.region(sidebarWidth: Double(bar.bounds.width), feedback: bar.showsFeedback, agent: true)
+                let region = SpaceBarLayout.region(sidebarWidth: Double(bar.bounds.width), feedback: bar.showsFeedback)
                 let centred = cells.isEmpty || abs((left - CGFloat(region.x)) - (CGFloat(region.x + region.span) - right)) < 1
                 check(bar.showsFeedback == expectFeedback && cells.count == (n < 2 ? 0 : n) && inside && ordered && centred
-                      && plus.maxX <= bar.bounds.maxX + 0.5 && plus.minX > lib.maxX && agent.minX >= lib.maxX - 0.5 && abs(agent.midY - lib.midY) < 1
+                      && plus.maxX <= bar.bounds.maxX + 0.5 && plus.minX > lib.maxX
                       && (!bar.showsFeedback || (fb.maxX <= plus.minX + 0.5 && fb.maxX >= plus.minX - 4 && fb.minX > lib.maxX)),
-                      "feedbackbtn: \(n) Space(s) at \(Int(bar.bounds.width)) pt: Archive \(r(lib)) · Agent \(r(agent)) · Spaces \(cells.isEmpty ? "-" : r(NSRect(x: left, y: 0, width: right - left, height: 1))) (\(cells.map { Int($0.width) })) · Feedback \(bar.showsFeedback ? r(fb) : "hidden") · + \(r(plus)); expected Feedback \(expectFeedback ? "shown" : "hidden"), in order, centred, no overlap")
+                      "feedbackbtn: \(n) Space(s) at \(Int(bar.bounds.width)) pt: Archive \(r(lib)) · Spaces \(cells.isEmpty ? "-" : r(NSRect(x: left, y: 0, width: right - left, height: 1))) (\(cells.map { Int($0.width) })) · Feedback \(bar.showsFeedback ? r(fb) : "hidden") · + \(r(plus)); expected Feedback \(expectFeedback ? "shown" : "hidden"), in order, centred, no overlap")
+                // sidebarchrome (owner 2026-11-20): the bar is Archive · Spaces · Feedback · + again; the ✦ is in the toolbar row.
+                let known: [NSView] = [bar.libraryButton, bar.plusButton, bar.feedbackButton] + bar.cellViews
+                let others = bar.subviews.filter { v in !v.isHidden && !known.contains { $0 === v } && v.bounds.width > 0 }
+                let leftOfSpaces = bar.subviews.filter { !$0.isHidden && $0.frame.maxX <= (cells.first?.minX ?? (bar.showsFeedback ? fb.minX : plus.minX)) + 0.5 && $0.bounds.width > 0 }
+                check(others.isEmpty && leftOfSpaces.count == 1 && leftOfSpaces.first === bar.libraryButton
+                      && c.sidebar.header.agent.button.superview === c.sidebar.header,
+                      "feedbackbtn: \(n) Space(s): only Archive left of the Spaces, no other button in the bar (others \(others.map { $0.accessibilityLabel() ?? String(describing: type(of: $0)) })), the Airc Agent ✦ is in the header row")
             }
         }
         var added: [String] = []
-        func setSpaces(_ n: Int) {
+        /// `mixed`: every other new Space has no icon (it shows as a dot), as an owner's mix of emoji and dots.
+        func setSpaces(_ n: Int, mixed: Bool = false) {
             run { [self] in
                 for id in added { try? c.store.deleteSpace(id) }
                 added = []
@@ -93,7 +103,7 @@ extension SnapshotRunner {
                 let icons = ["🍎", "🍐", "🍊", "🍋", "🍌", "🍉", "🍇", "🍓", "🫐", "🍒", "🍑"]
                 var after = home
                 for i in 0..<max(0, n - 1) {
-                    if let sp = try? c.store.createSpace(name: "Test \(i + 2)", icon: .emoji(icons[i % icons.count]), profileID: profile, after: after) {
+                    if let sp = try? c.store.createSpace(name: "Test \(i + 2)", icon: mixed && i % 2 == 1 ? nil : .emoji(icons[i % icons.count]), profileID: profile, after: after) {
                         added.append(sp.id)
                         after = sp.id
                     }
@@ -115,9 +125,8 @@ extension SnapshotRunner {
             check(b.toolTip == "Send Feedback" && b.accessibilityLabel() == "Send Feedback" && b.accessibilityRole() == .button,
                   "feedbackbtn: tooltip and VoiceOver label unchanged (\(b.toolTip ?? "-"), \(b.accessibilityLabel() ?? "-"))")
         }
-        // 1, 4, 5 and 12 Spaces at 260 pt, with the Airc Agent button after Archive (owner, 2026-11-20): Feedback shows
-        // with 1 and 4, gives way with 5 and 12 (each icon would drop under 24 pt).
-        for (n, shows) in [(1, true), (4, true), (5, false), (12, false)] {
+        // 1, 5 and 12 Spaces at 260 pt: Feedback always shows; the icons squeeze first (lead 2026-11-20, owner bug).
+        for (n, shows) in [(1, true), (5, true), (12, true)] {
             setSpaces(n)
             layoutCheck(n, expectFeedback: shows)
             renderFooter("feedbackbtn-footer-\(n)spaces")
@@ -130,11 +139,61 @@ extension SnapshotRunner {
         setSpaces(1)
         run { [self] in c.setSidebarWidth(AircMetrics.Sidebar.minWidth) }
         layoutCheck(1, expectFeedback: true)
-        setSpaces(4)
+        setSpaces(5)
         run { [self] in c.setSidebarWidth(260) }
-        layoutCheck(4, expectFeedback: true)
+        layoutCheck(5, expectFeedback: true)
 
-        // Feedback (4 Spaces, so it sits between the icons and +): a real click opens the sheet on this window.
+        // sidebarchrome (lead 2026-11-20, owner bug: with 5 Spaces Feedback was gone): 6 and 8 Spaces, emoji and dots
+        // mixed, at the default 228 pt: Archive, every Space icon, Feedback and + are on screen, inside the bar, apart,
+        // and each is what a click at its centre hits.
+        for n in [6, 8] {
+            setSpaces(n, mixed: true)
+            run { [self] in c.setSidebarWidth(AircMetrics.Sidebar.defaultWidth) }
+            layoutCheck(n, expectFeedback: true)
+            run { [self] in
+                c.sidebar.layoutSubtreeIfNeeded()
+                let bar = footer()
+                let cells = bar.cellViews
+                let named: [(String, NSView)] = [("Archive", bar.libraryButton)] + cells.enumerated().map { ("Space \($0.offset + 1)", $0.element) }
+                    + [("Feedback", bar.feedbackButton), ("+", bar.plusButton)]
+                let contentView = c.window.contentView?.superview ?? c.window.contentView
+                var problems: [String] = []
+                for (name, v) in named {
+                    let f = v.convert(v.bounds, to: nil)
+                    let mid = NSPoint(x: f.midX, y: f.midY)
+                    let hit = contentView?.hitTest(contentView?.superview?.convert(mid, from: nil) ?? mid)
+                    let inBar = v.frame.minX >= -0.5 && v.frame.maxX <= bar.bounds.width + 0.5
+                    if v.isHiddenOrHasHiddenAncestor || f.width < 4 || !inBar || !(hit.map { $0 === v || $0.isDescendant(of: v) } ?? false) {
+                        problems.append("\(name) \(NSStringFromRect(f)) hit \(hit.map { String(describing: type(of: $0)) } ?? "nil")")
+                    }
+                }
+                let dots = cells.compactMap { $0 as? SpaceBarView.SpaceCell }.filter { !$0.hasEmoji }.count
+                check(cells.count == n && dots >= 2 && bar.showsFeedback && problems.isEmpty,
+                      "feedbackbtn: \(n) Spaces (\(dots) without an icon) at \(Int(bar.bounds.width)) pt: Archive, all \(cells.count) Space icons, Feedback and + visible and clickable (\(problems.isEmpty ? "each hit at its centre" : problems.joined(separator: "; ")))")
+            }
+            renderFooter("feedbackbtn-footer-228-\(n)spaces-mixed")
+        }
+        // Real clicks there (8 Spaces at 228 pt): Feedback opens the sheet, a dot Space switches to it.
+        realClick({ footer().feedbackButton }, "Feedback beside 8 Spaces")
+        step { [self] done in waitUntil({ FeedbackSheet.active != nil }, timeout: 4) { done() } }
+        run { [self] in
+            check(FeedbackSheet.active?.sheet.isVisible == true, "feedbackbtn [real click]: with 8 Spaces at 228 pt Feedback opens the sheet")
+            FeedbackSheet.active?.close()
+        }
+        wait(0.6)
+        var dotSpace = ""
+        realClick({ [self] in
+            let cell = footer().cellViews.compactMap { $0 as? SpaceBarView.SpaceCell }.first { !$0.hasEmoji && $0.spaceID != self.c.currentSpaceID }
+            dotSpace = cell?.spaceID ?? ""
+            return cell
+        }, "a dot Space beside Feedback", settle: 0.8)
+        run { [self] in check(!dotSpace.isEmpty && c.currentSpaceID == dotSpace, "feedbackbtn [real click]: a squeezed dot Space is clickable (now on it: \(c.currentSpaceID == dotSpace))") }
+
+        setSpaces(5)
+        run { [self] in c.setSidebarWidth(260) }
+        layoutCheck(5, expectFeedback: true)
+
+        // Feedback (5 Spaces, so it sits between the icons and +): a real click opens the sheet on this window.
         realClick({ footer().feedbackButton }, "the footer's Feedback button")
         step { [self] done in waitUntil({ FeedbackSheet.active != nil }, timeout: 4) { done() } }
         run { [self] in

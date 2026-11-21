@@ -174,26 +174,18 @@ public enum SpaceBarLayout {
 
     /// The Feedback button's room before the "+" button (its 32 pt plus a 2 pt gap).
     public static let feedbackButton: Double = 34
-    /// The Space icons never get narrower than this to make room for the Feedback button.
-    public static let feedbackMinCell: Double = 24
-
-    /// Whether the footer has room for the Feedback button: with one Space (no icons), always; otherwise only while
-    /// every Space icon keeps at least `feedbackMinCell` beside it. Narrower, it's left out (Help and ⌘T have it).
-    public static func showsFeedback(sidebarWidth: Double, spaces: Int, agent: Bool = false) -> Bool {
-        let base = span(sidebarWidth: sidebarWidth) - (agent ? agentButton : 0)
-        guard spaces >= 2 else { return base >= feedbackButton }
-        return (base - feedbackButton) / Double(spaces) >= feedbackMinCell
+    /// Whether the footer has room for the Feedback button. Feedback and "+" never give way to the Space icons (lead
+    /// 2026-11-20, owner bug: with 5 Spaces the button was gone): the icons squeeze first (Arc's squeeze above: the
+    /// current Space keeps 22 pt, the others share the rest and turn into dots under 18 pt). Only a bar too narrow for
+    /// the current icon beside it (narrower than any sidebar Airc allows) leaves it out.
+    public static func showsFeedback(sidebarWidth: Double, spaces: Int) -> Bool {
+        span(sidebarWidth: sidebarWidth) - feedbackButton >= (spaces >= 2 ? minCurrent : 0)
     }
 
-    /// The Airc Agent button's room after the Library button (its 32 pt plus a 2 pt gap). It always shows (owner,
-    /// 2026-11-20: the agent pane must be easy to find); Feedback gives way first.
-    public static let agentButton: Double = 34
-
-    /// Where the Space icons go: (left edge, span). Archive · Agent · Spaces · Feedback · +: the Agent button takes its
-    /// room from the span's left end, the Feedback button (owner, 2026-11-16), when it shows, from its right end.
-    public static func region(sidebarWidth: Double, feedback: Bool, agent: Bool = false) -> (x: Double, span: Double) {
-        let left = agent ? agentButton : 0
-        let extra = (feedback ? feedbackButton : 0) + left
-        return (42 + left, max(0, span(sidebarWidth: sidebarWidth) - extra))
+    /// Where the Space icons go: (left edge, span). The Feedback button, when it shows, sits just left of "+"
+    /// (owner, 2026-11-16: Archive · Spaces · Feedback · +), so it takes its room from the span's right end.
+    public static func region(sidebarWidth: Double, feedback: Bool) -> (x: Double, span: Double) {
+        let extra = feedback ? feedbackButton : 0
+        return (42, max(0, span(sidebarWidth: sidebarWidth) - extra))
     }
 }

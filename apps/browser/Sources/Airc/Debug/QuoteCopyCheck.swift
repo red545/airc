@@ -293,16 +293,33 @@ extension SnapshotRunner {
         capture("quotecopy-\(engine.lowercased())-menu-toast")
         wait(2.5)
 
-        // 2. Share Quote, by a real click.
+        // 2. Share Quote, by a real click. sidebarchrome (owner 2026-11-20): the chip is inside the address pill and
+        // nothing below the pill moves (the first Favorite and the first pinned row, measured before and after).
+        var layoutBefore: [(String, NSRect)] = []
+        quoteChipFixtureRows()
         locate()
+        run { [self] in layoutBefore = quoteChipLayout() }
         drag { _ in }
         step { [self] done in
             waitUntil({ pill()?.isHidden == false }, timeout: 3) {
-                self.check(pill()?.isHidden == false, label("after the drag, Share Quote shows under the URL field"))
-                linkBefore = board.changeCount
-                done()
+                self.check(pill()?.isHidden == false, label("after the drag, Share Quote shows in the address pill"))
+                if let p = pill() {
+                    let place = self.quoteChipPlacement(p)
+                    self.check(place.ok, label("at the pill's right end (\(place.why))"))
+                }
+                // Mid-slide and settled: the sidebar's rows never move.
+                let mid = self.quoteChipShift(layoutBefore, self.quoteChipLayout())
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    let settled = self.quoteChipShift(layoutBefore, self.quoteChipLayout())
+                    let names = layoutBefore.map(\.0)
+                    self.check(mid.isEmpty && settled.isEmpty && names.contains("first Favorite") && names.contains("first pinned row"),
+                               label("0 px layout shift: \(mid.isEmpty && settled.isEmpty ? "first Favorite \(NSStringFromRect(layoutBefore.first { $0.0 == "first Favorite" }?.1 ?? .zero)), first pinned row \(NSStringFromRect(layoutBefore.first { $0.0 == "first pinned row" }?.1 ?? .zero)) unchanged" : "moved: " + mid + " / " + settled)"))
+                    linkBefore = board.changeCount
+                    done()
+                }
             }
         }
+        capture("quotecopy-\(engine.lowercased())-chip")
         realClick(pillPoint, "Share Quote")
         copied({ linkBefore }) { [self] link in
             check(link == want, label("a real click on Share Quote copies the same link (\(link))"))

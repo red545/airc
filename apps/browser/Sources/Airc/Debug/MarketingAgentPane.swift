@@ -129,11 +129,11 @@ extension SnapshotRunner {
         host.frame.size = host.fittingSize
         host.layoutSubtreeIfNeeded()
         guard let img = render(host) else { return [] }
-        let b = c.sidebar.footer.agentButton
+        let b = c.sidebar.header.agent.button
         var r = b.convert(b.bounds, to: c.root)
         if c.root.isFlipped { r.origin.y = c.root.bounds.height - r.maxY }
         let size = host.frame.size
-        return [MarketingStudio.Layer(image: img, frame: NSRect(x: frame.minX + r.midX - 28, y: frame.minY + r.maxY + 10, width: size.width, height: size.height),
+        return [MarketingStudio.Layer(image: img, frame: NSRect(x: frame.minX + r.midX - 28, y: frame.minY + r.minY - 10 - size.height, width: size.width, height: size.height),
                                       radius: 12, dark: dark, shadow: .panel)]
     }
 }
