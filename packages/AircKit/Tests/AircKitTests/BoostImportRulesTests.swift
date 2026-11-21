@@ -6,7 +6,8 @@ import XCTest
 /// BST-2: what a `.airc-boost` file may hold (256 KB besides its picture, no code from elsewhere), that a Boost with
 /// JavaScript is installed off, and the review's syntax colouring.
 final class BoostImportRulesTests: XCTestCase {
-    override class func setUp() { super.setUp(); TestSuffixes.install() }
+    override class func setUp() { super.setUp(); TestSuffixes.installForClass() }
+    override class func tearDown() { TestSuffixes.restoreAfterClass(); super.tearDown() }
 
     func fixture(js: String = "document.documentElement.dataset.boost = 'on';", css: String = "h1 { color: plum }") -> BoostFile {
         var f = BoostFile(boost: Boost(domain: "example.com", css: css, js: js, created: Date(timeIntervalSince1970: 1700000000)),

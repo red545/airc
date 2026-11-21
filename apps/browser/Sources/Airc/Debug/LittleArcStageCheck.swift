@@ -12,7 +12,8 @@ import AircKit
 ///      - the window server's front request for that window, the way Stage Manager, Mission Control and the Dock's
 ///        window list ask (SkyLight's front-process request with the window, its key-window event records, AX raise);
 ///      - a real click on its row;
-///      - real ⌘` (the physical key, keycode 50) from the browser window;
+///      - real ⌘` (the physical key, keycode 50) from the browser window (FAIL-ENV when the system hotkey doesn't fire for the
+///        driver: the app then gets the raw key, which the hotkey never delivers);
 ///      - the Window menu, with real clicks on the menu title and on its item;
 ///      each time: Airc active, the window key and in front;
 ///   3. closed with real ⌘W: not in the Window menu, not on screen, gone from the app's list;
@@ -257,6 +258,12 @@ extension SnapshotRunner {
             lasBrowserFront(tag) { ok in
                 guard ok else { return done() }
                 var seen: [String] = []
+                // The system's Move-focus hotkey is handled by the window server: the app never gets the key itself.
+                var raw = 0
+                let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
+                    if e.modifierFlags.contains(.command), [50, 10].contains(e.keyCode) { raw += 1 }
+                    return e
+                }
                 func press(_ n: Int) {
                     let code = n % 2 == 1 ? "cmd+50" : "cmd+10"
                     UIDriverClient.run(["--keycode", code]) { sent, out in
@@ -264,9 +271,16 @@ extension SnapshotRunner {
                             seen.append("\(code) → " + (NSApp.keyWindow.map { "\(type(of: $0))" } ?? "none"))
                             if !sent { self.note("\(tag): \(name): ⌘` press: \(out)") }
                             if w.isKeyWindow || n >= 4 || !sent {
+                                if let monitor { NSEvent.removeMonitor(monitor) }
                                 let f = self.lasForward(w)
-                                self.check(f.ok, "\(tag): \(name): real ⌘` (HID keycode 50 or the ISO key 10, Airc frontmost) brings it forward with the key "
-                                           + "(key windows after each press: \(seen.joined(separator: ", ")); \(f.desc))")
+                                let what = "\(tag): \(name): real ⌘` (HID keycode 50 or the ISO key 10, Airc frontmost) brings it forward with the key "
+                                    + "(key windows after each press: \(seen.joined(separator: ", ")); \(f.desc))"
+                                if !f.ok, raw > 0 {
+                                    self.note("FAIL-ENV " + what + ": the system's Move-focus hotkey didn't fire for the driver's key (the app got the raw "
+                                              + "⌘ key \(raw)×, which the hotkey never delivers; buildmac's Austrian layout types < on keycode 50)")
+                                } else {
+                                    self.check(f.ok, what)
+                                }
                                 return done()
                             }
                             press(n + 1)
@@ -287,23 +301,37 @@ extension SnapshotRunner {
                     if listed { self.note("FAIL-ENV \(tag): \(name): no Window menu title on the menu bar (AX)") }
                     return done()
                 }
-                UIDriverClient.run(["--click", String(Double(menu.x)), String(Double(menu.y))]) { ok, out in
-                    self.waitUntil({ self.lasMenuPoint("Window", item: w.title) != nil }, timeout: 2) {
-                        guard ok, let item = self.lasMenuPoint("Window", item: w.title) else {
-                            self.note("FAIL-ENV \(tag): \(name): the Window menu didn't open for a real click (\(out))")
-                            NSApp.mainMenu?.cancelTracking()
-                            return done()
-                        }
-                        UIDriverClient.run(["--click", String(Double(item.x)), String(Double(item.y))]) { _, _ in
-                            self.waitUntil({ self.lasForward(w).ok }, timeout: 3) {
-                                let f = self.lasForward(w)
-                                self.check(f.ok, "\(tag): \(name): chosen in the Window menu (real clicks) it comes forward with the key (\(f.desc))")
+                var tries: [String] = []
+                func attempt(_ n: Int) {
+                    UIDriverClient.run(["--click", String(Double(menu.x)), String(Double(menu.y))]) { ok, out in
+                        self.waitUntil({ self.lasMenuPoint("Window", item: w.title) != nil }, timeout: 2) {
+                            guard ok, self.lasMenuPoint("Window", item: w.title) != nil else {
+                                self.note("FAIL-ENV \(tag): \(name): the Window menu didn't open for a real click (\(out))")
                                 NSApp.mainMenu?.cancelTracking()
-                                done()
+                                return done()
+                            }
+                            // Once the menu has finished opening, where its item is now.
+                            self.waitUntil({ false }, timeout: 0.35) {
+                                guard let item = self.lasMenuPoint("Window", item: w.title) else { NSApp.mainMenu?.cancelTracking(); return done() }
+                                UIDriverClient.run(["--click", String(Double(item.x)), String(Double(item.y))]) { clicked, _ in
+                                    self.waitUntil({ self.lasForward(w).ok }, timeout: 3) {
+                                        let f = self.lasForward(w)
+                                        tries.append("try \(n): item at (\(Int(item.x)),\(Int(item.y))) clicked \(clicked) → key \(w.isKeyWindow)")
+                                        if !f.ok, n < 2 {
+                                            NSApp.mainMenu?.cancelTracking()
+                                            return self.lasBrowserFront(tag) { _ in attempt(n + 1) }
+                                        }
+                                        self.check(f.ok, "\(tag): \(name): chosen in the Window menu (real clicks) it comes forward with the key "
+                                                   + "(\(tries.joined(separator: "; ")); \(f.desc))")
+                                        NSApp.mainMenu?.cancelTracking()
+                                        done()
+                                    }
+                                }
                             }
                         }
                     }
                 }
+                attempt(1)
             }
         }
         run { [self] in lasInventory(tag, name) }
@@ -388,34 +416,6 @@ extension SnapshotRunner {
             }
         }
 
-        // Control: ⌘` between two browser windows (whether ⌘` reaches Airc's window cycle at all), with the key events
-        // the app receives.
-        step { [self] done in
-            guard s.real, let app else { return done() }
-            guard let other = app.openBlankWindow(from: c) else { check(false, "\(tag): control: a second browser window opens"); return done() }
-            let first = c.window
-            var got: [String] = []
-            let monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .systemDefined]) { e in
-                got.append(e.type == .keyDown ? "keyDown \(e.keyCode) mods \(e.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue >> 16)"
-                           : "systemDefined \(e.subtype.rawValue)")
-                return e
-            }
-            NSApp.activate(ignoringOtherApps: true)
-            first.makeKeyAndOrderFront(nil)
-            waitUntil({ first.isKeyWindow }, timeout: 3) {
-                UIDriverClient.run(["--keycode", "cmd+50"]) { ok, out in
-                    self.waitUntil({ other.window.isKeyWindow }, timeout: 1.5) {
-                        if let monitor { NSEvent.removeMonitor(monitor) }
-                        self.note("\(tag): control: real ⌘` (HID keycode 50) between two browser windows: \(other.window.isKeyWindow ? "moved" : "didn't move") "
-                                  + "the key (driver ok \(ok)\(ok ? "" : ": " + out); the app got: \(got.isEmpty ? "nothing" : got.joined(separator: ", ")))")
-                        other.window.close()
-                        first.makeKeyAndOrderFront(nil)
-                        self.waitUntil({ false }, timeout: 0.6, then: done)
-                    }
-                }
-            }
-        }
-
         // 1. An ordinary Little Airc.
         open("/a", panel: false, "Little Airc")
         lasWaysBack(s, "Little Airc")
@@ -461,6 +461,43 @@ extension SnapshotRunner {
                                           + "excluded \(w.isExcludedFromWindowsMenu)): ⌘` \(w.isKeyWindow ? "REACHES" : "skips") Little Airc "
                                           + "(key \(NSApp.keyWindow.map { "\(type(of: $0))" } ?? "none"))")
                                 undo()
+                                done()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Isolation: ⌘` from the browser window to (a) a fresh plain titled NSWindow, (b) a bare LittleArcWindow (no
+        // controller, no engine), (c) the real Little Airc, with every became-key and resigned-key on the way.
+        if ProcessInfo.processInfo.environment["AIRC_LAS_CYCLE"] == "1" {
+            for kind in ["plain NSWindow", "bare LittleArcWindow", "Little Airc"] {
+                step { [self] done in
+                    guard s.real else { return done() }
+                    let style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
+                    let frame = NSRect(x: 300, y: 300, width: 480, height: 320)
+                    let target: NSWindow? = kind == "plain NSWindow" ? NSWindow(contentRect: frame, styleMask: style, backing: .buffered, defer: false)
+                        : kind == "bare LittleArcWindow" ? LittleArcWindow(contentRect: frame, styleMask: style, backing: .buffered, defer: false)
+                        : s.little?.window
+                    guard let w = target else { return done() }
+                    if kind != "Little Airc" { w.isReleasedWhenClosed = false; w.title = kind; w.orderFront(nil) }
+                    var seen: [String] = []
+                    let names: (Notification) -> String = { n in
+                        let win = n.object as? NSWindow
+                        return "\(n.name == NSWindow.didBecomeKeyNotification ? "key" : "resign") \(win.map { "\(type(of: $0)) “\($0.title)”" } ?? "?")"
+                    }
+                    let o1 = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: nil) { seen.append(names($0)) }
+                    let o2 = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: nil, queue: nil) { seen.append(names($0)) }
+                    lasBrowserFront(tag) { ok in
+                        seen.removeAll()
+                        let order = NSApp.orderedWindows.prefix(6).map { "\(type(of: $0)) “\($0.title)” vis \($0.isVisible)" }.joined(separator: " | ")
+                        UIDriverClient.run(["--keycode", "cmd+50"]) { _, _ in
+                            self.waitUntil({ false }, timeout: 1.2) {
+                                NotificationCenter.default.removeObserver(o1)
+                                NotificationCenter.default.removeObserver(o2)
+                                self.note("\(tag): cycle isolation: \(kind): ⌘` \(w.isKeyWindow ? "REACHES" : "skips") it; key events: "
+                                          + "\(seen.isEmpty ? "none" : seen.joined(separator: ", ")); order before: \(order)")
+                                if kind != "Little Airc" { w.close() }
                                 done()
                             }
                         }

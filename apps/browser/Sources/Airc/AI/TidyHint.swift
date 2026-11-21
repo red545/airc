@@ -95,6 +95,12 @@ enum TidyHint {
 
     // MARK: Actions (each one click; each leaves a toast with Undo)
 
+    /// The card offers Tidy only where Tidy is available (TidyTabsFeature.isAvailable) and there's enough to group;
+    /// without it, the card still offers archiving old tabs and pinning.
+    static func offersTidy(_ o: Offer) -> Bool {
+        TidyTabsFeature.isAvailable && o.tidyCount >= TidyTabsRules.minPagesPerFolder
+    }
+
     static func tidy(_ c: WindowController, spaceID: String) {
         doneForToday(c.store)
         TidyTabsFeature.start(in: c, spaceID: spaceID)
@@ -393,7 +399,7 @@ final class TidyHintCardView: SidebarRowView {
             title.stringValue = "Today has \(loose) tabs"
             subtitle.stringValue = "Each one can be undone"
             lineTexts = []
-            if o.tidyCount >= TidyTabsRules.minPagesPerFolder {
+            if TidyHint.offersTidy(o) {
                 let how = TidyTabsFeature.usesAppleIntelligence ? "by topic" : "by site"
                 setButton("tidy", "Tidy \(o.tidyCount) tabs into folders", symbol: "square.stack.3d.down.right",
                           tooltip: "Groups Today’s tabs into folders \(how). Shows them first; nothing moves until you apply") { [weak c] in
@@ -463,7 +469,7 @@ final class TidyHintCardView: SidebarRowView {
             return p + head + lines * lineHeight + 6 + buttonHeight + p + 8
         }
         let o = TidyHint.offer(c, spaceID: spaceID)
-        let actions = CGFloat((o.tidyCount >= TidyTabsRules.minPagesPerFolder ? 1 : 0) + (o.archive == nil ? 0 : 1) + o.pins.count)
+        let actions = CGFloat((TidyHint.offersTidy(o) ? 1 : 0) + (o.archive == nil ? 0 : 1) + o.pins.count)
         return p + head + actions * buttonHeight + 4 + 22 + 2 + buttonHeight + p + 8
     }
 

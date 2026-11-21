@@ -108,16 +108,60 @@ extension SnapshotRunner {
                 }
                 let (p, how) = hit
                 let s = c.window.convertPoint(toScreen: p), top = NSScreen.screens.first?.frame.maxY ?? 0
-                guard NSApp.isActive, c.window.isKeyWindow, c.window.isOnActiveSpace,
-                      NSWindow.windowNumber(at: s, belowWindowWithWindowNumber: 0) == c.window.windowNumber else {
-                    note("FAIL-ENV profilesignin \(tag): our window isn't the active key window at \(title) (active \(NSApp.isActive))")
-                    return done()
+                func click() {
+                    UIDriverClient.run(["--click", String(Double(s.x)), String(Double(top - s.y))]) { ok, out in
+                        if !ok { self.note("FAIL-ENV profilesignin \(tag): the driver's click on \(title) (\(out.prefix(200)))") }
+                        else { self.note("profilesignin \(tag): \(title) real click (\(how) point)") }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: done)
+                    }
                 }
-                UIDriverClient.run(["--click", String(Double(s.x)), String(Double(top - s.y))]) { ok, out in
-                    if !ok { self.note("FAIL-ENV profilesignin \(tag): the driver's click on \(title) (\(out.prefix(200)))") }
-                    else { self.note("profilesignin \(tag): \(title) real click (\(how) point)") }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: done)
+                if signInFocused(at: s) { return click() }
+                // Focus lost (another app or window took it): re-activate our window once, then click; if that
+                // doesn't bring it back, end the run now with the reason instead of waiting out every later step
+                // until the 240 s watchdog (release059, 0.1.47: the app was idle, not hung).
+                let lost = signInFocusState(at: s)
+                note("profilesignin \(tag): focus lost at \(title) (\(lost)); re-activating our window once")
+                signInReactivate { [self] in
+                    guard signInFocused(at: s) else {
+                        return finishForcing("FAIL-ENV profilesignin \(tag): focus lost at \(title) and not back after one re-activation "
+                                             + "(before: \(lost); after: \(signInFocusState(at: s))); ending the run now, not at the watchdog")
+                    }
+                    note("profilesignin \(tag): focus back at \(title) after one re-activation")
+                    click()
                 }
+            }
+        }
+    }
+
+    /// Whether a real click at `s` (screen points) lands in our active key window on the active Space.
+    func signInFocused(at s: NSPoint) -> Bool {
+        NSApp.isActive && c.window.isKeyWindow && c.window.isOnActiveSpace
+            && NSWindow.windowNumber(at: s, belowWindowWithWindowNumber: 0) == c.window.windowNumber
+    }
+
+    /// What's wrong with the focus, named, for the log.
+    func signInFocusState(at s: NSPoint) -> String {
+        let front = NSWorkspace.shared.frontmostApplication
+        let over = NSWindow.windowNumber(at: s, belowWindowWithWindowNumber: 0)
+        return "app active \(NSApp.isActive), window key \(c.window.isKeyWindow), on active Space \(c.window.isOnActiveSpace), "
+            + "window at the point \(over == c.window.windowNumber ? "ours" : "another (\(over))"), "
+            + "frontmost \(front?.bundleIdentifier ?? front?.localizedName ?? "none")"
+    }
+
+    /// One re-activation, with the helpers the runner already uses (activateForRealInput's activate + key, then
+    /// signInFront's click on the gap below the page if still not key). No AppleScript.
+    func signInReactivate(_ then: @escaping () -> Void) {
+        NSApp.activate(ignoringOtherApps: true)
+        c.window.makeKeyAndOrderFront(nil)
+        waitUntil({ NSApp.isActive && self.c.window.isKeyWindow }, timeout: 3) { [self] in
+            guard !(NSApp.isActive && c.window.isKeyWindow), UIDriverClient.available else { return then() }
+            let card = c.card.convert(c.card.bounds, to: nil)
+            let g = c.window.convertPoint(toScreen: NSPoint(x: card.midX, y: card.minY - AircMetrics.Window.cardInset / 2 - 1))
+            // Never click into another app's window: only when our window is the one under the gap.
+            guard NSWindow.windowNumber(at: g, belowWindowWithWindowNumber: 0) == c.window.windowNumber else { return then() }
+            let top = NSScreen.screens.first?.frame.maxY ?? 0
+            UIDriverClient.run(["--click", String(Double(g.x)), String(Double(top - g.y))]) { _, _ in
+                self.waitUntil({ NSApp.isActive && self.c.window.isKeyWindow }, timeout: 3) { then() }
             }
         }
     }

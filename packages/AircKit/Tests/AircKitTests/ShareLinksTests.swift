@@ -5,7 +5,8 @@ import XCTest
 
 /// P17a: share links (docs/dev/share-links.md): round trips, and every way a hostile link is refused whole.
 final class ShareLinksTests: XCTestCase {
-    override class func setUp() { super.setUp(); TestSuffixes.install() }
+    override class func setUp() { super.setUp(); TestSuffixes.installForClass() }
+    override class func tearDown() { TestSuffixes.restoreAfterClass(); super.tearDown() }
 
     let trip = ShareSnapshot(.space(name: "Trip to Lisbon", icon: "🧳", items: [
         .tab(ShareTab(url: "https://www.visitlisboa.com/", title: "Visit Lisboa")),

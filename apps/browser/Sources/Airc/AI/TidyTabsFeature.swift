@@ -38,8 +38,13 @@ enum TidyTabsFeature {
     private(set) static var lastMessage: String?
     private static var prewarmed = false
 
-    /// Tidy is always offered: by topic with Apple Intelligence, by site without it.
-    static var isAvailable: Bool { true }
+    /// Tidy by site without Apple Intelligence is built but not offered yet: the owner decided on 2026-11-09 that there is
+    /// no Tidy without Apple Intelligence, and that decision stands until they approve the by-site Tidy. Turning this on
+    /// offers Tidy everywhere: by topic with Apple Intelligence, by site without it.
+    static let offersTidyBySite = false
+
+    /// Whether Tidy is offered at all (the Today header, the tidy card, the Command Bar).
+    static var isAvailable: Bool { offersTidyBySite || usesAppleIntelligence }
 
     /// Whether a tidy now sorts by topic (Apple Intelligence on) rather than by site.
     static var usesAppleIntelligence: Bool {
@@ -78,6 +83,7 @@ enum TidyTabsFeature {
 
     static func start(in c: WindowController, spaceID: String) {
         guard running[spaceID] == nil, c.store.space(spaceID) != nil else { return }
+        guard isAvailable else { return say("Tidy Tabs needs Apple Intelligence", in: c) }
         let picked = model()
         let tidyModel = picked.model, bySite = picked.bySite
         TidyHint.cancelPreview(spaceID)

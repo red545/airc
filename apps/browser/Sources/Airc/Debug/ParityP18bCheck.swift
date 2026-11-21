@@ -171,24 +171,40 @@ extension SnapshotRunner {
         }
         wait(0.6)
 
-        // 1. Without Apple Intelligence: Tidy groups by site (tidyux), and the model is never asked.
-        run { [self] in
-            c.pageView(for: space)?.sidebarHovered = true
-            let d = p18bDivider(space)
-            d?.layoutSubtreeIfNeeded()
-            let commands = p18bCommands()
-            check(d != nil && d?.tidy.isHidden == false && d?.tidy.toolTip?.contains("by site") == true && commands.contains("Tidy Tabs"),
-                  "\(tag): without Apple Intelligence Tidy still shows (by site) and the Command Bar has Tidy Tabs (divider \(d != nil), "
-                    + "hidden \(d?.tidy.isHidden ?? true))")
-            before = p18bLayout(space)
-            press()
-        }
-        waitIdle()
-        run { [self] in
-            // travel.example.com has the two Lisbon flight tabs (one page) only: no site has two pages, so nothing moves.
-            check(fake.asked.isEmpty && TidyTabsFeature.lastMessage == "No site has two pages open in Today" && p18bLayout(space) == before,
-                  "\(tag): by site, a Today with no site twice makes no folder and asks no model (asked \(fake.asked.count), "
-                    + "\(TidyTabsFeature.lastMessage ?? "-"))")
+        // 1. Without Apple Intelligence. Gated (TidyTabsFeature.offersTidyBySite off, the owner's 2026-11-09 "no Tidy
+        // without AI"): no Tidy in the Today header or the Command Bar, and nothing runs. Ungated: Tidy groups by site
+        // (tidyux), and the model is never asked.
+        if !TidyTabsFeature.offersTidyBySite {
+            run { [self] in
+                c.pageView(for: space)?.sidebarHovered = true
+                let d = p18bDivider(space)
+                d?.layoutSubtreeIfNeeded()
+                let commands = p18bCommands()
+                press()
+                check(d != nil && d?.tidy.isHidden == true && !commands.contains("Tidy Tabs") && !TidyTabsFeature.isRunning(space)
+                        && fake.asked.isEmpty,
+                      "\(tag): without Apple Intelligence the Today header has no Tidy and the Command Bar no Tidy Tabs (divider \(d != nil), "
+                        + "hidden \(d?.tidy.isHidden ?? false), asked \(fake.asked.count))")
+            }
+        } else {
+            run { [self] in
+                c.pageView(for: space)?.sidebarHovered = true
+                let d = p18bDivider(space)
+                d?.layoutSubtreeIfNeeded()
+                let commands = p18bCommands()
+                check(d != nil && d?.tidy.isHidden == false && d?.tidy.toolTip?.contains("by site") == true && commands.contains("Tidy Tabs"),
+                      "\(tag): without Apple Intelligence Tidy still shows (by site) and the Command Bar has Tidy Tabs (divider \(d != nil), "
+                        + "hidden \(d?.tidy.isHidden ?? true))")
+                before = p18bLayout(space)
+                press()
+            }
+            waitIdle()
+            run { [self] in
+                // travel.example.com has the two Lisbon flight tabs (one page) only: no site has two pages, so nothing moves.
+                check(fake.asked.isEmpty && TidyTabsFeature.lastMessage == "No site has two pages open in Today" && p18bLayout(space) == before,
+                      "\(tag): by site, a Today with no site twice makes no folder and asks no model (asked \(fake.asked.count), "
+                        + "\(TidyTabsFeature.lastMessage ?? "-"))")
+            }
         }
 
         // 2. With it: Tidy left of Clear while the pointer is over the sidebar, and in the Command Bar.

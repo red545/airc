@@ -6,7 +6,8 @@ import Darwin
 
 /// Code review H5: the Command Bar's history work per keystroke, with a full history (20,000 entries, the per-profile
 /// cap). Prints the timings; `swift test -c release -Xswiftc -enable-testing --filter HistoryPerfTests` gives the
-/// release numbers.
+/// release numbers. The results are checked in every run; the millisecond budgets only in the timing run
+/// (`AIRC_TIMING_RUN=1`, see TimingBudget).
 final class HistoryPerfTests: XCTestCase {
     func testRemovedURLCannotRemainAsPublishedHostCompletion() throws {
         let h = try HistoryStore(path: nil)
@@ -34,7 +35,27 @@ final class HistoryPerfTests: XCTestCase {
         return h
     }
 
+    static let keystrokes = ["g", "gi", "git", "site12", "page title", "s", "inbox 1", "xyzzy"]
+
+    /// What each keystroke finds in a full history, in every run (serial, `--parallel`, inside app builds).
+    func testKeystrokeResultsAtTwentyThousandEntries() throws {
+        let h = try fullHistory()
+        let snap = h.indexSnapshotNow(profileID: "p")
+        XCTAssertEqual(snap.count, HistoryStore.maxEntriesPerProfile)
+        let extra = [(url: "https://github.com/", weight: 2.0)]
+        for q in Self.keystrokes {
+            let hits = snap.search(q, limit: 8)
+            XCTAssertEqual(hits.count, q == "xyzzy" ? 0 : 8, "“\(q)”")
+            XCTAssertEqual(snap.search(q, limit: 8).map(\.entry.url), hits.map(\.entry.url), "“\(q)” is stable")
+            _ = snap.inlineCompletion(for: q, extra: extra)
+        }
+        XCTAssertNil(snap.inlineCompletion(for: "xyzzy", extra: extra))
+    }
+
+    /// The per-keystroke budgets, in the timing run only (about 20 s of sampling): the inline budget has about 2x
+    /// headroom on an idle build Mac (1.0–1.1 ms for “s” against 2 ms), and the parallel suite measured 2.025 ms.
     func testKeystrokeCostAtTwentyThousandEntries() throws {
+        try TimingBudget.requireTimingRun("keystroke cost at 20,000 entries")
         let h = try fullHistory()
         let t0 = CACurrentMediaTime()
         let snap = h.indexSnapshotNow(profileID: "p")
@@ -42,7 +63,7 @@ final class HistoryPerfTests: XCTestCase {
         XCTAssertEqual(snap.count, HistoryStore.maxEntriesPerProfile)
         var report = [String(format: "index build (off the main thread, once): %.1f ms", build)]
         var worstSearch = 0.0, worstInline = 0.0
-        for q in ["g", "gi", "git", "site12", "page title", "s", "inbox 1", "xyzzy"] {
+        for q in Self.keystrokes {
             // Warm caches before sampling; fixture/index construction is outside the timed region.
             let extra = [(url: "https://github.com/", weight: 2.0)]
             for _ in 0..<5 {
@@ -71,6 +92,9 @@ final class HistoryPerfTests: XCTestCase {
             report.append(String(format: "%-12@ median search (off main) %6.2f ms, median inline completion (main) %6.3f ms, %d hits",
                                  "“\(q)”" as NSString, search, inline, hits.count))
         }
+        var load = [0.0, 0.0, 0.0]
+        getloadavg(&load, 3)
+        report.append(String(format: "load average %.2f (%d cores)", load[0], ProcessInfo.processInfo.activeProcessorCount))
         print("[history-perf]\n" + report.joined(separator: "\n"))
         // Generous bounds that hold in debug builds too; the report has the real numbers.
         XCTAssertLessThan(worstInline, 2, "inline completion must stay cheap enough for the main thread")

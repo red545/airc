@@ -8,7 +8,8 @@ import XCTest
 /// nothing, as the service checks it), each picture's checks, the local copy (the same items, new ids, not linked), and
 /// the client's requests (https only, never answered from another host).
 final class EaselImportTests: XCTestCase {
-    override class func setUp() { super.setUp(); TestSuffixes.install() }
+    override class func setUp() { super.setUp(); TestSuffixes.installForClass() }
+    override class func tearDown() { TestSuffixes.restoreAfterClass(); super.tearDown() }
 
     let id = "Ab3dEf6hIj9K"
 

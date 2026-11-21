@@ -4,7 +4,8 @@ import XCTest
 @testable import AircKit
 
 final class BoostFileTests: XCTestCase {
-    override class func setUp() { super.setUp(); TestSuffixes.install() }
+    override class func setUp() { super.setUp(); TestSuffixes.installForClass() }
+    override class func tearDown() { TestSuffixes.restoreAfterClass(); super.tearDown() }
 
     func fixture() -> BoostFile {
         BoostFile(boost: Boost(domain: "alice.github.io", colors: .init(tint: 0.2), font: .init(family: .charter, size: 1),

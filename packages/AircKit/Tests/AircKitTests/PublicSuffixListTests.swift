@@ -13,12 +13,35 @@ enum TestSuffixes {
     }()
 
     static func install() { PublicSuffixList.use(list) }
+
+    /// A class fixture: the list for the class's tests, and afterwards whatever was installed before. The list is
+    /// process-wide, so a class that installed it and left it would hand it to every class after it in a serial run,
+    /// while a `--parallel` worker runs each test in a fresh process with no list: a test that only passed because an
+    /// earlier class installed it would pass serially and fail in parallel (or the other way round for a test that
+    /// needs no list). Pair it with `restoreAfterClass()` in `class func tearDown()`.
+    static func installForClass() {
+        saved.mutate { $0.append(PublicSuffixList.shared) }
+        install()
+    }
+
+    static func restoreAfterClass() {
+        var previous: PublicSuffixList?
+        saved.mutate { previous = $0.popLast() }
+        if let previous { PublicSuffixList.use(previous) }
+    }
+
+    private static let saved = LockedBox<[PublicSuffixList]>([])
 }
 
 final class PublicSuffixListTests: XCTestCase {
     override class func setUp() {
         super.setUp()
-        TestSuffixes.install()
+        TestSuffixes.installForClass()
+    }
+
+    override class func tearDown() {
+        TestSuffixes.restoreAfterClass()
+        super.tearDown()
     }
 
     /// Expected keys from an independent implementation of the list's algorithm (Python, on the same file).

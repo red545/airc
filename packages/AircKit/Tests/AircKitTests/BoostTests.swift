@@ -7,7 +7,12 @@ import XCTest
 final class BoostTests: XCTestCase {
     override class func setUp() {
         super.setUp()
-        TestSuffixes.install()
+        TestSuffixes.installForClass()
+    }
+
+    override class func tearDown() {
+        TestSuffixes.restoreAfterClass()
+        super.tearDown()
     }
 
     // MARK: Sites

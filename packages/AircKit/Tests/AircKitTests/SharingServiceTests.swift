@@ -6,7 +6,8 @@ import XCTest
 /// H01, H02, B03: the sharing service's client (Sharing/SharingService.swift) against a stubbed network: the requests
 /// it makes, and every answer it refuses. The service itself is tested in apps/marketing/test/sharing.test.mjs.
 final class SharingServiceTests: XCTestCase {
-    override class func setUp() { super.setUp(); TestSuffixes.install() }
+    override class func setUp() { super.setUp(); TestSuffixes.installForClass() }
+    override class func tearDown() { TestSuffixes.restoreAfterClass(); super.tearDown() }
 
     final class Stub: URLProtocol, @unchecked Sendable {
         nonisolated(unsafe) static var answer: (URLRequest, Data?) -> (Int, Data) = { _, _ in (404, Data()) }

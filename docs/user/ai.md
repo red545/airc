@@ -206,9 +206,8 @@ puts them back.
   nothing else is left to undo. You can also drag tabs out of the folders by hand, or right-click a folder and choose
   **Ungroup**.
 - "No tab groups found" means the model saw no topic shared by two pages: nothing changed.
-- **Without Apple Intelligence, Tidy groups by site** instead: one folder per site with two pages or more open in Today,
-  named after the site ("news.example.com"). It reads only each tab's site, uses no model and is instant. The preview
-  says "Grouped by site". "No site has two pages open in Today" means there was nothing to group.
+- **Tidy needs Apple Intelligence.** Without it, Tidy isn't offered: not in the Today header, the tidy card or the
+  Command Bar. **Clear** and the tidy card's Archive and Pin still work.
 - Long lists are sorted in parts of up to 24 pages (the model's context is small), at most 240 pages per tidy, and each
   part keeps the folder names the earlier parts made. The same tabs get the same folders: the model always picks its
   most likely answer.
@@ -226,9 +225,9 @@ folder on this Mac: it isn't synced or exported.
 The AI features need Apple Intelligence: macOS 26 or later on a Mac that supports it, with Apple Intelligence turned on
 in **System Settings → Apple Intelligence & Siri** and its model downloaded. Without it, Settings → AI says what's
 missing, the switches are greyed out and nothing changes: tabs show their pages' titles, ⌘F has no ✦, links get no
-previews and downloads keep their names, and Tidy Tabs groups by site instead of by topic. Airc still runs on macOS 14
+previews and downloads keep their names, and Tidy Tabs isn't offered. Airc still runs on macOS 14
 and 15; the features just aren't there. No other model stands in on a Mac without Apple Intelligence: the owner decided
-on 2026-11-09 that Airc's AI runs only on the model on your Mac. (Tidy by site is a plain rule, not a model.)
+on 2026-11-09 that Airc's AI runs only on the model on your Mac.
 
 ## Usage data
 

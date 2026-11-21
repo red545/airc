@@ -227,42 +227,68 @@ extension SnapshotRunner {
         run { [self] in check(tuLayout(space) == before, "\(tag): Undo puts the Favorite back in Today exactly") }
 
         // 6. Apple Intelligence off: by site, no model; Cancel; the header's Tidy; Apply; a real ⌘Z.
-        newDay("2031-03-05")
-        var asked = 0
-        run { [self] in
-            asked = fake.asked.count
-            TidyTabsFeature.testOverride = (false, fake)
-            c.reloadAll(animated: false)
-        }
-        clickCard("tidy", "Tidy by site")
-        step { [self] done in waitUntil({ TidyHint.previews[space] != nil }, timeout: 8) { done() } }
-        reload()
-        run { [self] in
-            let p = TidyHint.previews[space]
-            check(p?.bySite == true && p?.plan.folders.map(\.name) == ["news.example.com", "shop.example.net", "recipes.example.org", "docs.example.com"]
-                    && fake.asked.count == asked && tuLayout(space) == before,
-                  "\(tag): without Apple Intelligence Tidy previews folders by site and asks no model (\(p?.plan.folders.map(\.name) ?? []))")
-        }
-        clickCard("cancel", "Cancel")
-        run { [self] in
-            check(TidyHint.previews[space] == nil && tuLayout(space) == before && card() == nil, "\(tag): Cancel moves nothing")
-            c.pageView(for: space)?.sidebarHovered = true
-            divider()?.layoutSubtreeIfNeeded()
-        }
-        realClick("the header's Tidy") { divider()?.tidy }
-        step { [self] done in waitUntil({ TidyHint.previews[space] != nil }, timeout: 8) { done() } }
-        run { [self] in c.pageView(for: space)?.sidebarHovered = false }
-        reload()
-        run { [self] in check(card()?.mode == .preview, "\(tag): the Today header's Tidy shows the same preview (card \(card() != nil))") }
-        clickCard("apply", "Apply by site")
-        run { [self] in check(folders().count == 4, "\(tag): Apply makes the four site folders (\(folders().count))") }
-        step { [self] done in
-            UIDriverClient.run(["--key", "cmd+z", "--pid", "\(getpid())"]) { ok, out in
-                if !ok { self.note("FAIL-ENV \(tag) [real key] ⌘Z: \(out)") }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: done)
+        // Gated (TidyTabsFeature.offersTidyBySite off: the owner's 2026-11-09 "no Tidy without AI"): without Apple
+        // Intelligence the card, the header and the Command Bar offer no Tidy, and the card still offers the rest.
+        if !TidyTabsFeature.offersTidyBySite {
+            newDay("2031-03-05")
+            run { [self] in
+                TidyTabsFeature.testOverride = (false, fake)
+                c.reloadAll(animated: false)
+                c.pageView(for: space)?.sidebarHovered = true
+                divider()?.layoutSubtreeIfNeeded()
             }
+            reload()
+            run { [self] in
+                let k = card()
+                let keys = ["tidy", "archive", "pin0", "pin1", "notnow"].filter { k?.button($0) != nil }
+                check(k?.mode == .offer && k?.button("tidy") == nil && k?.button("notnow") != nil && keys.count >= 2,
+                      "\(tag): without Apple Intelligence the card offers no Tidy, only the rest (\(keys))")
+                let header = divider()?.tidy
+                check(header == nil || header?.isHidden == true || header?.alphaValue == 0,
+                      "\(tag): without Apple Intelligence the Today header shows no Tidy")
+                check(!TidyTabsFeature.isAvailable, "\(tag): Tidy isn't available without Apple Intelligence (Command Bar too)")
+                c.pageView(for: space)?.sidebarHovered = false
+                TidyTabsFeature.testOverride = (true, fake)
+                c.reloadAll(animated: false)
+            }
+        } else {
+            newDay("2031-03-05")
+            var asked = 0
+            run { [self] in
+                asked = fake.asked.count
+                TidyTabsFeature.testOverride = (false, fake)
+                c.reloadAll(animated: false)
+            }
+            clickCard("tidy", "Tidy by site")
+            step { [self] done in waitUntil({ TidyHint.previews[space] != nil }, timeout: 8) { done() } }
+            reload()
+            run { [self] in
+                let p = TidyHint.previews[space]
+                check(p?.bySite == true && p?.plan.folders.map(\.name) == ["news.example.com", "shop.example.net", "recipes.example.org", "docs.example.com"]
+                        && fake.asked.count == asked && tuLayout(space) == before,
+                      "\(tag): without Apple Intelligence Tidy previews folders by site and asks no model (\(p?.plan.folders.map(\.name) ?? []))")
+            }
+            clickCard("cancel", "Cancel")
+            run { [self] in
+                check(TidyHint.previews[space] == nil && tuLayout(space) == before && card() == nil, "\(tag): Cancel moves nothing")
+                c.pageView(for: space)?.sidebarHovered = true
+                divider()?.layoutSubtreeIfNeeded()
+            }
+            realClick("the header's Tidy") { divider()?.tidy }
+            step { [self] done in waitUntil({ TidyHint.previews[space] != nil }, timeout: 8) { done() } }
+            run { [self] in c.pageView(for: space)?.sidebarHovered = false }
+            reload()
+            run { [self] in check(card()?.mode == .preview, "\(tag): the Today header's Tidy shows the same preview (card \(card() != nil))") }
+            clickCard("apply", "Apply by site")
+            run { [self] in check(folders().count == 4, "\(tag): Apply makes the four site folders (\(folders().count))") }
+            step { [self] done in
+                UIDriverClient.run(["--key", "cmd+z", "--pid", "\(getpid())"]) { ok, out in
+                    if !ok { self.note("FAIL-ENV \(tag) [real key] ⌘Z: \(out)") }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: done)
+                }
+            }
+            run { [self] in check(tuLayout(space) == before, "\(tag): a real ⌘Z restores the exact layout after a tidy by site") }
         }
-        run { [self] in check(tuLayout(space) == before, "\(tag): a real ⌘Z restores the exact layout after a tidy by site") }
 
         // 7. Archive Today tabs after (the popup's menu chosen in-app: posted).
         newDay("2031-03-06")

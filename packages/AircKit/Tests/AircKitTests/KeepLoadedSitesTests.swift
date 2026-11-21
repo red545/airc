@@ -7,7 +7,12 @@ import XCTest
 final class KeepLoadedSitesTests: XCTestCase {
     override class func setUp() {
         super.setUp()
-        TestSuffixes.install()
+        TestSuffixes.installForClass()
+    }
+
+    override class func tearDown() {
+        TestSuffixes.restoreAfterClass()
+        super.tearDown()
     }
 
     private func keeps(_ url: String, extra: [String] = []) -> Bool {

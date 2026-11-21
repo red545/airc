@@ -8,7 +8,12 @@ import XCTest
 final class BoostShareTests: XCTestCase {
     override class func setUp() {
         super.setUp()
-        TestSuffixes.install()
+        TestSuffixes.installForClass()
+    }
+
+    override class func tearDown() {
+        TestSuffixes.restoreAfterClass()
+        super.tearDown()
     }
 
     // MARK: Frames

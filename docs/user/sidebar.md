@@ -68,7 +68,7 @@ them. Nothing here ever runs by itself: each is one click, and each can be undon
 
 - **The tidy card.** When a Space's Today has 12 tabs or more outside folders (or 6 or more and Today is taller than
   the sidebar), a card shows at the top of Today. It offers:
-  - **Tidy N tabs into folders**: see Tidy below.
+  - **Tidy N tabs into folders** (with Apple Intelligence): see Tidy below.
   - **Archive N tabs idle X h**: the tabs you haven't looked at for 6, 3 or 1 hours (the longest that finds three or
     more). The page on screen is never one of them.
   - **Pin a site** (to Favorites): the one or two sites with the most Today tabs, so the Favorites grid at the top
@@ -80,7 +80,7 @@ them. Nothing here ever runs by itself: each is one click, and each can be undon
   The card shows at most once a day on this Mac: any choice, or Not now, puts it away until tomorrow. Each action
   leaves a message with **Undo** (⌘Z works too).
 - **Tidy** (in the card, in the Today header next to Clear, or "Tidy Tabs" in the Command Bar) groups Today's tabs into
-  folders: by topic with Apple Intelligence, by site without it. It shows the folders first, with **Apply** and
+  folders by topic. It needs Apple Intelligence: without it, Tidy isn't offered, and the card offers the rest. It shows the folders first, with **Apply** and
   **Cancel**; nothing moves until you apply. See [Tidy Tabs](ai.md#tidy-tabs).
 - **Clear** (in the Today header) moves every Today tab except the one on screen to the Archive (Library → Archive).
   A message says how many, with **Undo**; the first time it also says where they went.
