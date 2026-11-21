@@ -1231,6 +1231,8 @@ final class DividerRowView: SidebarRowView {
     let tidy = TidyTabsLabel()   // P18b: Tidy Tabs (AI/TidyTabsFeature.swift)
     private var clearHovered = false
     var tidyHasEnoughPages: Bool?
+    /// What Clear's tooltip says (tidyux's check reads it).
+    var clearToolTip: String? { clear.toolTip }
     var sidebarHovered = false {
         didSet {
             guard sidebarHovered != oldValue else { return }
@@ -1245,7 +1247,7 @@ final class DividerRowView: SidebarRowView {
         layer?.addSublayer(line)
         clear.font = AircFont.micro.appFont
         clear.isHidden = true
-        clear.toolTip = "Clear this Space’s unpinned tabs"
+        clear.toolTip = "Clear: moves this Space’s Today tabs to the Archive (not the one on screen). Undo brings them back"
         addSubview(clear)
         addSubview(tidy)
     }

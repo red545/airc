@@ -87,6 +87,7 @@ extension SnapshotRunner {
             case "cast": mkCastShots(d)
             case "parityp20d": mkParityP20dShots(d)   // MarketingParityP20d.swift: the Task Manager
             case "parityp18b": MainActor.assumeIsolated { mkParityP18bShots(d) }   // MarketingParityP18b.swift: Tidy Tabs
+            case "tidyhint": MainActor.assumeIsolated { mkTidyHintShots(d) }   // MarketingTidyHint.swift: the sidebar's tidy card
             case "todayfolders": MainActor.assumeIsolated { mkTodayFoldersShots(d) }   // MarketingTodayFolders.swift: folders in Today
             case "library": mkLibraryShots(d)
             case "parityp10": mkParityP10Shots(d)   // MarketingParityP10.swift: Library folders and Notes

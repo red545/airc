@@ -31,7 +31,7 @@ extension SnapshotRunner {
             for t in extra.reversed() {
                 if let tab = try? c.store.openTab(url: t.url, inSpace: sid, activate: false, title: t.title) { opened.append(tab.id) }
             }
-            if !TidyTabsFeature.isAvailable {
+            if !TidyTabsFeature.usesAppleIntelligence {
                 note("marketing: tidy-tabs: Apple Intelligence \(AppleIntelligence.availability.label): a scripted model stands in")
                 TidyTabsFeature.testOverride = (true, P18bTabsModel([
                     "Kyoto – Travel guide at Wikivoyage": "Japan Trip", "Fushimi Inari Shrine – japan-guide.com": "Japan Trip",
@@ -48,6 +48,8 @@ extension SnapshotRunner {
         mkSettleShown()
         run { [self] in TidyTabsFeature.start(in: c, spaceID: space) }
         step { [self] done in waitUntil({ !TidyTabsFeature.isRunning(space) }, timeout: 120) { done() } }
+        // Tidy shows its folders first (AI/TidyHint.swift); the shot is of them applied.
+        run { [self] in if TidyHint.previews[space] != nil { TidyHint.apply(c, spaceID: space) } }
         run { [self] in
             if case .plan(let p) = TidyTabsFeature.lastOutcome[space] {
                 for f in p.folders {

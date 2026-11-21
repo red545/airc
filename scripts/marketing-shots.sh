@@ -40,6 +40,7 @@ PARTS="$PARTS feedback"   # Help › Send Feedback… (Debug/MarketingFeedback.s
 PARTS="$PARTS whatsnew"   # the What's new card after an update (Debug/MarketingWhatsNew.swift)
 PARTS="$PARTS agents"   # the sidebar's Agents folder and Watch (Debug/MarketingAgents.swift)
 PARTS="$PARTS calgrid"   # the calendar card's hour grid (Debug/MarketingCalGrid.swift)
+PARTS="$PARTS tidyhint"   # the sidebar's tidy card, light and dark (Debug/MarketingTidyHint.swift)
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-build) BUILD=0 ;;
@@ -101,6 +102,8 @@ toolbar-extensions|Extensions in the toolbar|Show Toolbar (⇧⌘D) in Work on l
 live-folders|Live Folders|A Pull Requests folder in Work that fills itself from GitHub, from a synthetic GitHub on loopback with fictional pull requests
 task-manager|Task Manager|Help › Troubleshooting › Open Task Manager over Work: each tab, the browser and its helpers with memory, CPU and process ID
 tidy-tabs|Tidy Tabs|Tidy in Personal'"'"'s Today header: Apple'"'"'s on-device model groups the Today tabs into folders by topic at the top of Today, and ⌘Z puts them back
+tidy-hint|Tidy card|A long Today in Personal: the card at the top offers Tidy into folders, Archive idle tabs, Pin a site to Favorites and the auto-archive time, each with Undo
+tidy-hint-dark|Tidy card, dark|The same card in the dark Work Space
 today-folders|Folders in Today|Personal'"'"'s Today with a Japan Trip folder open and a closed Reading folder: Today tabs in folders still archive like any Today tab
 profiles|Profiles|Create Profile, step 2: which Spaces move to the new profile, each in its own colour
 split-view-2|Split View|Two panes in Studio: Apple design pages beside Color theory

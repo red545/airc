@@ -7,21 +7,29 @@ import AppKit
 /// Bar, sorts the Space's Today tabs into folders by topic, named by Apple's on-device model, in one step that ⌘Z puts
 /// back (also after a relaunch). AircKit's TidyTabs.swift has the rules, the planner and the undo record.
 ///
-/// - No Apple Intelligence, no Tidy (owner decision 2026-11-09): the header has no Tidy and the Command Bar no entry.
+/// - Without Apple Intelligence, Tidy groups by site instead (AircKit's TidyTabsBySite: hosts only, no model; tidyux,
+///   2026-11-21, replacing the 2026-11-09 "no Tidy at all"), so Tidy is always there.
+/// - Nothing moves until the person applies it: the folders show first in the sidebar's tidy card (AI/TidyHint.swift)
+///   with Apply and Cancel, and Apply leaves a toast with Undo (⌘Z too).
 /// - Only the Space's Today web pages are read: their titles (counts and email addresses out) and hosts. Pinned tabs,
 ///   folders, Favorites and splits are never read, moved or renamed. Private windows have their own sidebar (no Today
 ///   header, no store), so their pages never reach any of this.
 /// - The folders go at the top of Today, as in Arc (Today folders, AircKit's TodayFolders.swift): the tidied tabs stay
 ///   Today tabs, so they still auto-archive and Clear still clears them, and a folder goes with its last tab.
-/// - Nothing changes until the model has answered for the whole list. "Tidying…" (the label while it works) stops it,
+/// - Nothing is planned until the model has answered for the whole list. "Tidying…" (the label while it works) stops it,
 ///   as does Stop Tidying Tabs in the Command Bar; a stopped tidy changes nothing.
 @MainActor
 enum TidyTabsFeature {
-    /// Scripted runs (Debug/ParityP18bCheck.swift): whether Apple Intelligence counts as on, and the model to use.
+    /// Scripted runs (Debug/ParityP18bCheck.swift, Debug/TidyUXCheck.swift): whether Apple Intelligence counts as on,
+    /// and the model to use while it is.
     static var testOverride: (available: Bool, model: (any TidyTabsModel)?)? {
         didSet { refreshAllDividers() }
     }
     static var options = TidyTabsPlanner.Options()
+    #if AIRC_TESTING
+    /// ParityP18bCheck: apply a plan as soon as it's made (its cases predate the preview; tidyux checks the preview).
+    static var appliesWithoutPreview = false
+    #endif
 
     /// A tidy under way, per Space (one at a time each).
     private static var running: [String: (token: UUID, task: Task<Void, Never>)] = [:]
@@ -30,13 +38,22 @@ enum TidyTabsFeature {
     private(set) static var lastMessage: String?
     private static var prewarmed = false
 
-    static var isAvailable: Bool {
+    /// Tidy is always offered: by topic with Apple Intelligence, by site without it.
+    static var isAvailable: Bool { true }
+
+    /// Whether a tidy now sorts by topic (Apple Intelligence on) rather than by site.
+    static var usesAppleIntelligence: Bool {
         testOverride.map(\.available) ?? AppleIntelligence.availability.isAvailable
     }
 
-    private static func model() -> (any TidyTabsModel)? {
-        if let o = testOverride { return o.available ? o.model : nil }
-        return TidyTabsModels.onDevice()
+    /// The model and whether it is the site grouping.
+    private static func model() -> (model: any TidyTabsModel, bySite: Bool) {
+        if let o = testOverride {
+            if o.available, let m = o.model { return (m, false) }
+            return (TidyTabsBySite(), true)
+        }
+        if let m = TidyTabsModels.onDevice() { return (m, false) }
+        return (TidyTabsBySite(), true)
     }
 
     static func isRunning(_ spaceID: String) -> Bool { running[spaceID] != nil }
@@ -61,20 +78,20 @@ enum TidyTabsFeature {
 
     static func start(in c: WindowController, spaceID: String) {
         guard running[spaceID] == nil, c.store.space(spaceID) != nil else { return }
-        guard let model = model() else {
-            return say("Tidy Tabs needs Apple Intelligence", in: c)
-        }
+        let picked = model()
+        let tidyModel = picked.model, bySite = picked.bySite
+        TidyHint.cancelPreview(spaceID)
         let candidates = c.store.tidyCandidates(inSpace: spaceID)
         let opts = Self.options
         let token = UUID()
         weak var window = c
         let task = Task { @MainActor in
-            let planned = await TidyTabsPlanner.plan(spaceID: spaceID, candidates: candidates, model: model, options: opts)
+            let planned = await TidyTabsPlanner.plan(spaceID: spaceID, candidates: candidates, model: tidyModel, options: opts)
             // Stopped after the model answered, or the window closed meanwhile: nothing changes either.
             let outcome: TidyTabsOutcome = Task.isCancelled || window == nil ? .cancelled : planned
             guard running[spaceID]?.token == token else { return }
             running[spaceID] = nil
-            finish(outcome, spaceID: spaceID, in: window)
+            finish(outcome, spaceID: spaceID, bySite: bySite, in: window)
         }
         running[spaceID] = (token, task)
         refreshDividers(spaceID)
@@ -88,26 +105,23 @@ enum TidyTabsFeature {
         refreshDividers(spaceID)
     }
 
-    private static func finish(_ outcome: TidyTabsOutcome, spaceID: String, in c: WindowController?) {
+    private static func finish(_ outcome: TidyTabsOutcome, spaceID: String, bySite: Bool, in c: WindowController?) {
         lastOutcome[spaceID] = outcome
         defer { refreshDividers(spaceID) }
         guard let c else { return }
         switch outcome {
         case .plan(let plan):
-            do {
-                guard let record = try c.store.applyTidyTabs(plan) else {
-                    return say("Your tabs changed while tidying, so nothing was moved", in: c)
-                }
-                // The new folders are at the top of Today; the tabs in them are still Today tabs.
-                let n = record.moved.count, f = record.folderIDs.count
-                say("Grouped \(n) \(n == 1 ? "tab" : "tabs") into \(f) \(f == 1 ? "folder" : "folders"). ⌘Z to undo", in: c)
-            } catch {
-                say("Couldn’t tidy tabs", in: c)
-            }
+            // Shown first (the tidy card at the top of Today); TidyHint.apply makes the folders, at the top of Today,
+            // and the tabs in them are still Today tabs.
+            #if AIRC_TESTING
+            if appliesWithoutPreview { return applyNow(plan, in: c) }
+            #endif
+            lastMessage = nil
+            TidyHint.showPreview(plan, bySite: bySite)
         case .tooFewTabs:
             say("Open a few more tabs to tidy", in: c)
         case .noFolders:
-            say("No tab groups found", in: c)   // Arc's words
+            say(bySite ? "No site has two pages open in Today" : "No tab groups found", in: c)   // Arc's words
         case .declined:
             say("Apple Intelligence couldn’t sort these tabs", in: c)
         case .failed, .timeout:
@@ -116,6 +130,20 @@ enum TidyTabsFeature {
             break
         }
     }
+
+    #if AIRC_TESTING
+    private static func applyNow(_ plan: TidyTabsPlan, in c: WindowController) {
+        do {
+            guard let record = try c.store.applyTidyTabs(plan) else {
+                return say("Your tabs changed while tidying, so nothing was moved", in: c)
+            }
+            let n = record.moved.count, f = record.folderIDs.count
+            say("Grouped \(n) \(n == 1 ? "tab" : "tabs") into \(f) \(f == 1 ? "folder" : "folders"). ⌘Z to undo", in: c)
+        } catch {
+            say("Couldn’t tidy tabs", in: c)
+        }
+    }
+    #endif
 
     private static func say(_ message: String, in c: WindowController) {
         lastMessage = message
@@ -134,6 +162,7 @@ enum TidyTabsFeature {
     /// The Tidy labels showing this Space (every window) follow its state.
     static func refreshDividers(_ spaceID: String) {
         guard let app = NSApp.delegate as? AppDelegate else { return }
+        TidyHint.reloadAll()   // the tidy card follows too (Tidying…, the preview)
         for w in app.controllers {
             guard let d = w.pageView(for: spaceID)?.rows["divider"] as? DividerRowView else { continue }
             d.tidy.refresh(hovered: d.sidebarHovered, divider: d)
@@ -150,7 +179,7 @@ enum TidyTabsFeature {
 }
 
 /// "Tidy" in the Today header, left of Clear (Arc's place and tooltip, "Organize Today Tabs"): shown with Clear while
-/// the pointer is over the sidebar, when Apple Intelligence is on and Today has two web pages or more. While the model
+/// the pointer is over the sidebar, when Today has two web pages or more. While the model
 /// works it reads "Tidying…" (pulsing, shown without the pointer too) and a click stops it.
 final class TidyTabsLabel: NSView {
     private let text = NSTextField(labelWithString: "Tidy")
@@ -179,10 +208,12 @@ final class TidyTabsLabel: NSView {
         isWorking = TidyTabsFeature.isRunning(sid)
         let show = isWorking || (hovered && TidyTabsFeature.isAvailable
                                  && (d.tidyHasEnoughPages ?? d.controller.map { TidyTabsFeature.hasEnoughTabs($0.store, spaceID: sid) } ?? false))
-        if show, !isWorking { TidyTabsFeature.prewarmOnce() }
+        if show, !isWorking, TidyTabsFeature.usesAppleIntelligence { TidyTabsFeature.prewarmOnce() }
         let title = isWorking ? "Tidying…" : "Tidy"
         if text.stringValue != title { text.stringValue = title; text.sizeToFit() }
-        toolTip = isWorking ? "Stop tidying" : "Organize Today Tabs"
+        toolTip = isWorking ? "Stop tidying" : TidyTabsFeature.usesAppleIntelligence
+            ? "Organize Today Tabs: groups them into folders by topic. Shows the folders first; Undo puts them back"
+            : "Organize Today Tabs: groups them into folders by site. Shows the folders first; Undo puts them back"
         setAccessibilityLabel(isWorking ? "Stop tidying tabs" : "Tidy Today tabs")
         if isHidden == show { isHidden = !show }
         recolor()
@@ -248,7 +279,7 @@ final class TidyTabsLabel: NSView {
 
 extension WindowController {
     /// The Command Bar's Tidy Tabs (registered by ParityCommandCatalog, as P20c's blocking commands are): "Tidy Tabs" for
-    /// the Space on screen, or "Stop Tidying Tabs" while it's being tidied. None without Apple Intelligence.
+    /// the Space on screen, or "Stop Tidying Tabs" while it's being tidied.
     func tidyTabsCommandActions() -> [CommandAction] {
         MainActor.assumeIsolated {
             let sid = currentSpaceID
