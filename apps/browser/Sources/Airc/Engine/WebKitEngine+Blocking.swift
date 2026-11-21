@@ -106,7 +106,20 @@ final class WebKitBlocking {
     private static let queue = DispatchQueue(label: "org.airc.blocking-converter", qos: .userInitiated)
     private enum Compilation { case rules(WKContentRuleList), empty, failed }
     private static var compiling: [String: [(Compilation) -> Void]] = [:]
-    private static let prefix = "airc-blocking-v2-"
+    /// v3 (ganalytics): a top-level page is blocked only by rules that name documents (`$document`), as on Chromium;
+    /// the converter's output changed, so lists compiled as v2 aren't used again (removeOldLists).
+    private static let prefix = "airc-blocking-v3-"
+    private static var oldListsRemoved = false
+    /// Each profile's v2 compiled list is ~38 MB that nothing looks up any more: removed once per launch.
+    private static func removeOldLists(_ store: WKContentRuleListStore) {
+        guard !oldListsRemoved else { return }
+        oldListsRemoved = true
+        store.getAvailableContentRuleListIdentifiers { ids in
+            for id in ids ?? [] where id.hasPrefix("airc-blocking-v2-") {
+                store.removeContentRuleList(forIdentifier: id) { _ in }
+            }
+        }
+    }
     private static let cookiesID = prefix + "third-party-cookies"
     private static let enableSelector = NSSelectorFromString("_setContentRuleListsEnabled:exceptions:")
     static var supportsPerPagePolicy: Bool { WKWebpagePreferences().responds(to: enableSelector) }
@@ -249,6 +262,7 @@ final class WebKitBlocking {
         do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) }
         catch { return finish(identifier, .failed) }
         guard let store = WKContentRuleListStore(url: directory) else { return finish(identifier, .failed) }
+        removeOldLists(store)
         func inProcess() {
             queue.async {
                 // The conversion and its text (megabytes) off the main thread.

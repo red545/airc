@@ -2,6 +2,8 @@
 #if AIRC_TESTING
 import AppKit
 import AircKit
+import Network
+import WebKit
 
 extension SnapshotRunner {
     /// `--script ganalytics`, both engines, real network, never signed in (no account, no email typed).
@@ -12,6 +14,15 @@ extension SnapshotRunner {
     /// Hints brands, and each page's blocked-request count. Tag Assistant (tagassistant.google.com, open without
     /// sign-in) checks airc-exceptions.txt: its own www.googletagmanager.com debug requests load there, while a
     /// loopback page's googletagmanager.com script stays blocked (the lists still block it everywhere else).
+    /// Pages the person opens are blocked only by rules that name documents (`$document`): typed sentry.io and a
+    /// made-up org on it load, and so do five hosts with a plain `||host^` rule, served by a loopback fixture.
+    /// Chromium needs the mapping at launch, or that part SKIPs:
+    ///   "--host-resolver-rules=MAP sentrymagic.com 127.0.0.1, MAP clarity.ms 127.0.0.1, MAP abilityscale.com 127.0.0.1,
+    ///    MAP abjectattempt.com 127.0.0.1, MAP aboutcorgis.com 127.0.0.1, MAP allsportsflix.co.uk 127.0.0.1"
+    ///   --disable-features=HttpsUpgrades
+    /// allsportsflix.co.uk matches EasyList's `||allsportsflix.$document`: a rule that names documents still blocks it.
+    /// WebKit uses the profile's own proxy for those hosts. A loopback page's Sentry browser SDK and ingest call (another
+    /// site) stay blocked on both engines.
     func googleAnalyticsScenario() {
         step { [self] done in
             Task { @MainActor in
@@ -166,7 +177,8 @@ extension SnapshotRunner {
 
     /// Typed visits to sites whose host carries a `||host^$third-party` list rule: the page itself must load (before the
     /// engine's top-level first-party fix, Chromium showed "blocked by Airc" for them, as for analytics.google.com).
-    static let listedHosts = ["https://hotjar.com/", "https://mixpanel.com/", "https://segment.com/"]
+    static let listedHosts = ["https://hotjar.com/", "https://mixpanel.com/", "https://segment.com/",
+                              "https://sentry.io/", "https://airc-made-up-org.sentry.io/"]
     func typedVisits(space: String) async {
         for target in Self.listedHosts {
             guard let tab = open(target, space: space) else { check(false, "typed \(target): tab opened"); continue }
@@ -225,6 +237,93 @@ extension SnapshotRunner {
         tab.close()
     }
 
+    /// Hosts with a plain `||host^` rule in the default lists (no party or type option), none HSTS-preloaded.
+    static let plainHosts = ["sentrymagic.com", "clarity.ms", "abilityscale.com", "abjectattempt.com", "aboutcorgis.com"]
+    /// EasyList's `||allsportsflix.$document` (a rule that names documents) matches it.
+    static let documentRuleHost = "allsportsflix.co.uk"
+    static var fixtureHosts: [String] { plainHosts + [documentRuleHost] }
+    func plainHostVisits(space: String) async {
+        if !(app.engine is WebKitEngine) {
+            let args = ProcessInfo.processInfo.arguments.joined(separator: " ")
+            guard Self.fixtureHosts.allSatisfy({ args.contains("MAP \($0) 127.0.0.1") }), args.contains("HttpsUpgrades") else {
+                runner.note("SKIP ganalytics chromium: plain-rule hosts need --host-resolver-rules for "
+                    + Self.fixtureHosts.joined(separator: ", ") + " and --disable-features=HttpsUpgrades (see the scenario's comment)")
+                return
+            }
+        }
+        guard let server = try? PlainHostFixture() else { check(false, "plain-host fixture starts"); return }
+        defer { server.stop() }
+        let port: UInt16 = await withCheckedContinuation { resume in server.start { resume.resume(returning: $0) } }
+        let profile = c.profiles.engineProfile(for: c.store.profile(ofSpace: space).id) as? WebKitProfile
+        if let profile, let p = NWEndpoint.Port(rawValue: port) {
+            var proxy = ProxyConfiguration(httpCONNECTProxy: .hostPort(host: "127.0.0.1", port: p))
+            proxy.matchDomains = Self.fixtureHosts
+            proxy.allowFailover = false
+            profile.dataStore.proxyConfigurations = [proxy]
+        }
+        defer { profile?.dataStore.proxyConfigurations = [] }
+        for host in Self.plainHosts {
+            let target = "http://\(host):\(port)/"
+            guard let tab = open(target, space: space) else { check(false, "typed \(host): tab opened"); continue }
+            var title = "", href = ""
+            for _ in 0..<100 {
+                href = await js(tab, "location.href") as? String ?? ""
+                title = await js(tab, "document.title") as? String ?? ""
+                if !tab.isLoading, title.hasPrefix("plain fixture") || href.hasPrefix("chrome-error") { break }
+                await sleep(0.1)
+            }
+            let text = (await js(tab, "document.body ? document.body.innerText : ''") as? String ?? "").lowercased()
+            check(title == "plain fixture \(host)" && !text.contains("blocked by airc"),
+                  "typed \(host) (a plain ||host^ rule) loads the page, not Airc's block page (\(title.isEmpty ? href : title))")
+            evidence.append(["engine": engineName, "target": target, "kind": "plain-rule typed visit", "title": title, "final": href])
+            tab.close()
+        }
+        // A rule that names documents still blocks the page itself: the fixture page never shows.
+        let target = "http://\(Self.documentRuleHost):\(port)/"
+        guard let tab = open(target, space: space) else { check(false, "typed \(Self.documentRuleHost): tab opened"); return }
+        var title = "", href = ""
+        for _ in 0..<60 {
+            href = await js(tab, "location.href") as? String ?? ""
+            title = await js(tab, "document.title") as? String ?? ""
+            if title.hasPrefix("plain fixture") { break }
+            await sleep(0.1)
+        }
+        let text = (await js(tab, "document.body ? document.body.innerText : ''") as? String ?? "").lowercased()
+        check(!title.hasPrefix("plain fixture") && !tab.isLoading,
+              "typed \(Self.documentRuleHost) (EasyList ||allsportsflix.$document) is still blocked (title \(title.isEmpty ? "none" : title), \(href.prefix(60)), blocked page text: \(text.contains("blocked by airc")))")
+        evidence.append(["engine": engineName, "target": target, "kind": "$document rule", "title": title, "final": href,
+                         "blockedPageText": text.contains("blocked by airc")])
+        tab.close()
+    }
+
+    /// Sentry on another site: its browser SDK and an ingest call from a loopback page stay blocked.
+    func sentryElsewhere(space: String) async {
+        let page = """
+            <title>ganalytics sentry</title><script>window.__s = {};</script>
+            <script src='https://browser.sentry-cdn.com/8.0.0/bundle.min.js'
+              onload="window.__s.sdk='loaded'" onerror="window.__s.sdk='blocked'"></script>
+            <script>fetch('https://o1.ingest.sentry.io/api/1/envelope/?sentry_key=airc', {method: 'POST', mode: 'no-cors', body: '{}'})
+              .then(() => window.__s.ingest = 'sent', () => window.__s.ingest = 'blocked');</script>
+            """
+        guard let server = LocalPageServer(pages: ["/": page]) else { check(false, "sentry fixture server"); return }
+        defer { server.stop() }
+        let port: UInt16? = await withCheckedContinuation { resume in server.start { resume.resume(returning: $0) } }
+        guard let port, let tab = open("http://localhost:\(port)/", space: space) else { check(false, "sentry page opened"); return }
+        var state: [String: String] = [:]
+        for _ in 0..<100 {
+            if let text = await js(tab, "JSON.stringify(window.__s || {})") as? String,
+               let value = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: String] { state = value }
+            if state["sdk"] != nil && state["ingest"] != nil { break }
+            await sleep(0.1)
+        }
+        let blocked = center.count(for: tab) ?? -1
+        check(state["sdk"] == "blocked", "another site's Sentry browser SDK stays blocked (\(state))")
+        check(state["ingest"] == "blocked", "another site's Sentry ingest call stays blocked (\(state))")
+        check(blocked >= 2, "both Sentry requests counted as blocked (\(blocked))")
+        evidence.append(["engine": engineName, "target": "sentry on another site", "state": state, "blockedRequests": blocked])
+        tab.close()
+    }
+
     func run() async {
         let home = c.currentSpaceID
         let profileID = c.store.profile(ofSpace: home).id
@@ -235,6 +334,8 @@ extension SnapshotRunner {
         await elsewhere(space: home)
         await typedVisits(space: home)
         await trackerFrames(space: home)
+        await plainHostVisits(space: home)
+        await sentryElsewhere(space: home)
         // A Space with its own profile: its own engine profile and blocking context.
         if let other = try? c.profiles.createProfile(name: "Analytics", emoji: "📈", color: nil),
            let space = try? c.store.createSpace(name: "Analytics", icon: .emoji("📈"), profileID: other.id) {
@@ -252,6 +353,56 @@ extension SnapshotRunner {
             let bytes = try JSONSerialization.data(withJSONObject: evidence, options: [.prettyPrinted, .sortedKeys])
             try bytes.write(to: runner.dir.appendingPathComponent("ganalytics-evidence.json"))
         } catch { check(false, "evidence written: \(error)") }
+    }
+}
+/// One loopback fixture for every plain-rule host: answers CONNECT (WebKit's proxy) and serves each request a page
+/// titled after its Host header.
+private final class PlainHostFixture {
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "airc.ganalytics.fixture")
+    init() throws {
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: .any)
+        parameters.acceptLocalOnly = true
+        listener = try NWListener(using: parameters)
+    }
+    func start(_ ready: @escaping (UInt16) -> Void) {
+        listener.stateUpdateHandler = { [weak self] state in
+            if case .ready = state, let port = self?.listener.port { DispatchQueue.main.async { ready(port.rawValue) } }
+        }
+        listener.newConnectionHandler = { [weak self] connection in
+            guard let self else { return }
+            connection.start(queue: self.queue)
+            self.receive(connection, Data())
+        }
+        listener.start(queue: queue)
+    }
+    func stop() { listener.cancel() }
+    private func receive(_ connection: NWConnection, _ prefix: Data) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, complete, error in
+            guard let self else { return connection.cancel() }
+            var bytes = prefix
+            bytes.append(data ?? Data())
+            guard let end = bytes.range(of: Data("\r\n\r\n".utf8)) else {
+                if complete || error != nil || bytes.count > 65536 { connection.cancel() } else { self.receive(connection, bytes) }
+                return
+            }
+            let head = String(decoding: bytes[..<end.lowerBound], as: UTF8.self)
+            if head.hasPrefix("CONNECT ") {
+                connection.send(content: Data("HTTP/1.1 200 Connection Established\r\n\r\n".utf8), completion: .contentProcessed { _ in
+                    self.receive(connection, Data(bytes[end.upperBound...]))
+                })
+                return
+            }
+            let lines = head.components(separatedBy: "\r\n")
+            let target = lines.first?.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
+            let hostLine = lines.first { $0.lowercased().hasPrefix("host:") } ?? ""
+            let host = URL(string: target)?.host
+                ?? hostLine.dropFirst(5).trimmingCharacters(in: .whitespaces).split(separator: ":").first.map(String.init) ?? ""
+            let body = Data("<!doctype html><title>plain fixture \(host)</title><p>\(host)</p>".utf8)
+            let response = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
+            connection.send(content: Data(response.utf8) + body, completion: .contentProcessed { _ in connection.cancel() })
+        }
     }
 }
 #endif

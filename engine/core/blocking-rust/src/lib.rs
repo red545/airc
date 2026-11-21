@@ -13,7 +13,88 @@ use std::{ptr, slice, str};
 const MAX_LIST_BYTES: usize = 32 * 1024 * 1024;
 const MAX_REQUEST_BYTES: usize = 64 * 1024;
 
-pub struct BlockingEngine(Engine);
+pub struct BlockingEngine {
+    engine: Engine,
+    /// ganalytics: a top-level document the person opens is blocked only by a rule that asks for documents
+    /// (`$document`, `$doc`, `$all`), as in Brave and uBlock Origin; this engine holds just those rules plus every
+    /// exception. adblock-rust applies any rule without a type to documents too, so `||sentrymagic.com^` or
+    /// `||sentry.io^$third-party` showed "blocked by Airc" for the site itself. Subresources and frames use `engine`.
+    documents: Engine,
+}
+
+/// Whether a network rule names documents among its options. adblock-rust's parsed mask can't tell: a rule without a
+/// type gets FROM_DOCUMENT as well.
+fn names_documents(line: &str) -> bool {
+    let rule = line.strip_prefix("@@").unwrap_or(line);
+    let Some(at) = rule.rfind('$') else { return false };
+    // A regex rule's own `$` (end anchor) is followed by its closing slash.
+    if rule.starts_with('/') && rule[at..].contains('/') {
+        return false;
+    }
+    rule[at + 1..].split(',').any(|option| {
+        let name = option.trim().split('=').next().unwrap_or("").to_ascii_lowercase();
+        matches!(name.as_str(), "document" | "doc" | "all")
+    })
+}
+
+/// The document engine's list: rules that name documents, and all exceptions (which also apply to documents).
+fn document_rules(list: &str) -> String {
+    let mut out = String::new();
+    for line in list.lines().map(str::trim) {
+        if line.starts_with("@@") || (!line.starts_with('!') && names_documents(line)) {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
+}
+
+/// WebKit: adblock-rust ends a conversion with "ignore previous rules for first-party documents", which exempts a
+/// top-level page from every rule, `$document` ones included. The rules that name documents (and the exceptions) are
+/// added again after it, for the top frame only: the same decision as the Chromium path. Frames are unchanged.
+fn with_document_rules(rules: Vec<adblock::content_blocking::CbRule>, list: &str) -> serde_json::Value {
+    use adblock::content_blocking::{CbType, ignore_previous_fp_documents};
+    let mut out = serde_json::to_value(&rules).unwrap_or_else(|_| serde_json::Value::Array(Vec::new()));
+    let mut set = FilterSet::new(true);
+    set.add_filter_list(
+        document_rules(list),
+        ParseOptions { rule_types: RuleTypes::NetworkOnly, ..ParseOptions::default() },
+    );
+    let Ok((extra, _)) = set.into_content_blocking() else { return out };
+    if !extra.iter().any(|rule| rule.action.typ == CbType::Block) {
+        return out;
+    }
+    let exemption = ignore_previous_fp_documents();
+    let Some(array) = out.as_array_mut() else { return out };
+    for rule in extra.into_iter().filter(|rule| *rule != exemption) {
+        let block = rule.action.typ == CbType::Block;
+        let Ok(mut value) = serde_json::to_value(&rule) else { continue };
+        if block {
+            // adblock-rust converts `$document` to an empty resource-type list, which WebKit matches against nothing.
+            value["trigger"]["resource-type"] = serde_json::json!(["document"]);
+            value["trigger"]["load-context"] = serde_json::json!(["top-frame"]);
+        }
+        array.push(value);
+    }
+    out
+}
+
+fn is_document(kind: &str) -> bool {
+    matches!(kind, "document" | "main_frame")
+}
+
+impl BlockingEngine {
+    /// (blocked, redirect, rewritten URL) for one request.
+    fn decide(&self, request: &Request, kind: &str) -> (bool, Option<String>, Option<String>) {
+        let full = self.engine.check_network_request(request);
+        if !is_document(kind) {
+            return (full.should_block(), full.redirect, full.rewritten_url);
+        }
+        // A blocked document's result carries no rewrite; an allowed one keeps the full lists' $removeparam.
+        let documents = self.documents.check_network_request(request);
+        (documents.should_block(), documents.redirect, full.rewritten_url)
+    }
+}
 
 #[repr(C)]
 pub struct Bytes {
@@ -81,11 +162,17 @@ pub unsafe extern "C" fn airc_blocking_create(data: *const u8, len: usize) -> *m
         );
     }
     let mut engine = Engine::new_with_filter_set(filters);
+    let mut document_filters = FilterSet::new(false);
+    document_filters.add_filter_list(
+        document_rules(list),
+        ParseOptions { rule_types: RuleTypes::NetworkOnly, ..ParseOptions::default() },
+    );
+    let documents = Engine::new_with_filter_set(document_filters);
     let Ok(resources) = serde_json::from_str::<Vec<adblock::resources::Resource>>(
         include_str!("video_ads_resource.json"),
     ) else { return ptr::null_mut(); };
     engine.use_resources(resources);
-    Box::into_raw(Box::new(BlockingEngine(engine)))
+    Box::into_raw(Box::new(BlockingEngine { engine, documents }))
 }
 
 /// # Safety
@@ -139,7 +226,7 @@ pub unsafe extern "C" fn airc_blocking_check(
         return -1;
     };
     match Request::new(url, source, kind, method) {
-        Ok(request) => i32::from(engine.0.check_network_request(&request).should_block()),
+        Ok(request) => i32::from(engine.decide(&request, kind).0),
         Err(_) => -1,
     }
 }
@@ -177,10 +264,10 @@ pub unsafe extern "C" fn airc_blocking_match_json(
     let Ok(request) = Request::new(url, source, kind, method) else {
         return Bytes::empty();
     };
-    let result = engine.0.check_network_request(&request);
+    let (blocked, redirect, rewritten) = engine.decide(&request, kind);
     json(&serde_json::json!({
-        "blocked": result.should_block(), "redirect": result.redirect,
-        "rewrittenURL": result.rewritten_url, "csp": engine.0.get_csp_directives(&request),
+        "blocked": blocked, "redirect": redirect,
+        "rewrittenURL": rewritten, "csp": engine.engine.get_csp_directives(&request),
     }))
 }
 
@@ -235,16 +322,15 @@ pub unsafe extern "C" fn airc_blocking_match(
     let Ok(request) = Request::new(url, source, kind, method) else {
         return Decision::invalid();
     };
-    let result = engine.0.check_network_request(&request);
+    let (blocked, _, rewritten) = engine.decide(&request, kind);
     Decision {
         valid: 1,
-        blocked: i32::from(result.should_block()),
-        rewritten_url: result
-            .rewritten_url
+        blocked: i32::from(blocked),
+        rewritten_url: rewritten
             .map(|s| Bytes::from_vec(s.into_bytes()))
             .unwrap_or_else(Bytes::empty),
         csp: engine
-            .0
+            .engine
             .get_csp_directives(&request)
             .map(|s| Bytes::from_vec(s.into_bytes()))
             .unwrap_or_else(Bytes::empty),
@@ -266,7 +352,7 @@ pub unsafe extern "C" fn airc_blocking_cosmetics(
     let Some(url) = (unsafe { text(url, len, MAX_REQUEST_BYTES) }) else {
         return Bytes::empty();
     };
-    json(&engine.0.url_cosmetic_resources(url))
+    json(&engine.engine.url_cosmetic_resources(url))
 }
 
 /// # Safety
@@ -301,11 +387,11 @@ pub unsafe extern "C" fn airc_blocking_generic_cosmetics(
     if classes.len() + ids.len() > 4096 || classes.iter().chain(ids).any(|v| !v.is_string()) {
         return Bytes::empty();
     }
-    let resources = engine.0.url_cosmetic_resources(url);
+    let resources = engine.engine.url_cosmetic_resources(url);
     if resources.generichide {
         return json(&Vec::<String>::new());
     }
-    json(&engine.0.hidden_class_id_selectors(
+    json(&engine.engine.hidden_class_id_selectors(
         classes.iter().filter_map(|v| v.as_str()),
         ids.iter().filter_map(|v| v.as_str()),
         &resources.exceptions,
@@ -318,7 +404,7 @@ pub unsafe extern "C" fn airc_blocking_generic_cosmetics(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn airc_blocking_serialize(engine: *const BlockingEngine) -> Bytes {
     match unsafe { engine.as_ref() } {
-        Some(engine) => Bytes::from_vec(engine.0.serialize()),
+        Some(engine) => Bytes::from_vec(engine.engine.serialize()),
         None => Bytes::empty(),
     }
 }
@@ -367,7 +453,7 @@ pub unsafe extern "C" fn airc_blocking_webkit(data: *const u8, len: usize) -> By
     );
     match filters.into_content_blocking() {
         Ok((rules, accepted)) => json(
-            &serde_json::json!({"rules": rules, "accepted": accepted.len(), "candidates": candidates, "cosmeticsHandledSeparately": cosmetics, "perRuleFailures": failures}),
+            &serde_json::json!({"rules": with_document_rules(rules, list), "accepted": accepted.len(), "candidates": candidates, "cosmeticsHandledSeparately": cosmetics, "perRuleFailures": failures}),
         ),
         Err(_) => Bytes::empty(),
     }
@@ -394,7 +480,7 @@ pub unsafe extern "C" fn airc_blocking_webkit_rules(data: *const u8, len: usize)
         },
     );
     match filters.into_content_blocking() {
-        Ok((rules, _)) => json(&rules),
+        Ok((rules, _)) => json(&with_document_rules(rules, list)),
         Err(_) => Bytes::empty(),
     }
 }
@@ -424,5 +510,69 @@ mod video_tests {
         assert!(script("! fixture", "https://example.test/").is_empty());
         assert!(script("youtube.com#@#+js(airc-video-prune)", "https://www.youtube.com/").is_empty());
         assert!(script("! fixture", "https://www.youtube-nocookie.com/embed/fixture").contains("ytInitialPlayerResponse"));
+    }
+}
+
+#[cfg(test)]
+mod document_tests {
+    use super::*;
+    const LIST: &str = "||plain.example^\n||party.example^$third-party\n||page.example^$document\n/landing/*$doc\n\
+        ||all.example^$all\n@@||page.example/ok^$document\n||script.example^$script";
+    fn blocked(url: &str, source: &str, kind: &str) -> bool {
+        unsafe {
+            let engine = airc_blocking_create(LIST.as_ptr(), LIST.len());
+            assert!(!engine.is_null());
+            let d = airc_blocking_match(engine, url.as_ptr(), url.len(), source.as_ptr(), source.len(),
+                kind.as_ptr(), kind.len(), "GET".as_ptr(), 3);
+            assert_eq!(d.valid, 1);
+            airc_blocking_bytes_free(d.rewritten_url);
+            airc_blocking_bytes_free(d.csp);
+            airc_blocking_destroy(engine);
+            d.blocked == 1
+        }
+    }
+    #[test]
+    fn options_that_name_documents() {
+        assert!(names_documents("||a.example^$document") && names_documents("/x/*$doc,important"));
+        assert!(names_documents("||a.example^$all") && names_documents("@@||a.example^$document"));
+        assert!(!names_documents("||a.example^") && !names_documents("||a.example^$third-party,script"));
+        assert!(!names_documents("||a.example^$~document") && !names_documents("/doc$/"));
+    }
+    #[test]
+    fn top_level_documents_only_by_document_rules() {
+        // A page the person opens: plain and party rules don't block it, with or without a source.
+        assert!(!blocked("https://plain.example/", "https://plain.example/", "document"));
+        assert!(!blocked("https://plain.example/", "", "document"));
+        assert!(!blocked("https://party.example/", "https://other.example/", "document"));
+        // Rules that name documents do; their exceptions still apply.
+        assert!(blocked("https://page.example/", "", "document"));
+        assert!(blocked("https://www.other.example/landing/1", "", "document"));
+        assert!(blocked("https://all.example/", "", "document"));
+        assert!(!blocked("https://page.example/ok", "", "document"));
+        // Everything else is unchanged: subresources and frames from other sites stay blocked.
+        assert!(blocked("https://plain.example/sdk.js", "https://other.example/", "script"));
+        assert!(blocked("https://party.example/sdk.js", "https://other.example/", "script"));
+        assert!(blocked("https://plain.example/", "https://other.example/", "subdocument"));
+        assert!(blocked("https://script.example/a.js", "https://other.example/", "script"));
+    }
+    #[test]
+    fn webkit_rules_readd_document_rules_after_the_exemption() {
+        let rules: serde_json::Value = unsafe {
+            let out = airc_blocking_webkit_rules(LIST.as_ptr(), LIST.len());
+            let v = serde_json::from_slice(slice::from_raw_parts(out.data, out.len)).unwrap();
+            airc_blocking_bytes_free(out);
+            v
+        };
+        let rules = rules.as_array().unwrap();
+        let exemption = rules.iter().position(|r| r["trigger"]["url-filter"] == ".*"
+            && r["action"]["type"] == "ignore-previous-rules").expect("first-party document exemption");
+        let after: Vec<_> = rules[exemption + 1..].iter().collect();
+        assert!(after.iter().any(|r| r["action"]["type"] == "block"
+            && r["trigger"]["url-filter"].as_str().unwrap().contains("page")
+            && r["trigger"]["load-context"] == serde_json::json!(["top-frame"])));
+        assert!(!after.iter().any(|r| r["action"]["type"] == "block"
+            && r["trigger"]["url-filter"].as_str().unwrap().contains("plain")));
+        assert!(after.iter().all(|r| r["action"]["type"] != "block" || (r["trigger"]["load-context"] == serde_json::json!(["top-frame"])
+            && r["trigger"]["resource-type"] == serde_json::json!(["document"]))));
     }
 }

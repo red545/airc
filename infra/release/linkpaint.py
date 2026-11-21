@@ -109,9 +109,9 @@ def main():
                     if stay < 0:   # until the blocking rules are compiled (at most -stay seconds)
                         deadline = time.monotonic() - stay
                         webkit = profile / 'Blocking/WebKit'
-                        while time.monotonic() < deadline and not any(webkit.glob('ContentRuleList-airc-blocking-v2-[0-9a-f]*')):
+                        while time.monotonic() < deadline and not any(webkit.glob('ContentRuleList-airc-blocking-v3-[0-9a-f]*')):
                             time.sleep(1)
-                        r['compiled'] = any(webkit.glob('ContentRuleList-airc-blocking-v2-[0-9a-f]*'))
+                        r['compiled'] = any(webkit.glob('ContentRuleList-airc-blocking-v3-[0-9a-f]*'))
                         time.sleep(5)
                     else:
                         time.sleep(stay)
