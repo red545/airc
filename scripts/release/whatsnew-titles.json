@@ -556,5 +556,17 @@
     "detail": "Sites you open yourself, such as sentry.io, no longer show \"blocked by Airc\" because a tracker list names them. Trackers inside pages stay blocked.",
     "action": "none",
     "image": null
+  },
+  "When Today gets long, Airc offers once a day to tidy it": {
+    "title": "A tidy card for Today",
+    "detail": "When Today gets long, a card at its top offers to archive old tabs or pin a site in one click, with Undo. Not now hides it until tomorrow.",
+    "action": "none",
+    "image": "tidy-hint"
+  },
+  "Tidy shows its folders before it moves anything, and Tidy and Clear can both be undone": {
+    "title": "Undo for Tidy and Clear",
+    "detail": "With Apple Intelligence, Tidy shows its folders first, with Apply and Cancel. Clear says how many tabs it archived. Undo or ⌘Z puts them back.",
+    "action": "none",
+    "image": null
   }
 }

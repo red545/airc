@@ -2,6 +2,24 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.48",
+      "highlights": [
+        {
+          "title": "A tidy card for Today",
+          "lead": "When Today gets long, Airc offers once a day to tidy it",
+          "detail": "When Today gets long, a card at its top offers to archive old tabs or pin a site in one click, with Undo. Not now hides it until tomorrow.",
+          "icon": "rectangle.stack",
+          "image": "tidy-hint"
+        },
+        {
+          "title": "Undo for Tidy and Clear",
+          "lead": "Tidy shows its folders before it moves anything, and Tidy and Clear can both be undone",
+          "detail": "With Apple Intelligence, Tidy shows its folders first, with Apply and Cancel. Clear says how many tabs it archived. Undo or ⌘Z puts them back.",
+          "icon": "arrow.uturn.backward"
+        }
+      ]
+    },
+    {
       "version": "0.1.47",
       "highlights": [
         {

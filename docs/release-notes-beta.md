@@ -1,16 +1,26 @@
-# Airc 0.1.47 public beta
+# Airc 0.1.48 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update moves the ✦ Airc Agent button to the sidebar's toolbar, puts Share Quote inside the address bar and keeps
-the Feedback button in view. It includes everything from 0.1.46. The release manifest records the exact build,
-source and checksums.
+This update offers to tidy a long Today once a day, and Tidy and Clear can now be undone. It includes everything
+from 0.1.47. The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.46
+## New since 0.1.47
+
+- **When Today gets long, Airc offers once a day to tidy it.** A card at the top of Today offers, in one click, to
+  archive the tabs you haven't looked at for hours, to pin your most-used site to Favorites, or to choose when Today's
+  tabs archive themselves. Each choice can be undone, and **Not now** puts the card away until tomorrow. With Apple
+  Intelligence, the card also offers **Tidy** into folders.
+- **Tidy shows its folders before it moves anything, and Tidy and Clear can both be undone.** With Apple Intelligence,
+  Tidy (in the card, the Today header or the Command Bar) first shows the folders it would make, with **Apply** and
+  **Cancel**. **Clear** now says how many tabs it moved to the Archive. After either, **Undo** (or ⌘Z) puts every tab
+  back where it was.
+
+## Included from 0.1.47
 
 - **The ✦ button now sits in the toolbar.** The Airc Agent button moved to the top of the sidebar, next to Back
   and Forward, so the agent is one click away (or press ⌥⌘A). In a narrow sidebar, ✦ is the last button to give way.
