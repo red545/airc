@@ -71,6 +71,58 @@ public struct AgentTaskRecord: Codable, Equatable, Identifiable, Sendable {
     public var steps: Int
     /// Sites the task used (hosts only).
     public var sites: [String]
+    /// asidepass: the task view's timeline (prompts, step captions, the agent's text), so a finished task still reads
+    /// as it ran. Only what the pane showed: redacted step captions (never typed values or page text), capped.
+    public var entries: [Entry]?
+    /// The start of the last answer (≤ 280 characters, plain), for the Recent tasks cards.
+    public var answerHead: String?
+    /// When the last run stopped being active ("Working for 3m 48s" runs from `createdAt` until then).
+    public var endedAt: Date?
+
+    /// One line of the task's timeline.
+    public struct Entry: Codable, Equatable, Sendable {
+        public enum Kind: String, Codable, Sendable { case prompt, step, text, answer, note, approval }
+        public var kind: Kind
+        public var text: String
+        /// The step's site (host only).
+        public var host: String?
+        public var detail: String?
+
+        public init(kind: Kind, text: String, host: String? = nil, detail: String? = nil) {
+            self.kind = kind
+            self.host = host
+            let cap = kind == .answer || kind == .text || kind == .prompt ? AgentTaskRecord.textLimit : AgentTaskRecord.captionLimit
+            self.text = text.count > cap ? String(text.prefix(cap - 1)) + "…" : text
+            self.detail = detail.map { $0.count > AgentTaskRecord.captionLimit ? String($0.prefix(AgentTaskRecord.captionLimit - 1)) + "…" : $0 }
+        }
+    }
+
+    public static let entryLimit = 160
+    public static let textLimit = 4000
+    public static let captionLimit = 200
+
+    /// Keeps the newest `entryLimit` lines, but always the first prompt (the task's start).
+    public static func capped(_ entries: [Entry]) -> [Entry] {
+        guard entries.count > entryLimit else { return entries }
+        let first = entries.first { $0.kind == .prompt }
+        var tail = Array(entries.suffix(entryLimit - (first == nil ? 0 : 1)))
+        if let first { tail.insert(first, at: 0) }
+        return tail
+    }
+
+    /// The answer's start as the cards show it: Markdown marks out, lines joined, ≤ 280 characters.
+    public static func answerHead(_ text: String) -> String {
+        var plain = text.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "__", with: "")
+        plain = plain.split(whereSeparator: \.isNewline).map { line in
+            var l = line.trimmingCharacters(in: .whitespaces)
+            for p in ["- ", "* ", "• ", "# ", "## ", "### "] where l.hasPrefix(p) { l = String(l.dropFirst(p.count)) }
+            return l
+        }.filter { !$0.isEmpty }.joined(separator: " ")
+        return plain.count > 280 ? String(plain.prefix(279)) + "…" : plain
+    }
+
+    /// The last `n` step captions ("Opening shop.example.com"), oldest first.
+    public func lastSteps(_ n: Int) -> [Entry] { Array((entries ?? []).filter { $0.kind == .step }.suffix(n)) }
 
     public init(id: String = UUID().uuidString, title: String, createdAt: Date = Date(), spaceID: String, profileID: String,
                 provider: String, status: Status = .running) {
@@ -165,5 +217,15 @@ public enum AgentTasksURL {
     public static func isPage(_ url: String?) -> Bool {
         guard let url else { return false }
         return url == prefix || url.hasPrefix(prefix + "?") || url.hasPrefix(prefix + "/")
+    }
+
+    /// asidepass: one task's view, `airc://agents/<id>`.
+    public static func task(_ id: String) -> String { prefix + "/" + id }
+
+    /// The task a tab's address names (nil: the list).
+    public static func taskID(_ url: String?) -> String? {
+        guard let url, url.hasPrefix(prefix + "/") else { return nil }
+        let id = url.dropFirst(prefix.count + 1).prefix { $0 != "?" && $0 != "#" && $0 != "/" }
+        return UUID(uuidString: String(id)) != nil ? String(id) : nil
     }
 }

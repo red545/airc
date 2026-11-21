@@ -62,8 +62,33 @@ final class AgentTasksTests: XCTestCase {
         // The record's keys are fixed: nothing for page text, typed values, keys or screenshots.
         let r = AgentTaskRecord(title: "t", spaceID: "s", profileID: "p", provider: "x")
         let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(r)) as? [String: Any] ?? [:]
-        XCTAssertEqual(Set(json.keys).subtracting(["answer"]),
+        XCTAssertEqual(Set(json.keys).subtracting(["answer", "answerHead", "entries", "endedAt"]),
                        ["id", "title", "createdAt", "updatedAt", "spaceID", "profileID", "provider", "status", "unread", "steps", "sites"])
+    }
+
+    func testTimelineEntriesAreCappedAndOldRecordsStillLoad() throws {
+        var r = AgentTaskRecord(title: "t", spaceID: "s", profileID: "p", provider: "x")
+        var e = [AgentTaskRecord.Entry(kind: .prompt, text: "Find a park")]
+        e += (0..<300).map { AgentTaskRecord.Entry(kind: .step, text: "Opening site\($0).example.com", host: "site\($0).example.com") }
+        r.entries = AgentTaskRecord.capped(e)
+        XCTAssertEqual(r.entries?.count, AgentTaskRecord.entryLimit)
+        XCTAssertEqual(r.entries?.first?.kind, .prompt)
+        XCTAssertEqual(r.entries?.last?.text, "Opening site299.example.com")
+        XCTAssertEqual(r.lastSteps(3).map(\.host), ["site297.example.com", "site298.example.com", "site299.example.com"])
+        // A long caption is cut; an answer keeps more.
+        XCTAssertEqual(AgentTaskRecord.Entry(kind: .step, text: String(repeating: "a", count: 500)).text.count, AgentTaskRecord.captionLimit)
+        XCTAssertEqual(AgentTaskRecord.Entry(kind: .answer, text: String(repeating: "a", count: 500)).text.count, 500)
+        // A record written before entries existed decodes with none.
+        let old = #"{"id":"\#(UUID().uuidString)","title":"t","createdAt":0,"updatedAt":0,"spaceID":"s","profileID":"p","provider":"x","status":"done","unread":false,"steps":2,"sites":[]}"#
+        let decoded = try JSONDecoder().decode(AgentTaskRecord.self, from: Data(old.utf8))
+        XCTAssertNil(decoded.entries)
+        XCTAssertEqual(decoded.lastSteps(3), [])
+    }
+
+    func testAnswerHead() {
+        XCTAssertEqual(AgentTaskRecord.answerHead("**Golden Gate Park** is the largest.\n\n- 1,017 acres\n- Opened 1870"),
+                       "Golden Gate Park is the largest. 1,017 acres Opened 1870")
+        XCTAssertEqual(AgentTaskRecord.answerHead(String(repeating: "word ", count: 100)).count, 280)
     }
 
     func testSearch() {
@@ -82,5 +107,11 @@ final class AgentTasksURLTests: XCTestCase {
         XCTAssertTrue(AgentTasksURL.isPage("airc://agents?q=x"))
         XCTAssertFalse(AgentTasksURL.isPage("airc://agentsfoo"))
         XCTAssertFalse(AgentTasksURL.isPage(nil))
+        let id = UUID().uuidString
+        XCTAssertTrue(AgentTasksURL.isPage(AgentTasksURL.task(id)))
+        XCTAssertEqual(AgentTasksURL.taskID(AgentTasksURL.task(id)), id)
+        XCTAssertEqual(AgentTasksURL.taskID(AgentTasksURL.task(id) + "?x=1"), id)
+        XCTAssertNil(AgentTasksURL.taskID("airc://agents"))
+        XCTAssertNil(AgentTasksURL.taskID("airc://agents/../../x"))
     }
 }

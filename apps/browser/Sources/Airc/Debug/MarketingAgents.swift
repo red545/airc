@@ -121,6 +121,7 @@ extension SnapshotRunner {
         wait(0.6)
         mkAgentPanelShot(d)   // agentpanel: the Airc Agent asking before it pays (MarketingAgentPanel.swift)
         mkAgentPaneShots(d)   // agentux: the agent pane in the window, M1/M2/M3 B, light and dark (MarketingAgentPane.swift)
+        mkAgentTasksShots(d)   // asidepass: Ask mode with Recent tasks, the task view, an approval in it (MarketingAgentTasks.swift)
     }
 
     /// agents-approval: "Allow ‘Claude’ to use Airc?" as Airc shows it (its own picture), on the studio's desktop.

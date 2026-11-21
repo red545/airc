@@ -75,6 +75,45 @@ your OK and the pane is closed, its row says so and asks there. **◷** in the p
   something is ignored. **Clear…** deletes them all.
 - The agent never sees saved passwords, cookies or private windows; it signs in with **fill_saved_login** like any app.
 
+### Ask from the Command Bar
+
+Press **⌘T** and type what you want done, then press **Tab** (or click **Ask** at the end of the field): the bar switches
+from Search to **Ask**. Tab only switches where it has nothing else to do, so it still lists the actions on an empty
+field, starts a site's search ("yt", Tab) and accepts a completion, as in Arc; in Ask, Tab always goes back to Search and
+keeps what you typed. Under the field, the chips say what the task gets:
+
+- **+** attaches one of this Space's tabs (type **@** to attach the page you're on);
+- **This Mac**: it runs here, in a background window of your Space's profile;
+- **Asks first**: it asks you before it pays, sends, posts or deletes anything, and never sees your passwords;
+- on the right, who runs it (your ChatGPT subscription through Codex, your own Claude Code, or an API key) and **Quick**
+  or **Keep going**.
+
+Press **Return** and the task starts in its own tab. Below the chips, **Recent tasks** shows this Space's newest tasks as
+cards: one that works says "Working for 3m 48s" with its last steps and its page live; a finished one says when it ended,
+with the start of its answer and the last page it saw. Click a card to open the task.
+
+### Your tasks in the sidebar
+
+The **Agents** folder lists this Space's tasks: **New Task** first, then each task on one line, with a spinner while it
+works, an amber ✋ while it waits for your OK and a blue dot when it finished and you haven't looked yet. **Show all**
+opens every task (`airc://agents`). The agents' pages (yours and other apps') stay under them, with Watch, Take over and
+Stop. Click a task to open it.
+
+### The task view
+
+A task opened from the sidebar, a card or the Command Bar fills the page area: its steps on a timeline ("Opened
+cornershop.example", "Filling a saved login", "Read 3 pages"), the answer as it's written, and, while it works, the
+agent's page floating live beside the steps (click it to Watch; **Take over** on hover). A step that opened a page shows
+that page under it, and a saved login shows only that it was your saved login for that site, never the password. Click a
+run's "Worked for …" line to fold its steps. At the bottom, **Reply, @ for context** goes on with the same task (with the
+same chips, and **■ Stop** while it works); a reply to an older task starts a new task that refers to it. When the agent
+needs your OK, the card sits above the composer: **Deny** (Esc) or **Allow once**. The pane (⌥⌘A) stays the compact
+form of the same task.
+
+Airc keeps each task's title, its steps' one-line captions, the prompts and the agent's answers in
+`~/Library/Application Support/Airc/Agent/Tasks`, never page text, what was typed into pages, keys or pictures. The
+pictures on the cards are kept in memory only, until you quit.
+
 ## Setting it up
 
 To get there: press ⌘T and type "claude" (or "mcp", "agent", "connect"), then pick **Connect Claude and other AI apps…**;

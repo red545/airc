@@ -184,6 +184,12 @@ agent-pane-approval|Waiting for your OK|The agent pane pinning “Pay on corners
 agent-pane-approval-dark|Waiting for your OK, dark|The same approval in dark mode
 agent-pane-connect|Connect your AI|The agent pane'"'"'s first run: the providers it can use, each with its set-up step
 agent-pane-connect-dark|Connect your AI, dark|The same first-run card in dark mode
+agent-tasks-ask|Ask from the Command Bar|⌘T, then Tab: Ask mode with the chips (attach a tab, this Mac, asks first, provider, effort) and Recent tasks as cards: one working now with its live page, two finished with their answers (synthetic sites, scripted model)
+agent-tasks-ask-dark|Ask from the Command Bar, dark|The same Ask mode and Recent tasks in a dark Space
+agent-task-view|A task, full width|A task in its own tab: the steps on a timeline with the page each one opened, the agent'"'"'s page floating live beside them, and the composer with its chips and Stop; the sidebar lists the tasks with a spinner and an unread dot
+agent-task-view-dark|A task, full width, dark|The same task view in a dark Space
+agent-task-approval|Waiting for your OK, in the task|The task view asking “Pay on cornershop…?” above the composer with Deny and Allow once, before anything is paid
+agent-task-approval-dark|Waiting for your OK, in the task, dark|The same approval in a dark Space
 agent-button|The Airc Agent button|The ✦ button in the sidebar'"'"'s bottom bar, with the one-time hint “Ask Airc to do things for you”
 agent-button-dark|The Airc Agent button, dark|The same button and hint in a dark Space
 agents-approval|Allow ‘Claude’ to use Airc?|The one-time question when a new app connects: the profiles it can use and who signed it

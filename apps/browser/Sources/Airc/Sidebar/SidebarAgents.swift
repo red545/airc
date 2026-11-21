@@ -26,6 +26,7 @@ final class SidebarAgentsView: NSView {
     private(set) weak var controller: WindowController?
     private var target: CGFloat = 0
     private var observers: [NSObjectProtocol] = []
+    private var taskSub: AnyCancellable?
     /// Watch over this window's page, while open.
     private(set) var watch: AgentWatchView?
 
@@ -53,6 +54,8 @@ final class SidebarAgentsView: NSView {
                 MainActor.assumeIsolated { self?.refresh() }
             })
         }
+        // asidepass: the Space's tasks (AgentTaskRecorder) as rows.
+        taskSub = AgentTaskRecorder.shared.$tasks.dropFirst().sink { [weak self] _ in DispatchQueue.main.async { self?.refresh() } }
         refresh()
     }
 
@@ -62,7 +65,9 @@ final class SidebarAgentsView: NSView {
         let theme = c.currentPalette.resolved
         if model.theme != theme { model.theme = theme }
         if let watch, watch.shownTabAtOpen != c.shownTabID { closeWatch() }   // the person picked one of their tabs
-        if model.profileID != c.store.space(c.currentSpaceID)?.profileID { refresh() }
+        if model.profileID != c.store.space(c.currentSpaceID)?.profileID || model.spaceID != c.currentSpaceID { refresh() }
+        let shown = AgentTasksURL.taskID(c.shownTabID.flatMap { c.store.tab($0)?.url })
+        if model.shownTaskID != shown { model.shownTaskID = shown }
     }
 
     /// Rows and height from the activity model.
@@ -73,12 +78,37 @@ final class SidebarAgentsView: NSView {
         let activity = AgentActivity.shared
         let now = Date()
         let rows = profile.map { activity.model.rows(profileID: $0) } ?? []
+        // asidepass: the Space's tasks above the agents' pages (a task's page keeps its row: Watch, Take over, Stop).
+        let tasks = AgentUI.usesPane ? SidebarTaskList.tasks(spaceID: c.currentSpaceID) : []
+        model.spaceID = c.currentSpaceID
+        if tasks != model.tasks { model.tasks = tasks }
         let items = rows.map { r in AgentsFolderModel.Item(row: r, state: activity.model.state(r, now: now),
                                                            stopped: r.clientKey.map(AgentCenter.shared.isStopped) ?? false) }
         if items != model.items { model.items = items }
         if model.watchingID != watch?.rowID { model.watchingID = watch?.rowID }
         if let watch, let row = activity.model.row(watch.rowID) { watch.update(row: row, state: activity.model.state(row, now: now)) }
         layoutHeight()
+    }
+
+    // MARK: Tasks (asidepass)
+
+    func openTask(_ id: String) {
+        guard let c = controller else { return }
+        AgentTasksPage.openTask(id, in: c)
+    }
+
+    func newTask() {
+        guard let c = controller else { return }
+        AgentUI.newTask(c)
+    }
+
+    func showAllTasks() {
+        guard let c = controller else { return }
+        AgentTasksPage.open(in: c)
+    }
+
+    func stopTask(_ id: String) {
+        if AgentTaskRecorder.shared.currentID == id { AgentRunCenter.shared.stop() }
     }
 
     func setExpanded(_ on: Bool) {
@@ -89,7 +119,10 @@ final class SidebarAgentsView: NSView {
 
     private func layoutHeight() {
         let n = model.items.count
-        let h: CGFloat = n == 0 ? 0 : Self.topInset + Self.headerHeight + (model.expanded ? CGFloat(n) * Self.rowPitch : 0) + Self.bottomInset
+        // asidepass: New Task, the tasks and Show all, over the other apps' rows.
+        let taskRows = model.tasks.isEmpty ? 0 : model.tasks.count + 2
+        let h: CGFloat = n + taskRows == 0 ? 0 : Self.topInset + Self.headerHeight
+            + (model.expanded ? CGFloat(n) * Self.rowPitch + CGFloat(taskRows) * SidebarTaskList.rowPitch : 0) + Self.bottomInset
         guard h != target else { return }
         target = h
         guard let c = controller, window != nil, !isHiddenOrHasHiddenAncestor,
@@ -241,6 +274,10 @@ final class AgentsFolderModel: ObservableObject {
     @Published var expanded = UserDefaults.standard.object(forKey: SidebarAgentsView.expandedKey) as? Bool ?? true
     @Published var watchingID: String?
     @Published var theme = DesignTheme.default.resolved(systemIsDark: false)
+    /// asidepass: this Space's Airc Agent tasks, and the one the window shows in its task view.
+    @Published var tasks: [AgentTaskRecord] = []
+    @Published var shownTaskID: String?
+    var spaceID = ""
     var profileID: String?
     weak var view: SidebarAgentsView?
 
@@ -256,6 +293,18 @@ struct AgentsFolderContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
+            if model.expanded, !model.tasks.isEmpty {
+                VStack(spacing: SidebarTaskList.rowPitch - SidebarTaskList.rowHeight) {
+                    SidebarNewTaskRow { model.view?.newTask() }
+                    ForEach(model.tasks) { t in
+                        SidebarTaskRow(task: t, selected: model.shownTaskID == t.id, open: { model.view?.openTask(t.id) },
+                                       stop: t.status == .running || t.status == .waiting ? { model.view?.stopTask(t.id) } : nil)
+                            .transition(.opacity.combined(with: .offset(y: -6)))
+                    }
+                    SidebarShowAllRow { model.view?.showAllTasks() }
+                }
+                .padding(.bottom, SidebarTaskList.rowPitch - SidebarTaskList.rowHeight)
+            }
             if model.expanded {
                 VStack(spacing: SidebarAgentsView.rowPitch - SidebarAgentsView.rowHeight) {
                     ForEach(model.items) { item in
@@ -271,6 +320,7 @@ struct AgentsFolderContent: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .coordinateSpace(name: Self.space)
         .animation(AircSpring.row.animation, value: model.items.map(\.id))
+        .animation(AircSpring.row.animation, value: model.tasks.map(\.id))
         .testAnchorRoot()
         .aircTheme(model.theme)
     }

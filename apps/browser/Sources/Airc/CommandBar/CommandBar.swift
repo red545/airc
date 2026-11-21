@@ -337,6 +337,11 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     /// P07c: Instant Links finding pages for what's typed, or showing what will open.
     private var instant: InstantState?
     private let scopePill = CommandBarScopePill()
+    /// asidepass: Ask mode (CommandBarAsk.swift): the Search | Ask switch, and under the field the chips and Recent
+    /// tasks in place of the rows.
+    private(set) var askMode = false
+    private let modeToggle = CommandBarModeToggle()
+    private(set) var askPanel: CommandBarAskPanel?
 
     init(mode: CommandBarMode, palette: Palette, host: CommandBarHost) {
         self.mode = mode
@@ -379,6 +384,9 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         scopePill.isHidden = true
         scopePill.onMenu = { [weak self] in self?.scopeMenu() }
         panel.addSubview(scopePill)
+        modeToggle.isHidden = true
+        modeToggle.onPick = { [weak self] ask in self?.setAskMode(ask) }
+        panel.addSubview(modeToggle)
         applyPalette()
     }
 
@@ -408,6 +416,8 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
             scope = nil
             applyScope()
         }
+        if askMode { setAskMode(false, refresh: false) }
+        askPanel?.model.attached = []
         if !input.stringValue.isEmpty { input.stringValue = "" }
         // Restyling with the same palette re-set every row and the field, which then measured and redrew (§2.12).
         if self.palette != palette { self.palette = palette } else { updateChip() }
@@ -775,6 +785,8 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         input.textColor = palette.panelText
         applyPlaceholder()
         scopePill.palette = palette
+        modeToggle.palette = palette
+        askPanel?.model.theme = palette.resolved
         glass.contentTintColor = palette.panelSecondary
         separator.backgroundColor = palette.panelBorder.cgColor
         chip.textColor = palette.panelSecondary
@@ -798,7 +810,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     }
 
     private func applyPlaceholder() {
-        let text = scope?.placeholder ?? "Search or Enter URL…"
+        let text = askMode ? "Ask Airc to…  @ adds this page" : scope?.placeholder ?? "Search or Enter URL…"
         if placeholderLabel.stringValue != text {
             placeholderLabel.stringValue = text
             input.setAccessibilityPlaceholderValue(text)
@@ -1009,7 +1021,8 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         let content = contentFrame.isEmpty ? bounds : contentFrame
         self.contentFrame = content
         let rowsHeight = CGFloat(results.count) * AircMetrics.CommandBar.rowHeight + (results.isEmpty ? 0 : 12)
-        let height = AircMetrics.CommandBar.inputHeight + rowsHeight
+        let askHeight = askMode ? CommandBarAskPanel.height(spaceID: askWindow?.currentSpaceID ?? "") : 0
+        let height = AircMetrics.CommandBar.inputHeight + rowsHeight + askHeight
         let anchored = anchoredRect(in: bounds, height: height)
         if let r = anchored {
             panelRect = r
@@ -1019,11 +1032,17 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
             panelRect = NSRect(x: (bounds.midX - width / 2).rounded(), y: top.rounded(), width: width, height: height)
         }
         let width = panelRect.width
+        // asidepass: the Search | Ask switch, in the centred bar of a window with the agent (not over the URL field).
+        let showsToggle = anchored == nil && askWindow != nil && width >= 520
+        if modeToggle.isHidden == showsToggle { modeToggle.isHidden = !showsToggle }
+        let toggleW: CGFloat = showsToggle ? modeToggle.intrinsicContentSize.width + 8 : 0
         panel.frame = panelRect
         shadowView.frame = panelRect
         glass.frame = NSRect(x: 20, y: (AircMetrics.CommandBar.inputHeight - 24) / 2, width: 24, height: 24)
         // Over the URL field the text starts where the field's host did (12 pt in), so it doesn't jump (review #10).
         glass.isHidden = anchored != nil || scope != nil
+        let glassImage = askMode ? Self.askGlyph : Self.searchGlyph
+        if glass.image !== glassImage { glass.image = glassImage }
         var inputX: CGFloat = anchored != nil ? AircAddressFieldLabel.leadingInset : 54
         if scope != nil {
             // Site Search: the site's pill where the glass was, the query after it.
@@ -1037,12 +1056,22 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         let chipW = chip.isHidden ? 0 : chip.frame.width + 18
         chip.frame = NSRect(x: width - 16 - chipW + 9, y: (AircMetrics.CommandBar.inputHeight - chip.frame.height) / 2,
                             width: chipW - 18, height: chip.frame.height)
-        input.frame = NSRect(x: inputX, y: (AircMetrics.CommandBar.inputHeight - 26) / 2, width: width - inputX - 20 - chipW, height: 26)
+        if showsToggle {
+            let size = modeToggle.intrinsicContentSize
+            let f = NSRect(x: width - 16 - chipW - toggleW, y: ((AircMetrics.CommandBar.inputHeight - size.height) / 2).rounded(), width: size.width, height: size.height)
+            if modeToggle.frame != f { modeToggle.frame = f }
+        }
+        input.frame = NSRect(x: inputX, y: (AircMetrics.CommandBar.inputHeight - 26) / 2, width: width - inputX - 20 - chipW - toggleW, height: 26)
+        if let a = askPanel {
+            let f = NSRect(x: 0, y: AircMetrics.CommandBar.inputHeight, width: width, height: askHeight)
+            if a.frame != f { a.frame = f }
+            if a.isHidden == askMode { a.isHidden = !askMode }
+        }
         if placeholderLabel.frame != input.frame { placeholderLabel.frame = input.frame }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         chipBackground.frame = NSRect(x: width - 16 - chipW, y: (AircMetrics.CommandBar.inputHeight - 24) / 2, width: chipW, height: 24)
-        separator.isHidden = results.isEmpty
+        separator.isHidden = results.isEmpty && !askMode
         separator.frame = NSRect(x: 0, y: AircMetrics.CommandBar.inputHeight - 0.5, width: width, height: 0.5)
         let shape = CGPath(roundedRect: shadowView.bounds, cornerWidth: AircMetrics.CommandBar.radius,
                            cornerHeight: AircMetrics.CommandBar.radius, transform: nil)
@@ -1095,6 +1124,11 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     private func textDidChange(byDeleting deleting: Bool, text typedText: String? = nil) {
         cancelInstant(restore: false)
         updatePlaceholderVisibility()
+        if askMode, !deleting, input.stringValue.hasSuffix("@"), let c = askWindow, let page = AgentAskContext.shownPage(of: c) {
+            // "@": the window's page goes into the chips (the + chip lists the Space's other tabs).
+            input.stringValue.removeLast()
+            if askPanel?.model.attached.contains(page) == false { askPanel?.model.attached.append(page) }
+        }
         let text = typedText ?? input.stringValue
         let before = typed
         typed = text
@@ -1110,6 +1144,8 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
 
     func update(allowCompletion: Bool = true) {
         guard let c = host else { return }
+        // Ask mode searches nothing: what's typed is the agent's task.
+        if askMode { return updateAsk() }
         let q = typed
         let sites = Perf.time("cb.sitesearch") { Self.siteSearchEnabled ? c.commandBarSiteSearches : nil }
         // A site edited in Settings is searched as it is now; another profile's Space without it ends its search.
@@ -1204,6 +1240,9 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         // a site search, actions, suggestions off).
         if suggestionQuery != q, !(Self.keepsSuggestions && wantsSuggestions(q)) { suggestions = [] }
         results = Perf.time("cb.results") { composedResults(q, history: historyHits, suggestions: suggestions) }
+        // asidepass: "Tab to switch" shows only where Tab would switch to Ask (nothing else of Tab's applies).
+        let tabSwitches = !modeToggle.isHidden && !q.isEmpty && !isActionsMode && scope == nil && siteCandidate == nil && askCandidate == nil && inline == nil
+        if modeToggle.showsTabHint != tabSwitches { modeToggle.showsTabHint = tabSwitches }
         Perf.time("cb.rows") { reloadRows() }
         #if AIRC_TESTING
         if Self.localHistoryEnabled, !historyHits.isEmpty { onHistoryApplied?(historyHits.count) }
@@ -1596,11 +1635,14 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
             if !results.isEmpty { select((selected - 1 + results.count) % results.count, userMoved: true) }
             return true
         case #selector(NSResponder.insertNewline(_:)):
+            if askMode { submitAsk(); return true }
             execute()
             return true
         case #selector(NSResponder.insertTab(_:)):
             // In a site search Tab stays in the field.
             if scope != nil { return true }
+            // asidepass: from Ask, Tab always goes back to Search (what's typed stays).
+            if askMode { setAskMode(false); return true }
             // Tab on an empty field: actions (Arc). On a site's shortcut or name: that site's search (Arc's Site
             // Search), before accepting an inline completion ("you" → youtube.com: Tab searches YouTube, → accepts).
             // With an inline completion: accept it.
@@ -1623,6 +1665,8 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
                 update(allowCompletion: false)
                 return true
             }
+            // Nothing else for Tab: it switches to Ask, keeping what's typed.
+            if !modeToggle.isHidden, !isActionsMode { setAskMode(true); return true }
             return false
         case #selector(NSResponder.cancelOperation(_:)):
             // Esc normally comes through handleSuggestionKey; this is the field's own (VoiceOver's escape action).
@@ -1636,6 +1680,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     /// Esc: a completion goes first, then a site search ends (what was typed before it comes back), then the bar closes.
     private func cancel() {
         if instant != nil { return cancelInstant(restore: true) }
+        if askMode { return setAskMode(false) }
         if inline != nil {
             input.stringValue = typed
             inline = nil
@@ -1673,6 +1718,68 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         host?.performCommand(r.action, newTab: newTab, typed: !r.opensInNewTab)
         host?.focusPageUnlessTaken()
     }
+
+    // MARK: Ask mode (asidepass, CommandBarAsk.swift)
+
+    static let searchGlyph = Symbols.image("magnifyingglass", size: 17, weight: .medium)
+    static let askGlyph = Symbols.image("sparkles", size: 17, weight: .medium)
+
+    /// Search ↔ Ask. What's typed stays; Ask's panel is made on its first use.
+    func setAskMode(_ on: Bool, refresh: Bool = true) {
+        guard on != askMode, !on || askWindow != nil else { return }
+        if on, scope != nil { leaveScope(restoring: false) }
+        if on, instant != nil { cancelInstant(restore: false) }
+        askMode = on
+        modeToggle.ask = on
+        if on, askPanel == nil {
+            let a = CommandBarAskPanel(theme: palette.resolved)
+            a.model.controller = askWindow
+            panel.addSubview(a)
+            askPanel = a
+        }
+        if on, let c = askWindow, let a = askPanel {
+            a.model.controller = c
+            a.model.spaceID = c.currentSpaceID
+            a.model.theme = palette.resolved
+            a.model.openTask = { [weak self, weak c] t in
+                guard let c else { return }
+                self?.host?.closeCommandBar(focusingPage: false)
+                AgentTasksPage.openTask(t.id, in: c)
+            }
+            a.model.showAll = { [weak self, weak c] in
+                guard let c else { return }
+                self?.host?.closeCommandBar(focusingPage: false)
+                AgentTasksPage.open(in: c)
+            }
+            if a.model.attached.isEmpty, mode == .editURL, let page = AgentAskContext.shownPage(of: c) { a.model.attached = [page] }
+        }
+        if modeToggle.showsTabHint { modeToggle.showsTabHint = false }
+        applyPlaceholder()
+        NSAccessibility.post(element: modeToggle, notification: .valueChanged)
+        guard refresh else { return }
+        if on { updateAsk() } else { update(allowCompletion: false) }
+    }
+
+    /// Ask mode's "update": no rows, the panel's height for this Space.
+    private func updateAsk() {
+        if !results.isEmpty { results = []; reloadRows() }
+        updatePlaceholderVisibility()
+        if let sv = superview { layoutIn(sv.bounds, sidebarFrame: sidebarFrame, contentFrame: contentFrame) }
+    }
+
+    /// Return in Ask: the task starts and its view opens.
+    private func submitAsk() {
+        guard let c = askWindow else { return }
+        let text = input.stringValue
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let attached = askPanel?.model.attached ?? []
+        host?.closeCommandBar(focusingPage: false)
+        Self.startAgentTask(text, attached: attached, in: c)
+    }
+
+    #if AIRC_TESTING
+    var modeToggleForTesting: CommandBarModeToggle { modeToggle }
+    #endif
 
     // MARK: Ask AI (P07b)
 

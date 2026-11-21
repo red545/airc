@@ -20,6 +20,7 @@ final class AgentTaskRecorder: ObservableObject {
 
     private init() {
         tasks = AgentTaskRecord.ordered(store.all())
+        DispatchQueue.main.async { _ = AgentTaskThumbs.shared }
         let run = AgentRunCenter.shared
         subs.append(run.$steps.sink { [weak self] s in DispatchQueue.main.async { self?.stepsChanged(s) } })
         subs.append(run.$state.sink { [weak self] _ in DispatchQueue.main.async { self?.queueSave() } })
@@ -61,7 +62,12 @@ final class AgentTaskRecorder: ObservableObject {
         var sites: [String] = []
         for s in run.steps where s.kind == .action { if let h = timeline.host(s.id), !sites.contains(h) { sites.append(h) } }
         r.sites = sites
-        if let a = run.steps.last(where: { $0.kind == .final })?.text { r.answer = AgentTaskRecord.answerLine(a) }
+        if let a = run.steps.last(where: { $0.kind == .final })?.text {
+            r.answer = AgentTaskRecord.answerLine(a)
+            r.answerHead = AgentTaskRecord.answerHead(a)
+        }
+        r.entries = AgentTaskRecord.capped(Self.entries(run.steps, timeline: timeline))
+        r.endedAt = run.state.isActive ? nil : (r.endedAt ?? Date())
         let before = r.status
         switch run.state {
         case .running: r.status = .running
@@ -74,6 +80,25 @@ final class AgentTaskRecorder: ObservableObject {
         if before != r.status, r.status == .done { r.unread = !AgentUI.anyPaneShows }
         upsert(r)
     }
+
+    /// The task view's timeline from the conversation: what the pane shows, nothing more (the attached page's line
+    /// stays out of the prompt; captions are AgentRedaction's).
+    static func entries(_ steps: [AgentStep], timeline: AgentPaneTimeline) -> [AgentTaskRecord.Entry] {
+        steps.compactMap { s -> AgentTaskRecord.Entry? in
+            switch s.kind {
+            case .user: return .init(kind: .prompt, text: AgentPaneItem.promptText(s.text))
+            case .action: return .init(kind: .step, text: s.text, host: timeline.host(s.id), detail: s.detail)
+            case .say: return .init(kind: .text, text: s.text)
+            case .final: return .init(kind: .answer, text: s.text)
+            case .approval, .decision: return .init(kind: .approval, text: s.text, detail: s.detail)
+            case .warning, .error, .info: return .init(kind: .note, text: s.text, detail: s.detail)
+            case .memory: return nil
+            }
+        }
+    }
+
+    /// The task the agent runs now (nil: none, or the pane shows a new empty task).
+    var current: AgentTaskRecord? { currentID.flatMap { id in tasks.first { $0.id == id } } }
 
     private func upsert(_ r: AgentTaskRecord) {
         if let i = tasks.firstIndex(where: { $0.id == r.id }) { tasks[i] = r } else { tasks.append(r) }
@@ -88,6 +113,15 @@ final class AgentTaskRecorder: ObservableObject {
     }
 
     func archive(_ id: String) { delete(id) }
+
+    #if AIRC_TESTING
+    /// Marketing shots: a finished task the person hasn't seen.
+    func markUnreadForTesting(_ id: String) {
+        guard var r = tasks.first(where: { $0.id == id }) else { return }
+        r.unread = true
+        upsert(r)
+    }
+    #endif
 
     /// Delete: the record goes; the current conversation's agent window closes with it.
     func delete(_ id: String) {
@@ -107,15 +141,20 @@ extension AgentUI {
 
 /// `airc://agents`: every pane task and every external app's session, with search, status chips and a Space filter
 /// (docs/design/agent-ux.md §7, M5). A native page in the card, like What's New.
+/// asidepass: `airc://agents/<task id>` shows that task in the same tab (AgentTaskView.swift): the sidebar's task rows,
+/// the Recent tasks cards and Show all open tasks here.
 final class AgentTasksPage: CardDocument {
     let tabID: String
     let model: AgentTasksPageModel
     let host: AgentTasksPageView
+    let task: AgentTaskViewModel
 
     init(tabID: String, theme: ResolvedTheme) {
         self.tabID = tabID
         model = AgentTasksPageModel(theme: theme)
-        host = AgentTasksPageView(model: model)
+        task = AgentTaskViewModel(taskID: "", theme: theme)
+        task.tabID = tabID
+        host = AgentTasksPageView(model: model, task: task)
     }
 
     var cardView: NSView { host }
@@ -125,8 +164,46 @@ final class AgentTasksPage: CardDocument {
         model.controller = c
         model.spaceID = c.currentSpaceID
         model.theme = c.currentPalette.resolved
+        task.controller = c
+        task.theme = c.currentPalette.resolved
+        let id = AgentTasksURL.taskID(c.store.tab(tabID)?.url)
+        if model.taskID != id { model.taskID = id }
+        if let id, task.taskID != id { task.taskID = id; task.text = ""; task.attached = []; task.folded = []; task.toggled = [] }
         host.cornerRadius = c.card.cornerRadius
         host.applyTheme()
+    }
+
+    /// A task in this Space's agents tab (reused if open, else a new tab), shown.
+    @discardableResult
+    static func openTask(_ id: String, in c: WindowController) -> String? {
+        let title = AgentTaskRecorder.shared.tasks.first { $0.id == id }?.title ?? AgentTasksURL.title
+        let url = AgentTasksURL.task(id)
+        let tabID: String
+        if let t = c.store.state.tabs.values.first(where: { $0.spaceID == c.currentSpaceID && AgentTasksURL.isPage($0.url) }) {
+            tabID = t.id
+            c.store.updateTab(t.id, url: url, title: title)
+        } else {
+            guard let t = try? c.store.openTab(url: url, inSpace: c.currentSpaceID, title: title) else { return nil }
+            tabID = t.id
+        }
+        AgentTaskRecorder.shared.markSeen(id)
+        existing(tabID).map { $0.prepare(for: c) }
+        c.show(tabID)
+        return tabID
+    }
+
+    /// Back to the list (Show all) in the same tab.
+    static func showList(in c: WindowController) {
+        guard let t = c.store.state.tabs.values.first(where: { $0.spaceID == c.currentSpaceID && AgentTasksURL.isPage($0.url) }) else { return }
+        c.store.updateTab(t.id, url: AgentTasksURL.prefix, title: AgentTasksURL.title)
+        existing(t.id).map { $0.prepare(for: c) }
+    }
+
+    /// The tab follows the task its view shows now (a reply to an older task starts a new one).
+    static func retitle(_ task: AgentTaskViewModel, in c: WindowController) {
+        guard let page = pages.values.first(where: { $0.task === task }) else { return }
+        c.store.updateTab(page.tabID, url: AgentTasksURL.task(task.taskID), title: task.title)
+        page.model.taskID = task.taskID
     }
 
     private static var pages: [String: AgentTasksPage] = [:]
@@ -142,13 +219,17 @@ final class AgentTasksPage: CardDocument {
 
     static func existing(_ tabID: String?) -> AgentTasksPage? { tabID.flatMap { pages[$0] } }
 
-    /// History ◷ and "Show all": the Space's All tasks tab (reused if open).
+    /// History ◷ and "Show all": the Space's All tasks tab (reused if open, back on its list).
     @discardableResult
     static func open(in c: WindowController) -> String? {
         let store = c.store
         let id: String
         if let t = store.state.tabs.values.first(where: { $0.spaceID == c.currentSpaceID && AgentTasksURL.isPage($0.url) }) {
             id = t.id
+            if t.url != AgentTasksURL.prefix {
+                store.updateTab(t.id, url: AgentTasksURL.prefix, title: AgentTasksURL.title)
+                existing(t.id).map { $0.prepare(for: c) }
+            }
         } else {
             guard let t = try? store.openTab(url: AgentTasksURL.prefix, inSpace: c.currentSpaceID, title: AgentTasksURL.title) else { return nil }
             id = t.id
@@ -163,6 +244,8 @@ final class AgentTasksPageModel: ObservableObject {
     @Published var query = ""
     @Published var chip: String?
     @Published var allSpaces = false
+    /// The task the tab shows (nil: the list).
+    @Published var taskID: String?
     weak var controller: WindowController?
     var spaceID = ""
 
@@ -205,19 +288,20 @@ final class AgentTasksPageModel: ObservableObject {
             c.sidebar.agents.openWatch(String(row.id.dropFirst("session-".count)))
             return
         }
-        AgentTaskRecorder.shared.markSeen(row.id)
-        // The pane shows the conversation it has (one at a time in phase 1).
-        AgentPaneController.show(c)
+        // asidepass: the task opens in this tab, as a full task view.
+        AgentTasksPage.openTask(row.id, in: c)
     }
 }
 
 final class AgentTasksPageView: NSView {
     let model: AgentTasksPageModel
+    let task: AgentTaskViewModel
     private let hosting: NSHostingView<AnyView>
 
-    init(model: AgentTasksPageModel) {
+    init(model: AgentTasksPageModel, task: AgentTaskViewModel) {
         self.model = model
-        hosting = NSHostingView(rootView: AnyView(AgentTasksPageRoot(model: model).testAnchorRoot()))
+        self.task = task
+        hosting = NSHostingView(rootView: AnyView(AgentTasksPageSwitch(model: model, task: task).testAnchorRoot()))
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         wantsLayer = true
         layer?.cornerRadius = AircMetrics.Window.cardRadius
@@ -244,6 +328,20 @@ final class AgentTasksPageView: NSView {
         layer?.backgroundColor = t.surface.nsColor.cgColor
         layer?.borderColor = t.isDark ? NSColor.white.withAlphaComponent(0.06).cgColor : NSColor.black.withAlphaComponent(0.08).cgColor
         appearance = NSAppearance(named: t.isDark ? .darkAqua : .aqua)
+    }
+}
+
+/// The list, or one task.
+struct AgentTasksPageSwitch: View {
+    @ObservedObject var model: AgentTasksPageModel
+    @ObservedObject var task: AgentTaskViewModel
+
+    var body: some View {
+        if model.taskID != nil {
+            AgentTaskViewRoot(model: task).environment(\.aircTheme, model.theme).id(task.taskID)
+        } else {
+            AgentTasksPageRoot(model: model)
+        }
     }
 }
 
@@ -302,7 +400,12 @@ private struct AgentTasksPageContent: View {
 
     private func row(_ r: AgentTasksPageModel.Row) -> some View {
         HStack(spacing: 10) {
-            Circle().fill(r.unread ? theme.accent.color : Color.clear).frame(width: 7, height: 7)
+            Group {
+                if r.chip == "Running" { AgentTaskSpinner(size: 11) }
+                else if r.chip == "Waiting" { Image(systemName: "hand.raised.fill").font(.system(size: 10)).foregroundStyle(.orange) }
+                else { Circle().fill(r.unread ? theme.accent.color : Color.clear).frame(width: 7, height: 7) }
+            }
+            .frame(width: 12, height: 12)
             VStack(alignment: .leading, spacing: 2) {
                 Text(r.title).aircFont(AircFont.body).fontWeight(.medium).foregroundStyle(theme.surfaceText.color).lineLimit(1)
                 if !r.subtitle.isEmpty {

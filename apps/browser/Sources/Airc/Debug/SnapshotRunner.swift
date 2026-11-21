@@ -332,6 +332,7 @@ final class SnapshotRunner {
         case "agentcli": agentCLIScenario()       // the panel on fake Claude Code / Codex CLIs (AgentCLICheck.swift)
         case "agentpane": agentPaneScenario()   // the Airc Agent pane in the window (AgentPaneCheck.swift)
         case "agentpane2": agentPane2Scenario()   // the pane's Install…, Sign in… and Hand back on fake CLIs (AgentPane2Check.swift)
+        case "agenttasks": agentTasksScenario()   // asidepass: Ask mode, task view, sidebar task rows, Recent tasks (AgentTasksCheck.swift)
         case "agentlights": agentLightsScenario()   // the traffic lights stay clear and clickable while an outside agent works; the ✦ pill (AgentLightsCheck.swift)
         case "parityconnect": parityConnectScenario()   // every way to connect Claude (ParityConnectCheck.swift)
         case "parityremote": parityRemoteScenario()   // Settings › Agents › Other devices, the tailnet listener (ParityRemoteCheck.swift)
