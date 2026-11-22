@@ -130,9 +130,17 @@ final class PiPCheckContext {
     var keyObserver: NSObjectProtocol?
     var backgroundKeyEvents = 0
     static var geometryOnly: Bool { ProcessInfo.processInfo.environment["AIRC_PIPMEET_GEOMETRY"] == "1" }
+    /// How long the owner has left the HID alone. The check's own UI-driver input (a real click on Play) is HID input
+    /// too: when the last HID event came no later than the driver's command ended, it was ours, and the owner's idle
+    /// time runs on from what it was before that command.
     static var ownerIdle: TimeInterval {
-        CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: CGEventType(rawValue: ~0)!)
+        let idle = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: CGEventType(rawValue: ~0)!)
+        let now = ProcessInfo.processInfo.systemUptime
+        if let d = driverInput, now - idle <= d.end + 0.5 { return d.idleBefore + (now - d.start) }
+        return idle
     }
+    /// The last driver command: when it started and ended (systemUptime), and the owner's idle time just before it.
+    static var driverInput: (start: TimeInterval, end: TimeInterval, idleBefore: TimeInterval)?
 }
 
 extension SnapshotRunner {
@@ -279,6 +287,48 @@ extension SnapshotRunner {
         }
     }
 
+    /// Play on the video page as a person does: a real click on its Play button with the UI driver when real input is
+    /// on (AIRC_REAL_CLICKS=1, a dedicated session), otherwise Play with a DevTools user gesture (posted). Labelled.
+    private func startVideo(_ tab: @escaping () -> String, _ chromium: ChromiumEngine) {
+        step { [self] done in
+            let id = tab()
+            guard let p = page(id) else { check(false, "pipcontrols: no video page to play"); return done() }
+            func gestured() {
+                chromium.devToolsCall("Runtime.evaluate", params: ["expression": "start().then(String, e => 'rejected ' + e.name + ': ' + e.message)",
+                                                                   "userGesture": true, "awaitPromise": true, "returnByValue": true], in: p) { r, e in
+                    let value = ((r?["result"] as? [String: Any])?["value"] as? String) ?? e ?? "no reply"
+                    self.check(value == "true", "pipcontrols: Play (a DevTools user gesture) starts the video (\(value)) [posted]")
+                    done()
+                }
+            }
+            guard ProcessInfo.processInfo.environment["AIRC_REAL_CLICKS"] == "1" else { return gestured() }
+            p.evaluate("(function () { var r = document.getElementById('play').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })()") { v in
+                let xy = (v as? [Any])?.compactMap { ($0 as? NSNumber)?.doubleValue } ?? []
+                let view = p.view
+                guard xy.count == 2, let w = view.window, let primary = NSScreen.screens.first, UIDriverClient.available,
+                      ProcessInfo.processInfo.environment["AIRC_UI_DEDICATED_SESSION"] == "1", NSApp.isActive, w.isKeyWindow, w.isOnActiveSpace else {
+                    self.note("FAIL-ENV pipcontrols: no real click on Play (driver \(UIDriverClient.available), active \(NSApp.isActive), key \(view.window?.isKeyWindow == true)); Play with a DevTools gesture instead")
+                    return gestured()
+                }
+                let local = NSPoint(x: xy[0], y: view.isFlipped ? xy[1] : view.bounds.height - xy[1])
+                let screen = w.convertPoint(toScreen: view.convert(local, to: nil))
+                // The driver refuses an empty --mods: a plain click passes none.
+                let idleBefore = PiPCheckContext.ownerIdle, start = ProcessInfo.processInfo.systemUptime
+                PiPCheckContext.driverInput = (start, .greatestFiniteMagnitude, idleBefore)
+                UIDriverClient.run(["--click", String(Double(screen.x)), String(Double(primary.frame.maxY - screen.y))]) { ok, out in
+                    PiPCheckContext.driverInput = (start, ProcessInfo.processInfo.systemUptime, idleBefore)
+                    self.waitUntil({ MediaLibrary.shared.media?.sessions[id]?.session.playback == .playing }, timeout: 8) {
+                        self.pageState(id) { st in
+                            self.check(ok && (st["starts"] as? Int ?? 0) >= 1 && st["paused"] as? Bool == false,
+                                       "pipcontrols: a real click on Play starts the video (driver \(ok ? "ok" : out), starts \(st["starts"] ?? "-"), paused \(st["paused"] ?? "-")) [real click]")
+                            done()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// A tab just shown: its call's videos start playing (a hidden tab holds them back).
     private func waitForPlaying(_ tab: @escaping () -> String) {
         step { [self] done in
@@ -337,7 +387,11 @@ extension SnapshotRunner {
     private func prepareBackgroundPiP(_ x: PiPCheckContext) {
         guard !PiPCheckContext.geometryOnly else { return }
         step { [self] done in
-            guard ProcessInfo.processInfo.environment["AIRC_UI_DEDICATED_SESSION"] == "1" else { return done() }
+            // An `open -g` launch can still start active: macOS hands it the activation of the UI-lock holder that
+            // just quit. Hand it to Finder then too (NSRunningApplication, no AppleEvents), and say so.
+            let dedicated = ProcessInfo.processInfo.environment["AIRC_UI_DEDICATED_SESSION"] == "1"
+            guard dedicated || NSApp.isActive else { return done() }
+            if !dedicated { note("pipcontrols background setup: Airc started active in a background launch (inherited activation); handing it to Finder") }
             guard let other = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == "com.apple.finder" }) else {
                 note("FAIL-ENV pipcontrols background setup: agent Finder is unavailable")
                 return done()
@@ -356,13 +410,26 @@ extension SnapshotRunner {
     // MARK: Video
 
     private func pipVideo(_ x: PiPCheckContext, _ chromium: ChromiumEngine) {
-        prepareBackgroundPiP(x)
         let id = { x.video }
         step { [self] done in waitUntil({ self.page(id())?.title.contains("ready") == true }, timeout: 12) { done() } }
-        step { [self] done in gesture(id(), "start()", chromium, done) }
-        step { [self] done in
-            waitUntil({ MediaLibrary.shared.media?.sessions[id()]?.session.playback == .playing }, timeout: 6) { done() }
+        run { [self] in
+            check(page(id())?.title.contains("ready") == true, "pipcontrols: the video page loads (\(page(id())?.title ?? "no page"))")
+            // The suite launches media checks with --autoplay-policy=no-user-gesture-required; a person's Airc doesn't.
+            // The fixture needs neither: its clip is made on the Play gesture.
+            note("pipcontrols: autoplay policy flag \(ProcessInfo.processInfo.arguments.contains("--autoplay-policy=no-user-gesture-required") ? "on (suite launch)" : "off (as a person's Airc)")")
         }
+        startVideo(id, chromium)
+        step { [self] done in
+            waitUntil({ MediaLibrary.shared.media?.sessions[id()]?.session.playback == .playing }, timeout: 8) {
+                guard MediaLibrary.shared.media?.sessions[id()]?.session.playback != .playing, let p = self.page(id()) else { return done() }
+                p.evaluate("JSON.stringify({paused: v.paused, ready: v.readyState, err: v.error && v.error.message, starts: starts, probe: probe()})") { v in
+                    self.note("pipcontrols: the video didn't start: \(v.map { String(describing: $0) } ?? "nil")")
+                    done()
+                }
+            }
+        }
+        // Then the person switches to another app: the PiP checks run with Airc in the background.
+        prepareBackgroundPiP(x)
         run { [self] in
             let s = MediaLibrary.shared.media?.sessions[id()]?.session
             check(s?.playback == .playing && s?.duration == 600 && ["play", "pause", "seekto", "previoustrack", "nexttrack"].allSatisfy { s?.actions.contains($0) == true },
@@ -908,7 +975,7 @@ extension SnapshotRunner {
 enum PiPCheckPages {
     static let video = """
     <!doctype html><meta charset="utf-8"><title>PiP video (loading)</title>
-    <body style="margin:0;background:#16222e;color:#fff;font:16px system-ui"><video id="v" playsinline loop style="width:100vw"></video><canvas id="c" width="640" height="360" hidden></canvas>
+    <body style="margin:0;background:#16222e;color:#fff;font:16px system-ui"><button id="play" onclick="start()" style="position:fixed;left:16px;top:16px;z-index:1;width:120px;height:44px;font:600 16px system-ui">Play</button><video id="v" playsinline loop style="width:100vw"></video><canvas id="c" width="640" height="360" hidden></canvas>
     <script>
     var log = [], v = document.getElementById('v'), ms = navigator.mediaSession, track = 1, pos = 42, posAt = performance.now(), src;
     function meta(){ ms.metadata = new MediaMetadata({title: 'Fixture Film ' + track, artist: 'Airc', album: 'Loopback'}); }
@@ -916,20 +983,29 @@ enum PiPCheckPages {
     function now(){ return ms.playbackState === 'playing' ? Math.min(600, pos + (performance.now() - posAt) / 1000) : pos; }
     function at(p){ pos = Math.max(0, Math.min(600, p)); posAt = performance.now(); ms.setPositionState({duration: 600, playbackRate: 1, position: pos}); }
     // A two-second clip from a canvas and silent WebAudio (no devices), looping; the session says it's ten minutes.
+    // Made on the first Play, as a person's click: without the click's user activation Chromium's autoplay policy keeps
+    // the AudioContext suspended, the WebM muxer waits for audio, and the clip is a bare header (no supported source).
     async function record(){
       var c = document.getElementById('c'), x = c.getContext('2d'), n = 0;
       var t = setInterval(function(){ x.fillStyle = 'hsl(' + (n * 5 % 360) + ',40%,32%)'; x.fillRect(0, 0, 640, 360);
         x.fillStyle = '#fff'; x.font = '600 44px system-ui'; x.fillText('Airc PiP ' + (n++), 40, 200); }, 50);
       var ac = new AudioContext(), o = ac.createOscillator(), g = ac.createGain(), d = ac.createMediaStreamDestination();
-      g.gain.value = 0; o.connect(g).connect(d); o.start();
+      g.gain.value = 0; o.connect(g).connect(d); o.start(); await ac.resume(); var audio = ac.state;
       var s = c.captureStream(20); s.addTrack(d.stream.getAudioTracks()[0]);
       var r = new MediaRecorder(s, {mimeType: 'video/webm;codecs=vp8,opus'}), chunks = [];
       r.ondataavailable = function(e){ chunks.push(e.data); }; r.start();
       await new Promise(function(f){ setTimeout(f, 2000); }); await new Promise(function(f){ r.onstop = f; r.stop(); });
       clearInterval(t); s.getTracks().forEach(function(k){ k.stop(); }); o.stop(); ac.close();
-      src = URL.createObjectURL(new Blob(chunks, {type: 'video/webm'}));
+      var blob = new Blob(chunks, {type: 'video/webm'});
+      rec = {chunks: chunks.length, bytes: blob.size, type: r.mimeType, audio: audio};
+      src = URL.createObjectURL(blob);
     }
-    window.start = async function(){ v.src = src; await v.play(); ms.playbackState = 'playing'; at(pos); document.title = 'PiP video (playing)'; return true; };
+    var rec = null;
+    // What this engine can make and play (logged by the check when the clip won't play).
+    function probe(){ var t = ['video/webm; codecs="vp8, opus"', 'video/webm; codecs="vp9"', 'video/webm', 'video/mp4; codecs="avc1.42E01E"', 'audio/webm; codecs="opus"'];
+      return {rec: rec, canPlay: t.map(function(k){ return k + '=' + v.canPlayType(k); }), mse: t.map(function(k){ return k + '=' + (window.MediaSource ? MediaSource.isTypeSupported(k) : 'none'); }),
+              recorder: ['video/webm;codecs=vp8,opus', 'video/webm;codecs=vp9', 'video/mp4'].map(function(k){ return k + '=' + MediaRecorder.isTypeSupported(k); })}; }
+    window.start = async function(){ starts++; if (!src) await (recording = recording || record()); v.src = src; await v.play(); ms.playbackState = 'playing'; at(pos); document.title = 'PiP video (playing)'; return true; };
     meta();
     ms.setActionHandler('play', function(){ log.push('play'); var p = now(); v.play(); ms.playbackState = 'playing'; at(p); });
     ms.setActionHandler('pause', function(){ log.push('pause'); var p = now(); v.pause(); ms.playbackState = 'paused'; at(p); });
@@ -938,8 +1014,9 @@ enum PiPCheckPages {
     ms.setActionHandler('seekforward', function(d){ log.push('seekforward:' + (d.seekOffset || 0)); at(now() + (d.seekOffset || 10)); });
     ms.setActionHandler('previoustrack', function(){ log.push('previoustrack'); track = Math.max(1, track - 1); meta(); });
     ms.setActionHandler('nexttrack', function(){ log.push('nexttrack'); track++; meta(); });
-    function state(){ return {log: log, paused: v.paused, track: track, position: now()}; }
-    record().then(function(){ document.title = 'PiP video (ready)'; }, function(e){ document.title = 'PiP video (error ' + e.name + ')'; });
+    var starts = 0, recording = null;
+    function state(){ return {log: log, paused: v.paused, track: track, position: now(), starts: starts}; }
+    document.title = 'PiP video (ready)';
     </script>
     """
 

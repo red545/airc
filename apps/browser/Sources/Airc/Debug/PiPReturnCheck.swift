@@ -305,6 +305,10 @@ extension SnapshotRunner {
             pressReturn("other Space", { spaced })
             returned("other Space", { spaced }, window: { [self] in c }, space: { secondSpace })
             run { [self] in if let p = page(spaced) { p.evaluate("v.pause(); true", completion: nil) } }
+            // Done with it: a paused player stays in the tray (as in Arc), so in the full run it would be a third row
+            // under case f's two. Close the tab rather than loosen f's exact stack.
+            run { [self] in c.closeTab(spaced) }
+            expect("other Space: closing its tab takes its row out of the tray", { media?.sessions[spaced] == nil && media?.players.contains { $0.tabID == spaced } == false })
 
             // c. Its window is behind another Airc window (on the same frame, so it's covered).
             endCase()
@@ -397,7 +401,7 @@ extension SnapshotRunner {
             func rows() -> [String] { media?.players.map(\.tabID) ?? [] }
             run { if let p = media?.sessions[player] { media?.perform("play", p) } }
             expect("two players stack, the playing one first, the paused one under it", { rows() == [player, video] },
-                   { "\(media?.players.map { "\($0.title) \($0.session.playback)" } ?? [])" })
+                   { "\(media?.players.map { "\($0.title) \($0.session.playback) \($0.tabID == player ? "player" : $0.tabID == video ? "video" : $0.tabID == spaced ? "spaced" : $0.tabID)" } ?? [])" })
             run { if let p = media?.players.first(where: { $0.tabID == video }) { media?.closePlayer(p) } }
             expect("Close Player hides the paused row and keeps the other", { rows() == [player] && media?.sessions[video] != nil })
             run { if let p = media?.players.first(where: { $0.tabID == player }) { media?.closePlayer(p) } }
