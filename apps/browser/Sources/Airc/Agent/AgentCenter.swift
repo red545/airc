@@ -82,6 +82,11 @@ final class AgentCenter {
     #endif
     private(set) var windows: [Int: AgentWindow] = [:]
     private(set) lazy var tools: [AgentTool] = makeTools()
+    /// agentrecall: tools only the Airc Agent's own runs get (its API loop and the person's Claude Code / Codex it runs,
+    /// through AgentBridge). Outside apps never read the person's history or tabs (docs/user/agents.md).
+    static let agentOnlyTools: Set<String> = ["search_history"]
+    /// What an outside app's connection lists and may call.
+    var appTools: [AgentTool] { tools.filter { !AgentCenter.agentOnlyTools.contains($0.name) } }
     /// Connections that passed the hello, by session id (main thread).
     private(set) var live: [Int: AgentSession] = [:]
     private var idleTimer: Timer?
@@ -691,7 +696,7 @@ final class AgentCenter {
             return reply(AgentMCP.encode(["jsonrpc": "2.0", "id": NSNull(), "error": ["code": -32000, "message": "This connection was ended in Airc."]]))
         }
         var call: AgentActivity.Call?
-        AgentMCP.handle(line, session: session, tools: tools, gate: { [weak self] _ in
+        AgentMCP.handle(line, session: session, tools: appTools, gate: { [weak self] _ in
             self?.refusal(for: session)
         }, began: { [weak self] tool, args in
             guard let self else { return }

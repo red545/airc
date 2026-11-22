@@ -48,6 +48,12 @@ AgentTask
 
 - **Store:** `<data folder>/Agent/Tasks/<id>.json`, metadata and text only (no screenshots, no page text, no keys);
   file 0600. Same never-stored rules as AgentLog. Delete removes the file and closes its agent windows.
+  agentrecall (2026-11-21): the card and "Opened …" step pictures are small JPEGs in `Agent/Tasks/Pictures/<id>/`
+  (≤ 96 KB each, ≤ 24 per task, ≤ 24 MB in all, oldest tasks first), never for a private window, deleted with the task;
+  a history search's result rows (title, cleaned address, where) are kept with its step.
+- **History recall:** the Airc Agent's `search_history` tool (AircKit AgentRecall) searches the task's profile's history
+  (the Command Bar's index) and its open/pinned tabs and Favorites; read-only, no approval (like `read_page`), never
+  another profile, unavailable for a private window, not offered to outside apps.
 - **Title:** the first prompt cut to ~48 characters at a word boundary. No extra model call. Double-click to rename.
 - **Several at once:** up to 3 tasks run at the same time (more start as "Queued"). Each has its own agent window(s).
 - **Private windows:** no tasks, no pane (unchanged).

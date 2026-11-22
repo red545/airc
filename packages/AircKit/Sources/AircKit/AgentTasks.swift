@@ -87,10 +87,29 @@ public struct AgentTaskRecord: Codable, Equatable, Identifiable, Sendable {
         /// The step's site (host only).
         public var host: String?
         public var detail: String?
+        /// agentrecall: the step's picture key (AgentTaskPictureStore; the live step's id), so its picture comes back
+        /// after a relaunch. Nil for older records and lines without one.
+        public var key: String?
+        /// agentrecall: what a "Searched your history" step found (title, cleaned address, where), ≤ `foundLimit`.
+        public var found: [Found]?
 
-        public init(kind: Kind, text: String, host: String? = nil, detail: String? = nil) {
+        /// One result row of a history search.
+        public struct Found: Codable, Equatable, Sendable {
+            public var title: String
+            public var url: String
+            public var place: AgentRecall.Place
+            public init(title: String, url: String, place: AgentRecall.Place) {
+                self.title = title.count > AgentTaskRecord.captionLimit ? String(title.prefix(AgentTaskRecord.captionLimit - 1)) + "…" : title
+                self.url = url.count > 2048 ? String(url.prefix(2048)) : url
+                self.place = place
+            }
+        }
+
+        public init(kind: Kind, text: String, host: String? = nil, detail: String? = nil, key: String? = nil, found: [Found]? = nil) {
             self.kind = kind
             self.host = host
+            self.key = key
+            self.found = found.map { Array($0.prefix(AgentTaskRecord.foundLimit)) }
             let cap = kind == .answer || kind == .text || kind == .prompt ? AgentTaskRecord.textLimit : AgentTaskRecord.captionLimit
             self.text = text.count > cap ? String(text.prefix(cap - 1)) + "…" : text
             self.detail = detail.map { $0.count > AgentTaskRecord.captionLimit ? String($0.prefix(AgentTaskRecord.captionLimit - 1)) + "…" : $0 }
@@ -100,6 +119,7 @@ public struct AgentTaskRecord: Codable, Equatable, Identifiable, Sendable {
     public static let entryLimit = 160
     public static let textLimit = 4000
     public static let captionLimit = 200
+    public static let foundLimit = 8
 
     /// Keeps the newest `entryLimit` lines, but always the first prompt (the task's start).
     public static func capped(_ entries: [Entry]) -> [Entry] {

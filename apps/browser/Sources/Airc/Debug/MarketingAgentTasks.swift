@@ -67,6 +67,10 @@ extension SnapshotRunner {
                 AgentModelSettings.shared.setTestKey("airc-marketing-made-up-key", provider: .anthropic, base: loop)
                 UserDefaults.standard.set(true, forKey: SidebarAgentsView.expandedKey)
                 c.sidebar.agents.model.expanded = true
+                // agentrecall: made-up history for the task view's "Searched your history" step.
+                let profile = c.store.profile(ofSpace: c.currentSpaceID).id
+                app?.history?.recordVisit(profileID: profile, url: "\(site)/orders.html", title: "Corner Shop · Orders")
+                app?.history?.recordVisit(profileID: profile, url: "\(site)/weekly.html", title: "Corner Shop · Weekly groceries")
                 done()
             }
         }
@@ -101,10 +105,11 @@ extension SnapshotRunner {
             step { [self] done in
                 AgentRunCenter.shared.stop()
                 AgentRunCenter.shared.newConversation()
-                fake.begin("t3\(sfx)", [.tool("navigate", ["url": "\(site)/orders.html"]), .tool("read_page", ["mode": "text"]),
+                fake.begin("t3\(sfx)", [.tool("search_history", ["query": "Corner Shop orders", "days": 14]),
+                                         .tool("navigate", ["url": "\(site)/orders.html"]), .tool("read_page", ["mode": "text"]),
                                          .tool("find_element", ["text": "Reorder"]), .toolThenHold("wait", ["duration": 25], hold: 0)])
                 CommandBarView.startAgentTask("Reorder last week's groceries from Corner Shop", attached: [], in: c)
-                waitUntil({ AgentRunCenter.shared.steps.filter { $0.kind == .action }.count >= 4 }, timeout: 25) { done() }
+                waitUntil({ AgentRunCenter.shared.steps.filter { $0.kind == .action }.count >= 5 }, timeout: 25) { done() }
             }
             wait(2.2)
             mkWindowShot("agent-task-view" + sfx, dark: dark)

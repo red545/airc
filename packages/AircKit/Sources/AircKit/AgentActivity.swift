@@ -9,6 +9,8 @@ import Foundation
 /// One kind of agent tool call, for captions and history.
 public enum AgentActionKind: String, Codable, Sendable, CaseIterable {
     case open, navigate, click, type, key, scroll, drag, read, look, find, fill, wait, tab, other
+    /// agentrecall: search_history, the person's history and tabs in the session's profile.
+    case recall
 
     /// The kind of a tool by its MCP name (the browser tools and Anthropic's computer-use members).
     public static func of(tool: String, action: String? = nil) -> AgentActionKind {
@@ -26,6 +28,7 @@ public enum AgentActionKind: String, Codable, Sendable, CaseIterable {
         case "fill_saved_login": return .fill
         case "wait", "wait_for_load": return .wait
         case "select_tab", "close_tab", "list_tabs": return .tab
+        case "search_history": return .recall
         default: return .other
         }
     }
@@ -147,6 +150,7 @@ public enum AgentRedaction {
         case .fill: return "Filling a saved login"
         case .wait: return "Waiting for the page"
         case .tab: return "Switching tabs"
+        case .recall: return AgentRecall.runningCaption
         case .other: return "Working…"
         }
     }
@@ -165,6 +169,7 @@ public enum AgentRedaction {
         case .find: return "Looked for an element"
         case .fill: return "Filled a saved login"
         case .tab: return "Switched tabs"
+        case .recall: return "Searched your history"
         case .wait, .other: return nil
         }
     }
@@ -177,7 +182,7 @@ extension AgentActionKind {
     public var isActing: Bool {
         switch self {
         case .navigate, .click, .type, .key, .scroll, .drag, .fill: return true
-        case .open, .read, .look, .find, .wait, .tab, .other: return false
+        case .open, .read, .look, .find, .wait, .tab, .other, .recall: return false
         }
     }
 }
@@ -228,7 +233,7 @@ public struct AgentWorkSummary: Equatable, Sendable {
 
     /// A call that went through.
     public mutating func record(_ a: AgentAction, host: String?) {
-        guard a.kind != .wait, a.kind != .other, a.kind != .tab else { return }
+        guard a.kind != .wait, a.kind != .other, a.kind != .tab, a.kind != .recall else { return }
         kinds[a.kind, default: 0] += 1
         if a.kind == .key, a.keyName == "Return" { returns += 1 }
         if let host, a.kind != .open { touch(host, 1) }

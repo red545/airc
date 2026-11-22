@@ -12,7 +12,7 @@ final class AgentBridge {
     /// The MCP tools the model gets, by name (1:1, same schema minus `window`). The run owns its window and profile, so
     /// the window and profile tools aren't offered; the low-level and legacy shapes neither (fewer ways around the gate).
     static let offered = ["navigate", "go_back", "go_forward", "reload", "wait_for_load", "read_page", "find_element",
-                          "list_tabs", "open_tab", "select_tab", "close_tab", "fill_saved_login", "screenshot", "zoom",
+                          "list_tabs", "open_tab", "select_tab", "close_tab", "fill_saved_login", "search_history", "screenshot", "zoom",
                           "left_click", "double_click", "triple_click", "left_click_drag", "mouse_move", "scroll", "type", "key", "wait"]
     private static var nextSession = 900_000
 

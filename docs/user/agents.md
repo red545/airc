@@ -106,15 +106,29 @@ Stop. Click a task to open it.
 A task opened from the sidebar, a card or the Command Bar fills the page area: its steps on a timeline ("Opened
 cornershop.example", "Filling a saved login", "Read 3 pages"), the answer as it's written, and, while it works, the
 agent's page floating live beside the steps (click it to Watch; **Take over** on hover). A step that opened a page shows
-that page under it, and a saved login shows only that it was your saved login for that site, never the password. Click a
+that page under it, and a saved login shows only that it was your saved login for that site, never the password. When the
+agent looked for a page you saw before, the step says so ("Searched your history: ‘kyoto ryokan’ · 4 results") with what it
+found as small rows (title, site, and whether it's an open tab, a pinned tab, a Favorite or from your history); click a
+row to open that page in a new tab. Click a
 run's "Worked for …" line to fold its steps. At the bottom, **Reply, @ for context** goes on with the same task (with the
 same chips, and **■ Stop** while it works); a reply to an older task starts a new task that refers to it. When the agent
 needs your OK, the card sits above the composer: **Deny** (Esc) or **Allow once**. The pane (⌥⌘A) stays the compact
 form of the same task.
 
-Airc keeps each task's title, its steps' one-line captions, the prompts and the agent's answers in
-`~/Library/Application Support/Airc/Agent/Tasks`, never page text, what was typed into pages, keys or pictures. The
-pictures on the cards are kept in memory only, until you quit.
+Airc keeps each task's title, its steps' one-line captions, the prompts, the agent's answers and the rows a history
+search found (titles and addresses) in `~/Library/Application Support/Airc/Agent/Tasks`, never page text, what was typed
+into pages or keys. The pictures on the cards and under "Opened …" steps are small JPEGs in `Agent/Tasks/Pictures` next
+to them, so a finished task still shows them after you quit and reopen Airc: at most 24 per task and 24 MB in all (the
+oldest tasks' go first), and deleting a task deletes its pictures. All of it is readable only by you.
+
+### Finding pages you saw before
+
+Ask for "that article about Kyoto ryokans I read last week" or "the tab with my flight booking", and the agent searches
+your history and your open tabs, pinned tabs and Favorites, using the same local index as the Command Bar. It only ever
+searches the profile of the Space you asked in, never another profile's history and never a private window's (private
+windows have no agent, and their pages aren't in your history). It needs no OK, like reading a page; what it finds goes to
+your AI as part of the task (titles and addresses, without sign-in parts or token-like values), and nothing new is
+stored. Sites on your "never use" list are left out. Outside apps (Claude Desktop, other MCP apps) can't use it.
 
 ## Setting it up
 
@@ -316,6 +330,7 @@ answers are in `Agents.json`. The Activity history is in `AgentActivity.json`. A
 | `read_page`, `find_element` | A page's text, or its links, buttons and fields with where to click them. Page text is marked as untrusted |
 | `screenshot`, `zoom`, `left_click`, `type`, `key`, `scroll`, … `computer` | Anthropic's computer-use tools, acting on the agent window |
 | `fill_saved_login` | Fills a saved login into the page's sign-in form |
+| `search_history` | The Airc Agent only (not listed to outside apps): finds pages in the profile's history and tabs |
 | `upload_file`, `list_downloads` | Fills a file field with files you allowed; the files the app's pages downloaded |
 
 ## From your other devices

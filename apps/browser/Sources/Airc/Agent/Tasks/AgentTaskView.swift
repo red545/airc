@@ -16,6 +16,10 @@ struct AgentTaskLine: Identifiable, Equatable {
         var host: String?
         var detail: String?
         var count = 1
+        /// agentrecall: the step's picture key (the live step's id, a record line's `key`), and what a history search
+        /// found.
+        var key: String?
+        var found: [AgentTaskRecord.Entry.Found]?
     }
     let id: String
     let kind: Kind
@@ -27,14 +31,16 @@ struct AgentTaskLine: Identifiable, Equatable {
     var running = false
 
     /// Groups consecutive steps; reads in a row become "Read 3 pages".
-    static func make(_ raw: [(id: String, stepID: UUID?, kind: AgentTaskRecord.Entry.Kind, text: String, host: String?, detail: String?)],
-                     live: Bool, summaries: [String: String]) -> [AgentTaskLine] {
+    typealias Raw = (id: String, stepID: UUID?, kind: AgentTaskRecord.Entry.Kind, text: String, host: String?, detail: String?,
+                     key: String?, found: [AgentTaskRecord.Entry.Found]?)
+
+    static func make(_ raw: [Raw], live: Bool, summaries: [String: String]) -> [AgentTaskLine] {
         var out: [AgentTaskLine] = []
         var lastPrompt: String?
         for r in raw {
             switch r.kind {
             case .step:
-                let step = Step(id: r.id, stepID: r.stepID, caption: r.text, host: r.host, detail: r.detail)
+                let step = Step(id: r.id, stepID: r.stepID, caption: r.text, host: r.host, detail: r.detail, key: r.key, found: r.found)
                 if var last = out.last, last.kind == .steps {
                     if step.caption.hasPrefix("Reading"), let prev = last.steps.last, prev.caption.hasPrefix("Read"), prev.detail == nil, prev.host == step.host {
                         var merged = prev
@@ -95,7 +101,7 @@ final class AgentTaskViewModel: ObservableObject {
         if isCurrent {
             let timeline = AgentPaneTimeline.shared
             var summaries: [String: String] = [:]
-            var raw: [(id: String, stepID: UUID?, kind: AgentTaskRecord.Entry.Kind, text: String, host: String?, detail: String?)] = []
+            var raw: [AgentTaskLine.Raw] = []
             var runs: [[AgentStep]] = []
             for s in run.steps {
                 if s.kind == .user || runs.isEmpty { runs.append([s]) } else { runs[runs.count - 1].append(s) }
@@ -118,8 +124,9 @@ final class AgentTaskViewModel: ObservableObject {
                 case .warning, .error, .info: e = .note
                 case .memory: continue
                 }
-                raw.append((s.id.uuidString, s.kind == .action ? s.id : nil, e, e == .prompt ? AgentPaneItem.promptText(s.text) : s.text,
-                            s.kind == .action ? timeline.host(s.id) : nil, s.detail))
+                let action = s.kind == .action
+                raw.append((s.id.uuidString, action ? s.id : nil, e, e == .prompt ? AgentPaneItem.promptText(s.text) : s.text,
+                            action && s.found == nil ? timeline.host(s.id) : nil, s.detail, action ? s.id.uuidString : nil, s.found))
             }
             return AgentTaskLine.make(raw, live: run.state.isActive, summaries: summaries)
         }
@@ -130,7 +137,10 @@ final class AgentTaskViewModel: ObservableObject {
             let n = entries.filter { $0.kind == .step }.count
             summaries["e\(i)"] = "Worked for " + AgentPaneItem.duration(end.timeIntervalSince(r.createdAt)) + " · \(n) step\(n == 1 ? "" : "s")"
         }
-        let raw = entries.enumerated().map { (id: "e\($0.offset)", stepID: UUID?.none, kind: $0.element.kind, text: $0.element.text, host: $0.element.host, detail: $0.element.detail) }
+        let raw: [AgentTaskLine.Raw] = entries.enumerated().map {
+            (id: "e\($0.offset)", stepID: UUID?.none, kind: $0.element.kind, text: $0.element.text, host: $0.element.host,
+             detail: $0.element.detail, key: $0.element.key, found: $0.element.found)
+        }
         return AgentTaskLine.make(raw, live: false, summaries: summaries)
     }
 
@@ -211,6 +221,12 @@ final class AgentTaskViewModel: ObservableObject {
 
     func openSite(_ host: String) {
         guard let c = controller, let url = URL(string: "https://\(host)") else { return }
+        c.navigate(to: url, newTab: true)
+    }
+
+    /// agentrecall: a history search's result row: the page in a new tab of this Space (http(s) only).
+    func openPage(_ address: String) {
+        guard let c = controller, let url = URL(string: address), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return }
         c.navigate(to: url, newTab: true)
     }
 
@@ -462,15 +478,16 @@ struct AgentTaskStepRow: View {
     @Environment(\.aircTheme) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private enum Result { case page(AgentTaskThumbs.Shot?), login }
+    private enum Result { case page(AgentTaskThumbs.Shot?), login, found([AgentTaskRecord.Entry.Found]) }
 
     private var result: Result? {
         _ = thumbs.revision
+        if let found = step.found, !found.isEmpty { return .found(found) }
         if step.caption.hasPrefix("Opening") {
-            let shot = step.stepID.flatMap { thumbs.step($0) }
+            // agentrecall: the picture comes back from disk after a relaunch (by the step's key).
+            let shot = step.key.flatMap { thumbs.step($0, task: model.taskID) }
             // No picture and no site: nothing to show.
             if shot == nil, step.host == nil { return nil }
-            // A record's step has no picture after a relaunch; its page row still says where it went.
             return .page(shot)
         }
         if step.caption.hasPrefix("Filling a saved login") { return .login }
@@ -481,7 +498,7 @@ struct AgentTaskStepRow: View {
     private var open: Bool {
         guard let r = result else { return false }
         let byDefault: Bool
-        switch r { case .page(let s): byDefault = s != nil; case .login: byDefault = true }
+        switch r { case .page(let s): byDefault = s != nil; case .login, .found: byDefault = true }
         return byDefault != model.toggled.contains(step.id)
     }
 
@@ -549,6 +566,7 @@ struct AgentTaskStepRow: View {
                     if let shot {
                         Image(decorative: shot.image, scale: 1).resizable().aspectRatio(contentMode: .fill)
                             .frame(width: 320, height: 200, alignment: .top).clipped()
+                            .testAnchor("agenttask.result.picture")
                     }
                     HStack(spacing: 6) {
                         AgentPaneSiteIcon(host: step.host ?? shot?.host, size: 13)
@@ -583,7 +601,59 @@ struct AgentTaskStepRow: View {
             .accessibilityLabel("Used your saved login for \(step.host ?? "the site"). Airc filled it; the agent never saw it.")
             .help("Airc filled it in; the agent never sees passwords")
             .testAnchor("agenttask.result.login")
+        case .found(let rows):
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { n, f in
+                    AgentTaskFoundRow(found: f) { model.openPage(f.url) }.testAnchor("agenttask.result.found.\(n)")
+                }
+            }
+            .padding(4)
+            .frame(maxWidth: 460, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(theme.tileFill.color.opacity(0.5)))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(theme.surfaceBorder.color))
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("What it found in your history and tabs")
+            .testAnchor("agenttask.result.found")
         }
+    }
+}
+
+/// One page a history search found: site icon, title, site and where it is (open tab, pinned tab, Favorite, history).
+/// A click opens it in a new tab.
+struct AgentTaskFoundRow: View {
+    let found: AgentTaskRecord.Entry.Found
+    let open: () -> Void
+    @State private var hovered = false
+    @Environment(\.aircTheme) private var theme
+
+    private var host: String? { AgentRedaction.site(URL(string: found.url)) }
+    private var place: String {
+        switch found.place {
+        case .openTab: return "Open tab"
+        case .pinnedTab: return "Pinned"
+        case .favorite: return "Favorite"
+        case .history: return "History"
+        }
+    }
+
+    var body: some View {
+        Button(action: open) {
+            HStack(spacing: 8) {
+                AgentPaneSiteIcon(host: host, size: 14)
+                Text(found.title.isEmpty ? (host ?? found.url) : found.title).aircFont(AircFont.caption.weight(.medium))
+                    .foregroundStyle(theme.surfaceText.color).lineLimit(1).truncationMode(.tail)
+                if let host { Text(host).aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextTertiary.color).lineLimit(1) }
+                Spacer(minLength: 8)
+                Text(place).aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextTertiary.color)
+            }
+            .padding(.horizontal, 8).frame(height: 28)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(hovered ? theme.selectedFill.color : Color.clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .help("Open \(host ?? "the page") in a new tab")
+        .accessibilityLabel("\(found.title), \(host ?? ""), \(place). Opens in a new tab.")
     }
 }
 

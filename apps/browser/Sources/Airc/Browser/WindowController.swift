@@ -153,12 +153,16 @@ final class WindowController: NSObject, NSWindowDelegate {
     private var archiveDialogObserver: NSObjectProtocol?
     /// The undo stack's depth when a Clear (or Archive Tabs Below) started: its batches, archived as their pages close,
     /// join into one undo step (SpacesStore.joinLastUndoSteps).
-    private var archiveRunUndoDepth: Int?
+    private var archiveRunUndoMark: Int?
+    /// The serial of the run's first undo step (its later batches join it).
+    private var archiveRunFirstStep: Int?
     /// SV-2: a pinned or Favorite split closing pane by pane, each page asked in turn (ItemSplitActions.swift).
     var paneCloseQueue: PaneCloseQueue?
     /// PK-1: the link open in Peek over the page (Peek.swift), and the last one closed (⌘Z brings it back).
     var peek: Peek?
-    var recentlyClosedPeek: (url: URL?, undoCount: Int, at: Date)?
+    /// `undoGeneration`, not the stack's count: the count stops at maxUndo, so a step taken after the close (a Clear, a
+    /// tidy card's Undo toast) would otherwise reopen the Peek instead of undoing that step.
+    var recentlyClosedPeek: (url: URL?, undoGeneration: Int, at: Date)?
     /// SV-1: the split on screen, its panes (SplitView.swift), and the drop preview over the page while a tab is dragged
     /// there. `shownTabID` is then its focused pane.
     private(set) var shownSplitID: String?
@@ -1389,7 +1393,7 @@ final class WindowController: NSObject, NSWindowDelegate {
     /// tab is shown with the question; Leave archives it and the rest carry on, Stay keeps it and the rest (their pages
     /// never asked). One question at a time, so no tab is left with a hidden one.
     func closeThenArchive(_ ids: [String], reason: ArchiveReason, label: String, returnTo: String? = nil, continuing: Bool = false) {
-        if !continuing { archiveRunUndoDepth = store.undoStack.count }
+        if !continuing { archiveRunUndoMark = store.lastUndoSerial; archiveRunFirstStep = nil }
         var ready: [String] = []
         let ids = ids.filter { store.tab($0) != nil }
         for (n, id) in ids.enumerated() {
@@ -1421,7 +1425,10 @@ final class WindowController: NSObject, NSWindowDelegate {
         let next = shown.flatMap { ids.contains($0) ? nextFreeTab(afterClosing: $0, inSpace: currentSpaceID) : nil }
         guard let archived = try? store.archiveTabs(ids, reason: reason, label: label) else { return }
         // A later batch of the same run: one ⌘Z for all of it (only when nothing else went on the undo stack between).
-        if let depth = archiveRunUndoDepth, store.undoStack.count == depth + 2 { store.joinLastUndoSteps(label: label) }
+        // By serial, not the stack's count, which stops growing once the stack is full (maxUndo).
+        if let mark = archiveRunUndoMark, let top = store.undoStack.last, top.serial > mark, top.label == label {
+            if let first = archiveRunFirstStep { store.joinLastUndoStep(intoStep: first, label: label) } else { archiveRunFirstStep = top.serial }
+        }
         archived.forEach(dropPage)
         if let shown, archived.contains(shown) {
             if let next, store.tab(next.id) != nil { show(next.id, takeOver: false) } else { showEmpty() }

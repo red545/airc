@@ -159,6 +159,19 @@ public final class HistoryStore {
         indexer.search(query, profileID: profileID, limit: limit, now: now(), completion: completion)
     }
 
+    /// The Airc Agent's history recall (agentrecall): `words` (AgentRecall.words) in titles and addresses of this one
+    /// profile's history, on the Command Bar's index, off the main thread; `since`: last visited at or after it.
+    /// Never cancels or is cancelled by the Command Bar's search. `completion` runs on the main queue.
+    public func recall(_ words: [String], profileID: String, since: Date? = nil, limit: Int = 8,
+                       completion: @escaping @Sendable ([HistoryMatch]) -> Void) {
+        indexer.recall(words, profileID: profileID, since: since, limit: limit, now: now(), completion: completion)
+    }
+
+    /// The same, synchronous (tests).
+    public func recallNow(_ words: [String], profileID: String, since: Date? = nil, limit: Int = 8) -> [HistoryMatch] {
+        indexer.recallNow(words, profileID: profileID, since: since, limit: limit, now: now())
+    }
+
     /// The hot tier, prepared off-main. This never waits for the index queue or reads disk.
     /// Private callers must pass no profile, as they do for the asynchronous search source.
     public func localMatches(_ query: String, profileID: String?, limit: Int = 8) -> [HistoryMatch] {

@@ -164,7 +164,7 @@ extension WindowController {
         guard var p = peek, !p.closing else { return }
         p.closing = true
         peek = p
-        recentlyClosedPeek = (p.page.url, store.undoStack.count, Date())
+        recentlyClosedPeek = (p.page.url, store.undoGeneration, Date())
         p.page.close()
         if p.page.isClosed { finishPeek(p) }
     }
@@ -200,7 +200,7 @@ extension WindowController {
 
     /// ⌘Z / ⇧⌘T right after a Peek closed (nothing else undoable happened since): it opens again.
     func reopenClosedPeek() -> Bool {
-        guard let r = recentlyClosedPeek, let url = r.url, r.undoCount == store.undoStack.count,
+        guard let r = recentlyClosedPeek, let url = r.url, r.undoGeneration == store.undoGeneration,
               Date().timeIntervalSince(r.at) < 120, peek == nil,
               let opener = shownTabID.flatMap({ engineTab(for: $0) }) else { return false }
         recentlyClosedPeek = nil

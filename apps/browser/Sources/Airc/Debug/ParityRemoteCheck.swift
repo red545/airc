@@ -260,7 +260,7 @@ final class RemoteCheck {
             self.check(r.status == 202, "a notification: 202")
             self.request("POST", "/mcp", self.mcpHeaders, ["jsonrpc": "2.0", "id": 2, "method": "tools/list"]) { r in
                 let tools = ((self.json(r)["result"] as? [String: Any])?["tools"] as? [[String: Any]])?.compactMap { $0["name"] as? String } ?? []
-                self.check(tools == self.center.tools.map(\.name) && tools.contains("fill_saved_login"), "tools/list is the local tool set (\(tools.count))")
+                self.check(tools == self.center.appTools.map(\.name) && tools.contains("fill_saved_login"), "tools/list is the local tool set (\(tools.count))")
                 self.request("POST", "/mcp", self.mcpHeaders, ["jsonrpc": "2.0", "id": 3, "method": "tools/call",
                                                                  "params": ["name": "open_window", "arguments": ["url": "about:blank"]]]) { r in
                     let res = self.json(r)["result"] as? [String: Any]

@@ -63,6 +63,9 @@ final class AgentSession {
     /// A paired device on the Tailscale network (AgentRemote.swift): which one, and its address.
     struct Remote { let deviceID: String; let deviceName: String; let address: String }
     var remote: Remote?
+    /// agentrecall: a session for a private window's task (no entry point makes one today). Its history search is
+    /// unavailable.
+    var privateWindow = false
     /// The helper's run token (AIRC_MCP_TOKEN), for a CLI run's own socket (AgentCLIRun); nil otherwise.
     var helloToken: String?
     /// HTTP requests are one-shot: their windows outlive the request and belong to the client's name instead.

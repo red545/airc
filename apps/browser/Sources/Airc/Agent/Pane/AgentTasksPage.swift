@@ -6,7 +6,8 @@ import Combine
 import SwiftUI
 
 /// Keeps a task record (AircKit's AgentTaskRecord, `<data folder>/Agent/Tasks/<id>.json`) for each pane conversation:
-/// title, state, provider, steps, sites and the answer's first line. Never page text, typed values, keys or pictures.
+/// title, state, provider, steps, sites and the answer's first line. Never page text, typed values or keys; its pictures
+/// are AgentTaskThumbs' own files (agentrecall), deleted with it.
 final class AgentTaskRecorder: ObservableObject {
     static let shared = AgentTaskRecorder()
 
@@ -28,7 +29,8 @@ final class AgentTaskRecorder: ObservableObject {
             try? store.save(loaded[i])
         }
         tasks = AgentTaskRecord.ordered(loaded)
-        DispatchQueue.main.async { _ = AgentTaskThumbs.shared }
+        let ids = Set(loaded.map(\.id))
+        DispatchQueue.main.async { AgentTaskThumbs.shared.prune(keeping: ids) }
         let run = AgentRunCenter.shared
         subs.append(run.$steps.sink { [weak self] s in DispatchQueue.main.async { self?.stepsChanged(s) } })
         subs.append(run.$state.sink { [weak self] _ in DispatchQueue.main.async { self?.queueSave() } })
@@ -50,6 +52,8 @@ final class AgentTaskRecorder: ObservableObject {
             currentID = nil
             return
         }
+        // A private window's conversation is never a task (docs/design/agent-ux.md §1): no record, no pictures.
+        if currentID == nil, AgentRunCenter.shared.privateWindow { return }
         if currentID == nil, let first = steps.first(where: { $0.kind == .user }) {
             let v = AgentModelSettings.shared.values
             let provider = v.backend.cli?.name ?? v.provider.name + " API key"
@@ -105,7 +109,9 @@ final class AgentTaskRecorder: ObservableObject {
         steps.compactMap { s -> AgentTaskRecord.Entry? in
             switch s.kind {
             case .user: return .init(kind: .prompt, text: AgentPaneItem.promptText(s.text))
-            case .action: return .init(kind: .step, text: s.text, host: timeline.host(s.id), detail: s.detail)
+            // agentrecall: the step's picture key (its id) and a history search's results.
+            case .action: return .init(kind: .step, text: s.text, host: s.found == nil ? timeline.host(s.id) : nil, detail: s.detail,
+                                       key: s.id.uuidString, found: s.found)
             case .say: return .init(kind: .text, text: s.text)
             case .final: return .init(kind: .answer, text: s.text)
             case .approval, .decision: return .init(kind: .approval, text: s.text, detail: s.detail)
@@ -146,6 +152,7 @@ final class AgentTaskRecorder: ObservableObject {
         if id == currentID { AgentRunCenter.shared.newConversation() }
         tasks.removeAll { $0.id == id }
         store.delete(id)
+        AgentTaskThumbs.shared.forget(task: id)
     }
 }
 

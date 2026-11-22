@@ -189,7 +189,7 @@ agent-pane-connect|Connect your AI|The agent pane'"'"'s first run: the providers
 agent-pane-connect-dark|Connect your AI, dark|The same first-run card in dark mode
 agent-tasks-ask|Ask from the Command Bar|⌘T, then Tab: Ask mode with the chips (attach a tab, this Mac, asks first, provider, effort) and Recent tasks as cards: one working now with its live page, two finished with their answers (synthetic sites, scripted model)
 agent-tasks-ask-dark|Ask from the Command Bar, dark|The same Ask mode and Recent tasks in a dark Space
-agent-task-view|A task, full width|A task in its own tab: the steps on a timeline with the page each one opened, the agent'"'"'s page floating live beside them, and the composer with its chips and Stop; the sidebar lists the tasks with a spinner and an unread dot
+agent-task-view|A task, full width|A task in its own tab: the steps on a timeline (a search of your history with what it found, the page each step opened), the agent'"'"'s page floating live beside them, and the composer with its chips and Stop; the sidebar lists the tasks with a spinner and an unread dot
 agent-task-view-dark|A task, full width, dark|The same task view in a dark Space
 agent-task-approval|Waiting for your OK, in the task|The task view asking “Pay on cornershop…?” above the composer with Deny and Allow once, before anything is paid
 agent-task-approval-dark|Waiting for your OK, in the task, dark|The same approval in a dark Space

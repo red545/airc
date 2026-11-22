@@ -133,6 +133,52 @@ public struct HistorySnapshot: Sendable {
     }
 }
 
+// agentrecall: the Airc Agent's history recall, on the same folded rows. Words, not one string: "kyoto ryokan" finds
+// "Ryokan stays in Kyoto". Each word must be in the title or address (start of a word or inside it; never the loose
+// in-order rule, which is too fuzzy for a word). At least half of the words must be there; pages with more of them
+// rank first, then by match quality plus the same frecency the Command Bar adds.
+extension HistorySnapshot {
+    func recall(_ words: [String], since: Date?, limit: Int) -> [HistoryMatch] {
+        let folded = words.map(HistoryIndex.fold).filter { !$0.isEmpty }
+        guard !folded.isEmpty, !rows.isEmpty, limit > 0 else { return [] }
+        let need = (folded.count + 1) / 2
+        var candidates: [(row: Int, found: Int, key: Double)] = []
+        for (i, r) in rows.enumerated() {
+            if let since, r.entry.lastVisit < since { continue }
+            var found = 0, pre = 0
+            for w in folded {
+                let p = max(HistoryIndex.preScore(w, r.display), HistoryIndex.preScore(w, r.title))
+                if p >= 2 { found += 1; pre += p }
+            }
+            if found >= need { candidates.append((i, found, Double(found) * 1_000_000 + Double(pre) * 1_000 + r.weight)) }
+        }
+        if candidates.count > HistoryIndex.scoredCandidates {
+            candidates.sort { $0.key > $1.key }
+            candidates.removeLast(candidates.count - HistoryIndex.scoredCandidates)
+        }
+        var out: [(HistoryMatch, Int)] = []
+        for c in candidates {
+            let r = rows[c.row]
+            var total = 0.0
+            var marks = Set<Int>()
+            for w in words {
+                let u = CommandSearch.score(w, in: r.displayURL).map { $0.score } ?? 0
+                let t = r.entry.title.isEmpty ? nil : CommandSearch.score(w, in: r.entry.title)
+                // The loose in-order rule scores at most 40: a word only counts from a substring up (55).
+                let best = max(u >= 55 ? u : 0, (t?.score ?? 0) >= 55 ? t!.score : 0)
+                if best > 0, let t, t.score >= 55 { marks.formUnion(t.matches) }
+                total += best
+            }
+            let score = total / Double(words.count) + min(12, 4 * log2(1 + r.entry.frecency(now: now)))
+            out.append((HistoryMatch(entry: r.entry, score: score, matches: marks.sorted()), c.found))
+        }
+        out.sort { a, b in
+            a.1 != b.1 ? a.1 > b.1 : (a.0.score, a.0.entry.lastVisit) > (b.0.score, b.0.entry.lastVisit)
+        }
+        return out.prefix(limit).map { $0.0 }
+    }
+}
+
 // The same matcher as the full snapshot, over a bounded hot tier. No new search semantics:
 // fuzzy, accent, URL and title matching/highlights stay identical for entries in the tier.
 extension HistorySnapshot {
@@ -381,6 +427,20 @@ final class HistoryIndexer: @unchecked Sendable {
             guard !current() else { return }
             DispatchQueue.main.async { if !current() { completion(hits) } }
         }
+    }
+
+    /// The agent's recall (agentrecall). Not part of the keystroke generation: it never cancels the Command Bar's
+    /// search and is never cancelled by it. `completion` runs on the main queue.
+    func recall(_ words: [String], profileID: String, since: Date?, limit: Int, now: Date,
+                completion: @escaping @Sendable ([HistoryMatch]) -> Void) {
+        queue.async {
+            let hits = self.snapshot(profileID, now: now).recall(words, since: since, limit: limit)
+            DispatchQueue.main.async { completion(hits) }
+        }
+    }
+
+    func recallNow(_ words: [String], profileID: String, since: Date?, limit: Int, now: Date) -> [HistoryMatch] {
+        queue.sync { snapshot(profileID, now: now).recall(words, since: since, limit: limit) }
     }
 
     /// Synchronous search (tests and the old API).

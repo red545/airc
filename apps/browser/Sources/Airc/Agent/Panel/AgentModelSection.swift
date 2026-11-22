@@ -101,9 +101,9 @@ struct AgentModelSection: View {
 
     private var helpText: String {
         if let k = values.backend.cli {
-            return "The Airc Agent (⌥⌘A) does tasks in your signed-in sites with your own \(k.name), as if you ran it in Terminal: it uses the login you made in it, and its use counts against your account with \(k.vendor). Airc never sees that login. Your task, the pages it reads and its screenshots go from this Mac to \(k.vendor). It may only use Airc's browser tools, asks before paying, sending, posting or deleting, and never sees saved passwords, cookies or private windows."
+            return "The Airc Agent (⌥⌘A) does tasks in your signed-in sites with your own \(k.name), as if you ran it in Terminal: it uses the login you made in it, and its use counts against your account with \(k.vendor). Airc never sees that login. Your task, the pages it reads, its screenshots and what it finds in your history go from this Mac to \(k.vendor). It can search this profile's history and open tabs to find a page you saw before, without asking, like reading a page. It may only use Airc's browser tools, asks before paying, sending, posting or deleting, and never sees saved passwords, cookies or private windows."
         }
-        return "The Airc Agent (⌥⌘A) does tasks in your signed-in sites with your own AI. Your task, the pages it reads and its screenshots go from this Mac to \(values.provider.name), billed to your key; your key stays in your Keychain. It asks before paying, sending, posting or deleting, and never sees saved passwords, cookies or private windows."
+        return "The Airc Agent (⌥⌘A) does tasks in your signed-in sites with your own AI. Your task, the pages it reads, its screenshots and what it finds in your history go from this Mac to \(values.provider.name), billed to your key; your key stays in your Keychain. It can search this profile's history and open tabs to find a page you saw before, without asking, like reading a page. It asks before paying, sending, posting or deleting, and never sees saved passwords, cookies or private windows."
     }
 
     /// The person's CLI: what Airc found ("Claude Code 2.1.322, logged in (Max)") and what to do when it isn't ready.

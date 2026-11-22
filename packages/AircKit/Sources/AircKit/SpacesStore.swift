@@ -202,8 +202,14 @@ public final class SpacesStore {
         /// one, which the stack's count can't tell once the stack is full (`maxUndo`).
         public var serial = 0
     }
-    public private(set) var undoStack: [UndoEntry] = []
+    public private(set) var undoStack: [UndoEntry] = [] { didSet { undoGeneration &+= 1 } }
     private var undoSerial = 0
+    /// Changes with every change to `undoStack` (a step, ⌘Z, a join, a removal). Peek's "⌘Z reopens the Peek just
+    /// closed" checks nothing happened since by this: the stack's count can't tell once it is full (`maxUndo`), nor after
+    /// an undo and a new step.
+    public private(set) var undoGeneration = 0
+    /// The serial of the newest step this store made (0 before the first).
+    public var lastUndoSerial: Int { undoSerial }
 
     private var observers: [Int: (StoreChange) -> Void] = [:]
     private var nextObserver = 0
@@ -765,6 +771,16 @@ public final class SpacesStore {
             undoStack[undoStack.count - 1].before[ref] = snap
         }
         return true
+    }
+    /// One run that writes in several transactions (Clear while pages close one after another): the last step joins
+    /// the run's first step `serial` when that is the one right before it and both are `label`. Unlike the stack's count,
+    /// the serial still tells once the stack is full (`maxUndo`). Returns whether it joined.
+    @discardableResult
+    public func joinLastUndoStep(intoStep serial: Int, label: String) -> Bool {
+        guard undoStack.count >= 2, undoStack[undoStack.count - 2].serial == serial,
+              undoStack[undoStack.count - 2].label == label, undoStack[undoStack.count - 1].label == label,
+              undoStack[undoStack.count - 1].serial != serial else { return false }
+        return joinLastUndoSteps(label: label)
     }
     public var undoLabel: String? { undoStack.last?.label }
 
