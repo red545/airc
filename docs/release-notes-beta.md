@@ -1,15 +1,28 @@
-# Airc 0.1.48 public beta
+# Airc 0.1.49 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update offers to tidy a long Today once a day, and Tidy and Clear can now be undone. It includes everything
-from 0.1.47. The release manifest records the exact build, source and checksums.
+This update lets Airc Agent find pages you saw earlier and tabs you have open, keeps agent task pictures after a
+restart, and fixes ⌘Z after a Clear. It includes everything from 0.1.48. The release manifest records the exact build,
+source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.47
+## New since 0.1.48
+
+- **Ask Airc Agent about something you read earlier or a tab you have open.** In the agent pane (⌥⌘A or ✦), ask
+  about a page you saw, such as "the hotel page I looked at yesterday": Airc Agent can now search your history, your
+  open and pinned tabs and your Favorites to find it, and the task shows what it searched, with results you can click.
+  It searches only the profile you're in, and never in a private window.
+- **Finished agent tasks keep their pictures after you restart Airc.** The page pictures in a task's steps used to
+  disappear when you quit Airc; now they are still there when you reopen the task.
+- **⌘Z after a Clear undoes the whole Clear in one step, and no longer reopens a Peek by mistake.** In a long
+  session, ⌘Z (or the toast's **Undo**) could reopen a Peek you had just closed instead of undoing your Clear, Tidy or
+  Archive, and a Clear that waited for a "Leave site?" page took several ⌘Z to put back.
+
+## Included from 0.1.48
 
 - **When Today gets long, Airc offers once a day to tidy it.** A card at the top of Today offers, in one click, to
   archive the tabs you haven't looked at for hours, to pin your most-used site to Favorites, or to choose when Today's
@@ -725,3 +738,5 @@ Source: `ec9a93692770b83f46a3fa42c9d92599cbf2b199`. Build: `202611210945`. Chann
 Source: `9992b5664322a5d6a3b6df4764af7a28f41e66a9`. Build: `202611211626`. Channel: stable. Engine: official.
 
 Source: `11b82ab08ead648d966deb9bff22ee95c8674e19`. Build: `202611212123`. Channel: stable. Engine: official.
+
+Source: `f2c558030a0f89f6f40d16729282c64f31a6a3b7`. Build: `202611220357`. Channel: stable. Engine: official.

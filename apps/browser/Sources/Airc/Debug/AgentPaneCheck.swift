@@ -793,13 +793,24 @@ final class AgentPaneCheck {
                 }
                 // The task files: metadata only.
                 let folder = AppPaths.dataDirectory.appendingPathComponent("Agent/Tasks")
-                let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+                // agentrecall's Pictures/ folder (0700, JPEGs 0600) sits next to the task files: folders are checked
+                // as 0700 and everything under them as 0600, not as task files.
+                let fm = FileManager.default
+                let isFolder = { (u: URL) -> Bool in var d: ObjCBool = false; return fm.fileExists(atPath: u.path, isDirectory: &d) && d.boolValue }
+                let entries = (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+                let files = entries.filter { !isFolder($0) }
+                let folders = entries.filter(isFolder)
+                let nested = folders.flatMap { (fm.enumerator(at: $0, includingPropertiesForKeys: nil)?.allObjects as? [URL]) ?? [] }
+                let mode = { (u: URL) -> Int? in (try? fm.attributesOfItem(atPath: u.path)[.posixPermissions] as? NSNumber)?.intValue }
+                let folderModesOK = (folders + nested.filter(isFolder)).allSatisfy { mode($0) == 0o700 }
+                let nestedModesOK = nested.filter { !isFolder($0) }.allSatisfy { mode($0) == 0o600 }
                 let text = files.compactMap { try? String(contentsOf: $0, encoding: .utf8) }.joined()
                 check(!files.isEmpty, "task files in <data>/Agent/Tasks (\(files.count))")
                 check(!text.contains(key) && !text.contains(openaiKey), "no key in any task file")
                 check(!text.contains("three bridges"), "no page text in any task file")
-                let modes = files.compactMap { (try? FileManager.default.attributesOfItem(atPath: $0.path)[.posixPermissions] as? NSNumber)?.intValue }
-                check(!modes.isEmpty && modes.allSatisfy { $0 == 0o600 }, "task files are 0600")
+                let modes = files.compactMap(mode)
+                check(!modes.isEmpty && modes.allSatisfy { $0 == 0o600 } && folderModesOK && nestedModesOK,
+                      "task files are 0600 (\(files.count) files; \(folders.count) folders 0700, \(nested.count) entries in them)")
                 if let id = c.shownTabID { _ = try? c.store.closeTab(id) }
                 done()
             }
