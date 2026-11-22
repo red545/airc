@@ -126,7 +126,7 @@ final class FairPlayVideo {
         guard FairPlayBridge.isEnabled, m.isMainFrame, !(tab is WebKitTab),
               FairPlayBridgeSites.serves(origin: m.origin, in: Self.origins) else { return }
         let d = (try? JSONSerialization.jsonObject(with: Data(m.json.utf8))) as? [String: Any] ?? [:]
-        if m.kind == "offered" { return }
+        if m.kind == "offered" { return FairPlayBridge.shared.fairPlayOffered(tab, origin: m.origin) }
         if m.kind == "asked" { return FairPlayBridge.shared.noteAskedFromVideo(d) }
         if m.kind == "widevine" { return FairPlayBridge.shared.widevineRefused(tab, origin: m.origin) }
         if m.kind == "attach" { FairPlayBridge.shared.bridgeStarted(tab) }

@@ -34,6 +34,11 @@ extension SnapshotRunner {
             step { done in k.caseNeedsYouFullScreen(done) }
             step { done in k.caseNeedsYouPages(done) }
         }
+        // agentfix (AgentFixCheck.swift): "needs you" in the task's own window and profile; Return in a page never approves.
+        if AgentPane2Check.runs("agentfix") {
+            step { done in k.caseRouteNeedsYou(done) }
+            step { done in k.caseReturnInPage(done) }
+        }
         run { k.finish() }
     }
 }

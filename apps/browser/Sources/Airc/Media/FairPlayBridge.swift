@@ -235,11 +235,13 @@ final class FairPlayBridge: NSObject {
     static let stalledOfferDelay: TimeInterval = 10
     private var stalled: [ObjectIdentifier: DispatchWorkItem] = [:]
     private var offeredFor: [ObjectIdentifier: String] = [:]
+    /// Pages the video part offered FairPlay to (their player found its way; FairPlayVideo).
+    private var tookFairPlay: [ObjectIdentifier: String] = [:]
 
     func widevineRefused(_ tab: EngineTab, origin: String) {
         ProtectedMedia.noteWidevineAsked(tab, origin: origin)
         let key = ObjectIdentifier(tab)
-        guard stalled[key] == nil, offeredFor[key] != origin else { return }
+        guard stalled[key] == nil, offeredFor[key] != origin, tookFairPlay[key] != origin else { return }
         let item = DispatchWorkItem { [weak self, weak tab] in
             guard let self else { return }
             self.stalled[key] = nil
@@ -255,6 +257,15 @@ final class FairPlayBridge: NSObject {
     /// FairPlay playback started for `tab`: no stalled offer.
     func bridgeStarted(_ tab: EngineTab) {
         stalled.removeValue(forKey: ObjectIdentifier(tab))?.cancel()
+    }
+
+    /// The video part offered FairPlay to `tab` (Netflix's and Disney+'s players probe Widevine, then FairPlay, at load,
+    /// long before anything plays): the player found its way, so no stalled offer, now or after a later Widevine probe
+    /// from the same origin. A player that then fails still gets the offer from its session (FairPlayVideo "failed").
+    func fairPlayOffered(_ tab: EngineTab, origin: String) {
+        let key = ObjectIdentifier(tab)
+        stalled.removeValue(forKey: key)?.cancel()
+        tookFairPlay[key] = origin
     }
 
     func noteAskedFromVideo(_ d: [String: Any]) { noteAsked(d) }

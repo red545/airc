@@ -226,6 +226,7 @@ extension CommandBarView {
         let p = c.store.profile(ofSpace: c.currentSpaceID)
         if !run.steps.isEmpty { run.newConversation() }
         AgentTaskRecorder.shared.willAsk(spaceID: c.currentSpaceID, profileID: p.id)
+        AgentAttention.taskAsked(in: c)
         run.ask(t + AgentAskContext.promptLine(attached), profileID: p.id, profileName: p.name)
         // The task's record appears with its first step (AgentTaskRecorder follows the run on the main queue).
         var tries = 0

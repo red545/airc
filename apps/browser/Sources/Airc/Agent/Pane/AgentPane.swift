@@ -195,19 +195,22 @@ final class AgentPaneController: NSObject {
     func focusApproval() {
         guard let id = AgentRunCenter.shared.approval?.id else { return }
         model.approvalFocused = true
-        // Again for a moment: a Space switch or a closing Watch hands the keys to the page a little later.
-        for delay in [0.0, 0.15, 0.4, 0.8, 1.5] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                guard let self, AgentRunCenter.shared.approval?.id == id else { return }
-                if !self.isShown { self.open() }
-                guard let card = self.card, let w = card.window, w.firstResponder !== card else { return }
-                let had = w.firstResponder.map { String(describing: type(of: $0)) } ?? "none"
-                card.approvalKeys = true
-                self.model.approvalFocused = true
-                let ok = w.makeFirstResponder(card)
-                if !ok { card.approvalKeys = false; self.model.approvalFocused = false }
-                AgentCenter.shared.onEvent?("focus-approval +\(delay) s: shown \(self.isShown), had \(had), took \(ok)")
+        // Again for a moment (a Space switch or a closing Watch hands the keys to the page a little later), but never
+        // after the person clicked or typed anywhere in Airc (AgentAttention.LandingFocus): a Return meant for a page
+        // field must never allow, and a pane the person closed stays closed.
+        AgentAttention.LandingFocus.run { [weak self] delay in
+            guard let self, AgentRunCenter.shared.approval?.id == id else { return }
+            if !self.isShown {
+                guard delay == 0 else { return }
+                self.open()
             }
+            guard let card = self.card, let w = card.window, w.firstResponder !== card else { return }
+            let had = w.firstResponder.map { String(describing: type(of: $0)) } ?? "none"
+            card.approvalKeys = true
+            self.model.approvalFocused = true
+            let ok = w.makeFirstResponder(card)
+            if !ok { card.approvalKeys = false; self.model.approvalFocused = false }
+            AgentCenter.shared.onEvent?("focus-approval +\(delay) s: shown \(self.isShown), had \(had), took \(ok)")
         }
     }
 

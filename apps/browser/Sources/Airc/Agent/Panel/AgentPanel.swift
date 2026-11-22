@@ -51,7 +51,8 @@ final class AgentPanelController: NSObject {
         effect.wantsLayer = true
         effect.layer?.cornerRadius = 12
         effect.layer?.masksToBounds = true
-        let host = NSHostingView(rootView: AgentPanelView(look: look, profile: { [weak self] in self?.profile() }, close: { [weak self] in self?.close() }))
+        let host = NSHostingView(rootView: AgentPanelView(look: look, profile: { [weak self] in self?.profile() }, close: { [weak self] in self?.close() },
+                                                         asking: { [weak self] in if let c = self?.controller { AgentAttention.taskAsked(in: c) } }))
         host.translatesAutoresizingMaskIntoConstraints = false
         effect.addSubview(host)
         NSLayoutConstraint.activate([host.leadingAnchor.constraint(equalTo: effect.leadingAnchor), host.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
@@ -72,6 +73,7 @@ final class AgentPanelController: NSObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in self?.caretToEnd() }
             return
         }
+        if let c = controller { AgentAttention.taskAsked(in: c) }
         run.ask(text, profileID: p.id, profileName: p.name)
     }
 
@@ -190,6 +192,8 @@ struct AgentPanelView: View {
     @ObservedObject var look: AgentPanelLook
     let profile: () -> (id: String, name: String)?
     let close: () -> Void
+    /// Right before a task is sent: AgentAttention records the panel's window, Space and profile.
+    var asking: () -> Void = {}
     @ObservedObject private var run = AgentRunCenter.shared
     @State private var text = ""
     @State private var settingsRev = 0
@@ -371,6 +375,7 @@ struct AgentPanelView: View {
         guard let p = profile(), run.canSend else { return }
         let t = text
         text = ""
+        asking()
         run.ask(t, profileID: p.id, profileName: p.name)
     }
 }

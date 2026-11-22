@@ -184,6 +184,7 @@ final class AgentTaskViewModel: ObservableObject {
             run.newConversation()
         }
         AgentTaskRecorder.shared.willAsk(spaceID: c.currentSpaceID, profileID: p.id)
+        AgentAttention.taskAsked(in: c)
         run.ask(prompt, profileID: p.id, profileName: p.name)
         if !isCurrent {
             // The new conversation's record appears with its first step; follow it in this tab.

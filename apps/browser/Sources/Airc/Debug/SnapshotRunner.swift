@@ -147,6 +147,7 @@ final class SnapshotRunner {
         case "spotifyprobe": spotifyProbeScenario()   // FairPlayBridgeCheck.swift
         case "fairplayvideo": fairPlayVideoScenario()   // FairPlayVideoCheck.swift
         case "fairplayua": fairPlayUserAgentScenario()   // FairPlayVideoCheck.swift
+        case "agentfixfairplay": agentFixFairPlayScenario()   // a FairPlay-offered page that never plays gets no false offer (AgentFixFairPlayCheck.swift)
         case "drmservices": drmServicesScenario()
         #endif
         case "perf": perfScenario()
@@ -259,6 +260,7 @@ final class SnapshotRunner {
         case "winclose-read": winCloseRead()
         case "ownerfs": ownerFullScreenScenario()   // new windows from full screen open in their own full-screen Space (OwnerFixesCheck.swift)
         case "paritysmallgaps": paritySmallGapsScenario()   // C06 Share Quote under the URL, K03 Edit/Help remaps and layout brackets
+        case "agentfixquote": agentFixQuoteScenario()   // the Share Quote chip dies with its window (AgentFixQuoteCheck.swift)
         case "quotecopy": quoteCopyScenario()   // C06 Copy Quote Link: page menu, Share Quote, Arc's toasts, opt-outs (QuoteCopyCheck.swift)
         case "ownerquote": ownerQuoteScenario()   // C06 Shared Quotes with a real ⌘C, and the page menu's Copy Link to Highlight
         case "parityS09S11": parityS09S11Scenario()   // S09/S11: Move to › folders, a selection's Archive Tabs Below / Other Tabs, Command Bar

@@ -37,9 +37,11 @@ enum AgentAttention {
     /// When each row's page started waiting (rows only know that they wait).
     private static var pageSince: [String: Date] = [:]
     private static var approvalSince: (id: UUID, at: Date)?
-    /// Where the pane's task was asked: its window and Space (the approval lands there).
+    /// Where the agent's current task was asked: its window, Space and profile (its approval lands there). Every entry
+    /// point that starts or continues a task records it (the pane, ⌘T → Ask, a task view's reply, the old panel).
     private(set) static weak var taskWindow: WindowController?
     private(set) static var taskSpaceID: String?
+    private(set) static var taskProfileID: String?
     /// The item the last click landed on (the next click goes to the one after it).
     private static var lastLanded: String?
     private static var subs: [AnyCancellable] = []
@@ -67,10 +69,21 @@ enum AgentAttention {
         subs.append(NotificationCenter.default.publisher(for: AgentActivity.changed).receive(on: DispatchQueue.main).sink { _ in rowsChanged() })
     }
 
-    /// AgentPaneModel.ask: the task's window and Space.
+    /// Right before `AgentRunCenter.ask`, from every entry point: the task's window, Space and profile.
     static func taskAsked(in c: WindowController) {
         taskWindow = c
         taskSpaceID = c.currentSpaceID
+        taskProfileID = c.store.profile(ofSpace: c.currentSpaceID).id
+    }
+
+    /// The recorded window, only while it is open and was asked from in the item's profile (an older record from
+    /// another profile never takes a "needs you").
+    private static func recordedWindow(for it: Item, in all: [WindowController]) -> WindowController? {
+        guard let c = taskWindow, all.contains(where: { $0 === c }) else { return nil }
+        if let p = it.profileID {
+            guard taskProfileID == p, c.windowSpaces.contains(where: { $0.profileID == p }) else { return nil }
+        }
+        return c
     }
 
     // MARK: What waits
@@ -114,6 +127,41 @@ enum AgentAttention {
     }
 
     // MARK: Going there
+
+    /// A landing's focus passes take the keys back for a moment (a Space switch or a closing Watch hands them to the
+    /// page a little later), but only until the person acts: their first click or key in Airc after the landing ends
+    /// the passes. Otherwise a key meant for a page field could be taken back to the approval card, and its Return
+    /// would allow the agent's action (review21). One monitor per landing, removed after its last pass.
+    final class LandingFocus {
+        static let delays: [Double] = [0.0, 0.15, 0.4, 0.8, 1.5]
+        private(set) var personActed = false
+        private var monitor: Any?
+
+        init() {
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]) { [weak self] e in
+                self?.personActed = true
+                return e
+            }
+        }
+
+        func end() {
+            if let m = monitor { NSEvent.removeMonitor(m) }
+            monitor = nil
+        }
+
+        deinit { end() }
+
+        /// `pass(delay)` at each delay while the person hasn't acted; the monitor goes after the last one.
+        static func run(_ pass: @escaping (Double) -> Void) {
+            let f = LandingFocus()
+            for delay in delays {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                    if !f.personActed { pass(delay) }
+                    if delay == delays.last { f.end() }
+                }
+            }
+        }
+    }
 
     /// The next waiting item (see `next`). false: nothing waits, or the only one is already in front in `c` (the
     /// caller then does its usual thing, e.g. the ✦ button closes the pane).
@@ -162,12 +210,10 @@ enum AgentAttention {
             if AgentActivity.shared.model.row(row)?.window == AgentRunCenter.shared.runWindowID, AgentUI.usesPane { AgentPaneController.show(c) }
             c.sidebar.agents.openWatch(row)
             // After the pane's own focus (it queues one), and again for a moment (a Space switch hands the keys to
-            // the page a little later): the keys end on Watch's Take over.
-            for delay in [0.0, 0.15, 0.4, 0.8, 1.5] {
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                    guard let wv = c.sidebar.agents.watch, wv.rowID == row else { return }
-                    if !wv.isLanded || c.window.firstResponder !== wv { wv.land() }
-                }
+            // the page a little later), until the person clicks or types: the keys end on Watch's Take over.
+            LandingFocus.run { _ in
+                guard let wv = c.sidebar.agents.watch, wv.rowID == row else { return }
+                if !wv.isLanded || c.window.firstResponder !== wv { wv.land() }
             }
         }
         lastLanding = (from, it, c)
@@ -177,22 +223,25 @@ enum AgentAttention {
         #endif
     }
 
-    /// The window to answer in: the pane task's own window for its approval (or its page); else a window showing the
-    /// page's profile, the key one first; else any browser window (switched to a Space of that profile).
+    /// The window to answer in: the task's own window for its approval (or its page), while it is in the task's
+    /// profile; else a window showing the profile, the key one first; else a window with a Space of that profile
+    /// (switched to it); never a window of another profile. Without a profile: the key window.
     static func window(for it: Item) -> WindowController? {
         let all = AgentCenter.shared.app?.controllers ?? []
         let paneTask = it.kind == .approval || (it.rowID.flatMap { AgentActivity.shared.model.row($0)?.window } == AgentRunCenter.shared.runWindowID)
-        if paneTask, let c = taskWindow, all.contains(where: { $0 === c }) { return c }
+        if paneTask, let c = recordedWindow(for: it, in: all) { return c }
         if let p = it.profileID {
             let showing = AgentActivity.shared.windows(showing: p)
             if let c = showing.first(where: { $0.window.isKeyWindow }) ?? showing.first { return c }
-            if let c = all.first(where: { c in c.windowSpaces.contains { $0.profileID == p } }) { return c }
+            // Never another profile's window: none can show this profile, so nowhere to land.
+            return all.first { c in c.windowSpaces.contains { $0.profileID == p } }
         }
         return all.first { $0.window.isKeyWindow } ?? all.first { $0.window.isMainWindow } ?? all.first
     }
 
     private static func switchSpace(_ c: WindowController, for it: Item) {
-        if it.kind == .approval, let s = taskSpaceID, taskWindow === c, s != c.currentSpaceID, c.windowSpaces.contains(where: { $0.id == s }) {
+        if it.kind == .approval, let s = taskSpaceID, taskWindow === c, s != c.currentSpaceID,
+           let space = c.windowSpaces.first(where: { $0.id == s }), it.profileID == nil || space.profileID == it.profileID {
             return c.switchToSpace(s, animated: false)
         }
         guard let p = it.profileID, c.store.space(c.currentSpaceID)?.profileID != p else { return }

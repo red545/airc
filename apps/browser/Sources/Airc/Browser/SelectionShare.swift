@@ -360,9 +360,36 @@ final class QuotePillView: NSView {
         setAccessibilityRole(.button)
         setAccessibilityLabel(Self.title)
         setAccessibilityHelp("Copies a link that opens this page at the selected text")
+        #if AIRC_TESTING
+        Self.allForTesting.add(self)
+        #endif
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    deinit { poll?.invalidate() }
+
+    /// The window closed: the chip goes, and with it its poll. It also leaves the address field: a closed window's
+    /// views can outlive it (on Chromium they did), and the chip mustn't stay alive in them.
+    private var closeObserver: NSObjectProtocol?
+    fileprivate func follow(_ w: NSWindow) {
+        closeObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            self.hide()
+            if self.field?.quoteChip === self { self.field?.quoteChip = nil }
+            self.field = nil
+            self.removeFromSuperview()
+            if let o = self.closeObserver { NotificationCenter.default.removeObserver(o) }
+            self.closeObserver = nil
+        }
+    }
+
+    #if AIRC_TESTING
+    /// agentfix (`--script agentfixquote`): every chip alive, and whether its poll runs.
+    static let allForTesting = NSHashTable<QuotePillView>.weakObjects()
+    var pollingForTesting: Bool { poll?.isValid == true }
+    #endif
+
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -459,15 +486,17 @@ final class QuotePillView: NSView {
     /// The page's selection may have changed (a mouse-up or a key in the window): look again, and show the pill for a
     /// selection worth a link. `poll` looks only to take it away: it never shows the pill by itself.
     func refresh(poll fromPoll: Bool = false) {
-        guard let c = controller else { return }
+        // No window any more: stop (the poll would otherwise run for ever).
+        guard let c = controller else { return hide() }
         generation += 1
         let asked = generation
         guard c.app?.settings.values.sharedQuotes != false, !c.sidebarHidden, !c.sidebar.isHidden, c.peek == nil,
               let id = c.shownTabID, !c.store.isNoteTab(id), let page = c.engineTab(for: id),
               let url = page.url?.absoluteString, url.hasPrefix("http://") || url.hasPrefix("https://"),
               QuoteLink.optOut(.init(url: url)) == nil, !fromPoll || page === self.page else { return hide() }
-        page.evaluate(Self.selectionScript) { [weak self, weak page] v in
-            guard let self, let page, asked == self.generation, page === c.shownTabID.flatMap(c.engineTab) else { return }
+        // Weak: a closed page's evaluation may never answer, and would keep its window alive.
+        page.evaluate(Self.selectionScript) { [weak self, weak page, weak c] v in
+            guard let self, let page, let c, asked == self.generation, page === c.shownTabID.flatMap(c.engineTab) else { return }
             let pair = (v as? [Any])?.compactMap { $0 as? String } ?? []
             func words(_ s: String) -> [Substring] { s.split(whereSeparator: { $0.isWhitespace || $0.isNewline }) }
             guard pair.count == 2, words(pair[0]).count >= 3, case let whole = pair[1].isEmpty ? pair[0] : pair[1],
@@ -582,17 +611,20 @@ final class QuotePillView: NSView {
 }
 
 extension WindowController {
-    private static let quoteChips = NSMapTable<WindowController, QuotePillView>.weakToStrongObjects()
+    private static var quoteChipKey: UInt8 = 0
 
-    /// The Share Quote chip of this window (in the current Space's address pill while it shows).
-    var quotePill: QuotePillView? { Self.quoteChips.object(forKey: self) }
+    /// The Share Quote chip of this window (in the current Space's address pill while it shows). The window controller
+    /// owns it, so it goes with its window (a weak-to-strong NSMapTable kept every closed window's chip: AppKit doesn't
+    /// purge values whose keys are gone).
+    var quotePill: QuotePillView? { objc_getAssociatedObject(self, &Self.quoteChipKey) as? QuotePillView }
 
     /// From the sidebar (SidebarView.connect): the chip, and the app's selection monitor.
     func installQuotePill() {
         guard quotePill == nil else { return }
         let pill = QuotePillView()
         pill.controller = self
-        Self.quoteChips.setObject(pill, forKey: self)
+        pill.follow(window)
+        objc_setAssociatedObject(self, &Self.quoteChipKey, pill, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         QuotePillView.installMonitor()
     }
 }
