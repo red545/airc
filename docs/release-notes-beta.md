@@ -1,16 +1,22 @@
-# Airc 0.1.50 public beta
+# Airc 0.1.51 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update makes Airc Agent's requests for your OK safer and opens them in the right window, and fixes a small
-memory leak and a wrong video message. It includes everything from 0.1.49. The release manifest records the exact
-build, source and checksums.
+This update lets Today tabs stay until you close them (auto-archive can be set to Never, or to 1 or 6 hours). It
+includes everything from 0.1.50. The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.49
+## New since 0.1.50
+
+- **Today tabs can now stay until you close them: auto-archive can be set to Never, or to 1 or 6 hours.** In
+  **Settings › Profiles** (Archive Today tabs after) or the tidy card's **Archive after**, choose **Never** to keep
+  Today tabs until you close or clear them, or a shorter time. **Clear** still works, with Undo. If you sync with a
+  Mac still on Airc 0.1.49 or older, update it first: it resets Never to 12 hours on all your Macs.
+
+## Included from 0.1.50
 
 - **When Airc Agent asks for your OK, a Return you type in a web page can no longer approve it by mistake.** Right
   after an agent's request appeared, Return pressed in a page's text field could allow the agent's action. Now only

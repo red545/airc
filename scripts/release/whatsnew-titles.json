@@ -610,5 +610,11 @@
     "detail": "An auto-archive time that a newer Airc on another Mac syncs is read safely, instead of breaking your settings.",
     "action": "none",
     "image": null
+  },
+  "Today tabs can now stay until you close them: auto-archive can be set to Never, or to 1 or 6 hours": {
+    "title": "Keep Today tabs",
+    "detail": "Choose Never in Settings › Profiles (Archive Today tabs after) or in the tidy card to keep Today tabs until you close them. 1 hour and 6 hours are new too.",
+    "action": "none",
+    "image": null
   }
 }
