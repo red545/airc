@@ -49,6 +49,7 @@ TabBridge::TabBridge(content::WebContents* contents)
     : content::WebContentsObserver(contents),
       content::WebContentsUserData<TabBridge>(*contents) {
   content::g_airc_opacity_from_default_color = true;
+  content::g_airc_holds_frames_on_hide = &content::AircHoldsFramesOnHide;
   tab_ = [[AircTab alloc] initWithContents:contents];
   TrackMediaSession(tab_);
   PageChannel::GetOrCreate(contents);

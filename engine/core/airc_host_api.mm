@@ -11,6 +11,7 @@
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "extensions/browser/extension_registry.h"
 #include "airc/core/airc_browser.h"
+#include "airc/core/airc_content_hooks.h"
 #include "airc/core/airc_host_visibility.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/common/extension.h"
@@ -53,6 +54,13 @@
 
 @implementation AircTab (Hosting)
 - (BOOL)pageVisible { return airc::ShownByHost(self.contents).value_or(false); }
+- (BOOL)holdsFramesOnHide {
+  return content::AircHoldsFramesOnHide(self.contents);
+}
+- (void)setHoldsFramesOnHide:(BOOL)hold {
+  NSParameterAssert(NSThread.isMainThread);
+  content::AircSetHoldsFramesOnHide(self.contents, hold);
+}
 - (void)attachToView:(NSView*)host {
   NSParameterAssert(NSThread.isMainThread);
   if (self.view.superview == host) { [self setPageVisible:YES]; return; }

@@ -26,6 +26,18 @@ class WebContents;
 
 extern bool g_airc_opacity_from_default_color;
 
+// Patch 042 (render_widget_host_view_mac.mm, browser_compositor_view_mac.mm):
+// whether a widget's view, when it is hidden, keeps its compositor (and so the
+// last frame in its CAContext) for a short while. Only for the WebContents the
+// host opted in (AircTab.holdsFramesOnHide: the agent pane's live card mirrors
+// its context); every other view is stock.
+// The patch defines the pointer (nullptr: stock); TabBridge sets it.
+class RenderWidgetHost;
+extern bool (*g_airc_holds_frames_on_hide)(RenderWidgetHost* widget);
+bool AircHoldsFramesOnHide(RenderWidgetHost* widget);
+bool AircHoldsFramesOnHide(WebContents* contents);
+void AircSetHoldsFramesOnHide(WebContents* contents, bool hold);
+
 bool AircHasAccessedInitialMainDocument(WebContents* contents);
 
 bool AircMainFrameHandlesEnterPictureInPicture(WebContents* contents);

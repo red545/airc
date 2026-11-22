@@ -314,5 +314,17 @@
   "net/extras/sqlite/sqlite_persistent_cookie_store.cc": {
     "before": "cebb7f21100ed85ec40d53386e27c33e409fcff95d197d26da89c23805d8aaa9",
     "after": "87d5bdf4174dde5e4e6e3a31efa5c15137f87c92c27f724b758d1f96e7a78b69"
+  },
+  "content/browser/renderer_host/browser_compositor_view_mac.h": {
+    "before": "0fb0c587ec1ea931b609b47c0206706700c37f6cb0ecf69245a97d812547c3dd",
+    "after": "252c97d579e03628c93ce61db41ab066f97990d50fa8fdcdcdb1bd452cab210f"
+  },
+  "content/browser/renderer_host/browser_compositor_view_mac.mm": {
+    "before": "1579b8073ab9c8682f11edd12227324048bbf7c5ae6b3d6b924cb285d0eca665",
+    "after": "9ed8058967a39d1a3339a90ff034d3f40c0daef0f20bd9bdfa98699c8a37dc25"
+  },
+  "content/browser/renderer_host/render_widget_host_view_mac.mm": {
+    "before": "17b9ac1271936dc3dcc2840544c556edf680cd5c54642115c5c8c24fd6b650df",
+    "after": "14ecbd7dfbdb11dc5643cb1a53e05e552a5f482e032b25afbd52557ef83fe826"
   }
 }

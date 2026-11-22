@@ -660,6 +660,11 @@ AIRC_EXPORT
 @property(readonly) BOOL pageVisible;
 // Isolated per-tab zoom; use for panes, including same-origin panes.
 @property BOOL independentZoom;
+// While YES, a view of this page that gets hidden (a navigation to a new view, a
+// tab switch) keeps its last frame for up to 250 ms instead of emptying its
+// compositor context at once: for a host that mirrors the page's CALayerHost
+// context and swaps to the new one when it appears. Default NO (stock).
+@property BOOL holdsFramesOnHide;
 // Activate through AircWindow first, then attach. Focus is explicit.
 - (void)attachToView:(NSView*)host NS_SWIFT_NAME(attach(to:));
 - (void)detachFromHost NS_SWIFT_NAME(detach());

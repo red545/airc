@@ -1,0 +1,127 @@
+# Airc: the agent pane's live card mirrors a page's CALayerHost context; for a
+# page whose host opted in, a hidden view keeps its last frame for 250 ms.
+# Copyright 2026 The Airc Authors; Apache-2.0.
+--- a/content/browser/renderer_host/browser_compositor_view_mac.h
++++ b/content/browser/renderer_host/browser_compositor_view_mac.h
+@@ -115,6 +115,10 @@
+   // compositors should be recycled.
+   static void DisableRecyclingForShutdown();
+ 
++  // Airc: the next hide keeps the compositor's last frame for a moment (patch
++  // 042; set around RenderWidgetHostViewMac::WasOccluded's hide).
++  void set_airc_hold_on_hide(bool hold) { airc_hold_on_hide_ = hold; }
++
+   // DelegatedFrameHostClient implementation.
+   ui::LayerSurface* GetDelegatedFrameHostLayer() const override;
+   bool DelegatedFrameHostIsVisible() const override;
+@@ -182,6 +186,8 @@
+   // |root_layer_| to be under |parent_ui_layer_|, if needed.
+   raw_ptr<ui::Layer> parent_ui_layer_ = nullptr;
+   bool render_widget_host_is_hidden_ = true;
++  // Airc: see set_airc_hold_on_hide.
++  bool airc_hold_on_hide_ = false;
+ 
+   raw_ptr<BrowserCompositorMacClient> client_ = nullptr;
+   raw_ptr<ui::AcceleratedWidgetMacNSView> accelerated_widget_mac_ns_view_ =
+--- a/content/browser/renderer_host/browser_compositor_view_mac.mm
++++ b/content/browser/renderer_host/browser_compositor_view_mac.mm
+@@ -9,10 +9,13 @@
+ 
+ #include <memory>
+ #include <utility>
++#include <vector>
+ 
+ #include "base/command_line.h"
+ #include "base/containers/circular_deque.h"
++#include "base/functional/bind.h"
+ #include "base/no_destructor.h"
++#include "base/task/single_thread_task_runner.h"
+ #include "base/trace_event/trace_event.h"
+ #include "components/viz/common/features.h"
+ #include "components/viz/common/surfaces/local_surface_id.h"
+@@ -41,6 +44,23 @@
+   return *instance.get();
+ }
+ 
++// Airc: compositors of hidden views kept for kAircHoldMs (TransitionToState).
++constexpr int kAircHoldMs = 250;
++
++std::vector<std::unique_ptr<ui::RecyclableCompositorMac>>&
++AircHeldCompositors() {
++  static base::NoDestructor<
++      std::vector<std::unique_ptr<ui::RecyclableCompositorMac>>>
++      instance;
++  return *instance.get();
++}
++
++void AircReleaseHeldCompositor(ui::RecyclableCompositorMac* compositor) {
++  std::erase_if(AircHeldCompositors(), [compositor](const auto& held) {
++    return held.get() == compositor;
++  });
++}
++
+ }  // namespace
+ 
+ ////////////////////////////////////////////////////////////////////////////////
+@@ -250,8 +270,27 @@
+   }
+   if (state_ == HasOwnCompositor) {
+     recyclable_compositor_->widget()->ResetNSView();
+-    recyclable_compositor_->compositor()->SetRootLayer(nullptr);
+-    recyclable_compositor_.reset();
++    if (airc_hold_on_hide_ && new_state == HasNoCompositor) {
++      // Airc: a navigation to a new RenderWidgetHostView hides the old view in
++      // its commit task; destroying its compositor empties the old CAContext
++      // in the GPU process at once, while the new view's CALayerHost only
++      // comes with the new compositor's first frame, a turn later. A mirror of
++      // the old context (the agent pane's live card, which keeps it until the
++      // new one exists) shows nothing in between. For a page whose host opted
++      // in (AircTab.holdsFramesOnHide), keep the hidden compositor suspended
++      // (no further commits; its last frame stays in the context) for
++      // kAircHoldMs, then destroy it.
++      recyclable_compositor_->Suspend();
++      recyclable_compositor_->compositor()->SetRootLayer(nullptr);
++      ui::RecyclableCompositorMac* held = recyclable_compositor_.get();
++      AircHeldCompositors().push_back(std::move(recyclable_compositor_));
++      base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
++          FROM_HERE, base::BindOnce(&AircReleaseHeldCompositor, held),
++          base::Milliseconds(kAircHoldMs));
++    } else {
++      recyclable_compositor_->compositor()->SetRootLayer(nullptr);
++      recyclable_compositor_.reset();
++    }
+   }
+ 
+   // The compositor is now detached. If this is the target state, we're done.
+@@ -301,6 +340,8 @@
+     BrowserCompositorMac* browser_compositor = *GetBrowserCompositors().begin();
+     browser_compositor->client_->DestroyCompositorForShutdown();
+   }
++  // Airc: held compositors go before their dependencies too.
++  AircHeldCompositors().clear();
+ }
+ 
+ void BrowserCompositorMac::TakeFallbackContentFrom(
+--- a/content/browser/renderer_host/render_widget_host_view_mac.mm
++++ b/content/browser/renderer_host/render_widget_host_view_mac.mm
+@@ -620,13 +620,20 @@
+       ->CancelSuccessfulPresentationTimeRequest();
+ }
+ 
++// Airc: set by Airc's core (airc_content_hooks.h); nullptr = stock.
++bool (*g_airc_holds_frames_on_hide)(RenderWidgetHost* widget) = nullptr;
++
+ void RenderWidgetHostViewMac::WasOccluded() {
+   if (host()->IsHidden()) {
+     return;
+   }
+ 
+   host()->WasHidden();
++  // Airc: a page whose host mirrors its context keeps its last frame a moment.
++  browser_compositor_->set_airc_hold_on_hide(g_airc_holds_frames_on_hide &&
++                                             g_airc_holds_frames_on_hide(host()));
+   browser_compositor_->SetRenderWidgetHostIsHidden(true);
++  browser_compositor_->set_airc_hold_on_hide(false);
+ 
+   // Headless mode forces focus change propagation inside Focus(), since there
+   // is no NSWindow to deliver the normal focus change notifications. As a

@@ -6,6 +6,8 @@
 #include "airc/core/airc_page_bubble_hooks.h"
 #include "content/public/browser/web_contents.h"
 #include "content/browser/web_contents/web_contents_impl.h"  // nogncheck
+#include "content/browser/renderer_host/render_widget_host_impl.h"  // nogncheck
+#include "base/supports_user_data.h"
 void (*g_airc_call_share)(TabSharingUI*, content::WebContents*, content::WebContents*, bool) = nullptr;
 bool g_airc_background_instance = false;
 bool (*g_airc_hidden_from_extensions)(const BrowserWindowInterface* browser) = nullptr;
@@ -85,4 +87,24 @@ bool AircHasAccessedInitialMainDocument(WebContents* contents) {
   return contents && static_cast<WebContentsImpl*>(contents)->HasAccessedInitialDocument();
 }
 bool AircMainFrameHandlesEnterPictureInPicture(WebContents*) { return false; }
+namespace {
+const char kAircHoldsFramesOnHide[] = "airc-holds-frames-on-hide";
+}
+bool AircHoldsFramesOnHide(RenderWidgetHost* widget) {
+  WebContents* contents = widget ? WebContentsImpl::FromRenderWidgetHostImpl(
+                                       static_cast<RenderWidgetHostImpl*>(widget))
+                                 : nullptr;
+  return AircHoldsFramesOnHide(contents);
+}
+bool AircHoldsFramesOnHide(WebContents* contents) {
+  return contents && contents->GetUserData(kAircHoldsFramesOnHide);
+}
+void AircSetHoldsFramesOnHide(WebContents* contents, bool hold) {
+  if (!contents) return;
+  if (hold) {
+    contents->SetUserData(kAircHoldsFramesOnHide, std::make_unique<base::SupportsUserData::Data>());
+  } else {
+    contents->RemoveUserData(kAircHoldsFramesOnHide);
+  }
+}
 }
