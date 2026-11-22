@@ -139,7 +139,7 @@ enum TidyHint {
     static func setArchiveAfter(_ c: WindowController, spaceID: String, _ v: ArchiveInterval) {
         let pid = c.store.profile(ofSpace: spaceID).id
         try? c.store.updateProfile(pid) { $0.archiveAfter = v }
-        c.showToast("Today tabs archive after \(v.label)")
+        c.showToast(v.archives ? "Today tabs archive after \(v.label)" : "Today tabs never archive on their own")
     }
 
     static func notNow(_ c: WindowController) { doneForToday(c.store) }
@@ -421,7 +421,7 @@ final class TidyHintCardView: SidebarRowView {
                     TidyHint.pin(c, spaceID: sid, tabID: p.tabID, host: p.host)
                 }
             }
-            archiveChoices = ArchiveInterval.allCases
+            archiveChoices = ArchiveInterval.choices(current: o.archiveAfter)
             if archivePopUp.itemTitles != archiveChoices.map(\.label) {
                 archivePopUp.removeAllItems()
                 archivePopUp.addItems(withTitles: archiveChoices.map(\.label))

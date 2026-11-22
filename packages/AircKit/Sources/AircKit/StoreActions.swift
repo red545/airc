@@ -491,7 +491,7 @@ extension SpacesStore {
     public func dueForAutoArchive(protected: Set<String> = []) -> [String] {
         let date = now()
         return state.tabs.values.filter { t in
-            guard t.isToday, !protected.contains(t.id), let p = profile(t.profileID) else { return false }
+            guard t.isToday, !protected.contains(t.id), let p = profile(t.profileID), p.archiveAfter.archives else { return false }
             return date.timeIntervalSince(t.lastActiveAt) >= p.archiveAfter.seconds
         }.sorted { ($0.lastActiveAt, $0.id) < ($1.lastActiveAt, $1.id) }.map(\.id)
     }
@@ -512,7 +512,8 @@ extension SpacesStore {
     /// moment with a one-shot timer instead of checking on a repeating one (MEM-6: no idle timers).
     public func nextAutoArchiveDate(protected: Set<String> = []) -> Date? {
         state.tabs.values.compactMap { t -> Date? in
-            guard t.isToday, !protected.contains(t.id), let p = profile(t.profileID) else { return nil }
+            // Never: no date (no timer waits for it).
+            guard t.isToday, !protected.contains(t.id), let p = profile(t.profileID), p.archiveAfter.archives else { return nil }
             return t.lastActiveAt.addingTimeInterval(p.archiveAfter.seconds)
         }.min()
     }

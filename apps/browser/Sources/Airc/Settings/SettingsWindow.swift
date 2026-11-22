@@ -797,7 +797,8 @@ private struct ProfileSection: View {
                     }
                 }
                 SettingsRow(title: "Archive Today tabs after", subtitle: "Tabs playing audio and the one you're looking at stay.") {
-                    AircPopUp(options: ArchiveInterval.allCases.map { ($0.label, $0) }, selection: profile.archiveAfter) { v in
+                    AircPopUp(options: ArchiveInterval.choices(current: profile.archiveAfter).map { ($0.label, $0) },
+                              selection: profile.archiveAfter) { v in
                         try? model.store.updateProfile(profile.id) { $0.archiveAfter = v }
                     }
                 }

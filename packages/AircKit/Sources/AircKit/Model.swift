@@ -89,25 +89,101 @@ public enum SpaceIcon: Codable, Hashable, Sendable {
 // MARK: - Profiles
 
 /// Auto-archive interval for Today tabs, per profile (SB-43). Arc 1.171's choices.
-public enum ArchiveInterval: String, Codable, Hashable, Sendable, CaseIterable {
-    case twelveHours, twentyFourHours, sevenDays, thirtyDays
+///
+/// A struct over its stored string rather than an enum (archivenever, 2026-11-21): the value syncs between Macs
+/// ("profile.archiveAfter@…", Settings sync), so a build must read an interval a newer Airc wrote without failing the
+/// profile row, act on it as the default (`effective`), and keep and send back that exact string, never its fallback.
+/// The enum before it read an unknown value as 12 hours and then wrote "twelveHours" back over sync, which replaced the
+/// newer Mac's choice. Never rename a raw value.
+public struct ArchiveInterval: RawRepresentable, Codable, Hashable, Sendable, CaseIterable {
+    public let rawValue: String
+    public init(rawValue: String) { self.rawValue = rawValue }
 
+    public static let twelveHours = ArchiveInterval(rawValue: "twelveHours")
+    public static let twentyFourHours = ArchiveInterval(rawValue: "twentyFourHours")
+    public static let sevenDays = ArchiveInterval(rawValue: "sevenDays")
+    public static let thirtyDays = ArchiveInterval(rawValue: "thirtyDays")
+    /// Arc's other choices (archivenever): known to every build from the one that added them, offered in the pickers
+    /// only with `moreChoicesOffered`. "Never": Today tabs never auto-archive (Clear still clears them).
+    public static let oneHour = ArchiveInterval(rawValue: "oneHour")
+    public static let sixHours = ArchiveInterval(rawValue: "sixHours")
+    public static let never = ArchiveInterval(rawValue: "never")
+
+    /// What a profile starts with, and what an interval this build doesn't know acts as.
+    public static let `default` = twelveHours
+
+    /// Every interval this build understands, in the pickers' order.
+    public static let known: [ArchiveInterval] = [.oneHour, .sixHours, .twelveHours, .twentyFourHours, .sevenDays, .thirtyDays, .never]
+
+    /// What the pickers offered before `moreChoicesOffered`.
+    public static let original: [ArchiveInterval] = [.twelveHours, .twentyFourHours, .sevenDays, .thirtyDays]
+
+    /// Whether the pickers offer 1 hour, 6 hours and Never. Off until every build people may still sync with keeps an
+    /// interval it doesn't know (the build that made ArchiveInterval keep its raw value, 0.1.48): up to 0.1.47 a Mac that
+    /// receives "never" sends "twelveHours" back and replaces it everywhere (docs/sync.md, Settings). The release after
+    /// the one that ships this turns `moreChoicesByDefault` on; until then `defaults write <bundle id>
+    /// AircArchiveMoreChoices -bool YES` (or a test's `moreChoicesOverride`) shows them. Every build since knows and
+    /// honours the three values either way: only offering them waits.
+    public static let moreChoicesByDefault = false
+    public static let moreChoicesDefaultsKey = "AircArchiveMoreChoices"
+    nonisolated(unsafe) public static var moreChoicesOverride: Bool?
+    public static var moreChoicesOffered: Bool {
+        moreChoicesOverride ?? (UserDefaults.standard.object(forKey: moreChoicesDefaultsKey) as? Bool ?? moreChoicesByDefault)
+    }
+
+    /// The pickers' choices (Settings › Profiles, the tidy card).
+    public static var allCases: [ArchiveInterval] { moreChoicesOffered ? known : original }
+
+    /// The choices to show while `current` is selected: `allCases`, plus `current` at the end when it isn't one of them
+    /// (an interval a newer Airc set), so the picker shows what's set instead of a wrong choice.
+    public static func choices(current: ArchiveInterval) -> [ArchiveInterval] {
+        allCases.contains(current) ? allCases : allCases + [current]
+    }
+
+    /// Whether this build knows the value (a newer Airc may have written another).
+    public var isKnown: Bool { Self.known.contains(self) }
+
+    /// What this build does with it: an unknown interval acts as the default, and keeps its own value on disk and in sync.
+    public var effective: ArchiveInterval { isKnown ? self : .default }
+
+    /// Whether Today tabs of the profile auto-archive at all (not with Never).
+    public var archives: Bool { effective != .never }
+
+    /// How long a Today tab stays without being looked at; `.infinity` for Never.
     public var seconds: TimeInterval {
-        switch self {
-        case .twelveHours: 12 * 3600
+        switch effective {
+        case .oneHour: 3600
+        case .sixHours: 6 * 3600
+        case .never: .infinity
         case .twentyFourHours: 24 * 3600
         case .sevenDays: 7 * 86400
         case .thirtyDays: 30 * 86400
+        default: 12 * 3600
         }
     }
 
     public var label: String {
         switch self {
+        case .oneHour: "1 hour"
+        case .sixHours: "6 hours"
+        case .never: "Never"
         case .twelveHours: "12 hours"
         case .twentyFourHours: "24 hours"
         case .sevenDays: "7 days"
         case .thirtyDays: "30 days"
+        default: "Set by a newer Airc"
         }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        // Never throws for a string; a non-string (a damaged row) reads as the default rather than failing the profile.
+        self = (try? c.decode(String.self)).map(ArchiveInterval.init(rawValue:)) ?? .default
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(rawValue)
     }
 }
 
@@ -492,19 +568,14 @@ public struct WindowState: Codable, Hashable, Sendable {
 
 // MARK: - Forward compatibility (code review H4)
 
-// A value a newer Airc wrote (a new search engine, archive interval, appearance or icon kind) reads as the default
-// here instead of making the whole row unreadable. The store keeps the stored value on disk unless this build changes
-// that field. New fields must be optional or decoded with a default, so an older row still reads.
+// A value a newer Airc wrote (a new search engine, appearance or icon kind) reads as the default here instead of making
+// the whole row unreadable; an archive interval also keeps its own value (ArchiveInterval above). The store keeps the
+// stored value on disk unless this build changes that field. New fields must be optional or decoded with a default, so
+// an older row still reads.
 
 extension SearchEngine {
     public init(from decoder: Decoder) throws {
         self = SearchEngine(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .google
-    }
-}
-
-extension ArchiveInterval {
-    public init(from decoder: Decoder) throws {
-        self = ArchiveInterval(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .twelveHours
     }
 }
 

@@ -258,7 +258,14 @@ each synced setting is one `setting` record in the same sealed batches, whose on
 - **Engine.** `capture()` sends each changed setting whose value this Mac hasn't sent or applied yet (the state file's
   `settings.baseline`), then applies the winners it hasn't applied; `apply()` does the same after the sidebar, so the
   first sync's Merge captures this Mac's settings before iCloud's are applied. A value the app can't read (a newer
-  build's), a newer payload format, or a profile this Mac lacks waits and is tried again. Replace replaces the sidebar,
+  build's), a newer payload format, or a profile this Mac lacks waits and is tried again. "Can't read" includes a value
+  that would read as something else here (a search engine a newer build added): taking its fallback would send the
+  fallback back as this Mac's change and replace the other Mac's choice. An archive interval is kept as it came
+  (`ArchiveInterval` stores its raw string): one a newer build added acts as 12 hours here and syncs back unchanged.
+  That is why Never, 1 hour and 6 hours (known to every build since) are offered in the pickers only from the release
+  after the one that made intervals keep their value (`ArchiveInterval.moreChoicesByDefault`): up to 0.1.47 a Mac
+  that receives "never" applies 12 hours and sends "twelveHours" back with the other Mac's change time, which replaces
+  "never" everywhere (AircKit's ArchiveIntervalCompatTests shows it with the shipped enum). Replace replaces the sidebar,
   not settings: they follow the same rule.
 - **The switch.** Settings › Sync › "Sync settings", on by default, per Mac (`settings.off` in the state file). Off sends
   and applies nothing (the replica still merges what arrives); on catches up by the rule.

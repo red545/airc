@@ -196,16 +196,22 @@ final class SettingsSync {
             switch base {
             case "profile.archiveAfter", "profile.searchEngine", "profile.searchSuggestions":
                 guard let profile, profiles.contains(profile) else { continue }
+                // A value this build would read as something else (a search engine a newer Airc added) waits, as in
+                // settings.json above: taking its fallback would send the fallback back as this Mac's value and replace
+                // the other Mac's choice (archivenever). An archive interval keeps any value (ArchiveInterval).
                 do {
                     switch base {
                     case "profile.archiveAfter":
                         let v = try Self.decode(ArchiveInterval.self, entry.json)
+                        guard Self.json(v) == entry.json else { continue }
                         try store.updateProfile(profile) { $0.archiveAfter = v }
                     case "profile.searchEngine":
                         let v = try Self.decode(SearchEngine.self, entry.json)
+                        guard Self.json(v) == entry.json else { continue }
                         try store.updateProfile(profile) { $0.searchEngine = v }
                     default:
                         let v = try Self.decode(Bool?.self, entry.json)
+                        guard Self.json(v) == entry.json else { continue }
                         try store.updateProfile(profile) { $0.searchSuggestions = v }
                     }
                     done.insert(key)
