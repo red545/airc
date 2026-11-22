@@ -1,15 +1,21 @@
-# Airc 0.1.51 public beta
+# Airc 0.1.52 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update lets Today tabs stay until you close them (auto-archive can be set to Never, or to 1 or 6 hours). It
-includes everything from 0.1.50. The release manifest records the exact build, source and checksums.
+This update frees the memory of some closed windows on the Chromium engine. It includes everything from 0.1.51. The
+release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.50
+## New since 0.1.51
+
+- **Fix: closing windows on the Chromium engine no longer leaves their memory behind in some cases.** A window
+  that Airc closed itself, rather than through your close (⌘⇧W, the close button or Close Window), kept its pages and
+  views in memory until you quit Airc. They are now freed when the window closes.
+
+## Included from 0.1.51
 
 - **Today tabs can now stay until you close them: auto-archive can be set to Never, or to 1 or 6 hours.** In
   **Settings › Profiles** (Archive Today tabs after) or the tidy card's **Archive after**, choose **Never** to keep
@@ -764,3 +770,5 @@ Source: `f2c558030a0f89f6f40d16729282c64f31a6a3b7`. Build: `202611220357`. Chann
 Source: `dc14f7a948782772da54b79af31405ac7a65e1e9`. Build: `202611220848`. Channel: stable. Engine: official.
 
 Source: `fc3e0391f1ee2ca6860f08f294fce86f7d19a8f3`. Build: `202611221309`. Channel: stable. Engine: official.
+
+Source: `f9609b2253783b58a0ba7fee0eece637e7f1a104`. Build: `202611222125`. Channel: stable. Engine: official.

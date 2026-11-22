@@ -2,6 +2,17 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.52",
+      "highlights": [
+        {
+          "title": "Closed windows let go",
+          "lead": "Fix: closing windows on the Chromium engine no longer leaves their memory behind in some cases",
+          "detail": "Windows that Airc closed on its own could keep their pages in memory on the Chromium engine until you quit. That memory is now freed when the window closes.",
+          "icon": "memorychip"
+        }
+      ]
+    },
+    {
       "version": "0.1.51",
       "highlights": [
         {
