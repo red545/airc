@@ -2,6 +2,30 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.49",
+      "highlights": [
+        {
+          "title": "Agent finds earlier pages",
+          "lead": "Ask Airc Agent about something you read earlier or a tab you have open",
+          "detail": "Press ⌥⌘A or ✦ and ask about a page you saw or a tab you have open. Airc Agent searches this profile's history and tabs, and shows what it searched.",
+          "icon": "clock.arrow.circlepath",
+          "image": "agent-recall"
+        },
+        {
+          "title": "Task pictures stay",
+          "lead": "Finished agent tasks keep their pictures after you restart Airc",
+          "detail": "The page pictures in a finished agent task's steps are still there after you quit and reopen Airc.",
+          "icon": "photo.on.rectangle"
+        },
+        {
+          "title": "One ⌘Z undoes a Clear",
+          "lead": "⌘Z after a Clear undoes the whole Clear in one step, and no longer reopens a Peek by mistake",
+          "detail": "After a Clear, ⌘Z or the toast's Undo puts every tab back in one step, even in a long session, and no longer reopens a closed Peek instead.",
+          "icon": "arrow.uturn.backward"
+        }
+      ]
+    },
+    {
       "version": "0.1.48",
       "highlights": [
         {

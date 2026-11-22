@@ -568,5 +568,23 @@
     "detail": "With Apple Intelligence, Tidy shows its folders first, with Apply and Cancel. Clear says how many tabs it archived. Undo or ⌘Z puts them back.",
     "action": "none",
     "image": null
+  },
+  "Ask Airc Agent about something you read earlier or a tab you have open": {
+    "title": "Agent finds earlier pages",
+    "detail": "Press ⌥⌘A or ✦ and ask about a page you saw or a tab you have open. Airc Agent searches this profile's history and tabs, and shows what it searched.",
+    "action": "none",
+    "image": "agent-recall"
+  },
+  "Finished agent tasks keep their pictures after you restart Airc": {
+    "title": "Task pictures stay",
+    "detail": "The page pictures in a finished agent task's steps are still there after you quit and reopen Airc.",
+    "action": "none",
+    "image": null
+  },
+  "⌘Z after a Clear undoes the whole Clear in one step, and no longer reopens a Peek by mistake": {
+    "title": "One ⌘Z undoes a Clear",
+    "detail": "After a Clear, ⌘Z or the toast's Undo puts every tab back in one step, even in a long session, and no longer reopens a closed Peek instead.",
+    "action": "none",
+    "image": null
   }
 }
