@@ -260,6 +260,7 @@ final class SnapshotRunner {
         case "winclose-read": winCloseRead()
         case "ownerfs": ownerFullScreenScenario()   // new windows from full screen open in their own full-screen Space (OwnerFixesCheck.swift)
         case "paritysmallgaps": paritySmallGapsScenario()   // C06 Share Quote under the URL, K03 Edit/Help remaps and layout brackets
+        case "windowleak": windowLeakScenario()   // closed windows free their views, pages and memory (WindowLeakCheck.swift)
         case "agentfixquote": agentFixQuoteScenario()   // the Share Quote chip dies with its window (AgentFixQuoteCheck.swift)
         case "quotecopy": quoteCopyScenario()   // C06 Copy Quote Link: page menu, Share Quote, Arc's toasts, opt-outs (QuoteCopyCheck.swift)
         case "ownerquote": ownerQuoteScenario()   // C06 Shared Quotes with a real ⌘C, and the page menu's Copy Link to Highlight

@@ -329,12 +329,43 @@ final class ChromiumWindow: NSObject, EngineWindow, AircWindowDelegate {
     var dockTabs: [ChromiumTab] { Array(wrappedTabs.values) }
     private var selected: ChromiumTab?
     weak var delegate: EngineWindowDelegate?
+    /// The engine's close was asked for (`ChromiumRuntime.closeWindow`) and not cancelled since: when the NSWindow then
+    /// closes, it is the engine closing it.
+    fileprivate var closeRequested = false
+    private var willCloseObserver: NSObjectProtocol?
     init(engine: ChromiumEngine, core: AircWindow) {
         self.engine = engine
         self.core = core
         super.init()
         core.delegate = self
+        willCloseObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: core.window,
+                                                                   queue: .main) { [weak self] _ in self?.windowClosing() }
     }
+    deinit { willCloseObserver.map(NotificationCenter.default.removeObserver) }
+
+    /// windowleak: the NSWindow closed without the engine's close (`NSWindow.close()` straight away, which skips
+    /// windowShouldClose). The engine's window host keeps its AircWindow, and with it this NSWindow, its whole view
+    /// tree and its pages, until its own close runs: about 7 MB per window, for ever (artifacts/windowleak/REPORT.md).
+    /// So run that close now. The window is already gone, so no page can ask "Leave site?" any more: its pages close
+    /// without their unload prompts, as when the person had answered Leave. Nobody hears of those closes (no delegate):
+    /// the window's tabs stay in the sidebar, as after any window close. Not while Airc quits (the engine closes
+    /// everything itself then).
+    private func windowClosing() {
+        guard !closeRequested else { return }
+        #if AIRC_TESTING
+        // A/B (--script windowleak): AIRC_WINDOWLEAK_BASELINE=1 is the previous behaviour.
+        if ProcessInfo.processInfo.environment["AIRC_WINDOWLEAK_BASELINE"] == "1" { return }
+        #endif
+        delegate = nil
+        DispatchQueue.main.async { [self] in
+            guard !ChromiumRuntime.shuttingDown, (NSApp.delegate as? AppDelegate)?.windowSession.quitting != true else { return }
+            for tab in wrappedTabs.values where !tab.isClosed { tab.dismissDevTools(); tab.core.closeNow() }
+            closeRequested = true
+            core.close()
+        }
+    }
+    /// The page asked "Leave site?" and the person stayed: the window stays open.
+    @objc func windowDidCancelClose(_ window: AircWindow) { closeRequested = false }
     var window: NSWindow { core.window }
     // Dedicated page container: never detach the app's sidebar/root view.
     var hostView: NSView { core.hostView }
@@ -770,6 +801,7 @@ final class ChromiumRuntime: NSObject, AircEngineDelegate {
     init(started: @escaping () -> Void) { self.started = started }
     static func closeWindow(_ window: EngineWindow) -> Bool {
         guard let window = window as? ChromiumWindow else { return true }
+        window.closeRequested = true
         window.core.close()
         return false // The engine closes the NSWindow after cancellable beforeunload.
     }
@@ -830,7 +862,9 @@ final class ChromiumRuntime: NSObject, AircEngineDelegate {
     func engine(_ engine: AircEngine, memoryPressure level: Int) {
         Self.memoryPressureHandler?(level)
     }
-    func engineWillShutDown() { Self.memoryPressureHandler = nil }
+    /// The engine is tearing down (the quit): nothing may start an engine close any more.
+    private(set) static var shuttingDown = false
+    func engineWillShutDown() { Self.memoryPressureHandler = nil; Self.shuttingDown = true }
     /// A page asked "Leave site?" during the quit and the person stayed: the windows stay, and so does their session (WIN-7).
     func engineQuitCancelled() { (NSApp.delegate as? AppDelegate)?.quitCancelled() }
     func engineWindowForNewBrowser(of profile: AircProfile, type: String) -> AircWindow? { nil }

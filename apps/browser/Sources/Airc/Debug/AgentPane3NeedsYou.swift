@@ -323,7 +323,12 @@ extension AgentPane2Check {
                             wait({ self.run.approval != nil }, 20) { [self] in
                                 let order = AgentAttention.items().map(\.id)
                                 check(order.count == 2 && order.first == ext.id, "two wait, the oldest first: the sign-in, then the approval (\(AgentAttention.items().map(\.title)))")
-                                check(NSApp.dockTile.badgeLabel == "2", "… the Dock badge says 2 (\(NSApp.dockTile.badgeLabel ?? "none"))")
+                                // The badge follows the approval one main-queue turn later (AgentAttention's sink receives on
+                                // main), so this wait can see the approval first: wait (≤ 3 s, logged) for it to settle.
+                                let badgeFrom = CACurrentMediaTime()
+                                let badgeBefore = NSApp.dockTile.badgeLabel ?? "none"
+                                wait({ NSApp.dockTile.badgeLabel == "2" }, 3) { [self] in
+                                check(NSApp.dockTile.badgeLabel == "2", "… the Dock badge says 2 (\(NSApp.dockTile.badgeLabel ?? "none"); \(badgeBefore) when the approval came, settled after \(Int((CACurrentMediaTime() - badgeFrom) * 1000)) ms)")
                                 away(.otherApp, home: c.currentSpaceID, other: c.currentSpaceID) { [self] _ in
                                     enter("pill") { [self] how in
                                         landedOnPage(ext, "needs you [the outside app's row, from another app] [\(how)]") { [self] in
@@ -346,6 +351,7 @@ extension AgentPane2Check {
                                             }
                                         }
                                     }
+                                }
                                 }
                             }
                         }
