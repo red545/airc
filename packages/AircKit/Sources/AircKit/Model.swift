@@ -124,7 +124,7 @@ public struct ArchiveInterval: RawRepresentable, Codable, Hashable, Sendable, Ca
     /// the one that ships this turns `moreChoicesByDefault` on; until then `defaults write <bundle id>
     /// AircArchiveMoreChoices -bool YES` (or a test's `moreChoicesOverride`) shows them. Every build since knows and
     /// honours the three values either way: only offering them waits.
-    public static let moreChoicesByDefault = false
+    public static let moreChoicesByDefault = true
     public static let moreChoicesDefaultsKey = "AircArchiveMoreChoices"
     nonisolated(unsafe) public static var moreChoicesOverride: Bool?
     public static var moreChoicesOffered: Bool {

@@ -61,9 +61,10 @@ extension AgentPane2Check {
                     after(0.5) { done() }
                 }
             }
-            // A pane task in window A first (it records A as the task's window).
-            a.window.makeKeyAndOrderFront(nil)
-            k.start("route-a", [.text("Hello from A.")], task: "Say hello")
+            // A pane task in window A first (it records A as the task's window). Window A is made key first and the
+            // task starts in A's own pane: with open -g (posted) A doesn't become key by itself, and k.c is still B.
+            keyA(a, "agentfix route") { [self] in
+            k.start("route-a", [.text("Hello from A.")], task: "Say hello", in: a)
             k.untilIdle(15) { [self] in
                 check(AgentAttention.taskWindow === a, "agentfix route: the pane task in A records A")
                 // ⌘T → Ask in window B.
@@ -85,14 +86,28 @@ extension AgentPane2Check {
                     }
                 }
             }
+            }
+        }
+    }
+
+    /// Window A key before a pane task starts in it: ordered front, and the app activated only if A doesn't become key
+    /// (a background, posted run), then asserted.
+    func keyA(_ a: WindowController, _ label: String, _ then: @escaping () -> Void) {
+        a.window.makeKeyAndOrderFront(nil)
+        after(0.3) { [self] in
+            if !a.window.isKeyWindow { NSApp.activate(ignoringOtherApps: true); a.window.makeKeyAndOrderFront(nil) }
+            wait({ a.window.isKeyWindow }, 6) { [self] in
+                check(a.window.isKeyWindow, "\(label): window A is key before its pane task (active \(NSApp.isActive))")
+                then()
+            }
         }
     }
 
     /// The reply in B's task view (AgentTaskViewModel.ask), after another pane task in A.
     private func taskViewReply(a: WindowController, aSpace: String, b: WindowController, space: String, profile: String,
                                turns: [FakeModelServer.Turn], _ finish: @escaping () -> Void) {
-        a.window.makeKeyAndOrderFront(nil)
-        k.start("route-a2", [.text("Hello again from A.")], task: "Say hello again")
+        keyA(a, "agentfix route [task view]") { [self] in
+        k.start("route-a2", [.text("Hello again from A.")], task: "Say hello again", in: a)
         k.untilIdle(15) { [self] in
             let tab = b.store.state.tabs.values.first { $0.spaceID == space && AgentTasksURL.isPage($0.url) }
             guard let vm = AgentTasksPage.existing(tab?.id)?.task, vm.controller === b else {
@@ -115,6 +130,7 @@ extension AgentPane2Check {
                     }
                 }
             }
+        }
         }
     }
 }

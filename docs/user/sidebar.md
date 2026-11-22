@@ -74,7 +74,7 @@ them. Nothing here ever runs by itself: each is one click, and each can be undon
   - **Pin a site** (to Favorites): the one or two sites with the most Today tabs, so the Favorites grid at the top
     starts working for you. The tab becomes the Favorite; the site's other tabs stay.
   - **Archive after**: the Space's profile's auto-archive time, the same choice as **Settings → Profiles**
-    (12 hours, 24 hours, 7 days, 30 days).
+    (1 hour, 6 hours, 12 hours, 24 hours, 7 days, 30 days or Never).
   - **Not now**: no card again today.
 
   The card shows at most once a day on this Mac: any choice, or Not now, puts it away until tomorrow. Each action
@@ -86,7 +86,9 @@ them. Nothing here ever runs by itself: each is one click, and each can be undon
   A message says how many, with **Undo**; the first time it also says where they went.
 - **Auto-archive** does the same over time: a Today tab you haven't looked at for the profile's archive time (12
   hours unless you change it) goes to the Archive on its own. Tabs in a Pinned folder never do; tabs in a Today folder
-  do, each on its own.
+  do, each on its own. Choose **Never** (Settings → Profiles → Archive Today tabs after, or the card's Archive after)
+  to keep Today tabs until you clear them; **Clear** still works, with Undo. If you sync with a Mac still on Airc 0.1.49 or older, that
+  Mac resets Never to 12 hours on all your Macs: update it first.
 - **Folders and pinned tabs** are for what you keep: drag a tab above the divider (or press ⌘D) to pin it, and use
   **+ → New Folder…** for a folder. **Favorites** are the grid at the top: drag a tab up into it, choose **Add to
   Favorites** in the Command Bar, or use the card's Pin.

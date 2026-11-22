@@ -192,12 +192,14 @@ final class AgentPaneCheck {
     }
 
     /// A fresh task in the pane: the fake's script, the prompt sent from the pane's model (posted).
-    func start(_ name: String, _ turns: [FakeModelServer.Turn], task: String = "Do the fixture task") {
+    /// `window`: the window whose pane runs the task (default `c`, the app's frontmost controller, which is the newest
+    /// window until another one becomes key, so a background (posted) run must name it).
+    func start(_ name: String, _ turns: [FakeModelServer.Turn], task: String = "Do the fixture task", in window: WindowController? = nil) {
         run.newConversation()
         events = []
         fake.begin(name, turns)
         setKeys(anthropic: true)
-        let p = AgentPaneController.show(c)
+        let p = AgentPaneController.show(window ?? c)
         p.model.text = task
         p.model.send()
     }

@@ -1,16 +1,30 @@
-# Airc 0.1.49 public beta
+# Airc 0.1.50 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update lets Airc Agent find pages you saw earlier and tabs you have open, keeps agent task pictures after a
-restart, and fixes ⌘Z after a Clear. It includes everything from 0.1.48. The release manifest records the exact build,
-source and checksums.
+This update makes Airc Agent's requests for your OK safer and opens them in the right window, and fixes a small
+memory leak and a wrong video message. It includes everything from 0.1.49. The release manifest records the exact
+build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.48
+## New since 0.1.49
+
+- **When Airc Agent asks for your OK, a Return you type in a web page can no longer approve it by mistake.** Right
+  after an agent's request appeared, Return pressed in a page's text field could allow the agent's action. Now only
+  a Return or click on the request itself allows it.
+- **"Needs you" from a task you started with Ask now opens the right window and Space.** For a task started from
+  ⌘T's **Ask** or from a task's reply box, the request could open in another window or Space, even another profile's.
+  It now opens where you started the task.
+- **Fixes: a small memory leak when closing windows, and a wrong "couldn't play here" message on some video sites.**
+  Closing a window could leave its Share Quote button running. With FairPlay on in a Chromium tab, Netflix or
+  Disney+ could show "couldn't play here" while you were only browsing.
+- **Airc reads newer auto-archive settings safely.** If a newer Airc on another Mac syncs an auto-archive time this
+  version doesn't offer yet, Airc keeps your setting working instead of failing to read it.
+
+## Included from 0.1.49
 
 - **Ask Airc Agent about something you read earlier or a tab you have open.** In the agent pane (⌥⌘A or ✦), ask
   about a page you saw, such as "the hotel page I looked at yesterday": Airc Agent can now search your history, your
@@ -740,3 +754,5 @@ Source: `9992b5664322a5d6a3b6df4764af7a28f41e66a9`. Build: `202611211626`. Chann
 Source: `11b82ab08ead648d966deb9bff22ee95c8674e19`. Build: `202611212123`. Channel: stable. Engine: official.
 
 Source: `f2c558030a0f89f6f40d16729282c64f31a6a3b7`. Build: `202611220357`. Channel: stable. Engine: official.
+
+Source: `dc14f7a948782772da54b79af31405ac7a65e1e9`. Build: `202611220848`. Channel: stable. Engine: official.

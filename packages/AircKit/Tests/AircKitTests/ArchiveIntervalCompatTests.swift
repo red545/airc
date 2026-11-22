@@ -98,7 +98,7 @@ final class ArchiveIntervalCompatTests: XCTestCase {
 
     func testThePickersOfferTheNewValuesOnlyWithTheFlag() {
         defer { ArchiveInterval.moreChoicesOverride = nil }
-        XCTAssertFalse(ArchiveInterval.moreChoicesByDefault, "on only in the release after the round-trip fix")
+        XCTAssertTrue(ArchiveInterval.moreChoicesByDefault, "on since the release after the round-trip fix")
         ArchiveInterval.moreChoicesOverride = false
         XCTAssertEqual(ArchiveInterval.allCases, [.twelveHours, .twentyFourHours, .sevenDays, .thirtyDays])
         // Set elsewhere (a Mac with the flag on), it shows as set and acts, flag or not.

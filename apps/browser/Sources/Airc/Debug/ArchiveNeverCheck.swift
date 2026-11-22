@@ -6,7 +6,7 @@ import AppKit
 /// `--script archivenever` (both engines; AircKit's ArchiveInterval, docs/user/sidebar.md): auto-archive's Never and
 /// 1 hour, picked with real input (AIRC_REAL_KEYS=1, the stable UI driver, AIRC_UI_DEDICATED_SESSION=1) in the tidy
 /// card's "Archive after" popup on a synthetic Space of 14 Today tabs on made-up example.* sites, with the picker flag
-/// on (`ArchiveInterval.moreChoicesOverride`):
+/// on (by default since 0.1.51, asserted with no override; before, `ArchiveInterval.moreChoicesOverride`):
 ///   1. the popup offers 1 hour, 6 hours, 12 hours, 24 hours, 7 days, 30 days, Never (Settings › Profiles shows the
 ///      same list, `ArchiveInterval.choices`);
 ///   2. a real click opens it and real arrow keys + Return pick Never: the profile's setting is Never, and choosing it
@@ -99,7 +99,15 @@ extension SnapshotRunner {
         }
 
         run { [self] in
-            ArchiveInterval.moreChoicesOverride = true
+            // Un-flagged (0.1.51 on): the pickers must offer the new values by default, with no override.
+            if ArchiveInterval.moreChoicesByDefault {
+                ArchiveInterval.moreChoicesOverride = nil
+                let set = UserDefaults.standard.object(forKey: ArchiveInterval.moreChoicesDefaultsKey)
+                expect(ArchiveInterval.moreChoicesOffered && set == nil,
+                       "[in-app] the new values are offered by default (no override; \(ArchiveInterval.moreChoicesDefaultsKey) \(set.map { "\($0)" } ?? "unset"))")
+            } else {
+                ArchiveInterval.moreChoicesOverride = true
+            }
             TidyHint.dayOverride = "2031-04-01"
             TidyHint.allowedInScripts = true
             c.store.setLocalValue(TidyHint.dayKey, nil)
