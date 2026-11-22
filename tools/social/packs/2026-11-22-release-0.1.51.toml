@@ -1,0 +1,26 @@
+# Airc 0.1.51 (cut fef68cb2; build revision fc3e0391). Claims from its approved notes (one line: Today tabs can stay
+# until you close them). NOT TO POST before "0.1.51 LIVE" in briefs/queue.md: plan and approve only then, after
+# checking the public repo shows the release (owner rule).
+slug = "2026-11-22-release-0.1.51"
+title = "Airc 0.1.51: keep Today tabs"
+kind = "release"
+since = "0.1.51"
+tag = ""
+summary = """
+One short text post: Today's auto-archive can be set to Never (a long-standing Arc wish), or 1 or 6 hours.
+"""
+order = """
+1. One afternoon post on the first free day after LIVE.
+"""
+checked = """
+- 0.1.51's notes: auto-archive can be set to Never, or 1 or 6 hours, in Settings › Profiles (Archive Today tabs after)
+  or the tidy card's Archive after; Clear still works, with Undo.
+- Caveat (release063): a Mac on 0.1.49 or older in the same sync group resets Never to 12 hours. The post doesn't
+  mention sync, so it makes no claim the caveat contradicts.
+"""
+
+[[post]]
+label = "Keep Today tabs"
+text = """
+Rather keep your Today tabs until you close them? Airc 0.1.51 lets you set auto-archive to Never, or to 1 or 6 hours, in Settings › Profiles. Clear still tidies everything, with Undo.
+"""
