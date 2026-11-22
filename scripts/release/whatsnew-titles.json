@@ -616,5 +616,11 @@
     "detail": "Choose Never in Settings › Profiles (Archive Today tabs after) or in the tidy card to keep Today tabs until you close them. 1 hour and 6 hours are new too.",
     "action": "none",
     "image": null
+  },
+  "Fix: closing windows on the Chromium engine no longer leaves their memory behind in some cases": {
+    "title": "Closed windows let go",
+    "detail": "Windows that Airc closed on its own could keep their pages in memory on the Chromium engine until you quit. That memory is now freed when the window closes.",
+    "action": "none",
+    "image": null
   }
 }
