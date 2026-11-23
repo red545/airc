@@ -719,7 +719,10 @@ final class AgentPaneCheck {
     // MARK: Take over, hand back
 
     func caseTakeOver(_ done: @escaping () -> Void) {
-        start("takeover", [.tool("navigate", ["url": "\(base)/article.html"]), .tool("wait", ["duration": 30]), .text("Never reached.")])
+        // The wait turn's stream stays open 1.5 s after its call (the call starts early): Take over always lands while
+        // that turn still streams, in posted and real input alike. A posted press used to hit that window only
+        // sometimes (handback, 2026-11-23); a stop while a finished turn's tool runs is caseStop's "after-stop".
+        start("takeover", [.tool("navigate", ["url": "\(base)/article.html"]), .toolThenHold("wait", ["duration": 30], hold: 1.5), .text("Never reached.")])
         runner.waitUntil({ self.events.contains("tool wait") && self.point("agentpane.takeover") != nil }, timeout: 20) { [self] in
             note("agentpane \(engine): take over: live row \(model?.liveRowID ?? "none"), run window \(run.runWindowID.map(String.init) ?? "none")")
             let tabsBefore = Set(c.store.state.tabs.keys)
@@ -730,13 +733,20 @@ final class AgentPaneCheck {
                     check(newTab != nil && c.shownTabID == newTab?.id, "… the agent's page is this window's tab now, shown")
                     check(!run.state.isActive, "… and the agent is paused")
                     shot("agentpane-takenover")
-                    // The stopped run made two or three model turns, depending on when Stop landed: any of them answers.
-                    fake.begin("handback", Array(repeating: .text("Carrying on from your page."), count: 3), offset: 2)
+                    // Take over cut the wait turn mid-stream: a cut turn is never added to the conversation
+                    // (AgentConversation.addUser), so only navigate's turn is kept. The hand-back's one reply follows
+                    // exactly the turns kept; any further model request after Hand back gets "(fake model: script ended)".
+                    let kept = Self.modelTurns(items: run.conversationItemsForTesting)
+                    note("agentpane \(engine): take over: the stopped run kept \(kept) model turns")
+                    check(kept == 1, "… the turn Take over cut mid-stream isn't kept; navigate's is (\(kept) model turns)")
+                    fake.begin("handback", [.text("Carrying on from your page.")], offset: kept)
                     press("agentpane.handback", "Hand back", fallback: { self.model?.handBack() }) { [self] how in
                         runner.waitUntil({ self.fake.requests(for: "handback") > 0 && !self.run.state.isActive }, timeout: 20) { [self] in
+                            note("agentpane \(engine): hand back: \(fake.requests(for: "handback")) model requests, model turns in each \(fake.bodies("handback").map(Self.modelTurns)); run events \(events.suffix(14).joined(separator: " | "))")
                             check(model?.takenOver == nil, "Hand back clears the banner [\(how) click]")
                             check(fake.bodies("handback").last?.contains("handed it back") == true, "… and the agent goes on, told to read the page again")
                             check(finalText == "Carrying on from your page.", "… to the end (“\(finalText)”)")
+                            check(fake.requests(for: "handback") == 1, "… in one model request, nothing asked twice (\(fake.requests(for: "handback")))")
                             if let t = newTab { _ = try? c.store.closeTab(t.id) }
                             done()
                         }
@@ -744,6 +754,19 @@ final class AgentPaneCheck {
                 }
             }
         }
+    }
+
+    /// The model turns already in a request body (the fake model's turn index): assistant messages, or OpenAI's
+    /// function calls and assistant messages.
+    static func modelTurns(_ body: String) -> Int {
+        guard let o = try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any] else { return -1 }
+        return modelTurns(items: o["messages"] as? [[String: Any]] ?? o["input"] as? [[String: Any]] ?? [])
+    }
+
+    /// The same count for a conversation's items (Anthropic messages have no `type`; OpenAI's assistant messages and
+    /// function calls are the model's).
+    static func modelTurns(items: [[String: Any]]) -> Int {
+        items.filter { $0["role"] as? String == "assistant" || $0["type"] as? String == "function_call" }.count
     }
 
     // MARK: Errors
