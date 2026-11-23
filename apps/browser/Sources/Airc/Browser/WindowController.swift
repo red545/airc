@@ -137,6 +137,10 @@ final class WindowController: NSObject, NSWindowDelegate {
     private(set) var closingTabs: Set<String> = []
     /// SB-36: the tab on screen when a multi-selection holding it was closed or archived; ⌘Z shows it again.
     var bulkClosedShown: String?
+    /// The lone shown Today tab Clear took (WindowActions.clearToday): Undo shows it again.
+    var clearedShownTab: String?
+    /// A Clear whose pages are still closing (archive queue): its toast shows when the queue ends without a question.
+    var pendingClearToast: [String]?
     /// SB-36: a multi-selection's ⌘W or Delete while its pages close (SelectionActions.closePagesThen).
     var bulkClose: BulkClose?
     /// Clear Today / Archive Tabs Below in progress: the tab whose page is deciding ("Leave site?"), the tabs after it,
@@ -1408,6 +1412,7 @@ final class WindowController: NSObject, NSWindowDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
                 guard let self, self.archiveQueue?.current == id, self.pages[id]?.isClosed == false else { return }
                 self.archiveQueue?.shownForDialog = true
+                self.pendingClearToast = nil   // a page asked "Leave site?": ⌘Z only (tidyux)
                 if self.shownTabID != id {
                     if let sid = self.store.tab(id)?.spaceID, sid != self.currentSpaceID { self.switchToSpace(sid, animated: false) }
                     self.show(id, focus: false)
@@ -1454,6 +1459,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         archiveDialogObserver = nil
         guard let q = archiveQueue else { return }
         archiveQueue = nil
+        if id != nil { pendingClearToast = nil }
         // A tab the person stayed on keeps its close request: if they leave the page later after all, it's archived
         // like ⌘W's (finishClosing), never dropped.
         let kept = 1 + q.rest.count
@@ -1471,6 +1477,11 @@ final class WindowController: NSObject, NSWindowDelegate {
         }
         archiveNow([id], reason: q.reason, label: q.label)
         closeThenArchive(q.rest, reason: q.reason, label: q.label, returnTo: q.returnTo, continuing: true)
+        // Clear's toast once every page has closed, unless one asked "Leave site?" (⌘Z only, as before).
+        if archiveQueue == nil, let ids = pendingClearToast {
+            pendingClearToast = nil
+            if !q.shownForDialog { showClearToast(ids) }
+        }
     }
 
     /// ⌘Z: restores what the last close, Clear, delete or archive removed.
@@ -1503,6 +1514,11 @@ final class WindowController: NSObject, NSWindowDelegate {
         } else if label == "Close Tabs" || label == "Archive", let id = bulkClosedShown, restored.contains(id) {
             // SB-36: a selection's close or archive put back: the tab that was on screen shows again.
             bulkClosedShown = nil
+            if let sid = store.tab(id)?.spaceID, sid != currentSpaceID { switchToSpace(sid, animated: true) }
+            show(id)
+        } else if label == "Clear Today", let id = clearedShownTab, restored.contains(id) {
+            // Clear took the lone tab on screen (Arc): back where it was, and on screen again.
+            clearedShownTab = nil
             if let sid = store.tab(id)?.spaceID, sid != currentSpaceID { switchToSpace(sid, animated: true) }
             show(id)
         } else if label == "Delete Space", let sid = store.windowState.selectedSpaceID {

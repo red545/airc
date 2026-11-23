@@ -225,17 +225,41 @@ extension WindowController {
         performDrop(.tab(id), to: .favorites(profileID: store.profile(ofSpace: currentSpaceID).id, index: Int.max / 2))
     }
 
+    /// Arc (arc_behavior_spec §2.6): the tab on screen is the current Space's only Today tab (not a pane of a split on
+    /// screen). Clear then takes it too, and a ↓ before Clear says so (DividerRowView).
+    var clearTakesShownTab: Bool {
+        guard let id = shownTabID, shownSplitID == nil, multiWindow.elsewhereTabID == nil else { return false }
+        let today = store.todayRowTabs(ofSpace: currentSpaceID)
+        return today.count == 1 && today[0].id == id
+    }
+
+    /// The tabs Clear would archive now: the current Space's Today tabs (those in Today folders, closed ones too) but the
+    /// rows' tabs as shown; a split on screen stays whole (SV-1). The lone shown Today tab goes too (Arc,
+    /// `clearTakesShownTab`). Clear's hover preview (tidypolish) highlights these.
+    func clearTargets() -> [String] {
+        if clearTakesShownTab, let id = shownTabID { return [id] }
+        let kept = visibleTabIDs
+        return store.todayRowTabs(ofSpace: currentSpaceID).map(\.id).filter { !kept.contains($0) }
+    }
+
     /// SB-40: every Today tab but the one shown goes to the Archive, each page closing first (closeThenArchive).
     func clearToday() {
         guard archiveQueue == nil else { return }
-        // The rows' tabs as shown; a split on screen stays whole (SV-1).
-        let kept = visibleTabIDs
-        let ids = store.todayRowTabs(ofSpace: currentSpaceID).map(\.id).filter { !kept.contains($0) }
+        let ids = clearTargets()
+        // The lone shown tab: the page goes as when its tab closes (the next tab, else the empty page); Undo shows it again.
+        clearedShownTab = clearTakesShownTab ? shownTabID : nil
         closeThenArchive(ids, reason: .clear, label: "Clear Today")
-        // tidyux: a toast with Undo once the pages closed at once (one asking "Leave site?" keeps ⌘Z only); the first
-        // time also says where they went.
+        // tidyux: a toast with Undo once the pages closed (one asking "Leave site?" keeps ⌘Z only); the first time also
+        // says where they went. A page that closes a moment later (Chromium's shown page, tidypolish) gets it when the
+        // queue ends (WindowController.archiveQueuePageClosed).
+        if archiveQueue != nil { pendingClearToast = ids; return }
+        showClearToast(ids)
+    }
+
+    /// "Archived N tabs" with Undo, for the tabs of `ids` Clear archived.
+    func showClearToast(_ ids: [String]) {
         let n = ids.filter { store.tab($0) == nil }.count
-        guard n > 0, archiveQueue == nil else { return }
+        guard n > 0 else { return }
         let firstKey = "tidyHint.clearExplained"
         let first = store.localValue(firstKey) == nil
         if first { store.setLocalValue(firstKey, "1") }

@@ -37,9 +37,9 @@ holds a split can't go to Today, because a split in Today is a row of its own.
 - Each tab in a folder archives on its own, by how long since you last looked at it, like any Today tab. When the
   folder's last tab goes, the folder goes too. A tab you close with ⌘W goes to the Archive, and its folder goes with it
   if it was the last one; ⌘Z brings back both.
-- **Clear** (and ⇧⌘K) archives every Today tab but the one on screen, those in folders included, open or closed. The
-  folders it leaves empty go, and so do empty folders you made and never filled. The tab on screen keeps its folder.
-  One ⌘Z brings everything back.
+- **Clear** (and ⇧⌘K) archives every Today tab but the one on screen (that one too when it's the only one), those in
+  folders included, open or closed. The folders it leaves empty go, and so do empty folders you made and never filled.
+  The tab on screen keeps its folder. One ⌘Z brings everything back.
 - A tab you reopen from the Library goes back into its folder if the folder is still there, else to the top of Today.
 - An empty folder you made and left empty goes at a later launch, once it's older than the Space's archive time.
 
@@ -83,7 +83,9 @@ them. Nothing here ever runs by itself: each is one click, and each can be undon
   folders by topic. It needs Apple Intelligence: without it, Tidy isn't offered, and the card offers the rest. It shows the folders first, with **Apply** and
   **Cancel**; nothing moves until you apply. See [Tidy Tabs](ai.md#tidy-tabs).
 - **Clear** (in the Today header) moves every Today tab except the one on screen to the Archive (Library → Archive).
-  A message says how many, with **Undo**; the first time it also says where they went.
+  Point at Clear to see what goes: those tabs (and the Today folders it would leave empty) light up. When the tab on
+  screen is the only Today tab, Clear archives it too, and a small ↓ before Clear warns of that, as in Arc. A message
+  says how many, with **Undo**; the first time it also says where they went.
 - **Auto-archive** does the same over time: a Today tab you haven't looked at for the profile's archive time (12
   hours unless you change it) goes to the Archive on its own. Tabs in a Pinned folder never do; tabs in a Today folder
   do, each on its own. Choose **Never** (Settings → Profiles → Archive Today tabs after, or the card's Archive after)
