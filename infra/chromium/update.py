@@ -111,7 +111,9 @@ def main():
         run('git', '-C', str(src), 'checkout', '--detach', f'refs/tags/{args.version}')
         (base / '.gclient').write_text('solutions = ' + repr([{'name': 'src', 'url': URL, 'managed': False,
             'custom_deps': {}, 'custom_vars': {'checkout_pgo_profiles': False}}]) + '\ntarget_os = ["mac"]\n')
-        run('gclient', 'sync', '--no-history', '--nohooks', '--revision', f'src@refs/tags/{args.version}', cwd=base)
+        # src is unmanaged and already detached at the explicitly fetched tag.
+        # --revision makes gclient fetch every branch on this shallow checkout.
+        run('gclient', 'sync', '--no-history', '--nohooks', cwd=base)
         out = HERE / 'reports' / args.version
         out.mkdir(parents=True, exist_ok=True)
         # Snapshot avoids changing the pin or borrowing mutable engine files during checking.

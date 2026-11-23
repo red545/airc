@@ -1,0 +1,18 @@
+[
+  {
+    "version": "156.0.8078.114",
+    "pinned": "156.0.8078.109",
+    "upstream_revision": "ea19f9737303a76e07b53c6a1eec43355aca3b1d",
+    "engine_tree": "ab9b82db884571f59db1332d4ad752269eda6092",
+    "decision": "not-applicable",
+    "reviewed_on": "2026-11-23",
+    "reason": ".114 reviewed: not applicable (Variations seed fetching disabled in shipped Airc; 8078_108 branch lacks four fixes from .109). Retain .109 and newer Dawn.",
+    "note": "docs/rebase-reviews/156.0.8078.114.md",
+    "evidence": [
+      {
+        "url": "https://chromereleases.googleblog.com/2026/11/extended-stable-update-for-desktop_01590513949.html",
+        "content_sha256": "d481d2feef3b3c3ea978c7443fec727e8fa9994045e959f3b7a6845b579f7595"
+      }
+    ]
+  }
+]

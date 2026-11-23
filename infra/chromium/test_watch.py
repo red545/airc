@@ -71,6 +71,82 @@ class WatchTests(unittest.TestCase):
                     self.assertTrue(result['errors'])
                     self.assertEqual(result['urgency'], 'review-required')
 
+    def test_release_exception_is_exact_and_fails_open(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            pin, target = '156.0.1.9', '156.0.1.10'
+            entry = {'url': 'https://example.test/release', 'content_sha256': 'content'}
+            review = {'pinned': pin, 'version': target, 'upstream_revision': 'commit',
+                      'engine_tree': 'tree', 'decision': 'not-applicable',
+                      'reason': 'Feature disabled', 'note': 'docs/review.md', 'evidence': [entry]}
+            (root / 'reviewed-releases.json').write_text(json.dumps([review]))
+            original = {'pinned': pin, 'extended': target,
+                        'extended_releases': [{'version': target, 'hashes': {'chromium': 'commit'}}],
+                        'security': {'entries': [entry], 'errors': [], 'urgency': 'review-required'}}
+            import copy
+            with patch.object(watch, 'HERE', root), patch.object(watch, 'reviewed_engine_tree', return_value='tree'):
+                self.assertEqual(watch.release_review(copy.deepcopy(original), [target]), review)
+                mutations = [
+                    lambda s: s.update(pinned='156.0.1.8'),
+                    lambda s: s.update(extended='156.0.1.11'),
+                    lambda s: s['extended_releases'][0]['hashes'].update(chromium='moved-tag'),
+                    lambda s: s['extended_releases'][0].pop('hashes'),
+                    lambda s: s['security']['entries'][0].update(content_sha256='new-CVEs'),
+                    lambda s: s['security']['entries'][0].update(url='https://example.test/other'),
+                    lambda s: s['security']['entries'].append({'url': 'extra', 'content_sha256': 'new'}),
+                    lambda s: s['security']['entries'].clear(),
+                    lambda s: s['security']['errors'].append('offline'),
+                    lambda s: s['security'].update(urgency='urgent'),
+                ]
+                for mutate in mutations:
+                    state = copy.deepcopy(original)
+                    mutate(state)
+                    self.assertIsNone(watch.release_review(state, [target]))
+                self.assertIsNone(watch.release_review(original, [target, '156.0.1.11']))
+                with patch.object(watch, 'reviewed_engine_tree', return_value='changed-engine'):
+                    self.assertIsNone(watch.release_review(original, [target]))
+                with patch.object(watch, 'reviewed_engine_tree', side_effect=OSError('dirty engine')):
+                    state = copy.deepcopy(original)
+                    self.assertIsNone(watch.release_review(state, [target]))
+                    self.assertTrue(state['security']['errors'])
+                for malformed in ('{', '{}', '[null]'):
+                    (root / 'reviewed-releases.json').write_text(malformed)
+                    state = copy.deepcopy(original)
+                    self.assertIsNone(watch.release_review(state, [target]))
+                    self.assertTrue(state['security']['errors'])
+
+    def test_reviewed_release_removes_brief_but_next_tag_reopens_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            pin, latest = '156.0.1.9', '156.0.1.10'
+            (root / 'CHROMIUM_VERSION').write_text(pin)
+            url = 'https://example.test/release'
+            def fetch(url_requested):
+                if 'fetch_releases' in url_requested:
+                    return [{'version': latest, 'hashes': {'chromium': 'commit'}}]
+                return {'feed': {'entry': [{'content': {'$t': latest}, 'title': {'$t': 'Release'},
+                                            'link': [{'rel': 'alternate', 'href': url}]}]}}
+            review = {'pinned': pin, 'version': latest, 'upstream_revision': 'commit',
+                      'engine_tree': 'tree', 'decision': 'not-applicable',
+                      'reason': 'Feature disabled', 'note': 'docs/review.md',
+                      'evidence': [{'url': url, 'content_sha256': hashlib.sha256(latest.encode()).hexdigest()}]}
+            with patch.object(watch, 'HERE', root), patch.object(watch, 'ROOT', root), \
+                    patch.object(watch, 'fetch', fetch), patch.object(watch, 'reviewed_engine_tree', return_value='tree'):
+                self.assertEqual(watch.main(), 0)
+                self.assertTrue((root / 'pending-update.md').exists())
+                (root / 'reviewed-releases.json').write_text(json.dumps([review]))
+                self.assertEqual(watch.main(), 0)
+                state = json.loads((root / 'state.json').read_text())
+                self.assertEqual(state['gap'], 'reviewed-not-applicable')
+                self.assertEqual(state['version_gap'], 'security-respin')
+                self.assertEqual(state['pinned'], pin)
+                self.assertFalse(state['update_required'])
+                self.assertFalse((root / 'pending-update.md').exists())
+                latest = '156.0.1.11'
+                self.assertEqual(watch.main(), 0)
+                self.assertIn(latest, (root / 'pending-update.md').read_text())
+                self.assertTrue(json.loads((root / 'state.json').read_text())['update_required'])
+
     def test_numeric_gap(self):
         self.assertEqual(watch.classify('156.0.1.9', '156.0.1.10'), 'security-respin')
         self.assertEqual(watch.classify('156.0.1.9', '158.0.1.1'), 'new-major')

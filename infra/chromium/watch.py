@@ -7,6 +7,7 @@ import hashlib
 import html
 import json
 import re
+import subprocess
 import sys
 import urllib.parse
 import urllib.request
@@ -89,6 +90,50 @@ def security(versions, pinned=None):
             'coverage': 'Blog search covers only releases returned by the feed; missing CVEs do not mean no security fixes.'}
 
 
+def reviewed_engine_tree():
+    """Bind an applicability decision to clean, committed engine sources."""
+    subprocess.run(['git', '-C', str(ROOT), 'diff', '--quiet', 'HEAD', '--', 'engine'],
+                   check=True, capture_output=True)
+    return subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD:engine'],
+                                   text=True).strip()
+
+
+def release_review(state, needed):
+    """Only an exact, evidence-bound latest-release exception can stop dispatch."""
+    review_file = HERE / 'reviewed-releases.json'
+    if not review_file.exists() or not needed:
+        return None
+    try:
+        reviews = json.loads(review_file.read_text())
+        if not isinstance(reviews, list) or not all(isinstance(r, dict) for r in reviews):
+            raise ValueError('expected a list of release review records')
+        security = state['security']
+        # Failed/changed evidence must reopen review, never hide a security alert.
+        if security['errors'] or security['urgency'] == 'urgent' or not security['entries']:
+            return None
+        evidence = sorted((e['url'], e['content_sha256']) for e in security['entries'])
+        for review in reviews:
+            if (review.get('decision') != 'not-applicable' or
+                    review.get('pinned') != state['pinned'] or
+                    review.get('version') != state['extended'] or
+                    needed != [review.get('version')]):
+                continue
+            revisions = {r.get('hashes', {}).get('chromium') for r in state['extended_releases']
+                         if r['version'] == review['version']}
+            if revisions != {review.get('upstream_revision')} or not review.get('upstream_revision'):
+                continue
+            if sorted((e['url'], e['content_sha256']) for e in review['evidence']) != evidence:
+                continue
+            if review['engine_tree'] != reviewed_engine_tree():
+                continue
+            if not review.get('reason') or not review.get('note'):
+                raise ValueError('release review needs a reason and evidence note')
+            return review
+    except Exception as error:
+        state['security']['errors'].append(f'reviewed-releases.json: {error}')
+    return None
+
+
 def brief(state):
     s = state['security']
     refs = '\n'.join(f"- {e['title']}: {e['url']}\n  CVEs: {', '.join(e['cves']) or 'not listed'}; active exploitation: {e['urgent']}" for e in s['entries'])
@@ -132,13 +177,20 @@ def main():
                 state['stable_error'] = str(error)
             needed = [v for v in versions if version(v) > version(state['pinned'])]
             state['security'] = security(needed or versions[:1], state['pinned'])
-            if needed:
+            review = release_review(state, needed)
+            state['update_required'] = bool(needed) and review is None
+            if review:
+                state['version_gap'] = state['gap']
+                state['gap'] = 'reviewed-not-applicable'
+                state['release_review'] = review
+                state['security']['urgency'] = 'reviewed-not-applicable'
+            if state['update_required']:
                 atomic(HERE / 'pending-update.md', brief(state))
             else:
                 (HERE / 'pending-update.md').unlink(missing_ok=True)
             state['ok'] = True
         except Exception as error:
-            state.update(ok=False, error=str(error))
+            state.update(ok=False, error=str(error), update_required=None)
             # An old brief is not dispatchable after a failed freshness check.
             (HERE / 'pending-update.md').unlink(missing_ok=True)
         atomic(HERE / 'state.json', json.dumps(state, indent=2) + '\n')
