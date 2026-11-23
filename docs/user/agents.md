@@ -236,6 +236,19 @@ right there. Your sign-in is the profile's, so the agent can go on in its own wi
 the page waits for you, so it doesn't type passwords or keep trying. Airc only checks for a visible password field, a
 captcha frame, the page's address and its status: never what the page says.
 
+### Passkeys and other prompts from an agent's page
+
+When an agent's page asks for a passkey, Airc asks you first, where you're looking: "Claude wants to use your passkey
+for example.com", with the site's address and **Allow** / **Not now**. If you're watching that page, the question
+shows in Watch, over the page; otherwise the row says **Needs you · Passkey**, Airc shows a short notice in your window
+(and a notification when Airc isn't in front), and clicking it opens Watch with the question. **Not now** keeps it in
+Needs you, so you can answer later, until the agent gives up (the page stops asking, or the agent closes it).
+**Allow** lets the page go on to the passkey itself, which you then confirm with Touch ID or your Mac's password, as
+always: Airc never answers it for you, and no agent can answer it (its clicks and keys only reach its page). After
+**Take over** the question stays with the page in your window. Any other window the browser opens for an agent's page
+(a passkey sheet, a permission question) shows over Watch too, never on another desktop: until you open Watch, the
+row says **Needs you · Prompt**.
+
 ### One click to where you answer
 
 Whatever an agent waits for, an approval ("Pay on …?") or a page that needs you, one click takes you there: the
@@ -304,8 +317,9 @@ page's address) and what kinds of things, such as "Clicked 4×, Typed in a field
 said, what was typed or a button's name. It's kept on this Mac in `AgentActivity.json` (readable only by you), for 7
 days; **Clear History** empties it.
 
-Watching costs nothing while nobody watches. While you watch, Airc copies the page's picture as the engine draws it, up
-to 30 times a second, and only while the window is on screen.
+Watching costs nothing while nobody watches. While you watch, Chromium pages show the engine's own output, with no
+copies; WebKit pages are copies of the page's picture, up to 15 times a second, and only while the window is on screen.
+Watch shows the page as soon as it has one ("Waiting for …" only shows before that).
 
 ## Stop and off
 

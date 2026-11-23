@@ -43,6 +43,7 @@ final class AgentWatchView: NSView {
     private var token: UUID?
     /// The Airc Agent's approval card, mirrored from the panel while this row is its run's (AgentRunCenter.approval).
     private var approvalSub: AnyCancellable?
+    private var promptSub: NSObjectProtocol?
     private var running = false
     private var inFlight = false
     private var pageSize = CGSize(width: 1280, height: 800)
@@ -131,6 +132,12 @@ final class AgentWatchView: NSView {
         if takeKeys { c.window.makeFirstResponder(self) }
         running = true
         startedAt = Date()
+        followActivity()
+        promptSub = NotificationCenter.default.addObserver(forName: AgentPrompts.changed, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.syncPrompt() }
+        }
+        syncPrompt()
+        AgentPrompts.shared.watchChanged()
         if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { layer?.fade(from: 0, to: 1, duration: AircCurve.previewIn.duration) }
         requestFrame()
         NSAccessibility.post(element: self, notification: .layoutChanged)
@@ -140,6 +147,13 @@ final class AgentWatchView: NSView {
         running = false
         approvalSub = nil
         removeLive()
+        hold(nil, nil)
+        endCommitWatch()
+        if let o = activityObserver { NotificationCenter.default.removeObserver(o) }
+        activityObserver = nil
+        if let o = promptSub { NotificationCenter.default.removeObserver(o) }
+        promptSub = nil
+        AgentPrompts.shared.watchChanged()
         if let token { AgentActivity.shared.unwatch(rowID, token) }
         token = nil
         if let w = window, w.firstResponder === self {
@@ -155,8 +169,14 @@ final class AgentWatchView: NSView {
         overlay.live = row.isLive
         switch state {
         case .acting(let c): overlay.acting = true; overlay.caption = overlay.approval != nil ? "Waiting for your OK" : (c ?? "Working…")
+        case .needsYou(let why) where why == AgentPrompts.reason:
+            overlay.acting = false
+            overlay.caption = overlay.prompt != nil ? "Waiting for your answer" : "Needs you · \(row.client) asked for your passkey"
         case .needsYou(let why): overlay.acting = false; overlay.caption = "Needs you · \(why). Take over to do it here; \(row.client) can go on after"
-        case .idle: overlay.acting = false; overlay.caption = overlay.approval != nil ? "Waiting for your OK" : "Waiting for \(row.client)"
+        case .idle:
+            overlay.acting = false
+            // "Waiting for …" only while there's nothing to show yet; with the page in view it's between two steps.
+            overlay.caption = overlay.approval != nil ? "Waiting for your OK" : hasFrame || Self.legacy && framesShown > 0 ? "\(row.client) is between steps" : "Waiting for \(row.client)"
         case .justEnded(let end), .faded(let end, _):
             overlay.acting = false
             switch end {
@@ -172,41 +192,89 @@ final class AgentWatchView: NSView {
 
     // MARK: Frames
 
+    /// The page the live layer comes from, opted in to keep a hidden view's last frame while watched (engine patch 042,
+    /// as the agent card does): a navigation to a new view never empties the context Watch shows before the new one
+    /// exists. Weak: Watch never keeps a closed page alive.
+    private var heldTab: (tab: () -> EngineTab?, id: ObjectIdentifier, driver: AgentPageDriver)?
+    /// The tab Watch last asked the driver to keep drawing (watchfix).
+    private var keptLive: ObjectIdentifier?
+    private var liveMissSince: CFTimeInterval?
+    /// A context the window server showed as empty: copies until the engine gives the page another one.
+    private var blankContext: UInt32?
+    private var blankSeen = 0
+    private var nextProbe: CFTimeInterval = 0
+    private var probesSinceInstall = 0
+    private var snapshotMisses = 0
+    private var commitObserver: CFRunLoopObserver?
+    private var activityObserver: NSObjectProtocol?
+    private var fastUntil: CFTimeInterval = 0
+    /// What checks and the report read: live installs, swaps found before Core Animation's commit, empty contexts left
+    /// for copies, copies that came from the agent's screenshot path.
+    private(set) var liveInstalls = 0
+    private(set) var swapsByCommit = 0
+    private(set) var blankFallbacks = 0
+    private(set) var screenshotCopies = 0
+    /// A picture of the page is on screen (a copy, or a live context the window server drew).
+    private(set) var hasFrame = false
+    #if AIRC_TESTING
+    /// agentwatch2's before arm: Watch as 0.1.54 had it (no keeping, no hold, no probe, no screenshot copies).
+    static var legacy = ProcessInfo.processInfo.environment["AIRC_WATCH_LEGACY"] == "1"
+    #else
+    static let legacy = false
+    #endif
+
+    private func again(_ after: Double) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + after) { [weak self] in self?.requestFrame() }
+    }
+
     private func requestFrame() {
         guard running else { return }
         let interval = 1 / max(1, Self.fps)
         guard let row = AgentActivity.shared.model.row(rowID), row.isLive,
-              let w = AgentCenter.shared.windows[row.window], let tab = w.tab(row.tab) else {
-            return DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.requestFrame() }
+              let w = AgentCenter.shared.windows[row.window], let tab = w.tab(row.tab) else { return again(0.5) }
+        if !Self.legacy, w.keepsVisible, keptLive != ObjectIdentifier(tab) {
+            keptLive = ObjectIdentifier(tab)
+            w.driver.keepLive(tab)
         }
         // Live where the engine can host its own output and the tab is the one its window shows: nothing to copy, only a
-        // look once a second that the context is still the one shown.
+        // look 10 times a second that the context is still the one shown (and a few looks at what the window server drew).
         if Self.allowsLive, !Self.ignoresOcclusion, w.activeTabID == row.tab {
-            // agentux3: checked as the host is made (the tab's own first), 10 times a second, and swapped in one commit.
+            // agentux3: checked as the host is made (the tab's own first), and swapped in one commit.
             let current = w.driver.liveContextID(tab, in: w.window)
-            if let live, live.id == current {
+            let check = CACurrentMediaTime() < fastUntil ? 1.0 / 120 : AgentPaneLiveView.liveCheckInterval
+            if let current, current == blankContext, !Self.legacy {
+                if live != nil { removeLive() }
+            } else if let live, live.id == current {
                 liveChecks += 1
-                return DispatchQueue.main.asyncAfter(deadline: .now() + AgentPaneLiveView.liveCheckInterval) { [weak self] in self?.requestFrame() }
-            }
-            if current != nil, let made = w.driver.liveLayer(tab, in: w.window) {
+                liveMissSince = nil
+                if !Self.legacy { probeLive() }
+                return again(check)
+            } else if current != nil, let made = w.driver.liveLayer(tab, in: w.window) {
+                liveMissSince = nil
                 installLive(made)
-                return DispatchQueue.main.asyncAfter(deadline: .now() + AgentPaneLiveView.liveCheckInterval) { [weak self] in self?.requestFrame() }
+                if !Self.legacy { hold(tab, w.driver) }
+                return again(check)
+            } else if live != nil, !Self.legacy {
+                // Between two contexts: the last picture stays for a moment (cardflicker's rule), then copies.
+                let now = CACurrentMediaTime()
+                if liveMissSince == nil { liveMissSince = now }
+                if now - (liveMissSince ?? now) < 1.5 { return again(AgentPaneLiveView.liveCheckInterval) }
+                removeLive()
+            } else {
+                removeLive()
             }
-            removeLive()
         } else if live != nil {
             removeLive()
         }
         // Nothing to draw for: a hidden, minimized or covered window.
-        guard let win = window, Self.ignoresOcclusion || win.occlusionState.contains(.visible), !isHiddenOrHasHiddenAncestor else {
-            return DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.requestFrame() }
-        }
+        guard let win = window, Self.ignoresOcclusion || win.occlusionState.contains(.visible), !isHiddenOrHasHiddenAncestor else { return again(0.5) }
         guard !inFlight else { return }
         inFlight = true
         let started = CACurrentMediaTime()
         let scale = win.backingScaleFactor * Self.pixelScale
         let rect = imageRect()
         let maxPixels = CGSize(width: max(64, rect.width * scale), height: max(64, rect.height * scale))
-        w.driver.watchFrame(tab, maxPixels: maxPixels) { [weak self] picture in
+        let shown: (CGImage?) -> Void = { [weak self] picture in
             guard let self else { return }
             self.inFlight = false
             let ms = (CACurrentMediaTime() - started) * 1000
@@ -218,10 +286,32 @@ final class AgentWatchView: NSView {
                 CATransaction.commit()
                 self.lastFrame = picture
                 self.framesShown += 1
+                self.gotFrame()
             }
-            let wait = max(0, interval - (CACurrentMediaTime() - started))
-            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in self?.requestFrame() }
+            // The agent's screenshot path is slower and goes through the page's DevTools session: a few a second.
+            let wait = max(0, (self.snapshotMisses >= 2 ? max(interval, 0.25) : interval) - (CACurrentMediaTime() - started))
+            self.again(wait)
         }
+        w.driver.watchFrame(tab, maxPixels: maxPixels) { [weak self] picture in
+            guard let self else { return }
+            if picture != nil || Self.legacy { self.snapshotMisses = 0; return shown(picture) }
+            // No surface to copy (a page the engine hides or hasn't drawn since its window went off screen): the picture
+            // the agent's own screenshot gets, which the engine draws on request (watchfix).
+            self.snapshotMisses += 1
+            guard self.snapshotMisses >= 2 else { return shown(nil) }
+            w.driver.capture(tab) { result in
+                if case .success = result { self.screenshotCopies += 1 }
+                if case .success(let image) = result { shown(image) } else { shown(nil) }
+            }
+        }
+    }
+
+    /// A picture is on screen: "Waiting for …" goes (it's only for when there is nothing to show yet).
+    private func gotFrame() {
+        guard !hasFrame else { return }
+        hasFrame = true
+        if let row = AgentActivity.shared.model.row(rowID) { update(row: row, state: AgentActivity.shared.model.state(row, now: Date())) }
+        AgentCenter.shared.onEvent?("watch-frame \(rowID) \(mode)")
     }
 
     private func installLive(_ made: (layer: CALayer, id: UInt32, flipped: Bool)) {
@@ -238,9 +328,17 @@ final class AgentWatchView: NSView {
         old.forEach { $0.removeFromSuperlayer() }
         if liveBox.contentsAreFlipped() != made.flipped { liveBox.isGeometryFlipped.toggle() }
         liveBox.isHidden = false
+        // The copy goes: the window server's picture must show what the context itself draws (probeLive).
         image.isHidden = true
         CATransaction.commit()
         needsLayout = true
+        liveInstalls += 1
+        // A new context can mean a new DevTools target for the page: keep it drawing (idempotent).
+        if !Self.legacy, liveInstalls > 1, let row = AgentActivity.shared.model.row(rowID), let w = AgentCenter.shared.windows[row.window],
+           w.keepsVisible, let tab = w.tab(row.tab) { w.driver.keepLive(tab) }
+        probesSinceInstall = 0
+        blankSeen = 0
+        nextProbe = CACurrentMediaTime() + 0.25
         AgentCenter.shared.onEvent?("watch-live \(rowID) ctx \(made.id)")
     }
 
@@ -254,6 +352,112 @@ final class AgentWatchView: NSView {
         liveBox.isHidden = true
         image.isHidden = false
         CATransaction.commit()
+        hold(nil, nil)
+    }
+
+    /// Only the page Watch shows live keeps hidden frames; any other (or none) is back to the engine's default.
+    private func hold(_ tab: EngineTab?, _ driver: AgentPageDriver?) {
+        let id = tab.map { ObjectIdentifier($0 as AnyObject) }
+        if let held = heldTab, held.id != id {
+            if let old = held.tab() { held.driver.holdFramesOnHide(old, false) }
+            heldTab = nil
+        }
+        if let tab, let id, let driver, heldTab == nil {
+            driver.holdFramesOnHide(tab, true)
+            weak var page = tab as AnyObject
+            heldTab = ({ page as? EngineTab }, id, driver)
+        }
+    }
+
+    /// The hosted context can't be read in the app (render(in:) draws nothing for it): the window server's picture of our
+    /// own window can (no Screen Recording needed). A few looks after each install, then every 5 s: a context that shows
+    /// nothing at all (exactly Watch's own background across the page's place, twice) is left for copies until the
+    /// engine makes another (the owner's blank Watch, 0.1.54).
+    private func probeLive() {
+        let now = CACurrentMediaTime()
+        guard now >= nextProbe, let live, let win = window, win.occlusionState.contains(.visible) else { return }
+        probesSinceInstall += 1
+        nextProbe = now + (probesSinceInstall < 4 ? 0.3 : 5)
+        guard let verdict = Self.liveVerdict(self) else { return }
+        if verdict {
+            blankSeen = 0
+            gotFrame()
+            return
+        }
+        blankSeen += 1
+        guard blankSeen >= 2 else { return }
+        blankContext = live.id
+        blankFallbacks += 1
+        if let row = AgentActivity.shared.model.row(rowID), let w = AgentCenter.shared.windows[row.window], w.keepsVisible, let tab = w.tab(row.tab) {
+            w.driver.keepLive(tab)
+        }
+        AgentCenter.shared.onEvent?("watch-live-blank \(rowID) ctx \(live.id)")
+        removeLive()
+    }
+
+    /// True: the window server shows something of the page in the live box; false: only Watch's background; nil: no
+    /// picture (no window number, capture off).
+    static func liveVerdict(_ v: AgentWatchView) -> Bool? {
+        let r = v.imageRect()
+        guard r.width > 20, r.height > 20, let px = v.windowPixels([CGPoint(x: r.minX - AgentWatchView.inset / 2, y: r.midY)]
+              + [0.2, 0.5, 0.8].flatMap { fx in [0.2, 0.5, 0.8].map { fy in CGPoint(x: r.minX + r.width * fx, y: r.minY + r.height * fy) } }),
+              px.count == 10 else { return nil }
+        let bg = px[0]
+        return px.dropFirst().contains { abs($0.r - bg.r) > 3 || abs($0.g - bg.g) > 3 || abs($0.b - bg.b) > 3 }
+    }
+
+    /// Pixels of our own window at points of this view, from the window server (what the person sees here).
+    func windowPixels(_ points: [CGPoint]) -> [(r: Int, g: Int, b: Int)]? {
+        guard ProcessInfo.processInfo.environment["AIRC_DISABLE_LEGACY_WINDOW_CAPTURE"] != "1", let w = window, w.windowNumber > 0,
+              let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage"),
+              let main = NSScreen.screens.first else { return nil }
+        typealias Fn = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+        // Only the part of the window Watch covers (in global display points, top-left origin).
+        let inWindow = convert(bounds, to: nil)
+        let onScreen = w.convertToScreen(inWindow)
+        let area = CGRect(x: onScreen.minX, y: main.frame.maxY - onScreen.maxY, width: onScreen.width, height: onScreen.height)
+        guard let img = unsafeBitCast(sym, to: Fn.self)(area, 1 << 3, UInt32(w.windowNumber), 1 << 0)?.takeRetainedValue(),
+              img.width > 8 else { return nil }
+        let s = CGFloat(img.width) / max(1, bounds.width)
+        return points.compactMap { p in AgentImages.pixel(img, x: Int(p.x * s), y: Int(p.y * s)) }
+    }
+
+    /// After an agent action Chromium may replace its host (a new context) and drop the old one in the same turn: for
+    /// 2.5 s a run-loop observer looks just before Core Animation commits, so the swap goes out in Chromium's commit.
+    private func followActivity() {
+        activityObserver = NotificationCenter.default.addObserver(forName: AgentActivity.changed, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.running, self.live != nil, !Self.legacy else { return }
+                self.fastUntil = CACurrentMediaTime() + 2.5
+                self.armCommitWatch()
+            }
+        }
+    }
+
+    private func armCommitWatch() {
+        guard commitObserver == nil else { return }
+        let o = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, 1_999_000) { [weak self] _, _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if CACurrentMediaTime() > self.fastUntil || !self.running {
+                    self.endCommitWatch()
+                    return
+                }
+                guard let live = self.live, let row = AgentActivity.shared.model.row(self.rowID), let w = AgentCenter.shared.windows[row.window],
+                      w.activeTabID == row.tab, let tab = w.tab(row.tab), let current = w.driver.liveContextID(tab, in: w.window),
+                      current != live.id, current != self.blankContext, let made = w.driver.liveLayer(tab, in: w.window) else { return }
+                self.swapsByCommit += 1
+                self.installLive(made)
+                self.hold(tab, w.driver)
+            }
+        }
+        commitObserver = o
+        CFRunLoopAddObserver(CFRunLoopGetMain(), o, .commonModes)
+    }
+
+    private func endCommitWatch() {
+        if let o = commitObserver { CFRunLoopRemoveObserver(CFRunLoopGetMain(), o, .commonModes) }
+        commitObserver = nil
     }
 
     // MARK: Layout
@@ -410,6 +614,7 @@ final class AgentWatchView: NSView {
     /// Esc declines a waiting approval (as in the panel), else closes Watch.
     private func escape() {
         if overlay.approval != nil { return answerApproval(allow: false) }
+        if let p = overlay.prompt { return AgentPrompts.shared.dismiss(p.id) }
         controller?.sidebar.agents.closeWatch()
     }
 
@@ -429,6 +634,27 @@ final class AgentWatchView: NSView {
     }
 
     func answerApproval(allow: Bool) { AgentRunCenter.shared.answerApproval(allow: allow) }
+
+    // MARK: The agent's page asks for the person (watchfix: a passkey request, attributed)
+
+    /// The request of the page Watch shows, unless the person put it off ("Not now": it waits in Needs you).
+    func syncPrompt() {
+        guard let row = AgentActivity.shared.model.row(rowID) else { return }
+        let p = AgentPrompts.shared.prompts.first { $0.rowID == rowID && !$0.dismissed }
+        guard overlay.prompt != p else { return }
+        overlay.prompt = p
+        update(row: row, state: AgentActivity.shared.model.state(row, now: Date()))
+        if p != nil {
+            NSAccessibility.post(element: self, notification: .layoutChanged)
+            AgentCenter.shared.onEvent?("watch-prompt \(rowID) \(p!.id)")
+        }
+    }
+
+    var promptShown: AgentPrompts.Prompt? { overlay.prompt }
+    func answerPrompt(allow: Bool) {
+        guard let p = overlay.prompt else { return }
+        if allow { AgentPrompts.shared.allow(p.id) } else { AgentPrompts.shared.dismiss(p.id) }
+    }
     var approvalShown: Bool { overlay.approval != nil }
 
     // MARK: The bar's actions
@@ -457,6 +683,7 @@ final class AgentWatchModel: ObservableObject {
     @Published var icon: NSImage?
     @Published var theme = DesignTheme.default.resolved(systemIsDark: false)
     @Published var approval: AgentApprovalRequest?
+    @Published var prompt: AgentPrompts.Prompt?
     weak var view: AgentWatchView?
 }
 
@@ -469,6 +696,11 @@ struct AgentWatchOverlay: View {
         VStack(spacing: 0) {
             bar
             Spacer(minLength: 0)
+            if let p = model.prompt {
+                AgentPromptCard(prompt: p, theme: theme, answer: { model.view?.answerPrompt(allow: $0) }, takeOver: { model.view?.takeOver() })
+                    .padding(.bottom, 10)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
             if let a = model.approval {
                 AgentWatchApprovalCard(request: a, theme: theme, answer: { model.view?.answerApproval(allow: $0) })
                     .padding(.bottom, 10)

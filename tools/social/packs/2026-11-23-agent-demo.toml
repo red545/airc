@@ -1,0 +1,29 @@
+# The re-recorded Airc Agent demo (aidemo2, 2026-11-23, on 0.1.55's UI): ✦ in the toolbar, the ChatGPT-first Connect
+# card, Steepwell (a made-up coffee-gear shop with rendered product photos). Replaces the old cut for any new post
+# (owner: nothing outdated; the 23 Nov onboarding post stays as it is). Video registered in
+# artifacts/social/2026-11-23-agent-demo/pack.json.
+slug = "2026-11-23-agent-demo"
+title = "Airc Agent: the new demo (video)"
+kind = "release"
+since = "0.1.47"
+tag = ""
+summary = """
+One post with aidemo2's X cut: ✦ in the toolbar, use your ChatGPT subscription, say what you need, watch it work, it
+asks before it pays.
+"""
+order = """
+1. 10:30 UTC on 25 Nov (the DevTools post moved to 7 Dec 10:30 to make room).
+"""
+checked = """
+- Every frame checked (2026-11-23): ✦ clicked in the toolbar next to Back and Forward (0.1.47+); Connect card leads with
+  "Use your ChatGPT subscription" (0.1.43+); sidebar only made-up sites; the answer names a demo card (4242) and order.
+- Scripted (fake Codex CLI following fixed steps): the alt says so, and the post doesn't claim a model did it.
+- ⌥⌘A and "asks before it pays or sends" from 0.1.47's notes and hint. Still a beta.
+"""
+
+[[post]]
+label = "Airc Agent demo (video)"
+media = ["agentdemo-video:16x9"]
+text = """
+Click ✦ in Airc's toolbar, use your ChatGPT subscription (or your own Claude Code), and say what you need. It works in the page while you watch, and asks before it pays or sends anything. Beta, in Airc today.
+"""

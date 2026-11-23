@@ -16,8 +16,10 @@ import UserNotifications
 enum AgentAttention {
     enum Kind: Equatable {
         case approval
-        /// "Sign in" or "Captcha".
+        /// "Sign in", "Captcha" or "Prompt" (an engine window that waits on the agent's page).
         case page(String)
+        /// An agent page's passkey request (AgentPrompts), by its id.
+        case prompt(String)
     }
 
     struct Item: Equatable {
@@ -96,10 +98,16 @@ enum AgentAttention {
                             rowID: paneRowID, client: "Airc Agent", profileID: run.profileID, title: a.title))
         }
         for r in AgentActivity.shared.model.rows where r.isLive && r.shown {
-            guard let why = r.needsYou else { continue }
+            guard let why = r.needsYou, why != AgentPrompts.reason else { continue }
             let site = AgentRedaction.siteName(title: r.title, url: r.url)
             out.append(Item(id: "page-" + r.id, kind: .page(why), since: pageSince[r.id] ?? r.started, rowID: r.id, client: r.client,
-                            profileID: r.profileID, title: why == "Captcha" ? "Captcha on \(site)" : "Sign in to \(site)"))
+                            profileID: r.profileID, title: why == "Captcha" ? "Captcha on \(site)" : why == "Prompt" ? "\(site) asks for you" : "Sign in to \(site)"))
+        }
+        // watchfix: a passkey request, on its row while the agent has the page, then on the page the person took over.
+        for p in AgentPrompts.shared.prompts {
+            let live = AgentActivity.shared.model.row(p.rowID)?.isLive == true
+            out.append(Item(id: "prompt-" + p.id, kind: .prompt(p.id), since: p.since, rowID: live ? p.rowID : nil, client: p.client,
+                            profileID: p.profileID, title: p.title))
         }
         return out.sorted { $0.since < $1.since }
     }
@@ -187,6 +195,9 @@ enum AgentAttention {
         switch it.kind {
         case .approval: return AgentPaneController.pane(of: c)?.isShown == true && AgentPaneController.pane(of: c)?.model.approvalFocused == true
         case .page: return c.sidebar.agents.watch?.rowID == it.rowID
+        case .prompt(let id):
+            if let row = it.rowID { return c.sidebar.agents.watch?.rowID == row && c.sidebar.agents.watch?.promptShown?.id == id }
+            return AgentPrompts.shared.pageOverlay(in: c)?.prompt.id == id
         }
     }
 
@@ -215,6 +226,17 @@ enum AgentAttention {
                 guard let wv = c.sidebar.agents.watch, wv.rowID == row else { return }
                 if !wv.isLanded || c.window.firstResponder !== wv { wv.land() }
             }
+        case .prompt(let id):
+            // The prompt in front again (it may have been put off), over the agent's page in Watch, or over the page the
+            // person took over. No button takes Return: allowing is always a deliberate click.
+            AgentPrompts.shared.reopen(id)
+            if let row = it.rowID {
+                if AgentActivity.shared.model.row(row)?.window == AgentRunCenter.shared.runWindowID, AgentUI.usesPane { AgentPaneController.show(c) }
+                c.sidebar.agents.openWatch(row)
+                c.sidebar.agents.watch?.syncPrompt()
+            } else if let tab = AgentPrompts.shared.page(id), let (_, tabID) = AgentPrompts.controller(holding: tab) {
+                c.show(tabID)
+            }
         }
         lastLanding = (from, it, c)
         AgentCenter.shared.onEvent?("attention \(from) \(it.id)")
@@ -228,6 +250,7 @@ enum AgentAttention {
     /// (switched to it); never a window of another profile. Without a profile: the key window.
     static func window(for it: Item) -> WindowController? {
         let all = AgentCenter.shared.app?.controllers ?? []
+        if case .prompt(let id) = it.kind, it.rowID == nil, let tab = AgentPrompts.shared.page(id), let (c, _) = AgentPrompts.controller(holding: tab) { return c }
         let paneTask = it.kind == .approval || (it.rowID.flatMap { AgentActivity.shared.model.row($0)?.window } == AgentRunCenter.shared.runWindowID)
         if paneTask, let c = recordedWindow(for: it, in: all) { return c }
         if let p = it.profileID {
@@ -271,6 +294,26 @@ enum AgentAttention {
         }
         updateBadges()
     }
+
+    /// A new passkey request: Airc's toast where it lands, unless that already shows it; a notification when Airc isn't in
+    /// front (the prompt itself waits in Watch or in Needs you).
+    static func promptAsked(_ p: AgentPrompts.Prompt) {
+        let it = Item(id: "prompt-" + p.id, kind: .prompt(p.id), since: p.since, rowID: p.rowID, client: p.client, profileID: p.profileID, title: p.title)
+        updateBadges()
+        guard let c = window(for: it) else { return }
+        if !(c.sidebar.agents.watch?.rowID == p.rowID) {
+            c.toast.show(p.title, palette: c.currentPalette, in: c.card.frame, duration: 10, action: ("Show", { go(it, from: "toast") }),
+                         symbol: "person.badge.key.fill")
+            AgentCenter.shared.onEvent?("attention-toast \(it.id)")
+        }
+        if !(NSApp.isActive && c.window.isKeyWindow) {
+            Notifications.post(id: "agent-prompt-" + p.id, title: p.title, body: "Click to answer in Airc. \(p.client) waits until you do.",
+                               info: ["agentPrompt": it.id])
+        }
+    }
+
+    /// Prompts came or went: badges and counts follow.
+    static func promptsChanged() { updateBadges() }
 
     private static func rowsChanged() {
         let waiting = Set(AgentActivity.shared.model.rows.filter { $0.isLive && $0.needsYou != nil }.map(\.id))
@@ -356,6 +399,7 @@ enum AgentAttention {
         static func clicked(_ info: [AnyHashable: Any]) {
             if let row = info["agentRow"] as? String, AgentAttention.go(row: row, from: "notification") { return }
             if let id = info["agentApproval"] as? String, let it = AgentAttention.items().first(where: { $0.id == id }) { return AgentAttention.go(it, from: "notification") }
+            if let id = info["agentPrompt"] as? String, let it = AgentAttention.items().first(where: { $0.id == id }) { return AgentAttention.go(it, from: "notification") }
             AgentAttention.goNext(from: "notification")
         }
     }

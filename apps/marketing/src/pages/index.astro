@@ -44,40 +44,40 @@ const chromiumMajor = status.chromium.split(".")[0];
 const agentsOn = await agentsShown();
 const followOn = await followAlongShown();
 const remoteOn = await remoteShown();
-// The Airc Agent: a recording of the real app (artifacts aidemo; 2240-wide encodes and stills by herodesign).
+// The Airc Agent: a recording of the real app (artifacts aidemo2, on Steepwell, the made-up shop in tools/agent-demo-shop).
 const agentVideo = {
   width: 1600,
   height: 1000,
-  seconds: 44.8,
-  alt: "A recording of Airc: in a demo shop, the agent button opens the Airc Agent pane, Codex signed in with ChatGPT is connected from its Connect card, and the task “Compare the two kettles under 70 euros and buy the cheaper one. Ask me before you pay.” is typed. The pane’s live card shows the agent searching the shop, opening both kettles, scrolling to their specs and adding the cheaper one to the cart. At Pay, Airc stops and asks. The run is opened from the sidebar’s Agents folder, Allow Once is clicked, the order is placed and the agent says what it bought.",
+  seconds: 43.7,
+  alt: "A recording of Airc on a made-up coffee shop: ✦ in the toolbar, next to Back and Forward, opens the Airc Agent pane, “Use your ChatGPT subscription” (Codex) is picked on its Connect card, and the task “Compare the Pour and Rapid kettles and buy the better one for pour over coffee. Ask me before you pay.” is typed. The pane’s live card shows the agent searching the shop, putting both kettles side by side and saying why the Pour is better for pour-over, then adding it to the bag and going to payment. At Pay, Airc stops and asks. The run is opened from the sidebar’s Agents folder, Allow once is clicked, the order is placed and the agent says what it bought and why.",
 };
-// Where each part of the recording starts, in seconds (aidemo's cuts.json, homepage cut).
+// Where each part of the recording starts, in seconds (aidemo2's chapters.json, homepage cut).
 const agentChapters = [
   { at: 0, label: "Click ✦" },
-  { at: 8.7, label: "Say what you need" },
-  { at: 12.5, label: "Watch it work" },
-  { at: 27.4, label: "It asks before it pays" },
-  { at: 37, label: "Done" },
+  { at: 7.4, label: "Say what you need" },
+  { at: 11.4, label: "Watch it work" },
+  { at: 26.4, label: "It asks before it pays" },
+  { at: 38.2, label: "Done" },
 ];
 const agentPoints = [
   {
     key: "button",
     img: cropButton,
-    alt: "The bottom of Airc's sidebar, with the pointer on the ✦ Airc Agent button.",
+    alt: "The top of Airc's sidebar: Back, Forward, Reload and the ✦ Airc Agent button, with the pointer on ✦.",
     title: "One click to start.",
-    body: "Click ✦ in the sidebar and connect Codex with your ChatGPT sign-in, or your own Claude Code. An API key works too.",
+    body: "Click ✦ next to Back and Forward, and use your ChatGPT subscription through Codex, or your own Claude Code. An API key works too.",
   },
   {
     key: "live",
     img: cropLive,
-    alt: "The agent's live page card in the Airc Agent pane: the demo shop's results for “electric kettle”, with a Take over button.",
+    alt: "The agent's live page card in the Airc Agent pane: the demo shop's two kettles side by side, with a Take over button.",
     title: "Sees the page live.",
     body: "The agent's page plays in the pane while it clicks, types and scrolls. Take over any time, or watch a run from the Agents folder.",
   },
   {
     key: "ask",
     img: cropApproval,
-    alt: "Airc's question in the pane: “Pay on hearth.aircbrowser.com? The “Pay €49.00” button”, with Deny and Allow once.",
+    alt: "Airc's question in the pane: “Pay on steepwell.aircbrowser.com? The “Pay €79.00” button”, with Deny and Allow once.",
     title: "Asks before it pays.",
     body: "Paying, sending, posting and deleting wait for your OK. Allow it once, or press Esc to deny.",
   },
@@ -205,7 +205,7 @@ const faqs = [
           </div>
           <p class="agent-keys">
             Open it with <span class="agent-btn" role="img" aria-label="the Airc Agent button (✦)"><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d={sparkle} fill="currentColor" /></svg></span>
-            at the bottom of the sidebar, or press <kbd class="key" title="Option"><svg viewBox="0 0 16 16" role="img" aria-label="Option"><path d="M2 4.5h3.6l4.6 7H14M9.6 4.5H14" /></svg></kbd><kbd class="key" title="Command"><svg viewBox="0 0 16 16" role="img" aria-label="Command"><path d="M6 6V4.5A1.5 1.5 0 1 0 4.5 6h7A1.5 1.5 0 1 0 10 4.5v7a1.5 1.5 0 1 0 1.5-1.5h-7A1.5 1.5 0 1 0 6 11.5Z" /></svg></kbd><kbd>A</kbd>
+            next to Back and Forward, or press <kbd class="key" title="Option"><svg viewBox="0 0 16 16" role="img" aria-label="Option"><path d="M2 4.5h3.6l4.6 7H14M9.6 4.5H14" /></svg></kbd><kbd class="key" title="Command"><svg viewBox="0 0 16 16" role="img" aria-label="Command"><path d="M6 6V4.5A1.5 1.5 0 1 0 4.5 6h7A1.5 1.5 0 1 0 10 4.5v7a1.5 1.5 0 1 0 1.5-1.5h-7A1.5 1.5 0 1 0 6 11.5Z" /></svg></kbd><kbd>A</kbd>
           </p>
         </header>
 
@@ -240,7 +240,7 @@ const faqs = [
             ))}
           </ol>
           </div>
-          <figcaption>Recorded in Airc on a demo shop, with the agent's steps scripted for a repeatable take. Every click, keystroke and page is&nbsp;real.</figcaption>
+          <figcaption>Recorded in Airc on Steepwell, a made-up shop, with the agent's steps scripted for a repeatable take. Every click, keystroke and page is&nbsp;real.</figcaption>
         </figure>
 
         <ul class="cells cells-3 agent-points">

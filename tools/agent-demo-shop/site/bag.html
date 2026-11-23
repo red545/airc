@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Your bag · Steepwell</title><link rel="icon" href="/assets/favicon.png"><link rel="stylesheet" href="/assets/style.css"><script>
+if(location.hash.startsWith("#m"))addEventListener("load",()=>{if(location.hash==="#m2")document.querySelectorAll(".compare-box").forEach(b=>b.click());setTimeout(()=>{const o={};document.querySelectorAll("[data-m]").forEach(e=>{const r=e.getBoundingClientRect();
+o[e.dataset.m]=[Math.round(r.left+r.width/2),Math.round(r.top+r.height/2),Math.round(r.width),Math.round(r.height)]});document.title=JSON.stringify(o)},900)});
+</script></head>
+<body>
+<div class="notice"><span><b>Free delivery</b> on orders over €50</span><span>30-night home trial on every kettle</span><span>Two-year warranty</span></div>
+<header class="top"><div class="wrap">
+<a class="logo" href="/" data-m="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5c3.6 4.3 6.5 8 6.5 11.6A6.5 6.5 0 0 1 5.5 14.1C5.5 10.5 8.4 6.8 12 2.5Z" fill="#24453a"/><path d="M9 14.5c.3 1.6 1.5 2.7 3.2 2.9" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>steepwell</a>
+<nav class="main"><a href="/search">Kettles</a><a href="/search">Brewing</a><a href="/search">Grinders</a><a href="/search">Cups</a><a href="/search">Journal</a></nav>
+<form class="search" action="/search" method="get" role="search"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="5"/><path d="m11 11 3.5 3.5" stroke-linecap="round"/></svg>
+<input name="q" value="" placeholder="Search kettles, drippers, grinders" aria-label="Search" autocomplete="off" data-m="search"></form>
+<div class="icons"><a class="bag" href="/bag" data-m="bag"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 6.5h12l-1 10.5H5L4 6.5Z" stroke-linejoin="round"/><path d="M7.5 8.5V5.5a2.5 2.5 0 0 1 5 0v3" stroke-linecap="round"/></svg>Bag <span class="count">1</span></a></div>
+</div></header>
+<main class="wrap">
+
+<div class="steps"><b>Bag</b><i></i><span>Details</span><i></i><span>Payment</span></div>
+<div class="two"><div><h1 class="serif" style="font-size:46px;margin:6px 0 18px">Your bag</h1>
+<div class="panel"><div class="line"><div class="ph"><img src="/assets/img/pour.webp" alt=""></div>
+<div><h3>Pour gooseneck kettle</h3><div class="muted" style="font-size:13.5px">Slate · 0.9 L</div><div class="qty"><span>−</span><b>1</b><span>+</span></div></div>
+<div class="price">€79.00</div></div></div>
+<div class="panel" style="margin-top:16px;display:flex;gap:16px;align-items:center"><div class="card-ic" style="background:linear-gradient(135deg,#c58b3a,#a56d26)"></div>
+<div style="font-size:14px"><b>30-night home trial.</b> <span class="muted">Not the right kettle? We collect it for free.</span></div></div></div>
+<div class="panel"><h2 class="h serif">Summary</h2><div class="sum"><span>Subtotal</span><span>€79.00</span></div>
+<div class="sum"><span>Delivery</span><span>Free</span></div><div class="sum total"><span>Total</span><span>€79.00</span></div>
+<a class="btn" href="/checkout" style="width:100%;margin-top:18px" data-m="continue">Continue to delivery</a>
+<div class="secure">Taxes included · Free returns</div></div></div>
+</main>
+<footer><div class="wrap">
+<div><a class="logo" href="/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5c3.6 4.3 6.5 8 6.5 11.6A6.5 6.5 0 0 1 5.5 14.1C5.5 10.5 8.4 6.8 12 2.5Z" fill="#24453a"/><path d="M9 14.5c.3 1.6 1.5 2.7 3.2 2.9" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>steepwell</a><p class="muted" style="margin-top:14px;max-width:300px">Tools for slow coffee and good tea, designed in a small studio and built to last.</p></div>
+<div><h4>Shop</h4><p>Kettles</p><p>Brewing</p><p>Grinders</p><p>Cups</p></div>
+<div><h4>Help</h4><p>Delivery</p><p>Returns</p><p>Warranty</p><p>Contact</p></div>
+<div><h4>Studio</h4><p>Journal</p><p>Brew guides</p><p>Stockists</p></div>
+</div><div class="demo-note">Steepwell is a made-up shop for a demo. Nothing here is sold, charged or shipped.</div></footer>
+</body></html>

@@ -18,6 +18,8 @@ final class ChromiumAgentDriver: AgentPageDriver {
                       "text": "native (DevTools Input)", "scroll": "native (DevTools Input)",
                       "right_click": "script (no context menu)", "screenshot": "engine (Page.captureScreenshot)"]
     private var kept: Set<ObjectIdentifier> = []
+    /// Each kept page's current keeping loop (watchfix): a newer one replaces it, the old one's answer then renews nothing.
+    private var loops: [ObjectIdentifier: Int] = [:]
     /// Scrolls the script did because the native wheel didn't answer (checks and reports).
     private(set) var wheelFallbacks = 0
 
@@ -58,22 +60,51 @@ final class ChromiumAgentDriver: AgentPageDriver {
     /// ends the session (and what lives in it), so it's renewed and re-armed right away; a fast failure waits a little
     /// first, and a gone tab stops it.
     private func keepAttached(_ tab: EngineTab) {
-        guard kept.contains(ObjectIdentifier(tab)), !tab.isClosed else { return }
+        let key = ObjectIdentifier(tab)
+        guard kept.contains(key), !tab.isClosed else { return }
+        let generation = (loops[key] ?? 0) + 1
+        loops[key] = generation
         let started = CFAbsoluteTimeGetCurrent()
         call(tab, "Runtime.evaluate", ["expression": "new Promise(function(){})", "awaitPromise": true], timeout: 0) { [weak self, weak tab] _, error in
             guard let self, let tab, !tab.isClosed, self.kept.contains(ObjectIdentifier(tab)) else { return }
-            if let error, error.contains("gone") || error.contains("can't attach") || error.contains("closed") {
+            if !AgentWatchView.legacy, self.loops[key] != generation { return }
+            if AgentWatchView.legacy, let error, error.contains("gone") || error.contains("can't attach") || error.contains("closed") {
                 self.kept.remove(ObjectIdentifier(tab)); return
             }
+            // watchfix: only the tab's end ends this. "can't attach" and "the tab's DevTools target closed" come between
+            // two documents (a prerender or back-forward-cache activation swaps the page's DevTools target): giving up
+            // there left the page hidden for good, so Watch went blank while the agent's screenshots still worked.
+            if let error, error.contains("the tab is gone") { self.kept.remove(ObjectIdentifier(tab)); return }
             let fast = CFAbsoluteTimeGetCurrent() - started < 0.5
-            DispatchQueue.main.asyncAfter(deadline: .now() + (fast ? 0.25 : 0)) {
+            let wait = error.map { $0.contains("can't attach") || $0.contains("closed") } == true ? 0.5 : (fast ? 0.25 : 0)
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
                 self.keepAttached(tab)
                 self.arm(tab) { _ in }
             }
         }
     }
 
-    func release(_ tab: EngineTab) { kept.remove(ObjectIdentifier(tab)) }
+    func release(_ tab: EngineTab) { kept.remove(ObjectIdentifier(tab)); loops[ObjectIdentifier(tab)] = nil }
+
+    /// Watch (watchfix): the page must be drawing while someone watches it. Kept pages are armed again (focus
+    /// emulation and its visible capturer; idempotent), and a page whose keeping had ended is kept again.
+    func keepLive(_ tab: EngineTab) {
+        guard !tab.isClosed else { return }
+        if kept.insert(ObjectIdentifier(tab)).inserted { keepAttached(tab) }
+        arm(tab) { _ in }
+    }
+
+    /// A kept page showed a new document (AgentWindow: its address changed). A document restored from the back-forward
+    /// cache never answers the old promise (its document wasn't destroyed, only put away), and the restored page came
+    /// back without focus emulation: hidden for the engine, so Watch blank and WebAuthn "not focused" (watchfix).
+    func rearm(_ tab: EngineTab) {
+        guard !AgentWatchView.legacy, kept.contains(ObjectIdentifier(tab)), !tab.isClosed else { return }
+        keepAttached(tab)
+        arm(tab) { _ in }
+    }
+
+    /// Whether the page is kept visible for the engine now (checks and the report).
+    func isKept(_ tab: EngineTab) -> Bool { kept.contains(ObjectIdentifier(tab)) }
 
     func watchFrame(_ tab: EngineTab, maxPixels: CGSize, completion: @escaping (CGImage?) -> Void) {
         // A copy of the compositor's surface (the page is kept visible, so it's live): no DevTools call, no PNG.
@@ -94,10 +125,41 @@ final class ChromiumAgentDriver: AgentPageDriver {
         (NSStringFromClass(type(of: l)) == "CALayerHost" ? [l] : []) + (l.sublayers ?? []).flatMap(hostLayers)
     }
 
+    /// watchfix: a window keeps the hosts of pages it no longer shows (a page put in the back-forward cache, a prerender),
+    /// and every host's own bounds are 0×0, so "the largest" picked one at random: Watch could show a dead context. A
+    /// host counts only while nothing above it is hidden (layer or view) and its view is in a window; then the largest
+    /// visible ancestor wins.
+    static func shown(_ host: CALayer) -> Bool {
+        var l: CALayer? = host
+        while let x = l {
+            if x.isHidden || x.opacity == 0 { return false }
+            if let v = x.delegate as? NSView, v.isHiddenOrHasHiddenAncestor || v.window == nil { return false }
+            l = x.superlayer
+        }
+        return true
+    }
+
+    /// The area a host shows in: its first ancestor with a size.
+    static func area(_ host: CALayer) -> CGFloat {
+        var l: CALayer? = host
+        while let x = l {
+            if x.bounds.width > 0, x.bounds.height > 0 { return x.bounds.width * x.bounds.height }
+            l = x.superlayer
+        }
+        return 0
+    }
+
+    private static func pick(_ hosts: [CALayer]) -> CALayer? {
+        if AgentWatchView.legacy { return hosts.max { $0.bounds.width * $0.bounds.height < $1.bounds.width * $1.bounds.height } }
+        let candidates = hosts.filter(shown)
+        // Equal areas: the last one in the tree (Chromium adds the new view's host after the old one).
+        return candidates.enumerated().max { a, b in area(a.element) != area(b.element) ? area(a.element) < area(b.element) : a.offset < b.offset }?.element
+    }
+
     /// The page's host: the largest (an open DevTools or a popup would be smaller).
     private static func pageHost(in window: NSWindow) -> CALayer? {
         guard let root = window.contentView?.layer else { return nil }
-        return hostLayers(root).max { $0.bounds.width * $0.bounds.height < $1.bounds.width * $1.bounds.height }
+        return pick(hostLayers(root))
     }
 
     func liveContextID(in window: NSWindow) -> UInt32? {
@@ -107,7 +169,7 @@ final class ChromiumAgentDriver: AgentPageDriver {
     /// The host `liveLayer` copies: the page's own view first (with DevTools docked beside it, the frontend's host is
     /// the largest in the window), else the window's largest.
     private static func sourceHost(_ tab: EngineTab, in window: NSWindow) -> CALayer? {
-        let own = tab.view.layer.flatMap { hostLayers($0).max { $0.bounds.width * $0.bounds.height < $1.bounds.width * $1.bounds.height } }
+        let own = tab.view.layer.flatMap { pick(hostLayers($0)) }
         return own ?? pageHost(in: window)
     }
 
@@ -134,7 +196,7 @@ final class ChromiumAgentDriver: AgentPageDriver {
     static func describeHosts(in window: NSWindow) -> String {
         guard let root = window.contentView?.layer else { return "no layer" }
         let hosts = hostLayers(root)
-        return hosts.isEmpty ? "no CALayerHost" : hosts.map { "\(Int($0.bounds.width))x\(Int($0.bounds.height)) ctx \(($0.value(forKey: "contextId") as? NSNumber)?.stringValue ?? "?")" }.joined(separator: ", ")
+        return hosts.isEmpty ? "no CALayerHost" : hosts.map { "\(Int(area($0).squareRoot()))² ctx \(($0.value(forKey: "contextId") as? NSNumber)?.stringValue ?? "?")\(shown($0) ? "" : " hidden")" }.joined(separator: ", ")
     }
 
     func handBack(_ tab: EngineTab) {

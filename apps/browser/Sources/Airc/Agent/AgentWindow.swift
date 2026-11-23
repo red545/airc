@@ -11,6 +11,18 @@ final class AgentHostWindow: NSWindow {
     override func makeKeyAndOrderFront(_ sender: Any?) { orderBack(sender) }
     override func makeKey() {}
     override func orderFrontRegardless() {}
+    /// A window the engine hangs on this one (its passkey sheet, a permission bubble) asks for the person: macOS would
+    /// put it on some other Space, top left, nobody knowing why (owner report 2026-11-23). It goes over the Watch that
+    /// shows this window's page instead, or waits off screen until one opens (AgentPrompts).
+    override func addChildWindow(_ child: NSWindow, ordered place: NSWindow.OrderingMode) {
+        super.addChildWindow(child, ordered: place)
+        #if AIRC_TESTING
+        if AgentWatchView.legacy { return }
+        #endif
+        AgentPrompts.shared.engineChild(child, of: self)
+    }
+    /// Back here while no Watch shows the page (AgentPrompts.watchChanged).
+    func attachHeld(_ child: NSWindow) { super.addChildWindow(child, ordered: .above) }
     // Agent input goes straight to the page's view; a key arriving here is one WebKit sent back unhandled: it stops
     // here (no beep, no responder chain).
     override func sendEvent(_ event: NSEvent) {
@@ -56,6 +68,8 @@ final class AgentWindow: NSObject, EngineWindowDelegate, EngineTabDelegate {
 
     init(engine: BrowserEngine, profile: EngineProfile, profileID: String, ownerKey: String, client: String,
          size: CGSize, driver: AgentPageDriver, keepsVisible: Bool) {
+        // watchfix: the page part that holds an agent page's passkey request for the person, before its first document.
+        AgentPrompts.shared.install()
         id = AgentWindow.nextID
         AgentWindow.nextID += 1
         self.profile = profile
@@ -213,7 +227,12 @@ final class AgentWindow: NSObject, EngineWindowDelegate, EngineTabDelegate {
     // MARK: EngineTabDelegate (the tools read the tab's state when asked; the Agents folder follows titles and addresses)
 
     func tabDidChangeTitle(_ tab: EngineTab) { onTabsChanged?() }
-    func tabDidChangeURL(_ tab: EngineTab) { onTabsChanged?() }
+    func tabDidChangeURL(_ tab: EngineTab) {
+        #if canImport(AircCore)
+        if keepsVisible { (driver as? ChromiumAgentDriver)?.rearm(tab) }
+        #endif
+        onTabsChanged?()
+    }
     func tabDidChangeLoading(_ tab: EngineTab) {}
     func tabDidChangeFavicon(_ tab: EngineTab) {}
     func tabDidChangeNavigationState(_ tab: EngineTab) {}

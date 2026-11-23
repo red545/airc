@@ -99,6 +99,36 @@ extension SnapshotRunner {
                 done()
             }
         }
+        // watchfix: the same Watch with the agent's page asking for a passkey (the attributed prompt over the page).
+        run { [self] in
+            guard let row = AgentActivity.shared.model.rows.first(where: { $0.window == state.window }) else { return }
+            let profile = c.store.profile(ofSpace: c.currentSpaceID)
+            let host = row.url?.host ?? "mailbox.aircbrowser.com"
+            AgentPrompts.shared.addForMarketing(rowID: row.id, client: row.client, site: host, origin: "https://\(host)", windowID: row.window,
+                                                tab: row.tab, profileID: profile.id)
+        }
+        wait(0.6)
+        step { [self] done in
+            guard let watch = c.sidebar.agents.watch, watch.promptShown != nil, let image = MarketingAgentsState.render(watch) else {
+                note("marketing: MISSING agents-watch-passkey: no prompt in Watch")
+                AgentPrompts.shared.removeForMarketing()
+                return done()
+            }
+            let card = c.card.frame, rootHeight = c.root.bounds.height
+            mkWindowImage { img in
+                AgentPrompts.shared.removeForMarketing()
+                guard let img else { self.note("marketing: MISSING agents-watch-passkey: no capture"); return done() }
+                let size = self.c.root.bounds.size
+                let (canvas, origin) = MarketingStudio.canvas(around: size)
+                let frame = NSRect(origin: origin, size: size)
+                let window = MarketingStudio.Layer(image: img, frame: frame, dark: self.mkIsDark(), lights: self.mkLights(self.c.window))
+                let over = MarketingStudio.Layer(image: image, frame: NSRect(x: frame.minX + card.minX, y: frame.minY + rootHeight - card.maxY,
+                                                                              width: card.width, height: card.height),
+                                                 radius: AircMetrics.Window.cardRadius, shadow: .none)
+                self.mkWrite("agents-watch-passkey", canvas: canvas, dark: false, [window, over])
+                done()
+            }
+        }
         // A little more work for the Activity history, then the client leaves (its rows say Done).
         step { done in
             guard let k = state.client else { return done() }

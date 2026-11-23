@@ -165,6 +165,8 @@ protocol AgentPageDriver: AnyObject {
     /// While on, a view of this page that the engine hides (a navigation to a new view) keeps its last frame for a
     /// moment, so a live layer on its context never shows it empty before the new context exists (cardflicker).
     func holdFramesOnHide(_ tab: EngineTab, _ on: Bool)
+    /// Watch is showing this page: it must keep drawing (Chromium arms its kept-visible session again; default none).
+    func keepLive(_ tab: EngineTab)
 }
 
 extension AgentPageDriver {
@@ -175,6 +177,7 @@ extension AgentPageDriver {
     func liveContextID(in window: NSWindow) -> UInt32? { nil }
     func liveContextID(_ tab: EngineTab, in window: NSWindow) -> UInt32? { liveContextID(in: window) }
     func holdFramesOnHide(_ tab: EngineTab, _ on: Bool) {}
+    func keepLive(_ tab: EngineTab) {}
 
     /// A right click without the engine's context menu, which is a modal menu on the owner's screen: the page gets
     /// the mouse events and `contextmenu`, from a script.

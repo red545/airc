@@ -176,6 +176,7 @@ settings-links|Settings: Links|Air Traffic Control routes links leaving a site b
 settings-privacy|Settings: Privacy|Anonymous usage data and crash reports, off with one switch
 settings-privacy-events|See what Airc sends|The sheet listing every event Airc recorded, word for word
 agents-watch|Follow along|The sidebar'"'"'s Agents folder (Claude · Mailbox working, Claude · Corner Shop) and Watch over the page: Claude typing in Mailbox'"'"'s search field, outlined, with its caption (synthetic sites)
+agents-watch-passkey|An agent asks for your passkey|Watch over the agent'"'"'s page with Airc'"'"'s question first: "Claude wants to use your passkey for …", the site'"'"'s address, Allow and Not now (synthetic site)
 settings-agents|Settings: Agents|Let AI apps use Airc (on), Show agent pages in front, the apps you answered, the profiles agents may use, and one-click setup for Claude Desktop and Claude Code
 settings-agents-activity|Settings: Agents, Activity|What each app did in the last 7 days: sites and kinds of actions (Clicked, Typed in a field), never page content or typed text; Clear History
 settings-agents-devices|Settings: Agents, Other devices|Claude Code on your other computers over Tailscale: on, listening only on the tailnet, a one-time pairing code with the command to paste, and two paired devices with Revoke (made-up names and addresses)

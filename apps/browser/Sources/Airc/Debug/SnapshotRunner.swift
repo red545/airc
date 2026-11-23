@@ -337,6 +337,7 @@ final class SnapshotRunner {
         case "notes-read": notesReadScenario()
         case "parityp13b", "parityp13b-relaunch": parityP13bScenario()   // P13b: a note's title field, notes dragged into splits
         case "agentspike": agentSpikeScenario()   // the agent server end to end (AgentSpikeCheck.swift)
+        case "agentwatch2": agentWatch2Scenario()   // watchfix: MCP windows live in Watch, attributed passkey prompts (AgentWatch2Check.swift)
         case "parityagentview": parityAgentViewScenario()   // the Agents folder, Watch, Take over, Stop (ParityAgentViewCheck.swift)
         case "parityagentrows": parityAgentRowsScenario()   // Agents folder rows: no row for nothing, titles, auto-close (ParityAgentRowsCheck.swift)
         case "agentpanel": agentPanelScenario()   // the Airc Agent panel against a fake model (AgentPanelCheck.swift)

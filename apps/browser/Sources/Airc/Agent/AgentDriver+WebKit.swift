@@ -25,6 +25,9 @@ final class WebKitAgentDriver: AgentPageDriver {
     }
     private var eventNumber = 1
     private var visible: Set<ObjectIdentifier> = []
+    /// Fresh snapshots that didn't come in time, in a row; three and Watch goes back to last-drawn pictures.
+    private var freshMisses = 0
+    private var freshSnapshotsFailed = false
 
     /// An AppKit function-key character (NSUpArrowFunctionKey…).
     private func fk(_ code: Int) -> String { String(Character(UnicodeScalar(UInt16(code))!)) }
@@ -63,14 +66,32 @@ final class WebKitAgentDriver: AgentPageDriver {
             answered = true
             completion(image)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { once(nil) }
-        let config = WKSnapshotConfiguration()
-        // Without waiting for a new frame: what the page last drew (the window is off screen).
-        config.afterScreenUpdates = false
         let scale = v.window?.backingScaleFactor ?? 2
         let width = min(v.bounds.width, maxPixels.width / scale)
-        if width > 0 { config.snapshotWidth = NSNumber(value: Double(width)) }
-        v.takeSnapshot(with: config) { image, _ in once(image?.cgImage(forProposedRect: nil, context: nil, hints: nil)) }
+        func snap(fresh: Bool, _ done: @escaping (CGImage?) -> Void) {
+            let config = WKSnapshotConfiguration()
+            config.afterScreenUpdates = fresh
+            if width > 0 { config.snapshotWidth = NSNumber(value: Double(width)) }
+            v.takeSnapshot(with: config) { image, _ in done(image?.cgImage(forProposedRect: nil, context: nil, hints: nil)) }
+        }
+        // watchfix: a page in a window off every screen gets no display updates of its own, so "what it last drew" was
+        // the same picture over and over (Watch frozen). Ask for a fresh frame (WebKit renders one for the snapshot); if
+        // none comes within 0.5 s, the last one.
+        guard !AgentWatchView.legacy, !freshSnapshotsFailed else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { once(nil) }
+            return snap(fresh: false, once)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard !answered else { return }
+            self?.freshMisses += 1
+            if (self?.freshMisses ?? 0) >= 3 { self?.freshSnapshotsFailed = true }
+            snap(fresh: false, once)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { once(nil) }
+        }
+        snap(fresh: true) { [weak self] image in
+            if image != nil, !answered { self?.freshMisses = 0 }
+            once(image)
+        }
     }
 
     func handBack(_ tab: EngineTab) {

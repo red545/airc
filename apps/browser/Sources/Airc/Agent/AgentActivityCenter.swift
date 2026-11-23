@@ -149,11 +149,13 @@ final class AgentActivity {
 
     /// AgentNeedsYou: the row's page waits for the person (nil: not any more).
     func setNeedsYou(_ rowID: String, _ why: String?) {
+        // watchfix: a page's waiting passkey request (or an engine window on it) outlasts what the page's facts say.
+        let why: String? = AgentPrompts.shared.hasPending(row: rowID) ? AgentPrompts.reason : AgentPrompts.shared.holdsSheet(row: rowID) ? "Prompt" : why
         guard model.setNeedsYou(rowID, why), let row = model.row(rowID) else { return }
         center.onEvent?("needs-you \(rowID) \(why ?? "none")")
-        if let why {
+        if let why, why != AgentPrompts.reason, why != "Prompt" {
             AgentNeedsYou.notifyLater(rowID: rowID, client: row.client, site: AgentRedaction.siteName(title: row.title, url: row.url), why: why)
-        } else {
+        } else if why == nil {
             AgentNeedsYou.withdraw(rowID: rowID)
         }
         changed()
