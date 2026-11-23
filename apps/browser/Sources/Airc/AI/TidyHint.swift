@@ -47,10 +47,7 @@ enum TidyHint {
     }
 
     /// Whether the Space's list gets the card: a preview waiting, or a long Today not handled yet today.
-    /// `overflows`: whether the list (without the card) is taller than the sidebar, asked only when the tab count alone
-    /// doesn't decide; `looseCount` hears the loose tab count when it was counted.
-    static func shows(_ c: WindowController, spaceID: String, today entries: [SidebarEntry], overflows: () -> Bool,
-                      looseCount: (Int) -> Void = { _ in }) -> Bool {
+    static func shows(_ c: WindowController, spaceID: String, today entries: [SidebarEntry], overflows: Bool) -> Bool {
         if previews[spaceID] != nil { return true }
         #if AIRC_TESTING
         // Scripted runs see the card only when they ask (tidyux, its marketing shot): other checks' rows stay put.
@@ -58,10 +55,7 @@ enum TidyHint {
         #endif
         if TidyTabsFeature.isRunning(spaceID) { return true }   // "Tidying…" with Stop, then the preview
         guard !isDoneToday(c.store) else { return false }
-        let n = looseTabs(entries).count
-        looseCount(n)
-        guard n < TidyHintRules.tabThreshold else { return true }
-        return TidyHintRules.isLong(looseTabs: n, overflows: n >= TidyHintRules.overflowThreshold && overflows())
+        return TidyHintRules.isLong(looseTabs: looseTabs(entries).count, overflows: overflows)
     }
 
     static func looseTabs(_ entries: [SidebarEntry]) -> [LiveTab] {

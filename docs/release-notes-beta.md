@@ -1,15 +1,21 @@
-# Airc 0.1.52 public beta
+# Airc 0.1.53 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update frees the memory of some closed windows on the Chromium engine. It includes everything from 0.1.51. The
-release manifest records the exact build, source and checksums.
+This update stops the agent pane's live page from flashing blank on the Chromium engine. It includes everything from
+0.1.52. The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.51
+## New since 0.1.52
+
+- **Fix: the live page in the agent pane no longer flashes blank when the agent opens a new page.** On the
+  Chromium engine, the agent pane's live picture of the page could show one blank frame each time the agent went to a
+  new page. It now keeps showing the last frame until the new page is ready.
+
+## Included from 0.1.52
 
 - **Fix: closing windows on the Chromium engine no longer leaves their memory behind in some cases.** A window
   that Airc closed itself, rather than through your close (⌘⇧W, the close button or Close Window), kept its pages and

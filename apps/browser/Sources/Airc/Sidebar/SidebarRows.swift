@@ -14,12 +14,10 @@ final class PlateLayer: CALayer {
     required init?(coder: NSCoder) { fatalError() }
 
     /// `inSelection`: a row of the multi-selection that isn't the shown tab (SB-36): Arc's secondary selection fill, no
-    /// shadow. The shown tab keeps its own look when it's selected too. `clearPreview`: Clear is under the pointer and
-    /// would archive this row (tidypolish): the hover fill, so the rows that go stand out before the click.
-    func style(palette: Palette, hovered: Bool, selected: Bool, pressed: Bool, inSelection: Bool = false, clearPreview: Bool = false) {
+    /// shadow. The shown tab keeps its own look when it's selected too.
+    func style(palette: Palette, hovered: Bool, selected: Bool, pressed: Bool, inSelection: Bool = false) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let hovered = hovered || (clearPreview && !selected)
         if inSelection, !selected {
             backgroundColor = (pressed ? palette.pressed : hovered ? palette.multiSelectedHover : palette.multiSelected).cgColor
             shadowOpacity = 0
@@ -50,8 +48,6 @@ class SidebarRowView: NSView {
     var isSelected = false { didSet { if oldValue != isSelected { updateStyle() } } }
     /// In the page's multi-selection (SB-36, ⌘/⇧-click): Arc's secondary selection fill (the shown row keeps its own).
     var isInSelection = false { didSet { if oldValue != isInSelection { updateStyle() } } }
-    /// Clear (the Today header) is under the pointer and would archive this row (SpacePageView.setClearPreview).
-    var isClearPreview = false { didSet { if oldValue != isClearPreview { updateStyle() } } }
     var showsPlate = true
     /// Where the plate sits inside the row.
     var plateInsets = NSEdgeInsets(top: 2, left: AircMetrics.Sidebar.inset, bottom: 2, right: AircMetrics.Sidebar.inset)
@@ -166,7 +162,7 @@ class SidebarRowView: NSView {
         guard palette != nil else { return }
         plate.isHidden = !showsPlate
         plate.style(palette: palette, hovered: isHovered || isKeyboardFocused, selected: isSelected, pressed: isPressed,
-                    inSelection: isInSelection, clearPreview: isClearPreview)
+                    inSelection: isInSelection)
     }
 
     override func layout() {
@@ -189,7 +185,6 @@ class SidebarRowView: NSView {
         isPressed = false
         isSelected = false
         isInSelection = false
-        isClearPreview = false
         navID = nil
         alphaValue = 1
         page = nil
@@ -1228,50 +1223,21 @@ final class FolderRowView: SidebarRowView {
     }
 }
 
-/// The line between pinned and Today, with "Clear" on sidebar hover (SB-40). Arc (arc_behavior_spec §2.6): when the
-/// tab shown is the only Today tab, Clear takes it too and a small ↓ before Clear warns of it. It sits in the gap between the line and Clear that is
-/// always there (Tidy is hidden with one tab), so nothing moves. With the pointer on Clear, the rows it would archive
-/// light up (tidypolish; the notes don't describe this for Arc).
+/// The line between pinned and Today, with "Clear" on sidebar hover (SB-40).
 final class DividerRowView: SidebarRowView {
     var spaceID = ""
     private let line = CALayer()
     private let clear = NSTextField(labelWithString: "Clear")
-    /// Clear's ↓ warning: while Clear shows and the tab on screen is the only Today tab (`clearWarns`).
-    private let arrow = CALayer()
-    /// Clear would take the tab on screen, the Space's only Today tab (`WindowController.clearTakesShownTab`; each render).
-    private var clearWarns = false
-    private var arrowColor: NSColor?
     let tidy = TidyTabsLabel()   // P18b: Tidy Tabs (AI/TidyTabsFeature.swift)
-    private(set) var clearHovered = false
+    private var clearHovered = false
     var tidyHasEnoughPages: Bool?
     /// What Clear's tooltip says (tidyux's check reads it).
     var clearToolTip: String? { clear.toolTip }
-    /// For checks: Clear's label (its frame is where the pointer goes) and whether the ↓ shows.
-    var clearLabel: NSView { clear }
-    var showsClearArrow: Bool { !arrow.isHidden && arrow.opacity > 0 }
-    var clearArrowFrame: NSRect { arrow.frame }
-    var lineFrame: NSRect { line.frame }
-    #if AIRC_TESTING
-    /// TidyPolishCheck's "before" shots: Clear as it was (no ↓, no preview).
-    static var previewsClear = true
-    #else
-    static let previewsClear = true
-    #endif
     var sidebarHovered = false {
         didSet {
             guard sidebarHovered != oldValue else { return }
             clear.isHidden = !sidebarHovered
-            if !sidebarHovered { setClearHovered(false) }
-            // The moves that brought the pointer here may have come before Clear showed: look again once it's laid out.
-            if sidebarHovered {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self, self.sidebarHovered else { return }
-                    self.layoutSubtreeIfNeeded()
-                    if !self.clearHovered { self.setClearHovered(self.pointerOnClear) }
-                }
-            }
             tidy.refresh(hovered: sidebarHovered, divider: self)
-            updateArrow()
         }
     }
 
@@ -1279,10 +1245,6 @@ final class DividerRowView: SidebarRowView {
         super.init(frame: frame)
         showsPlate = false
         layer?.addSublayer(line)
-        arrow.contentsGravity = .center
-        arrow.actions = LayerImage.noActions
-        arrow.isHidden = true
-        layer?.addSublayer(arrow)
         clear.font = AircFont.micro.appFont
         clear.isHidden = true
         clear.toolTip = "Clear: moves this Space’s Today tabs to the Archive (not the one on screen). Undo brings them back"
@@ -1292,52 +1254,15 @@ final class DividerRowView: SidebarRowView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func configure(spaceID: String, palette: Palette, tidyHasEnoughPages: Bool? = nil, clearWarns: Bool = false) {
+    func configure(spaceID: String, palette: Palette, tidyHasEnoughPages: Bool? = nil) {
         self.spaceID = spaceID
-        self.clearWarns = clearWarns
         self.palette = palette
         self.tidyHasEnoughPages = tidyHasEnoughPages
         line.backgroundColor = palette.separator.cgColor
         let ink = clearHovered ? palette.clearHover : palette.clearIdle
         if clear.textColor != ink { clear.textColor = ink }
-        setArrowColor(palette.clearIdle)
         tidy.refresh(hovered: sidebarHovered, divider: self)
-        updateArrow()
         updateStyle()
-    }
-
-    private func updateArrow() {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        arrow.isHidden = !(Self.previewsClear && clearWarns && !clear.isHidden && tidy.isHidden)
-        CATransaction.commit()
-    }
-
-    private func setArrowColor(_ color: NSColor) {
-        guard arrowColor != color else { return }
-        arrowColor = color
-        LayerImage.set(LayerImage.symbol("arrow.down", size: 8, weight: .semibold, color: color), on: arrow, in: self)
-    }
-
-    override func viewDidChangeBackingProperties() {
-        super.viewDidChangeBackingProperties()
-        guard LayerImage.scaleChanged(arrow, in: self) else { return }
-        let c = arrowColor
-        arrowColor = nil
-        if let c { setArrowColor(c) }
-    }
-
-    /// The pointer went onto Clear or off it: Clear's ink (and the ↓'s, as Clear's) and the rows it would archive.
-    func setClearHovered(_ over: Bool) {
-        if over != clearHovered {
-            clearHovered = over
-            if let palette {
-                clear.textColor = over ? palette.clearHover : palette.clearIdle
-                setArrowColor(over ? palette.clearHover : palette.clearIdle)
-            }
-        }
-        // The page's preview follows the hover, also if it got out of step (a check's switch, a page rebuilt).
-        if let page, page.isClearPreviewOn != (over && Self.previewsClear) { page.setClearPreview(over) }
     }
 
     override func layout() {
@@ -1353,58 +1278,14 @@ final class DividerRowView: SidebarRowView {
         CATransaction.commit()
         clear.frame = NSRect(x: bounds.width - AircMetrics.Divider.inset - cw, y: 7 - clear.frame.height / 2,
                              width: cw, height: clear.frame.height)
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        // In the 8 pt gap between the line's end and Clear (no slot of its own: nothing moves).
-        arrow.frame = NSRect(x: clear.frame.minX - 7.5, y: 7 - 6, width: 7, height: 12)
-        CATransaction.commit()
-        // Clear shows once the sidebar is hovered; a pointer that got onto it first (the moves came before Clear did)
-        // hovers it now, without waiting for another move.
-        if sidebarHovered, !clearHovered { setClearHovered(pointerOnClear) }
     }
-
-    private var pointerOnClear: Bool {
-        guard let window, !clear.isHidden else { return false }
-        let p = convert(window.mouseLocationOutsideOfEventStream, from: nil)
-        let on = clear.frame.insetBy(dx: -4, dy: -4).contains(p)
-        #if AIRC_TESTING
-        pointerChecks.append(on)
-        lastPoint = p
-        #endif
-        return on
-    }
-    #if AIRC_TESTING
-    /// TidyPolishCheck's evidence when Clear isn't hovered: moves seen (with Clear shown, over it) and pointer checks.
-    var hoverTrace: String {
-        let now = window.map { convert($0.mouseLocationOutsideOfEventStream, from: nil) } ?? .zero
-        return "moves \(movesSeen) (shown \(movesShown), over \(movesOver)), pointer checks \(pointerChecks.suffix(6)), last checked "
-            + "\(NSStringFromPoint(lastPoint)), pointer now \(NSStringFromPoint(now)), Clear \(NSStringFromRect(clear.frame)), hidden \(clear.isHidden)"
-    }
-    private var movesSeen = 0, movesShown = 0, movesOver = 0
-    private var lastPoint = NSPoint.zero
-    private var pointerChecks: [Bool] = []
-    #endif
 
     override func mouseMoved(with event: NSEvent) {
-        let over = !clear.isHidden && clear.frame.insetBy(dx: -4, dy: -4).contains(convert(event.locationInWindow, from: nil))
-        #if AIRC_TESTING
-        movesSeen += 1
-        if !clear.isHidden { movesShown += 1 }
-        if over { movesOver += 1 }
-        #endif
-        setClearHovered(over)
-    }
-
-    /// The first event inside the row is an enter, not a move: a pointer that comes straight onto Clear (from the page,
-    /// fast) lands here with no move after it.
-    override func mouseEntered(with event: NSEvent) {
-        super.mouseEntered(with: event)
-        mouseMoved(with: event)
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        super.mouseExited(with: event)
-        setClearHovered(false)
+        let over = clear.frame.insetBy(dx: -4, dy: -4).contains(convert(event.locationInWindow, from: nil))
+        if over != clearHovered {
+            clearHovered = over
+            clear.textColor = over ? palette.clearHover : palette.clearIdle
+        }
     }
 
     override func updateTrackingAreas() {
@@ -1415,8 +1296,6 @@ final class DividerRowView: SidebarRowView {
     override func mouseDown(with event: NSEvent) {
         if openContextMenuForControlClick(event) { return }
         if !clear.isHidden, clear.frame.insetBy(dx: -4, dy: -4).contains(convert(event.locationInWindow, from: nil)) {
-            // The rows go now; what's left (the shown tab) lights up only when the pointer moves again.
-            setClearHovered(false)
             controller?.clearToday()
         }
     }

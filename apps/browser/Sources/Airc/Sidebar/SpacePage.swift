@@ -793,29 +793,9 @@ final class SpacePageView: NSView {
     enum RowModel {
         case entry(SidebarEntry), divider, newTab, signIn, defaultBrowser, tidyHint
     }
-    /// Whether the list, without the tidy card, is taller than the sidebar (the card's overflow rule, AI/TidyHint.swift).
-    /// tidypolish: worked out from the rows' heights before the card is decided, in the same render, so a list that just
-    /// started to overflow gets the card at once (it used the previous render's height: the card came a reload later).
-    /// The card's own height doesn't count, so showing it can't change the answer (no loop).
+    /// Whether the last render's list was taller than the sidebar (the tidy card's overflow rule, AI/TidyHint.swift).
     private(set) var todayOverflows = false
     private var tidyHintShown = false
-    /// The last render's list height without the tidy card, and its loose Today tab count: a height change of the
-    /// sidebar re-renders only when that could flip the card (`sidebarHeightChanged`).
-    private var listHeightWithoutCard: CGFloat = 0
-    private var looseTodayCount = 0
-    private var laidOutListHeight: CGFloat = -1
-    /// Clear is under the pointer (DividerRowView): the row IDs it would archive, lit up (tidypolish).
-    private(set) var clearPreviewRowIDs: Set<String> = []
-    private var clearPreviewOn = false
-    var isClearPreviewOn: Bool { clearPreviewOn }
-    #if AIRC_TESTING
-    /// TidyPolishCheck: full renders so far (the card must come in the render the tab's arrival makes), and the list
-    /// height the overflow rule worked out last.
-    private(set) var renderCountForTesting = 0
-    /// Time spent working out the overflow rule's height (seconds, all renders) and how often.
-    private(set) var overflowRuleTimeForTesting: (seconds: Double, calls: Int) = (0, 0)
-    var listHeightWithoutCardForTesting: CGFloat { listHeightWithoutCard }
-    #endif
 
     private(set) var isParkedForNewSpace = false
     #if AIRC_TESTING
@@ -953,9 +933,6 @@ final class SpacePageView: NSView {
         renderingRows = true
         let phase = RestoreTrace.begin(viewportOnly ? "sidebar.viewport" : "sidebar.render")
         defer { renderingRows = false; RestoreTrace.end(phase) }
-        #if AIRC_TESTING
-        if !viewportOnly { renderCountForTesting += 1 }
-        #endif
         let store = c.store
         let animated = animated && store.state.tabs.count <= 500
         palette = c.palette(for: space)
@@ -1020,7 +997,6 @@ final class SpacePageView: NSView {
 
         // The list.
         var models: [(String, RowModel)] = []
-        var todayRowCount = 0
         if viewportOnly {
             // Scrolling changes the realized views, never the model order or keyboard outline.
             models = order.map { ($0.id, $0.entry) }
@@ -1029,32 +1005,16 @@ final class SpacePageView: NSView {
                 models += store.pinnedRows(ofSpace: spaceID).map { ($0.id, .entry($0)) }
             }
             let today = store.todayRows(ofSpace: spaceID)
-            todayRowCount = today.count
             models.append(("divider", .divider))
             models.append(("newtab", .newTab))
             if c.showsSignInCard(space: space) { models.append(("signin", .signIn)) }
             if c.showsDefaultBrowserCard { models.append(("defaultbrowser", .defaultBrowser)) }
-            // The card's overflow rule from this render's rows (heights only, no views): only asked for when the tab
-            // count alone doesn't decide (TidyHintRules), so most renders never add it up.
-            let width = scrollView.contentSize.width > 0 ? scrollView.contentSize.width : bounds.width
-            looseTodayCount = 0
-            let hint = TidyHint.shows(c, spaceID: spaceID, today: today, overflows: { [self] in
-                #if AIRC_TESTING
-                let t0 = CACurrentMediaTime()
-                defer { overflowRuleTimeForTesting = (overflowRuleTimeForTesting.seconds + CACurrentMediaTime() - t0, overflowRuleTimeForTesting.calls + 1) }
-                #endif
-                let h = listHeight(models + today.map { ($0.id, RowModel.entry($0)) }, width: width)
-                listHeightWithoutCard = h
-                // Not laid out yet (0): unknown, so no card; the first layout asks again (sidebarHeightChanged).
-                todayOverflows = scrollView.contentSize.height > 0 && h > scrollView.contentSize.height
-                return todayOverflows
-            }, looseCount: { [self] n in looseTodayCount = n })
+            let hint = TidyHint.shows(c, spaceID: spaceID, today: today, overflows: todayOverflows)
             if hint { models.append(("tidyhint", .tidyHint)) }
             if hint, !tidyHintShown { TidyHint.noteAppeared(spaceID) }
             tidyHintShown = hint
             models += today.map { ($0.id, .entry($0)) }
             order = models.map { (id: $0.0, entry: $0.1) }
-            if clearPreviewOn { clearPreviewRowIDs = clearPreviewRows() }
         }
         let tidyHasEnoughPages = viewportOnly ? nil : TidyTabsFeature.hasEnoughTabs(in: models.lazy.compactMap { pair -> SidebarEntry? in
             if case .entry(let entry) = pair.1 { return entry }
@@ -1143,10 +1103,7 @@ final class SpacePageView: NSView {
                 let v = (rows[id] as? DividerRowView) ?? DividerRowView()
                 v.controller = c
                 if !viewportOnly {
-                    // Arc's ↓: Clear would take the tab on screen, this Space's only Today tab. Only a short Today can be
-                    // that (one tab, maybe in folders): no scan otherwise.
-                    let warns = spaceID == c.currentSpaceID && todayRowCount > 0 && todayRowCount <= 8 && c.clearTakesShownTab
-                    v.configure(spaceID: spaceID, palette: palette, tidyHasEnoughPages: tidyHasEnoughPages, clearWarns: warns)
+                    v.configure(spaceID: spaceID, palette: palette, tidyHasEnoughPages: tidyHasEnoughPages)
                     v.sidebarHovered = sidebarHovered
                 }
                 view = v
@@ -1185,7 +1142,6 @@ final class SpacePageView: NSView {
             default: view.navID = nil
             }
             view.isInSelection = selection.contains(id)
-            view.isClearPreview = clearPreviewOn && clearPreviewRowIDs.contains(id)
             if view.superview !== list { list.addSubview(view) }
             rows[id] = view
             let frame = NSRect(x: 0, y: y, width: w, height: model.isEntry ? AircMetrics.Row.height : height)
@@ -1220,6 +1176,7 @@ final class SpacePageView: NSView {
                 if let r = v as? TabRowView { c.tabRowPool.give(r) }
             }
         }
+        if !viewportOnly { todayOverflows = y > scrollView.contentSize.height }
         list.frame = NSRect(x: 0, y: 0, width: w, height: max(y + 12, scrollView.contentSize.height))
         if reduceMotion { list.layer?.add(AircMotion.crossfadeTransition(), forKey: kCATransition) }
         if !viewportOnly {
@@ -1230,82 +1187,6 @@ final class SpacePageView: NSView {
             keepKeyboardFocusAfterRender(previousItems: previousItems)
         }
         needsLayout = true
-    }
-
-    /// How tall the list would be with these rows, by the same rules as `render`'s layout loop (keep them in step), with
-    /// no views made: the tidy card's overflow rule. Arithmetic over the rows, plus the Default Browser card's text.
-    private func listHeight(_ models: [(String, RowModel)], width w: CGFloat) -> CGFloat {
-        var y: CGFloat = 0
-        for (_, model) in models {
-            switch model {
-            case .entry: y += AircMetrics.Row.pitch
-            case .divider:
-                if y > 0 { y += 6 }
-                y += DesignGaps.dividerBlock
-            case .newTab:
-                y -= (DesignGaps.dividerBlock - 7) - (AircMetrics.Divider.aboveFirstRow - AircMetrics.Row.height / 2)
-                y += AircMetrics.Row.pitch
-            case .signIn: y += AircMetrics.Profile.signInCardHeight
-            case .defaultBrowser: y += DefaultBrowserCardView.height(width: w, theme: palette.resolved)
-            case .tidyHint: break
-            }
-        }
-        return y
-    }
-
-    /// The sidebar got taller or shorter: re-render only if that flips the tidy card's overflow rule (6–11 loose tabs).
-    private func sidebarHeightChanged() {
-        guard looseTodayCount >= TidyHintRules.overflowThreshold, looseTodayCount < TidyHintRules.tabThreshold,
-              scrollView.contentSize.height > 0,
-              (listHeightWithoutCard > scrollView.contentSize.height) != todayOverflows else { return }
-        reload(animated: false)
-    }
-
-    // MARK: Clear's preview (tidypolish)
-
-    /// The pointer went onto Clear (or off it): the rows it would archive light up, exactly `clearTargets()`'s tabs:
-    /// a Today tab's row, a split's row with a Today pane going, and a Today folder it would leave empty (Clear removes
-    /// those). Returns how many rows light up (none: Clear has nothing to archive, so no ↓ either).
-    @discardableResult
-    func setClearPreview(_ on: Bool) -> Int {
-        #if AIRC_TESTING
-        let on = on && DividerRowView.previewsClear
-        #endif
-        clearPreviewOn = on
-        clearPreviewRowIDs = on ? clearPreviewRows() : []
-        for (id, v) in rows { v.isClearPreview = on && clearPreviewRowIDs.contains(id) }
-        return clearPreviewRowIDs.count
-    }
-
-    private func clearPreviewRows() -> Set<String> {
-        guard let c = controller, c.currentSpaceID == spaceID else { return [] }
-        let targets = Set(c.clearTargets())
-        guard !targets.isEmpty else { return [] }
-        let s = c.store
-        var ids = Set<String>()
-        for (id, entry) in orderedEntries {
-            switch entry {
-            case .today(let t): if targets.contains(t.id) { ids.insert(id) }
-            case .split(_, let tabs): if tabs.contains(where: { targets.contains($0.id) }) { ids.insert(id) }
-            case .folder(let f, _) where f.isTodayFolder:
-                // Clear removes a Today folder it leaves with no tab shown inside (StoreActions.clearToday).
-                var inside: Set<String> = [f.id]
-                var grew = true
-                while grew {
-                    grew = false
-                    for i in s.state.items.values where i.isTodayFolder && !inside.contains(i.id) && i.parentID.map(inside.contains) == true {
-                        inside.insert(i.id)
-                        grew = true
-                    }
-                }
-                let stays = s.state.tabs.values.contains { t in
-                    t.folderID.map(inside.contains) == true && s.shownTodayFolderID(of: t) != nil && !targets.contains(t.id)
-                }
-                if !stays { ids.insert(id) }
-            default: break
-            }
-        }
-        return ids
     }
 
     /// How long a closed folder's children take to fade.
@@ -1410,11 +1291,6 @@ final class SpacePageView: NSView {
         header.frame = NSRect(x: 0, y: y, width: w, height: AircMetrics.Row.height)
         if !header.isHidden { y += AircMetrics.Row.height + 1 }
         scrollView.frame = NSRect(x: 0, y: y, width: w, height: max(0, bounds.height - y))
-        if scrollView.frame.height != laidOutListHeight {
-            laidOutListHeight = scrollView.frame.height
-            // Outside this layout pass; most height changes return at the guard (no card in question).
-            DispatchQueue.main.async { [weak self] in self?.sidebarHeightChanged() }
-        }
         if list.frame.width != scrollView.contentSize.width {
             list.frame.size.width = scrollView.contentSize.width
             for v in list.subviews { v.frame.size.width = scrollView.contentSize.width }
