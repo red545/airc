@@ -108,22 +108,33 @@ enum NoteImages {
         return []
     }
 
-    /// Forgets pictures no note shows any more, unless a backup in `backups` names them (restoring it brings their notes
-    /// back). Off the main thread; launch only, after orphan notes went (SpacesStore.removeOrphanNotes).
-    static func collectGarbage(keeping keep: Set<String>, backups: URL) {
+    /// Forgets pictures no note shows any more, unless a backup in one of `backups` names them (restoring it brings
+    /// their notes back): the chosen backup folder and the default (AppSettings.backupFolders). Off the main thread;
+    /// launch only, after orphan notes went (SpacesStore.removeOrphanNotes).
+    static func collectGarbage(keeping keep: Set<String>, backups: [URL]) {
         let folder = self.folder
-        DispatchQueue.global(qos: .utility).async {
-            let fm = FileManager.default
-            guard let files = try? fm.contentsOfDirectory(atPath: folder.path) else { return }
-            let unused = files.filter { NoteImage.isValidFile($0) && !keep.contains($0) }
-            guard !unused.isEmpty else { return }
-            var named = Set<String>()
-            for b in (try? fm.contentsOfDirectory(at: backups, includingPropertiesForKeys: nil)) ?? [] where b.pathExtension == "json" {
-                guard let text = try? String(contentsOf: b, encoding: .utf8) else { return }   // unreadable: keep everything
+        DispatchQueue.global(qos: .utility).async { removeUnused(in: folder, keeping: keep, backups: backups) }
+    }
+
+    /// The sweep itself, synchronous: the names it removed, or nil when it removed nothing because a backup folder or
+    /// file couldn't be read (a chosen folder on a drive that isn't there keeps every picture).
+    @discardableResult
+    static func removeUnused(in folder: URL, keeping keep: Set<String>, backups: [URL]) -> [String]? {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(atPath: folder.path) else { return [] }
+        let unused = files.filter { NoteImage.isValidFile($0) && !keep.contains($0) }
+        guard !unused.isEmpty else { return [] }
+        var named = Set<String>()
+        for dir in backups {
+            guard let list = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return nil }
+            for b in list where b.pathExtension == "json" {
+                guard let text = try? String(contentsOf: b, encoding: .utf8) else { return nil }   // unreadable: keep everything
                 for f in unused where text.contains(f) { named.insert(f) }
             }
-            for f in unused where !named.contains(f) { try? fm.removeItem(at: folder.appendingPathComponent(f)) }
         }
+        let gone = unused.filter { !named.contains($0) }
+        for f in gone { try? fm.removeItem(at: folder.appendingPathComponent(f)) }
+        return gone
     }
 }
 

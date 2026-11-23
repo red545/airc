@@ -129,6 +129,7 @@ final class SnapshotRunner {
         case "routing": routingCheck()
         case "launchtimeline": launchTimelineScenario()   // fastlaunch: window before blocking, first page protected (LaunchTimelineCheck.swift)
         case "callnotes": callNotesScenario()   // Settings › Calendar › Start Granola notes (CallNotesCheck.swift)
+        case "oauthapps", "oauthapps-cold", "oauthapps-google": oauthAppsScenario()   // desktop-app sign-in through Airc (OAuthAppsCheck.swift)
         case "peekrules": peekRulesScenario()   // PK-1/AT-1: eTLD+1 same-site, rules for Peek links, real clicks (PeekRulesCheck.swift)
         case "shortcuts": shortcutsScenario()
         case "shortcutremap": shortcutRemapScenario()
@@ -296,6 +297,8 @@ final class SnapshotRunner {
         case "paritytidydl": MainActor.assumeIsolated { parityTidyDownloadsScenario() }   // tidydl: Rename automatically, Undo (ParityTidyDownloadsCheck.swift)
         case "tidyux": MainActor.assumeIsolated { tidyUXScenario() }   // the sidebar's tidy card, real clicks (TidyUXCheck.swift)
         case "tidypolish": MainActor.assumeIsolated { tidyPolishScenario() }   // Clear's ↓ preview, the card on overflow (TidyPolishCheck.swift)
+        case "paritymenuappearance": MainActor.assumeIsolated { parityMenuAppearanceScenario() }   // TH-3: sidebar menus follow the Space's light/dark, real ⌃-click (ParityMenuAppearanceCheck.swift)
+        case "paritybackupfolder": MainActor.assumeIsolated { parityBackupFolderScenario() }   // SET-3: chosen backup folder, archive backup + note-picture sweep (ParityBackupFolderCheck.swift)
         case "archivenever": MainActor.assumeIsolated { archiveNeverScenario() }   // auto-archive Never and 1 hour, real input (ArchiveNeverCheck.swift)
         case "parityp18b", "parityp18b-write", "parityp18b-read", "parityp18b-real":   // P18b: Tidy Tabs (ParityP18bCheck.swift)
             MainActor.assumeIsolated { parityP18bScenario() }

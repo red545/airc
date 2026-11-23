@@ -537,7 +537,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try? self.store.compactOperations(olderThan: 7 * 86400)
             try? self.store.pruneArchive()
             // Notes no row points at any more, then pictures no note shows (Notes/NoteEditor.swift, NoteImages).
-            NoteCenter.collectGarbage(store: self.store, backups: AppPaths.backups)
+            NoteCenter.collectGarbage(store: self.store, backups: self.settings.backupFolders)
         }
         _ = try? settings.backUp(store)
         EaselCenter.register()   // P19b: a duplicated Easel row copies its Easel (Easels/EaselCenter.swift)

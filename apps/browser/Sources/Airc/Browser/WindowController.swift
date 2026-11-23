@@ -824,6 +824,7 @@ final class WindowController: NSObject, NSWindowDelegate {
                                  provisional: newSpacePanel.map { $0.model.icon ?? "" })
         card.palette = pal
         sidebar.update.palette = pal
+        applySidebarAppearance(pal)
         // Only while it shows: hidden, it may hold the Space the New Space card will make (prepareEmptySpace), and
         // `showEmpty` sets it before showing it.
         if card.showsEmptyState { card.emptySpace = emptySpaceContent() }
@@ -834,6 +835,41 @@ final class WindowController: NSObject, NSWindowDelegate {
         if !defersNewSpaceTitle { updateWindowTitle() }
         pageToolbar?.refresh()
         noteChromeChanged()
+    }
+
+    /// TH-3: the sidebar takes its Space's light or dark, so what AppKit draws there (pop-up buttons, scrollers,
+    /// tooltips, and through `themeSidebarMenus` the row, Space and plus menus) matches a Space whose look differs
+    /// from the app's (a dark Space in a light app). The sidebar's own colours come from the palette and don't read
+    /// the appearance. When the two agree it inherits the window's, so Increase Contrast keeps its variant. The page
+    /// card and the page never change.
+    func applySidebarAppearance(_ pal: Palette) {
+        Self.themeSidebarMenus()
+        let inherited = sidebar.superview?.effectiveAppearance ?? NSApp.effectiveAppearance
+        let inheritedDark = inherited.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let want: NSAppearance? = pal.isDark == inheritedDark ? nil : NSAppearance(named: pal.isDark
+            ? (NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast ? .accessibilityHighContrastDarkAqua : .darkAqua)
+            : (NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast ? .accessibilityHighContrastAqua : .aqua))
+        if sidebar.appearance?.name != want?.name { sidebar.appearance = want }
+    }
+
+    private static var sidebarMenuObserver: NSObjectProtocol?
+    /// A menu doesn't take the appearance of the view it opens from (paritymenuappearance: a row's menu stayed light
+    /// in a dark sidebar), so a menu opened by a click or key in a sidebar with its own appearance gets it when it
+    /// starts tracking, before it draws. Menus that set their own, and everything outside a sidebar, are left alone.
+    private static func themeSidebarMenus() {
+        guard sidebarMenuObserver == nil else { return }
+        sidebarMenuObserver = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification,
+                                                                     object: nil, queue: nil) { n in
+            MainActor.assumeIsolated {
+                guard let menu = n.object as? NSMenu, menu.supermenu == nil, menu.appearance == nil,
+                      let event = NSApp.currentEvent, let c = (NSApp.delegate as? AppDelegate)?.controller(for: event.window),
+                      let look = c.sidebar.appearance, !c.sidebar.isHidden else { return }
+                let inSidebar = event.type == .keyDown || event.type == .keyUp
+                    ? c.window.firstResponder.map { ($0 as? NSView)?.isDescendant(of: c.sidebar) == true } ?? false
+                    : c.sidebar.bounds.contains(c.sidebar.convert(event.locationInWindow, from: nil))
+                if inSidebar { menu.appearance = look }
+            }
+        }
     }
 
     /// What the card shows while the current Space has no tab: its icon and name, and its profile while several are

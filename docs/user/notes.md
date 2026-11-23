@@ -88,7 +88,9 @@ Notes are in Airc's store on this Mac, with its other sidebar data, and in its d
 its notes back. Going back to an Airc from before notes (0.1.2) is safe until you make your first note: from then on
 that version keeps your notes untouched for this one, says some data is from a newer Airc, and won't restore backups
 that hold notes. Pictures are files in the data folder's `Notes/Images`, one per picture however often it's used; a
-picture no note shows is removed at a later launch, unless a backup still names it.
+picture no note shows is removed at a later launch, unless a backup still names it: one in the backup folder you
+chose in Settings › General, or in the default one. While a chosen folder isn't there (a drive not plugged in), no
+picture is removed.
 
 **Notes stay on this Mac for now.** iCloud sync never sends a note, its text, its title or its pictures, and other
 Macs never move, archive or remove one: a pinned note is left where it is, and a Space deleted on another Mac stays

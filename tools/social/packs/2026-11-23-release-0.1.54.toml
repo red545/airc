@@ -1,0 +1,26 @@
+# Airc 0.1.54 (cut 56b466f2; build revision 5d8fa9db). Claims from its approved notes. NOT TO POST before "0.1.54
+# LIVE" in briefs/queue.md: plan and approve only then, after checking the public repo shows the release (owner rule).
+slug = "2026-11-23-release-0.1.54"
+title = "Airc 0.1.54: see what Clear will archive"
+kind = "release"
+since = "0.1.54"
+tag = ""
+summary = """
+One short text post. The test shots have an error page in the page area and the highlight is subtle in a sidebar-only
+crop, so no card.
+"""
+order = """
+1. One afternoon post on a free day after LIVE, not on 5 Dec (two Today posts are there already).
+"""
+checked = """
+- 0.1.54's notes: pointing at Clear in the Today header lights up the tabs it would archive and the Today folders it
+  would leave empty; when the tab on screen is the only Today tab, Clear archives it too, with a small ↓ before Clear
+  as in Arc; Undo or ⌘Z brings it back.
+- "As in Arc" only for the ↓ (release066: Arc's notes describe only the ↓, not the hover highlight).
+"""
+
+[[post]]
+label = "See what Clear will archive"
+text = """
+Point at Clear in Airc's Today and the tabs it would archive light up first. If the tab you're on is the only one, a small ↓ warns that it goes too, as in Arc. Undo or ⌘Z brings everything back. New in Airc 0.1.54.
+"""

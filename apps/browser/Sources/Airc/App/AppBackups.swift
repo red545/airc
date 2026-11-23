@@ -12,6 +12,19 @@ extension AppSettings {
         if let purpose { return try store.writeBackup(to: backupDirectory, purpose: purpose) }
         return try store.backupIfNeeded(to: backupDirectory)
     }
+
+    /// Every folder that can hold this Mac's backups: the chosen one and the default (older backups stay there after
+    /// a change). A note picture any of them names is kept (NoteImages.collectGarbage). The default is left out while
+    /// it doesn't exist; a chosen folder never is, so one that's gone (a drive not plugged in) stops the sweep.
+    var backupFolders: [URL] {
+        var folders: [URL] = []
+        if FileManager.default.fileExists(atPath: AppPaths.backups.path) { folders.append(AppPaths.backups) }
+        if let chosen = values.backupFolder.map({ URL(fileURLWithPath: $0) }),
+           chosen.standardizedFileURL.path != AppPaths.backups.standardizedFileURL.path {
+            folders.append(chosen)
+        }
+        return folders
+    }
 }
 
 extension AppDelegate {

@@ -226,7 +226,7 @@ final class NoteCenter {
     }
 
     /// Launch: notes no row points at go, then pictures no note shows (unless a backup still names them).
-    static func collectGarbage(store: SpacesStore, backups: URL) {
+    static func collectGarbage(store: SpacesStore, backups: [URL]) {
         _ = try? store.removeOrphanNotes()
         NoteImages.collectGarbage(keeping: store.noteImageFiles, backups: backups)
     }
