@@ -101,6 +101,10 @@ final class AgentPaneLiveView: NSView {
     private let image = CALayer()
     private let liveBox = CALayer()
     private var live: (layer: CALayer, id: UInt32, flipped: Bool)?
+    /// The page the live layer comes from, opted in to keep a hidden view's last frame (engine patch 042): a
+    /// navigation to a new view must not empty the context the card shows before the new one exists (cardflicker).
+    /// Weak: the card never keeps a closed page alive.
+    private var heldTab: (tab: () -> EngineTab?, id: ObjectIdentifier, driver: AgentPageDriver)?
     private var pageSize = CGSize(width: 1280, height: 800)
     /// The copy's pixel size (its aspect places it).
     private var pictureSize: CGSize?
@@ -190,6 +194,7 @@ final class AgentPaneLiveView: NSView {
               let current = w.driver.liveContextID(tab, in: w.window), current != live?.id, let made = w.driver.liveLayer(tab, in: w.window) else { return }
         swapsByWatch += 1
         installLive(made)
+        hold(tab, w.driver)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -233,6 +238,7 @@ final class AgentPaneLiveView: NSView {
                 liveMissSince = nil
                 if live != nil { swapsByLoop += 1 }
                 installLive(made)
+                hold(tab, w.driver)
                 return again(interval)
             }
             if live != nil {
@@ -278,6 +284,7 @@ final class AgentPaneLiveView: NSView {
             live = nil
             liveBox.isHidden = true
         }
+        hold(nil, nil)
         mode = "copies"
         framesShown += 1
         CATransaction.commit()
@@ -308,8 +315,23 @@ final class AgentPaneLiveView: NSView {
         #endif
     }
 
+    /// Only the page the card shows live keeps hidden frames; any other (or none) is back to the engine's default.
+    private func hold(_ tab: EngineTab?, _ driver: AgentPageDriver?) {
+        let id = tab.map { ObjectIdentifier($0 as AnyObject) }
+        if let held = heldTab, held.id != id {
+            if let old = held.tab() { held.driver.holdFramesOnHide(old, false) }
+            heldTab = nil
+        }
+        if let tab, let id, let driver, heldTab == nil {
+            driver.holdFramesOnHide(tab, true)
+            weak var page = tab as AnyObject
+            heldTab = ({ page as? EngineTab }, id, driver)
+        }
+    }
+
     /// A new task (or none): nothing of the last one shows.
     private func clear() {
+        hold(nil, nil)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         live?.layer.removeFromSuperlayer()

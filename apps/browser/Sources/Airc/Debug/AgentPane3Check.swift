@@ -42,7 +42,17 @@ extension AgentPane2Check {
                 guard AgentPaneFlickerProbe.available else {
                     note("FAIL-ENV agentpane2 \(engine): flicker: no window-server pictures (AIRC_DISABLE_LEGACY_WINDOW_CAPTURE)"); return stopRun(done)
                 }
-                let probe = AgentPaneFlickerProbe(window: w, rect: rect, hz: 30)
+                let probe = AgentPaneFlickerProbe(window: w, rect: rect, hz: AgentPaneFlickerProbe.defaultHz)
+                // cardflicker: the agent window's own picture (its top 120 pt: marker and counter) in the same tick,
+                // and the hosts on every run-loop turn, to tell a blank of the card from one of the engine's output.
+                let agent = run.runWindowID.flatMap { AgentCenter.shared.windows[$0] }
+                if let aw = agent?.window, let main = NSScreen.screens.first {
+                    let f = aw.frame
+                    probe.follower = AgentPaneFlickerProbe(window: aw, rect: CGRect(x: f.minX, y: main.frame.maxY - f.maxY, width: f.width, height: 120), hz: probe.hz)
+                }
+                let trace = AgentPaneHostTrace(clock: { probe.elapsed }, agentWindow: { agent?.window }, card: { AgentPaneLiveView.current?.debugState ?? "none" })
+                let previousTabs = agent?.onTabsChanged
+                agent?.onTabsChanged = { previousTabs?(); trace.note("url \(agent?.activeTab?.url?.absoluteString ?? "-") loading \(agent?.activeTab?.isLoading == true)") }
                 let views0 = AgentPaneLiveView.made
                 probe.sampleState = { [weak self] in
                     let cur = AgentPaneLiveView.current
@@ -54,15 +64,25 @@ extension AgentPane2Check {
                 run.onEvent = { [weak self] e in
                     previous?(e)
                     probe.event(e)
+                    trace.note("event \(e)")
                     if e == "tool navigate", navAt == nil, self?.k.events.filter({ $0 == "tool navigate" }).count ?? 0 >= 2 { navAt = probe.elapsed }
                 }
                 note("agentpane2 \(engine): flicker: card \(NSStringFromRect(v.convert(v.bounds, to: nil))) in window #\(w.windowNumber) (key \(w.isKeyWindow)), mode \(v.mode), capture \(NSStringFromRect(rect))")
+                trace.start()
                 probe.start(seconds: 10) { [self] in
                     run.onEvent = previous
+                    trace.stop()
+                    agent?.onTabsChanged = previousTabs
                     let all = probe.summary()
                     let nav = navAt.map { probe.summary(from: $0, to: $0 + 1.5) }
                     let name = "agentpane2-flicker-\(engine)"
                     probe.write(to: runner.dir, name: name)
+                    try? trace.text.write(to: runner.dir.appendingPathComponent("\(name)-hosts.tsv"), atomically: true, encoding: .utf8)
+                    if let f = probe.follower {
+                        f.write(to: runner.dir, name: "\(name)-engine")
+                        note("agentpane2 \(engine): flicker: the agent window's own picture (diagnosis, not checked): \(f.summary().line)")
+                        for l in f.badLines() { note("agentpane2 \(engine): flicker engine bad frame \(l)") }
+                    }
                     note("agentpane2 \(engine): flicker: \(all.line)")
                     if let nav { note("agentpane2 \(engine): flicker: around the second navigation: \(nav.line)") }
                     note("agentpane2 \(engine): flicker: live card views made during the run: \(AgentPaneLiveView.made - views0), installs \(AgentPaneLiveView.installs)")

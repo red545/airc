@@ -162,6 +162,9 @@ protocol AgentPageDriver: AnyObject {
     func liveContextID(in window: NSWindow) -> UInt32?
     /// The context `liveLayer(tab, in:)` would show now: checked the same way it's made (agentux3).
     func liveContextID(_ tab: EngineTab, in window: NSWindow) -> UInt32?
+    /// While on, a view of this page that the engine hides (a navigation to a new view) keeps its last frame for a
+    /// moment, so a live layer on its context never shows it empty before the new context exists (cardflicker).
+    func holdFramesOnHide(_ tab: EngineTab, _ on: Bool)
 }
 
 extension AgentPageDriver {
@@ -171,6 +174,7 @@ extension AgentPageDriver {
     /// The context a live layer shows now (nil: none any more), so Watch can tell when to make a new one.
     func liveContextID(in window: NSWindow) -> UInt32? { nil }
     func liveContextID(_ tab: EngineTab, in window: NSWindow) -> UInt32? { liveContextID(in: window) }
+    func holdFramesOnHide(_ tab: EngineTab, _ on: Bool) {}
 
     /// A right click without the engine's context menu, which is a modal menu on the owner's screen: the page gets
     /// the mouse events and `contextmenu`, from a script.

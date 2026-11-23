@@ -115,6 +115,12 @@ final class ChromiumAgentDriver: AgentPageDriver {
         (Self.sourceHost(tab, in: window)?.value(forKey: "contextId") as? NSNumber)?.uint32Value
     }
 
+    /// Engine patch 042: the page's hidden views keep their last frame for 250 ms (only while on; stock otherwise).
+    func holdFramesOnHide(_ tab: EngineTab, _ on: Bool) {
+        guard let core = core(tab), !tab.isClosed, core.holdsFramesOnHide != on else { return }
+        core.holdsFramesOnHide = on
+    }
+
     func liveLayer(_ tab: EngineTab, in window: NSWindow) -> (layer: CALayer, id: UInt32, flipped: Bool)? {
         guard let cls = NSClassFromString("CALayerHost") as? CALayer.Type, let original = Self.sourceHost(tab, in: window),
               let id = (original.value(forKey: "contextId") as? NSNumber)?.uint32Value, id != 0 else { return nil }

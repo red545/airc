@@ -63,7 +63,7 @@ final class AgentPaneFlickerProbe {
     private let queue = DispatchQueue(label: "airc.flicker-probe", qos: .userInitiated)
     private var timer: DispatchSourceTimer?
     private var mainTimer: Timer?
-    private var started = 0.0
+    fileprivate(set) var started = 0.0
     private var captureIndex = 0
     /// Seconds since the record started.
     var elapsed: Double { CACurrentMediaTime() - started }
@@ -99,17 +99,12 @@ final class AgentPaneFlickerProbe {
         let wid = UInt32(window.windowNumber)
         let t = DispatchSource.makeTimerSource(queue: queue)
         t.schedule(deadline: .now(), repeating: 1 / hz, leeway: .milliseconds(2))
+        follower?.started = started
         t.setEventHandler { [weak self] in
             guard let self else { return }
-            let now = CACurrentMediaTime() - self.started
-            let img = Self.capture(wid, self.rect)
-            var f = img.map { self.analyse($0, t: now) } ?? Frame(t: now, verdict: "nocapture")
-            let i = self.captureIndex
-            if let img { self.keep(i, img, bad: f.verdict != "ok") }
-            if f.verdict == "ok", i == 150 { self.keepAfter = max(self.keepAfter, 12) }
-            f.t = now
-            self.lock.lock(); self.frames.append(f); self.lock.unlock()
-            self.captureIndex += 1
+            self.captureOne(wid)
+            // The follower's picture right after this one (cardflicker: the agent window's own output).
+            if let f = self.follower { f.captureOne(UInt32(f.window.windowNumber)) }
         }
         timer = t
         t.resume()
@@ -127,6 +122,28 @@ final class AgentPaneFlickerProbe {
                 DispatchQueue.main.async(execute: done)
             }
         }
+    }
+
+    /// One window-server picture, decoded and logged (the timer's queue).
+    private func captureOne(_ wid: UInt32) {
+        let now = CACurrentMediaTime() - started
+        let img = Self.capture(wid, rect)
+        var f = img.map { analyse($0, t: now) } ?? Frame(t: now, verdict: "nocapture")
+        let i = captureIndex
+        if let img { keep(i, img, bad: f.verdict != "ok") }
+        if f.verdict == "ok", i == 150 { keepAfter = max(keepAfter, 12) }
+        f.t = now
+        lock.lock(); frames.append(f); lock.unlock()
+        captureIndex += 1
+    }
+
+    /// A second probe (another window and rectangle) captured in the same tick, right after this one's picture, on
+    /// the same clock; it is never started itself (cardflicker: the agent window's own picture next to the card's).
+    var follower: AgentPaneFlickerProbe?
+
+    /// Pictures per second for the record: 30, or AIRC_FLICKER_HZ (cardflicker's 60 Hz diagnosis runs).
+    static var defaultHz: Double {
+        ProcessInfo.processInfo.environment["AIRC_FLICKER_HZ"].flatMap(Double.init).map { min(120, max(10, $0)) } ?? 30
     }
 
     private func keep(_ i: Int, _ img: CGImage, bad: Bool) {
