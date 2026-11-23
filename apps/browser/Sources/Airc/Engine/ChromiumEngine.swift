@@ -154,15 +154,6 @@ final class ChromiumEngine: BrowserEngine {
     func resolvePermission(_ id: String, result: String, remember: Bool) {
         AircEngine.resolvePermission(id, result: result, remember: remember)
     }
-    /// Another app's link: {id, url, scheme, origin, app, remember…} (engine/core/airc_external_apps.mm). Resolve each
-    /// id once; `remember` keeps "always allow" for the asking site (Chromium allows it only for a secure one).
-    var externalAppRequested: ((EngineTab, [String: Any]) -> Void)? {
-        get { ChromiumRuntime.externalAppHandler }
-        set { ChromiumRuntime.externalAppHandler = newValue }
-    }
-    func resolveExternalApp(_ id: String, open: Bool, remember: Bool) {
-        AircEngine.resolveExternalApp(id, open: open, remember: remember)
-    }
     /// The URL field's rectangle for the engine's own bubbles (PROFILE-SERVICES.md "Page/window UI"), and its screen
     /// rectangle as the engine converts it (zero for a view in another window).
     func uiAnchorRectInScreen(window: EngineWindow) -> NSRect {
@@ -784,25 +775,6 @@ final class ChromiumTab: NSObject, EngineTab, AircTabDelegate {
     func tab(_ tab: AircTab, didBlockPopup popup: [String: String]) {
         ChromiumSiteActivity.popupBlocked(self, core: tab, popup: popup)
     }
-    /// Another app's link ("Open “App”?", PagePrompts.swift): the app's prompt card asks; without one, nothing opens.
-    func tab(_ tab: AircTab, externalAppRequest request: [String: Any]) {
-        #if AIRC_TESTING
-        if ChromiumRuntime.externalAppsBefore { return }
-        #endif
-        guard !isClosed, let handler = ChromiumRuntime.externalAppHandler else {
-            if let id = request["id"] as? String { AircEngine.resolveExternalApp(id, open: false, remember: false) }
-            return
-        }
-        handler(self, request)
-    }
-    #if AIRC_TESTING
-    /// oauthapps' before arm (AIRC_EXTERNAL_APPS_BEFORE=1): the tab doesn't answer the engine's question, as before
-    /// the prompt existed, so the engine falls back to Chrome's own dialog.
-    override func responds(to selector: Selector!) -> Bool {
-        if ChromiumRuntime.externalAppsBefore, selector == NSSelectorFromString("tab:externalAppRequest:") { return false }
-        return super.responds(to: selector)
-    }
-    #endif
     func tabDidChangeZoom(_ tab: AircTab) { ChromiumSiteActivity.changed(self) }
     func tabDidChangeSecurity(_ tab: AircTab) { ChromiumSiteActivity.changed(self) }
     func tabDidChangeAudio(_ tab: AircTab) { delegate?.tabDidChangeAudio(self) }
@@ -899,11 +871,6 @@ final class ChromiumRuntime: NSObject, AircEngineDelegate {
     /// SB-3: the app's prompt presenter (PagePrompts.swift). Without one every request is dismissed.
     static var permissionHandler: ((EngineTab, [String: Any]) -> Void)?
     static var permissionDismissedHandler: ((String) -> Void)?
-    /// "Open “App”?" (WebKitEngine+ExternalApps.swift): the app's prompt center.
-    static var externalAppHandler: ((EngineTab, [String: Any]) -> Void)?
-    #if AIRC_TESTING
-    static let externalAppsBefore = ProcessInfo.processInfo.environment["AIRC_EXTERNAL_APPS_BEFORE"] == "1"
-    #endif
     func engine(_ engine: AircEngine, permissionRequest request: [String: Any], tab: AircTab) {
         guard let id = request["id"] as? String else { return }
         // The tab's delegate is its Swift wrapper (ChromiumTab sets itself), the page the app knows.

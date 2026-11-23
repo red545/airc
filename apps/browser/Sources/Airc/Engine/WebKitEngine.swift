@@ -1,9 +1,6 @@
 // Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
 import AppKit
 import CryptoKit
-#if AIRC_TESTING
-import Network
-#endif
 import WebKit
 import AircKit
 
@@ -127,24 +124,7 @@ final class WebKitProfile: EngineProfile {
         PasteAndMatchStyle.add(to: WKWebView.self)   // Edit › Paste and Match Style (Commands.swift)
         library.installMediaBridge()
         WebKitPageScripts.shared.attach(self)
-        #if AIRC_TESTING
-        Self.applyTestProxy(dataStore)
-        #endif
     }
-
-    #if AIRC_TESTING
-    /// Checks whose first page loads at launch (oauthapps' cold start: a link launches the app) set
-    /// AIRC_TEST_WEBKIT_PROXY="<port>:<domain>,<domain>": every profile's store sends those hosts to a loopback
-    /// CONNECT fixture from the start, as Chromium's --host-resolver-rules does (the multi-host fixture pattern).
-    static func applyTestProxy(_ store: WKWebsiteDataStore) {
-        guard let spec = ProcessInfo.processInfo.environment["AIRC_TEST_WEBKIT_PROXY"], let colon = spec.firstIndex(of: ":"),
-              let port = NWEndpoint.Port(String(spec[..<colon])) else { return }
-        var config = ProxyConfiguration(httpCONNECTProxy: .hostPort(host: "127.0.0.1", port: port))
-        config.matchDomains = spec[spec.index(after: colon)...].split(separator: ",").map(String.init)
-        config.allowFailover = false
-        store.proxyConfigurations = [config]
-    }
-    #endif
 
     func warmSpareRenderer() {}
 
@@ -810,13 +790,6 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  preferences: WKWebpagePreferences,
                  decisionHandler: @escaping (WKNavigationActionPolicy, WKWebpagePreferences) -> Void) {
-        // Another app's link (a desktop app's sign-in callback, zoommtg:, mailto:): WebKit can't load it, so the app asks
-        // "Open “App”?" as Chrome does, and opens it (WebKitEngine+ExternalApps.swift).
-        if let url = action.request.url, WebKitExternalApps.isExternal(url, in: webView) {
-            decisionHandler(.cancel, preferences)
-            WebKitExternalApps.handle(self, url: url, source: action.value(forKey: "sourceFrame") as? WKFrameInfo)
-            return
-        }
         // The Chromium build picks the engine for links that open tabs, and Peek for its pinned tabs.
         if action.navigationType == .linkActivated, let url = action.request.url, let policy = window?.linkPolicy {
             let disposition = LinkRouting.webKitDisposition(newFrame: action.targetFrame == nil,

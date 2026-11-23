@@ -21,8 +21,6 @@ enum PagePrompt: Equatable {
     case permission(Permission)
     case password(Password)
     case autofill(Autofill)
-    /// Another app's link: "Open “App”?" (WebKitEngine+ExternalApps.swift).
-    case externalApp(ExternalApp)
 
     struct Permission: Equatable {
         let id: String
@@ -55,25 +53,6 @@ enum PagePrompt: Equatable {
         let changes: [Change]
     }
 
-    struct ExternalApp: Equatable {
-        /// "x…": Chromium's request; "w…": WebKit's (WebKitExternalApps).
-        let id: String
-        let url: String
-        let scheme: String
-        /// The site that asked ("https://app.example"), nil when none did (an opaque or typed one).
-        let origin: String?
-        /// The app's name; nil: no app on this Mac opens these links.
-        let app: String?
-        /// "Always allow" is offered: a secure site, an app, not a private window.
-        let canRemember: Bool
-    }
-
-    init?(externalApp d: [String: Any]) {
-        guard let id = d["id"] as? String, let url = d["url"] as? String else { return nil }
-        self = .externalApp(ExternalApp(id: id, url: url, scheme: d["scheme"] as? String ?? "", origin: d["origin"] as? String,
-                                        app: d["app"] as? String, canRemember: d["remember"] is String))
-    }
-
     init?(permission d: [String: Any]) {
         guard let id = d["id"] as? String else { return nil }
         self = .permission(Permission(id: id, origin: d["origin"] as? String ?? "", kinds: d["permissions"] as? [String] ?? []))
@@ -101,7 +80,6 @@ enum PagePrompt: Equatable {
         case .permission(let p): p.origin
         case .password(let p): p.origin
         case .autofill: ""
-        case .externalApp(let e): e.origin ?? ""
         }
     }
 
@@ -111,7 +89,6 @@ enum PagePrompt: Equatable {
         case .permission(let p): "permission \(p.kinds.joined(separator: "+"))"
         case .password(let p): "password \(p.state)"
         case .autofill(let a): "autofill \(a.kind)"
-        case .externalApp(let e): "externalApp \(e.scheme)"
         }
     }
 
@@ -171,8 +148,6 @@ enum PromptAnswer: Equatable {
     case never
     /// Autofill: accept.
     case accept
-    /// Another app's link: open it, and with `remember` always allow the site for links of this type.
-    case open(remember: Bool)
     /// The × (and the page or tab going away).
     case dismiss
 }
@@ -182,8 +157,6 @@ enum PromptAnswer: Equatable {
 final class PromptCardModel: ObservableObject {
     @Published var prompt: PagePrompt
     @Published var username: String
-    /// "Always allow …" on an app link's card.
-    @Published var rememberApp = false
     let profileName: String?
     let ui: ResolvedTheme
     var onAnswer: ((PromptAnswer) -> Void)?
@@ -207,7 +180,6 @@ struct PromptCard: View {
             case .permission(let p): permission(p)
             case .password(let p): password(p)
             case .autofill(let a): autofill(a)
-            case .externalApp(let e): externalApp(e)
             }
         }
         .padding(16)
@@ -325,46 +297,6 @@ struct PromptCard: View {
         .padding(.horizontal, 10)
         .frame(height: 30)
         .background(RoundedRectangle(cornerRadius: AircRadius.control, style: .continuous).fill(ui.fieldFill.color))
-    }
-
-    // MARK: Another app's link (Chrome's copy)
-
-    @ViewBuilder private func externalApp(_ e: PagePrompt.ExternalApp) -> some View {
-        if let name = e.app {
-            header("arrow.up.forward.app", title: "Open “\(name)”?", subtitle: nil)
-            // Chrome's sentence, on its own lines: a long host name stays whole.
-            Text(e.origin.map { "\(PagePrompt.displayHost($0)) wants to open this application." } ?? "This page wants to open this application.")
-                .aircFont(AircFont.callout).foregroundStyle(ui.surfaceTextSecondary.color)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 10)
-            if e.canRemember, let origin = e.origin {
-                Toggle(isOn: $model.rememberApp) {
-                    Text("Always allow \(PagePrompt.displayHost(origin)) to open links of this type in the associated app")
-                        .aircFont(AircFont.callout).foregroundStyle(ui.surfaceText.color)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .toggleStyle(.checkbox)
-                .testAnchor("prompt.remember")
-                .padding(.top, 12)
-            }
-            HStack(spacing: 8) {
-                Spacer(minLength: 0)
-                Button("Cancel") { model.onAnswer?(.never) }
-                    .buttonStyle(.airc(.secondary)).testAnchor("prompt.cancel")
-                Button("Open \(name)") { model.onAnswer?(.open(remember: model.rememberApp)) }
-                    .buttonStyle(.airc(.primary)).testAnchor("prompt.open")
-            }
-            .padding(.top, 14)
-        } else {
-            header("questionmark.app", title: "No app opens this link",
-                   subtitle: "This Mac has no app for “\(e.scheme):” links.")
-            HStack(spacing: 8) {
-                Spacer(minLength: 0)
-                Button("OK") { model.onAnswer?(.dismiss) }
-                    .buttonStyle(.airc(.secondary)).testAnchor("prompt.ok")
-            }
-            .padding(.top, 14)
-        }
     }
 
     // MARK: Address and card
@@ -519,12 +451,6 @@ final class PromptPresenter {
         case .permission(let p): if list.contains(where: { if case .permission(let q) = $0 { q.id == p.id } else { false } }) { return }
         case .password: list.removeAll { if case .password = $0 { true } else { false } }
         case .autofill: list.removeAll { if case .autofill = $0 { true } else { false } }
-        case .externalApp(let e):
-            // One app link per page: a newer one replaces it (a page asking again), the older one unanswered.
-            if list.contains(where: { if case .externalApp(let o) = $0 { o.id == e.id } else { false } }) { return }
-            let older = list.filter { if case .externalApp = $0 { true } else { false } }
-            list.removeAll { if case .externalApp = $0 { true } else { false } }
-            older.forEach { center?.resolve($0, page: page, answer: .dismiss) }
         }
         list.append(prompt)
         queues[key] = (page, list)
@@ -650,8 +576,7 @@ final class PromptPresenter {
 
 // MARK: - Center (the app's routing)
 
-/// Routes the engine's prompts to the window that shows their page, and answers them. The Chromium engine asks for
-/// all of them; WebKit pages only for app links (WebKitExternalApps).
+/// Routes the engine's prompts to the window that shows their page, and answers them. Only the Chromium engine asks.
 final class PromptCenter {
     private var presenters: [() -> PromptPresenter?] = []
     /// Settings › Passwords: false for a page whose profile has Airc's saving and filling off (PasswordManagerOffer.swift).
@@ -665,14 +590,8 @@ final class PromptCenter {
     #endif
 
     init(engine: BrowserEngine) {
-        // WebKit pages (the WebKit engine, and the Chromium build's protected-media pages) ask for app links here too.
-        WebKitExternalApps.request = { [weak self] page, prompt in self?.deliver(prompt, page: page, attempt: 0) }
         #if canImport(AircCore)
         guard let chromium = engine as? ChromiumEngine else { return }
-        chromium.externalAppRequested = { [weak self] page, request in
-            guard let prompt = PagePrompt(externalApp: request) else { return }
-            self?.deliver(prompt, page: page, attempt: 0)
-        }
         self.engine = chromium
         chromium.permissionRequested = { [weak self] page, request in
             guard let prompt = PagePrompt(permission: request) else { return }
@@ -742,15 +661,6 @@ final class PromptCenter {
         #if AIRC_TESTING
         answered.append((prompt.label, answer))
         #endif
-        if case .externalApp(let e) = prompt {
-            var open = false, remember = false
-            if case .open(let r) = answer { open = true; remember = r && e.canRemember }
-            if e.id.hasPrefix("w") { return WebKitExternalApps.resolve(e.id, open: open, remember: remember) }
-            #if canImport(AircCore)
-            engine?.resolveExternalApp(e.id, open: open, remember: remember)
-            #endif
-            return
-        }
         #if canImport(AircCore)
         guard let engine else { return }
         switch prompt {
@@ -773,7 +683,6 @@ final class PromptCenter {
         case .autofill(let a):
             let action = answer == .accept ? "accept" : answer == .never ? "decline" : "dismiss"
             engine.resolveAutofillPrompt(in: page, id: a.id, action: action)
-        case .externalApp: break
         }
         #endif
     }

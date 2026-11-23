@@ -44,16 +44,3 @@ their own links.
   does Airc. Turn it off in **Settings → Links → Little Airc**.
 - **Settings → Links** decides where links from other apps open, and Air Traffic Control rules send a site's links to
   a Space.
-
-## Links that open another app
-
-A page can hand you to an app: a desktop app's sign-in ("You're signed in, return to the app"), a Zoom or Slack link,
-`mailto:`. Airc asks first, as Chrome does: **Open “App”?**, naming the site that asked, with **Open** and **Cancel**.
-On a secure site you can tick **Always allow … to open links of this type in the associated app**; that site's next
-link of that kind opens the app without asking, in that profile only (never in a private window). Nothing opens until
-you answer, and a link no app on your Mac handles says so instead.
-
-Signing in to a desktop app through Airc works like in Chrome when Airc is your default browser, whether or not Airc
-was running: the app's sign-in page opens in Little Airc (or where **Settings → Links** sends it), and its last page
-either opens the app (after **Open “App”?**), sends you back over a `http://127.0.0.1` address the app listens on, or
-closes itself.
