@@ -1,17 +1,22 @@
-# Airc 0.1.54 public beta
+# Airc 0.1.55 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update shows which tabs Clear will archive when you point at it, lets Clear archive a lone Today tab as in Arc,
-shows the tidy card as soon as Today gets long and fixes light sidebar menus in dark Spaces and lost note pictures
-with a chosen backup folder. It includes everything from 0.1.53. The release manifest records the exact build, source
-and checksums.
+This update makes signing in to desktop apps through Airc work, asking first before a website opens an app. It
+includes everything from 0.1.54. The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.53
+## New since 0.1.54
+
+- **Signing in to desktop apps through Airc works now.** When a website wants to open an app, as an app's sign-in
+  does when it hands back to the app through its own link, Airc now asks "Open “App”?" first, like Chrome. On a secure
+  site, **Always allow** remembers your choice for that site in this profile. Before, nothing happened and the app
+  never heard back. It also works when Airc wasn't open yet.
+
+## Included from 0.1.54
 
 - **Point at Clear to see exactly which tabs it will archive.** With the pointer on **Clear** in
   the Today header, the tabs it would move to the Archive light up, and so do the Today folders it would leave empty.
@@ -797,3 +802,5 @@ Source: `f9609b2253783b58a0ba7fee0eece637e7f1a104`. Build: `202611222125`. Chann
 Source: `0c1f3c2c950f71fa161ab798669f6f192a6505b3`. Build: `202611230318`. Channel: stable. Engine: official.
 
 Source: `5d8fa9dbd490a8c19928af6fe0855d4c7c0bf49f`. Build: `202611230853`. Channel: stable. Engine: official.
+
+Source: `ca0f2fc1348e6207ad977f18723b8d2e6b2ece2d`. Build: `202611231455`. Channel: stable. Engine: official.

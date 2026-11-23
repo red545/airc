@@ -88,12 +88,13 @@ final class SidebarRevealController {
     func layout() {
         guard let c = controller else { return }
         let b = c.root.bounds
-        edge.frame = c.mirroredForSidebar(NSRect(x: 0, y: 0, width: DesignGaps.revealEdge, height: b.height))
+        let top = c.fullScreen.topSafeInset   // WIN-3: below a notch in full screen
+        edge.frame = c.mirroredForSidebar(NSRect(x: 0, y: top, width: DesignGaps.revealEdge, height: max(0, b.height - top)))
         edge.isHidden = !(c.sidebarHidden && c.sidebarFraction <= 0.001)
         let w = c.sidebarWidth
         let x = AircMetrics.Sidebar.floatingInset - (w + AircMetrics.Sidebar.floatingInset + 4) * offset
-        floating.frame = c.mirroredForSidebar(NSRect(x: x, y: AircMetrics.Sidebar.floatingInset, width: w,
-                                                     height: b.height - 2 * AircMetrics.Sidebar.floatingInset))
+        floating.frame = c.mirroredForSidebar(NSRect(x: x, y: top + AircMetrics.Sidebar.floatingInset, width: w,
+                                                     height: max(0, b.height - top - 2 * AircMetrics.Sidebar.floatingInset)))
         floatingBackground.frame = floating.bounds
         if isRevealed { c.sidebar.frame = floating.bounds }
         // The downloads card and the update question sit above the sidebar's footer while it shows, this one too: they

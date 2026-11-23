@@ -8,7 +8,11 @@ import ObjectiveC
 /// - **Traffic lights.** In full screen AppKit moves the titlebar into a window of its own, which comes down with the
 ///   menu bar when the pointer reaches the top edge and goes back up with it. The buttons only have to stay unhidden
 ///   there (WindowController.positionTrafficLights), so they show exactly while the menu bar does. While that titlebar
-///   is down, the sidebar's toggle steps right of them, to its windowed place, and back when it goes up.
+///   is down, the sidebar's toggle steps right of them, to its windowed place, and back when it goes up. At rest (the
+///   pointer away from the top edge) nothing of it shows: above the screen with the menu bar hidden, transparent in the
+///   menu bar's band where the person's setting keeps the menu bar shown (Arc; `--script fsrest` asserts both with a
+///   real pointer, which brings it down from the screen's top row).
+/// - **Notch.** On a display with a camera housing, nothing of Airc sits behind it (`topSafeInset`).
 /// - **Esc** (Arc, arc_behavior_spec "Full screen"): a single Esc goes to the page (its dialog, its video); pressing it
 ///   twice within 0.5 s, or holding it for 0.6 s, leaves full screen. Esc that an Airc overlay or a text field uses
 ///   (Command Bar, find, cards, renaming) never counts. AppKit's own default, leaving on one Esc that nothing used, is
@@ -93,6 +97,32 @@ final class FullScreenController {
         exiting = false
         reveal?.onChange = { [weak self] amount in self?.revealChanged(amount) }
     }
+
+    // MARK: The notch
+
+    /// How far, in points, this full-screen window reaches up into its display's camera-housing band
+    /// (`NSScreen.safeAreaInsets.top`), which WindowController.layoutRoot keeps clear: the sidebar (its header row,
+    /// address field and ✦), the Library and the page start below it. 0 out of full screen, on displays without a
+    /// notch, and where macOS already puts the full-screen window below the notch.
+    var topSafeInset: CGFloat {
+        guard c.isFullscreen, let screen = c.window.screen ?? NSScreen.main else { return 0 }
+        let band = Self.safeAreaTop(of: screen)
+        guard band > 0 else { return 0 }
+        return max(0, min(band, c.window.frame.maxY - (screen.frame.maxY - band))).rounded(.up)
+    }
+
+    static func safeAreaTop(of screen: NSScreen) -> CGFloat {
+        #if AIRC_TESTING
+        if let simulated = simulatedSafeAreaTop { return simulated }
+        #endif
+        return screen.safeAreaInsets.top
+    }
+
+    #if AIRC_TESTING
+    /// A notch for displays without one (`--script fsrest`; `AIRC_SIMULATED_NOTCH=<points>` by hand).
+    static var simulatedSafeAreaTop: CGFloat? = ProcessInfo.processInfo.environment["AIRC_SIMULATED_NOTCH"]
+        .flatMap(Double.init).map { CGFloat($0) }
+    #endif
 
     // MARK: The titlebar coming down with the menu bar
 

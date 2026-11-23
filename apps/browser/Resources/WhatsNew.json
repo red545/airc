@@ -2,6 +2,17 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.55",
+      "highlights": [
+        {
+          "title": "Sign in to desktop apps",
+          "lead": "Signing in to desktop apps through Airc works now",
+          "detail": "When a website wants to open an app, such as an app's sign-in handing back to it, Airc asks first, like Chrome. Always allow remembers it for that site.",
+          "icon": "arrow.up.forward.app"
+        }
+      ]
+    },
+    {
       "version": "0.1.54",
       "highlights": [
         {

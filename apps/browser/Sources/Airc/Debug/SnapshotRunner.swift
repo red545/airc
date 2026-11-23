@@ -195,6 +195,7 @@ final class SnapshotRunner {
         case "extension": extensionScenario()
         case "fullscreen": fullScreenScenario()
         case "fullscreen-exit": fullscreenExitCheck()
+        case "fsrest": fullScreenRestScenario()   // WIN-3: lights off screen at rest, top-edge reveal, notch (real input)
         case "smoke": activateForRealInput(); smokeScenario()
         case "page-input": activateForRealInput(); waitForPage(); pageInput()
         case "dialogs":

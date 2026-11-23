@@ -646,5 +646,11 @@
     "detail": "In a dark Space, the sidebar's right-click menus and pop-ups are dark too. Note pictures used by backups in a folder you chose are kept.",
     "action": "none",
     "image": null
+  },
+  "Signing in to desktop apps through Airc works now": {
+    "title": "Sign in to desktop apps",
+    "detail": "When a website wants to open an app, such as an app's sign-in handing back to it, Airc asks first, like Chrome. Always allow remembers it for that site.",
+    "action": "none",
+    "image": null
   }
 }

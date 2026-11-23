@@ -347,21 +347,23 @@ final class WindowController: NSObject, NSWindowDelegate {
         let s = sidebarWidth
         let f = sidebarFraction
         // Laid out as for a sidebar on the left, then mirrored when it's on the right (WIN-5).
+        // WIN-3: in full screen nothing sits behind a notch (FullScreenController.topSafeInset; 0 everywhere else).
+        let top = fullScreen.topSafeInset
         if revealController?.isRevealed != true {
-            sidebar.frame = mirroredForSidebar(NSRect(x: -s * (1 - f), y: 0, width: s, height: b.height))
+            sidebar.frame = mirroredForSidebar(NSRect(x: -s * (1 - f), y: top, width: s, height: max(0, b.height - top)))
         }
         let i = AircMetrics.Window.cardInset
         // The Library slides in from the left at 417 pt and pushes the card (Arc ref §5).
         let lw = AircMetrics.Library.width
         let docked = i + (s - i) * f
         let x = docked + max(0, lw - docked) * libraryFraction
-        library?.frame = mirroredForSidebar(NSRect(x: -lw * (1 - libraryFraction), y: 0, width: lw, height: b.height))
+        library?.frame = mirroredForSidebar(NSRect(x: -lw * (1 - libraryFraction), y: top, width: lw, height: max(0, b.height - top)))
         // Fully out, it doesn't draw at all (its controls poked out at the window's edge otherwise).
         library?.isHidden = libraryFraction <= 0.001
         // The sidebar gives way to the Library, which draws on the window's own theme like the sidebar does.
         let sidebarAlpha = 1 - min(1, libraryFraction * 1.6)
         if sidebar.alphaValue != sidebarAlpha { sidebar.alphaValue = sidebarAlpha }
-        var pageFrame = mirroredForSidebar(NSRect(x: x, y: i, width: max(0, b.width - x - i), height: max(0, b.height - 2 * i)))
+        var pageFrame = mirroredForSidebar(NSRect(x: x, y: top + i, width: max(0, b.width - x - i), height: max(0, b.height - top - 2 * i)))
         // agentux: the Airc Agent pane takes its card beside the page (Agent/Pane/AgentPane.swift); nothing while closed.
         pageFrame = AgentPaneController.layout(self, page: pageFrame)
         if let toolbar = pageToolbar {
@@ -372,7 +374,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         card.frame = pageFrame
         updatedToast?.follow(card.frame)   // "Updated!" stays centred on the card (UpdateButton.swift)
         if shownSplitID != nil, splitContainer.frame != card.frame { splitContainer.frame = card.frame }
-        resizeHandle.frame = NSRect(x: (sidebarOnRight ? sidebar.frame.minX : sidebar.frame.maxX) - 4, y: 0, width: 8, height: b.height)
+        resizeHandle.frame = NSRect(x: (sidebarOnRight ? sidebar.frame.minX : sidebar.frame.maxX) - 4, y: top, width: 8, height: max(0, b.height - top))
         resizeHandle.isHidden = f < 1 || revealController?.isRevealed == true
         commandBar?.layoutIn(root.bounds, sidebarFrame: sidebar.frame, contentFrame: card.frame)
         if let spare = spareCommandBar, !spare.isLaidOut(in: root.bounds, contentFrame: card.frame) { scheduleSpareBarRefresh() }
