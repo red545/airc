@@ -4,13 +4,15 @@
 """Combine repeated run.py results into one results.json the status page reads (schema_version 1).
 
     python3 infra/perf/aggregate.py --output OUT RUN/results.json ... \
-        [--foreground RUN/results.json ...] [--ab LABEL=RUN/results.json ...]
+        [--foreground RUN/results.json ...] [--ab LABEL=RUN/results.json ...] [--baseline LABEL=EARLIER/results.json]
 
 Positional runs are the background reference runs (each Airc, chrome_8 and, when measured, airc_30 and chrome launch).
 Headline metrics are medians over the runs that measured them; `spread` keeps min, max and n, and `runs` keeps every
 run's own metrics. A run never fills another's missing value with zero. `--foreground` runs (run.py --foreground in a
 dedicated UI session) decide the timing budgets; their background values stay in the reason. `--ab` adds Airc-only
 comparison runs (e.g. mcp_off) as medians next to the reference. Budgets are recomputed by run.py's own rules.
+`--baseline` copies an earlier aggregate's headline values (same engine) into `baseline`, so the status page can show
+before → after next to today's values without editing any number.
 """
 import argparse, importlib.util, json, statistics
 from pathlib import Path
@@ -54,7 +56,18 @@ def combine(sides):
     return out
 
 
-def aggregate(paths, foreground=(), ab=()):
+def baseline_of(label, path):
+    """Headline values of an earlier aggregate (its medians, ratios, MEM-4 rows and budget verdicts), unchanged."""
+    old = json.loads(Path(path).read_text())
+    if old.get('schema_version') != 1: raise SystemExit(f'baseline {path}: not schema_version 1')
+    return {'label': label, 'source': str(path), 'timestamp': old.get('timestamp'), 'engine': old.get('engine'),
+            'machine': old.get('machine'), 'complete': old.get('complete'),
+            'metrics': {k: old[k].get('metrics', {}) for k in [*KEYS, 'foreground'] if isinstance(old.get(k), dict)},
+            'ratios': old.get('ratios', {}), 'mem4': old.get('mem4', {}),
+            'budgets': {b['id']: {'status': b.get('status'), 'value': b.get('value')} for b in old.get('budgets', [])}}
+
+
+def aggregate(paths, foreground=(), ab=(), baseline=None):
     runs = [json.loads(Path(p).read_text()) for p in paths]
     if not runs: raise SystemExit('no runs')
     engines = {r.get('engine') for r in runs}
@@ -115,6 +128,11 @@ def aggregate(paths, foreground=(), ab=()):
         data['notes'].append('Launches whose window stayed on screen during the samples are left out of the medians: '
                              + ', '.join(f'{k} {n}' for k, n in data['excluded_on_screen'].items() if n) + '.')
     data['complete'] = bool(clean and len(runs) >= 3 and data.get('mem4', {}).get('8', {}).get('verified'))
+    if baseline:
+        label, _, path = baseline.partition('=')
+        data['baseline'] = baseline_of(label, path)
+        if data['baseline']['engine'] != data['engine']:
+            raise SystemExit(f"baseline engine {data['baseline']['engine']} != {data['engine']}")
     return data
 
 
@@ -123,9 +141,10 @@ def main():
     p.add_argument('--output', type=Path, required=True)
     p.add_argument('--foreground', nargs='*', default=[])
     p.add_argument('--ab', action='append', default=[], help='LABEL=results.json (repeatable)')
+    p.add_argument('--baseline', help='LABEL=earlier aggregate results.json (same engine), shown as before → after')
     p.add_argument('runs', nargs='+')
     o = p.parse_args()
-    data = aggregate(o.runs, o.foreground, o.ab)
+    data = aggregate(o.runs, o.foreground, o.ab, o.baseline)
     o.output.mkdir(parents=True, exist_ok=True)
     (o.output / 'results.json').write_text(json.dumps(data, indent=2) + '\n')
     print(json.dumps({b['id']: [b['status'], b.get('value')] for b in data['budgets']}, indent=1))

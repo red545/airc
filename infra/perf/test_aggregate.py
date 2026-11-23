@@ -77,6 +77,28 @@ class AggregateTests(unittest.TestCase):
             self.assertIn('mcp_off', page)
             self.assertIn('perf/x/results.json', page)
 
+    def test_baseline_before_after(self):
+        sys.path.insert(0, str(Path(__file__).parents[1]))
+        from perf import status_section
+        with tempfile.TemporaryDirectory() as d:
+            old = agg.aggregate([self.write(d, f'o{i}', result(f'o{i}', 600, 600, 5000)) for i in range(3)])
+            base = self.write(d, 'base', old)
+            runs = [self.write(d, f'r{i}', result(f't{i}', 480, 600, 900)) for i in range(3)]
+            data = agg.aggregate(runs, baseline=f'13 Nov={base}')
+            self.assertEqual(data['baseline']['metrics']['airc']['total_mb'], 600)
+            self.assertEqual(data['baseline']['budgets']['launch']['status'], 'fail')
+            self.assertEqual(data['airc']['metrics']['total_mb'], 480)   # today's medians untouched
+            out = Path(d) / 'status/perf/x'; out.mkdir(parents=True); (Path(d) / 'status/runs').mkdir()
+            (out / 'results.json').write_text(json.dumps(data))
+            page = status_section.render(Path(d) / 'status/runs')
+            self.assertIn('13 Nov → today', page)
+            self.assertIn('600.00 → 480.00', page)
+            self.assertIn('1.00 → 0.80', page)       # Airc/Chrome ratio before → after
+            self.assertIn('fail (5000.00) → pass (900.00)', page)
+            other = dict(old, engine='webkit')
+            with self.assertRaises(SystemExit):
+                agg.aggregate(runs, baseline=f'x={self.write(d, "wk", other)}')
+
 
 if __name__ == '__main__':
     unittest.main()
