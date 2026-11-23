@@ -2,6 +2,17 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.53",
+      "highlights": [
+        {
+          "title": "Steady agent pane page",
+          "lead": "Fix: the live page in the agent pane no longer flashes blank when the agent opens a new page",
+          "detail": "On the Chromium engine, the live page in the agent pane (⌥⌘A or ✦) no longer flashes blank when the agent opens a new page.",
+          "icon": "sparkles"
+        }
+      ]
+    },
+    {
       "version": "0.1.52",
       "highlights": [
         {

@@ -622,5 +622,11 @@
     "detail": "Windows that Airc closed on its own could keep their pages in memory on the Chromium engine until you quit. That memory is now freed when the window closes.",
     "action": "none",
     "image": null
+  },
+  "Fix: the live page in the agent pane no longer flashes blank when the agent opens a new page": {
+    "title": "Steady agent pane page",
+    "detail": "On the Chromium engine, the live page in the agent pane (⌥⌘A or ✦) no longer flashes blank when the agent opens a new page.",
+    "action": "none",
+    "image": null
   }
 }
