@@ -208,6 +208,33 @@ final class ArcThemeTests: XCTestCase {
         XCTAssertEqual(t.colors.map(\.hex), ["#FF0000", "#0000FF", "#00FF00"])
         XCTAssertEqual(t.intensity, 0.5, accuracy: 1e-9)
         XCTAssertEqual(t.grain, 0.3, accuracy: 1e-9)
+        XCTAssertEqual(t.texture, .grain)
+    }
+
+    /// arctextures (TH-4): `modifiers.overlay` becomes the Space's texture, in every form Arc's JSON may hold it.
+    func testOverlayBecomesTheTexture() {
+        func theme(overlay: String?) -> SpaceTheme {
+            let modifiers = #""intensityFactor":0.7,"noiseFactor":0.6"# + (overlay.map { #","overlay":\#($0)"# } ?? "")
+            return ArcTheme.theme(from: json("""
+            {"background":{"single":{"_0":{"style":{"color":{"_0":{"blendedSingleColor":{"_0":{
+              "color":{"red":0.5,"green":0.6,"blue":0.7,"alpha":1},"modifiers":{\(modifiers)}}}}}}}}}}
+            """))
+        }
+        XCTAssertEqual(theme(overlay: #"{"grain":{}}"#).texture, .grain)
+        XCTAssertEqual(theme(overlay: #"{"sand":{}}"#).texture, .sand)
+        XCTAssertEqual(theme(overlay: #"{"denim":{}}"#).texture, .denim)
+        XCTAssertEqual(theme(overlay: #"{"tweed":{}}"#).texture, .tweed)
+        XCTAssertEqual(theme(overlay: #""tweed""#).texture, .tweed)
+        XCTAssertEqual(theme(overlay: #"{"_0":{"Denim":{}}}"#).texture, .denim)
+        XCTAssertEqual(theme(overlay: nil).texture, .grain)
+        XCTAssertEqual(theme(overlay: "{}").texture, .grain)
+        // A texture a later Arc adds is kept (and draws as grain).
+        let future = theme(overlay: #"{"velvet":{}}"#)
+        XCTAssertEqual(future.texture.rawValue, "velvet")
+        XCTAssertEqual(future.texture.effective, .grain)
+        // The rest of the theme is unchanged by the overlay.
+        XCTAssertEqual(theme(overlay: #"{"sand":{}}"#).grain, 0.6, accuracy: 1e-9)
+        XCTAssertEqual(theme(overlay: #"{"sand":{}}"#).intensity, 0.7, accuracy: 1e-9)
     }
 
     func testSingleColor() {

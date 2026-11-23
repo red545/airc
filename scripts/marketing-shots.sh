@@ -41,6 +41,7 @@ PARTS="$PARTS whatsnew"   # the What's new card after an update (Debug/Marketing
 PARTS="$PARTS agents"   # the sidebar's Agents folder and Watch (Debug/MarketingAgents.swift)
 PARTS="$PARTS calgrid"   # the calendar card's hour grid (Debug/MarketingCalGrid.swift)
 PARTS="$PARTS tidyhint"   # the sidebar's tidy card, light and dark (Debug/MarketingTidyHint.swift)
+PARTS="$PARTS textures"   # Arc's Space textures and the picker's texture swatches (Debug/MarketingTextures.swift)
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-build) BUILD=0 ;;
@@ -104,6 +105,8 @@ task-manager|Task Manager|Help › Troubleshooting › Open Task Manager over Wo
 tidy-tabs|Tidy Tabs|Tidy in Personal'"'"'s Today header: Apple'"'"'s on-device model groups the Today tabs into folders by topic at the top of Today, and ⌘Z puts them back
 tidy-hint|Tidy card|A long Today in Personal: the card at the top offers Tidy into folders, Archive idle tabs, Pin a site to Favorites and the auto-archive time, each with Undo
 tidy-hint-dark|Tidy card, dark|The same card in the dark Work Space
+space-textures|Space textures|Personal in Arc'"'"'s denim texture, with Edit Theme Color… open on its Grain, Sand, Denim and Tweed swatches
+space-textures-dark|Space textures, dark|The dark Work Space in tweed
 today-folders|Folders in Today|Personal'"'"'s Today with a Japan Trip folder open and a closed Reading folder: Today tabs in folders still archive like any Today tab
 profiles|Profiles|Create Profile, step 2: which Spaces move to the new profile, each in its own colour
 split-view-2|Split View|Two panes in Studio: Apple design pages beside Color theory

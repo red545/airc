@@ -3,7 +3,8 @@
 import AppKit
 import QuartzCore
 
-/// The themed window background: Arc's gradient (computed exactly, per pixel) plus grain. Put it behind the
+/// The themed window background: Arc's gradient (computed exactly, per pixel) plus the Space's texture (grain, sand,
+/// denim or tweed). Put it behind the
 /// sidebar and the page card, filling the window.
 ///
 /// ```swift
@@ -83,6 +84,7 @@ public final class SpaceBackgroundView: NSView {
             l.opacity = 0
             themeView.layer?.addSublayer(l)
         }
+        grainLayer.texture = theme.theme.texture
         themeView.layer?.addSublayer(grainLayer)
         underlayLayer.backgroundColor = theme.underlay.cgColor
         configureMaterial()
@@ -269,6 +271,7 @@ public final class SpaceBackgroundView: NSView {
         let reduce = reduceTransparencyOverride ?? AircTranslucency.systemReducesTransparency
         let grain = Float(theme.grainOpacity(isWindowActive: active))
         let underlay = Float(underlayTarget(active: active, reduce: reduce))
+        grainLayer.texture = theme.theme.texture  // a tile swap only when the Space's texture changed
         currentUnderlayOpacity = Double(underlay)
         if animated {
             for (layer, target) in [(grainLayer as CALayer, grain), (underlayLayer, underlay)] where layer.opacity != target {

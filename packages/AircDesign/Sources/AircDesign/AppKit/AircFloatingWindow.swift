@@ -348,6 +348,7 @@ final class AircExpansionOverlay: NSWindow {
         underlay.backgroundColor = theme.underlay.cgColor
         color.contents = theme.colorLayerImage(for: to.size)
         color.contentsGravity = .resize
+        grain.texture = theme.theme.texture
         grain.opacity = Float(theme.grainOpacity())
         grain.frame = CGRect(origin: .zero, size: CGSize(width: max(from.width, to.width), height: max(from.height, to.height)))
         snapshot.contents = image

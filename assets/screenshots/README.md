@@ -59,6 +59,8 @@ profiles through Create Profile instead).
 | `tidy-tabs.webp` | Tidy Tabs | Tidy in Personal's Today header: Apple's on-device model groups the Today tabs into folders by topic at the top of Today, and ⌘Z puts them back | 2026-11-10 | 202611100841 (822c7e5 + todayfolders) |
 | `tidy-hint.webp` | Tidy card | A long Today in Personal: the card at the top offers Tidy into folders, Archive idle tabs, Pin a site to Favorites and the auto-archive time, each with Undo | 2026-11-21 | 202611211418 (ec3c00f9) |
 | `tidy-hint-dark.webp` | Tidy card, dark | The same card in the dark Work Space | 2026-11-21 | 202611211418 (ec3c00f9) |
+| `space-textures.webp` | Space textures | Personal in Arc's denim texture, with Edit Theme Color… open on its Grain, Sand, Denim and Tweed swatches | 2026-11-23 | 202611231420 (56b466f2 + arctextures) |
+| `space-textures-dark.webp` | Space textures, dark | The dark Work Space in tweed | 2026-11-23 | 202611231420 (56b466f2 + arctextures) |
 | `today-folders.webp` | Folders in Today | Personal's Today with a Japan Trip folder open and a closed Reading folder: Today tabs in folders still archive like any Today tab | 2026-11-10 | 202611100841 (822c7e5 + todayfolders) |
 | `profiles.webp` | Profiles | Create Profile, step 2: which Spaces move to the new profile, each in its own colour | 2026-11-06 | 202611061538 (6312e1a) |
 | `split-view-2.webp` | Split View | Two panes in Studio: Apple design pages beside Color theory | 2026-11-06 | 202611061538 (6312e1a) |

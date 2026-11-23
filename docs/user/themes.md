@@ -1,9 +1,16 @@
 # Space themes
 
 Every Space has its own colors. Click the Space's name in the sidebar, choose **Theme…**, and drag the handles on the
-color disc: up to three colors, **Auto**, **Light** or **Dark**, how strong the color is (intensity) and how much grain.
-The window recolors as you drag. Airc draws themes the way Arc did: the colors blend on a diagonal over the macOS window
-blur, with the grain on top.
+color disc: up to three colors, **Auto**, **Light** or **Dark**, how strong the color is (intensity), a texture and how
+much of it. The window recolors as you drag. Airc draws themes the way Arc did: the colors blend on a diagonal over the
+macOS window blur, with the texture on top.
+
+## Textures
+
+The four small swatches beside the grain dial are Arc's textures: **Grain**, **Sand**, **Denim** and **Tweed**. Pick
+one, then turn the dial to set how strongly it shows (picking a texture while the dial is at zero turns it halfway).
+Each draws at Arc's own strength, so sand stays a soft speckle while denim and tweed read as cloth. Spaces imported
+from Arc keep their texture. A window in the background shows its texture more faintly, as Arc's did.
 
 ## Light, dark and automatic
 

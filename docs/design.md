@@ -138,8 +138,13 @@ imported themes look identical.
 2. **Colour layer:** colours 1 → 2 blend **in OKLab** along a true 45° diagonal (top-left → bottom-right,
    whatever the window's shape) and reach colour 2 at 75 %. Colour 3 fades in from transparent at the top
    to opaque at the bottom. The layer is drawn at **0.2 + 0.55 × intensity** (0.6455 at the default).
-3. **Grain:** a 128 pt tile of light and dark specks at `grain × texture strength × 0.55`, a quarter of
-   that in an inactive window.
+3. **Texture:** `grain × texture strength × layerScale`, a quarter of that in an inactive window.
+   - Grain: a 128 pt tile of light and dark specks, `layerScale` 0.55 (unchanged).
+   - Sand, denim, tweed (arctextures, TH-4): Arc multiplies its texture image in; a multiply by t is black at alpha
+     1 − t, so each tile (`AircTextures`, procedural, built once per process) is black at alpha 1 − t and
+     `layerScale` is 1. Each tile matches Arc 1.171's image: mean t sand 0.656, denim 0.841, tweed 0.706 (darkening
+     0.344 / 0.159 / 0.294 at full strength) and their spread, structure and scale (sand: soft speckle; denim: a
+     5 px twill at ≈ 42°; tweed: flecks over a 16 × 8 px weave). Sand's image darkens 5× grain's.
 
 `ResolvedTheme.backgroundImage(for:)` computes this per pixel. `SpaceBackgroundView` (AppKit) and
 `SpaceBackground` (SwiftUI) draw it with the grain. The Mint preset renders exactly `#90DDC1`, the colour of

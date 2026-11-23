@@ -255,7 +255,67 @@ public struct AircGrainDial: View {
     }
 }
 
-/// The whole picker panel: colour field, − / + (1–3 colours), Auto · Light · Dark, presets, intensity and grain.
+/// Arc's textures (TH-4): grain, sand, denim and tweed as four small swatches beside the grain dial, each drawn with its
+/// own tile over the Space's colour. The dial sets how strongly the chosen one shows; picking a texture while the dial is
+/// at 0 turns it to ½, so the choice is visible.
+public struct AircTexturePicker: View {
+    @Binding private var texture: SpaceTheme.Texture
+    @Binding private var grain: Double
+    private let base: AircColor
+    @Environment(\.aircTheme) private var theme
+
+    public init(texture: Binding<SpaceTheme.Texture>, grain: Binding<Double>, base: AircColor) {
+        _texture = texture
+        _grain = grain
+        self.base = base
+    }
+
+    static let swatch: CGFloat = 18
+    static let gap: CGFloat = 4
+
+    public var body: some View {
+        let all = SpaceTheme.Texture.allCases
+        VStack(spacing: Self.gap) {
+            ForEach(0..<2, id: \.self) { row in
+                HStack(spacing: Self.gap) {
+                    ForEach(all[(row * 2)..<(row * 2 + 2)], id: \.self) { t in swatch(t) }
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Texture")
+    }
+
+    private func swatch(_ t: SpaceTheme.Texture) -> some View {
+        let selected = t == texture
+        return Button {
+            withAircAnimation(AircSpring.toggle) {
+                texture = t
+                if grain <= 0 { grain = 0.5 }
+            }
+        } label: {
+            ZStack {
+                Circle().fill(base.color)
+                // At full strength, a little stronger than the window draws it, so an 18 pt swatch reads.
+                Image(decorative: t.tile.image, scale: 2)
+                    .resizable(resizingMode: .tile)
+                    .opacity(min(1, t.strength * t.layerScale * 1.6))
+                    .clipShape(Circle())
+            }
+            .frame(width: Self.swatch, height: Self.swatch)
+            .overlay(Circle().inset(by: 0.25).stroke(theme.surfaceBorder.color, lineWidth: 0.5))
+            .padding(2)
+            .overlay(Circle().stroke(theme.surfaceText.alpha(selected ? 0.75 : 0).color, lineWidth: 1.5))
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(t.name)
+        .accessibilityLabel(t.name)
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
+}
+
+/// The whole picker panel: colour field, − / + (1–3 colours), Auto · Light · Dark, presets, intensity, texture and grain.
 /// Bind it to the Space's theme; the window follows every change.
 ///
 /// The panel resolves its own chrome from the theme being edited (so a dark Space gets a dark panel, as in Arc), and
@@ -361,6 +421,8 @@ public struct AircThemePicker: View {
                     Text("Intensity").aircFont(AircFont.caption).foregroundStyle(ui.surfaceTextTertiary.color)
                     AircIntensityWave(value: $theme.intensity, tint: ui.accent)
                 }
+                AircTexturePicker(texture: $theme.texture, grain: $theme.grain,
+                                  base: theme.colors.first ?? ui.surfaceHover.alpha(1))
                 AircGrainDial(value: $theme.grain)
             }
         }

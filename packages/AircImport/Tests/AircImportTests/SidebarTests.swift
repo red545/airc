@@ -2,6 +2,7 @@
 
 import XCTest
 @testable import AircImport
+import AircKit
 
 final class SidebarTests: XCTestCase {
     func fixture() throws -> Data { try Data(contentsOf: Bundle.module.url(forResource: "StorableSidebar.sample", withExtension: "json", subdirectory: "Fixtures")!) }
@@ -97,6 +98,40 @@ final class SidebarTests: XCTestCase {
         let p = try parse(simple(spaces: [["id": "S", "customInfo": ["windowTheme": theme]]]))
         XCTAssertEqual(p.spaces[0].theme.colors, ["#ff0000", "#0000ff"])
         XCTAssertEqual(p.spaces[0].theme.raw, jsonValue(theme))
+    }
+    /// arctextures (TH-4): a synthetic Arc sidebar with one Space per texture. The parser keeps each `windowTheme` whole,
+    /// and the import's theme reader (AircKit ArcTheme, as ImportAdapter calls it) gives each Space its texture.
+    func testEveryArcTextureImports() throws {
+        func windowTheme(_ overlay: String, noise: Double) -> [String: Any] {
+            ["background": ["single": ["_0": ["style": ["color": ["_0": ["blendedGradient": ["_0": [
+                "baseColors": [["red": 0.9, "green": 0.6, "blue": 0.4, "alpha": 1]],
+                "overlayColors": [["red": 0.3, "green": 0.5, "blue": 0.9, "alpha": 1]],
+                "modifiers": ["intensityFactor": 0.81, "noiseFactor": noise, "overlay": [overlay: [String: Any]()]],
+            ]]]]]]]]]
+        }
+        let textures = ["grain", "sand", "denim", "tweed"]
+        let spaces: [Any] = textures.enumerated().map { i, t in
+            ["id": "S\(i)", "title": t.capitalized, "customInfo": ["windowTheme": windowTheme(t, noise: 0.25 * Double(i + 1))]]
+        }
+        // JSONValue → Foundation, as ImportAdapter.swift's `foundation` does in the app.
+        func foundation(_ v: JSONValue) -> Any {
+            switch v {
+            case .object(let o): o.mapValues(foundation)
+            case .array(let a): a.map(foundation)
+            case .string(let s): s
+            case .number(let n): n
+            case .bool(let b): b
+            case .null: NSNull()
+            }
+        }
+        let p = try parse(simple(spaces: spaces))
+        XCTAssertEqual(p.spaces.count, 4)
+        for (i, space) in p.spaces.enumerated() {
+            let theme = ArcTheme.theme(from: space.theme.raw.map(foundation), fallbackColors: space.theme.colors)
+            XCTAssertEqual(theme.texture.rawValue, textures[i], space.name)
+            XCTAssertEqual(theme.grain, 0.25 * Double(i + 1), accuracy: 1e-9, space.name)
+            XCTAssertEqual(theme.colors.count, 2, space.name)
+        }
     }
     func testProfileDiscovery() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

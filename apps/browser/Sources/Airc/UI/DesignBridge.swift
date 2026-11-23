@@ -25,7 +25,8 @@ extension AircKit.SpaceTheme {
         case .light: .light
         case .dark: .dark
         }
-        return DesignTheme(colors: colors.map(\.aircColor), intensity: intensity, grain: grain, appearance: appearance)
+        return DesignTheme(colors: colors.map(\.aircColor), intensity: intensity, grain: grain,
+                           texture: DesignTheme.Texture(rawValue: texture.effective.rawValue) ?? .grain, appearance: appearance)
     }
 }
 
@@ -37,7 +38,8 @@ extension DesignTheme {
         case .light: .light
         case .dark: .dark
         }
-        return AircKit.SpaceTheme(colors: colors.map(RGBA.init), intensity: intensity, grain: grain, appearance: a)
+        return AircKit.SpaceTheme(colors: colors.map(RGBA.init), intensity: intensity, grain: grain,
+                                  texture: SpaceTexture(rawValue: texture.rawValue), appearance: a)
     }
 }
 
