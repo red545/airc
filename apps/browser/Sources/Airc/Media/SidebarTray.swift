@@ -46,7 +46,16 @@ final class SidebarTrayView: NSView {
         contentChanged()
     }
 
+    /// spaceswitch: closed (no players, downloads or casts), the tray keeps the theme for later instead of re-rendering
+    /// its SwiftUI view in every Space switch; `contentChanged` applies it in the same turn as the rows that open it.
+    private var pendingTheme: ResolvedTheme?
+
     func setTheme(_ theme: ResolvedTheme) {
+        if SidebarAgentsView.defersClosedTheme, target == 0, height == 0, model.plan.rows == 0, model.casts.isEmpty {
+            pendingTheme = model.theme == theme ? nil : theme
+            return
+        }
+        pendingTheme = nil
         if model.theme != theme { model.theme = theme }
     }
 
@@ -56,10 +65,15 @@ final class SidebarTrayView: NSView {
         let compact = (superview?.bounds.height ?? 900) < 620
         let plan = TrayPlan(players: library.media?.players ?? [], downloads: library.downloads?.sidebarItems ?? [],
                             maxPlayers: compact ? 1 : 3)
-        if plan != model.plan { model.plan = plan }
-        model.casts = CastCenter.shared.sessions.filter { session in
+        let casts = CastCenter.shared.sessions.filter { session in
             (controller?.promptShownPage as? CastEngineTab)?.castProfileKey == session.profile
         }
+        if let theme = pendingTheme, plan.rows > 0 || !casts.isEmpty {
+            pendingTheme = nil
+            if model.theme != theme { model.theme = theme }
+        }
+        if plan != model.plan { model.plan = plan }
+        if casts != model.casts { model.casts = casts }
         let h = plan.height + CGFloat(model.casts.count) * (Self.rowHeight + Self.gap)
         guard h != target else { return }
         target = h

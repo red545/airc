@@ -62,13 +62,36 @@ final class SidebarAgentsView: NSView {
     /// The window's chrome changed (WindowController.refreshChrome: a Space switch, a theme, a shown tab).
     func chromeChanged() {
         guard let c = controller else { return }
-        let theme = c.currentPalette.resolved
-        if model.theme != theme { model.theme = theme }
+        setTheme(c.currentPalette.resolved)
         if let watch, watch.shownTabAtOpen != c.shownTabID { closeWatch() }   // the person picked one of their tabs
         if model.profileID != c.store.space(c.currentSpaceID)?.profileID || model.spaceID != c.currentSpaceID { refresh() }
         let shown = AgentTasksURL.taskID(c.shownTabID.flatMap { c.store.tab($0)?.url })
         if model.shownTaskID != shown { model.shownTaskID = shown }
     }
+
+    /// spaceswitch: closed (no rows, nothing on screen), the folder keeps the theme for later instead of re-rendering
+    /// its SwiftUI view in every Space switch (~1 ms of each switch's frame); `refresh` applies it in the same turn
+    /// as the rows that open it, so its first frame has the right colours.
+    private var pendingTheme: ResolvedTheme?
+    private var isClosed: Bool { target == 0 && height == 0 && model.items.isEmpty && model.tasks.isEmpty }
+
+    private func setTheme(_ theme: ResolvedTheme) {
+        if Self.defersClosedTheme, isClosed {
+            pendingTheme = model.theme == theme ? nil : theme
+            return
+        }
+        pendingTheme = nil
+        if model.theme != theme { model.theme = theme }
+    }
+
+    /// Test builds can re-render it on every switch the old way (`AIRC_SPACE_SWITCH_BASELINE=1`), to compare both in one binary.
+    static let defersClosedTheme: Bool = {
+        #if AIRC_TESTING
+        return ProcessInfo.processInfo.environment["AIRC_SPACE_SWITCH_BASELINE"] != "1"
+        #else
+        return true
+        #endif
+    }()
 
     /// Rows and height from the activity model.
     func refresh() {
@@ -84,6 +107,10 @@ final class SidebarAgentsView: NSView {
         if tasks != model.tasks { model.tasks = tasks }
         let items = rows.map { r in AgentsFolderModel.Item(row: r, state: activity.model.state(r, now: now),
                                                            stopped: r.clientKey.map(AgentCenter.shared.isStopped) ?? false) }
+        if let theme = pendingTheme, !items.isEmpty || !tasks.isEmpty {
+            pendingTheme = nil
+            if model.theme != theme { model.theme = theme }
+        }
         if items != model.items { model.items = items }
         if model.watchingID != watch?.rowID { model.watchingID = watch?.rowID }
         if let watch, let row = activity.model.row(watch.rowID) { watch.update(row: row, state: activity.model.state(row, now: now)) }
