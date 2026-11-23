@@ -2,6 +2,30 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.54",
+      "highlights": [
+        {
+          "title": "Clear shows what goes",
+          "lead": "Point at Clear to see exactly which tabs it will archive",
+          "detail": "Point at Clear in the Today header to light up the tabs it will archive. When only one Today tab is left, Clear archives it too (Undo brings it back).",
+          "icon": "eye",
+          "image": "clear-preview"
+        },
+        {
+          "title": "Tidy card right away",
+          "lead": "The tidy card now appears as soon as Today gets long",
+          "detail": "The card that offers to tidy Today now shows as soon as Today gets longer than the sidebar, not a step later.",
+          "icon": "rectangle.stack"
+        },
+        {
+          "title": "Dark menus in dark Spaces",
+          "lead": "Fixes: sidebar menus follow a dark Space, and note pictures are kept for backups in a folder you chose",
+          "detail": "In a dark Space, the sidebar's right-click menus and pop-ups are dark too. Note pictures used by backups in a folder you chose are kept.",
+          "icon": "square.stack.3d.up"
+        }
+      ]
+    },
+    {
       "version": "0.1.53",
       "highlights": [
         {

@@ -628,5 +628,23 @@
     "detail": "On the Chromium engine, the live page in the agent pane (⌥⌘A or ✦) no longer flashes blank when the agent opens a new page.",
     "action": "none",
     "image": null
+  },
+  "Point at Clear to see exactly which tabs it will archive": {
+    "title": "Clear shows what goes",
+    "detail": "Point at Clear in the Today header to light up the tabs it will archive. When only one Today tab is left, Clear archives it too (Undo brings it back).",
+    "action": "none",
+    "image": "clear-preview"
+  },
+  "The tidy card now appears as soon as Today gets long": {
+    "title": "Tidy card right away",
+    "detail": "The card that offers to tidy Today now shows as soon as Today gets longer than the sidebar, not a step later.",
+    "action": "none",
+    "image": null
+  },
+  "Fixes: sidebar menus follow a dark Space, and note pictures are kept for backups in a folder you chose": {
+    "title": "Dark menus in dark Spaces",
+    "detail": "In a dark Space, the sidebar's right-click menus and pop-ups are dark too. Note pictures used by backups in a folder you chose are kept.",
+    "action": "none",
+    "image": null
   }
 }
