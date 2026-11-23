@@ -856,7 +856,5 @@ extension AgentRunCenter {
     /// Checks: the CLI's process (for "the process group is gone after Stop").
     var cliPIDForTesting: pid_t? { cli?.pid }
     var cliSessionForTesting: String? { cli?.sessionID }
-    /// Checks: the conversation's items as the next request sends them (Anthropic messages or OpenAI input).
-    var conversationItemsForTesting: [[String: Any]] { conversation?.items ?? [] }
     #endif
 }
