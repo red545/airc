@@ -6,7 +6,7 @@ import Foundation
 ///
 /// Arc stores `windowTheme.background.single._0.style.color._0` as either `blendedSingleColor{color, modifiers}`
 /// or `blendedGradient{baseColors[], overlayColors[], modifiers}`, with `modifiers.intensityFactor`,
-/// `modifiers.noiseFactor` and `modifiers.overlay` (Arc ref §4.2; the overlay is the texture). Older files only have
+/// `modifiers.noiseFactor` and `modifiers.overlay` (Arc ref §4.2). Older files only have
 /// `primaryColorPalette.midTone`. Colours are `{red, green, blue, alpha}` in 0…1. The input is JSON as
 /// `JSONSerialization` returns it.
 public enum ArcTheme {
@@ -25,8 +25,7 @@ public enum ArcTheme {
             let intensity = number(m["intensityFactor"]) ?? SpaceTheme.defaultIntensity
             let grain = number(m["noiseFactor"]) ?? 0
             if !colors.isEmpty {
-                return SpaceTheme(colors: Array(colors.prefix(3)), intensity: intensity, grain: grain,
-                                  texture: texture(m["overlay"]), appearance: appearance(root))
+                return SpaceTheme(colors: Array(colors.prefix(3)), intensity: intensity, grain: grain, appearance: appearance(root))
             }
         }
         if let mid = color(unwrap(root["primaryColorPalette"])["midTone"]) {
@@ -40,16 +39,6 @@ public enum ArcTheme {
     /// centre), and the keys read here before were guesses with no Arc file behind them; a "light" in one of them pinned
     /// imported Spaces light under a dark Mac. A Space can still choose its own in Edit Theme Color….
     static func appearance(_ root: [String: Any]) -> Appearance { .auto }
-
-    /// Arc's `modifiers.overlay` (TH-4): a Swift enum without payload, `{"sand": {}}`, or a bare string. Kept as Arc wrote
-    /// it, lowercased: a texture this build doesn't know stays in the theme (and draws as grain). Missing is grain.
-    static func texture(_ v: Any?) -> SpaceTexture {
-        guard let raw = label(v)?.trimmingCharacters(in: .whitespaces), !raw.isEmpty, raw != "_0" else {
-            if let o = v as? [String: Any], o.count == 1, let inner = o["_0"] { return texture(inner) }
-            return .grain
-        }
-        return SpaceTexture(rawValue: raw.lowercased())
-    }
 
     /// `{"_0": x}` → x (Swift enum payloads in Arc's JSON).
     static func unwrap(_ v: Any?) -> [String: Any] {

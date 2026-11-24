@@ -816,5 +816,3 @@ Source: `0c1f3c2c950f71fa161ab798669f6f192a6505b3`. Build: `202611230318`. Chann
 Source: `5d8fa9dbd490a8c19928af6fe0855d4c7c0bf49f`. Build: `202611230853`. Channel: stable. Engine: official.
 
 Source: `ca0f2fc1348e6207ad977f18723b8d2e6b2ece2d`. Build: `202611231455`. Channel: stable. Engine: official.
-
-Source: `db46f9018d915a7363668b50ffb591c3888dc4b7`. Build: `202611240050`. Channel: stable. Engine: official.

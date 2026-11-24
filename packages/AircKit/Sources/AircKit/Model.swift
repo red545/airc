@@ -45,82 +45,22 @@ public enum Appearance: String, Codable, Hashable, Sendable, CaseIterable {
     case auto, light, dark
 }
 
-/// Arc's background texture (`modifiers.overlay`, TH-4): grain, sand, denim or tweed, drawn at `SpaceTheme.grain`.
-///
-/// A struct over its stored string, not an enum (archivenever's lesson): themes sync between Macs and live in backups,
-/// so a build must read a texture a newer Airc wrote, draw it as grain (`effective`), and keep and send back that exact
-/// string, never its fallback. Never rename a raw value.
-public struct SpaceTexture: RawRepresentable, Codable, Hashable, Sendable, CaseIterable {
-    public let rawValue: String
-    public init(rawValue: String) { self.rawValue = rawValue }
-
-    public static let grain = SpaceTexture(rawValue: "grain")
-    public static let sand = SpaceTexture(rawValue: "sand")
-    public static let denim = SpaceTexture(rawValue: "denim")
-    public static let tweed = SpaceTexture(rawValue: "tweed")
-
-    /// Every texture this build draws, in the picker's order (Arc's).
-    public static let allCases: [SpaceTexture] = [.grain, .sand, .denim, .tweed]
-
-    /// Whether this build knows the texture.
-    public var isKnown: Bool { Self.allCases.contains(self) }
-    /// What this build draws: the texture, or grain for one a newer Airc set.
-    public var effective: SpaceTexture { isKnown ? self : .grain }
-
-    /// A string decodes as itself, known or not; anything else (a newer build's richer value) reads as grain.
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.singleValueContainer()
-        rawValue = (try? c.decode(String.self)) ?? Self.grain.rawValue
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var c = encoder.singleValueContainer()
-        try c.encode(rawValue)
-    }
-}
-
 /// A Space's theme (TH-1, TH-2): up to three colours mixed in OKLab on a 45° diagonal.
 public struct SpaceTheme: Codable, Hashable, Sendable {
     /// 0–3 colours. Empty means Arc's neutral default theme.
     public var colors: [RGBA]
     /// 0...1. Arc's default is 0.81.
     public var intensity: Double
-    /// 0...1 noise strength (Arc's `noiseFactor`): how strongly `texture` shows.
+    /// 0...1 noise strength.
     public var grain: Double
-    /// Arc's texture (TH-4). Grain unless the Space chose (or imported) another.
-    public var texture: SpaceTexture
     public var appearance: Appearance
 
     public init(colors: [RGBA], intensity: Double = SpaceTheme.defaultIntensity, grain: Double = 0,
-                texture: SpaceTexture = .grain, appearance: Appearance = .auto) {
+                appearance: Appearance = .auto) {
         self.colors = Array(colors.prefix(3))
         self.intensity = min(max(intensity, 0), 1)
         self.grain = min(max(grain, 0), 1)
-        self.texture = texture
         self.appearance = appearance
-    }
-
-    private enum CodingKeys: String, CodingKey { case colors, intensity, grain, texture, appearance }
-
-    /// arctextures: `texture` is optional on disk and over sync. Rows and backups from before it read as grain; an
-    /// unreadable value reads as grain instead of failing the Space. The other keys decode exactly as before.
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        colors = try c.decode([RGBA].self, forKey: .colors)
-        intensity = try c.decode(Double.self, forKey: .intensity)
-        grain = try c.decode(Double.self, forKey: .grain)
-        texture = (try? c.decodeIfPresent(SpaceTexture.self, forKey: .texture)) ?? .grain
-        appearance = try c.decode(Appearance.self, forKey: .appearance)
-    }
-
-    /// Grain is left out, so a grain theme encodes byte for byte as it did before textures existed.
-    public func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(colors, forKey: .colors)
-        try c.encode(intensity, forKey: .intensity)
-        try c.encode(grain, forKey: .grain)
-        if texture != .grain { try c.encode(texture, forKey: .texture) }
-        try c.encode(appearance, forKey: .appearance)
     }
 
     public static let defaultIntensity = 0.81

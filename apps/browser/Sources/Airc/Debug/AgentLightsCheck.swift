@@ -267,17 +267,11 @@ final class AgentLightsCheck {
         // window whose card isn't laid out (zero), as a just-made window has it.
         let shown = AgentActivity.shared.banners.last
         note("agentlights \(engine): banner \(shown ?? "none yet")")
-        // watchfix: the real "is using Airc" banner can still be up (agent windows now install a page part first, so it
-        // comes a little later): the zero-rect case starts once no toast shows, waiting at most 12 s (logged).
-        let t0 = Date()
-        wait({ self.c.toast.shownText == nil }, 12) { [self] in
-            note("agentlights \(engine): banner cleared after \(Int(Date().timeIntervalSince(t0) * 1000)) ms (still shown: \(c.toast.shownText ?? "none"))")
-            c.toast.show("agentlights is using Airc · fixture", palette: c.currentPalette, in: .zero)
-            check(c.toast.shownText == nil, "a toast for a window whose card isn't laid out yet isn't shown (centred on nothing it would sit on the traffic lights)")
-            // The real banner in both windows (shown again on purpose, in case it went before the windows were measured).
-            for (wc, _) in windows() { wc.toast.show("agentlights-check is using Airc · Fixture work", palette: wc.currentPalette, in: wc.card.frame, duration: 8) }
-            measureAll("banner", done)
-        }
+        c.toast.show("agentlights is using Airc · fixture", palette: c.currentPalette, in: .zero)
+        check(c.toast.shownText == nil, "a toast for a window whose card isn't laid out yet isn't shown (centred on nothing it would sit on the traffic lights)")
+        // The real banner in both windows (shown again on purpose, in case it went before the windows were measured).
+        for (wc, _) in windows() { wc.toast.show("agentlights-check is using Airc · Fixture work", palette: wc.currentPalette, in: wc.card.frame, duration: 8) }
+        measureAll("banner", done)
     }
 
     func caseWatch(_ done: @escaping () -> Void) {

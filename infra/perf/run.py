@@ -445,8 +445,6 @@ def main():
                         'no dumps: cheap enough for measured runs')
     parser.add_argument('--app-env',action='append',default=[],help='KEY=VALUE for the Airc launch, e.g. MallocStackLogging=lite '
                         '(with --diagnose adds malloc_history stacks)')
-    parser.add_argument('--probe',action='store_true',help='AIRC_FRAMES_PROBE=1: the in-app main-thread sampler over the '
-                        'Space and tab switches, symbolicated into snapshots/probe-symbols.txt; diagnostic only')
     parser.add_argument('--app-arg',action='append',default=[],help='extra Airc argument for A/B runs, e.g. --app-arg=--airc-switches=aperitifHelpers=off')
     options = parser.parse_args()
     # The apps get these paths as arguments and start with / as their directory: a relative --output silently
@@ -456,7 +454,6 @@ def main():
     TRACE = options.trace
     PEAK_MB = options.diagnose_peak
     FOREGROUND = options.foreground
-    if options.probe: options.app_env.append('AIRC_FRAMES_PROBE=1')
     DIAGNOSE_STACKS = any(e.startswith('MallocStackLogging=') for e in options.app_env)
     LAUNCH_LIMIT_MS = 1000 if 'Chromium' in options.app.name else 500
     if sys.platform != 'darwin': parser.error('requires the build Mac')
@@ -509,10 +506,6 @@ def main():
             return measure('chrome',Path('/Applications/Google Chrome.app'),chrome_args(profile,pages),profile,out,
                            tag=tag,sample_at=sample_at,pages=lambda: chrome_pages(profile))
         age = lambda key: data.get(key,{}).get('memory_sample_start_seconds') or 80
-        if options.probe:
-            import frameprobe   # lazily: it imports this module
-            threading.Thread(target=frameprobe.symbolicate, args=(out/'snapshots', threading.Event()), daemon=True).start()
-            data['notes'].append('PROBE: main-thread sampler on; timings are diagnostic only.')
         data['airc'] = measure('airc', options.app.resolve(),airc('',[]),out/'airc-data',out,options.instrumented,
                                launch_env=options.app_env, diagnose=options.diagnose)
         log = out/'snapshots/log.txt'

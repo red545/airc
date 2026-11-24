@@ -15,8 +15,6 @@ def render():
                   'Stable (information only)': s.get('stable', 'unknown'), 'Gap': s.get('gap', 'unknown'),
                   'Security': s.get('security', {}).get('urgency', 'unknown'),
                   'Poll': s.get('error') or ('STALE' if stale else 'OK'), 'Checked': s['checked']}
-        if s.get('release_review'):
-            fields['Release review'] = s['release_review']['reason']
         return '<table>' + ''.join(f'<tr><td>{html.escape(k)}</td><td>{html.escape(str(v))}</td></tr>' for k, v in fields.items()) + '</table>'
     except Exception:
         return '<p>Chromium release state unavailable. Run infra/chromium/watch.py.</p>'

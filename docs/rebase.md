@@ -31,15 +31,6 @@ brief; current/ahead states remove it. Failed Stable/blog lookups remain visible
 and do not suppress Extended detection. Runtime state, logs and briefs are ignored
 by Git. The status page shows poll freshness, versions, gap and urgency.
 
-A reviewed non-applicable release may be recorded in
-`infra/chromium/reviewed-releases.json` with evidence in `docs/rebase-reviews/`.
-This is an exact exception, bound to the current pin, target upstream commit,
-clean engine tree and fetched release-post content. It sets
-`gap=reviewed-not-applicable` and `update_required=false`, preserving the real pin
-and latest Extended version. Future tags, changed engine or evidence, fetch
-errors and exploitation reports reopen review. It must never be used to hide an
-applicable security update or an unresolved gate failure.
-
 ## Prepare on Linux
 
 ```sh
@@ -117,7 +108,7 @@ git status --short
 git fetch --depth=1 origin "refs/tags/$V:refs/tags/$V"
 git checkout --detach "refs/tags/$V"
 cd ..
-gclient sync --no-history --nohooks
+gclient sync --no-history --nohooks --revision "src@refs/tags/$V"
 gclient runhooks
 ```
 

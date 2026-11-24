@@ -58,10 +58,6 @@ final class AgentWatchView: NSView {
     private(set) var lastFrame: CGImage?
     private(set) var startedAt = Date()
     var caption: String? { overlay.caption }
-    #if AIRC_TESTING
-    /// What Watch shows now (watchlong's trace).
-    var debugLive: String { "\(mode) ctx \(live.map { String($0.id) } ?? "-") box \(liveBox.isHidden ? "hidden" : "shown") image \(image.isHidden ? "hidden" : "shown") frames \(framesShown) blankctx \(blankContext.map { String($0) } ?? "-")" }
-    #endif
     var pointerShown: Bool { !pointer.isHidden }
     var fieldShown: Bool { !field.isHidden }
 
@@ -235,17 +231,7 @@ final class AgentWatchView: NSView {
         guard running else { return }
         let interval = 1 / max(1, Self.fps)
         guard let row = AgentActivity.shared.model.row(rowID), row.isLive,
-              let w = AgentCenter.shared.windows[row.window], let tab = w.tab(row.tab) else {
-            // watchfix (owner evidence 0.1.55): Stop then Continue gives the Airc Agent's run a new window and row; Watch
-            // follows the run to its page instead of staying on the ended one (it showed nothing from then on).
-            if !Self.legacy, let old = AgentActivity.shared.model.row(rowID), old.clientKey == AgentBridge.clientKey,
-               let next = AgentAttention.paneRowID, next != rowID, let c = controller {
-                AgentCenter.shared.onEvent?("watch-follows-run \(rowID) → \(next)")
-                let keys = window?.firstResponder === self
-                return DispatchQueue.main.async { c.sidebar.agents.openWatch(next, takeKeys: keys) }
-            }
-            return again(0.5)
-        }
+              let w = AgentCenter.shared.windows[row.window], let tab = w.tab(row.tab) else { return again(0.5) }
         if !Self.legacy, w.keepsVisible, keptLive != ObjectIdentifier(tab) {
             keptLive = ObjectIdentifier(tab)
             w.driver.keepLive(tab)

@@ -268,9 +268,6 @@ final class PerfRun {
             runner.note("launch timeline:\n" + LaunchTimeline.text)
         }
         r.wait(0.3)
-        // spaceswitch: `AIRC_FRAMES_PROBE=1` samples the main thread through the Space and tab switches below (run.py
-        // --probe symbolicates it); diagnostic only, the sampling slows the main thread.
-        if FrameProbe.enabled { r.run { MainThreadSampler.shared.start() } }
         // Space switches between neighbours, as a footer click or ⌃-number does (animated).
         var spaceFrames: [Double] = []
         var spaceSource = "display"
@@ -280,7 +277,7 @@ final class PerfRun {
             r.step { [self] done in
                 let spaces = c.store.orderedSpaces
                 let target = spaces[(i % 2 == 0) ? 1 : 0].id
-                probed("switch \(i)", tag: 600 + i, { self.c.switchToSpace(target, animated: true) }) { v, src in
+                frame({ self.c.switchToSpace(target, animated: true) }) { v, src in
                     spaceFrames.append(v)
                     if src != "display" { spaceSource = src }
                     done()
@@ -292,7 +289,6 @@ final class PerfRun {
             timings["space_frame_ms"] = median(spaceFrames)
             timings["space_frame_samples_ms"] = spaceFrames.map(round2)
             timings["space_frame_source"] = spaceSource
-            timings["space_frame_sections"] = sectionLines
             timings["dropped_frames"] = clock.running ? clock.dropped(from: switchStart, to: CACurrentMediaTime()) : NSNull()
         }
         // A loaded tab: switch between two loaded tabs of the first Space.
@@ -303,26 +299,13 @@ final class PerfRun {
                 let candidates = c.store.todayTabs(ofSpace: space).filter { c.engineTab(for: $0.id) != nil }
                 guard candidates.count >= 2 else { return done() }
                 let t = candidates[i % 2]
-                probed("tab \(i)", tag: 700 + i, { self.c.show(t.id, focus: false) }) { v, _ in tabFrames.append(v); done() }
+                frame({ self.c.show(t.id, focus: false) }) { v, _ in tabFrames.append(v); done() }
             }
             r.wait(0.25)
         }
         r.run { [self] in
             timings["tab_paint_ms"] = tabFrames.isEmpty ? NSNull() : median(tabFrames)
             timings["tab_paint_note"] = "input to the presented frame that shows the already-loaded page view; the engine's own paint is not observable"
-            timings["tab_paint_sections"] = Array(sectionLines.dropFirst(spaceFrames.count))
-        }
-        if FrameProbe.enabled {
-            r.run { [self] in
-                MainThreadSampler.shared.stop()
-                runner.note("perf: probe \(MainThreadSampler.shared.count) samples every \(MainThreadSampler.shared.interval) µs")
-                FrameProbe.write(to: runner.dir)
-            }
-            // `atos -p` needs this process alive: run.py --probe writes probe-symbols.done when it's done (≤120 s).
-            r.step { [self] done in
-                runner.waitUntil({ FileManager.default.fileExists(atPath: self.runner.dir.appendingPathComponent("probe-symbols.done").path) },
-                                 timeout: 120) { done() }
-            }
         }
         // New Space (and its profile when one is new): Enter → presented frame. The Space is removed again.
         r.run { [self] in
@@ -506,26 +489,6 @@ final class PerfRun {
     }
 
     /// Runs `work` and reports the time to the frame that presents it, or to the commit when there are no frames.
-    /// Perf sections of each probed switch (`AIRC_PERF_SECTIONS=1` or the probe), one line per sample.
-    private var sectionLines: [String] = []
-    private static let sections = ProcessInfo.processInfo.environment["AIRC_PERF_SECTIONS"] == "1" || FrameProbe.enabled
-
-    /// `frame`, plus (when asked) the switch's Perf sections and the probe's marks for its run-loop turn.
-    private func probed(_ label: String, tag: Int, _ work: @escaping () -> Void, _ done: @escaping (Double, String) -> Void) {
-        if Self.sections { Perf.enabled = true; Perf.reset() }
-        var marks: [String: Double] = [:]
-        let t0 = CACurrentMediaTime()
-        if FrameProbe.enabled { FrameProbe.begin(label, tag: tag) }
-        frame({ work(); if FrameProbe.enabled { FrameProbe.markTurn { marks = $0 } } }) { [self] v, src, w in
-            if Self.sections { sectionLines.append(String(format: "%@ %.2f/%.2f: ", label, v, w) + Perf.report()); Perf.enabled = false }
-            if FrameProbe.enabled {
-                MainThreadSampler.tag = 0
-                FrameProbe.marks.append(["label": label, "t0_ms": t0 * 1000, "presented_ms": v, "work_ms": w, "marks": marks])
-            }
-            done(v, src)
-        }
-    }
-
     private func frame(_ work: () -> Void, _ done: @escaping (Double, String) -> Void) {
         frame(work) { v, source, _ in done(v, source) }
     }

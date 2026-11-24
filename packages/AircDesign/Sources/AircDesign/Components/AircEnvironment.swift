@@ -82,7 +82,7 @@ public struct SpaceBackground: View {
                 Image(decorative: theme.backgroundImage(for: geo.size), scale: 1)
                     .resizable()
                     .interpolation(.high)
-                AircGrainOverlay(opacity: theme.grainOpacity(isWindowActive: isWindowActive), texture: theme.theme.texture)
+                AircGrainOverlay(opacity: theme.grainOpacity(isWindowActive: isWindowActive))
             }
         }
         .ignoresSafeArea()
@@ -108,7 +108,7 @@ private struct TranslucentSpaceBackground: View {
                 Image(decorative: theme.colorLayerImage(for: geo.size), scale: 1)
                     .resizable()
                     .interpolation(.high)
-                AircGrainOverlay(opacity: theme.grainOpacity(isWindowActive: active), texture: theme.theme.texture)
+                AircGrainOverlay(opacity: theme.grainOpacity(isWindowActive: active))
             }
             .animation(.easeOut(duration: 0.2), value: underlay)
         }
@@ -145,19 +145,17 @@ private final class WindowClearingMaterialView: AircMaterialView {
     }
 }
 
-/// A tiled texture (grain by default, or the Space's sand, denim or tweed) at an opacity.
+/// Tiled grain at an opacity.
 public struct AircGrainOverlay: View {
     private let opacity: Double
-    private let texture: SpaceTheme.Texture
 
-    public init(opacity: Double, texture: SpaceTheme.Texture = .grain) {
+    public init(opacity: Double) {
         self.opacity = opacity
-        self.texture = texture
     }
 
     public var body: some View {
         if opacity > 0.001 {
-            Image(decorative: texture.tile.image, scale: 2)
+            Image(decorative: AircGrain.tile, scale: 2)
                 .resizable(resizingMode: .tile)
                 .opacity(opacity)
                 .allowsHitTesting(false)

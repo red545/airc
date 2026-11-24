@@ -29,12 +29,7 @@ final class ThemePickerPanel {
         window.isReleasedWhenClosed = false
         window.becomesKeyOnlyIfNeeded = true
         window.animationBehavior = .none
-        let editor = ThemeEditor(theme: theme.design, systemIsDark: systemIsDark) { edited in
-            // A texture a newer Airc set shows as grain here; keep its raw value unless another texture is picked.
-            var model = edited.model
-            if model.texture == theme.texture.effective { model.texture = theme.texture }
-            onChange(model)
-        }
+        let editor = ThemeEditor(theme: theme.design, systemIsDark: systemIsDark) { onChange($0.model) }
         window.contentView = AircFirstClickHostingView(rootView: AnyView(editor.padding(m)))
     }
 

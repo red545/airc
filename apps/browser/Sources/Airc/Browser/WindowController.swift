@@ -711,33 +711,6 @@ final class WindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// spaceswitch: `scheduleReload` for a tab switch, whose shown page's rows are already drawn. Its main-queue block
-    /// used to drain before this turn's Core Animation commit and delayed the switch's first frame by the whole
-    /// reload (every page and the chrome again, 1–3 ms); it now starts once that commit is done.
-    func scheduleReloadAfterFrame() {
-        guard Self.defersReloadPastFrame else { return scheduleReload() }
-        guard !reloadScheduled else { return }
-        reloadScheduled = true
-        // After Core Animation's own before-waiting observer (order 2000000): the frame is committed.
-        let o = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, false, CFIndex.max) { [weak self] _, _ in
-            DispatchQueue.main.async {
-                guard let self, self.reloadScheduled else { return }
-                self.reloadScheduled = false
-                self.reloadAll(animated: true)
-            }
-        }
-        CFRunLoopAddObserver(CFRunLoopGetMain(), o, .commonModes)
-    }
-
-    /// Test builds can reload before the commit the old way (`AIRC_SPACE_SWITCH_BASELINE=1`), to compare in one binary.
-    private static let defersReloadPastFrame: Bool = {
-        #if AIRC_TESTING
-        return ProcessInfo.processInfo.environment["AIRC_SPACE_SWITCH_BASELINE"] != "1"
-        #else
-        return true
-        #endif
-    }()
-
     func reloadAll(animated: Bool) {
         profileSignIn.refresh()
         applyKeepLoadedPolicy()
@@ -1083,7 +1056,7 @@ final class WindowController: NSObject, NSWindowDelegate {
         if previous != tabID, updatesRows {
             // Selection shows in the same frame as the press (Arc activates on press).
             pageView(for: currentSpaceID)?.reload(animated: false)
-            scheduleReloadAfterFrame()
+            scheduleReload()
         }
         Perf.time("show.refreshChrome") { refreshChrome() }
         queueArchiveReschedule()
