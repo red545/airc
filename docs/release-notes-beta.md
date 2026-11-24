@@ -1,15 +1,27 @@
-# Airc 0.1.55 public beta
+# Airc 0.1.56 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update makes signing in to desktop apps through Airc work, asking first before a website opens an app. It
-includes everything from 0.1.54. The release manifest records the exact build, source and checksums.
+This update keeps everything in full screen clear of the notch on MacBooks that have one and shows agents live in
+Watch and asks you before an agent uses a passkey. It includes everything from 0.1.55. The release manifest records
+the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.54
+## New since 0.1.55
+
+- **In full screen on a MacBook with a notch, nothing of Airc hides behind the notch any more.** The sidebar
+  with its address field and ✦ button, the Library and the page now start just below the camera, where they could sit
+  behind it before. On Macs without a notch nothing changes.
+- **Watch shows what an agent is doing live, and asks you when its page wants a passkey.** Watch no longer stays
+  blank or shows an old picture for an agent using Airc: the page stays live as the agent moves between sites, goes
+  back, or while Airc is in the background. When an agent's page asks for a passkey, Airc tells you which agent and
+  site want it and asks in Watch, over the page; if Watch isn't open, the agent's row says Needs you and opens Watch
+  with the question.
+
+## Included from 0.1.55
 
 - **Signing in to desktop apps through Airc works now.** When a website wants to open an app, as an app's sign-in
   does when it hands back to the app through its own link, Airc now asks "Open “App”?" first, like Chrome. On a secure
@@ -804,3 +816,5 @@ Source: `0c1f3c2c950f71fa161ab798669f6f192a6505b3`. Build: `202611230318`. Chann
 Source: `5d8fa9dbd490a8c19928af6fe0855d4c7c0bf49f`. Build: `202611230853`. Channel: stable. Engine: official.
 
 Source: `ca0f2fc1348e6207ad977f18723b8d2e6b2ece2d`. Build: `202611231455`. Channel: stable. Engine: official.
+
+Source: `db46f9018d915a7363668b50ffb591c3888dc4b7`. Build: `202611240050`. Channel: stable. Engine: official.

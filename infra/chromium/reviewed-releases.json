@@ -5,13 +5,25 @@
     "upstream_revision": "ea19f9737303a76e07b53c6a1eec43355aca3b1d",
     "engine_tree": "ab9b82db884571f59db1332d4ad752269eda6092",
     "decision": "not-applicable",
-    "reviewed_on": "2026-11-23",
-    "reason": ".114 reviewed: not applicable (Variations seed fetching disabled in shipped Airc; 8078_108 branch lacks four fixes from .109). Retain .109 and newer Dawn.",
+    "reviewed_on": "2026-11-24",
+    "reason": ".114 re-reviewed: Critical CVE-2026-134401 (bug 554051967) fixes Variations HTTP seed retry; shipped Airc never enables seed fetching. Retain .109: .114 omits four existing fixes and newer Dawn.",
     "note": "docs/rebase-reviews/156.0.8078.114.md",
     "evidence": [
       {
         "url": "https://chromereleases.googleblog.com/2026/11/extended-stable-update-for-desktop_01590513949.html",
-        "content_sha256": "d481d2feef3b3c3ea978c7443fec727e8fa9994045e959f3b7a6845b579f7595"
+        "content_sha256": "77beccc3911ede9c8ce54f812dda124c88484d511f3d5984041ef18cebd9b5f2"
+      }
+    ],
+    "cves": [
+      "CVE-2026-134401"
+    ],
+    "fix_commits": [
+      {
+        "cve": "CVE-2026-134401",
+        "severity": "Critical",
+        "bug": "554051967",
+        "commit": "970863f8c7f4a0550c9d0eb80c9644790a81c90f",
+        "main_commit": "27d74d49c0e69b037eebcc542e48c835c832910b"
       }
     ]
   }

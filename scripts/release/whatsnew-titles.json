@@ -652,5 +652,17 @@
     "detail": "When a website wants to open an app, such as an app's sign-in handing back to it, Airc asks first, like Chrome. Always allow remembers it for that site.",
     "action": "none",
     "image": null
+  },
+  "In full screen on a MacBook with a notch, nothing of Airc hides behind the notch any more": {
+    "title": "Nothing behind the notch",
+    "detail": "In full screen on a MacBook with a notch, the sidebar, address field and page now start just below the camera, so nothing of Airc hides behind it.",
+    "action": "none",
+    "image": null
+  },
+  "Watch shows what an agent is doing live, and asks you when its page wants a passkey": {
+    "title": "Watch live, passkeys asked",
+    "detail": "Watch keeps showing an agent's page live as it browses. When an agent's page wants a passkey, Airc names the agent and site and asks you in Watch.",
+    "action": "none",
+    "image": null
   }
 }

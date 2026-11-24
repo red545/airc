@@ -12,8 +12,8 @@ Two short text posts: full screen on a notched MacBook keeps everything below th
 when an agent's page wants a passkey (only if that line ships).
 """
 order = """
-1. The notch post in an afternoon slot on the first free day after LIVE.
-2. The Watch post at 10:30 UTC a few days later, away from the 25 Nov agent video and other agent posts.
+1. The notch post: 3 Dec 15:00 UTC (first free afternoon).
+2. The Watch post: 4 Dec 15:00 UTC (no free 10:30 before 8 Dec; 10:30 that day is another agent post).
 """
 checked = """
 - Notes 1: in full screen on a MacBook with a notch, the sidebar (address field and ✦), the Library and the page start
