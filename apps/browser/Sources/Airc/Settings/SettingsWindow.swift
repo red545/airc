@@ -1259,11 +1259,19 @@ enum SettingsActions {
         SiteIcons.shared.forgetAll()   // the Command Bar's icons by site (not per profile: all of them go)
     }
 
+    /// Sign In… / Switch…: the sidebar's own sign-in in a Space of the profile (its card, the account it finds). With
+    /// no browser window open, one opens for it. signinfix: a profile no Space uses (or no window can open, while
+    /// onboarding runs) used to get nothing at all; it signs in in Google's small sign-in window, as onboarding does.
     static func signIn(profile: Profile, model: SettingsModel) {
-        guard let c = model.controller, let s = model.store.spaces(usingProfile: profile.id).first else { return }
-        c.switchToSpace(s.id, animated: false)
-        c.signInToGoogle(spaceID: s.id)
-        c.window.makeKeyAndOrderFront(nil)
+        guard let app = model.app else { return }
+        if let s = model.store.spaces(usingProfile: profile.id).first, let c = model.controller ?? app.browserWindow() {
+            if c.window.isMiniaturized { c.window.deminiaturize(nil) }
+            c.switchToSpace(s.id, animated: false)
+            c.signInToGoogle(spaceID: s.id)
+            c.window.makeKeyAndOrderFront(nil)
+            return
+        }
+        SettingsSignIn.begin(profile: profile, app: app, over: app.settingsWindow?.window)
     }
 
     static func versionLine(engine: String) -> String {

@@ -1882,6 +1882,9 @@ final class WindowController: NSObject, NSWindowDelegate {
 extension WindowController: EngineWindowDelegate {
     func engineWindow(_ window: EngineWindow, didInsertTab tab: EngineTab, opener: EngineTab?,
                       disposition: TabDisposition) {
+        // signinfix: a page in Peek that opens a pop-up or a tab in front (a Sign in) would show it under the Peek card.
+        // The Peek becomes a Today tab first (the same live page, so the pop-up keeps its opener), then the new one shows.
+        if let p = peek, let opener, p.page === opener, disposition != .background, !p.closing { promotePeek() }
         // SP-3: popups and new tabs stay in the opener's Space and profile.
         let openerID = opener.flatMap { tabID(for: $0) }
         let openerTab = store.tab(openerID)

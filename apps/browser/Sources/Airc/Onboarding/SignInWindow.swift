@@ -15,7 +15,11 @@ final class SignInWindowController: NSObject, NSWindowDelegate, EngineWindowDele
 
     private let engineWindow: EngineWindow
     private let profile: EngineProfile
-    private let startURL: URL
+    private var startURL: URL
+    #if AIRC_TESTING
+    /// The checks' loopback sign-in page (never Google's).
+    static var testStartURL: URL?
+    #endif
     private var tab: EngineTab?
     private var reading = false
     private var finished = false
@@ -25,6 +29,9 @@ final class SignInWindowController: NSObject, NSWindowDelegate, EngineWindowDele
     init(engine: BrowserEngine, profile: EngineProfile, profileName: String, switching: Bool = false) {
         self.profile = profile
         startURL = switching ? Self.switchURL : Self.signInURL
+        #if AIRC_TESTING
+        if let mock = Self.testStartURL { startURL = mock }
+        #endif
         engineWindow = engine.makeWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 640))
         super.init()
         let w = engineWindow.window
@@ -62,6 +69,12 @@ final class SignInWindowController: NSObject, NSWindowDelegate, EngineWindowDele
         engineWindow.window.orderOut(nil)
     }
 
+    var window: NSWindow { engineWindow.window }
+    /// The page the window shows (the checks read it).
+    var page: EngineTab? { tab }
+
+    func bringForward() { engineWindow.window.makeKeyAndOrderFront(nil) }
+
     /// Closes the window without an answer (the onboarding window was closed).
     func close() { done(nil) }
 
@@ -70,6 +83,11 @@ final class SignInWindowController: NSObject, NSWindowDelegate, EngineWindowDele
     // MARK: Engine callbacks
 
     func tabDidChangeURL(_ t: EngineTab) {
+        if t !== tab {
+            guard let url = t.url, url.scheme != "about" else { return }
+            tab?.load(url)
+            return t.close()
+        }
         guard let url = t.url, let host = url.host?.lowercased() else { return }
         if host == "myaccount.google.com", !reading {
             reading = true
@@ -91,11 +109,45 @@ final class SignInWindowController: NSObject, NSWindowDelegate, EngineWindowDele
     func tabDidChangeThemeColor(_ tab: EngineTab) {}
 
     // Sign-in popups (passkeys, "use another account") stay in this window's one tab.
+    // signinfix: a pop-up whose address isn't known yet (window.open() then a navigation) waits for its first address
+    // instead of being closed unseen.
     func engineWindow(_ window: EngineWindow, didInsertTab tab: EngineTab, opener: EngineTab?, disposition: TabDisposition) {
-        if let url = tab.url { self.tab?.load(url) }
-        tab.close()
+        if let url = tab.url, url.scheme != "about" {
+            self.tab?.load(url)
+            return tab.close()
+        }
+        tab.delegate = self
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { if !tab.isClosed { tab.close() } }
     }
 
     func engineWindow(_ window: EngineWindow, tabRequestedClose tab: EngineTab) {}
     func engineWindow(_ window: EngineWindow, tab: EngineTab, didChangeFullscreen fullscreen: Bool) {}
+}
+
+/// signinfix: Settings › Profiles' Sign In… for a profile no Space uses (no sidebar card can sign it in): Google's
+/// sign-in in its own small window, in that profile, as onboarding does; the account it ends on is kept on the profile.
+enum SettingsSignIn {
+    /// The window now open (one at a time; a second press brings it forward).
+    private(set) static var current: SignInWindowController?
+
+    static func begin(profile: Profile, app: AppDelegate, over parent: NSWindow?) {
+        if let current { return current.bringForward() }
+        let pid = profile.id
+        app.profiles.whenLoaded(pid, { engineProfile in
+            guard current == nil else { return }
+            let s = SignInWindowController(engine: app.engine, profile: engineProfile, profileName: profile.name,
+                                           switching: profile.googleAccount != nil)
+            current = s
+            s.onFinish = { account in
+                current = nil
+                if let account { try? app.store.keepGoogleAccount(pid, account: account, index: 0) }
+            }
+            s.show(over: parent ?? NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) ?? s.window)
+        }, failed: {
+            let alert = NSAlert()
+            alert.messageText = "Couldn’t open \(profile.name) to sign in"
+            alert.informativeText = "Try again in a moment. If it keeps happening, quit and reopen Airc."
+            if let parent { alert.beginSheetModal(for: parent) } else { alert.runModal() }
+        })
+    }
 }

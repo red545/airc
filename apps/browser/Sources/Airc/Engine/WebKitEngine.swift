@@ -124,6 +124,7 @@ final class WebKitProfile: EngineProfile {
         userContent.addUserScript(WKUserScript(source: Self.contextLinkScript, injectionTime: .atDocumentStart,
                                                forMainFrameOnly: false, in: Self.linkWorld))
         userContent.add(router, contentWorld: Self.linkWorld, name: "aircContextLink")
+        WebKitPasskeyNotice.install(in: userContent, router: router)   // signinfix: say why a passkey sign-in can't work
         PasteAndMatchStyle.add(to: WKWebView.self)   // Edit › Paste and Match Style (Commands.swift)
         library.installMediaBridge()
         WebKitPageScripts.shared.attach(self)
@@ -262,6 +263,9 @@ final class ScriptRouter: NSObject, WKScriptMessageHandler {
         }
         if message.name == "aircContextLink", let href = message.body as? String {
             (tab.webView as? PageMenuWebView)?.noteContextLink(href)
+        }
+        if message.name == WebKitPasskeyNotice.messageName {
+            NotificationCenter.default.post(name: WebKitPasskeyNotice.didFail, object: tab)
         }
         if message.name == "aircKeys", let body = message.body as? [String: Any], let prevented = body["prevented"] as? Bool {
             tab.delegate?.tab(tab, didReceiveShortcut: WebKitProfile.shortcutCombo(body), pageUsedIt: prevented)
