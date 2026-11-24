@@ -18,6 +18,8 @@ import WebKit
 /// titlebar move count below shows a fight that a guard cut short.
 ///
 /// Cases:
+/// - `real`: the green button clicked after the top edge brought it down, View › Exit Full Screen and the green
+///   button's menu, with the UI driver's real pointer, clicks and keys (FullscreenExitRealCheck.swift);
 /// - `native`: six cycles, each left another way (Esc twice, View → Exit Full Screen, the green button, ⌃⌘F,
 ///   `toggleFullScreen`, FullScreenController.exit); `native-rapid`: leave while entering, enter while leaving;
 /// - `native-shortcut` and `native-escape`: ten cycles of that exit path, with a 100 s budget;
@@ -35,6 +37,8 @@ extension SnapshotRunner {
     static let fullscreenInvestigatorIDs = ["org.airc.fscrash", "org.airc.fsexit", "org.airc.fsfollow"]
 
     func fullscreenExitCheck() {
+        // Real input only (the UI driver): how a person leaves; no owner-idle guard, the driver's own input is HID.
+        if ProcessInfo.processInfo.environment["AIRC_FULLSCREEN_CASE"] == "real" { return fullscreenExitRealCase() }
         let activate = ProcessInfo.processInfo.environment["AIRC_FULLSCREEN_ACTIVATE"] == "1"
         if activate {
             // Explicit opt-in for the overnight investigator, never the ship suite or owner's bundle.
@@ -244,7 +248,20 @@ extension SnapshotRunner {
                 w.toggleFullScreen(nil)
             }
         case .button:
-            if let zoom = w.standardWindowButton(.zoomButton) { zoom.performClick(nil) } else { w.toggleFullScreen(nil) }
+            // In full screen AppKit keeps the green button DISABLED while its titlebar is at rest (out of sight, or at
+            // alpha 0 in the menu bar's band where the menu bar stays shown) and enables it once the pointer brings the
+            // titlebar down (fsexit, 2026-11-24: `enabled false`, action _setNeedsZoom: to the window). performClick
+            // on a disabled button does nothing, so a posted-only cycle sends the button's own action to its target, as
+            // its click would; the `real` case clicks it with the real pointer after the top-edge reveal.
+            guard let zoom = w.standardWindowButton(.zoomButton) else { return w.toggleFullScreen(nil) }
+            let p = NSEvent.mouseLocation
+            note("fullscreen exit: green button enabled \(zoom.isEnabled), titlebar revealed \(c.fullScreen.titlebarRevealed), "
+                 + "pointer at \(Int(p.x)),\(Int(p.y)) (screen top \(Int(w.screen?.frame.maxY ?? 0)))")
+            if zoom.isEnabled { zoom.performClick(nil); return }
+            let sent = zoom.action.map { NSApp.sendAction($0, to: zoom.target, from: zoom) } ?? false
+            note("fullscreen exit: green button disabled at rest (AppKit); sent its action \(zoom.action.map(NSStringFromSelector) ?? "nil") "
+                 + "to \(zoom.target.map { "\(type(of: $0))" } ?? "nil"): \(sent)")
+            if !sent { w.toggleFullScreen(nil) }
         case .shortcut:
             for type in [NSEvent.EventType.keyDown, .keyUp] {
                 if let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [.control, .command],
