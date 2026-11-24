@@ -28,6 +28,8 @@ extension SnapshotRunner {
         }
         // agentux3 (AgentPane3Check.swift): the live card frame by frame.
         if AgentPane2Check.runs("flicker") { step { done in k.caseFlicker(done) } }
+        // watchfix (AgentWatch2Own.swift): Watch and the card through a long run with Continue; only when named.
+        if AgentPane2Check.only?.contains("watchlong") == true { step { done in k.caseWatchLong(done) } }
         // agentux3 (AgentPane3NeedsYou.swift): "needs you" in one click from every entry point.
         if AgentPane2Check.runs("needsyou") {
             step { done in k.caseNeedsYouApprovals(done) }

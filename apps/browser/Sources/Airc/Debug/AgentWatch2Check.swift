@@ -31,7 +31,9 @@ extension SnapshotRunner {
             step { done in v.back(done) }
             step { done in v.background(done) }
         }
-        if only.isEmpty || only.contains("prompts") {
+        // Passkey requests only against a virtual authenticator (no real WebAuthn: hybrid discovery asks macOS for
+        // Bluetooth, a consent prompt on the build Mac). 0.1.54's driver can't keep one attached: no prompt part then.
+        if (only.isEmpty || only.contains("prompts")) && !AgentWatchView.legacy {
             step { done in v.promptInWatch(done) }
             step { done in v.promptNeedsYouAndTakeOver(done) }
             step { done in v.engineSheet(done) }
@@ -278,6 +280,7 @@ final class AgentWatch2Check {
                                 let ms = Int(Date().timeIntervalSince(opened) * 1000)
                                 guard let w = self.folder.watch else { self.check(false, "[\(how)] Watch opens"); return done() }
                                 self.measure("first_page_ms", ok ? ms : -1)
+                                self.saveWindow("watch-open")
                                 self.check(ok, "[\(how)] Watch shows the agent's page within 1 s (\(ok ? "\(ms) ms" : "look \(self.look(w) ?? "no picture")"); \(self.describe(w)))")
                                 self.moving(w) { m in
                                     if let m { self.check(m, "the page moves in Watch (the agent window off screen)") }
@@ -344,6 +347,7 @@ final class AgentWatch2Check {
         client.call("go_back", ["window": window]) { r, _ in
             let t = Date()
             self.wait({ self.look(w) == "orange" }, 1.5) { ok in
+                self.saveWindow("watch-goback")
                 self.check(!SpikeMCPClient.isError(r) && ok, "go_back: Watch shows the restored page (\(ok ? "\(Int(Date().timeIntervalSince(t) * 1000)) ms" : "look \(self.look(w) ?? "none")"); \(self.describe(w)))")
                 self.after(4) {
                     self.moving(w) { m in
@@ -415,9 +419,24 @@ final class AgentWatch2Check {
                                           "isUserVerified": true, "automaticPresenceSimulation": true]
             d.call(t, "WebAuthn.addVirtualAuthenticator", ["options": options]) { r, e2 in
                 self.check(e1 == nil && e2 == nil && r?["authenticatorId"] != nil, "a virtual authenticator on the agent's page (\(e1 ?? e2 ?? "ok"))")
-                done(e1 == nil && e2 == nil)
+                self.authenticator = (e1 == nil && e2 == nil) ? r?["authenticatorId"] as? String : nil
+                done(self.authenticator != nil)
             }
         }
+        #else
+        done(false)
+        #endif
+    }
+
+    var authenticator: String?
+
+    /// The virtual authenticator still answers on this page (its DevTools session is alive): only then may a passkey
+    /// request go to the engine (else it would be a real one: hybrid discovery asks macOS for Bluetooth).
+    func authenticatorAlive(_ page: EngineTab, _ done: @escaping (Bool) -> Void) {
+        if engine == "webkit" { return done(true) }
+        #if canImport(AircCore)
+        guard let id = authenticator, let d = AgentCenter.shared.driver as? ChromiumAgentDriver else { return done(false) }
+        d.call(page, "WebAuthn.getCredentials", ["authenticatorId": id]) { _, e in done(e == nil) }
         #else
         done(false)
         #endif
@@ -432,7 +451,10 @@ final class AgentWatch2Check {
         guard client != nil, window > 0 else { return done() }
         if folder.watch == nil { folder.openWatch(row) }
         client.call("navigate", ["url": "\(lh)/pk.html", "window": window]) { _, _ in
-            self.virtualAuthenticator { _ in
+            self.virtualAuthenticator { ok in
+                guard ok || self.engine == "webkit" else {
+                    self.check(false, "a virtual authenticator on the agent's page (no passkey request without one)"); return done()
+                }
                 let asked = self.promptRequests.count
                 self.client.call("left_click", ["coordinate": [190, 180], "window": self.window]) { _, _ in
                     self.wait({ self.folder.watch?.promptShown != nil }, 3) { shown in
@@ -547,6 +569,7 @@ final class AgentWatch2Check {
         let toasts = events.filter { $0.hasPrefix("attention-toast prompt-") }.count
         // The refused create is still open: it's the one to finish after Take over; else the agent asks to sign in.
         let pending = refusedPrompt != nil
+        guard engine == "webkit" || authenticator != nil else { note("agentwatch2 \(engine) \(arm): no virtual authenticator: no passkey request (skipped)"); return done() }
         let ask: (@escaping () -> Void) -> Void = { go in
             if pending { return go() }
             self.client.call("left_click", ["coordinate": [190, 260], "window": self.window]) { _, _ in go() }
@@ -565,6 +588,12 @@ final class AgentWatch2Check {
                                     self.check(over && AgentPrompts.controller(holding: page)?.0 === self.c,
                                                "[\(how)] after Take over the page is the person's tab and the prompt is over it (\(AgentAttention.items().map(\.title)))")
                                     self.front { _ in
+                                      self.authenticatorAlive(page) { alive in
+                                        guard alive else {
+                                            self.check(false, "after Take over the virtual authenticator is still there (else no Allow: it would be a real request)")
+                                            page.evaluate("window.abortAll && window.abortAll(); 'ok'") { _ in done() }
+                                            return
+                                        }
                                         self.click("agentprompt-allow", in: { AgentPrompts.shared.pageOverlay(in: self.c) }, "Allow over the taken-over page",
                                                    fallback: { if let p = AgentPrompts.shared.pageOverlay(in: self.c)?.prompt { AgentPrompts.shared.allow(p.id) } }) { how in
                                             var last = ""
@@ -583,6 +612,7 @@ final class AgentWatch2Check {
                                                 done()
                                             }
                                         }
+                                      }
                                     }
                                 }
                             }
@@ -603,7 +633,8 @@ final class AgentWatch2Check {
                 let tab = ((SpikeMCPClient.json(r)["tabs"] as? [[String: Any]])?.first?["tab"] as? Int) ?? 0
                 self.row = AgentActivityModel.rowID(window: self.window, tab: tab)
                 // Chromium's own WebAuthn UI on (DevTools enableUI): its sheet shows for the request, as for a real passkey.
-                self.virtualAuthenticator(ui: true) { _ in
+                self.virtualAuthenticator(ui: true) { ok in
+                guard ok else { self.check(false, "a virtual authenticator for the sheet case (no passkey request without one)"); return done() }
                 self.client.call("left_click", ["coordinate": [190, 180], "window": self.window]) { _, _ in
                     self.wait({ AgentPrompts.shared.prompts.contains { $0.rowID == self.row } }, 3) { asked in
                         self.check(asked, "a second agent page's request waits for the person")
@@ -656,6 +687,16 @@ final class AgentWatch2Check {
                 }
             }
         }
+    }
+
+    /// Our own window's picture from the window server (what the person sees, hosted page included), for the report.
+    func saveWindow(_ name: String) {
+        guard ProcessInfo.processInfo.environment["AIRC_DISABLE_LEGACY_WINDOW_CAPTURE"] != "1",
+              let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return }
+        typealias Fn = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+        guard let img = unsafeBitCast(sym, to: Fn.self)(.null, 1 << 3, UInt32(c.window.windowNumber), 1 << 0)?.takeRetainedValue() else { return }
+        let url = runner.dir.appendingPathComponent("\(name)-\(engine)-\(arm).png")
+        if let d = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) { CGImageDestinationAddImage(d, img, nil); CGImageDestinationFinalize(d) }
     }
 
     /// Every window the engine hung on an agent window: what it is, and its picture from the window server (out folder).

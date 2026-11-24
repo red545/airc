@@ -25,9 +25,6 @@ final class WebKitAgentDriver: AgentPageDriver {
     }
     private var eventNumber = 1
     private var visible: Set<ObjectIdentifier> = []
-    /// Fresh snapshots that didn't come in time, in a row; three and Watch goes back to last-drawn pictures.
-    private var freshMisses = 0
-    private var freshSnapshotsFailed = false
 
     /// An AppKit function-key character (NSUpArrowFunctionKey…).
     private func fk(_ code: Int) -> String { String(Character(UnicodeScalar(UInt16(code))!)) }
@@ -76,22 +73,18 @@ final class WebKitAgentDriver: AgentPageDriver {
         }
         // watchfix: a page in a window off every screen gets no display updates of its own, so "what it last drew" was
         // the same picture over and over (Watch frozen). Ask for a fresh frame (WebKit renders one for the snapshot); if
-        // none comes within 0.5 s, the last one.
-        guard !AgentWatchView.legacy, !freshSnapshotsFailed else {
+        // none comes within 0.5 s, the last one, for this picture only (never for good: a closed page's misses once
+        // left every later page's pictures stale, watchlong).
+        guard !AgentWatchView.legacy else {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { once(nil) }
             return snap(fresh: false, once)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard !answered else { return }
-            self?.freshMisses += 1
-            if (self?.freshMisses ?? 0) >= 3 { self?.freshSnapshotsFailed = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            guard !answered, !tab.isClosed else { return once(nil) }
             snap(fresh: false, once)
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { once(nil) }
         }
-        snap(fresh: true) { [weak self] image in
-            if image != nil, !answered { self?.freshMisses = 0 }
-            once(image)
-        }
+        snap(fresh: true) { image in once(image) }
     }
 
     func handBack(_ tab: EngineTab) {
