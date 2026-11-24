@@ -98,10 +98,12 @@ with the start of its answer and the last page it saw. Click a card to open the 
 
 ### Your tasks in the sidebar
 
-The **Agents** folder lists this Space's tasks: **New Task** first, then each task on one line, with a spinner while it
-works, an amber ✋ while it waits for your OK and a blue dot when it finished and you haven't looked yet. **Show all**
-opens every task (`airc://agents`). The agents' pages (yours and other apps') stay under them, with Watch, Take over and
-Stop. Click a task to open it.
+The **Agents** folder lists this Space's tasks: **New Task** first, then each task on one row, with its page's icon (or
+✦), a spinner while it works, an amber ✋ while it waits for you (with **Waiting for your OK** or **Sign in to …**
+under it) and a blue dot when it finished and you haven't looked yet. Each task has one row: the page it works on isn't
+listed again. Hover a working task for **Watch** (its page, live) and **Stop**; its menu also has **Take Over the Page**.
+Other apps' work follows, one row per app session. **Show all** opens every task (`airc://agents`), each listed once.
+Click a task to open it; when it waits for you, the click goes to what it waits for.
 
 ### The task view
 
@@ -282,13 +284,14 @@ Filling saved logins works on the Chromium engine (the normal Airc download).
 ## Follow along
 
 While an agent works in a profile, the sidebar of a window showing that profile has an **Agents** folder, just above
-the downloads and players. It has one row per agent tab that did something: an app that only connects (as Claude Code
+the downloads and players. It has one row per app session that did something (an app working on three pages is one
+row, on the page that matters most: one that needs you, else the latest): an app that only connects (as Claude Code
 does with every tool it knows, each time it starts) or only opens a blank window gets no row. Each row's title says
 what happened, with the site's icon: the main site and the kind of work, such as **Gmail · read 3 pages** or **Corner
-Shop · filled a form, paid (approved)**, or your task for the Airc Agent. Under it are the app (and the device, for
-other devices) and what it's doing, such as **Claude · Clicking ‘Archive’** or **Claude Code on studio · Done · 3 min
-ago**. Titles name sites and kinds of work only, never what a page said or what was typed. A dot pulses while the agent
-is doing something, and a quiet ring shows while it waits. When the app is done, its rows say **Done** and go by
+Shop · filled a form, paid (approved)**, or your task for the Airc Agent. Under it is the app (and the device, for
+other devices), and what it's doing when that says more, such as **Claude · Clicking ‘Archive’** or **Claude Code on
+studio · Done · 3 min ago**. Titles name sites and kinds of work only, never what a page said or what was typed. A
+spinner shows while the app works, and an amber ✋ when its page needs you. When the app is done, its rows say **Done** and go by
 themselves after 5 minutes (**Settings › Agents › Keep finished agents for**: 1, 5 or 30 minutes, or until you clear
 them); a row you're watching, or whose page you took over and are looking at, stays until you leave it. They stay
 listed in **Settings › Agents › Activity**. **Clear** (on the folder's header) removes finished rows at once, and the

@@ -181,6 +181,28 @@ final class AgentActivityTests: XCTestCase {
         XCTAssertTrue(m.rows(profileID: "private").isEmpty)
     }
 
+    func testOneFolderRowPerSessionAndNoneForTheAircAgentsOwnRun() {
+        var m = AgentActivityModel()
+        m.tabOpened(row(1, 1, at: t0))
+        m.tabOpened(row(1, 2, at: t0.addingTimeInterval(1)))
+        m.tabOpened(row(2, 3, session: "session-2", at: t0.addingTimeInterval(2)))
+        var panel = row(5, 6, session: "panel-1", at: t0.addingTimeInterval(3))
+        panel.clientKey = "airc-panel"
+        panel.client = "Codex (in Airc)"
+        m.tabOpened(panel)
+        XCTAssertEqual(m.rows(profileID: "P1").count, 4, "the per-tab rows are still there (Watch, Take over, Activity)")
+        XCTAssertEqual(m.sessionRows(profileID: "P1").map(\.sessionKey), ["session-1", "session-2", "panel-1"], "one per session")
+        XCTAssertEqual(m.sessionRows(profileID: "P1", excluding: "airc-panel").map(\.id), ["agent-1-2", "agent-2-3"],
+                       "the Airc Agent's run is its task's row, never a second one")
+        XCTAssertTrue(m.setNeedsYou("agent-1-1", "Sign in"))
+        XCTAssertEqual(m.sessionRows(profileID: "P1").first?.id, "agent-1-1", "the page that needs the person stands for the session")
+        m.ended("agent-1-1", .takenOver, at: t0.addingTimeInterval(4))
+        XCTAssertEqual(m.sessionRows(profileID: "P1").first?.id, "agent-1-2", "a live page over a taken-over one")
+        m.ended("agent-1-2", .done, at: t0.addingTimeInterval(5))
+        XCTAssertEqual(m.sessionRows(profileID: "P1").filter { $0.sessionKey == "session-1" }.map(\.id), ["agent-1-2"],
+                       "once all end: the last to end, still one row")
+    }
+
     // MARK: Redaction
 
     func testLabelsAreShortOneLineAndNeverLookLikeSecrets() {

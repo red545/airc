@@ -531,6 +531,28 @@ public struct AgentActivityModel: Sendable {
         rows.filter { $0.profileID == profileID && $0.shown }.sorted { ($0.isLive ? 0 : 1, $0.started) < ($1.isLive ? 0 : 1, $1.started) }
     }
 
+    /// agentrows (2026-11-23): the Agents folder's rows, one per agent session rather than one per agent tab. A session
+    /// is one task: an app with three pages open is one row, not three. Its row is the page that matters most: a live
+    /// one over an ended one, then one that needs the person (so a click lands on it), then the latest to act. Rows of
+    /// `excluding` (the Airc Agent's own runs, listed as their task) are left out: they'd be the same task twice.
+    public func sessionRows(profileID: String, excluding clientKey: String? = nil) -> [AgentTabRow] {
+        Self.perSession(rows(profileID: profileID), excluding: clientKey)
+    }
+
+    /// `rows` (in their order) cut to one per session, as `sessionRows` does. The All tasks page uses it on every profile's rows.
+    public static func perSession(_ rows: [AgentTabRow], excluding clientKey: String? = nil) -> [AgentTabRow] {
+        var best: [String: AgentTabRow] = [:]
+        var order: [String] = []
+        func rank(_ r: AgentTabRow) -> (Int, Int, Double) {
+            (r.isLive ? 0 : 1, r.needsYou != nil && r.isLive ? 0 : 1, -(r.ended ?? r.lastAction ?? r.started).timeIntervalSinceReferenceDate)
+        }
+        for r in rows where r.shown && (clientKey == nil || r.clientKey != clientKey) {
+            guard let b = best[r.sessionKey] else { best[r.sessionKey] = r; order.append(r.sessionKey); continue }
+            if rank(r) < rank(b) { best[r.sessionKey] = r }
+        }
+        return order.compactMap { best[$0] }
+    }
+
     /// When the model next changes by itself (an acting tail ending, Done fading, a minute passing, a row going): the
     /// folder's timer runs only then, so nothing ticks while nothing is on screen to change.
     public func nextChange(after now: Date) -> Date? {

@@ -7,10 +7,11 @@ import SwiftUI
 
 /// The sidebar's Agents folder (docs/user/agents.md, "Follow along"): above the tray, while an agent works in this
 /// window's profile or finished in the last few minutes (Settings › Agents › "Keep finished agents for", 5 by default).
-/// One row per agent tab that did something real, titled by what happened ("Gmail · read 3 pages", or the Airc Agent's
-/// task) with the site's icon, and "Claude · Clicking ‘Archive’" / "Claude · Done · 3 min ago" under it; a pulsing dot
-/// while the agent acts, a quiet ring while it waits; "Done" when it ends, then faded, then gone. Click a
-/// row to Watch it (AgentWatchView); its menu has Take over and Stop. It folds like a folder and remembers that.
+/// One row per task (agentrows, 2026-11-23): the Airc Agent's tasks (SidebarTaskRows.swift), then one row per other
+/// app's session that did something real, titled by what happened ("Gmail · read 3 pages") with the site's icon and the
+/// app under it ("Claude Code", "Claude · Clicking ‘Archive’", "Claude · Done · 3 min ago"); a spinner while it works,
+/// ✋ when its page needs you; "Done" when it ends, then faded, then gone. Click a row to Watch it (AgentWatchView);
+/// its menu has Take over and Stop. It folds like a folder and remembers that.
 /// Private windows have their own sidebar, which never shows it. With no rows it takes no space and runs nothing.
 final class SidebarAgentsView: NSView {
     static let headerHeight: CGFloat = 30
@@ -49,7 +50,7 @@ final class SidebarAgentsView: NSView {
         h.safeAreaRegions = []
         addSubview(h)
         host = h
-        for name in [AgentActivity.changed, AgentCenter.changed] {
+        for name in [AgentActivity.changed, AgentCenter.changed, AgentAttention.changed] {
             observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.refresh() }
             })
@@ -100,9 +101,11 @@ final class SidebarAgentsView: NSView {
         model.profileID = profile
         let activity = AgentActivity.shared
         let now = Date()
-        let rows = profile.map { activity.model.rows(profileID: $0) } ?? []
-        // asidepass: the Space's tasks above the agents' pages (a task's page keeps its row: Watch, Take over, Stop).
-        let tasks = AgentUI.usesPane ? SidebarTaskList.tasks(spaceID: c.currentSpaceID) : []
+        // agentrows: one row per session; with the pane, the Airc Agent's runs are their task's row (asidepass listed
+        // the run's page as a second row under it: the same task twice).
+        let pane = AgentUI.usesPane
+        let rows = profile.map { activity.model.sessionRows(profileID: $0, excluding: pane ? AgentBridge.clientKey : nil) } ?? []
+        let tasks = pane ? SidebarTaskList.lines(SidebarTaskList.tasks(spaceID: c.currentSpaceID, profileID: profile)) : []
         model.spaceID = c.currentSpaceID
         if tasks != model.tasks { model.tasks = tasks }
         let items = rows.map { r in AgentsFolderModel.Item(row: r, state: activity.model.state(r, now: now),
@@ -121,11 +124,17 @@ final class SidebarAgentsView: NSView {
 
     func openTask(_ id: String) {
         guard let c = controller else { return }
-        // agentux3: the running task waits for an OK: straight to the answer (AgentAttention).
-        if AgentTaskRecorder.shared.currentID == id, let it = AgentAttention.items().first(where: { $0.kind == .approval }) {
-            return AgentAttention.go(it, from: "taskRow")
+        if AgentTaskRecorder.shared.currentID == id {
+            // agentux3: the running task waits for the person: straight to it (its page's sign-in, else the OK).
+            if let row = model.tasks.first(where: { $0.id == id })?.liveRowID, AgentAttention.go(row: row, from: "taskRow") { return }
+            if let it = AgentAttention.items().first(where: { $0.kind == .approval }) { return AgentAttention.go(it, from: "taskRow") }
         }
         AgentTasksPage.openTask(id, in: c)
+    }
+
+    func taskIcon(_ line: SidebarTaskLine) -> NSImage? {
+        guard let id = line.liveRowID, let row = AgentActivity.shared.model.row(id) else { return nil }
+        return AgentCenter.shared.windows[row.window]?.tab(row.tab)?.favicon
     }
 
     func newTask() {
@@ -150,10 +159,11 @@ final class SidebarAgentsView: NSView {
 
     private func layoutHeight() {
         let n = model.items.count
-        // asidepass: New Task, the tasks and Show all, over the other apps' rows.
-        let taskRows = model.tasks.isEmpty ? 0 : model.tasks.count + 2
-        let h: CGFloat = n + taskRows == 0 ? 0 : Self.topInset + Self.headerHeight
-            + (model.expanded ? CGFloat(n) * Self.rowPitch + CGFloat(taskRows) * SidebarTaskList.rowPitch : 0) + Self.bottomInset
+        // asidepass: New Task, the tasks and Show all, over the other apps' rows (agentrows: a task row with a line under
+        // it is taller).
+        let taskHeight = model.tasks.isEmpty ? 0 : 2 * SidebarTaskList.rowPitch + model.tasks.reduce(0) { $0 + SidebarTaskList.pitch($1) }
+        let h: CGFloat = n + model.tasks.count == 0 ? 0 : Self.topInset + Self.headerHeight
+            + (model.expanded ? CGFloat(n) * Self.rowPitch + taskHeight : 0) + Self.bottomInset
         guard h != target else { return }
         target = h
         guard let c = controller, window != nil, !isHiddenOrHasHiddenAncestor,
@@ -278,23 +288,34 @@ final class AgentsFolderModel: ObservableObject {
         let live: Bool
         let acting: Bool
         let status: String
+        /// What the agent does now ("Clicking ‘Archive’"), while it acts.
+        let caption: String?
+        let needsYou: Bool
         let faded: Bool
         let stopped: Bool
 
         init(row r: AgentTabRow, state: AgentRowState, stopped: Bool) {
             id = r.id; label = r.label; title = r.rowTitle; client = r.client; clientKey = r.clientKey; window = r.window; tab = r.tab; live = r.isLive
             self.stopped = stopped
+            needsYou = { if case .needsYou = state { return true } else { return false } }()
             switch state {
-            case .acting(let caption): acting = true; faded = false; status = caption ?? "Working"
-            case .idle: acting = false; faded = false; status = "Waiting"
-            case .needsYou(let why): acting = false; faded = false; status = "Needs you · " + why
-            case .justEnded(let end): acting = false; faded = false; status = Item.words(end)
-            case .faded(let end, let minutes): acting = false; faded = true; status = Item.words(end) + " · \(minutes) min ago"
+            case .acting(let c): acting = true; faded = false; status = c ?? "Working"; caption = c
+            case .idle: acting = false; faded = false; status = "Waiting"; caption = nil
+            case .needsYou(let why): acting = false; faded = false; status = "Needs you · " + why; caption = nil
+            case .justEnded(let end): acting = false; faded = false; status = Item.words(end); caption = nil
+            case .faded(let end, let minutes): acting = false; faded = true; status = Item.words(end) + " · \(minutes) min ago"; caption = nil
             }
         }
 
-        /// The line under the title: the app (and its device), then what it does now or how it ended.
-        var subtitle: String { client + " · " + status }
+        /// What follows the app's name under the title, only when it says more than the row's icon: what it does now,
+        /// what it waits for, how it ended. Nil while it just works or waits for its app ("Waiting" said nothing).
+        var detail: String? {
+            if !live || needsYou { return status }
+            return caption
+        }
+
+        /// The line under the title: the app (and its device), then `detail`.
+        var subtitle: String { client + (detail.map { " · " + $0 } ?? "") }
 
         static func words(_ end: AgentTabRow.End) -> String {
             switch end { case .done: return "Done"; case .stopped: return "Stopped"; case .takenOver: return "Yours now" }
@@ -306,14 +327,14 @@ final class AgentsFolderModel: ObservableObject {
     @Published var watchingID: String?
     @Published var theme = DesignTheme.default.resolved(systemIsDark: false)
     /// asidepass: this Space's Airc Agent tasks, and the one the window shows in its task view.
-    @Published var tasks: [AgentTaskRecord] = []
+    @Published var tasks: [SidebarTaskLine] = []
     @Published var shownTaskID: String?
     var spaceID = ""
     var profileID: String?
     weak var view: SidebarAgentsView?
 
     var hasEnded: Bool { items.contains { !$0.live } }
-    var actingCount: Int { items.filter(\.acting).count }
+    var actingCount: Int { items.filter(\.acting).count + tasks.filter { $0.status == .spinner }.count }
 }
 
 struct AgentsFolderContent: View {
@@ -328,8 +349,7 @@ struct AgentsFolderContent: View {
                 VStack(spacing: SidebarTaskList.rowPitch - SidebarTaskList.rowHeight) {
                     SidebarNewTaskRow { model.view?.newTask() }
                     ForEach(model.tasks) { t in
-                        SidebarTaskRow(task: t, selected: model.shownTaskID == t.id, open: { model.view?.openTask(t.id) },
-                                       stop: t.status == .running || t.status == .waiting ? { model.view?.stopTask(t.id) } : nil)
+                        AgentTaskFolderRow(line: t, model: model)
                             .transition(.opacity.combined(with: .offset(y: -6)))
                     }
                     SidebarShowAllRow { model.view?.showAllTasks() }
@@ -421,10 +441,43 @@ private struct AgentsFolderHeader: View {
         .onHover { hovered = $0 }
         .onTapGesture { withAnimation(reduceMotion ? nil : AircSpring.row.animation) { model.view?.setExpanded(!model.expanded) } }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Agents, \(model.items.count) tab\(model.items.count == 1 ? "" : "s")")
+        .accessibilityLabel("Agents, \(model.items.count + model.tasks.count) task\(model.items.count + model.tasks.count == 1 ? "" : "s")")
         .accessibilityValue(model.expanded ? "expanded" : "collapsed")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { model.view?.setExpanded(!model.expanded) }
+    }
+}
+
+/// A task's row in the folder, with its live page's approval popover (agentux, docs/design/agent-ux.md §6; it was on
+/// the page's own row before agentrows): "✋ Pay on …?" points at the task row when the pane isn't showing the task.
+private struct AgentTaskFolderRow: View {
+    let line: SidebarTaskLine
+    @ObservedObject var model: AgentsFolderModel
+    @ObservedObject private var run = AgentRunCenter.shared
+    @State private var frameInFolder: CGRect = .zero
+
+    private var current: Bool { AgentTaskRecorder.shared.currentID == line.id }
+    private var waiting: Bool { current && run.approval != nil }
+    private var paneShown: Bool { model.view?.controller.flatMap { AgentPaneController.pane(of: $0) }?.isShown == true }
+    private var live: Bool { line.liveRowID != nil && (line.task.status == .running || line.task.status == .waiting || line.task.status == .takenOver) }
+
+    var body: some View {
+        let t = line.task
+        let page = live ? line.liveRowID : nil
+        SidebarTaskRow(line: line, selected: model.shownTaskID == t.id, open: { model.view?.openTask(t.id) },
+                       stop: t.status == .running || t.status == .waiting ? { model.view?.stopTask(t.id) } : nil,
+                       watch: page.map { id in { model.view?.openWatch(id) } },
+                       takeOver: page.map { id in { model.view?.takeOver(id) } },
+                       icon: model.view?.taskIcon(line))
+            .background(GeometryReader { g in
+                Color.clear
+                    .onAppear { frameInFolder = g.frame(in: .named(AgentsFolderContent.space)) }
+                    .onChange(of: g.frame(in: .named(AgentsFolderContent.space))) { _, f in frameInFolder = f }
+            })
+            .onChange(of: run.approval) { _, a in
+                if a != nil, waiting, !paneShown { model.view?.showApproval(at: frameInFolder, open: { model.view?.openTask(t.id) }) }
+            }
+            .onAppear { if waiting && !paneShown { model.view?.showApproval(at: frameInFolder, open: { model.view?.openTask(t.id) }) } }
     }
 }
 
@@ -473,18 +526,21 @@ private struct AgentFolderRow: View {
                     .foregroundStyle(theme.text.color)
                     .lineLimit(1)
                     .testAnchor("agents-title-\(item.id)")
-                // The app, then its state: a long device name gives way before "Done · 3 min ago" does.
+                // The app, then its state: a long device name gives way before "Done · 3 min ago" does; while it
+                // works, the caption ("Typing in ‘Search mail’") gives way before the app's name does.
                 HStack(spacing: 0) {
-                    Text(item.client).lineLimit(1).truncationMode(.middle)
-                    Text(" · " + (waiting ? "Waiting for your OK" : item.status)).lineLimit(1).layoutPriority(1)
+                    Text(item.client).lineLimit(1).truncationMode(.middle).layoutPriority(item.live ? 1 : 0)
+                    if let d = waiting ? "Waiting for your OK" : item.detail {
+                        Text(" · " + d).lineLimit(1).truncationMode(.tail).layoutPriority(item.live ? 0 : 1)
+                    }
                 }
                 .aircFont(AircFont.caption)
                 .foregroundStyle(theme.textTertiary.color)
             }
             Spacer(minLength: 2)
-            if waiting, !hovered {
+            if waiting || item.needsYou, !hovered {
                 Image(systemName: "hand.raised.fill").font(.system(size: 11)).foregroundStyle(.orange).padding(.trailing, 2)
-                    .accessibilityLabel("Waiting for your OK")
+                    .accessibilityLabel(waiting ? "Waiting for your OK" : item.status)
                     .testAnchor("agents-waiting-\(item.id)")
             } else if hovered, item.live {
                 // agentux: Watch is one click on any working row (a background agent's page is off screen otherwise).
@@ -494,11 +550,13 @@ private struct AgentFolderRow: View {
                 TrayButton(symbol: "stop.fill", help: "Stop \(item.client)") { model.view?.stop(item.id) }
                     .accessibilityLabel("Stop \(item.client)")
                     .testAnchor("agents-stop-\(item.id)")
-            } else if item.live {
-                AgentPulseDot(acting: item.acting, color: theme.accent.nsColor, reduceMotion: reduceMotion)
-                    .frame(width: 8, height: 8)
-                    .padding(.trailing, 4)
+            } else if item.live, item.acting {
+                // agentrows: one status, as on task rows: a spinner while its app works with the page; nothing while
+                // it is connected but quiet (a session left open would spin for ever).
+                AgentTaskSpinner(size: 12, color: theme.textTertiary.nsColor).frame(width: 12, height: 12)
+                    .padding(.trailing, 2)
                     .testAnchor("agents-dot-\(item.id)")
+                    .testAnchor("agents-spinner-\(item.id)")
             }
         }
         .padding(.leading, AircMetrics.Row.folderIndent)
@@ -527,8 +585,10 @@ private struct AgentFolderRow: View {
         if let image = model.view?.icon(item) {
             Image(nsImage: image).resizable().interpolation(.high).frame(width: 16, height: 16)
                 .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+                .testAnchor("agents-favicon-\(item.id)")
         } else {
-            Image(systemName: "globe").font(.system(size: 12)).foregroundStyle(theme.textSecondary.color).frame(width: 16, height: 16)
+            Image(systemName: "sparkle").font(.system(size: 11, weight: .medium)).foregroundStyle(theme.textSecondary.color).frame(width: 16, height: 16)
+                .testAnchor("agents-sparkle-\(item.id)")
         }
     }
 

@@ -14,6 +14,10 @@ import AircKit
 /// (shortened to 6 s here), still listed in Activity; a row the person watches stays until they stop watching; the
 /// folder hides itself once empty; a private window's page is never named anywhere (rows, banner, history); the
 /// "Keep finished agents for" setting is saved.
+/// agentrows (2026-11-23): an app with two pages is one row (one per session, AgentRowsCensus), before and after Show
+/// all, with one status (the spinner while it works) and only its name under the title; All tasks lists the session
+/// once; a click on the row (real with the UI driver in a dedicated session) opens Watch on it, and a click on its All
+/// tasks row too.
 extension SnapshotRunner {
     func parityAgentRowsScenario() {
         let v = AgentRowsCheck(runner: self)
@@ -21,6 +25,7 @@ extension SnapshotRunner {
         step { done in v.connectOnly(done) }
         step { done in v.blankWindow(done) }
         step { done in v.titledRow(done) }
+        step { done in v.oneRowPerSession(done) }
         step { done in v.watchedStays(done) }
         step { done in v.autoClose(done) }
         step { done in v.setting(done) }
@@ -43,6 +48,7 @@ final class AgentRowsCheck {
     var privateWindow: PrivateWindowController?
     let typed = "hello-rows-typed-7731"
     static let keep: TimeInterval = 6
+    var real = false
 
     init(runner: SnapshotRunner) { self.runner = runner }
 
@@ -79,6 +85,9 @@ final class AgentRowsCheck {
         engine = app.engine is WebKitEngine ? "webkit" : "chromium"
         spike = AgentSpike(runner: runner)
         spike.engine = engine
+        let env = ProcessInfo.processInfo.environment
+        real = UIDriverClient.available && env["AIRC_UI_DEDICATED_SESSION"] == "1" && env["AIRC_LA_AS_OWNER"] == "1"
+        note("parityagentrows \(engine): input \(real ? "real (UI driver)" : "posted")")
         UserDefaults.standard.set(true, forKey: SidebarAgentsView.expandedKey)
         folder.model.expanded = true
         server = LocalPageServer(responses: [
@@ -202,7 +211,10 @@ final class AgentRowsCheck {
                                 k.call("type", ["window": w, "text": self.typed]) { _, _ in
                                     k.call("read_page", ["window": w]) { _, _ in
                                         k.call("navigate", ["window": w, "url": "\(self.base)/help.html"]) { _, _ in
-                                            self.after(1.5) { self.checkTitle(done) }
+                                            // Until the acting tail ends: the subtitle is checked quiet.
+                                            self.runner.waitUntil({ self.folder.model.items.first { $0.id == self.workRow }?.acting == false }, timeout: 6) {
+                                                self.after(0.3) { self.checkTitle(done) }
+                                            }
                                         }
                                     }
                                 }
@@ -223,14 +235,137 @@ final class AgentRowsCheck {
               && !title.contains("\(port)") && !title.contains(".html") && !title.contains("127.0.0.1"),
               "the title holds no typed text, label, page text, address or port")
         let sub = item?.subtitle ?? ""
-        check(sub.hasPrefix((item?.client ?? "?") + " · ") && item?.client.contains("rows-worker") == true,
-              "under it: the app, then its state (\(sub))")
+        // agentrows: the app's name alone while it works between calls ("· Waiting" said nothing the icon doesn't).
+        check(sub == item?.client && item?.client.contains("rows-worker") == true,
+              "under it: the app's name only (\(sub))")
         check(TestAnchors.view("agents-title-\(workRow)", in: c.sidebar) != nil, "the titled row is on screen in the sidebar")
         check(privateNeverNamed(), "the private window's page is never named")
         if let pw = privateWindow?.window.contentView {
             check(!descendants(of: pw).contains { $0 is SidebarAgentsView }, "the private window has no Agents folder")
         }
         done()
+    }
+
+    /// (2b) agentrows: the worker opens a second page and works there: still one row for it, in the folder and on All
+    /// tasks, before and after Show all; one status; a click on either opens Watch. The second page closes again.
+    func oneRowPerSession(_ done: @escaping () -> Void) {
+        guard let k = worker, let row = activity.model.row(workRow) else { check(false, "agentrows: the worker's row for one-row-per-session"); return done() }
+        let key = row.sessionKey, w = row.window
+        k.call("open_tab", ["url": "\(base)/help.html", "window": w]) { r, _ in
+            let tab = SpikeMCPClient.json(r)["tab"] as? Int ?? 0
+            let second = AgentActivityModel.rowID(window: w, tab: tab)
+            k.call("select_tab", ["window": w, "tab": tab]) { _, _ in
+                self.runner.waitUntil({ self.activity.model.row(second)?.shown == true }, timeout: 5) {
+                    k.call("left_click", ["window": w, "coordinate": [60, 60]]) { _, _ in
+                        let pages = self.activity.model.rows.filter { $0.sessionKey == key && $0.shown && $0.isLive }.count
+                        let census = AgentRowsCensus.folderSession(self.c, session: key)
+                        self.check(pages == 2 && census.ok, "agentrows: an app working on two pages is one row (\(census.detail))")
+                        let item = self.folder.model.items.first { $0.id == census.row }
+                        self.check(item?.acting == true && census.row.map { TestAnchors.view("agents-spinner-\($0)", in: self.folder) != nil } == true
+                                   && census.row.map { TestAnchors.view("agents-waiting-\($0)", in: self.folder) == nil } == true,
+                                   "agentrows: one status while it works: the spinner (acting \(item?.acting ?? false))")
+                        self.check(census.row.map { TestAnchors.view("agents-favicon-\($0)", in: self.folder) != nil || TestAnchors.view("agents-sparkle-\($0)", in: self.folder) != nil } == true,
+                                   "agentrows: the row has an icon (the page's, else ✦)")
+                        let page = AgentRowsCensus.pageSession(self.c, session: key)
+                        self.check(page.ok, "agentrows: All tasks lists the app's session once (\(page.detail))")
+                        self.shot(self.c.sidebar, "agentrows-outside")
+                        self.front { _ in
+                            self.press(census.row.map { "agents-row-\($0)" } ?? "-", in: self.folder, "the app's row",
+                                       fallback: { census.row.map { self.folder.openWatch($0) } }) { how in
+                                self.runner.waitUntil({ self.folder.watch != nil }, timeout: 4) {
+                                    self.check(self.folder.watch != nil && self.folder.watch?.rowID == census.row,
+                                               "agentrows: a click on the app's row opens Watch on its page [\(how) click]")
+                                    self.folder.closeWatch()
+                                    self.showAll(key) {
+                                        k.call("close_tab", ["window": w, "tab": tab]) { _, _ in
+                                            self.after(1) {
+                                                let after = AgentRowsCensus.folderSession(self.c, session: key)
+                                                self.check(after.ok && after.row == self.workRow,
+                                                           "agentrows: its second page closed: still one row, on the first page (\(after.detail))")
+                                                done()
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Show all: the session's row stays one in the folder and on All tasks; its All tasks row opens Watch.
+    func showAll(_ key: String, _ done: @escaping () -> Void) {
+        let before = folder.model.items.map(\.id)
+        let tasksBefore = folder.model.tasks.map(\.id)
+        let open: () -> Void = { [self] in _ = AgentTasksPage.open(in: c) }
+        // The folder lists New Task and Show all once there are Airc Agent tasks; without, All tasks opens from ◷.
+        let go: (@escaping (String) -> Void) -> Void = { [self] k in
+            if TestAnchors.view("agents-showall", in: folder) == nil { open(); return after(0.3) { k("direct: no Show all row without Airc tasks") } }
+            press("agents-showall", in: folder, "Show all", fallback: open, k)
+        }
+        go { how in
+            self.runner.waitUntil({ AgentTasksPage.existing(self.c.shownTabID) != nil }, timeout: 4) {
+                self.after(0.6) {
+                    let census = AgentRowsCensus.folderSession(self.c, session: key)
+                    self.check(AgentTasksPage.existing(self.c.shownTabID) != nil && census.ok && self.folder.model.items.map(\.id) == before
+                               && self.folder.model.tasks.map(\.id) == tasksBefore,
+                               "agentrows: after Show all [\(how)] the folder has the same rows, the app once (\(census.detail))")
+                    let page = AgentRowsCensus.pageSession(self.c, session: key)
+                    self.check(page.ok, "agentrows: All tasks lists it once (\(page.detail))")
+                    guard let p = AgentTasksPage.existing(self.c.shownTabID), let id = page.row else { return done() }
+                    self.press("agenttasks.row.\(id)", in: p.host, "the app on All tasks",
+                               fallback: { if let r = AgentRowsCensus.pageRows(self.c).first(where: { $0.id == id }) { p.model.open(r) } }) { how in
+                        self.runner.waitUntil({ self.folder.watch != nil }, timeout: 4) {
+                            let want = String(id.dropFirst("session-".count))
+                            self.check(self.folder.watch?.rowID == want, "agentrows: a click on its All tasks row opens Watch on it [\(how) click]")
+                            self.folder.closeWatch()
+                            if let t = self.c.shownTabID { _ = try? self.c.store.closeTab(t) }
+                            done()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func shot(_ v: NSView, _ name: String) {
+        v.layoutSubtreeIfNeeded()
+        if let image = runner.render(v), let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+           let png = rep.representation(using: .png, properties: [:]) {
+            try? png.write(to: runner.dir.appendingPathComponent("\(name)-\(engine).png"))
+        }
+    }
+
+    // MARK: Real input
+
+    func front(_ done: @escaping (Bool) -> Void) {
+        guard real else { return done(false) }
+        NSApp.activate(ignoringOtherApps: true)
+        c.window.makeKeyAndOrderFront(nil)
+        runner.waitUntil({ NSApp.isActive && self.c.window.isKeyWindow }, timeout: 6) { done(NSApp.isActive && self.c.window.isKeyWindow) }
+    }
+
+    /// A real click on an anchor (UI driver, app active), else `fallback`; "real" or "posted".
+    func press(_ anchor: String, in host: NSView, _ what: String, fallback: @escaping () -> Void, _ done: @escaping (String) -> Void) {
+        host.window?.contentView?.layoutSubtreeIfNeeded()
+        guard real, NSApp.isActive, let v = TestAnchors.view(anchor, in: host), let w = v.window, let main = NSScreen.screens.first else {
+            if real { note("FAIL-ENV parityagentrows \(engine): no real click for \(what) (anchor \(TestAnchors.view(anchor, in: host) == nil ? "missing" : "found"), active \(NSApp.isActive)); posted") }
+            fallback()
+            return after(0.3) { done("posted") }
+        }
+        let r = w.convertToScreen(v.convert(v.bounds, to: nil))
+        // A point in the row's title, left of the hover buttons.
+        let x = (r.minX + min(r.width * 0.35, 90)).rounded(), y = (main.frame.maxY - r.midY).rounded()
+        UIDriverClient.run(["--move", "\(Int(x))", "\(Int(y))"]) { _, _ in
+            UIDriverClient.run(["--click", "\(Int(x))", "\(Int(y))"]) { ok, out in
+                DispatchQueue.main.async {
+                    if !ok { self.note("FAIL-ENV parityagentrows \(self.engine): the driver refused \(what) (\(out)); posted"); fallback() }
+                    self.after(0.4) { done(ok ? "real" : "posted") }
+                }
+            }
+        }
     }
 
     /// (3) A second app's row that the person watches; both apps end.

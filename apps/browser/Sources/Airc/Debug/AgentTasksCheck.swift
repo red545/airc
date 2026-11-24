@@ -13,6 +13,9 @@ import AircKit
 ///   task; approvals in the view (Deny, Allow once).
 /// - The sidebar's task rows: New Task, a spinner while it works, ✋ while it waits, a blue dot when it finished
 ///   unseen, a click opening the task view, Show all.
+/// - agentrows: one sidebar row per task, running, waiting or done, before and after Show all (AgentRowsCensus): the
+///   run's page is never a second row; the row's single status (spinner, ✋ with "Waiting for your OK", blue dot); a
+///   click opens the right view (the task view, the approval); All tasks lists it once and opens it.
 /// - Recent tasks cards in Ask mode (working time, title, last steps or the answer), a card opening its task.
 /// Real driver clicks and keys in a dedicated session; else posted, and said so.
 extension SnapshotRunner {
@@ -23,6 +26,7 @@ extension SnapshotRunner {
         step { done in t.caseTaskView(done) }
         step { done in t.caseReply(done) }
         step { done in t.caseSidebar(done) }
+        step { done in t.caseShowAll(done) }
         step { done in t.caseRecent(done) }
         step { done in t.caseApproval(done) }
         run { t.finish() }
@@ -183,6 +187,7 @@ final class AgentTasksCheck {
     func caseTaskView(_ done: @escaping () -> Void) {
         var sawRunning = false, sawLive = false, sawPartial = false, sawSpinner = false, sawWorking = false, sawStop = false
         var liveFrame: NSRect?, columnMax: CGFloat = 0
+        var census: (ok: Bool, detail: String)?, pageCensus: (ok: Bool, detail: String)?, statusWhileRunning = ""
         wait({
             if self.inTask("agenttask.step.running") { sawRunning = true }
             if self.inTask("agenttask.live") {
@@ -194,6 +199,14 @@ final class AgentTasksCheck {
             if self.inTask("agenttask.working") { sawWorking = true }
             if self.inTask("agenttask.stop") { sawStop = true }
             if self.inSidebar("agents-task-spinner") { sawSpinner = true }
+            // agentrows: once its page is live, the running task is one row (its page no second one).
+            if census == nil, sawLive, self.run.state == .running, let id = self.recorder.currentID, AgentAttention.paneRowID != nil {
+                census = AgentRowsCensus.folderTask(self.c, task: id)
+                pageCensus = AgentRowsCensus.pageTask(self.c, task: id)
+                statusWhileRunning = ["agents-task-spinner", "agents-task-waiting", "agents-task-unread", "agents-task-favicon", "agents-task-sparkle"]
+                    .filter { self.inSidebar($0) }.joined(separator: " ")
+                if census?.ok == true { self.shot(self.c.sidebar, "agentrows-running") }
+            }
             if sawLive && sawRunning && !sawPartial, self.run.state == .running { self.shotTask("agenttasks-running") }
             return !self.run.state.isActive && self.k.fake.requests(for: "ask") > 0
         }, 45) { [self] in
@@ -204,6 +217,11 @@ final class AgentTasksCheck {
             if let f = liveFrame { check(f.minX >= columnMax - 0.5, "… right of the column, not over it (card x \(Int(f.minX)), column ends \(Int(columnMax)))") }
             check(sawPartial, "the answer streams into the view")
             check(sawSpinner, "the sidebar's task row spins while it works")
+            check(census?.ok == true, "agentrows: running: the task is one row in the folder, its page no second one (\(census?.detail ?? "never sampled"))")
+            check(pageCensus?.ok == true, "agentrows: running: All tasks lists it once (\(pageCensus?.detail ?? "never sampled"))")
+            check(statusWhileRunning.contains("agents-task-spinner") && !statusWhileRunning.contains("waiting") && !statusWhileRunning.contains("unread")
+                  && (statusWhileRunning.contains("favicon") || statusWhileRunning.contains("sparkle")),
+                  "agentrows: running: one status, the spinner, and an icon (the page's or ✦) (\(statusWhileRunning))")
             after(1.0) { [self] in
                 check(inTask("agenttask.answer"), "the answer stays in the view")
                 check(!inTask("agenttask.live") && !inTask("agenttask.stop"), "the live card and Stop go when it's done")
@@ -271,6 +289,12 @@ final class AgentTasksCheck {
                     check(inSidebar("agents-task-unread"), "… its row has the blue dot")
                     shot(c.sidebar, "agenttasks-sidebar")
                     guard let id else { return done() }
+                    let census = AgentRowsCensus.folderTask(c, task: id)
+                    check(census.ok, "agentrows: done: one row for the finished task (\(census.detail))")
+                    check(!inSidebar("agents-task-spinner") && !inSidebar("agents-task-waiting") && !inSidebar("agents-task-subtitle"),
+                          "agentrows: done: the dot alone, no spinner, ✋ or line under it")
+                    let all = c.sidebar.agents.model.tasks.map(\.id)
+                    check(Set(all).count == all.count, "agentrows: every task in the folder once (\(all.count) rows)")
                     let row = TestAnchors.view("agents-task-\(id)", in: c.sidebar.agents)
                     click(row, "the unread task row", fallback: { self.c.sidebar.agents.openTask(id) }) { [self] how in
                         wait({ AgentTasksURL.taskID(self.c.store.tab(self.c.shownTabID)?.url) == id }, 4) { [self] in
@@ -335,6 +359,7 @@ final class AgentTasksCheck {
                 check(inSidebar("agents-task-waiting"), "the sidebar row shows ✋ while it waits")
                 check(taskPage?.task.placeholder == "Or tell it what to change…", "the composer says “Or tell it what to change…”")
                 shotTask("agenttasks-approval")
+                waitingRows { [self] in
                 guard let h = taskHost else { return done() }
                 k.press("agenttask.deny", "Deny", in: h, fallback: { self.run.answerApproval(allow: false) }) { [self] how in
                     k.untilIdle { [self] in after(0.6) { [self] in
@@ -343,6 +368,71 @@ final class AgentTasksCheck {
                         check(!inTask("agenttask.approval") && inTask("agenttask.decision"), "the card goes; the timeline says it was declined")
                         allow(done)
                     } }
+                }
+                }
+            }
+        }
+    }
+
+    // MARK: One row per task (agentrows)
+
+    /// The waiting task: one row with ✋ and "Waiting for your OK"; a click on it lands on the approval (the pane's
+    /// card); then back to its task view for Deny.
+    func waitingRows(_ done: @escaping () -> Void) {
+        guard let id = recorder.currentID else { check(false, "agentrows: waiting: a current task"); return done() }
+        let census = AgentRowsCensus.folderTask(c, task: id)
+        check(census.ok, "agentrows: waiting: one row for the task that waits (\(census.detail))")
+        let line = c.sidebar.agents.model.tasks.first { $0.id == id }
+        check(line?.status == .needsYou && line?.subtitle == "Waiting for your OK" && inSidebar("agents-task-subtitle"),
+              "agentrows: waiting: ✋ and “Waiting for your OK” under the title (\(line?.subtitle ?? "no line"))")
+        check(!inSidebar("agents-task-spinner"), "agentrows: waiting: no spinner with the ✋")
+        check(line?.liveRowID.map { inSidebar("agents-waiting-\($0)") } == true, "agentrows: waiting: the ✋ is the task row's (its page's id on it)")
+        let page = AgentRowsCensus.pageTask(c, task: id)
+        check(page.ok && AgentRowsCensus.pageRows(c).first { $0.id == id }?.chip == "Waiting", "agentrows: waiting: All tasks lists it once, as Waiting (\(page.detail))")
+        shot(c.sidebar, "agentrows-waiting")
+        k.press("agents-task-\(id)", "the waiting task's row", in: c.sidebar.agents, fallback: { self.c.sidebar.agents.openTask(id) }) { [self] how in
+            wait({ AgentPaneController.pane(of: self.c)?.isShown == true }, 4) { [self] in
+                check(AgentPaneController.pane(of: c)?.isShown == true && run.approval != nil,
+                      "agentrows: waiting: a click on its row lands on the approval [\(how) click]")
+                let after = AgentRowsCensus.folderTask(c, task: id)
+                check(after.ok, "agentrows: waiting: still one row with the approval in front (\(after.detail))")
+                AgentPaneController.pane(of: c)?.close()
+                c.sidebar.agents.closeApproval()
+                AgentTasksPage.openTask(id, in: c)
+                self.after(0.8) { [self] in
+                    check(inTask("agenttask.approval"), "agentrows: back in the task view, the approval card still asks")
+                    done()
+                }
+            }
+        }
+    }
+
+    /// Show all: the folder keeps one row per task, All tasks lists each once, and a click there opens the task.
+    func caseShowAll(_ done: @escaping () -> Void) {
+        guard let id = recorder.currentID ?? recorder.tasks.first?.id else { check(false, "agentrows: a task for Show all"); return done() }
+        let before = c.sidebar.agents.model.tasks.map(\.id)
+        k.press("agents-showall", "Show all", in: c.sidebar.agents, fallback: { self.c.sidebar.agents.showAllTasks() }) { [self] how in
+            wait({ self.taskPage != nil && self.taskPage?.model.taskID == nil }, 4) { [self] in
+                check(taskPage != nil && taskPage?.model.taskID == nil, "agentrows: Show all opens All tasks [\(how) click]")
+                after(0.6) { [self] in
+                    let census = AgentRowsCensus.folderTask(c, task: id)
+                    check(census.ok && c.sidebar.agents.model.tasks.map(\.id) == before,
+                          "agentrows: after Show all the folder still has one row per task, no new ones (\(census.detail); \(before.count) → \(c.sidebar.agents.model.tasks.count))")
+                    let rows = AgentRowsCensus.pageRows(c)
+                    let ids = rows.map(\.id)
+                    check(Set(ids).count == ids.count && !rows.contains { $0.external && AgentActivity.shared.model.row(String($0.id.dropFirst("session-".count)))?.clientKey == AgentBridge.clientKey },
+                          "agentrows: All tasks lists each task once and none of their pages (\(rows.count) rows)")
+                    check(AgentRowsCensus.pageTask(c, task: id).ok, "agentrows: … the finished task once (\(AgentRowsCensus.pageTask(c, task: id).detail))")
+                    shot(c.root, "agentrows-showall")
+                    guard let h = taskHost else { return done() }
+                    k.press("agenttasks.row.\(id)", "the task on All tasks", in: h, fallback: { if let r = rows.first(where: { $0.id == id }) { self.taskPage?.model.open(r) } }) { [self] how in
+                        wait({ AgentTasksURL.taskID(self.c.store.tab(self.c.shownTabID)?.url) == id }, 4) { [self] in
+                            check(AgentTasksURL.taskID(c.store.tab(c.shownTabID)?.url) == id, "agentrows: a click on All tasks' row opens that task's view [\(how) click]")
+                            let census = AgentRowsCensus.folderTask(c, task: id)
+                            check(census.ok, "agentrows: and the folder still has it once (\(census.detail))")
+                            done()
+                        }
+                    }
                 }
             }
         }
