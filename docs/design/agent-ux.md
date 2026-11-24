@@ -119,7 +119,7 @@ Items:
   host, ✕ removes; kept per tab while drafting); `@` lists this Space's tabs to attach; pasted long text becomes a
   file chip. An attached page is read once at send time (`read_page` on that tab, fenced as untrusted page content,
   same rules as agent.md) and its URL is given; the agent acts on its own copy in its agent window.
-- **Controls row:** provider pill "Claude Code · Opus 5.5 ⌄" (§8 menu, M3 F), level pill "Quick ⌄ / Keep going"
+- **Controls row:** provider pill "Claude Code · Opus 5.5 ⌄" (§8 menu, M3 F), level pill "Quick ⌄ / Thorough" (effort only, no step limit)
   (agent.md §4; per-provider effort mapping is agentcli's), elapsed + steps while running, and the round **Send ↑**
   button, which becomes **Stop ■** while running.
 - **Keys:** ↩ send, ⇧↩ newline, ↑ in an empty field recalls the last prompt, Esc blurs (Esc twice while running =
@@ -274,7 +274,7 @@ transcript (red outline), task status `.failed`/`.paused`, row glyph !.
 | Signed out / token revoked | "Claude Code is signed out." | Sign in… · Use … instead |
 | CLI missing or crashed | "Codex stopped unexpectedly (exit 1)." | Try again · Show logs · Use … instead |
 | Network / provider 5xx | retried once silently (agent.md), then "Couldn't reach Anthropic." | Try again |
-| Step/time budget | "Stopped: step limit (25)." | Continue (same budget again) |
+| The person's own step cap (Settings › AI › Agent › Stop after; off by default) | "Stopped after 25 steps, the limit you set in Settings › AI › Agent. Continue gives it 25 more." (calm, not red) | Continue (N more steps) |
 | Refusal | "The model declined this task." | Rephrase (focus composer) |
 | Site in the never-use list | "Stopped at bank.example.com: on your list of sites the agent never uses." | Open Settings |
 
@@ -320,7 +320,7 @@ The pane needs these from every backend (API, Claude Code, Codex), as one Swift 
 ## 13. Phases
 
 1. **Pane + providers** (with agentcli): pane card, transcript with steps and done summary, composer with page chip,
-   provider pill, Quick/Keep going, Stop, approval pinned above the composer, first-run and connect flow, errors, the
+   provider pill, Quick/Thorough, Stop, approval pinned above the composer, first-run and connect flow, errors, the
    Command Bar row for any provider. Task store, one task per window at a time.
 2. **Tasks in the sidebar:** task rows with states, page child rows, row approval popover, `airc://agents`, several
    tasks at once, Take over / Hand back, Dock badge and notifications.

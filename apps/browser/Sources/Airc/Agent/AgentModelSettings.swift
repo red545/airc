@@ -18,6 +18,10 @@ final class AgentModelSettings {
         var anthropicModel = AgentProvider.anthropic.defaultModel.id
         var openaiModel = AgentProvider.openai.defaultModel.id
         var level: AgentLevel = .quick
+        /// "Stop after N steps": nil (Off) by default; a task then runs until it's done, the person stops it or it needs
+        /// them. Files from before 2026-11-23 have no value here, so everyone on the old default (Quick, 25 steps) is
+        /// now on Off.
+        var stepCap: Int?
         /// Sites (hosts) the agent never uses.
         var blockedSites: [String] = []
         /// "Remember things between tasks" (docs/design/agent.md, "Memory"): off by default.
@@ -31,6 +35,7 @@ final class AgentModelSettings {
             anthropicModel = (try? c.decode(String.self, forKey: .anthropicModel)) ?? AgentProvider.anthropic.defaultModel.id
             openaiModel = (try? c.decode(String.self, forKey: .openaiModel)) ?? AgentProvider.openai.defaultModel.id
             level = (try? c.decode(AgentLevel.self, forKey: .level)) ?? .quick
+            stepCap = (try? c.decodeIfPresent(Int.self, forKey: .stepCap)).flatMap { $0 > 0 ? $0 : nil }
             blockedSites = (try? c.decode([String].self, forKey: .blockedSites)) ?? []
             memory = (try? c.decode(Bool.self, forKey: .memory)) ?? false
         }

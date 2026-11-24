@@ -424,8 +424,9 @@ final class AgentPaneModel: ObservableObject {
         return "Reply…"
     }
 
-    /// The error banner's text and actions, for a run that failed or hit a limit.
-    struct Problem: Equatable { let message: String; let detail: String?; let retry: Bool; let continues: Bool; let settings: Bool }
+    /// The banner at the end of the transcript, for a run that failed (`isError`, red) or stopped at the person's own
+    /// step cap (calm, with Continue). It replaces that run's last line, so the reason shows once.
+    struct Problem: Equatable { let message: String; let detail: String?; let retry: Bool; let continues: Bool; let settings: Bool; var isError = true }
 
     var problem: Problem? {
         switch run.state {
@@ -435,7 +436,7 @@ final class AgentPaneModel: ObservableObject {
             return Problem(message: m, detail: "The task is kept. Try again, or use another provider.", retry: lastPrompt != nil || lastUserText != nil,
                            continues: false, settings: settings)
         case .stopped(let why) where why.contains("limit") || why.contains("Continue"):
-            return Problem(message: why, detail: nil, retry: false, continues: true, settings: false)
+            return Problem(message: why, detail: nil, retry: false, continues: true, settings: false, isError: false)
         default:
             return nil
         }
@@ -444,7 +445,14 @@ final class AgentPaneModel: ObservableObject {
     private var lastUserText: String? { run.steps.last(where: { $0.kind == .user })?.text }
 
     var items: [AgentPaneItem] {
-        AgentPaneItem.make(run.steps, active: run.state.isActive, timeline: timeline)
+        var items = AgentPaneItem.make(run.steps, active: run.state.isActive, timeline: timeline)
+        // The banner at the end says why the run ended: the same line isn't repeated above it. (The step stays in the
+        // run, so its summary still reads "Stopped after …".)
+        if let p = problem, let i = items.lastIndex(where: {
+            if case .note(_, let kind, let text, _) = $0 { return (kind == .info || kind == .error) && text == p.message }
+            return false
+        }) { items.remove(at: i) }
+        return items
     }
 
     /// The transcript ends in step rows (no "Thinking…" under them).

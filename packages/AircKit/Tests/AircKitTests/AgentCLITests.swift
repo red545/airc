@@ -102,8 +102,9 @@ final class AgentCLITests: XCTestCase {
         XCTAssertEqual(value("--max-turns"), "25")
         XCTAssertNil(value("--resume"))
         XCTAssertFalse(a.contains("--dangerously-skip-permissions"))
-        let r = ClaudeCLI.arguments(mcpConfig: "/T/mcp.json", system: "rules", maxTurns: 200, resume: "abc")
+        let r = ClaudeCLI.arguments(mcpConfig: "/T/mcp.json", system: "rules", maxTurns: nil, resume: "abc")
         XCTAssertEqual(r[r.firstIndex(of: "--resume")! + 1], "abc")
+        XCTAssertFalse(r.contains("--max-turns"), "no turn limit unless the person set a step cap")
     }
 
     func testClaudeMCPConfigHasOnlyAirc() {

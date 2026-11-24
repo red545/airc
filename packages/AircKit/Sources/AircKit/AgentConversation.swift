@@ -239,6 +239,106 @@ public final class AgentConversation {
         return AgentTurn(text: text.joined(separator: "\n"), calls: calls, stop: stop, usage: usage)
     }
 
+    /// What an older screenshot becomes in the history.
+    public static let prunedImage = "[An older screenshot, removed to keep the conversation short.]"
+
+    /// A task has no step limit, so its screenshots would fill the model's context on a long one. Only the newest
+    /// `keep`…2×`keep` stay; older ones become a short text. Pruned in batches, so the cached prefix changes once per
+    /// `keep` screenshots, not on every turn. Returns how many were removed.
+    @discardableResult
+    public func pruneImages(keep: Int = 8) -> Int {
+        // (item, tool_result index or -1, part index) of every image, oldest first.
+        var spots: [(Int, Int, Int)] = []
+        for (i, item) in items.enumerated() {
+            switch provider {
+            case .anthropic:
+                guard let content = item["content"] as? [[String: Any]] else { continue }
+                for (j, block) in content.enumerated() {
+                    if block["type"] as? String == "image" { spots.append((i, -1, j)) }
+                    if block["type"] as? String == "tool_result", let parts = block["content"] as? [[String: Any]] {
+                        for (k, part) in parts.enumerated() where part["type"] as? String == "image" { spots.append((i, j, k)) }
+                    }
+                }
+            case .openai:
+                if let parts = item["output"] as? [[String: Any]] ?? item["content"] as? [[String: Any]] {
+                    for (k, part) in parts.enumerated() where part["type"] as? String == "input_image" { spots.append((i, -1, k)) }
+                }
+            }
+        }
+        guard keep > 0, spots.count > keep * 2 else { return 0 }
+        let drop = spots.prefix(spots.count - keep)
+        for (i, j, k) in drop {
+            var item = items[i]
+            switch provider {
+            case .anthropic:
+                guard var content = item["content"] as? [[String: Any]] else { continue }
+                let text: [String: Any] = ["type": "text", "text": Self.prunedImage]
+                if j < 0 { content[k] = text } else if var parts = content[j]["content"] as? [[String: Any]] {
+                    parts[k] = text
+                    content[j]["content"] = parts
+                }
+                item["content"] = content
+            case .openai:
+                let key = item["output"] is [[String: Any]] ? "output" : "content"
+                guard var parts = item[key] as? [[String: Any]] else { continue }
+                parts[k] = ["type": "input_text", "text": Self.prunedImage]
+                item[key] = parts
+            }
+            items[i] = item
+        }
+        return drop.count
+    }
+
+    /// Marks a tool answer's text that was shortened in the history.
+    public static let shortenedText = "\n[…older page text shortened to keep the conversation short.]"
+
+    /// Like `pruneImages`, for long tool answers (a page's text, an outline): only the newest `keep`…2×`keep` stay whole;
+    /// older ones keep their first `head` characters. A task of hundreds of steps then still fits the model's context,
+    /// so the "cut off" guard never ends a healthy long task. Returns how many were shortened.
+    @discardableResult
+    public func shortenOldResults(keep: Int = 12, longer: Int = 4000, head: Int = 1200) -> Int {
+        // (item, tool_result index or -1, part index or -1 for a plain string output) of every long text, oldest first.
+        var spots: [(Int, Int, Int)] = []
+        func long(_ t: Any?) -> Bool { (t as? String).map { $0.count > longer } ?? false }
+        for (i, item) in items.enumerated() {
+            switch provider {
+            case .anthropic:
+                guard item["role"] as? String == "user", let content = item["content"] as? [[String: Any]] else { continue }
+                for (j, block) in content.enumerated() where block["type"] as? String == "tool_result" {
+                    for (k, part) in (block["content"] as? [[String: Any]] ?? []).enumerated() where part["type"] as? String == "text" && long(part["text"]) {
+                        spots.append((i, j, k))
+                    }
+                }
+            case .openai:
+                guard item["type"] as? String == "function_call_output" else { continue }
+                if long(item["output"]) { spots.append((i, -1, -1)) }
+                for (k, part) in (item["output"] as? [[String: Any]] ?? []).enumerated() where part["type"] as? String == "input_text" && long(part["text"]) {
+                    spots.append((i, -1, k))
+                }
+            }
+        }
+        guard keep > 0, spots.count > keep * 2 else { return 0 }
+        let drop = spots.prefix(spots.count - keep)
+        func cut(_ t: Any?) -> String { String((t as? String ?? "").prefix(head)) + Self.shortenedText }
+        for (i, j, k) in drop {
+            var item = items[i]
+            switch provider {
+            case .anthropic:
+                guard var content = item["content"] as? [[String: Any]], var parts = content[j]["content"] as? [[String: Any]] else { continue }
+                parts[k]["text"] = cut(parts[k]["text"])
+                content[j]["content"] = parts
+                item["content"] = content
+            case .openai:
+                if k < 0 { item["output"] = cut(item["output"]) } else if var parts = item["output"] as? [[String: Any]] {
+                    parts[k]["text"] = cut(parts[k]["text"])
+                    item["output"] = parts
+                }
+            }
+            items[i] = item
+        }
+        return drop.count
+    }
+
     /// The answers to one turn's calls, all in one message (Anthropic) or one item each (OpenAI). `note`: Airc's own
     /// words to the model after them (a prompt-injection warning, a budget note).
     public func addToolResults(_ outputs: [AgentToolOutput], note: String? = nil) {

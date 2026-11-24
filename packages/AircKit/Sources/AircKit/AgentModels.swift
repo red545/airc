@@ -67,37 +67,36 @@ public struct AgentUsage: Equatable, Sendable {
     }
 }
 
-/// Quick, or keep going until done.
+/// How hard the model thinks on each step. Neither level limits a task: it runs until it's done, the person stops it or
+/// it needs them (owner, 2026-11-23: "these limits need to be default removed!").
 public enum AgentLevel: String, Codable, Sendable, CaseIterable {
     case quick, long
 
-    public var name: String { self == .quick ? "Quick" : "Keep going" }
-    public var budget: AgentBudget {
-        switch self {
-        case .quick: return AgentBudget(steps: 25, seconds: 180, tokens: 300_000, effort: "medium")
-        case .long: return AgentBudget(steps: 200, seconds: 1800, tokens: 3_000_000, effort: "high")
-        }
-    }
+    public var name: String { self == .quick ? "Quick" : "Thorough" }
+    /// Anthropic `output_config.effort` / OpenAI `reasoning.effort`.
+    public var effort: String { self == .quick ? "medium" : "high" }
+    /// Tooltips and Settings: what the levels mean.
+    public static let help = "Quick answers faster; Thorough thinks harder on each step. Neither has a step limit."
 }
 
+/// One task's run: its effort and the optional "Stop after N steps" (Settings › AI › Agent, off by default). There is no
+/// time or token cap, and no hidden step cap.
 public struct AgentBudget: Equatable, Sendable {
-    public var steps: Int
-    public var seconds: TimeInterval
-    public var tokens: Int
+    /// The person's own cap, or nil (the default): no step limit.
+    public var steps: Int?
     /// Anthropic `output_config.effort` / OpenAI `reasoning.effort`.
     public var effort: String
-    public init(steps: Int, seconds: TimeInterval, tokens: Int, effort: String) {
-        self.steps = steps
-        self.seconds = seconds
-        self.tokens = tokens
-        self.effort = effort
+    public init(level: AgentLevel, stepCap: Int?) {
+        steps = stepCap.flatMap { $0 > 0 ? $0 : nil }
+        effort = level.effort
     }
 
-    /// Why a run must stop now, or nil.
-    public func exceeded(steps s: Int, elapsed: TimeInterval, usage: AgentUsage) -> String? {
-        if s >= steps { return "step limit (\(steps) steps)" }
-        if elapsed >= seconds { return "time limit (\(Int(seconds / 60)) min)" }
-        if usage.total >= tokens { return "token limit (\(tokens / 1000)k)" }
-        return nil
+    /// The choices Settings offers for "Stop after N steps" (nil: Off).
+    public static let capChoices: [Int?] = [nil, 25, 50, 100, 200]
+
+    /// Why a run must stop now, or nil: only the person's own step cap, when they turned one on.
+    public func exceeded(steps s: Int) -> String? {
+        guard let steps, s >= steps else { return nil }
+        return "Stopped after \(steps) steps, the limit you set in Settings › AI › Agent. Continue gives it \(steps) more."
     }
 }
