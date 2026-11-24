@@ -2,6 +2,18 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.58",
+      "highlights": [
+        {
+          "title": "No agent step limit",
+          "lead": "Airc Agent no longer stops after 25 steps; it keeps going until the task is done or you stop it",
+          "detail": "Airc Agent keeps working until the task is done or you stop it. To set a limit, open Settings › AI › Agent and choose Stop after; it's off by default.",
+          "icon": "infinity",
+          "action": "settingsAI"
+        }
+      ]
+    },
+    {
       "version": "0.1.57",
       "highlights": [
         {
