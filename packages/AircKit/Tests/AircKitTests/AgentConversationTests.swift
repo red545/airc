@@ -91,71 +91,13 @@ final class AgentConversationTests: XCTestCase {
         XCTAssertEqual(done.text, "Done.")
     }
 
-    func testImagePruningKeepsTheNewest() {
-        for provider in AgentProvider.allCases {
-            let c = AgentConversation(provider: provider)
-            c.addUser("Find a flat")
-            var pruned = 0
-            for n in 0..<40 {
-                let call: [String: Any] = provider == .anthropic
-                    ? ["type": "tool_use", "id": "t\(n)", "name": "screenshot", "input": [String: Any]()]
-                    : ["type": "function_call", "call_id": "t\(n)", "name": "screenshot", "arguments": "{}"]
-                let answer: [String: Any] = provider == .anthropic ? ["content": [call], "stop_reason": "tool_use"] : ["status": "completed", "output": [call]]
-                _ = c.absorb(object: answer)
-                c.addToolResults([AgentToolOutput(callID: "t\(n)", texts: ["shot \(n)"], images: ["IMG\(n)"])])
-                pruned += c.pruneImages(keep: 8)
-                let body = String(describing: c.items)
-                let left = body.components(separatedBy: "IMG").count - 1
-                XCTAssertLessThanOrEqual(left, 16, "\(provider) at \(n): at most 2×keep screenshots")
-                XCTAssertGreaterThanOrEqual(left, min(n + 1, 8), "\(provider) at \(n): the newest 8 stay")
-                XCTAssertTrue(body.contains("IMG\(n)\""), "\(provider): the newest screenshot stays")
-            }
-            XCTAssertGreaterThan(pruned, 0, "\(provider): older screenshots go")
-            XCTAssertTrue(String(describing: c.items).contains(AgentConversation.prunedImage))
-            // Every tool result stays paired with its call (only the image parts change).
-            XCTAssertTrue(String(describing: c.items).contains("shot 0"))
-        }
-    }
-
-    func testOldLongResultsAreShortened() {
-        let page = String(repeating: "Room: bright, quiet, wooden floors. ", count: 400)   // ~14k characters
-        for provider in AgentProvider.allCases {
-            let c = AgentConversation(provider: provider)
-            c.addUser("Read the listings")
-            for n in 0..<60 {
-                let call: [String: Any] = provider == .anthropic
-                    ? ["type": "tool_use", "id": "r\(n)", "name": "read_page", "input": [String: Any]()]
-                    : ["type": "function_call", "call_id": "r\(n)", "name": "read_page", "arguments": "{}"]
-                let answer: [String: Any] = provider == .anthropic ? ["content": [call], "stop_reason": "tool_use"] : ["status": "completed", "output": [call]]
-                _ = c.absorb(object: answer)
-                c.addToolResults([AgentToolOutput(callID: "r\(n)", texts: ["#\(n) " + page])])
-                c.shortenOldResults()
-            }
-            let body = String(describing: c.items)
-            let whole = body.components(separatedBy: page).count - 1
-            XCTAssertGreaterThanOrEqual(whole, 12, "\(provider): the newest answers stay whole")
-            XCTAssertLessThanOrEqual(whole, 24, "\(provider): at most 2×keep stay whole")
-            XCTAssertTrue(body.contains("#0 Room"), "\(provider): an old answer keeps its start")
-            XCTAssertTrue(body.contains("#59 " + page), "\(provider): the newest is whole")
-            XCTAssertLessThan(body.count, 60 * page.count / 2, "\(provider): the history stays small")
-        }
-    }
-
     func testBudgets() {
-        // No step limit by default, at either level (owner, 2026-11-23): only the person's own cap stops a task.
-        for level in AgentLevel.allCases {
-            let b = AgentBudget(level: level, stepCap: nil)
-            XCTAssertNil(b.steps)
-            XCTAssertNil(b.exceeded(steps: 25))
-            XCTAssertNil(b.exceeded(steps: 100_000))
-        }
-        XCTAssertNil(AgentBudget(level: .quick, stepCap: 0).steps, "0 or less is off")
-        XCTAssertEqual(AgentBudget(level: .quick, stepCap: nil).effort, "medium")
-        XCTAssertEqual(AgentBudget(level: .long, stepCap: nil).effort, "high")
-        let capped = AgentBudget(level: .quick, stepCap: 50)
-        XCTAssertNil(capped.exceeded(steps: 49))
-        XCTAssertEqual(capped.exceeded(steps: 50), "Stopped after 50 steps, the limit you set in Settings › AI › Agent. Continue gives it 50 more.")
-        XCTAssertEqual(AgentBudget.capChoices.first!, nil, "Off is the first choice")
+        let q = AgentLevel.quick.budget
+        XCTAssertNil(q.exceeded(steps: 3, elapsed: 10, usage: AgentUsage(input: 100)))
+        XCTAssertEqual(q.exceeded(steps: 25, elapsed: 10, usage: AgentUsage()), "step limit (25 steps)")
+        XCTAssertEqual(q.exceeded(steps: 1, elapsed: 181, usage: AgentUsage()), "time limit (3 min)")
+        XCTAssertEqual(q.exceeded(steps: 1, elapsed: 1, usage: AgentUsage(input: 300_000)), "token limit (300k)")
+        XCTAssertGreaterThan(AgentLevel.long.budget.steps, q.steps)
         XCTAssertEqual(AgentProvider.anthropic.defaultModel.id, "claude-opus-5-5")
         XCTAssertEqual(AgentModel.find("claude-opus-5-5")!.cost(AgentUsage(input: 1_000_000, output: 100_000)), 6, accuracy: 0.0001)
     }

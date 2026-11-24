@@ -175,7 +175,7 @@ struct AgentAskChips: View {
         .foregroundStyle(theme.surfaceTextTertiary.color)
         .padding(.horizontal, 6).padding(.vertical, 3)
         .disabled(run.state.isActive)
-        .help(AgentLevel.help)
+        .help("Quick: up to 25 steps and 3 minutes. Keep going: up to 200 steps and 30 minutes.")
         .testAnchor("agentask.level")
     }
 

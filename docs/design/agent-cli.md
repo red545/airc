@@ -86,7 +86,7 @@ claude -p --input-format stream-json --output-format stream-json --verbose --inc
        --permission-mode dontAsk        # anything not allowed is denied, never prompted (nobody could answer)
        --disable-slash-commands
        --append-system-prompt <Airc's agent rules, the same text as the API path>
-       [--max-turns <N + 10>]           # only with the person's "Stop after N steps" (off by default)
+       --max-turns <Quick 25 | Keep going 200>
        [--resume <session id>]          # after Stop or a crash: the same conversation, a new process
 ```
 
@@ -98,7 +98,7 @@ claude -p --input-format stream-json --output-format stream-json --verbose --inc
   - `assistant` → its `text` blocks become a "say" step; a `tool_use` whose name isn't `mcp__airc__*` → Airc stops the
     turn (interrupt, then kill) and says so: belt and braces over `--tools ""`.
   - `user` (`tool_result`) → nothing to show (Airc already showed the step when the call went through its gate).
-  - `result` → turn end: `subtype` success → the final answer; `error_max_turns` (only with the person's step cap: `--max-turns` is passed only then) → "Stopped after N steps…";
+  - `result` → turn end: `subtype` success → the final answer; `error_max_turns` → "Stopped at the step limit…";
     `is_error` with "login"/"/login"/"API key"/"401" in the text → "not logged in" state; usage and `total_cost_usd`
     (shown as "≈ $… on your Claude Code plan or key" only when the CLI reports it).
 - **Stop**: a `control_request` `{"subtype":"interrupt"}` on stdin; if no `result` within 1.5 s, SIGTERM to the
@@ -139,9 +139,9 @@ extensions and T3 Code use, launched with `--disable shell_tool --disable unifie
    `item/tool/requestUserInput`, `item/tool/call`, anything unknown → JSON-RPC error.
 - **Stop**: `turn/interrupt {threadId, turnId}`; no `turn/completed` within 1.5 s → kill the process group, the next
   task starts a fresh app-server and `thread/resume`s the thread (or starts a new thread when resume fails).
-- **Step limit**: none by default (2026-11-23). With the person's "Stop after N steps", Airc's gate enforces it for every
-  backend (Codex has no turn cap flag): past N a tool call answers "The person's step limit for this task is reached:
-  stop and tell the person what you did so far", and Airc interrupts the turn if the CLI keeps going.
+- **Keep going / Quick**: Codex has no turn cap flag; Airc's step budget (enforced in the gate) applies to every backend:
+  past the budget a tool call answers "Step limit reached: stop and tell the person what you did", and Airc interrupts the
+  turn if the CLI keeps going.
 
 ## 5. Policy: what Airc does and doesn't do with the person's accounts
 

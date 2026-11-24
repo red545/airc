@@ -12,9 +12,8 @@ final class AgentCLIRun {
     let executable: String
     /// The system rules (Claude Code `--append-system-prompt`, Codex developer instructions).
     var system = ""
-    /// Claude Code `--max-turns` for a new process: only with the person's "Stop after N steps" (Airc's gate applies the
-    /// cap itself); nil, the default, is no turn limit.
-    var maxTurns: Int?
+    /// Claude Code `--max-turns` for a new process (Airc's own step budget applies on top, in the gate).
+    var maxTurns = 30
     /// What happened, for the panel (main thread).
     var onEvent: ((AgentCLIEvent) -> Void)?
     /// The turn ended without the CLI saying so: it quit, didn't start, or broke the protocol.

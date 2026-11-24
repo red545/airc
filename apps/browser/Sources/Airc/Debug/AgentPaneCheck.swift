@@ -784,7 +784,7 @@ final class AgentPaneCheck {
         untilIdle(40) { [self] in
             after(0.3) { [self] in
                 if case .failed = run.state { check(true, "an unreachable provider fails the task (\(run.state))") } else { check(false, "an unreachable provider fails the task (state \(run.state))") }
-                check(point("agentpane.error") != nil, "… with the error banner under the task")
+                check(point("agentpane.error") != nil, "… with the error banner on top")
                 check(point("agentpane.error.retry") != nil, "… and Try again")
                 check(point("agentpane.error.switch") != nil, "… and “Use OpenAI instead” (another ready provider)")
                 shot("agentpane-error")

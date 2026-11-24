@@ -746,51 +746,7 @@ final class SpacePageView: NSView {
            let space = controller?.store.space(spaceID) {
             render(space, animated: false, viewportOnly: true)
         }
-        syncHoverToPointer()
-        // AppKit may still send an enter for a row the list scrolled past: once the scroll is quiet, check once more.
-        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(syncHoverAfterScroll), object: nil)
-        perform(#selector(syncHoverAfterScroll), with: nil, afterDelay: 0.12)
     }
-
-    // MARK: Hover (hoverscroll)
-
-    #if AIRC_TESTING
-    /// HoverScrollCheck's before arm: the rows' own tracking areas only (the owner's bug: every row the list scrolled
-    /// under a resting pointer kept its hover).
-    static var hoverSyncOff = ProcessInfo.processInfo.environment["AIRC_HOVERSCROLL_OFF"] == "1"
-    #else
-    static let hoverSyncOff = false
-    #endif
-
-    @objc private func syncHoverAfterScroll() { syncHoverToPointer() }
-
-    /// One hovered row per page: a row that takes the hover takes it from every other row (an exit AppKit never sent).
-    func rowDidTakeHover(_ row: SidebarRowView) {
-        guard !Self.hoverSyncOff else { return }
-        for r in rows.values where r !== row && r.isHovered { r.syncHover(false) }
-        for t in tiles.values where t !== row && t.isHovered { t.syncHover(false) }
-        if header !== row, header.isHovered { header.syncHover(false) }
-    }
-
-    /// The list's rows move under a still pointer when it scrolls, and tracking areas only answer pointer motion: the
-    /// hover goes to the row now under the pointer (or none), from the pointer's place. Runs on scroll only.
-    func syncHoverToPointer() {
-        guard !Self.hoverSyncOff, let window, !rows.isEmpty else { return }
-        let p = window.mouseLocationOutsideOfEventStream
-        var under: SidebarRowView?
-        let clip = scrollView.contentView
-        if !isHidden, clip.bounds.contains(clip.convert(p, from: nil)),
-           NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0) == window.windowNumber {
-            var v = window.contentView?.hitTest(p)
-            while let x = v, !(x is SidebarRowView) { v = x.superview }
-            if let r = v as? SidebarRowView, r.superview === list { under = r }
-        }
-        for r in rows.values where r !== under && r.isHovered { r.syncHover(false) }
-        under?.syncHover(true)
-    }
-
-    /// The rows that show hover now (HoverScrollCheck).
-    var hoveredRowIDs: [String] { rows.filter { $0.value.isHovered }.map(\.key).sorted() }
     private var order: [(id: String, entry: RowModel)] = []
     /// SB-36: rows picked with ⌘/⇧-click, in display order (entry IDs), apart from the page being shown.
     private(set) var selection: [String] = []

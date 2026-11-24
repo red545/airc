@@ -130,6 +130,8 @@ struct AgentPaneView: View {
             if run.state.isActive || run.approval != nil, model.takenOver == nil, run.runWindowID != nil {
                 AgentPaneLiveCard(model: model).padding(.horizontal, 14).padding(.top, 10)
             }
+            // An error stays at the top with its way out (it scrolled off under a click with the transcript).
+            if let p = model.problem { problem(p).padding(.horizontal, 14).padding(.top, 10) }
             transcript
         }
     }
@@ -145,16 +147,11 @@ struct AgentPaneView: View {
                     } else if run.state == .running, !model.lastItemIsSteps {
                         AgentPaneThinking().id("thinking")
                     }
-                    // Why the run ended, once, after its last step and next to the composer (nosteplimit: it was a
-                    // red banner at the top, a gap, and the same line again at the bottom).
-                    if let p = model.problem { problem(p).id("problem") }
                     if !run.state.isActive, run.steps.contains(where: { $0.kind == .final }) { footerActions.id("footer") }
                     Color.clear.frame(height: 1).id("bottom")
                 }
                 .padding(.horizontal, 14).padding(.vertical, 12)
             }
-            // Chat-like: a short transcript sits on the composer, so the banner is right under the last step and above
-            // the field (nosteplimit).
             .defaultScrollAnchor(.bottom)
             .onChange(of: run.steps.count) { _, _ in withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom") } }
             .onChange(of: run.partial.count / 80) { _, _ in proxy.scrollTo("bottom") }
@@ -165,12 +162,8 @@ struct AgentPaneView: View {
 
     private func problem(_ p: AgentPaneModel.Problem) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 7) {
-                Image(systemName: p.isError ? "exclamationmark.circle.fill" : "pause.circle")
-                    .font(.system(size: 12)).foregroundStyle(p.isError ? Color.red : theme.surfaceTextSecondary.color)
-                Text(p.message).aircFont(AircFont.body).fontWeight(p.isError ? .semibold : .regular).foregroundStyle(theme.surfaceText.color)
-                    .fixedSize(horizontal: false, vertical: true).testAnchor("agentpane.error.text")
-            }
+            Text(p.message).aircFont(AircFont.body).fontWeight(.semibold).foregroundStyle(theme.surfaceText.color)
+                .fixedSize(horizontal: false, vertical: true).testAnchor("agentpane.error.text")
             if let d = p.detail {
                 Text(d).aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextSecondary.color).fixedSize(horizontal: false, vertical: true)
             }
@@ -195,9 +188,8 @@ struct AgentPaneView: View {
             }
         }
         .padding(12)
-        // Calm, like the rest of the pane; red only for a real error.
-        .background(RoundedRectangle(cornerRadius: 10).fill(p.isError ? Color.red.opacity(0.05) : theme.tileFill.color))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(p.isError ? Color.red.opacity(0.3) : Color.clear))
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.red.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.red.opacity(0.55)))
         .testAnchor("agentpane.error")
     }
 
@@ -857,7 +849,7 @@ struct AgentPaneComposer: View {
         .padding(.horizontal, 8).padding(.vertical, 3)
         .background(Capsule().strokeBorder(theme.surfaceBorder.color))
         .disabled(run.state.isActive)
-        .help(AgentLevel.help)
+        .help("Quick: up to 25 steps and 3 minutes. Keep going: up to 200 steps and 30 minutes.")
         .testAnchor("agentpane.level")
     }
 

@@ -60,7 +60,7 @@ struct AgentModelSection: View {
                 .labelsHidden().fixedSize().testAnchor("ai.agent.model")
             }
             }
-            SettingsRow(title: "Tasks", subtitle: AgentLevel.help) {
+            SettingsRow(title: "Tasks", subtitle: "Quick stops after 25 steps or 3 minutes; Keep going runs up to 200 steps or 30 minutes. Stop is always there.") {
                 Picker("", selection: Binding(get: { values.level }, set: { l in
                     settings.update { $0.level = l }
                     AgentRunCenter.shared.level = l
@@ -69,18 +69,6 @@ struct AgentModelSection: View {
                     ForEach(AgentLevel.allCases, id: \.self) { Text($0.name).tag($0) }
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
-            }
-            SettingsRow(title: "Stop after", subtitle: values.stepCap.map { "A task stops after \($0) steps; Continue gives it \($0) more. Stop is always there." }
-                         ?? "Off: a task keeps going until it's done, you stop it, or it needs you. Stop is always there.") {
-                Picker("", selection: Binding(get: { values.stepCap ?? 0 }, set: { n in
-                    settings.update { $0.stepCap = n > 0 ? n : nil }
-                    reload()
-                })) {
-                    ForEach(Array(Set(AgentBudget.capChoices.map { $0 ?? 0 } + [values.stepCap ?? 0])).sorted(), id: \.self) { n in
-                        Text(n == 0 ? "Off" : "\(n) steps").tag(n)
-                    }
-                }
-                .labelsHidden().fixedSize().help("Stop after N steps (off by default)").testAnchor("ai.agent.stepcap")
             }
             SettingsRow(title: "Memory", subtitle: values.memory
                          ? "On: the agent reads its notes at the start of a task (they go to \(values.provider.name) with it) and adds short lines you can undo. Never passwords, card numbers or codes."

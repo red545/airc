@@ -53,8 +53,9 @@ final class AgentRunCenter: ObservableObject {
     private var bridge: AgentBridge?
     private let client = AgentModelClient()
     private var model: AgentModel?
-    private var budget = AgentBudget(level: .quick, stepCap: nil)
+    private var budget = AgentLevel.quick.budget
     private var runSteps = 0
+    private var runUsage = AgentUsage()
     private var runStarted = Date()
     private var stopRequested: String?
     /// Bumped by a new conversation: answers still in flight from the old one are dropped.
@@ -180,7 +181,7 @@ final class AgentRunCenter: ObservableObject {
         self.profileID = profileID
         self.profileName = profileName
         model = settings.model
-        budget = AgentBudget(level: level, stepCap: settings.values.stepCap)
+        budget = level.budget
         let fresh = conversation == nil
         if fresh { conversation = AgentConversation(provider: provider) }
         let day = DateFormatter.localizedString(from: Date(), dateStyle: .full, timeStyle: .none)
@@ -211,7 +212,7 @@ final class AgentRunCenter: ObservableObject {
         }
     }
 
-    /// Continue after the person's step cap stopped it: another N steps.
+    /// Continue after a budget stop: another budget of the same size.
     func continueRun() {
         if cli != nil { return continueCLI() }
         guard case .stopped = state, let conversation, let key = AgentModelSettings.shared.key(conversation.provider) else { return }
@@ -231,6 +232,7 @@ final class AgentRunCenter: ObservableObject {
 
     private func beginBudget() {
         runSteps = 0
+        runUsage = AgentUsage()
         runStarted = Date()
     }
 
@@ -311,11 +313,9 @@ final class AgentRunCenter: ObservableObject {
     private func turn(key: String) {
         guard let conversation, let model, let bridge else { return }
         if let why = stopRequested { return end(.stopped(why)) }
-        // No step, time or token limit by default: only the person's own "Stop after N steps".
-        if let why = budget.exceeded(steps: runSteps) { return end(.stopped(why)) }
-        // No step limit, so a long task keeps its history small enough for the model's context.
-        conversation.pruneImages()
-        conversation.shortenOldResults()
+        if let limit = budget.exceeded(steps: runSteps, elapsed: Date().timeIntervalSince(runStarted), usage: runUsage) {
+            return end(.stopped("Stopped at the \(limit). Continue gives it another round."))
+        }
         event("turn")
         let settings = AgentModelSettings.shared
         generation += 1   // results of the previous turn's early calls are dropped
@@ -358,6 +358,7 @@ final class AgentRunCenter: ObservableObject {
             case .success(let t):
                 self.dropRetries = 0
                 self.usage = self.usage + t.usage
+                self.runUsage = self.runUsage + t.usage
                 let said = t.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 switch t.stop {
                 case .done:
@@ -466,7 +467,7 @@ final class AgentRunCenter: ObservableObject {
         guard earlyOpen, stopRequested == nil, let bridge, Self.readOnlyTools.contains(call.name), call.inputError == nil,
               bridge.specs.first(where: { $0.name == call.name })?.problem(with: call.input) == nil,
               !AgentModelSettings.shared.isBlocked(bridge.window?.activeTab?.url?.host),
-              budget.steps.map({ runSteps + earlyQueue.count + early.count < $0 }) ?? true else { earlyOpen = false; return }
+              runSteps + earlyQueue.count + early.count < budget.steps else { earlyOpen = false; return }
         early[call.id] = EarlyCall()
         earlyQueue.append(call)
         pumpEarly()
@@ -668,7 +669,7 @@ extension AgentRunCenter {
         self.profileName = profileName
         cliKind = kind
         model = nil
-        budget = AgentBudget(level: level, stepCap: AgentModelSettings.shared.values.stepCap)
+        budget = level.budget
         beginMemory()
         steps.append(AgentStep(kind: .user, text: task))
         beginBudget()
@@ -722,7 +723,7 @@ extension AgentRunCenter {
             cli = run
         }
         run.system = Self.system + Self.cliRules
-        run.maxTurns = budget.steps.map { $0 + 10 }
+        run.maxTurns = budget.steps + 10
         setPartial("")
         run.send(text)
     }
@@ -750,9 +751,9 @@ extension AgentRunCenter {
             return done(.error("Not run: \(why)"))
         }
         if let problem = bridge.specs.first(where: { $0.name == name })?.problem(with: args) { return done(.error(problem)) }
-        if let why = budget.exceeded(steps: runSteps) {
-            stopRequested = why
-            done(.error("The person's step limit for this task is reached. Stop now and tell the person what you did so far."))
+        if let limit = budget.exceeded(steps: runSteps, elapsed: Date().timeIntervalSince(runStarted), usage: runUsage) {
+            stopRequested = "Stopped at the \(limit). Continue gives it another round."
+            done(.error("Airc's \(limit) for this task is reached. Stop now and tell the person what you did so far."))
             return cli.stop()
         }
         let host = (name == "navigate" || name == "open_tab") ? URL(string: args["url"] as? String ?? "")?.host : bridge.window?.activeTab?.url?.host
@@ -820,6 +821,7 @@ extension AgentRunCenter {
             cli?.stop()
         case .usage(let u, let cost):
             usage = usage + u
+            runUsage = runUsage + u
             if let cost { cliCost += cost }
         case .turnEnded(let t):
             setPartial("")
@@ -831,8 +833,7 @@ extension AgentRunCenter {
             case .interrupted:
                 end(.stopped(stopRequested ?? "Stopped."))
             case .maxTurns:
-                // Only with the person's cap (Airc passes --max-turns only then).
-                end(.stopped(stopRequested ?? budget.steps.flatMap { budget.exceeded(steps: $0) } ?? "\(kind.name) stopped at its turn limit. Continue lets it go on."))
+                end(.stopped(stopRequested ?? "Stopped at the step limit. Continue gives it another round."))
             case .loginNeeded:
                 AgentCLIDetector.shared.check(kind, maxAge: 0)
                 fail(kind.loginHint)

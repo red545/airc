@@ -339,7 +339,7 @@ struct AgentPanelView: View {
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if case .stopped(let why) = run.state, why.contains("Continue") {
+            if case .stopped(let why) = run.state, why.contains("limit") {
                 Button("Continue") { run.continueRun() }.buttonStyle(.airc(.secondary)).testAnchor("agent.continue")
             }
             TextField(run.hasKey ? "Ask Airc to…" : "Your task, to hand to Claude…", text: $text, axis: .vertical)
@@ -357,7 +357,7 @@ struct AgentPanelView: View {
                 .labelsHidden()
                 .fixedSize()
                 .disabled(run.state.isActive)
-                .help(AgentLevel.help)
+                .help("Quick: up to 25 steps and 3 minutes. Keep going: up to 200 steps and 30 minutes.")
                 .testAnchor("agent.level")
                 Spacer()
                 if run.state.isActive {

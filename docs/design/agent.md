@@ -167,29 +167,15 @@ warning stays in the transcript.
 
 ## 4. Task levels and cost
 
-No step, time or token limit by default (owner, 2026-11-23: "these limits need to be default removed!"). A task runs
-until it's done, the person stops it, or it needs them (an approval, Take over); those stay as they are. Before
-2026-11-23, Quick stopped at 25 steps / 3 min / 300k tokens and Keep going at 200 / 30 min / 3M.
+| Level | Steps (tool calls) | Time | Tokens (in+out) | Effort |
+|---|---|---|---|---|
+| Quick (default) | 25 | 3 min | 300k | medium |
+| Keep going | 200 | 30 min | 3M | high |
 
-| Level | Effort | Limit |
-|---|---|---|
-| Quick (default) | medium | none |
-| Thorough | high | none |
-
-- **Stop after N steps** (Settings › AI › Agent): Off by default; 25, 50, 100 or 200 steps for people who want a cap.
-  At N the run stops with "Stopped after N steps, the limit you set in Settings › AI › Agent. Continue gives it N more."
-  Settings files from before have no value, so everyone on the old default (25) is on Off. Claude Code gets
-  `--max-turns` only with a cap; Codex has none.
-- **Safety guards that stay** (none is a step limit): a model/API error after one silent retry of a dropped stream; a
-  refusal; a cut-off answer; a tool call that times out (that call fails, the task goes on); the 5-minute approval
-  timeout; "never use" sites. There is no loop detector.
-- **Long tasks stay within the model's context:** the conversation keeps only the newest 8–16 screenshots (older ones
-  become a short text) and the newest 12–24 long tool answers whole (older ones keep their first 1,200 characters):
-  `AgentConversation.pruneImages` / `shortenOldResults`, in batches so the prompt cache changes rarely. So the "answer
-  was cut off" guard doesn't end a healthy long task.
-
-The pane shows elapsed time and steps as the run goes, and the price estimate for the model when known. Stop is always
-one click (or Esc twice). Usage per run is kept in the panel's transcript (not sent anywhere).
+The panel shows steps, elapsed time and tokens as the run goes, and the price estimate for the model when known. When
+a limit is reached the run stops with "Stopped: step limit" and what it did so far; the person can press Continue
+(another budget of the same size). Stop is always one click (or Esc twice). Usage per run is kept in the panel's
+transcript (not sent anywhere). Anthropic's `task_budget` (beta) is a phase-2 refinement for Keep going.
 
 ## 5. Memory (phase 2, built; off by default)
 
@@ -222,7 +208,7 @@ panel (Show) and edit in any editor. `AgentMemoryStore` / `AgentMemoryGuard` in 
 - **Panel**: ⌥⌘A, or View › Airc Agent, docked to the right edge of the browser window (child panel, the window's
   material, 380 pt), Esc closes it when idle. Top: the profile it acts in. Middle: the conversation; each run shows its
   steps live (icon, caption from AgentRedaction, site), warnings, approval cards and the final answer. Bottom: the
-  field ("Ask Airc to…"), the level (Quick / Thorough), Send / Stop, usage. No key yet: a short "Connect your AI"
+  field ("Ask Airc to…"), the level (Quick / Keep going), Send / Stop, usage. No key yet: a short "Connect your AI"
   card that opens Settings › AI › Agent, and "Hand this task to Claude" (copies the task and opens the Claude app when
   installed, via the existing Connect Claude path).
 - **Command Bar** "Ask Airc to…" row (phase 2): for a prompt (`AskAIProvider.looksLikePrompt`, askai's rule), right

@@ -31,7 +31,7 @@ final class SnapshotWatchdog: @unchecked Sendable {
         prefix = ((try? String(contentsOf: file, encoding: .utf8)).map { $0 + "\n" } ?? "") + "[\(script)]\n"
         // The short deadline belongs only to this deliberately blocked smoke
         // fixture. Ordinary checks and perf retain their existing budgets.
-        limit = script == "watchdog-block-main" ? 5 : script == "perf" ? 660 : script == "idlecpu" ? 720 : script == "agentlong" ? 600 : 240
+        limit = script == "watchdog-block-main" ? 5 : script == "perf" ? 660 : script == "idlecpu" ? 720 : 240
         let chosen = ProcessInfo.processInfo.environment["AIRC_STEP_LIMIT"].flatMap(Double.init) ?? (script == "events" ? 90 : script.hasPrefix("watchdog-step-") ? 4 : 0)
         stepLimit = chosen.isFinite && chosen > 0 ? chosen : nil
         let identity: [String: Any] = ["pid": getpid(), "script": script,

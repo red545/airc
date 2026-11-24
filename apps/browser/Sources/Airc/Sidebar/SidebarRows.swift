@@ -159,26 +159,8 @@ class SidebarRowView: NSView {
                                        owner: self))
     }
 
-    override func mouseEntered(with event: NSEvent) {
-        isHovered = true
-        page?.rowDidTakeHover(self)
-    }
+    override func mouseEntered(with event: NSEvent) { isHovered = true }
     override func mouseExited(with event: NSEvent) { isHovered = false; isPressed = false }
-
-    /// hoverscroll: an enter or exit the pointer didn't send (the list scrolled under it, or another row took the hover).
-    /// Goes through mouseEntered/mouseExited so a row's own extras (✕, previews) follow as on a real move.
-    func syncHover(_ on: Bool) {
-        guard on != isHovered, let window else { return }
-        guard let e = NSEvent.enterExitEvent(with: on ? .mouseEntered : .mouseExited,
-                                             location: window.mouseLocationOutsideOfEventStream, modifierFlags: [],
-                                             timestamp: ProcessInfo.processInfo.systemUptime,
-                                             windowNumber: window.windowNumber, context: nil, eventNumber: 0,
-                                             trackingNumber: 0, userData: nil) else {
-            isHovered = on
-            return
-        }
-        if on { mouseEntered(with: e) } else { mouseExited(with: e) }
-    }
 
     func updateStyle() {
         guard palette != nil else { return }

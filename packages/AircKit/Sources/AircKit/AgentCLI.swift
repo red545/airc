@@ -294,8 +294,7 @@ public enum ClaudeCLI {
                                     "WebFetch", "WebSearch", "Task", "Agent", "TodoWrite", "Skill", "SlashCommand"]
 
     /// `claude -p` for one conversation (docs/design/agent-cli.md §3).
-    /// `maxTurns`: only when the person set "Stop after N steps"; by default a task has no turn limit.
-    public static func arguments(mcpConfig: String, system: String, maxTurns: Int?, resume: String?, model: String? = nil) -> [String] {
+    public static func arguments(mcpConfig: String, system: String, maxTurns: Int, resume: String?, model: String? = nil) -> [String] {
         var a = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
                  "--mcp-config", mcpConfig, "--strict-mcp-config",
                  "--tools", "",
@@ -303,8 +302,8 @@ public enum ClaudeCLI {
                  "--disallowedTools", disallowed.joined(separator: ","),
                  "--permission-mode", "dontAsk",
                  "--disable-slash-commands",
-                 "--append-system-prompt", system]
-        if let maxTurns { a += ["--max-turns", String(maxTurns)] }
+                 "--append-system-prompt", system,
+                 "--max-turns", String(maxTurns)]
         if let resume, !resume.isEmpty { a += ["--resume", resume] }
         if let model, !model.isEmpty { a += ["--model", model] }
         return a

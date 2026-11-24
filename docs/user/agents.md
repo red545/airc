@@ -61,12 +61,10 @@ your OK and the pane is closed, its row says so and asks there. **◷** in the p
   deleting or changing your account, the agent stops and shows a card above the field: **Allow once** or **Deny** (Esc).
   The same question shows in **Watch** and on the task's row in the Agents folder; answer it in any of them. Deny ends
   the task. Every answer stays in the task.
-- **No step limit.** A task keeps going until it's done, you stop it, or it needs you (an approval, or a page only you
-  can handle). Quick or Thorough sets how hard the model thinks on each step; neither has a limit. The pane shows the
-  time and steps as it works. **Stop** (■, Esc twice, or ⌘.) ends a task at once. If you want a cap, set **Settings ›
-  AI › Agent › Stop after** to 25, 50, 100 or 200 steps (it's Off by default); at the cap, **Continue** gives it that
-  many more. If something goes wrong, the pane says what once, under the last step, and offers the next step: **Try
-  again** or **Use … instead** (another provider that's ready).
+- **Quick or Keep going.** Quick stops after 25 steps or 3 minutes; Keep going runs up to 200 steps or 30 minutes. When a
+  limit is reached, **Continue** gives it another round. The pane shows the time and steps as it works. **Stop**
+  (■, Esc twice, or ⌘.) ends a task at once. If something goes wrong, the pane says what and offers the next step:
+  **Try again**, **Use … instead** (another provider that's ready) or **Continue**.
 - **Pages can't give it orders.** What a page says is never an instruction. When a page contains text aimed at an AI
   agent, the pane shows "The page asked the agent to: …", and the agent doesn't follow it.
 - **Never use these sites.** Sites listed in Settings › AI › Agent stop the agent before it acts there.
@@ -90,7 +88,7 @@ keeps what you typed. Under the field, the chips say what the task gets:
 - **This Mac**: it runs here, in a background window of your Space's profile;
 - **Asks first**: it asks you before it pays, sends, posts or deletes anything, and never sees your passwords;
 - on the right, who runs it (your ChatGPT subscription through Codex, your own Claude Code, or an API key) and **Quick**
-  or **Thorough** (how hard it thinks; neither has a step limit).
+  or **Keep going**.
 
 Press **Return** and the task starts in its own tab. Below the chips, **Recent tasks** shows this Space's newest tasks as
 cards: one that works says "Working for 3m 48s" with its last steps and its page live; a finished one says when it ended,

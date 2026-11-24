@@ -179,9 +179,6 @@ struct LibraryView: View {
     @ObservedObject var model: LibraryModel
     let theme: ResolvedTheme
     var onClose: () -> Void
-    /// hoverscroll: the one archived row under the pointer. Per-row state left every row the list scrolled under a
-    /// resting pointer hovered (an enter with no exit); one owner shows at most one.
-    @State private var hoveredArchiveID: ArchiveEntry.ID?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -259,7 +256,7 @@ struct LibraryView: View {
                             Text(day.title).aircFont(AircFont.caption).foregroundStyle(theme.textTertiary.color)
                                 .padding(.horizontal, 22).padding(.top, 10).padding(.bottom, 4)
                             ForEach(day.entries) { e in
-                                ArchiveRow(entry: e, theme: theme, spaceName: spaceName(e), hoveredID: $hoveredArchiveID) { restore(e) }
+                                ArchiveRow(entry: e, theme: theme, spaceName: spaceName(e)) { restore(e) }
                                     .contextMenu {
                                         Button("Restore") { restore(e) }
                                         Button("Remove from Archive…", role: .destructive) { model.requestClearArchive(entryID: e.id) }
@@ -407,9 +404,8 @@ private struct ArchiveRow: View {
     let entry: ArchiveEntry
     let theme: ResolvedTheme
     let spaceName: String?
-    @Binding var hoveredID: ArchiveEntry.ID?
     let onRestore: () -> Void
-    private var hovered: Bool { hoveredID == entry.id }
+    @State private var hovered = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -432,9 +428,7 @@ private struct ArchiveRow: View {
         .background(RoundedRectangle(cornerRadius: AircRadius.row, style: .continuous).fill(hovered ? theme.hoverFill.color : .clear))
         .padding(.horizontal, 8)
         .contentShape(Rectangle())
-        .onHover { inside in
-            if inside { hoveredID = entry.id } else if hoveredID == entry.id { hoveredID = nil }
-        }
+        .onHover { hovered = $0 }
         .onTapGesture(perform: onRestore)
         .help("Restore to its Space")
     }
