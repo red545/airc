@@ -1,16 +1,28 @@
-# Airc 0.1.56 public beta
+# Airc 0.1.57 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update keeps everything in full screen clear of the notch on MacBooks that have one and shows agents live in
-Watch and asks you before an agent uses a passkey. It includes everything from 0.1.55. The release manifest records
-the exact build, source and checksums.
+This update keeps the sand, denim and tweed textures of Spaces you bring over from Arc, makes switching Spaces
+smoother and keeps Watch on the agent after you stop and continue it. It includes everything from 0.1.56. The release
+manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.55
+## New since 0.1.56
+
+- **Spaces imported from Arc keep their sand, denim or tweed texture, and you can pick them yourself.** Click the
+  Space's name in the sidebar, choose **Theme…**, and use the swatches beside the grain dial: Grain, Sand, Denim and
+  Tweed. Turn the dial to set how strongly the texture shows. Each draws at Arc's own strength, in light and dark
+  Spaces.
+- **Switching Spaces is smoother.** A Space switch now skips fewer frames: the sidebar no longer redraws its hidden parts on
+  every switch, and it updates after the new Space is on screen instead of holding it up.
+- **Watch keeps showing what the agent is doing, even after you stop and continue it.** Continue starts the agent in a new
+  window, and Watch used to stay blank on the stopped run; it now follows the agent to the page it is working on. On
+  the WebKit engine, Watch and the agent's card no longer freeze on an old picture after a stop.
+
+## Included from 0.1.56
 
 - **In full screen on a MacBook with a notch, nothing of Airc hides behind the notch any more.** The sidebar
   with its address field and ✦ button, the Library and the page now start just below the camera, where they could sit
@@ -818,3 +830,5 @@ Source: `5d8fa9dbd490a8c19928af6fe0855d4c7c0bf49f`. Build: `202611230853`. Chann
 Source: `ca0f2fc1348e6207ad977f18723b8d2e6b2ece2d`. Build: `202611231455`. Channel: stable. Engine: official.
 
 Source: `db46f9018d915a7363668b50ffb591c3888dc4b7`. Build: `202611240050`. Channel: stable. Engine: official.
+
+Source: `b02f84a1751243e3fa95f4ace52bd8671ed99f09`. Build: `202611240914`. Channel: stable. Engine: official.

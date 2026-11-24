@@ -2,6 +2,30 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.57",
+      "highlights": [
+        {
+          "title": "Arc's Space textures",
+          "lead": "Spaces imported from Arc keep their sand, denim or tweed texture, and you can pick them yourself",
+          "detail": "Spaces imported from Arc keep their sand, denim or tweed texture. To pick one yourself, click the Space's name, choose Theme… and use the swatches beside the grain dial.",
+          "icon": "paintpalette",
+          "image": "space-textures"
+        },
+        {
+          "title": "Smoother Space switching",
+          "lead": "Switching Spaces is smoother",
+          "detail": "Switching between Spaces skips fewer frames, so the sidebar and the page change over more smoothly.",
+          "icon": "square.stack.3d.up"
+        },
+        {
+          "title": "Watch after Stop, Continue",
+          "lead": "Watch keeps showing what the agent is doing, even after you stop and continue it",
+          "detail": "If you stop Airc Agent and then continue it, Watch now follows it to the page it is working on instead of staying blank.",
+          "icon": "eye"
+        }
+      ]
+    },
+    {
       "version": "0.1.56",
       "highlights": [
         {
