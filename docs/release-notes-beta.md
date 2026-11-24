@@ -1,16 +1,22 @@
-# Airc 0.1.57 public beta
+# Airc 0.1.58 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update keeps the sand, denim and tweed textures of Spaces you bring over from Arc, makes switching Spaces
-smoother and keeps Watch on the agent after you stop and continue it. It includes everything from 0.1.56. The release
-manifest records the exact build, source and checksums.
+This update lets Airc Agent keep going until a task is done. It includes everything from 0.1.57. The release manifest
+records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.56
+## New since 0.1.57
+
+- **Airc Agent no longer stops after 25 steps; it keeps going until the task is done or you stop it.** Approvals, Stop and
+  Take over work as before. If you want a limit, choose one under **Stop after** in Settings › AI › Agent (25, 50, 100
+  or 200 steps); it is off by default. When a task stops or fails, one note under its last step says why, and long
+  tasks shorten their older screenshots and tool answers so they keep fitting the model's context.
+
+## Included from 0.1.57
 
 - **Spaces imported from Arc keep their sand, denim or tweed texture, and you can pick them yourself.** Click the
   Space's name in the sidebar, choose **Theme…**, and use the swatches beside the grain dial: Grain, Sand, Denim and

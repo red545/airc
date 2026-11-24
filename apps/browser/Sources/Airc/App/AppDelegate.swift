@@ -255,7 +255,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         promptCenter = PromptCenter(engine: engine)
-        BlockedPopupNotice.shared.start()   // a blocked pop-up where the address field's icon can't be seen
         installLinkRouter()
         credentialSink = EngineCredentialSink.make(engine: engine, profiles: profiles)
         // L4: private copies of Arc's databases that a crash left behind.
@@ -647,13 +646,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async { self?.littleArcKeyAfterActivation() }
         }
         // LA-1: a press on a Little Arc page works the first time (takeFirstPress), and Links.log hears the first ones.
-        littleArcPressMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { [weak self] e in
+        littleArcPressMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] e in
             guard let l = self?.littleArc(for: e.window) else { return e }
-            if e.type == .leftMouseUp { return l.takeRelease(e) }
             let wasKey = l.window.isKeyWindow
-            let handed = l.takeFirstPress(e)
+            l.takeFirstPress(e)
             l.notePress(e, wasKey: wasKey)
-            return handed
+            return e
         }
         LittleArcLinkClicks.start()
         engine.linkRouter = { [weak self] request in

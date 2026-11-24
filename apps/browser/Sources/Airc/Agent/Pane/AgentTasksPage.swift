@@ -295,10 +295,8 @@ final class AgentTasksPageModel: ObservableObject {
                 .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
             out.append(Row(id: t.id, title: t.title, subtitle: sub, status: t.status.label, chip: t.status.chip, when: t.updatedAt, external: false, unread: t.unread))
         }
-        // Other apps' sessions (the Activity data): one row per session (agentrows: not per page). The Airc Agent's own runs
-        // are their task above, whatever app runs them ("Codex (in Airc)"), so they never get a second row here.
-        let others = AgentActivityModel.perSession(sessions.filter { allSpaces || $0.profileID == profileID }, excluding: AgentBridge.clientKey)
-        for s in others where s.client != AgentBridge.clientName {
+        // External apps' sessions (the Activity data): one row per agent page.
+        for s in sessions where (allSpaces || s.profileID == profileID) && s.client != AgentBridge.clientName {
             let title = "\(s.client) · \(s.url?.host.map(AgentPaneTimeline.trimmed) ?? "a page")"
             guard query.isEmpty || title.localizedCaseInsensitiveContains(query) || (s.caption ?? "").localizedCaseInsensitiveContains(query) else { continue }
             let status: (String, String) = s.end == nil ? ("Running", "Running") : (s.end == .takenOver ? ("You took over", "Stopped") : (s.end == .stopped ? ("Stopped", "Stopped") : ("Done", "Done")))
@@ -455,7 +453,6 @@ private struct AgentTasksPageContent: View {
         .contentShape(Rectangle())
         .onTapGesture { model.open(r) }
         .testAnchor("agenttasks.row")
-        .testAnchor("agenttasks.row.\(r.id)")
     }
 
     private func confirmDelete(_ r: AgentTasksPageModel.Row) {

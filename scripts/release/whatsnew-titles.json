@@ -682,5 +682,11 @@
     "detail": "If you stop Airc Agent and then continue it, Watch now follows it to the page it is working on instead of staying blank.",
     "action": "none",
     "image": null
+  },
+  "Airc Agent no longer stops after 25 steps; it keeps going until the task is done or you stop it": {
+    "title": "No agent step limit",
+    "detail": "Airc Agent keeps working until the task is done or you stop it. To set a limit, open Settings › AI › Agent and choose Stop after; it's off by default.",
+    "action": "settingsAI",
+    "image": null
   }
 }

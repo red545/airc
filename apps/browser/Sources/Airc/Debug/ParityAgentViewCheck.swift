@@ -242,22 +242,19 @@ final class AgentViewCheck {
 
     func pulse(_ done: @escaping () -> Void) {
         let reduce = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        var during = false, pulsing = 0, spinning = false
+        var during = false, pulsing = 0
         client.call("wait", ["duration": 1.5]) { _, _ in
             self.after(AgentActivityModel.actingTail + 0.6) {
                 let after = self.activity.model.isActing(self.mailRow, now: Date())
                 self.check(during && !after, "the row acts while a call runs and goes idle after (during \(during), after \(after))")
-                // agentrows: the row's one status is a spinner while the app acts (no pulsing dot), none once it's quiet.
-                let still = TestAnchors.view("agents-spinner-\(self.mailRow)", in: self.folder) != nil
-                self.check(spinning && pulsing == 0, "the row spins while the agent acts, no pulsing dot (spinner \(spinning), \(pulsing) pulsing)")
-                self.check(!still && AgentPulseDot.pulsing.isEmpty, "no spinner and no pulse once it's idle (spinner \(still))")
+                self.check(reduce ? pulsing == 0 : pulsing > 0, reduce ? "Reduce Motion: no pulse" : "the dot pulses while the agent acts (\(pulsing) pulsing)")
+                self.check(AgentPulseDot.pulsing.isEmpty, "no dot pulses once it's idle")
                 done()
             }
         }
         after(0.6) {
             during = self.activity.model.isActing(self.mailRow, now: Date())
             pulsing = AgentPulseDot.pulsing.count
-            spinning = TestAnchors.view("agents-spinner-\(self.mailRow)", in: self.folder) != nil
         }
     }
 
@@ -526,10 +523,8 @@ final class AgentViewCheck {
                                 let tabsAfter = self.c.store.todayTabs(ofSpace: self.c.currentSpaceID).count
                                 self.check(tabsAfter == tabsBefore + 1 && self.c.shownTabID.flatMap { self.c.store.tab($0)?.url }?.contains("/mail.html") == true,
                                            "it's a normal tab in the sidebar (\(tabsBefore) → \(tabsAfter))")
-                                // agentrows: one row per session; the app still works in its other tab, so that tab is its row.
-                                self.check(self.folder.watch == nil && self.activity.model.row(self.mailRow)?.end == .takenOver
-                                           && self.folder.model.items.map(\.id) == [self.shopRow],
-                                           "Watch closes, the page is yours, and the app keeps one row, on its other tab (\(self.folder.model.items.map(\.id)))")
+                                self.check(self.folder.watch == nil && self.folder.model.items.first { $0.id == self.mailRow }?.status == "Yours now",
+                                           "Watch closes and the row says \"Yours now\"")
                                 // Its state is kept: the agent's search text is still in the field.
                                 shown?.evaluate("document.getElementById('q').value") { v in
                                     self.check((v as? String) == self.typed, "the page keeps its state (the field still holds the agent's text)")

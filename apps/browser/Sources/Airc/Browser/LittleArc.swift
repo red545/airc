@@ -30,8 +30,6 @@ final class LittleArcController: NSObject, NSWindowDelegate {
     let card = PageCardView()
     private var lights: TrafficLights?
     let toast = ToastView()
-    /// Pages this window's page opened that went to the browser window in front (the signin check reads it).
-    private(set) var poppedToBrowser = 0
     lazy var prompts = PromptPresenter(host: self)
     /// LA-1: left alone this long, the window goes to the Archive (scripted runs shorten it).
     static var archiveAfter: TimeInterval = 6 * 3600
@@ -695,61 +693,16 @@ final class LittleArcController: NSObject, NSWindowDelegate {
     /// a window that isn't key the press would only make it key (Chromium takes no first click, as in Chrome), so the
     /// window becomes key before AppKit hands the press on, and the press goes to the page. The browser window keeps
     /// Chrome's behaviour. Called from the app's mouse-down monitor; never activates a scripted run.
-    /// Returns the event to hand on, or nil when it's held (and sent again once Airc is active: `replayPress`).
-    func takeFirstPress(_ e: NSEvent) -> NSEvent? {
-        guard !(window.isKeyWindow && NSApp.isActive), window.isVisible, !isMiniPlayer, pageHit(e).onPage else { return e }
+    func takeFirstPress(_ e: NSEvent) {
+        guard !window.isKeyWindow, window.isVisible, !isMiniPlayer, pageHit(e).onPage else { return }
         // Over another app's full screen the panel becomes key without activating the app: that app stays in front,
         // in full screen, and the browser window's desktop isn't switched to.
-        if overFullScreen { window.makeKeyAndOrderFront(nil); return e }
-        guard !NSApp.isActive else { window.makeKeyAndOrderFront(nil); return e }
-        // A real-input check acts as the person (AIRC_LA_AS_OWNER): the press activates the app as theirs does.
-        guard app?.options.isAutomated != true || Self.actsAsOwner else { return e }
-        // signinfix: Airc is in the background (the person used another app, or a link just launched Airc). AppKit takes
-        // this press as the click that activates the app, and the page never gets it, in Chromium and WebKit alike, so a
-        // first press on the page's Sign in did nothing. The press is held; once Airc is active with this window key, the
-        // same press goes to the page (and its release after it, if it came in the meantime).
-        heldPress = HeldPress(down: e, up: nil, sent: false)
-        NSApp.activate()
-        window.makeKeyAndOrderFront(nil)
-        replayPress(deadline: Date().addingTimeInterval(0.6))
-        return nil
-    }
-
-    private struct HeldPress { let down: NSEvent; var up: NSEvent?; var sent: Bool }
-    private var heldPress: HeldPress?
-    /// Presses held while Airc came forward and sent again (the signin check reads it).
-    private(set) var replayedPresses = 0
-
-    /// A release in this window: held too while its press is held (sent after it), else handed on.
-    func takeRelease(_ e: NSEvent) -> NSEvent? {
-        guard var h = heldPress else { return e }
-        if h.sent { heldPress = nil; return e }
-        h.up = e
-        heldPress = h
-        return nil
-    }
-
-    private func replayPress(deadline: Date) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
-            guard let self, var h = self.heldPress, !h.sent else { return }
-            guard (NSApp.isActive && self.window.isKeyWindow) || Date() > deadline else { return self.replayPress(deadline: deadline) }
-            func copy(_ e: NSEvent, _ type: NSEvent.EventType) -> NSEvent? {
-                NSEvent.mouseEvent(with: type, location: e.locationInWindow, modifierFlags: e.modifierFlags,
-                                   timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: self.window.windowNumber,
-                                   context: nil, eventNumber: e.eventNumber, clickCount: max(1, e.clickCount), pressure: e.pressure)
-            }
-            h.sent = true
-            self.heldPress = h
-            self.replayedPresses += 1
-            LinkLog.write("Little Arc: a press while Airc was in the background, sent again once active (active \(LinkLog.yesNo(NSApp.isActive)), "
-                          + "key \(LinkLog.yesNo(self.window.isKeyWindow)))")
-            // At the front of the queue, ahead of anything that came since.
-            if let down = copy(h.down, .leftMouseDown) { NSApp.postEvent(down, atStart: true) }
-            if let up = h.up {
-                self.heldPress = nil
-                if let u = copy(up, .leftMouseUp) { DispatchQueue.main.async { NSApp.postEvent(u, atStart: false) } }
-            }
+        if overFullScreen { return window.makeKeyAndOrderFront(nil) }
+        if !NSApp.isActive {
+            guard app?.options.isAutomated != true else { return }
+            NSApp.activate()
         }
+        window.makeKeyAndOrderFront(nil)
     }
 
     // MARK: Links.log (LinkLog.swift)
@@ -832,25 +785,12 @@ extension LittleArcController: EngineWindowDelegate {
     /// A link the page opens in a new tab (or a popup) goes to the main window, in this Space: same profile, same page.
     func engineWindow(_ window: EngineWindow, didInsertTab tab: EngineTab, opener: EngineTab?, disposition: TabDisposition) {
         DispatchQueue.main.async { [weak self] in
-            guard let self else { tab.close(); return }
-            guard let main = self.app?.browserWindow() else {
-                // signinfix: no browser window can take it yet (onboarding is open): say so rather than close it unseen.
-                tab.close()
-                self.toast.show("Finish setting up Airc to open this page", palette: self.palette, in: self.card.frame)
-                return
-            }
+            guard let self, let main = self.app?.browserWindow() else { tab.close(); return }
             if !main.adoptMovedPage(tab, inSpace: self.spaceID) {
                 let url = tab.url
                 tab.close()
                 if let url { main.openExternal(url, inSpace: self.spaceID) }
             }
-            // signinfix: a sign-in pop-up or a new tab from Little Airc shows in the browser window; that window comes
-            // forward, so the press visibly did something (it may be minimized, behind other apps or on another Space).
-            guard disposition != .background else { return }
-            if main.window.isMiniaturized { main.window.deminiaturize(nil) }
-            if self.app?.options.isAutomated == true, !Self.actsAsOwner { main.window.orderFront(nil) }
-            else { main.window.makeKeyAndOrderFront(nil) }
-            self.poppedToBrowser += 1
         }
     }
 

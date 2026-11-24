@@ -941,14 +941,6 @@ final class OnboardingController {
                 self.checkAccount(source: profileSource, profileID: pid)
             }
             s.show(over: self.window)
-        } failed: { [weak self] in
-            // signinfix: the profile couldn't load: say so, instead of a "Signing in…" that never ends.
-            guard let self, !self.finished else { return }
-            self.model.signingIn = nil
-            let alert = NSAlert()
-            alert.messageText = "Couldn’t open \(profile.name) to sign in"
-            alert.informativeText = "Try again in a moment. You can also sign in later from the sidebar or Settings › Profiles."
-            alert.beginSheetModal(for: self.window)
         }
     }
 
