@@ -92,6 +92,9 @@ extension SnapshotRunner {
         task("t2", "Compare noise-cancelling headphones under €300", [.tool("navigate", ["url": "\(site)/audio.html"]), .tool("read_page", ["mode": "text"]),
             .tool("find_element", ["text": "battery"]),
             .text("**Calm 2** (€199) lasts longest at 40 hours; **Quiet One** (€279) has the best noise cancelling; Hush Pro sits between them.")], seen: false)
+        // This pass's own tasks (the working one, the approval), deleted at the end, so the dark pass's Recent tasks show
+        // the two finished answers again rather than the light pass's stopped tasks.
+        var passTasks: [String] = []
         for dark in [false, true] {
             let sfx = dark ? "-dark" : ""
             run { [self] in
@@ -109,7 +112,10 @@ extension SnapshotRunner {
                                          .tool("navigate", ["url": "\(site)/orders.html"]), .tool("read_page", ["mode": "text"]),
                                          .tool("find_element", ["text": "Reorder"]), .toolThenHold("wait", ["duration": 25], hold: 0)])
                 CommandBarView.startAgentTask("Reorder last week's groceries from Corner Shop", attached: [], in: c)
-                waitUntil({ AgentRunCenter.shared.steps.filter { $0.kind == .action }.count >= 5 }, timeout: 25) { done() }
+                waitUntil({ AgentRunCenter.shared.steps.filter { $0.kind == .action }.count >= 5 }, timeout: 25) {
+                    if let id = AgentTaskRecorder.shared.currentID { passTasks.append(id) }
+                    done()
+                }
             }
             wait(2.2)
             mkWindowShot("agent-task-view" + sfx, dark: dark)
@@ -117,7 +123,7 @@ extension SnapshotRunner {
             step { [self] done in
                 c.openCommandBar(mode: .newTab)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [self] in
-                    c.commandBar?.type("Book a table for two at a quiet place near Brightport Commons")
+                    c.commandBar?.type("Book a quiet table for two near the park")
                     c.commandBar?.setAskMode(true)
                     done()
                 }
@@ -132,7 +138,10 @@ extension SnapshotRunner {
                 fake.begin("t4\(sfx)", [.tool("navigate", ["url": "\(site)/checkout.html"]), .tool("find_element", ["text": "Pay"]),
                                          .tool("left_click", ["coordinate": [100, 180]]), .text("Ordered.")])
                 CommandBarView.startAgentTask("Check out my Corner Shop cart", attached: [], in: c)
-                waitUntil({ AgentRunCenter.shared.approval != nil }, timeout: 25) { done() }
+                waitUntil({ AgentRunCenter.shared.approval != nil }, timeout: 25) {
+                    if let id = AgentTaskRecorder.shared.currentID { passTasks.append(id) }
+                    done()
+                }
             }
             wait(1.2)
             mkWindowShot("agent-task-approval" + sfx, dark: dark)
@@ -140,6 +149,8 @@ extension SnapshotRunner {
                 AgentRunCenter.shared.answerApproval(allow: false)
                 AgentRunCenter.shared.newConversation()
             }
+            wait(0.4)
+            run { for id in passTasks { AgentTaskRecorder.shared.delete(id) }; passTasks = [] }
             wait(0.4)
         }
         run { [self] in

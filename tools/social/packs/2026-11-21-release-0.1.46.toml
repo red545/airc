@@ -15,8 +15,7 @@ and ⌘T Ask as well as Search (agent-tasks-ask, cropped to the Command Bar).
 """
 order = """
 1. Task view: 26 Nov 10:30 UTC (card from aidemo3's one-row still; 0.1.59 live).
-2. ⌘T Ask: 30 Nov 10:30 UTC, HELD unapproved: 0.1.60 (live) shows a "Tab to switch" keycap the cc098eff shot lacks.
-   Re-render from a re-taken agent-tasks-ask (asked of the lead 2026-11-25), look at it, then approve.
+2. ⌘T Ask: 30 Nov 10:30 UTC, card from the re-taken agent-tasks-ask (5085477d, 0.1.60, Tab to switch keycap).
 """
 checked = """
 - Task view: open a task from the sidebar, a Recent tasks card or the Command Bar and it fills the page: every step on a
@@ -34,10 +33,12 @@ checked = """
 [[image]]
 id = "ask"
 shot = "agent-tasks-ask"
+# Since 2026-11-25: re-taken on 0.1.60 (5085477d, shotask) with the "Tab to switch" keycap (owner rule: nothing outdated).
+shots_rev = "5085477d"
 title = "⌘T can Ask, not just Search."
 line = "Type what you want done, press Tab."
 clip = [338, 282, 764, 376]
-alt = "Airc's Command Bar in Ask mode: “Book a table for two at a quiet place near Brightport” typed, Search and Ask with Ask chosen, chips for where it runs and that it asks first, and Recent tasks as cards: one working, two finished with their answers. Made-up tasks."
+alt = "Airc's Command Bar in Ask mode: “Book a quiet table for two near the park” typed, Search and Ask with Ask chosen and a Tab to switch hint, chips for where it runs and that it asks first, and Recent tasks as cards: one working, two finished with their answers. Made-up tasks."
 
 [[image]]
 id = "taskview"
