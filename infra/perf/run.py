@@ -57,6 +57,22 @@ def rusage_footprint_mb(pid):
     if ctypes.CDLL(None).proc_pid_rusage(pid, 2, buf) != 0: return None
     return int.from_bytes(buf.raw[72:80], 'little') / 1e6
 
+_TIMEBASE = None
+
+def rusage_idle(pid):
+    """CPU seconds (user + system) and wakeups (package-idle + interrupt) from proc_pid_rusage (rusage_info_v2), for the
+    idle interval: finer than ps's 10 ms CPU ticks, and wakeups show a timer or a polling source even when its CPU
+    rounds to 0. None when the process is gone or can't be read."""
+    global _TIMEBASE
+    buf = ctypes.create_string_buffer(512)
+    if ctypes.CDLL(None).proc_pid_rusage(pid, 2, buf) != 0: return None
+    if _TIMEBASE is None:
+        tb = (ctypes.c_uint32 * 2)()
+        ctypes.CDLL(None).mach_timebase_info(tb)
+        _TIMEBASE = tb[0] / tb[1] if tb[1] else 1.0   # ri_*_time are mach ticks on Apple silicon
+    u = lambda o: int.from_bytes(buf.raw[o:o+8], 'little')
+    return {'cpu': (u(16) + u(24)) * _TIMEBASE / 1e9, 'wakeups': u(32) + u(40)}
+
 def process_start(pid):
     """Epoch seconds the process started (proc_bsdinfo pbi_start_tvsec/usec), to line samples up with the app's
     LaunchTimeline (ms since process start)."""
@@ -260,16 +276,30 @@ def measure(name, app, args, marker, out, instrumented=False, tag='', expect=(8,
         m['renderer_count'] = sum(1 for x in memory if x['kind'] == 'renderer')
         if cpu_seconds > 0:
             begin = instance.discover(); t0 = time.monotonic()
+            rbegin = {p: rusage_idle(p) for p in begin}
             time.sleep(cpu_seconds)
+            rend = {p: rusage_idle(p) for p in begin}
             end = instance.discover(); elapsed = time.monotonic()-t0
             if instance.pid not in begin or instance.pid not in end or set(begin) != set(end):
                 result['errors'].append('process set changed during idle CPU interval')
             else:
                 m['idle_cpu_percent'] = 100 * sum(end[p]['cpu']-begin[p]['cpu'] for p in begin) / elapsed
                 # Which processes burn the idle CPU (the browser, GPU, each renderer and utility), hottest first.
+                def fine(p):   # rusage CPU % and wakeups/s, when both ends were read
+                    b, e = rbegin.get(p), rend.get(p)
+                    return {} if not (b and e) else {'cpu_percent_rusage': round(100*(e['cpu']-b['cpu'])/elapsed, 4),
+                                                     'wakeups_per_s': round((e['wakeups']-b['wakeups'])/elapsed, 2)}
                 result['idle_cpu_processes'] = sorted(({'pid':p,'kind':kind(begin[p]['command'],p==instance.pid),
-                    'cpu_percent':round(100*(end[p]['cpu']-begin[p]['cpu'])/elapsed,3)} for p in begin),
+                    'cpu_percent':round(100*(end[p]['cpu']-begin[p]['cpu'])/elapsed,3), **fine(p)} for p in begin),
                     key=lambda x:-x['cpu_percent'])
+                rows = result['idle_cpu_processes']
+                if all('cpu_percent_rusage' in r for r in rows):
+                    m['idle_cpu_percent_rusage'] = round(sum(r['cpu_percent_rusage'] for r in rows), 4)
+                    m['idle_wakeups_per_s'] = round(sum(r['wakeups_per_s'] for r in rows), 2)
+                main = next((r for r in rows if r['kind'] == 'main' and 'cpu_percent_rusage' in r), None)
+                if main:
+                    m['main_idle_cpu_percent'] = main['cpu_percent_rusage']
+                    m['main_idle_wakeups_per_s'] = main['wakeups_per_s']
         if diagnose:
             # --diagnose: what the main process holds, after the idle CPU interval (heap pauses it, so never before a
             # metric) and before the timed actions. Diagnosis only: these runs' timings are not published.
