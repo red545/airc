@@ -13,7 +13,7 @@ import Foundation
 /// What a tile has to match is Arc's own image: the mean of t (how much it darkens) and its spread, per device pixel,
 /// plus the scale and direction of its structure. `Target` holds those, measured from Arc 1.171's shader textures
 /// (artifacts/arctextures/REPORT.md, "Measuring Arc's textures"); sand darkens 0.344 at full strength, 5× grain's 0.069.
-/// Airc's grain keeps its own tile (`AircGrain`), unchanged.
+/// Grain is made the same way (grainmatch): a pure multiply like Arc's, so it darkens light and dark Spaces alike.
 public enum AircTextures {
     /// Arc's image statistics for one texture: t = the multiply factor per device pixel, 0 (black) … 1 (no change).
     public struct Target: Sendable, Equatable {
@@ -44,21 +44,39 @@ public enum AircTextures {
         public let values: [Double]
     }
 
-    /// The tile for a texture other than grain (grain is `AircGrain.tile`). Built on first use, then shared.
+    /// The tile for a texture. Built on first use, then shared.
     public static func tile(_ texture: SpaceTheme.Texture) -> Tile {
         switch texture {
+        case .grain: grain
         case .sand: sand
         case .denim: denim
         case .tweed: tweed
-        case .grain: sand  // not used: grain draws AircGrain.tile
         }
     }
 
+    private static let grain = makeGrain(pixels: 256, seed: 0xA1C)
     private static let sand = makeSand(pixels: 256, seed: 0x5A4D)
     private static let denim = makeDenim(pixels: 240, seed: 0xDE41)
     private static let tweed = makeTweed(pixels: 256, seed: 0x7EED)
 
     // MARK: - Generators
+
+    /// Grain: fine noise, one device pixel. A separable [a, 1, a] blur with a = 0.2126 gives Arc's grain image's
+    /// neighbour correlation, 2a / (1 + 2a²) = 0.39 across and down, 0.15 diagonal (Arc 0.14–0.16), ~0 beyond. Arc's
+    /// values lean dark (median above the mean), so the noise is mapped through its measured luma percentiles
+    /// (p01 … p99, linear between them) before the mean/spread fit, which also keeps it off the clamp at t = 1.
+    public static func makeGrain(pixels n: Int, seed: UInt64) -> Tile {
+        var rng = Noise(seed: seed)
+        var z = (0..<(n * n)).map { _ in rng.gaussian() }
+        z = blur(z, n: n, n, kx: [0.2126, 1, 0.2126], ky: [0.2126, 1, 0.2126])
+        let q: [Double] = [-2.326, -1.2816, 0, 1.2816, 2.326]   // normal quantiles of p01, p10, p50, p90, p99
+        let luma: [Double] = [0.333, 0.506, 0.762, 0.920, 0.978]  // Arc's grain image at those percentiles
+        let skewed = normalized(z).map { v -> Double in
+            let i = v < q[1] ? 0 : v < q[2] ? 1 : v < q[3] ? 2 : 3
+            return luma[i] + (luma[i + 1] - luma[i]) * (v - q[i]) / (q[i + 1] - q[i])
+        }
+        return tile(fit(skewed, to: arcTarget(.grain)), n: n, n)
+    }
 
     /// Sand: fine, slightly soft speckle. A separable [a, 1, a] blur of white noise with a = 0.338 gives Arc's
     /// neighbour correlation (0.55 across, 0.30 diagonal, ~0.08 at two pixels).

@@ -2,23 +2,23 @@ WEBVTT
 
 NOTE The recording has no sound; these captions say what happens on screen.
 
-00:00.000 --> 00:02.701
+00:00.000 --> 00:02.700
 Airc, on a made-up coffee shop. The ✦ button next to Back and Forward opens the Airc Agent.
 
-00:02.701 --> 00:07.364
+00:02.700 --> 00:07.454
 Connect your AI: “Use your ChatGPT subscription” (Codex) is picked with Use.
 
-00:07.364 --> 00:11.368
+00:07.454 --> 00:11.548
 The task: “Compare the Pour and Rapid kettles and buy the better one for pour over coffee. Ask me before you pay.”
 
-00:11.368 --> 00:26.368
+00:11.548 --> 00:26.548
 The agent's page plays live in the pane: it searches the shop, puts both kettles side by side, says why the Pour suits pour-over, and adds it to the bag.
 
-00:26.368 --> 00:31.161
+00:26.548 --> 00:31.469
 At Pay, Airc stops it and asks: “Pay on steepwell.aircbrowser.com?” Deny, or Allow once.
 
-00:31.161 --> 00:38.161
-The run is opened from the sidebar's Agents folder, and Allow once is clicked.
+00:31.469 --> 00:38.469
+The task's one row in the sidebar's Agents folder opens Watch, and Allow once is clicked.
 
-00:38.161 --> 00:43.661
+00:38.469 --> 00:43.969
 The order is placed, and the agent says which kettle it bought and why.

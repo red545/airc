@@ -7,7 +7,8 @@ import AppKit
 /// The marketing shots of Arc's Space textures (TH-4; arctextures), the marketing scenario's part "textures"
 /// (`scripts/marketing-shots.sh --parts textures`):
 ///   - space-textures: Personal in denim, with Edit Theme Color… open on its Grain · Sand · Denim · Tweed swatches;
-///   - space-textures-dark: the dark Work Space in tweed.
+///   - space-textures-dark: the dark Work Space in tweed;
+///   - space-grain, space-grain-dark: Personal (light) and Work (dark) at full grain, Arc's multiply (grainmatch).
 /// Both Spaces get their own themes back afterwards, so later parts see the demo as it was.
 extension SnapshotRunner {
     @MainActor func mkTextureShots(_ d: MarketingDemo) {
@@ -15,10 +16,18 @@ extension SnapshotRunner {
         func texture(_ key: String, _ t: SpaceTexture, grain: Double) {
             run { [self] in
                 guard let sid = d.space[key], let theme = c.store.space(sid)?.theme else { return }
-                saved[sid] = theme
+                if saved[sid] == nil { saved[sid] = theme }   // the original, not an earlier shot's texture
                 try? c.store.updateSpace(sid) { $0.theme.texture = t; $0.theme.grain = grain }
             }
         }
+        texture("personal", .grain, grain: 1)
+        mkShow(d, "personal", "apple")
+        mkSettleShown()
+        mkWindowShot("space-grain")
+        texture("work", .grain, grain: 1)
+        mkShow(d, "work", "linear")
+        mkSettleShown()
+        mkWindowShot("space-grain-dark", dark: true)
         texture("personal", .denim, grain: 0.9)
         mkShow(d, "personal", "apple")
         mkSettleShown()

@@ -723,12 +723,58 @@ enum KeyMonitor {
             return event
         }
         return NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // cbfocus: keys typed while a page leaves full screen for the Command Bar wait for it (CommandBarView.holdKeys).
+            if let bar = CommandBarView.holdingKeys { bar.hold(event); return nil }
+            // cbfocus: ⌘T, ⌘L, ⇧⌘A in a Safari-engine page's element full screen (WebKit's own window, no browser window's)
+            // open the bar at once, as anywhere else, not after the page had the key: keys typed meanwhile were lost.
+            if let hit = commandBarCommandInFullScreenPage(event) { hit.1.run(hit.0); return nil }
+            // cbfocus: ⌘T in a Safari-engine page's element full screen leaves full screen and opens the bar, but WebKit's
+            // own full-screen window stays key until its exit animation ends, so the keys typed meanwhile went to the
+            // page (a video paused, picture in picture). They're the bar's: its browser window takes them. Not made key
+            // here: that stalls WebKit's exit, which leaves the page in its full-screen window (cbfocus r3).
+            if let hit = keyForOpenCommandBar(event) {
+                let (c, moved) = hit
+                if let passed = handle(moved) { c.window.sendEvent(passed) }
+                return nil
+            }
             guard let passed = handle(event) else { return nil }
             #if AIRC_TESTING
             if testKeyWindowDispatch?(passed) == true { return nil }
             #endif
             return passed
         }
+    }
+
+    /// A key that opens the Command Bar (its commands, with their current keys), for a window that isn't a browser window
+    /// but holds the page a browser window shows (WebKit's element full-screen window): that window and the command.
+    static func commandBarCommandInFullScreenPage(_ event: NSEvent) -> (WindowController, BrowserCommand)? {
+        let mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        guard CommandBarView.retargetsKeys, mods.contains(.command), let app = NSApp.delegate as? AppDelegate,
+              let w = event.window, app.controller(for: w) == nil, let chars = event.charactersIgnoringModifiers?.lowercased(),
+              let cmd = CommandMenus.all.first(where: { ["file.newTab", "file.openLocation", "tabs.search"].contains($0.id)
+                  && !$0.key.isEmpty && $0.key.lowercased() == chars && $0.modifiers == mods }),
+              let c = app.controllers.first(where: { c in
+                  guard let id = c.shownTabID, let page = c.engineTab(for: id) else { return false }
+                  return page is WebKitTab && page.view.window === w
+              }) else { return nil }
+        return (c, cmd)
+    }
+
+    /// A key for a window that isn't a browser window but holds the page a browser window with an open Command Bar
+    /// shows (WebKit's element full-screen window while it animates out): that browser window and the key, sent to it.
+    static func keyForOpenCommandBar(_ event: NSEvent) -> (WindowController, NSEvent)? {
+        guard CommandBarView.retargetsKeys, let app = NSApp.delegate as? AppDelegate, let w = event.window, app.controller(for: w) == nil,
+              let c = app.controllers.first(where: { c in
+                  guard c.commandBar != nil, let id = c.shownTabID, let page = c.engineTab(for: id) else { return false }
+                  // The page's window, or WebKit's full-screen window still key while it animates out (the page
+                  // already back in the browser window).
+                  return page.view.window === w || page is WebKitTab && NSStringFromClass(Swift.type(of: w)) == "WebCoreFullScreenWindow"
+              }) else { return nil }
+        guard let moved = NSEvent.keyEvent(with: event.type, location: .zero, modifierFlags: event.modifierFlags,
+                                           timestamp: event.timestamp, windowNumber: c.window.windowNumber, context: nil,
+                                           characters: event.characters ?? "", charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "",
+                                           isARepeat: event.isARepeat, keyCode: event.keyCode) else { return nil }
+        return (c, moved)
     }
 
     /// ⌘Q is still held (the Q key and ⌘ are down), and the quit itself: the shortcuts check stands in for both.

@@ -39,11 +39,6 @@ public struct SpaceTheme: Hashable, Sendable, Codable {
             case .tweed: "Tweed"
             }
         }
-
-        /// Layer opacity per unit of `grain × strength`. Sand, denim and tweed tiles are Arc's multiply as black at
-        /// alpha 1 − t, so 1 is exact (AircTextures). Grain keeps Airc's own light-and-dark speck tile, tuned by eye so
-        /// 1.0 reads as Arc's heaviest grain.
-        public var layerScale: Double { self == .grain ? 0.55 : 1 }
     }
 
     public static let maxColors = 3

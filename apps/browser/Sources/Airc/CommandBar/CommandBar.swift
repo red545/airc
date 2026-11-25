@@ -2,6 +2,7 @@
 import AppKit
 import AircDesign
 import AircKit
+import WebKit
 
 enum CommandBarMode: Equatable {
     /// ⌘T or "+ New Tab": creates no tab until you pick something (CB-1).
@@ -559,7 +560,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
             guard let self, !self.isParked, let r, let i = self.rows.firstIndex(where: { $0 === r }) else { return }
             self.removeHistorySuggestion(at: i)
             // The keyboard stays in the field (the ✕ never takes it).
-            if self.window?.firstResponder !== self.input.currentEditor() { self.window?.makeFirstResponder(self.input) }
+            if self.window?.firstResponder !== self.input.currentEditor() { self.moveKeyboard { _ = self.window?.makeFirstResponder(self.input) } }
         }
         r.onHover = { [weak self, weak r] forced in
             guard let self, !self.isParked, let r, let i = self.rows.firstIndex(where: { $0 === r }), i < self.results.count else { return }
@@ -583,6 +584,8 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
 
     func focus(with text: String) {
         restingPointer = NSEvent.mouseLocation
+        keyboardReleased = false
+        lastSelection = nil
         // askai: Automatic's chat site, after this frame's commit (a 2 ms timer runs after it; `async` before it).
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.002) { [weak self] in self?.host?.refreshCommandBarAskAI() }
         input.stringValue = text
@@ -597,7 +600,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
             sessionPending = true
             openingID &+= 1
             let opening = openingID
-            Perf.time("cb.focus.defer") { _ = w.makeFirstResponder(self) }
+            moveKeyboard { Perf.time("cb.focus.defer") { _ = w.makeFirstResponder(self) } }
             if w.firstResponder === self {
                 DispatchQueue.main.asyncAfter(deadline: .now() + Self.pendingDelay) { [weak self] in
                     // Only this opening's session: a later one sets its own timer.
@@ -609,7 +612,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
             }
             sessionPending = false
         }
-        Perf.time("cb.focus.begin") { _ = window?.makeFirstResponder(input) }
+        moveKeyboard { Perf.time("cb.focus.begin") { _ = window?.makeFirstResponder(input) } }
         selectAllText()
         update(allowCompletion: false)
     }
@@ -632,12 +635,187 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         guard sessionPending else { return false }
         sessionPending = false
         guard !isParked, let w = window, w.firstResponder === self else { return false }
-        Perf.time("cb.focus.begin") { _ = w.makeFirstResponder(input) }
+        moveKeyboard { Perf.time("cb.focus.begin") { _ = w.makeFirstResponder(input) } }
         selectAllText()
         return w.firstResponder === input.currentEditor()
     }
 
     override var acceptsFirstResponder: Bool { sessionPending }
+
+    // MARK: The keyboard stays in the bar (cbfocus)
+
+    /// cbfocus (feedback: typing into ⌘T's bar sometimes typed nothing, and the keys paused or popped out the video
+    /// underneath). While the bar is open its field has the keyboard. Something else asking for it (a page's
+    /// `window.focus()`, the engine focusing a page it shows, a tab or Space switch's deferred focus) is refused here: the
+    /// bar's view (session pending) and its field editor are the window's first responder, and AppKit's
+    /// `makeFirstResponder` asks them to resign first. Only the bar's own moves, its closing and a click into another text
+    /// field take the keyboard. No work on the keystroke path: this runs only when the first responder changes.
+    private var ownMove = false
+    /// The user clicked into another text field while the bar was open: the keyboard is that field's now.
+    private var keyboardReleased = false
+    /// The field's selection when its editor last gave up the keyboard (put back by `reclaimKeyboard`).
+    fileprivate var lastSelection: NSRange?
+
+    #if AIRC_TESTING
+    /// cbfocus's before arm in one binary: `AIRC_CBFOCUS_BEFORE=1` lets anything take the keyboard from the bar, as before.
+    static let guardsKeyboard = ProcessInfo.processInfo.environment["AIRC_CBFOCUS_BEFORE"] != "1"
+        && ProcessInfo.processInfo.environment["AIRC_CBFOCUS_NOGUARD"] != "1"
+    /// Diagnostics: `AIRC_CBFOCUS_NORETARGET=1` leaves keys for WebKit's full-screen window where AppKit sends them.
+    static let retargetsKeys = ProcessInfo.processInfo.environment["AIRC_CBFOCUS_BEFORE"] != "1"
+        && ProcessInfo.processInfo.environment["AIRC_CBFOCUS_NORETARGET"] != "1"
+    /// The field's editor (or the bar, session pending) has the window's keyboard.
+    var hasKeyboard: Bool {
+        guard let r = window?.firstResponder else { return false }
+        return r === self || r === input.currentEditor()
+    }
+    /// What tried to take the keyboard from the open bar (refused, or, in the before arm, let through), with the caller.
+    struct FocusAttempt { let refused: Bool; let pending: Bool; let caller: String }
+    static var focusAttempts: [FocusAttempt] = []
+    /// Keys the app's key monitor found going elsewhere while the bar was open (the bar took the keyboard back).
+    static var reclaims: [String] = []
+    /// How many keys each full-screen exit held and replayed.
+    static var heldKeyCounts: [Int] = []
+    #else
+    static let guardsKeyboard = true
+    static let retargetsKeys = true
+    #endif
+
+    /// Keys held while a Safari-engine page leaves element full screen after ⌘T, replayed into the bar in order once the
+    /// page is back in this window (or after 2 s). The app's key monitor hands every key-down to `holdingKeys`.
+    private(set) static weak var holdingKeys: CommandBarView?
+    private var heldKeys: [NSEvent] = []
+
+    func holdKeys(until ready: @escaping () -> Bool) {
+        Self.holdingKeys = self
+        heldKeys = []
+        let start = CACurrentMediaTime()
+        func poll() {
+            guard Self.holdingKeys === self else { return }
+            if ready() || isParked || CACurrentMediaTime() - start > 2.0 { return releaseKeys() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02, execute: poll)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02, execute: poll)
+    }
+
+    func hold(_ event: NSEvent) { heldKeys.append(event) }
+
+    private func releaseKeys() {
+        Self.holdingKeys = nil
+        let keys = heldKeys
+        heldKeys = []
+        #if AIRC_TESTING
+        Self.heldKeyCounts.append(keys.count)
+        #endif
+        for e in keys {
+            guard !isParked, let w = window,
+                  let moved = NSEvent.keyEvent(with: e.type, location: .zero, modifierFlags: e.modifierFlags, timestamp: e.timestamp,
+                                               windowNumber: w.windowNumber, context: nil, characters: e.characters ?? "",
+                                               charactersIgnoringModifiers: e.charactersIgnoringModifiers ?? "",
+                                               isARepeat: e.isARepeat, keyCode: e.keyCode) else { break }
+            if !handleSuggestionKey(moved) { w.sendEvent(moved) }
+        }
+    }
+
+    /// The bar moves the keyboard itself (between its own view, field and editor, or away when it closes).
+    func moveKeyboard(_ body: () -> Void) {
+        let was = ownMove
+        ownMove = true
+        defer { ownMove = was }
+        body()
+    }
+
+    /// What had the keyboard before this opening when it wasn't the page (a note, a sidebar field): closing gives it back.
+    /// The host sets it (`keyboardOwner(before:page:)`); nil: the page gets it, as always.
+    weak var keyboardBefore: NSView?
+
+    /// The view that has the keyboard in `window` now, unless it's the page (inside `page`), the bar or nothing.
+    func keyboardOwner(in window: NSWindow, page: NSView?) -> NSView? {
+        var r = window.firstResponder as? NSView
+        if let t = r as? NSTextView, t.isFieldEditor { r = t.delegate as? NSView }
+        guard let v = r, v !== window.contentView, v.window === window, v !== self, !v.isDescendant(of: self) else { return nil }
+        if let page, v === page || v.isDescendant(of: page) { return nil }
+        return v
+    }
+
+    /// Closing: the window's keyboard leaves the bar (its host gives it to the page, or to what it had before).
+    func giveUpKeyboard() {
+        guard let w = window, let r = w.firstResponder as? NSView, r === self || r.isDescendant(of: self) else { return }
+        moveKeyboard { _ = w.makeFirstResponder(nil) }
+    }
+
+    /// Whether the open bar lets the keyboard go now (see above).
+    fileprivate func mayGiveUpKeyboard(pending: Bool) -> Bool {
+        if isParked || ownMove || detaching || window == nil || keyboardReleased { return true }
+        switch clickTarget() {
+        case .bar: return true   // the bar's own controls (its Ask panel)
+        case .otherTextField: keyboardReleased = true; return true
+        case nil: break
+        }
+        #if AIRC_TESTING
+        // The caller: the frame past AppKit's makeFirstResponder (the engine, a page's focus, the app's own).
+        let frames = Thread.callStackSymbols.dropFirst(2).prefix(14)
+        let caller = frames.first { s in !["AppKit", "resignFirstResponder", "makeFirstResponder", "mayGiveUpKeyboard"].contains { s.contains($0) } }
+            ?? frames.first ?? "?"
+        Self.focusAttempts.append(FocusAttempt(refused: Self.guardsKeyboard, pending: pending,
+                                               caller: caller.split(separator: " ", omittingEmptySubsequences: true).dropFirst(3).joined(separator: " ")))
+        #endif
+        return !Self.guardsKeyboard
+    }
+
+    private enum ClickTarget { case bar, otherTextField }
+    /// A press in this window now: on the bar's own controls, or on an editable text view or field outside it (the
+    /// sidebar stays clickable); nil for anything else (a sidebar row, no press).
+    private func clickTarget() -> ClickTarget? {
+        guard let e = NSApp.currentEvent, [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(e.type),
+              let w = window, e.window === w, let frame = w.contentView?.superview,
+              var v = frame.hitTest(frame.convert(e.locationInWindow, from: nil)) else { return nil }
+        if v === self { return nil }   // outside the panel: the bar closes (mouseDown)
+        if v.isDescendant(of: self) { return .bar }
+        while true {
+            if let t = v as? NSTextView, t.isEditable { return .otherTextField }
+            if let f = v as? NSTextField, f.isEditable { return .otherTextField }
+            guard let up = v.superview else { return nil }
+            v = up
+        }
+    }
+
+    private var detaching = false
+    override func viewWillMove(toSuperview newSuperview: NSView?) {
+        if newSuperview == nil { detaching = true }
+        super.viewWillMove(toSuperview: newSuperview)
+    }
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        detaching = false
+    }
+
+    override func resignFirstResponder() -> Bool {
+        guard mayGiveUpKeyboard(pending: true) else { return false }
+        return super.resignFirstResponder()
+    }
+
+    /// The app's key monitor, for a key to this window while the bar is open: if the keyboard went somewhere else
+    /// anyway (a responder change that didn't ask: `endEditing`, a view removed), the bar takes it back before AppKit
+    /// sends the key on, with the field's text and selection as they were, so the key lands in the field. Two pointer
+    /// comparisons when nothing changed. False: the keyboard couldn't be taken back (the key is the bar's to drop).
+    private func reclaimKeyboard(for event: NSEvent) -> Bool {
+        guard Self.guardsKeyboard, !keyboardReleased, let w = window, event.window === w else { return true }
+        let r = w.firstResponder
+        if r === self || (r != nil && r === input.currentEditor()) { return true }
+        if let v = r as? NSView, v.isDescendant(of: self) { return true }   // the bar's own controls
+        #if AIRC_TESTING
+        Self.reclaims.append(r.map { String(describing: Swift.type(of: $0)) } ?? "nil")
+        #endif
+        let text = input.stringValue
+        sessionPending = false
+        moveKeyboard { _ = w.makeFirstResponder(input) }
+        guard let editor = input.currentEditor() as? NSTextView, w.firstResponder === editor else { return false }
+        if editor.string != text { editor.string = text }
+        let length = (text as NSString).length
+        let sel = lastSelection.map { NSRange(location: min($0.location, length), length: min($0.length, length - min($0.location, length))) }
+        editor.setSelectedRange(sel ?? NSRange(location: length, length: 0))
+        return true
+    }
 
     override func keyDown(with event: NSEvent) {
         if beginPendingSession(), let editor = window?.firstResponder, editor !== self {
@@ -674,7 +852,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     /// ends and restarts its editing session: ~4 ms a keystroke that typing never costs.)
     func type(_ text: String) {
         guard let editor = input.currentEditor() as? NSTextView, window?.firstResponder === editor else {
-            window?.makeFirstResponder(input)
+            moveKeyboard { _ = window?.makeFirstResponder(input) }
             input.stringValue = text
             textDidChange(byDeleting: false)
             return
@@ -1240,8 +1418,9 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         // a site search, actions, suggestions off).
         if suggestionQuery != q, !(Self.keepsSuggestions && wantsSuggestions(q)) { suggestions = [] }
         results = Perf.time("cb.results") { composedResults(q, history: historyHits, suggestions: suggestions) }
-        // asidepass: "Tab to switch" shows only where Tab would switch to Ask (nothing else of Tab's applies).
-        let tabSwitches = !modeToggle.isHidden && !q.isEmpty && !isActionsMode && scope == nil && siteCandidate == nil && askCandidate == nil && inline == nil
+        // Owner (2026-11-24): Tab always switches Search ↔ Ask; "Tab to switch" shows wherever it does, which is
+        // everywhere but on a site's or chat's shortcut (Arc's Site Search keeps Tab there).
+        let tabSwitches = tabSwitchesMode
         if modeToggle.showsTabHint != tabSwitches { modeToggle.showsTabHint = tabSwitches }
         Perf.time("cb.rows") { reloadRows() }
         #if AIRC_TESTING
@@ -1560,6 +1739,8 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
             }
             return true
         }
+        // cbfocus: a key while something else has the keyboard goes to the field (taken back), never to the page.
+        if !reclaimKeyboard(for: event) { return true }
         // cmdfast: a key before the deferred editing session started starts it now, so everything below (and the key's
         // own way on to the field) runs as it would have with the session started in ⌘T's frame.
         if sessionPending, beginPendingSession() { Self.sessionStats.startedByKey += 1 }
@@ -1639,25 +1820,34 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
             if askMode { submitAsk(); return true }
             execute()
             return true
-        case #selector(NSResponder.insertTab(_:)):
+        case #selector(NSResponder.insertTab(_:)), #selector(NSResponder.insertBacktab(_:)):
+            // Text being composed by an input method: Tab is the input method's.
+            if textView.hasMarkedText() { return false }
             // In a site search Tab stays in the field.
             if scope != nil { return true }
-            // asidepass: from Ask, Tab always goes back to Search (what's typed stays).
+            // asidepass: from Ask, Tab (and ⇧Tab) always goes back to Search (what's typed stays).
             if askMode { setAskMode(false); return true }
-            // Tab on an empty field: actions (Arc). On a site's shortcut or name: that site's search (Arc's Site
-            // Search), before accepting an inline completion ("you" → youtube.com: Tab searches YouTube, → accepts).
-            // With an inline completion: accept it.
+            // Arc's Site Search keeps Tab on a site's or chat's shortcut ("yt", "gpt").
+            if let s = siteCandidate { enterScope(.site(s)); return true }
+            if let p = askCandidate { enterScope(.ask(p)); return true }
+            // Owner (2026-11-24): everywhere else Tab switches to Ask, from any state (an empty field, typed text, a
+            // completion shown, a row picked), with what was typed kept; never row navigation or accepting a completion.
+            if tabSwitchesMode {
+                if inline != nil {
+                    input.stringValue = typed
+                    inline = nil
+                    inlineSite = nil
+                }
+                setAskMode(true)
+                return true
+            }
+            // ⇧Tab without the switch: nothing (the keyboard stays in the field).
+            if selector == #selector(NSResponder.insertBacktab(_:)) { return true }
+            // Without the switch (a private window, the bar over the URL field), Arc's other jobs: an empty field shows
+            // actions, an inline completion is accepted.
             if typed.isEmpty {
                 input.stringValue = "/"
                 textDidChange(byDeleting: false)
-                return true
-            }
-            if let s = siteCandidate {
-                enterScope(.site(s))
-                return true
-            }
-            if let p = askCandidate {
-                enterScope(.ask(p))
                 return true
             }
             if inline != nil {
@@ -1666,8 +1856,6 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
                 update(allowCompletion: false)
                 return true
             }
-            // Nothing else for Tab: it switches to Ask, keeping what's typed.
-            if !modeToggle.isHidden, !isActionsMode { setAskMode(true); return true }
             return false
         case #selector(NSResponder.cancelOperation(_:)):
             // Esc normally comes through handleSuggestionKey; this is the field's own (VoiceOver's escape action).
@@ -1726,6 +1914,11 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     static let askGlyph = Symbols.image("sparkles", size: 17, weight: .medium)
 
     /// Search ↔ Ask. What's typed stays; Ask's panel is made on its first use.
+    /// Tab switches Search ↔ Ask here: the switch is shown, and Tab has no Site Search job (a site's or chat's shortcut).
+    private var tabSwitchesMode: Bool {
+        !modeToggle.isHidden && askWindow != nil && scope == nil && (askMode || (siteCandidate == nil && askCandidate == nil))
+    }
+
     func setAskMode(_ on: Bool, refresh: Bool = true) {
         guard on != askMode, !on || askWindow != nil else { return }
         if on, scope != nil { leaveScope(restoring: false) }
@@ -1754,7 +1947,7 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
             }
             if a.model.attached.isEmpty, mode == .editURL, let page = AgentAskContext.shownPage(of: c) { a.model.attached = [page] }
         }
-        if modeToggle.showsTabHint { modeToggle.showsTabHint = false }
+        if modeToggle.showsTabHint != tabSwitchesMode { modeToggle.showsTabHint = tabSwitchesMode }
         applyPlaceholder()
         NSAccessibility.post(element: modeToggle, notification: .valueChanged)
         guard refresh else { return }
@@ -2095,6 +2288,15 @@ final class CommandBarFieldEditor: NSTextView {
             return
         }
         Perf.time("cb.insert") { super.insertText(string, replacementRange: replacementRange) }
+    }
+
+    /// cbfocus: the open bar keeps the keyboard (CommandBarView.mayGiveUpKeyboard).
+    override func resignFirstResponder() -> Bool {
+        if let bar, bar.window === window {
+            guard bar.mayGiveUpKeyboard(pending: false) else { return false }
+            bar.lastSelection = selectedRange()
+        }
+        return super.resignFirstResponder()
     }
 }
 
@@ -2819,6 +3021,19 @@ extension WindowController: CommandBarHost {
         }
         var current = mode == .editURL ? (engineTab(for: shownTabID ?? "")?.url?.absoluteString ?? currentTab?.url ?? "") : ""
         if NoteURL.isNote(current) { current = "" }   // a note's address is nothing to edit
+        bar.keyboardBefore = bar.keyboardOwner(in: window, page: card.hostView)
+        // cbfocus: a Safari-engine page in element full screen is in WebKit's own window, above this one: it leaves full
+        // screen so the bar can be seen (as ⌘T does in Chrome). The page's own exit, as Esc in it: the tab's
+        // presentation-exit chain (leaveElementFullscreen) sometimes never started it here. WebKit's window stays key
+        // through its exit animation, and keys typed then were lost: the bar holds them and types them once the page is
+        // back (`holdKeys`). The exit can't take the keyboard either (the bar refuses).
+        if let page = engineTab(for: shownTabID ?? "") as? WebKitTab, page.webView.fullscreenState != .notInFullscreen {
+            page.webView.evaluateJavaScript("document.fullscreenElement && document.exitFullscreen(); true", completionHandler: nil)
+            bar.holdKeys { [weak self, weak page] in
+                guard let self, let page else { return true }
+                return page.webView.fullscreenState == .notInFullscreen && page.view.window === self.window
+            }
+        }
         Perf.time("cb.open.focus") { bar.focus(with: URLRules.isNewTab(current) ? "" : current) }
         pageView(for: currentSpaceID)?.refreshNewTabRow()
         // cbperf4: this opening's commands (and, a timer later, their prepared texts: `sessionCommands`) right after its
@@ -2844,13 +3059,17 @@ extension WindowController: CommandBarHost {
             DispatchQueue.main.async { [weak self] in if self?.pendingSplit?.token == token { self?.pendingSplit = nil } }
         }
         // Kept for the next opening, hidden (its field gives up the keyboard first).
-        if let editor = window.firstResponder as? NSView, editor === bar || editor.isDescendant(of: bar) {
-            window.makeFirstResponder(nil)
-        }
+        let before = bar.keyboardBefore
+        bar.keyboardBefore = nil
+        bar.giveUpKeyboard()
         bar.park()
         spareCommandBar = bar
         scheduleSpareBarRefresh()
-        if focusingPage, let id = shownTabID { engineTab(for: id)?.focus() }
+        // cbfocus: the keyboard goes back where it was: a note or one of Airc's fields, else the page.
+        if focusingPage {
+            if let v = before, v.window === window, !v.isHiddenOrHasHiddenAncestor, window.makeFirstResponder(v) {}
+            else if let id = shownTabID { engineTab(for: id)?.focus() }
+        }
         // Every page: a Space switch closes the bar after the current Space changed.
         for spaceID in store.orderedSpaces.map(\.id) { pageView(for: spaceID)?.refreshNewTabRow() }
     }

@@ -3,49 +3,25 @@
 import AppKit
 import QuartzCore
 
-/// Grain for Space backgrounds: a tile of monochrome noise, light and dark specks around transparent, drawn
-/// with plain source-over so it reads the same on light and dark themes and in every snapshot path.
+/// Grain for Space backgrounds: Arc's grain as a multiply (grainmatch). The tile is `AircTextures`' grain, black at alpha
+/// 1 − t matched to Arc 1.171's grain image (mean darkening 0.069, spread 0.041, one-pixel noise), drawn at
+/// `grain × 0.8` like Arc's shader, so it darkens light and dark Spaces by the same factor (× 0.945 at full grain).
 public enum AircGrain {
-    /// Tile size in points. The tile is rendered at 2× so the specks are one device pixel.
+    /// Tile size in points. The tile is rendered at 2× so the noise is one device pixel.
     public static let tileSize: CGFloat = 128
 
-    /// The shared noise tile (256 × 256 px, deterministic).
-    public static let tile: CGImage = makeTile(pixels: Int(tileSize * 2), seed: 0xA1C)
+    /// The shared grain tile (256 × 256 px, deterministic).
+    public static var tile: CGImage { AircTextures.tile(.grain).image }
 
-    /// Makes a noise tile: each pixel is white or black with an alpha from a triangular distribution.
+    /// Makes a grain tile of `n` × `n` pixels.
     public static func makeTile(pixels n: Int, seed: UInt64) -> CGImage {
-        var state = seed &* 0x9E3779B97F4A7C15 | 1
-        func next() -> Double {
-            state ^= state << 13
-            state ^= state >> 7
-            state ^= state << 17
-            return Double(state % 1_000_003) / 1_000_003
-        }
-        var bytes = [UInt8](repeating: 0, count: n * n * 4)
-        for i in 0..<(n * n) {
-            let v = next() + next() - 1  // triangular, −1...1
-            let a = min(1, abs(v) * 0.9)
-            let alpha = UInt8((a * 255).rounded())
-            let c: UInt8 = v > 0 ? alpha : 0  // premultiplied white or black
-            bytes[i * 4] = c
-            bytes[i * 4 + 1] = c
-            bytes[i * 4 + 2] = c
-            bytes[i * 4 + 3] = alpha
-        }
-        let provider = CGDataProvider(data: Data(bytes) as CFData)!
-        return CGImage(
-            width: n, height: n, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: n * 4,
-            space: CGColorSpace(name: CGColorSpace.sRGB)!,
-            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-            provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent
-        )!
+        AircTextures.makeGrain(pixels: n, seed: seed).image
     }
 }
 
 extension SpaceTheme.Texture {
-    /// The tile this texture draws (2×) and its edge in points: Airc's grain, or AircTextures' sand, denim and tweed.
+    /// The tile this texture draws (2×) and its edge in points (AircTextures).
     public var tile: (image: CGImage, size: CGFloat) {
-        if self == .grain { return (AircGrain.tile, AircGrain.tileSize) }
         let t = AircTextures.tile(self)
         return (t.image, t.size)
     }

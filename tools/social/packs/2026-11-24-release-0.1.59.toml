@@ -1,7 +1,7 @@
 # Airc 0.1.59 (cut f72fa81c; build revision ae94cd3d; branch release/0.1.59-cut). Claims from its approved notes.
 # NOT TO POST before "0.1.59 LIVE" in briefs/queue.md: plan and approve only then, after checking the public repo shows
-# the release (owner rule). At LIVE also: re-render 0.1.46's taskview card from agentrows' agent-task-view (one row per
-# task), and swap aidemo2's re-take into 2026-11-23-agent-demo (both show the old double row).
+# the release (owner rule). At LIVE also: approve release0146-02 (task-view card re-rendered from aidemo3's still) and agentdemo-01
+# (aidemo3's re-take, 28 Nov 10:30): both show 0.1.59's one row per agent task.
 slug = "2026-11-24-release-0.1.59"
 title = "Airc 0.1.59: sign-in buttons always respond"
 kind = "release"

@@ -9,10 +9,9 @@ import AppKit
 ///   1. For each texture and appearance, one Space (Arc's blue swatch, grain dial at full) is drawn as the active window
 ///      with translucency off. The window background's layers are rendered with `CALayer.render(in:)` (cacheDisplay
 ///      ignores layer opacity) and compared with the same Space at grain 0:
-///        - sand, denim, tweed: the mean luminance falls by Arc's multiply, strength × (1 − mean of Arc's image),
-///          within 0.008, and (light) the spread is Arc's, strength × its spread, within 25 %;
-///        - grain: Airc's own tile, unchanged: the drop matches its tile drawn at 0.44 within 0.008 (Arc's own grain
-///          target is logged beside it).
+///        - grain, sand, denim, tweed: the mean luminance falls by Arc's multiply, strength × (1 − mean of Arc's image),
+///          within 0.008, light and dark, and (light) the spread is Arc's, strength × its spread, within 25 %.
+///          Grain is Arc's multiply since grainmatch (before, Airc's speck tile measured × 0.952 light, × 1.18 dark).
 ///      Inactive (the window not main): the same texture at ¼ strength.
 ///   2. The theme picker (Edit Theme Color…) shows Grain, Sand, Denim and Tweed; pressing Denim (accessibility press,
 ///      posted) sets the Space's texture.
@@ -69,20 +68,6 @@ extension SnapshotRunner {
             let n = Double(w * h), m = sum / n
             return (m, max(0, sq / n - m * m).squareRoot())
         }
-        /// Airc's grain tile drawn at `opacity` over a flat `base` luma: the mean it gives (source-over, premultiplied).
-        func grainExpected(base: Double, opacity: Double) -> Double {
-            let t = AircGrain.tile, w = t.width, h = t.height
-            var px = [UInt8](repeating: 0, count: w * h * 4)
-            let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
-                                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-            ctx.draw(t, in: CGRect(x: 0, y: 0, width: w, height: h))
-            var sum = 0.0
-            for i in 0..<(w * h) {
-                let c = Double(px[i * 4]) / 255, a = Double(px[i * 4 + 3]) / 255
-                sum += opacity * c + base * (1 - a * opacity)
-            }
-            return sum / Double(w * h) / base
-        }
         func write(_ image: CGImage, _ name: String) {
             let rep = NSBitmapImageRep(cgImage: image)
             try? rep.representation(using: .png, properties: [:])?.write(to: dir.appendingPathComponent(name))
@@ -128,23 +113,17 @@ extension SnapshotRunner {
                     guard let image = renderLayers(bg), baseline.mean > 0 else { return expect(false, "\(name): render") }
                     let got = luma(image)
                     let ratio = got.mean / baseline.mean
-                    let opacity = design.strength * design.layerScale
+                    let opacity = design.strength
                     let arc = AircTextures.arcTarget(design)
                     let arcRatio = 1 - design.strength * arc.darkening
-                    if design == .grain {
-                        let airc = grainExpected(base: baseline.mean, opacity: opacity)
-                        expect(abs(ratio - airc) < 0.008,
-                               "\(name): Airc's grain is unchanged: mean × \(f(ratio)) (its tile at \(f(opacity)): × \(f(airc)); Arc's grain would be × \(f(arcRatio)))")
+                    expect(abs(ratio - arcRatio) < 0.008,
+                           "\(name): mean luminance × \(f(ratio)) (\(f(baseline.mean)) → \(f(got.mean))), Arc's × \(f(arcRatio)) (strength \(design.strength) × darkening \(f(arc.darkening)))")
+                    let relSD = got.sd / got.mean
+                    let arcSD = opacity * arc.spread / arcRatio
+                    if appearance == .light {
+                        expect(abs(relSD - arcSD) < 0.25 * arcSD, "\(name): spread \(f(relSD)) of the mean, Arc's \(f(arcSD)) (± 25 %)")
                     } else {
-                        expect(abs(ratio - arcRatio) < 0.008,
-                               "\(name): mean luminance × \(f(ratio)) (\(f(baseline.mean)) → \(f(got.mean))), Arc's × \(f(arcRatio)) (strength \(design.strength) × darkening \(f(arc.darkening)))")
-                        let relSD = got.sd / got.mean
-                        let arcSD = opacity * arc.spread / arcRatio
-                        if appearance == .light {
-                            expect(abs(relSD - arcSD) < 0.25 * arcSD, "\(name): spread \(f(relSD)) of the mean, Arc's \(f(arcSD)) (± 25 %)")
-                        } else {
-                            note("\(tag): \(name): spread \(f(relSD)) of the mean, Arc's \(f(arcSD)) (not asserted in dark: 8-bit steps)")
-                        }
+                        note("\(tag): \(name): spread \(f(relSD)) of the mean, Arc's \(f(arcSD)) (not asserted in dark: 8-bit steps)")
                     }
                     // Shots: the sidebar's top, 240 × 360 pt, as the window composites it (no page: that's the engine's).
                     if let full = renderLayers(c.root), let crop = full.cropping(to: CGRect(x: 0, y: 0, width: min(480, full.width), height: min(720, full.height))) {
@@ -156,7 +135,7 @@ extension SnapshotRunner {
                     // Inactive: ¼ strength.
                     bg.isWindowActiveOverride = false
                     bg.layoutSubtreeIfNeeded()
-                    if design != .grain, let dim = renderLayers(bg) {
+                    if let dim = renderLayers(bg) {
                         let r = luma(dim).mean / baseline.mean
                         let want = 1 - 0.25 * design.strength * arc.darkening
                         expect(abs(r - want) < 0.006, "\(name): inactive window × \(f(r)), ¼ strength × \(f(want))")
@@ -249,8 +228,8 @@ extension SnapshotRunner {
             expect(t?.texture == .denim && t?.grain == 0.6, "picker: Denim set the Space's texture (\(t?.texture.rawValue ?? "-"), grain \(t?.grain ?? -1))")
             c.themePopover?.close()
             c.applyTranslucency(originalTranslucency)
-            // 8 × (appearance + mean) + 3 light spreads + 6 inactive + strip + 2 picker = 28, then this one.
-            expect(asserted >= 28, "zero-guard: \(asserted + 1) assertions made (29 expected)")
+            // 8 × (appearance + mean) + 4 light spreads + 8 inactive + strip + 2 picker = 31, then this one.
+            expect(asserted >= 31, "zero-guard: \(asserted + 1) assertions made (32 expected)")
         }
     }
 }

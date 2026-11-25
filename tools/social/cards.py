@@ -84,7 +84,9 @@ def place(win_pts, focus, target, align="center"):
 
 def picture(spec, size, layout, work, pack):
     """The window (or the whole shot, `mode = "plate"`) scaled for this image: (html, upscale factor)."""
-    rev = spec.get("shots_rev") or pack.get("shots_rev")
+    # An image's own shots_rev wins, even "" (a shot from outside the cut, by name: an agent's still).
+    rev = spec["shots_rev"] if "shots_rev" in spec else pack.get("shots_rev")
+    rev = rev or None
     if spec.get("mode", "window") == "plate":
         img, k, src = studio.shot(spec["shot"], rev)
         k = k or 1

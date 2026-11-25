@@ -287,6 +287,7 @@ final class SnapshotRunner {
         case "parityc08": parityC08Scenario()   // C08: engine picker, per-profile suggestions, menu search (ParityC08Check.swift)
         case "parityc08b": parityC08bScenario()   // C08b: Arc/Chrome default and custom search engines imported (ParityC08bCheck.swift)
         case "hardreload": hardReloadScenario()   // ⇧⌘R hard reload vs ⌘R on a cache-headers fixture, real keys (HardReloadCheck.swift)
+        case "cbfocus": commandBarFocusScenario()   // cbfocus: while the Command Bar is open no key reaches the page (CommandBarFocusCheck.swift)
         case "cbfirstkeys": commandBarFirstKeysScenario()   // cmdfast: no key lost at the Command Bar's first opening (CommandBarFirstKeysCheck.swift)
         case "parityp07bc": parityP07bcScenario()   // P07b+P07c: ChatGPT in the Command Bar, Instant Links (ParityP07bcCheck.swift)
         case "parityp07bc-real": parityP07bcRealSmoke()   // P07b+P07c manual smoke: real network and model, never in the suite

@@ -44,20 +44,20 @@ const chromiumMajor = status.chromium.split(".")[0];
 const agentsOn = await agentsShown();
 const followOn = await followAlongShown();
 const remoteOn = await remoteShown();
-// The Airc Agent: a recording of the real app (artifacts aidemo2, on Steepwell, the made-up shop in tools/agent-demo-shop).
+// The Airc Agent: a recording of the real app (artifacts aidemo3, on Steepwell, the made-up shop in tools/agent-demo-shop).
 const agentVideo = {
   width: 1600,
   height: 1000,
-  seconds: 43.7,
-  alt: "A recording of Airc on a made-up coffee shop: ✦ in the toolbar, next to Back and Forward, opens the Airc Agent pane, “Use your ChatGPT subscription” (Codex) is picked on its Connect card, and the task “Compare the Pour and Rapid kettles and buy the better one for pour over coffee. Ask me before you pay.” is typed. The pane’s live card shows the agent searching the shop, putting both kettles side by side and saying why the Pour is better for pour-over, then adding it to the bag and going to payment. At Pay, Airc stops and asks. The run is opened from the sidebar’s Agents folder, Allow once is clicked, the order is placed and the agent says what it bought and why.",
+  seconds: 44.0,
+  alt: "A recording of Airc on a made-up coffee shop: ✦ in the toolbar, next to Back and Forward, opens the Airc Agent pane, “Use your ChatGPT subscription” (Codex) is picked on its Connect card, and the task “Compare the Pour and Rapid kettles and buy the better one for pour over coffee. Ask me before you pay.” is typed. The pane’s live card shows the agent searching the shop, putting both kettles side by side and saying why the Pour is better for pour-over, then adding it to the bag and going to payment. At Pay, Airc stops and asks. The task’s one row in the sidebar’s Agents folder opens Watch, Allow once is clicked, the order is placed and the agent says what it bought and why.",
 };
-// Where each part of the recording starts, in seconds (aidemo2's chapters.json, homepage cut).
+// Where each part of the recording starts, in seconds (aidemo3's chapters.json, homepage cut).
 const agentChapters = [
   { at: 0, label: "Click ✦" },
-  { at: 7.4, label: "Say what you need" },
-  { at: 11.4, label: "Watch it work" },
-  { at: 26.4, label: "It asks before it pays" },
-  { at: 38.2, label: "Done" },
+  { at: 7.5, label: "Say what you need" },
+  { at: 11.5, label: "Watch it work" },
+  { at: 26.5, label: "It asks before it pays" },
+  { at: 38.5, label: "Done" },
 ];
 const agentPoints = [
   {
@@ -72,7 +72,7 @@ const agentPoints = [
     img: cropLive,
     alt: "The agent's live page card in the Airc Agent pane: the demo shop's two kettles side by side, with a Take over button.",
     title: "Sees the page live.",
-    body: "The agent's page plays in the pane while it clicks, types and scrolls. Take over any time, or watch a run from the Agents folder.",
+    body: "The agent's page plays in the pane while it clicks, types and scrolls. Take over any time, or watch it from its row in the Agents folder.",
   },
   {
     key: "ask",

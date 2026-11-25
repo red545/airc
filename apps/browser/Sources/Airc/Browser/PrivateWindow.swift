@@ -455,7 +455,7 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
     func closeCommandBar() {
         guard let bar = commandBar else { return }
         commandBar = nil
-        if let r = window.firstResponder as? NSView, r === bar || r.isDescendant(of: bar) { window.makeFirstResponder(nil) }
+        bar.giveUpKeyboard()
         bar.removeFromSuperview()
         sidebar.newTabActive = false
         shownPage?.focus()

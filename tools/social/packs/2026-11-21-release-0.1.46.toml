@@ -40,10 +40,11 @@ alt = "Airc's Command Bar in Ask mode: “Book a table for two at a quiet place 
 
 [[image]]
 id = "taskview"
-shot = "agent-task-view"
-# Since 2026-11-23: the refreshed shot (cut f86840a8, 0.1.49) so ✦ shows in the toolbar as it is now (owner rule:
-# nothing outdated); the 0.1.46 shot had ✦ at the bottom of the sidebar.
-shots_rev = "f86840a8"
+shot = "agent-task-view-rows"
+shots_rev = ""
+# Since 2026-11-25: aidemo3's still on 0.1.59's code (one Agents row per task, ✦ in the toolbar), saved as
+# scratch/social-shots/marketing/agent-task-view-rows.png (owner rule: nothing outdated; the f86840a8 shot had a
+# second row per task).
 title = "Every task, its own view."
 line = "Each step, the answer, and the page it's on, live."
 alt = "An Airc Agent task filling the page: “Reorder last week's groceries from Corner Shop”, working, with a timeline of steps (opened cornershop.aircbrowser.com with a preview of the page, reading it, finding something on it), a live view of the page beside the steps, and a field to tell it something while it works; the sidebar's Agents folder lists the tasks. A demo shop."

@@ -12,8 +12,8 @@ One post with aidemo2's X cut: ✦ in the toolbar, use your ChatGPT subscription
 asks before it pays.
 """
 order = """
-1. HELD (2026-11-24): parked unapproved at 9 Dec 10:30. 0.1.59 shows each agent task once in the sidebar; this cut has
-   the old double row. Swap in aidemo2's re-take (queued after agentmainview), check its frames, then approve.
+1. 28 Nov 10:30 UTC, aidemo3's re-take (one Agents row per task, as in 0.1.59). Approve only at "0.1.59 LIVE" (nothing
+   unreleased); if 0.1.59 isn't live by then, move it to the next free 10:30.
 """
 checked = """
 - Every frame checked (2026-11-23): ✦ clicked in the toolbar next to Back and Forward (0.1.47+); Connect card leads with

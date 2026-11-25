@@ -4,10 +4,10 @@ import AppKit
 import Testing
 @testable import AircDesign
 
-/// arctextures (TH-4): Airc's own sand, denim and tweed tiles match Arc's measured mean darkening and spread, tile
-/// seamlessly, are deterministic, and draw at Arc's strengths.
+/// arctextures (TH-4) and grainmatch: Airc's own grain, sand, denim and tweed tiles match Arc's measured mean darkening
+/// and spread, tile seamlessly, are deterministic, and draw at Arc's strengths.
 @Suite struct TextureTests {
-    static let textures: [SpaceTheme.Texture] = [.sand, .denim, .tweed]
+    static let textures: [SpaceTheme.Texture] = [.grain, .sand, .denim, .tweed]
 
     @Test(arguments: textures) func tileMatchesArcMeanAndSpread(_ texture: SpaceTheme.Texture) {
         let tile = AircTextures.tile(texture)
@@ -43,6 +43,7 @@ import Testing
     }
 
     @Test func tilesAreDeterministic() {
+        #expect(AircTextures.makeGrain(pixels: 64, seed: 3).values == AircTextures.makeGrain(pixels: 64, seed: 3).values)
         #expect(AircTextures.makeSand(pixels: 64, seed: 3).values == AircTextures.makeSand(pixels: 64, seed: 3).values)
         #expect(AircTextures.makeDenim(pixels: 80, seed: 3).values == AircTextures.makeDenim(pixels: 80, seed: 3).values)
         #expect(AircTextures.makeTweed(pixels: 64, seed: 3).values == AircTextures.makeTweed(pixels: 64, seed: 3).values)
@@ -56,8 +57,9 @@ import Testing
         #expect(abs(opacity(.denim, grain: 1) - 0.6) < 1e-9)
         #expect(abs(opacity(.tweed, grain: 0.5) - 0.2) < 1e-9)
         #expect(abs(opacity(.tweed, grain: 0.5, active: false) - 0.05) < 1e-9)
-        // Grain is unchanged: 0.8 × 0.55.
-        #expect(abs(opacity(.grain, grain: 1) - 0.44) < 1e-9)
+        // Grain is Arc's multiply at strength 0.8 (grainmatch; before it, Airc's speck tile at 0.8 × 0.55).
+        #expect(abs(opacity(.grain, grain: 1) - 0.8) < 1e-9)
+        #expect(abs(opacity(.grain, grain: 0.25) - 0.2) < 1e-9)
         #expect(opacity(.sand, grain: 0) == 0)
     }
 
@@ -70,7 +72,7 @@ import Testing
                                 space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
             ctx.setFillColor(CGColor(srgbRed: base, green: base, blue: base, alpha: 1))
             ctx.fill(CGRect(x: 0, y: 0, width: n, height: n))
-            let opacity = grain * texture.strength * texture.layerScale
+            let opacity = grain * texture.strength
             ctx.setAlpha(opacity)
             ctx.draw(tile.image, in: CGRect(x: 0, y: 0, width: n, height: n))
             let px = ctx.data!.bindMemory(to: UInt8.self, capacity: n * n * 4)
@@ -80,6 +82,33 @@ import Testing
             let expected = base * (1 - opacity * AircTextures.arcTarget(texture).darkening)
             #expect(abs(drawn - expected) < 0.004, "\(texture) on \(base) at \(grain): \(drawn) vs Arc \(expected)")
         }
+    }
+
+    /// grainmatch: grain darkens, never lightens (Airc's old speck tile lightened dark Spaces × 1.18), and its structure is
+    /// Arc's: one-pixel noise, neighbour correlation 0.39 across and down, ~0.15 diagonal, ~0 at two pixels; its
+    /// percentiles follow Arc's image (t = 1 − 0.259 × (1 − luma): p01 0.827, p50 0.938, p99 0.994).
+    @Test func grainIsArcsMultiplyNoise() {
+        let tile = AircTextures.tile(.grain)
+        let v = tile.values, n = tile.image.width
+        #expect(n == 256 && tile.size == AircGrain.tileSize)
+        #expect(tile.image === AircGrain.tile)
+        // Black only: the colour channels are 0 (premultiplied), so it can only darken.
+        let data = tile.image.dataProvider!.data! as Data
+        #expect(stride(from: 0, to: data.count, by: 4).allSatisfy { data[$0] == 0 && data[$0 + 1] == 0 && data[$0 + 2] == 0 })
+        let (mean, sd) = AircTextures.moments(v)
+        func corr(_ dx: Int, _ dy: Int) -> Double {
+            var acc = 0.0
+            for y in 0..<n { for x in 0..<n { acc += (v[y * n + x] - mean) * (v[((y + dy) % n) * n + (x + dx) % n] - mean) } }
+            return acc / Double(n * n) / (sd * sd)
+        }
+        #expect(abs(corr(1, 0) - 0.39) < 0.04 && abs(corr(0, 1) - 0.39) < 0.04, "lag-1 \(corr(1, 0)), \(corr(0, 1))")
+        #expect(abs(corr(1, 1) - 0.15) < 0.04, "diagonal \(corr(1, 1))")
+        #expect(abs(corr(2, 0)) < 0.08, "lag-2 \(corr(2, 0))")
+        let sorted = v.sorted()
+        func p(_ f: Double) -> Double { sorted[Int(f * Double(sorted.count))] }
+        let arc = [(0.01, 1 - 0.259 * (1 - 0.333)), (0.5, 1 - 0.259 * (1 - 0.762)), (0.99, 1 - 0.259 * (1 - 0.978))]
+        for (f, want) in arc { #expect(abs(p(f) - want) < 0.006, "p\(Int(f * 100)) \(p(f)) vs Arc \(want)") }
+        #expect(sorted.filter { $0 >= 1 }.count < sorted.count / 50, "clamped at 1")
     }
 
     @Test @MainActor func layerSwapsTheTileOnlyWhenTheTextureChanges() {

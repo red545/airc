@@ -137,9 +137,10 @@ final class AgentTasksCheck {
             let toggle = bar.modeToggleForTesting
             check(!toggle.isHidden, "⌘T: the bar has the Search | Ask switch")
             check(!bar.askMode && !toggle.ask, "… on Search")
-            check(!toggle.showsTabHint, "… with no “Tab to switch” on an empty field (Tab still opens the actions there)")
+            check(toggle.showsTabHint, "… with “Tab to switch” on an empty field too (owner, 2026-11-24: Tab always switches)")
             barKey("tab") { [self] how in
-                check(bar.typed == "/" && !bar.askMode, "Tab on the empty field still lists the actions, as in Arc [\(how)] (field “\(bar.typed)”)")
+                check(bar.askMode && bar.typed.isEmpty, "Tab on the empty field switches to Ask [\(how)] (field “\(bar.typed)”)")
+                bar.setAskMode(false)
                 bar.type("")
                 typeInBar(prompt) { [self] typing in
                     check(toggle.showsTabHint, "a task typed: “Tab to switch” shows [\(typing) typing]")

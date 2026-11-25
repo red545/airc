@@ -107,6 +107,8 @@ tidy-hint|Tidy card|A long Today in Personal: the card at the top offers Tidy in
 tidy-hint-dark|Tidy card, dark|The same card in the dark Work Space
 space-textures|Space textures|Personal in Arc'"'"'s denim texture, with Edit Theme Color… open on its Grain, Sand, Denim and Tweed swatches
 space-textures-dark|Space textures, dark|The dark Work Space in tweed
+space-grain|Space grain|Personal at full grain: Arc'"'"'s fine grain, a multiply that darkens the colour a little
+space-grain-dark|Space grain, dark|The dark Work Space at full grain, darkened like Arc'"'"'s (not lightened)
 today-folders|Folders in Today|Personal'"'"'s Today with a Japan Trip folder open and a closed Reading folder: Today tabs in folders still archive like any Today tab
 profiles|Profiles|Create Profile, step 2: which Spaces move to the new profile, each in its own colour
 split-view-2|Split View|Two panes in Studio: Apple design pages beside Color theory

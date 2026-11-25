@@ -299,7 +299,7 @@ public struct AircTexturePicker: View {
                 // At full strength, a little stronger than the window draws it, so an 18 pt swatch reads.
                 Image(decorative: t.tile.image, scale: 2)
                     .resizable(resizingMode: .tile)
-                    .opacity(min(1, t.strength * t.layerScale * 1.6))
+                    .opacity(min(1, t.strength * 1.6))
                     .clipShape(Circle())
             }
             .frame(width: Self.swatch, height: Self.swatch)

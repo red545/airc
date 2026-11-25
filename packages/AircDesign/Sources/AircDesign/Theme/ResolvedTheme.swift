@@ -89,10 +89,10 @@ public struct ResolvedTheme: Hashable, Sendable {
 
     public var colorScheme: ColorScheme { isDark ? .dark : .light }
 
-    /// Texture layer opacity (grain, sand, denim or tweed: `theme.texture`). Inactive windows show the texture at ¼
-    /// strength, as Arc does.
+    /// Texture layer opacity (grain, sand, denim or tweed: `theme.texture`): Arc's `grain × strength`, every tile being
+    /// Arc's multiply as black at alpha 1 − t (AircTextures). Inactive windows show the texture at ¼ strength, as Arc does.
     public func grainOpacity(isWindowActive: Bool = true) -> Double {
-        theme.grain.clamped01 * theme.texture.strength * theme.texture.layerScale * (isWindowActive ? 1 : 0.25)
+        theme.grain.clamped01 * theme.texture.strength * (isWindowActive ? 1 : 0.25)
     }
 
     /// The composited, opaque background at a unit point (0,0 top-left) of a window with the given
