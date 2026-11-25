@@ -540,6 +540,7 @@ final class ChromiumWindow: NSObject, EngineWindow, AircWindowDelegate {
     }
     func window(_ window: AircWindow, tab: AircTab, didChangeFullscreen fullscreen: Bool) {
         guard let tab = wrap(tab) else { return }
+        tab.isElementFullscreen = fullscreen
         delegate?.engineWindow(self, tab: tab, didChangeFullscreen: fullscreen)
     }
     /// A key the page didn't use, before the engine tries the main menu (Chrome's delayed ⌘← ⌘→, Commands.swift).
@@ -598,6 +599,10 @@ final class ChromiumTab: NSObject, EngineTab, AircTabDelegate {
     /// redirect from it to a DRM service moves the page to WebKit (HybridEngine.swift); a form's POST result never does.
     var getNavigationStarted: Date?
     weak var delegate: EngineTabDelegate?
+    /// The page is in HTML5 (element) full screen, inside the browser window (the engine's FullscreenChanged).
+    fileprivate(set) var isElementFullscreen = false
+    /// Leaves element full screen now, as the page's own exit (fskeys: ⌘T over a full-screen video).
+    func leaveElementFullscreen() { core.exitFullscreen() }
     init(core: AircTab, profile: EngineProfile, owner: ChromiumWindow) {
         self.core = core
         self.profile = profile

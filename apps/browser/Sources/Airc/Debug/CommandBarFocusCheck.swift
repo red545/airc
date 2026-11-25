@@ -15,6 +15,42 @@ import WebKit
 /// aggressive player page does. `AIRC_CBFOCUS_BEFORE=1` turns the bar's keyboard guard off (the before arm, one
 /// binary); `AIRC_CBFOCUS_CASES=a,b` picks cases (the runner's time bound). Every refused or allowed attempt to take
 /// the keyboard from the open bar is logged with its caller (CommandBarView.focusAttempts): the cause.
+///
+/// fskeys: `fullscreen` runs on both engines (Chromium's element full screen fills the page's card in the browser window):
+/// ⌘T leaves it within the exit budget (WebKit 1.5 s, its window's animation, 0.7–1.0 s measured; Chromium 0.5 s), keys typed meanwhile land
+/// in the field. The exit cases leave element full screen another way and time it from the input to the page back in its
+/// window, with no full-screen window left and the browser window key (never a half state): `fsesc` (a real Esc),
+/// `fsbutton` (a real click on the page's own exit button), `fstab` (a tab switch), `fsrace` (WebKit: the page enters full
+/// screen while a presentation close of its tab is still waiting, here for a stand-in player window that then goes; before
+/// fskeys that close then waited for the full screen too, and every later exit of the tab joined it and never ran; then a
+/// tab switch). `AIRC_FSKEYS_BEFORE=1`: the presentation close's unbounded wait (the before arm).
+/// fskeys: who discards queued events (NSApplication.discardEvents(matching:before:)), with the caller, for keys typed
+/// during WebKit's full-screen exit that neither the page nor the app's key monitor ever saw.
+enum DiscardLog {
+    static var entries: [String] = []
+    private static var installed = false
+    static func install() {
+        guard !installed else { return }
+        installed = true
+        let cls: AnyClass = NSApplication.self
+        guard let a = class_getInstanceMethod(cls, #selector(NSApplication.discardEvents(matching:before:))),
+              let b = class_getInstanceMethod(cls, #selector(NSApplication.airc_discardEvents(matching:before:))) else { return }
+        method_exchangeImplementations(a, b)
+    }
+    static func record(_ mask: NSEvent.EventTypeMask) {
+        let caller = Thread.callStackSymbols.dropFirst(2).prefix(6)
+            .map { $0.split(separator: " ", omittingEmptySubsequences: true).dropFirst(3).prefix(3).joined(separator: " ") }
+        entries.append(String(format: "%.3f mask %llx: ", CACurrentMediaTime(), mask.rawValue) + caller.joined(separator: " < "))
+    }
+}
+
+extension NSApplication {
+    @objc func airc_discardEvents(matching mask: NSEvent.EventTypeMask, before lastEvent: NSEvent?) {
+        DiscardLog.record(mask)
+        airc_discardEvents(matching: mask, before: lastEvent)   // the original (exchanged)
+    }
+}
+
 extension SnapshotRunner {
     func commandBarFocusScenario() {
         let engineName = app?.engine is WebKitEngine ? "WebKit" : "Chromium"
@@ -23,7 +59,10 @@ extension SnapshotRunner {
         let pid = ProcessInfo.processInfo.processIdentifier
         let all = ["load", "click", "input", "iframe", "steal", "fullscreen", "tabswitch", "space", "twice", "held", "burst",
                    "littlearc", "agent", "pip", "inactive", "tab"]
-        let picked = ProcessInfo.processInfo.environment["AIRC_CBFOCUS_CASES"].map { $0.split(separator: ",").map(String.init) } ?? all
+        let exitCases = ["fsesc", "fsbutton", "fstab", "fsrace"]
+        let picked = ProcessInfo.processInfo.environment["AIRC_CBFOCUS_CASES"].map { $0.split(separator: ",").map(String.init) } ?? all + exitCases
+        // fskeys: how long leaving element full screen may take, from the input to the page back in the browser window.
+        let exitBudget = engineName == "WebKit" ? 1500.0 : 500.0
         var server: LocalPageServer?
         var port: UInt16 = 0
         var realInput = false
@@ -36,11 +75,12 @@ extension SnapshotRunner {
         let videoPage = """
         <!doctype html><title>cbfocus video</title>
         <style>body{margin:0;background:#111;color:#eee;font:14px -apple-system,sans-serif}#wrap{width:640px;height:360px}
-        video{width:640px;height:360px;display:block;background:#000}input{margin:8px;font-size:16px;width:200px}iframe{border:0}</style>
-        <div id=wrap tabindex=0><video id=player muted playsinline autoplay tabindex=0></video></div>
+        video{width:640px;height:360px;display:block;background:#000}input{margin:8px;font-size:16px;width:200px}iframe{border:0}
+        #wrap{position:relative}#leave{position:absolute;left:40px;top:300px;font-size:16px;padding:6px 12px}</style>
+        <div id=wrap tabindex=0><video id=player muted playsinline autoplay tabindex=0></video><button id=leave onclick="window.leaveClicks++;document.exitFullscreen()">Exit</button></div>
         <input id=box placeholder=box><iframe id=fr src="/frame" width=320 height=60></iframe>
         <script>
-        const keys = []; window.keysSeen = keys; window.pauses = 0; window.pipOpens = 0; window.focusCalls = 0;
+        const keys = []; window.keysSeen = keys; window.pauses = 0; window.pipOpens = 0; window.focusCalls = 0; window.leaveClicks = 0;
         const c = document.createElement('canvas'); c.width = 320; c.height = 180; const g = c.getContext('2d'); let n = 0;
         setInterval(() => { n++; g.fillStyle = 'hsl(' + (n * 7 % 360) + ',60%,40%)'; g.fillRect(0, 0, 320, 180);
           g.fillStyle = '#fff'; g.font = '20px sans-serif'; g.fillText(String(n), 12, 30); }, 33);
@@ -60,7 +100,7 @@ extension SnapshotRunner {
         window.cbfocusState = () => JSON.stringify({keys: keys.slice(), paused: v.paused, pauses: window.pauses, pip: !!document.pictureInPictureElement,
           pipOpens: window.pipOpens, fs: !!document.fullscreenElement, active: document.activeElement ? (document.activeElement.id || document.activeElement.tagName) : null,
           frameActive: (() => { try { const d = document.getElementById('fr').contentDocument; return d && d.activeElement ? (d.activeElement.id || d.activeElement.tagName) : null; } catch (e) { return 'x'; } })(),
-          focusCalls: window.focusCalls, hasFocus: document.hasFocus()});
+          focusCalls: window.focusCalls, hasFocus: document.hasFocus(), leaveClicks: window.leaveClicks});
         </script>
         """
         let framePage = """
@@ -94,8 +134,29 @@ extension SnapshotRunner {
             if r === w { return "window" }
             return String(describing: Swift.type(of: r))
         }
+        /// The page is in element full screen, by its engine's own state.
+        func inFullscreen(_ tab: EngineTab?) -> Bool {
+            if let w = tab as? WebKitTab { return w.webView.fullscreenState != .notInFullscreen }
+            #if canImport(AircCore)
+            return (tab as? ChromiumTab)?.isElementFullscreen == true
+            #else
+            return false
+            #endif
+        }
+        /// A full-screen window of WebKit's still on screen.
+        func fullscreenWindowShowing() -> Bool {
+            NSApp.windows.contains { $0.isVisible && $0 !== c.window && String(describing: Swift.type(of: $0)).contains("FullScreen") }
+        }
+        func windowName(_ v: NSView?) -> String {
+            v?.window === c.window ? "the browser window" : v?.window.map { String(describing: Swift.type(of: $0)) } ?? "no window"
+        }
+        // AIRC_CBFOCUS_HID=1: the driver's plain HID presses (to the frontmost app) instead of PID-targeted ones.
+        let hid = ProcessInfo.processInfo.environment["AIRC_CBFOCUS_HID"] == "1"
         func key(_ combo: String, _ done: @escaping (Bool, String) -> Void) {
-            UIDriverClient.run(["--key", combo, "--pid", String(pid)], done)
+            guard hid, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else {
+                return UIDriverClient.run(["--key", combo, "--pid", String(pid)], done)
+            }
+            UIDriverClient.run(["--key", combo], done)
         }
         func keys(_ combos: [String], _ done: @escaping (Bool, String) -> Void) {
             guard let k = combos.first else { return done(true, "") }
@@ -135,6 +196,7 @@ extension SnapshotRunner {
         }
 
         // MARK: setup
+        DiscardLog.install()
         step { [self] done in
             server = LocalPageServer(pages: ["/video": videoPage, "/frame": framePage,
                                              "/other": "<!doctype html><title>cbfocus other</title><p>other"])
@@ -190,6 +252,7 @@ extension SnapshotRunner {
             var setupNote = ""
             var keysOK = true, keysOut = ""
             var skip = false
+            var exitsBefore = 0
 
             // 1. The case's state.
             run { [self] in
@@ -286,6 +349,7 @@ extension SnapshotRunner {
                             before = responder(self.c.window)
                             attempts = CommandBarView.focusAttempts.count
                             reclaims = CommandBarView.reclaims.count
+                            exitsBefore = CommandBarView.fullscreenExits.count
                             done()
                         }
                     }
@@ -358,16 +422,35 @@ extension SnapshotRunner {
                         self.check(typed == expected, "\(label): the field holds exactly “\(expected)”, the first key included (typed “\(typed)”, field “\(field)”)")
                         self.check(who == "bar", "\(label): the bar's field has the keyboard (\(who))")
                         results[name] = pageKeys.isEmpty && typed == expected ? "ok" : "REPRO pageKeys=\(pageKeys.count) typed=“\(typed)”"
+                        if name == "fullscreen" {
+                            // fskeys: ⌘T left element full screen (both engines), within the exit budget, the page back here.
+                            let exits = Array(CommandBarView.fullscreenExits.dropFirst(exitsBefore))
+                            let ms = exits.first.flatMap(Double.init)
+                            let v = page(target)?.view
+                            self.check(exits.count == 1 && ms.map { $0 <= exitBudget } == true,
+                                       "\(label): ⌘T left element full screen within \(Int(exitBudget)) ms (exits \(exits) ms)")
+                            self.check(!inFullscreen(page(target)) && s["fs"] as? Bool != true && v?.window === self.c.window && !fullscreenWindowShowing()
+                                       && NSApp.keyWindow === self.c.window,
+                                       "\(label): after ⌘T the page is out of full screen in the browser window, which is key (engine full screen "
+                                       + "\(inFullscreen(page(target))), fullscreenElement \(s["fs"] ?? "?"), page in \(windowName(v)), full-screen window "
+                                       + "\(fullscreenWindowShowing()), key window \(NSApp.keyWindow.map { String(describing: Swift.type(of: $0)) } ?? "nil"))")
+                        }
                         done()
                     }
                 }
             }
-            // Full screen on WebKit: did ⌘T ask the page to leave it, and does WebKit? (diagnostic notes)
+            // Full screen: did ⌘T ask the page to leave it, and does the engine? (diagnostic notes)
             step { [self] done in
-                guard !skip, name == "fullscreen", let w = page(target) as? WebKitTab else { return done() }
-                func fs() -> String { "fullscreenState \(w.webView.fullscreenState.rawValue), exit requests \(w.elementFullscreenExitRequests), page view in "
-                    + (w.view.window === c.window ? "the browser window" : w.view.window.map { String(describing: Swift.type(of: $0)) } ?? "no window") }
-                note("\(tag) fullscreen: after typing: \(fs()); keys held and replayed per exit \(CommandBarView.heldKeyCounts)")
+                guard !skip, name == "fullscreen" else { return done() }
+                let t = page(target)
+                func fs() -> String {
+                    let w = t as? WebKitTab
+                    return (w.map { "fullscreenState \($0.webView.fullscreenState.rawValue), exit requests \($0.elementFullscreenExitRequests)" }
+                        ?? "Chromium full screen \(inFullscreen(t))") + ", page view in \(windowName(t?.view))"
+                }
+                note("\(tag) fullscreen: event discards so far \(DiscardLog.entries)")
+                note("\(tag) fullscreen: after typing: \(fs()); keys held and replayed per exit \(CommandBarView.heldKeyCounts), ⌘T exits \(CommandBarView.fullscreenExits) ms, "
+                     + "presentation closes \(WebKitTab.presentationCloses)")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { self.note("\(tag) fullscreen: +1 s: \(fs())"); done() }
             }
             // 4. Esc: the keyboard goes back where it was.
@@ -410,7 +493,7 @@ extension SnapshotRunner {
                     if self.c.commandBar != nil {
                         self.check(false, "\(label): Esc closed the bar")
                     } else if ["load", "tabswitch", "fullscreen"].contains(name) {
-                        if name == "fullscreen", engineName == "WebKit" {   // Chromium's full screen: a follow-up (REPORT)
+                        if name == "fullscreen" {
                             let v = page(target)?.view
                             self.check(v?.window === self.c.window && s["fs"] as? Bool != true,
                                        "\(label): the page left full screen, back in the browser window (in \(v?.window.map { String(describing: Swift.type(of: $0)) } ?? "no window"), fullscreenElement \(s["fs"] ?? "?"))")
@@ -462,6 +545,151 @@ extension SnapshotRunner {
                     + "var v=document.getElementById('player'); v && v.play().catch(()=>{}); true"
                 js(page(target), code) { DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { done() } }
             }
+        }
+        // MARK: fskeys exit cases: leave element full screen another way; timed, and never a half state.
+        for name in exitCases where picked.contains(name) {
+            let label = "\(tag) \(name)"
+            var skip = false
+            var entered = ""
+            var sent = 0.0
+            var leftMS: Double?
+            var trail: [String] = []
+            run { [self] in
+                if c.commandBar != nil { c.closeCommandBar() }
+                skip = !realInput
+                entered = ""; leftMS = nil; trail = []
+                if !NSApp.isActive { NSApp.activate(ignoringOtherApps: true) }
+                c.window.makeKeyAndOrderFront(nil)
+            }
+            // 1. Element full screen: a real click on the video and “f” (the page's own requestFullscreen); fsrace enters
+            // it in the same turn its tab is shown (the tab's presentation close is still running).
+            step { [self] done in
+                guard !skip else { return done() }
+                if name == "fsrace" {
+                    c.show(other, focus: true)
+                    return waitUntil({ self.c.shownTabID == other }, timeout: 3) { done() }
+                }
+                if c.shownTabID != video { c.show(video, focus: true) }
+                waitUntil({ page(video)?.isLoading == false && !inFullscreen(page(video)) }, timeout: 5) { done() }
+            }
+            wait(0.5)
+            step { [self] done in
+                guard !skip else { return done() }
+                func entering(_ how: String) {
+                    waitUntil({
+                        let t = page(video)
+                        return (t as? WebKitTab).map { $0.webView.fullscreenState == .inFullscreen } ?? inFullscreen(t)
+                    }, timeout: 4) {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            state(page(video)) { s in
+                                if let w = page(video) as? WebKitTab, name == "fsrace" { SystemPictureInPicture.setOpenForTesting(w, false) }
+                                entered = inFullscreen(page(video)) && s["fs"] as? Bool == true ? how : ""
+                                if entered.isEmpty { self.note("FAIL-ENV \(label): setup: no element full screen (\(how), fullscreenElement \(s["fs"] ?? "?"))"); skip = true }
+                                done()
+                            }
+                        }
+                    }
+                }
+                if name == "fsrace" { c.show(video, focus: true) }
+                // fsrace on WebKit: a presentation close is still waiting (here for a player window that is still
+                // closing) when the page enters full screen; the player window then goes. Before fskeys that close went
+                // on waiting for the full screen too, so every later leave of the tab joined it and never ran.
+                let racing = name == "fsrace" ? page(video) as? WebKitTab : nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + (name == "fsrace" ? 0.3 : 0)) {
+                    if let w = racing {
+                        SystemPictureInPicture.setOpenForTesting(w, true)
+                        w.closeMediaPresentations()
+                    }
+                    clickPage(page(video), "#player") { ok, out in
+                        guard ok else { self.note("FAIL-ENV \(label): setup click \(out.prefix(80))"); skip = true; return done() }
+                        key("f") { ok, out in
+                            guard ok else { self.note("FAIL-ENV \(label): setup key f \(out.prefix(80))"); skip = true; return done() }
+                            entering(racing == nil ? "real click and f" : "real click and f, a presentation close waiting")
+                        }
+                    }
+                }
+            }
+            // 2. Leave it, and time it: from the input to the page out of full screen, back in the browser window (a tab
+            // switch: out of WebKit's window), no full-screen window left.
+            step { [self] done in
+                guard !skip else { return done() }
+                let t = page(video)
+                let away = name == "fstab" || name == "fsrace"
+                func out() -> Bool {
+                    guard !inFullscreen(t), !fullscreenWindowShowing() else { return false }
+                    return away ? t?.view.window == nil || t?.view.window === c.window : t?.view.window === c.window
+                }
+                var last = ""
+                func watch() {
+                    let start = sent
+                    let timer = Timer(timeInterval: 0.01, repeats: true) { timer in
+                        MainActor.assumeIsolated {
+                            let now = "engine \(inFullscreen(t)) window \(windowName(t?.view)) fs-window \(fullscreenWindowShowing())"
+                            if now != last { trail.append(String(format: "+%.0f ms ", (CACurrentMediaTime() - start) * 1000) + now); last = now }
+                            if out() { leftMS = (CACurrentMediaTime() - start) * 1000; timer.invalidate(); return done() }
+                            if CACurrentMediaTime() - start > 5 { timer.invalidate(); done() }
+                        }
+                    }
+                    RunLoop.main.add(timer, forMode: .common)
+                }
+                switch name {
+                case "fsesc":
+                    sent = CACurrentMediaTime()
+                    key("esc") { ok, o in if !ok { self.check(false, "\(label): the driver delivered Esc (\(o.prefix(80)))") } }
+                    watch()
+                case "fsbutton":
+                    // The page's own button (a real click where it is in full screen); the time runs from the click.
+                    sent = CACurrentMediaTime()
+                    clickPage(t, "#leave") { ok, o in if !ok { self.check(false, "\(label): the real click on the page's Exit button (\(o.prefix(80)))") } }
+                    watch()
+                default:   // fstab, fsrace: a tab switch, as the sidebar or ⌃Tab does
+                    sent = CACurrentMediaTime()
+                    c.show(other, focus: true)
+                    watch()
+                }
+            }
+            // 3. Asserts: left in time, not a half state, the page's document agrees; then back to the video tab.
+            step { [self] done in
+                guard !skip else { return done() }
+                let t = page(video)
+                state(t) { s in
+                    let closes = WebKitTab.presentationCloses.suffix(3)
+                    self.note("\(label): Exit clicks seen by the page \(s["leaveClicks"] ?? "?")")
+                    self.note("\(label): entered \(entered); left in \(leftMS.map { String(format: "%.0f ms", $0) } ?? "never (5 s)"); "
+                              + "trail [\(trail.joined(separator: " | "))]; presentation closes \(Array(closes)); key window "
+                              + "\(NSApp.keyWindow.map { String(describing: Swift.type(of: $0)) } ?? "nil")"
+                              + ((t as? WebKitTab).map { ", fullscreenState \($0.webView.fullscreenState.rawValue), exit requests \($0.elementFullscreenExitRequests)" } ?? ""))
+                    self.check(leftMS.map { $0 <= exitBudget } == true,
+                               "\(label): left element full screen within \(Int(exitBudget)) ms (\(leftMS.map { String(format: "%.0f ms", $0) } ?? "never"))")
+                    self.check(!inFullscreen(t) && s["fs"] as? Bool != true && !fullscreenWindowShowing() && NSApp.keyWindow === self.c.window,
+                               "\(label): no half state: the engine and the page are out of full screen, no full-screen window, the browser window key "
+                               + "(engine \(inFullscreen(t)), fullscreenElement \(s["fs"] ?? "?"), full-screen window \(fullscreenWindowShowing()), page in \(windowName(t?.view)))")
+                    results[name] = leftMS.map { $0 <= exitBudget } == true ? "ok" : "REPRO left \(leftMS.map { String(format: "%.0f ms", $0) } ?? "never")"
+                    done()
+                }
+            }
+            step { [self] done in
+                guard !skip else { return done() }
+                // The page comes back to the browser window, playing, out of full screen (a later exit isn't stuck).
+                if c.shownTabID != video { c.show(video, focus: true) }
+                waitUntil({ page(video)?.view.window === self.c.window }, timeout: 3) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        let t = page(video)
+                        state(t) { s in
+                            self.check(t?.view.window === self.c.window && !inFullscreen(t) && s["fs"] as? Bool != true && s["paused"] as? Bool == false,
+                                       "\(label): back on its tab the video plays inline in the browser window (page in \(windowName(t?.view)), "
+                                       + "fullscreenElement \(s["fs"] ?? "?"), paused \(s["paused"] ?? "?"))")
+                            done()
+                        }
+                    }
+                }
+            }
+            run { [self] in
+                // Whatever happened, the next case starts windowed, with no stand-in player window.
+                if let w = page(video) as? WebKitTab { SystemPictureInPicture.setOpenForTesting(w, false) }
+                js(page(video), "(document.fullscreenElement ? document.exitFullscreen() : Promise.resolve()).catch(()=>{}); var v=document.getElementById('player'); v && v.play().catch(()=>{}); true") {}
+            }
+            wait(1.0)
         }
         // MARK: Tab (owner, 2026-11-24): Tab always switches Search ↔ Ask, the text kept; ⇧Tab too; the hint shows.
         if picked.contains("tab") {
@@ -523,7 +751,7 @@ extension SnapshotRunner {
         run { [self] in
             CommandBarView.pendingDelay = 0.001
             server?.stop()
-            let summary = all.filter { picked.contains($0) }.map { "\($0) \(results[$0] ?? "skipped")" }
+            let summary = (all + exitCases).filter { picked.contains($0) }.map { "\($0) \(results[$0] ?? "skipped")" }
             note("\(tag): summary \(summary.joined(separator: "; "))")
             // zero-guard: cases that never ran (no real input) are a failure, never a green.
             check(!results.isEmpty, "\(tag): at least one case ran with real keys (\(results.count)/\(picked.count))")

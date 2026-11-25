@@ -675,6 +675,8 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
     static var reclaims: [String] = []
     /// How many keys each full-screen exit held and replayed.
     static var heldKeyCounts: [Int] = []
+    /// fskeys: each ⌘T full-screen exit, ms from ⌘T to the page out of full screen in this window ("timeout" past 2 s).
+    static var fullscreenExits: [String] = []
     #else
     static let guardsKeyboard = true
     static let retargetsKeys = true
@@ -691,7 +693,13 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         let start = CACurrentMediaTime()
         func poll() {
             guard Self.holdingKeys === self else { return }
-            if ready() || isParked || CACurrentMediaTime() - start > 2.0 { return releaseKeys() }
+            let isReady = ready()
+            if isReady || isParked || CACurrentMediaTime() - start > 2.0 {
+                #if AIRC_TESTING
+                Self.fullscreenExits.append(isReady ? String(format: "%.0f", (CACurrentMediaTime() - start) * 1000) : isParked ? "closed" : "timeout")
+                #endif
+                return releaseKeys()
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.02, execute: poll)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.02, execute: poll)
@@ -3029,11 +3037,22 @@ extension WindowController: CommandBarHost {
         // back (`holdKeys`). The exit can't take the keyboard either (the bar refuses).
         if let page = engineTab(for: shownTabID ?? "") as? WebKitTab, page.webView.fullscreenState != .notInFullscreen {
             page.webView.evaluateJavaScript("document.fullscreenElement && document.exitFullscreen(); true", completionHandler: nil)
+            // fskeys (release072, 0.1.60 smokes: the first key lost 3 times in 4, nothing held): WebKit's state and the
+            // page's window come back before its full-screen window gives up the key; keys then went to that window or to
+            // no key window at all. Held until this window is key again too (2 s at most, then typed in anyway).
             bar.holdKeys { [weak self, weak page] in
                 guard let self, let page else { return true }
-                return page.webView.fullscreenState == .notInFullscreen && page.view.window === self.window
+                return page.webView.fullscreenState == .notInFullscreen && page.view.window === self.window && self.window.isKeyWindow
             }
         }
+        #if canImport(AircCore)
+        if CommandBarView.retargetsKeys, let page = engineTab(for: shownTabID ?? "") as? ChromiumTab, page.isElementFullscreen {
+            // fskeys: a Chromium page's element full screen fills its card in this window, under the bar; it leaves too
+            // (Chrome's ⌘T), and keys typed until the engine says so are held and typed into the bar the same way.
+            page.leaveElementFullscreen()
+            bar.holdKeys { [weak page] in page.map { !$0.isElementFullscreen } ?? true }
+        }
+        #endif
         Perf.time("cb.open.focus") { bar.focus(with: URLRules.isNewTab(current) ? "" : current) }
         pageView(for: currentSpaceID)?.refreshNewTabRow()
         // cbperf4: this opening's commands (and, a timer later, their prepared texts: `sessionCommands`) right after its

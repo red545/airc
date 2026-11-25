@@ -58,6 +58,8 @@ enum SystemPictureInPicture {
     static var events: [String] = []
     static var openCount: Int { open.allObjects.count }
     static var hasQueuedOpen: Bool { queued != nil }
+    /// `--script cbfocus` fsrace: a player window still closing for `page` (no window shown, no WebKit call).
+    static func setOpenForTesting(_ page: WebKitTab, _ now: Bool) { if now { open.add(page) } else { open.remove(page) } }
     #endif
 
     static func isOpen(_ page: WebKitTab) -> Bool { open.contains(page) }

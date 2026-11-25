@@ -511,17 +511,26 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
         systemPictureInPictureCloses > 0 || closingMediaPresentations || nativePictureInPictureReturnInFlight
     }
 
+    /// Closes the page's picture in picture, video presentation modes and element full screen, then calls back once
+    /// WebKit has ended them. fskeys: the wait covers only what was there when this close began (or what its script
+    /// asked to end). Showing a tab starts a close (activateTab); a page entering full screen right after used to keep
+    /// that close waiting for it forever, and every later leave of that tab (⌘T, a tab or Space switch) was a no-op,
+    /// the page left in WebKit's full-screen window. A full screen that doesn't end is asked again in the top document
+    /// (the media frame may be another frame), and after 4 s the close ends anyway: never a stuck tab.
     func closeMediaPresentations(completion: (() -> Void)? = nil) {
         SystemPictureInPicture.track(self)
         if let completion { mediaPresentationCloseCompletions.append(completion) }
         guard !closingMediaPresentations else { return }
         closingMediaPresentations = true
         let frame = webKitProfile.library.mediaFrame(of: self)
-        func waitForNativeExit() {
-            guard !SystemPictureInPicture.isOpen(self), webView.fullscreenState == .notInFullscreen else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: waitForNativeExit)
-                return
-            }
+        let start = CACurrentMediaTime()
+        var waitsForFullscreen = webView.fullscreenState != .notInFullscreen
+        var waiting = false, reasked = false
+        func end(_ how: String) {
+            #if AIRC_TESTING
+            Self.presentationCloses.append(String(format: "%@ %.0f ms (full screen %@)", how, (CACurrentMediaTime() - start) * 1000,
+                                                  waitsForFullscreen ? "waited" : "not waited"))
+            #endif
             // The delegate can announce inline from inside WebKit's exit
             // callback. Leave that stack before a caller detaches the view.
             DispatchQueue.main.async { [self] in
@@ -533,34 +542,91 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
                 SystemPictureInPicture.closeFinished()
             }
         }
+        func waitForNativeExit() {
+            if Self.unboundedPresentationClose {   // the before arm (test builds): wait for whatever is open, for ever
+                guard !SystemPictureInPicture.isOpen(self), webView.fullscreenState == .notInFullscreen else {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: waitForNativeExit)
+                    return
+                }
+                return end("closed")
+            }
+            let fullscreen = waitsForFullscreen && webView.fullscreenState != .notInFullscreen
+            // Picture in picture: as before, whatever is open (a player opening during the close is closed by its script).
+            let pip = SystemPictureInPicture.isOpen(self)
+            guard fullscreen || pip else { return end("closed") }
+            let elapsed = CACurrentMediaTime() - start
+            if elapsed > 4 { return end("gave up after") }
+            if fullscreen, !reasked, elapsed > 1 {
+                reasked = true
+                webView.evaluateJavaScript(Self.exitFullscreenScript, completionHandler: nil)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: waitForNativeExit)
+        }
+        func startWaiting() {
+            guard !waiting else { return }
+            waiting = true
+            waitForNativeExit()
+        }
         DispatchQueue.main.async { [self] in
-            if nativePictureInPictureReturnInFlight { return waitForNativeExit() }
+            if nativePictureInPictureReturnInFlight { return startWaiting() }
+            // The full screen may be the top document's while the media plays in a frame.
+            if waitsForFullscreen, !Self.unboundedPresentationClose, let frame, !frame.isMainFrame {
+                webView.evaluateJavaScript(Self.exitFullscreenScript, completionHandler: nil)
+            }
+            // A page script that never settles doesn't hold the close: it waits for WebKit itself after 1.5 s.
+            if !Self.unboundedPresentationClose {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { startWaiting() }
+            }
             // Use the page's single exit promise, shared with tray Hide/Close.
             // Calling closeAllMediaPresentations while this exit (or PIPAgent's
             // Return) is pending creates a second WebKit completion aggregator.
+            // Each step waits at most 1.5 s, so a promise that never settles can't keep the shared one forever.
             webView.callAsyncJavaScript("""
                 if (!window.__aircPresentationExit) {
+                    const bounded = p => Promise.race([Promise.resolve(p).catch(() => {}), new Promise(r => setTimeout(r, 1500))]);
                     window.__aircPresentationExit = (async () => {
                         const videos = Array.from(document.querySelectorAll('video'));
-                        await Promise.all(videos.map(v => Promise.resolve(v.__aircPiPEntry).catch(() => {})));
+                        await bounded(Promise.all(videos.map(v => Promise.resolve(v.__aircPiPEntry).catch(() => {}))));
                         if (document.pictureInPictureElement && document.exitPictureInPicture) {
-                            try { await document.exitPictureInPicture(); } catch (_) {}
+                            await bounded(document.exitPictureInPicture());
                         }
                         for (const v of videos) {
                             if (v.webkitPresentationMode && v.webkitPresentationMode !== 'inline')
                                 v.webkitSetPresentationMode('inline');
                         }
                         if (document.fullscreenElement && document.exitFullscreen) {
-                            try { await document.exitFullscreen(); } catch (_) {}
+                            const exit = document.exitFullscreen();
+                            await bounded(exit);
+                            return true;
                         } else if (document.webkitFullscreenElement && document.webkitExitFullscreen) {
                             document.webkitExitFullscreen();
+                            return true;
                         }
+                        return false;
                     })().finally(() => { delete window.__aircPresentationExit; });
                 }
-                await window.__aircPresentationExit;
-                """, arguments: [:], in: frame, in: .page) { _ in waitForNativeExit() }
+                return await window.__aircPresentationExit;
+                """, arguments: [:], in: frame, in: .page) { result in
+                if case .success(let asked) = result, (asked as? Bool) == true { waitsForFullscreen = true }
+                startWaiting()
+            }
         }
     }
+
+    /// The top document's own exit, as Esc or the page's button: what a stuck presentation exit asks again.
+    static let exitFullscreenScript = """
+        (document.fullscreenElement && document.exitFullscreen ? document.exitFullscreen().catch(() => {}) :
+         document.webkitFullscreenElement && document.webkitExitFullscreen && document.webkitExitFullscreen()), true
+        """
+
+    #if AIRC_TESTING
+    /// Each presentation close: how it ended ("closed", "gave up after") and how long it took (`--script cbfocus`).
+    static var presentationCloses: [String] = []
+    /// `AIRC_FSKEYS_BEFORE=1`: the close waits for any open presentation without a bound, as before fskeys.
+    static let unboundedPresentationClose = ProcessInfo.processInfo.environment["AIRC_FSKEYS_BEFORE"] == "1"
+    #else
+    static let unboundedPresentationClose = false
+    #endif
 
     /// End only an element presentation, never the browser's native fullscreen or a standalone PiP player.
     /// Use WebKit's presentation API so its temporary window and placeholder are cleaned up too.
@@ -581,7 +647,18 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
         }
         guard webView.fullscreenState != .notInFullscreen else { return finished() }
         closingElementFullscreen = true
-        closeMediaPresentations(completion: finished)
+        // fskeys: a close already running (a tab just shown) may not be waiting for this full screen: once it ends with
+        // the page still in full screen, a close of this leave's own asks for it (within 4 s of the request).
+        let start = CACurrentMediaTime()
+        func attempt() {
+            closeMediaPresentations { [self] in
+                if !Self.unboundedPresentationClose, webView.fullscreenState != .notInFullscreen, CACurrentMediaTime() - start < 4 {
+                    return attempt()
+                }
+                finished()
+            }
+        }
+        attempt()
     }
 
     #if AIRC_TESTING
