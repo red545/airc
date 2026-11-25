@@ -1,15 +1,26 @@
-# Airc 0.1.58 public beta
+# Airc 0.1.59 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update lets Airc Agent keep going until a task is done. It includes everything from 0.1.57. The release manifest
-records the exact build, source and checksums.
+This update makes every sign-in button respond, shows each agent task once in the sidebar and brings fixes. It
+includes everything from 0.1.58. The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.57
+## New since 0.1.58
+
+- **Sign-in buttons always respond.** A first click on a page in Little Airc while Airc is in the background now reaches the
+  page, instead of only bringing Airc forward. Where Airc blocks a pop-up and its address-field icon can't be seen (Little
+  Airc, private windows, Peek, a hidden sidebar), a "Pop-up blocked" note with an Open button says so. Sign In in
+  Settings › Profiles and in onboarding now always opens a window or says what went wrong.
+- **Each agent task shows once in the sidebar.** A task you give Airc Agent has one row, instead of a second row
+  for the page it works on; agents in other apps get one row per session.
+- **Scrolling the sidebar no longer leaves tabs highlighted.** When the list scrolls under a resting pointer, only
+  the tab under the pointer shows its highlight and close button.
+
+## Included from 0.1.58
 
 - **Airc Agent no longer stops after 25 steps; it keeps going until the task is done or you stop it.** Approvals, Stop and
   Take over work as before. If you want a limit, choose one under **Stop after** in Settings › AI › Agent (25, 50, 100
@@ -840,3 +851,5 @@ Source: `db46f9018d915a7363668b50ffb591c3888dc4b7`. Build: `202611240050`. Chann
 Source: `b02f84a1751243e3fa95f4ace52bd8671ed99f09`. Build: `202611240914`. Channel: stable. Engine: official.
 
 Source: `75f5c922c3e40a27bf1c8eb3559f3bbcb6f2e3a5`. Build: `202611241608`. Channel: stable. Engine: official.
+
+Source: `ae94cd3d3052796fa0674f76d09dc7d00ad42081`. Build: `202611242213`. Channel: stable. Engine: official.
