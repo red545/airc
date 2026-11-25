@@ -26,6 +26,8 @@ extension AgentPane2Check {
                         task: "Pay at the fixture shop")
                 wait({ self.run.approval != nil }, 20) { [self] in
                     guard run.approval != nil else { check(false, "agentfix return: the agent asks before paying"); return stopRun(done) }
+                    // agentmainview: the task's page took the main view; the person goes back to their form tab.
+                    c.show(tabID)
                     after(0.6) { [self] in
                         away(.hidden, home: c.currentSpaceID, other: c.currentSpaceID) { [self] _ in
                             enter("notification") { [self] how in

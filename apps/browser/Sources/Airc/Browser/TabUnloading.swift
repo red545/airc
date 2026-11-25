@@ -53,6 +53,7 @@ extension WindowController {
 
     /// A pinned tab or Favorite showing a listed site, while the setting is on: never on the unload timer.
     func keepsLoaded(_ tabID: String) -> Bool {
+        if AgentMainView.shared.isHosted(tabID) { return true }   // the Airc Agent's page (agentmainview)
         guard keepsChatSitesLoaded, let tab = store.tab(tabID), !tab.isToday else { return false }
         return KeepLoadedSites.keepsLoaded(engineTab(for: tabID)?.url ?? URL(string: tab.url), extra: extraKeptSites)
     }
@@ -137,6 +138,7 @@ extension WindowController {
     }
 
     func pageVisibilityChanged(hidden: String?, shown: String?) {
+        AgentMainView.shared.visibilityChanged(in: self, hidden: hidden, shown: shown)
         linkPreviewPageHidden(hidden)   // a link preview card over a page going out of sight goes with it
         applyKeepLoadedPolicy()
         if let shown { hiddenSince[shown] = nil }

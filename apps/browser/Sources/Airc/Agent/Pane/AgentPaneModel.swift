@@ -176,6 +176,8 @@ enum AgentPaneItem: Identifiable, Equatable {
 
     /// The prompt as the person wrote it (the attached page's line goes to the model, not into the bubble).
     static let pageLine = "\n\nThe page I'm looking at: "
+    /// agentmainview: the task works in the person's own tab.
+    static let ownPageNote = ". You're working in that tab itself (it's your current tab, already open): read it first; don't open its address again."
     static func promptText(_ t: String) -> String {
         guard let r = t.range(of: pageLine) else { return t }
         return String(t[..<r.lowerBound])
@@ -526,12 +528,21 @@ final class AgentPaneModel: ObservableObject {
         guard connected, run.canSend, let p = pane?.profile() else { text = t; return }
         lastPrompt = t
         var prompt = t
+        // agentmainview: a task about the page the person is on works in that very tab (its glow shows it); any other
+        // task gets a new tab of its own, selected in the main view.
+        var own: String?
         if let chip = page, run.steps.isEmpty {
-            // The page the person looks at: its title and address (the agent opens its own copy).
+            // The page the person looks at: its title and address.
             prompt += AgentPaneItem.pageLine + "“\(chip.title)” — \(chip.url.absoluteString)"
+            if AgentMainView.isAboutPage(t), controller?.engineTab(for: chip.tabID) != nil {
+                own = chip.tabID
+                prompt += AgentPaneItem.ownPageNote
+            }
         }
+        if takenOver != nil { AgentMainView.shared.endTakeOver() }
         takenOver = nil
         if let c = controller {
+            if !run.state.isActive { AgentMainView.shared.willAsk(in: c, page: own) }
             AgentTaskRecorder.shared.willAsk(spaceID: c.currentSpaceID, profileID: p.id)
             AgentAttention.taskAsked(in: c)
         }
@@ -757,12 +768,21 @@ final class AgentPaneModel: ObservableObject {
     }
 
     func openWatch() {
+        // agentmainview: the run's page is a tab of the person's window: back into the main view.
+        if AgentMainView.shared.bringBack() { return }
         guard let id = liveRowID else { return }
         controller?.sidebar.agents.openWatch(id)
     }
 
     /// Take over: the agent's page becomes this window's tab; the task waits for Hand back.
     func takeOver() {
+        if let c = controller, let h = AgentMainView.shared.takeOver(in: c) {
+            // The page is already the person's tab in the main view: it's theirs at once, where it is.
+            takenOver = TakenOver(title: h.title.isEmpty ? (h.url?.host ?? "the page") : h.title, url: h.url, tabID: h.tabID,
+                                  agentTabID: h.agentTabID)
+            if run.state.isActive { run.stop("You took over the page.") }
+            return
+        }
         guard let id = liveRowID, let c = controller, let row = AgentActivity.shared.model.row(id) else { return }
         let url = row.url
         let title = row.title.isEmpty ? (url?.host ?? "the page") : row.title
@@ -786,7 +806,8 @@ final class AgentPaneModel: ObservableObject {
             let agentTab = t.agentTabID
             run.handBack = { [weak self, weak c] w in
                 guard let c else { return }
-                if let why = AgentCenter.shared.handBack(tab: tabID, from: c, into: w, as: agentTab) {
+                // agentmainview: the tab stays where it is (the main view); it's the agent's again.
+                if let why = AgentMainView.shared.handBack(tabID, from: c, into: w, as: agentTab) {
                     c.showToast(why)
                     self?.handBackFailed = why
                 }
@@ -808,6 +829,7 @@ final class AgentPaneModel: ObservableObject {
     private(set) var handBackFailed: String?
 
     func stopTask() {
+        if takenOver != nil { AgentMainView.shared.endTakeOver() }
         takenOver = nil
         run.stop()
     }

@@ -302,6 +302,9 @@ final class AgentActivity {
         let named = row.site != nil && !row.title.isEmpty && !row.title.contains("/") && row.title != row.site
         guard named || force else { return }
         bannerPending.remove(ownerKey)
+        // agentmainview: the Airc Agent's own page is in the main view with its bar ("Airc Agent is using this tab"):
+        // no toast over it.
+        if row.clientKey == AgentBridge.clientKey { return }
         let site = row.site != nil ? AgentRedaction.siteName(title: row.title, url: row.url) : nil
         let text = site.map { "\(row.client) is using Airc · \($0)" } ?? "\(row.client) is using Airc"
         banners.append(text)

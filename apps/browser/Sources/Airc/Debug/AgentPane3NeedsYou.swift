@@ -363,6 +363,21 @@ extension AgentPane2Check {
 
     /// The page landing, checked: Watch on its row in front, Take over the default.
     func landedOnPage(_ it: AgentAttention.Item, _ label: String, _ done: @escaping () -> Void) {
+        // agentmainview: the Airc Agent's own page is a tab of the window: it lands in the main view, Return takes over.
+        let row = it.rowID.flatMap { AgentActivity.shared.model.row($0) }
+        let hosted = row.flatMap { r in AgentCenter.shared.windows[r.window]?.tab(r.tab) }.flatMap { AgentMainView.shared.entry($0) }
+        if let hosted {
+            wait({ NSApp.isActive && self.c.window.isKeyWindow && self.c.shownTabID == hosted.tabID
+                   && AgentMainView.shared.chromeView(self.c)?.landed == true && self.c.window.firstResponder === AgentMainView.shared.chromeView(self.c) }, 4) { [self] in
+                let v = AgentMainView.shared.chromeView(c)
+                check(NSApp.isActive && c.window.isKeyWindow && c.window.isOnActiveSpace, "\(label): Airc in front, the window key on the active Space")
+                check(c.shownTabID == hosted.tabID, "\(label): … the agent's page itself in front (the main view)")
+                check(v.map { c.window.firstResponder === $0 } == true && v?.landed == true, "\(label): … Take over the default (Return), the keys on it")
+                check(AgentAttention.lastLanding?.item.id == it.id, "\(label): … through AgentAttention (\(AgentAttention.lastLanding?.from ?? "none"))")
+                done()
+            }
+            return
+        }
         wait({ NSApp.isActive && self.c.window.isKeyWindow && self.c.sidebar.agents.watch?.rowID == it.rowID
                && self.c.sidebar.agents.watch?.isLanded == true && self.c.window.firstResponder === self.c.sidebar.agents.watch }, 4) { [self] in
             let wv = c.sidebar.agents.watch

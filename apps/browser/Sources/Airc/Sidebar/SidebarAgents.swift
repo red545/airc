@@ -128,6 +128,11 @@ final class SidebarAgentsView: NSView {
             // agentux3: the running task waits for the person: straight to it (its page's sign-in, else the OK).
             if let row = model.tasks.first(where: { $0.id == id })?.liveRowID, AgentAttention.go(row: row, from: "taskRow") { return }
             if let it = AgentAttention.items().first(where: { $0.kind == .approval }) { return AgentAttention.go(it, from: "taskRow") }
+            // agentmainview: a running task's page is a tab of this window: back into the main view, the pane beside it.
+            if AgentRunCenter.shared.state.isActive, AgentMainView.shared.bringBack() {
+                if AgentUI.usesPane { AgentPaneController.show(c) }
+                return
+            }
         }
         AgentTasksPage.openTask(id, in: c)
     }

@@ -32,14 +32,33 @@ final class AgentHostWindow: NSWindow {
 }
 
 /// One agent window: one profile's pages (tabs), shown one at a time at the window's size.
+///
+/// agentmainview (owner decision 2026-11-23): the Airc Agent's own pages are *hosted*: each is a real tab in the person's
+/// window (AgentMainView), shown in the main view while it's selected there, and parked here (off screen, kept live, at
+/// the same viewport size) while the person looks at another tab. A hosted tab is in `tabs` all the time, so the tools
+/// find it either way; `parked` says where its page is now. Outside apps' pages are never hosted.
 final class AgentWindow: NSObject, EngineWindowDelegate, EngineTabDelegate {
-    struct Tab { let id: Int; let tab: EngineTab }
+    struct Tab {
+        let id: Int
+        let tab: EngineTab
+        /// A page that belongs to a person's tab (AgentMainView) rather than to this window.
+        var hosted = false
+    }
     private static var nextID = 1
     let id: Int
     let profileID: String
     let ownerKey: String
     let client: String
-    let size: CGSize
+    /// The viewport the agent sees (screenshots, coordinates): a hosted page's real size in the person's window while
+    /// it's shown there, else this window's.
+    var size: CGSize {
+        if let t = tabs.first(where: { $0.id == activeTabID }), t.hosted, !isParked(t.tab) {
+            let b = t.tab.view.bounds.size
+            if b.width >= 1, b.height >= 1 { return b }
+        }
+        return baseSize
+    }
+    private(set) var baseSize: CGSize
     let window: AgentHostWindow
     let engineWindow: EngineWindow
     let profile: EngineProfile
@@ -54,6 +73,8 @@ final class AgentWindow: NSObject, EngineWindowDelegate, EngineTabDelegate {
     /// The app behind the connection, for the Agents folder ("Claude · Gmail") and Stop.
     var clientName: String?
     var clientKey: String?
+    /// The Airc Agent's run window: its pages are hosted in the person's window (AgentMainView).
+    var hostsInMainView = false
     /// Tabs opened, closed, or a page's title or address changed (the Agents folder's rows follow).
     var onTabsChanged: (() -> Void)?
     private var screensObserver: NSObjectProtocol?
@@ -76,7 +97,7 @@ final class AgentWindow: NSObject, EngineWindowDelegate, EngineTabDelegate {
         self.profileID = profileID
         self.ownerKey = ownerKey
         self.client = client
-        self.size = size
+        self.baseSize = size
         self.driver = driver
         self.keepsVisible = keepsVisible
         let frame = AgentWindow.offscreenFrame(size)
@@ -115,7 +136,7 @@ final class AgentWindow: NSObject, EngineWindowDelegate, EngineTabDelegate {
         screensObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                                  object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
-            self.window.setFrameOrigin(AgentWindow.offscreenFrame(self.size).origin)
+            self.window.setFrameOrigin(AgentWindow.offscreenFrame(self.baseSize).origin)
         }
     }
 
@@ -126,7 +147,10 @@ final class AgentWindow: NSObject, EngineWindowDelegate, EngineTabDelegate {
     func openTab(_ url: URL?, show: Bool = true, completion: ((Int) -> Void)? = nil) -> Int {
         engineWindow.activeProfile = profile
         let tab = engineWindow.openTab(url: url, profile: profile, foreground: false)
-        return adopt(tab, show: show, completion: completion)
+        let id = adopt(tab, show: show, completion: completion)
+        // open_tab in a hosted run: the new page is the person's tab too (the first one is placed by AgentMainView).
+        if hostsInMainView { AgentMainView.shared.agentOpened(self, id, foreground: show) }
+        return id
     }
 
     private static var nextTabID = 1
@@ -151,6 +175,9 @@ final class AgentWindow: NSObject, EngineWindowDelegate, EngineTabDelegate {
     func select(_ tabID: Int) {
         guard let t = tabs.first(where: { $0.id == tabID }) else { return }
         activeTabID = tabID
+        // A hosted page outside this window: the person's window shows it (if it showed the agent's last one).
+        if t.hosted, !isParked(t.tab) { return AgentMainView.shared.agentSelected(self, t.tab) }
+        defer { if t.hosted { AgentMainView.shared.agentSelected(self, t.tab) } }
         engineWindow.activateTab(t.tab)
         t.tab.view.frame = engineWindow.hostView.bounds
         t.tab.focus()
@@ -158,6 +185,7 @@ final class AgentWindow: NSObject, EngineWindowDelegate, EngineTabDelegate {
 
     func closeTab(_ tabID: Int) {
         guard let i = tabs.firstIndex(where: { $0.id == tabID }) else { return }
+        if tabs[i].hosted { return unhost(tabID, closing: true) }
         let t = tabs.remove(at: i)
         driver.release(t.tab)
         // No "Leave site?" for an agent's page: nobody would see the question.
@@ -196,6 +224,8 @@ final class AgentWindow: NSObject, EngineWindowDelegate, EngineTabDelegate {
     }
 
     func close() {
+        // Hosted pages are the person's tabs: they stay (the run's end leaves them as ordinary tabs).
+        for t in tabs where t.hosted { unhost(t.id, closing: false) }
         for t in tabs { closeTab(t.id) }
         // Let the pages' closes go out before the window does; this object lives until then (it holds the engine's
         // window and its tabs).
@@ -209,15 +239,120 @@ final class AgentWindow: NSObject, EngineWindowDelegate, EngineTabDelegate {
         }
     }
 
+    // MARK: Hosted pages (agentmainview)
+
+    /// A page in a person's window becomes one of this window's tabs (shown to the agent: the active one). Its delegate
+    /// stays the person's window; AgentMainView forwards what this window needs.
+    @discardableResult
+    func host(_ page: EngineTab, as wanted: Int? = nil) -> Int {
+        let id: Int
+        if let wanted, wanted < AgentWindow.nextTabID, !tabs.contains(where: { $0.id == wanted }) { id = wanted } else {
+            id = AgentWindow.nextTabID
+            AgentWindow.nextTabID += 1
+        }
+        tabs.append(Tab(id: id, tab: page, hosted: true))
+        outside.insert(ObjectIdentifier(page))
+        activeTabID = id
+        if let w = page.view.window { driver.prepare(page, in: w, visible: true) { _ in } }
+        onTabsChanged?()
+        return id
+    }
+
+    func markHosted(_ id: Int) { if let i = tabs.firstIndex(where: { $0.id == id }) { tabs[i].hosted = true } }
+    func unmarkHosted(_ id: Int) { if let i = tabs.firstIndex(where: { $0.id == id }) { tabs[i].hosted = false } }
+
+    func isHosted(_ page: EngineTab) -> Bool { tabs.contains { $0.tab === page && $0.hosted } }
+    func hostedID(_ page: EngineTab) -> Int? { tabs.first { $0.tab === page }?.id }
+
+    /// Hosted pages whose page is in a person's window now (the others are here: parked).
+    private var outside: Set<ObjectIdentifier> = []
+
+    /// Whether a page is here now (parked), not in a person's window.
+    func isParked(_ page: EngineTab) -> Bool { !outside.contains(ObjectIdentifier(page)) }
+
+    /// The person looks at another tab: the page comes here at the size it had there, so the agent's coordinates stay
+    /// right and the pane's card shows it live (kept visible, as Watch's pages are).
+    func park(_ page: EngineTab, size: CGSize) -> Bool {
+        guard isHosted(page), !page.isClosed else { return false }
+        if size.width >= 320, size.height >= 240, size != baseSize {
+            baseSize = size
+            var f = window.frame
+            f.size = size
+            f.origin = AgentWindow.offscreenFrame(size).origin
+            window.setFrame(f, display: false)
+        }
+        do { try engineWindow.moveTab(page, profile: profile, to: engineWindow.hostView) } catch { return false }
+        outside.remove(ObjectIdentifier(page))
+        page.delegate = self
+        engineWindow.activeProfile = profile
+        engineWindow.activateTab(page)
+        page.view.frame = engineWindow.hostView.bounds
+        driver.keepLive(page)
+        rearmAfterMove(page)
+        #if !canImport(AircCore)
+        // WebKit: its occlusion detection goes off again for this window (the web view moved; it would throttle).
+        driver.prepare(page, in: window, visible: true) { _ in }
+        #else
+        if !(driver is ChromiumAgentDriver) { driver.prepare(page, in: window, visible: true) { _ in } }
+        #endif
+        return true
+    }
+
+    /// The page leaves (the person's window took it back: it's still hosted).
+    func unparked(_ page: EngineTab) {
+        outside.insert(ObjectIdentifier(page))
+        if page.delegate === self { page.delegate = nil }
+        driver.keepLive(page)
+        rearmAfterMove(page)
+    }
+
+    /// A page that changed windows gets a fresh kept-visible session once the engine has moved it (Chromium: its old
+    /// window hid it on the way out).
+    private func rearmAfterMove(_ page: EngineTab) {
+        #if canImport(AircCore)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak page] in
+            guard let self, let page, !page.isClosed else { return }
+            (self.driver as? ChromiumAgentDriver)?.rearm(page)
+        }
+        #endif
+    }
+
+    /// A hosted page stops being the agent's: the run ended (the person keeps the tab), the agent closed it, or the
+    /// person closed it. Parked pages go back to their person's window first (AgentMainView).
+    func unhost(_ tabID: Int, closing: Bool) {
+        guard let i = tabs.firstIndex(where: { $0.id == tabID }), tabs[i].hosted else { return }
+        let t = tabs.remove(at: i)
+        driver.release(t.tab)
+        driver.handBack(t.tab)
+        if t.tab.delegate === self { t.tab.delegate = nil }
+        if activeTabID == tabID { activeTabID = tabs.last?.id }
+        AgentMainView.shared.unhosted(self, t.tab, closing: closing)
+        outside.remove(ObjectIdentifier(t.tab))
+        onTabsChanged?()
+    }
+
+    /// The person's window reports a hosted page's address change (its delegate is theirs).
+    func hostedURLChanged(_ page: EngineTab) {
+        #if canImport(AircCore)
+        if keepsVisible { (driver as? ChromiumAgentDriver)?.rearm(page) }
+        #endif
+        onTabsChanged?()
+    }
+    func hostedTitleChanged(_ page: EngineTab) { onTabsChanged?() }
+
     // MARK: EngineWindowDelegate
 
     func engineWindow(_ window: EngineWindow, didInsertTab tab: EngineTab, opener: EngineTab?, disposition: TabDisposition) {
-        // A page's new tab or popup opens here, in the same profile, and a foreground one is shown.
-        adopt(tab, show: disposition != .background)
+        // A page's new tab or popup opens here, in the same profile, and a foreground one is shown. A hosted run's
+        // pages are the person's tabs: AgentMainView makes it one too.
+        let id = adopt(tab, show: disposition != .background)
+        if let opener, isHosted(opener) { AgentMainView.shared.agentOpened(self, id, foreground: disposition != .background) }
     }
 
     func engineWindow(_ window: EngineWindow, tabRequestedClose tab: EngineTab) {
-        if let t = tabs.first(where: { $0.tab === tab }) { closeTab(t.id) }
+        guard let t = tabs.first(where: { $0.tab === tab }) else { return }
+        if t.hosted { return AgentMainView.shared.pageClosedItself(self, tab) }
+        closeTab(t.id)
     }
 
     func engineWindow(_ window: EngineWindow, tab: EngineTab, didChangeFullscreen fullscreen: Bool) {}
@@ -226,8 +361,12 @@ final class AgentWindow: NSObject, EngineWindowDelegate, EngineTabDelegate {
 
     // MARK: EngineTabDelegate (the tools read the tab's state when asked; the Agents folder follows titles and addresses)
 
-    func tabDidChangeTitle(_ tab: EngineTab) { onTabsChanged?() }
+    func tabDidChangeTitle(_ tab: EngineTab) {
+        AgentMainView.shared.parkedTitleChanged(self, tab)
+        onTabsChanged?()
+    }
     func tabDidChangeURL(_ tab: EngineTab) {
+        AgentMainView.shared.parkedTitleChanged(self, tab)
         #if canImport(AircCore)
         if keepsVisible { (driver as? ChromiumAgentDriver)?.rearm(tab) }
         #endif

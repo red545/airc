@@ -394,10 +394,11 @@ final class AgentPaneCheck {
                     key("return") { ok in k(ok ? "real key" : "posted") }
                 }
                 send { [self] sendHow in
-                    var sawSteps = false, sawLive = false, liveMode = "none", sawProgress = false
+                    var sawSteps = false, sawLive = false, liveMode = "none", sawProgress = false, sawMain = false
                     runner.waitUntil({
                         if self.point("agentpane.steps") != nil { sawSteps = true }
                         if self.point("agentpane.live") != nil { sawLive = true }
+                        if AgentMainView.shared.runShown(in: self.c) { sawMain = true }
                         if let m = AgentPaneLiveView.current?.mode, m != "none" { liveMode = m }
                         if self.point("agentpane.progress") != nil { sawProgress = true }
                         return !self.run.state.isActive && self.fake.requests(for: "pane") > 0
@@ -406,8 +407,9 @@ final class AgentPaneCheck {
                         check(firstUserText(fake.bodies("pane").first).contains("What is the capital of Fixturia?"), "the prompt reached the model")
                         check(firstUserText(fake.bodies("pane").first).contains("/home.html"), "the attached page's address went with it")
                         check(sawSteps, "while running, the steps show as one-line rows")
-                        check(sawLive, "while running, the live page card is on top")
-                        check(liveMode == "live" || liveMode == "copies", "… with the agent's page in it (\(liveMode))")
+                        // agentmainview: the agent's page is the window's selected tab; the pane's card only shows while away.
+                        check(sawMain, "while running, the agent's page is in the main view")
+                        check(!sawLive, "… so the pane shows no small copy of it")
                         check(sawProgress, "the composer shows the elapsed time and steps while running")
                         let items = model?.items ?? []
                         let summary = items.compactMap { if case .summary(_, let s, let rows) = $0 { return (s, rows.count) } else { return nil } }.first
@@ -434,8 +436,12 @@ final class AgentPaneCheck {
     // MARK: The agent's page moves in the pane while it works (owner feedback: no live render)
 
     func caseLiveMotion(_ done: @escaping () -> Void) {
+        let home = c.shownTabID
         start("motion", [.tool("navigate", ["url": "\(base)/moving.html"]), .tool("wait", ["duration": 30]), .text("Never reached.")])
-        runner.waitUntil({ self.events.contains("tool wait") && AgentPaneLiveView.current?.window != nil && AgentPaneLiveView.current?.mode != "none" }, timeout: 20) { [self] in
+        // agentmainview: the card shows the agent's page while the person looks at another tab.
+        runner.waitUntil({ self.events.contains("tool wait") }, timeout: 20) { [self] in
+        if let home { c.show(home) }
+        runner.waitUntil({ AgentPaneLiveView.current?.window != nil && AgentPaneLiveView.current?.mode != "none" }, timeout: 20) { [self] in
             after(1.2) { [self] in
                 let v = AgentPaneLiveView.current
                 let mode = v?.mode ?? "none"
@@ -460,6 +466,7 @@ final class AgentPaneCheck {
                     }
                 }
             }
+        }
         }
     }
 
@@ -723,12 +730,16 @@ final class AgentPaneCheck {
         // that turn still streams, in posted and real input alike. A posted press used to hit that window only
         // sometimes (handback, 2026-11-23); a stop while a finished turn's tool runs is caseStop's "after-stop".
         start("takeover", [.tool("navigate", ["url": "\(base)/article.html"]), .toolThenHold("wait", ["duration": 30], hold: 1.5), .text("Never reached.")])
-        runner.waitUntil({ self.events.contains("tool wait") && self.point("agentpane.takeover") != nil }, timeout: 20) { [self] in
+        // agentmainview: the page is in the main view, so Take over is the bar's over the page (the pane's card only
+        // shows while the person looks elsewhere).
+        let bar = { AgentMainView.shared.chromeView(self.c) }
+        runner.waitUntil({ self.events.contains("tool wait") && (self.point("agentpane.takeover") != nil || bar().map { self.point("agentmain.takeover", in: $0) != nil } == true) }, timeout: 20) { [self] in
             note("agentpane \(engine): take over: live row \(model?.liveRowID ?? "none"), run window \(run.runWindowID.map(String.init) ?? "none")")
-            let tabsBefore = Set(c.store.state.tabs.keys)
-            press("agentpane.takeover", "Take over", fallback: { self.model?.takeOver() }) { [self] how in
+            let inBar = point("agentpane.takeover") == nil
+            press(inBar ? "agentmain.takeover" : "agentpane.takeover", inBar ? "Take over (bar)" : "Take over", in: inBar ? bar() : nil, fallback: { self.model?.takeOver() }) { [self] how in
                 runner.waitUntil({ self.model?.takenOver != nil && !self.run.state.isActive }, timeout: 8) { [self] in
-                    let newTab = c.store.state.tabs.values.first { !tabsBefore.contains($0.id) && $0.url.hasSuffix("/article.html") }
+                    // agentmainview: the agent's page was already this window's tab (the main view); it stays shown.
+                    let newTab = c.store.tab(model?.takenOver?.tabID).flatMap { $0.url.hasSuffix("/article.html") ? $0 : nil }
                     check(model?.takenOver != nil && point("agentpane.takenover") != nil, "Take over: the pane says “You have the page” [\(how) click]")
                     check(newTab != nil && c.shownTabID == newTab?.id, "… the agent's page is this window's tab now, shown")
                     check(!run.state.isActive, "… and the agent is paused")

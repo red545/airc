@@ -18,11 +18,21 @@ side away from the sidebar (drag its inner edge to make it wider, double-click t
 new task). Type what you want done, like "find the cheapest train to Graz on Friday and fill in the booking form", and
 press Return. Or type it in the Command Bar and pick **Ask Airc to…**. The page you're on goes with the task as a chip
 (✕ removes it).
-The agent works in an agent window of the profile your current Space uses, so your signed-in sites work. While it works,
-the pane shows its page live at the top (click it to Watch, or **Take over** to use the page yourself), and each step as
-one line with the site's icon. **Take over** moves the agent's page into your window as a normal tab and pauses the task;
-**Hand back** moves that same tab back to the agent, as you left it (what you typed, where you scrolled, its history), and
-the agent goes on from there. When it's done, the steps fold into "Done in … · N steps", and
+The agent works right in your window, in the profile your current Space uses, so your signed-in sites work. When the task
+starts, its page opens as a new tab in Today and becomes the selected tab, full size, with a soft glow in your Space's
+colour around it and a slim bar on top: "Airc Agent is using this tab · **Take over** · **Stop**". A small pulse shows
+where the agent clicks. If the task is about the page you're on ("summarise this page", "fill in this form"), the agent
+works in that tab itself. The pane beside it shows each step as one line with the site's icon, and asks for your OK.
+
+- **While it works,** your clicks and typing on that page are paused ("Take over to use this page"); scrolling to look is
+  fine (the agent looks again before its next click). **Take over** gives you the tab at once and pauses the task; **Hand
+  back** lets the agent go on from the page as you left it (what you typed, where you scrolled, its history). **Stop** ends
+  the task; its tabs stay as your ordinary tabs.
+- **Switch tabs whenever you like.** The agent keeps going in its tab, and the pane shows a small live picture of it until
+  you come back; click the picture, the tab's row in Today or the task's row in the Agents folder to bring it back. When
+  the agent opens a second tab, that one is in Today too; only the tab you pick is in the main view.
+
+When it's done, the steps fold into "Done in … · N steps", and
 the sites it used are chips under the answer. The task also shows in the sidebar's **Agents** folder; when it waits for
 your OK and the pane is closed, its row says so and asks there. **◷** in the pane lists all tasks (`airc://agents`).
 

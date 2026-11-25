@@ -54,16 +54,27 @@ final class AgentBridge {
     }
 
     /// Opens the run's agent window (the MCP `open_window`, same code), once.
+    ///
+    /// agentmainview: the window's page is the person's tab, selected in the main view of the window they asked in
+    /// (AgentMainView), at that view's real size; a follow-up brings the run's page back there.
     func openWindow(_ done: @escaping (String?) -> Void) {
-        if window != nil { applyHandBack(); return done(nil) }
+        if let w = window {
+            if pendingHandBack != nil { applyHandBack() } else { AgentMainView.shared.runResumed(w) }
+            return done(nil)
+        }
         center.ensureDriver()
         center.admitPanel(session)
         guard let tool = center.tools.first(where: { $0.name == "open_window" }) else { return done("Airc isn't ready.") }
-        tool.run([:], session) { [weak self] result in
+        var args: [String: Any] = [:]
+        if let size = AgentMainView.shared.nextViewport {
+            args["width"] = Int(size.width)
+            args["height"] = Int(size.height)
+        }
+        tool.run(args, session) { [weak self] result in
             guard let self else { return }
             if result.isError { return done(Self.text(result)) }
             self.windowID = (result.structured?["window"] as? Int) ?? self.session.currentWindow
-            self.applyHandBack()
+            if self.pendingHandBack != nil { self.applyHandBack() } else if let w = self.window { AgentMainView.shared.windowOpened(w) }
             done(self.windowID == nil ? "No agent window." : nil)
         }
     }
@@ -82,12 +93,19 @@ final class AgentBridge {
         }
         var a = args
         a["window"] = windowID   // the run's one window, whatever the model sent
+        // agentmainview: the person scrolled the page (or its size changed) since the agent last looked: it looks again
+        // before acting at a coordinate.
+        if let why = AgentMainView.shared.staleLook(window, tool: name, args: a) { return done(.error(why)) }
+        let main = AgentMainView.shared
+        let w = window
+        main.willCall(w, tool: name, args: a)
         let started = CFAbsoluteTimeGetCurrent()
         let call = AgentActivity.shared.began(name, a, session: session, center: center)
         var answered = false
         let finish: (AgentResult) -> Void = { [weak self] result in
             guard !answered else { return }
             answered = true
+            main.didCall(w, tool: name, ok: !result.isError)
             if let self { self.center.logCall(name, self.session, result, (CFAbsoluteTimeGetCurrent() - started) * 1000) }
             if let call { AgentActivity.shared.finished(call, isError: result.isError) }
             done(result)

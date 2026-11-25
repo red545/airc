@@ -373,6 +373,9 @@ final class AgentPrompts {
         let a = agent.frame.size, c = child.frame.size
         AgentCenter.shared.onEvent?("engine-child \(NSStringFromClass(type(of: child))) \(Int(c.width))x\(Int(c.height)) opaque \(child.isOpaque) alpha \(child.alphaValue) mouse \(!child.ignoresMouseEvents) level \(child.level.rawValue)")
         guard c.width < a.width - 8 || c.height < a.height - 8 else { return }
+        // agentmainview: a parked page's window changes size, so the engine's transparent, click-through overlay of the
+        // page can be smaller than it for a moment. Never a question for the person: it takes no clicks.
+        if child.ignoresMouseEvents, !child.isOpaque { return }
         if !sheets.contains(where: { $0.window === child }) {
             sheets.append(Sheet(window: child, agent: agent, since: Date()))
             AgentCenter.shared.onEvent?("engine-sheet \(child.windowNumber) on agent window")

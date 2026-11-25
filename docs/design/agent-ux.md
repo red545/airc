@@ -24,8 +24,8 @@ a public hands-on video; details in artifacts/asideux/REPORT.md) shows a UX that
 6. **Bring your own plan is a first-class choice.** Providers grouped as "your subscriptions", "API keys", with a
    clear Connect flow and plan usage next to the model picker.
 
-What we don't copy: their brand, wording, art and credits/plans; the agent tabs mixed into the person's tab list (Airc's
-agent windows stay off-screen, which is calmer); voice; routines; desktop computer use.
+What we don't copy: their brand, wording, art and credits/plans; voice; routines; desktop computer use. (Agent tabs
+in the person's tab list: adopted 2026-11-23, §5.)
 
 ## 1. Model: tasks
 
@@ -88,8 +88,9 @@ cards on the right). For long reading; the pane closes while expanded. ⤢ again
 Close ✕ (⌥⌘A). The header shows the Space's icon when the task belongs to another Space than the one shown (rare;
 §7).
 
-**Live page card (M1).** While a task runs or waits, the top of the transcript holds a card with the agent's current
-page: the same source `AgentWatchView` uses (`AgentPageDriver.liveLayer`, the engine's own output with no copies,
+**Live page card (M1).** Since agentmainview (§5) only while the person looks at another tab than the agent's (the
+main view shows the page otherwise); clicking it brings the page back into the main view. While a task runs or waits
+and the page is away, the top of the transcript holds a card with the agent's current page: the same source `AgentWatchView` uses (`AgentPageDriver.liveLayer`, the engine's own output with no copies,
 else `watchFrame` copies), scaled to the pane width − 24 pt at 16:10, with the agent's cursor dot. Caption row (28 pt): site
 icon, "Site · Page — current step", **Take over**. Clicking the picture opens **Watch** in the content area (existing).
 ⌃ collapses it to the caption strip (remembered). Several pages: the card shows the one acted on last; a "2 pages ▾"
@@ -144,12 +145,33 @@ Items:
   "<title> needs your OK". Uses the notification permission Airc already has; never in test builds (no prompts).
 - **Watch** (existing) gets the task title as its heading and the same Take over / Stop.
 
-## 5. Agent pages
+## 5. Agent pages: in the main view (owner decision 2026-11-23, agentmainview)
 
-Agent windows stay off-screen and never take focus (agent.md, docs/user/agents.md). That is calmer than mixing agent
-tabs into the person's tab list, and we keep it. They appear only as **child rows under their task** in the Agents
-folder (M1), titled by agentrows' rules (site + kind of work, no content). Clicking a child row opens Watch. Pages a
-finished task left open close with the task's row (agentrows' auto-close) unless the person took one over.
+The owner: "Why are we not using the normal viewport but a random one for the agent?" The Airc Agent's pages are now
+**real tabs in the person's window** (Agent/AgentMainView.swift); outside apps (MCP clients) keep their off-screen agent
+windows and Watch, unchanged.
+
+- **Start** (✦, ⌥⌘A, ⌘T Ask, the task view's composer): the task's page opens as a new Today tab of the current Space (its
+  profile; else that profile's first Space), selected, titled with the page, full size and live. The pane opens beside it.
+  A task about the page the person is on ("this page", "this form", "summarise…", with the page chip attached) works in
+  that very tab. A follow-up or Continue goes on in the same tab.
+- **Glow and bar** (Agent/AgentMainViewChrome.swift): over the page inside the card's rounded clip (no layout shift), an
+  inner glow in the Space's accent (breathing only while a tool call runs; Reduce Motion: static), a 34 pt capsule bar at
+  the top ("Airc Agent is using this tab · Take over · Stop"; "… is waiting for your OK"; after Take over "You're using
+  this tab · Hand back · Stop"), and a pulse where the agent clicks. Light and dark follow the Space's theme.
+- **Input:** while the agent drives, a shield over the page takes the person's clicks and typing ("Take over to use this
+  page"); menu shortcuts still work. Scrolls pass to the page; the agent's next coordinate action is then refused until
+  it looks again (screenshot, zoom, read_page, find_element), and the same after a size change. The agent's own input
+  goes to the page through the engine (DevTools input; WebKit events handed to the web view), never through the shield.
+- **Real viewport:** the agent's screenshots and coordinates are the page view's real size (AgentWindow.size follows the
+  hosted page); a new run's agent window starts at the main view's size.
+- **Switching away:** the page parks in the run's agent window (off screen, kept visible as Watch's pages are, at the same
+  size), so the agent keeps going and the pane's live card shows it; the Today row follows its title. Picking the row,
+  the card, Take over or "needs you" moves the same page back (no reload). Several agent tabs: each is a Today tab; only
+  the selected one is in the main view.
+- **End:** Stop, or a new task: the tabs stay the person's ordinary tabs. Closing the agent's tab stops the task. The
+  agent closing a tab it opened closes that tab; it never closes the person's own tab.
+- The agent window remains the tools' container (tab ids, list_tabs) and the parking place.
 
 ## 6. Approvals, questions, takeover, stop
 
@@ -181,8 +203,9 @@ else…" which focuses the field).
 **Sign-in steps.** Saved logins: `fill_saved_login` as today. MFA, passkeys and CAPTCHAs: the task waits with "Needs
 you on account.example.com: a sign-in code" and **Open page** (= take over, below).
 
-**Take over (M3 D).** From the live card, Watch or the row's menu. The agent page moves into the person's current
-Space as a normal tab (selected), and the task pauses ("You have the page"). The pane shows a banner with **Hand back**
+**Take over (M3 D).** From the bar on the page, the live card, Watch or the row's menu. Since agentmainview the page
+already is the person's tab: it stays where it is (brought into the main view if parked), the shield goes, and the task
+pauses ("You have the page"); Hand back goes on in the same tab, where it is. The pane shows a banner with **Hand back**
 and **Stop task**. Hand back returns the page to the agent window and continues with "The person used the page; read
 it again before continuing", plus anything typed. Closing the taken-over tab = Stop. (Agent windows can move pages to
 a normal window today; the reverse move is new and needs a small change on both engines' tab-move code.)

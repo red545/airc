@@ -20,6 +20,8 @@ struct AgentPaneView: View {
     @ObservedObject private var run = AgentRunCenter.shared
     @ObservedObject private var timeline = AgentPaneTimeline.shared
     @Environment(\.aircTheme) private var theme
+    /// agentmainview: bumped when the run's page moves in or out of the main view (the card shows only while away).
+    @State private var mainRevision = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -38,6 +40,7 @@ struct AgentPaneView: View {
         }
         .background(theme.surface.color)
         .animation(.easeOut(duration: 0.18), value: run.approval)
+        .onReceive(NotificationCenter.default.publisher(for: AgentMainView.changed)) { _ in mainRevision += 1 }
         .testAnchor("agentpane")
         .testAnchorRoot()
     }
@@ -127,7 +130,10 @@ struct AgentPaneView: View {
     private var conversation: some View {
         VStack(spacing: 0) {
             // The live page stays put above the transcript (it scrolled away under new steps, and under a click).
-            if run.state.isActive || run.approval != nil, model.takenOver == nil, run.runWindowID != nil {
+            // agentmainview: only while the page isn't in this window's main view (the person looks at another tab);
+            // a click on it brings the page back.
+            if run.state.isActive || run.approval != nil, model.takenOver == nil, run.runWindowID != nil,
+               !(mainRevision >= 0 && model.controller.map { AgentMainView.shared.runShown(in: $0) } == true) {
                 AgentPaneLiveCard(model: model).padding(.horizontal, 14).padding(.top, 10)
             }
             transcript

@@ -121,6 +121,9 @@ final class AgentRecallCheck {
                                 .text("It was **Ryokan stays in Kyoto: a quiet guide** on kyoto-stays.example. I opened Ryokan Hoshizora too.")])
         CommandBarView.startAgentTask(recallPrompt, attached: [], in: c)
         wait({ !self.run.state.isActive && self.k.fake.requests(for: "recall") >= 3 }, 45) { [self] in
+            // agentmainview: an Ask start shows the task's page in the main view; its task view opens from the folder.
+            if let id = recorder.currentID { AgentTasksPage.openTask(id, in: c) }
+            wait({ AgentTasksURL.taskID(self.c.store.tab(self.c.shownTabID)?.url) != nil }, 6) { [self] in
             check(run.state == .done, "the task runs to the end (\(run.state))")
             let id = recorder.currentID
             recallTask = id
@@ -158,6 +161,7 @@ final class AgentRecallCheck {
                     openRow(r, done)
                 }
             }
+        }
         }
     }
 

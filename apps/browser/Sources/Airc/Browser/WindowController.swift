@@ -937,6 +937,8 @@ final class WindowController: NSObject, NSWindowDelegate {
     @discardableResult
     private func ensurePage(_ tabID: String) -> EngineTab? {
         if let p = pages[tabID] { return p }
+        // agentmainview: the Airc Agent's page parked in its agent window comes back, live.
+        if let parked = AgentMainView.shared.reclaim(tabID, into: self) { return parked }
         // WIN-7: another window has the page: it moves here, live.
         if let moved = takePageFromOtherWindow(tabID) { return moved }
         guard let tab = store.tab(tabID), let profile = profiles.engineProfile(for: tab.profileID) else { return nil }
@@ -971,6 +973,7 @@ final class WindowController: NSObject, NSWindowDelegate {
     func unloadPage(_ tabID: String) { unloadPagePreservingState(tabID) }
 
     func dropPage(_ tabID: String) {
+        AgentMainView.shared.personDropping(tabID, in: self)
         hiddenSince[tabID] = nil
         closingTabs.remove(tabID)
         guard let p = pages.removeValue(forKey: tabID) else { return }
@@ -1905,6 +1908,7 @@ extension WindowController: EngineWindowDelegate {
                                          openerID: openerID, background: background, activate: !background)
         else { tab.close(); return }
         adopt(tab, as: t.id)
+        if let opener { AgentMainView.shared.personWindowOpened(tab, opener: opener, tabID: t.id, in: self) }
         if !background {
             if spaceID != currentSpaceID { switchToSpace(spaceID, animated: true) }
             show(t.id)
@@ -2018,10 +2022,12 @@ extension WindowController: EngineTabDelegate {
     }
 
     func tabDidChangeTitle(_ tab: EngineTab) {
+        AgentMainView.shared.pageTitleChanged(tab)
         if let p = peek, p.page === tab { p.view.titleLabel.stringValue = tab.title.isEmpty ? URLRules.displayHost(tab.url?.absoluteString ?? "") : tab.title }
         pageChanged(tab, persist: true)
     }
     func tabDidChangeURL(_ tab: EngineTab) {
+        AgentMainView.shared.pageURLChanged(tab)
         pageChanged(tab, persist: true)
         if !tab.isLoading, let id = tabID(for: tab) { profileSignIn.tabNavigated(id) }
         applyKeepLoadedPolicy()

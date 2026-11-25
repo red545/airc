@@ -187,7 +187,7 @@ settings-agents-activity|Settings: Agents, Activity|What each app did in the las
 settings-agents-devices|Settings: Agents, Other devices|Claude Code on your other computers over Tailscale: on, listening only on the tailnet, a one-time pairing code with the command to paste, and two paired devices with Revoke (made-up names and addresses)
 command-bar-connect-claude|Connect Claude|⌘T “connect claude”: Connect Claude and other AI apps…, which opens Settings › Agents with setup first
 agent-panel|Ask Airc|The Airc Agent panel (⌥⌘A) on a checkout: the task, its steps and “Pay on cornershop…?” with Deny and Allow Once, before anything is paid (synthetic shop, scripted model)
-agent-pane|Ask Airc, in the window|The Airc Agent pane beside the page (⌥⌘A): the task, one-line steps with site icons, the live page on top and the composer with the page chip, provider and Quick (synthetic shop, scripted model)
+agent-pane|Ask Airc, in the window|The Airc Agent at work in the main view: its page is the selected tab, full size, with a soft glow and the bar “Airc Agent is using this tab · Take over · Stop”; the pane beside it with one-line steps and the composer (synthetic shop, scripted model)
 agent-pane-dark|Ask Airc, dark|The same agent pane in dark mode
 agent-pane-approval|Waiting for your OK|The agent pane pinning “Pay on cornershop…?” above the composer with Deny and Allow once, before anything is paid
 agent-pane-approval-dark|Waiting for your OK, dark|The same approval in dark mode

@@ -25,7 +25,7 @@ struct AgentPaneLiveCard: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .padding([.horizontal, .top], 6)
                     .onTapGesture { model.openWatch() }
-                    .help("Watch the agent's page")
+                    .help("Show the agent's page")
                     .accessibilityLabel("The agent's page, live")
                     .accessibilityAddTraits(.isButton)
                     .testAnchor("agentpane.live.picture")

@@ -157,6 +157,14 @@ final class PageCardView: NSView {
         dragStrip.page = host
     }
 
+    /// agentmainview: a view over the page, inside the card's rounded clip (the Airc Agent's glow, bar and shield).
+    func addPageOverlay(_ v: NSView) {
+        v.frame = content.bounds
+        v.autoresizingMask = [.width, .height]
+        content.addSubview(v, positioned: .above, relativeTo: nil)
+        (v as? AgentMainChromeView)?.cornerRadius = cornerRadius
+    }
+
     var showsEmptyState = false {
         didSet {
             guard showsEmptyState != oldValue else { return }

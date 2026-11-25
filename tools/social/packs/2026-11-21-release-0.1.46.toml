@@ -14,9 +14,9 @@ Two posts on cards of the cut's synthetic shots: Airc Agent tasks in their own v
 and ⌘T Ask as well as Search (agent-tasks-ask, cropped to the Command Bar).
 """
 order = """
-1. ⌘T Ask: 26 Nov 10:30 UTC, approved only at "0.1.60 LIVE" (release072: from 0.1.60 Tab always switches Search ↔ Ask, with a
-   "Tab to switch" hint; before, only where Tab did nothing else). The ChatGPT post (0.1.43) took its 25 Nov slot.
-   the task view in an afternoon slot a day later.
+1. Task view: 26 Nov 10:30 UTC (card from aidemo3's one-row still; 0.1.59 live).
+2. ⌘T Ask: 30 Nov 10:30 UTC, HELD unapproved: 0.1.60 (live) shows a "Tab to switch" keycap the cc098eff shot lacks.
+   Re-render from a re-taken agent-tasks-ask (asked of the lead 2026-11-25), look at it, then approve.
 """
 checked = """
 - Task view: open a task from the sidebar, a Recent tasks card or the Command Bar and it fills the page: every step on a

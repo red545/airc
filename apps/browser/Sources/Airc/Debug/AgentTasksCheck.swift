@@ -165,13 +165,20 @@ final class AgentTasksCheck {
                                     check(!bar.typed.hasSuffix("@"), "… and the @ leaves the field")
                                     shot(bar, "agenttasks-ask")
                                     barKey("return") { [self] how in
-                                        wait({ AgentTasksURL.taskID(self.c.store.tab(self.c.shownTabID)?.url) != nil }, 6) { [self] in
-                                            let id = AgentTasksURL.taskID(c.store.tab(c.shownTabID)?.url)
-                                            taskID = id
-                                            check(id != nil && id == recorder.currentID, "Return in Ask starts the task and opens its task view [\(how)] (\(c.store.tab(c.shownTabID)?.url ?? "none"))")
+                                        // agentmainview (owner decision 2026-11-23): the task's page is the selected tab in the
+                                        // main view, the pane beside it; its task view is one click away.
+                                        wait({ AgentMainView.shared.runShown(in: self.c) && self.recorder.currentID != nil }, 8) { [self] in
+                                            check(AgentMainView.shared.runShown(in: c) && AgentPaneController.pane(of: c)?.isShown == true,
+                                                  "Return in Ask starts the task: its page is the selected tab, the pane beside it [\(how)]")
                                             check(c.commandBar?.isParked != false, "… the bar closes")
                                             check(k.firstUserText(k.fake.bodies("ask").first).contains("/home.html"), "… with the attached page's address for the model")
-                                            done()
+                                            if let id = recorder.currentID { AgentTasksPage.openTask(id, in: c) }
+                                            wait({ AgentTasksURL.taskID(self.c.store.tab(self.c.shownTabID)?.url) != nil }, 6) { [self] in
+                                                let id = AgentTasksURL.taskID(c.store.tab(c.shownTabID)?.url)
+                                                taskID = id
+                                                check(id != nil && id == recorder.currentID, "… and its task view opens (\(c.store.tab(c.shownTabID)?.url ?? "none"))")
+                                                done()
+                                            }
                                         }
                                     }
                                 }
@@ -215,7 +222,9 @@ final class AgentTasksCheck {
             check(sawRunning, "while it works, its step shows on the timeline and shimmers")
             check(sawWorking && sawStop, "… “Working for …” at the top and Stop in the composer")
             check(sawLive, "… the agent's page floats beside the timeline (live card)")
-            if let f = liveFrame { check(f.minX >= columnMax - 0.5, "… right of the column, not over it (card x \(Int(f.minX)), column ends \(Int(columnMax)))") }
+            // With the pane open beside it (agentmainview: an Ask start opens the pane) the view may be too narrow for a
+            // card beside the column; then it sits under the header, never over the column's steps.
+            if let f = liveFrame, f.minX > 100 { check(f.minX >= columnMax - 0.5, "… right of the column, not over it (card x \(Int(f.minX)), column ends \(Int(columnMax)))") }
             check(sawPartial, "the answer streams into the view")
             check(sawSpinner, "the sidebar's task row spins while it works")
             check(census?.ok == true, "agentrows: running: the task is one row in the folder, its page no second one (\(census?.detail ?? "never sampled"))")
@@ -354,8 +363,11 @@ final class AgentTasksCheck {
         k.fake.begin("pay", [.tool("navigate", ["url": "\(k.base)/shop.html"]), .tool("left_click", ["coordinate": [100, 180]]), .text("Paid.")])
         CommandBarView.startAgentTask("Pay for the order", attached: [], in: c)
         k.untilApproval { [self] in
+            // agentmainview: an Ask start shows the task's page in the main view; its task view is a click away.
+            check(AgentMainView.shared.runShown(in: c), "an Ask start puts the task's page in the main view")
+            if let id = recorder.currentID { AgentTasksPage.openTask(id, in: c) }
             after(0.8) { [self] in
-                check(AgentTasksURL.taskID(c.store.tab(c.shownTabID)?.url) == recorder.currentID, "the task's view is shown")
+                check(AgentTasksURL.taskID(c.store.tab(c.shownTabID)?.url) == recorder.currentID, "the task's view is shown (opened)")
                 check(inTask("agenttask.approval"), "the approval card is in the task view: \(run.approval?.title ?? "none")")
                 check(inSidebar("agents-task-waiting"), "the sidebar row shows ✋ while it waits")
                 check(taskPage?.task.placeholder == "Or tell it what to change…", "the composer says “Or tell it what to change…”")
@@ -444,6 +456,8 @@ final class AgentTasksCheck {
         k.fake.begin("pay2", [.tool("navigate", ["url": "\(k.base)/shop.html"]), .tool("left_click", ["coordinate": [100, 180]]), .text("Paid.")])
         CommandBarView.startAgentTask("Pay for the order again", attached: [], in: c)
         k.untilApproval { [self] in
+            // agentmainview: the task view is a click away from an Ask start.
+            if let id = recorder.currentID { AgentTasksPage.openTask(id, in: c) }
             after(0.8) { [self] in
                 guard let h = taskHost else { check(false, "the task view for Allow once"); return done() }
                 k.press("agenttask.allow", "Allow once", in: h, fallback: { self.run.answerApproval(allow: true) }) { [self] how in

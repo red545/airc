@@ -351,11 +351,12 @@ final class AgentPane2Check {
                 check(false, "the agent works on the form page in its window"); return done()
             }
             check(page.url?.path == "/form.html", "the agent's page is the form (\(page.url?.path ?? "none"))")
-            let before = c.shownTabID
+            // agentmainview: the agent's page is already this window's selected tab (the main view); Take over leaves it
+            // there, the person's at once.
             k.press("agentpane.takeover", "Take over", fallback: { self.model?.takeOver() }) { [self] how in
-                wait({ self.model?.takenOver != nil && !self.run.state.isActive && self.c.shownTabID != before }, 8) { [self] in
-                    guard let tabID = c.shownTabID, tabID != before else { check(false, "Take over makes the page this window's tab [\(how) click]"); return done() }
-                    check(c.engineTab(for: tabID) === page, "Take over: the same page object is now this window's tab [\(how) click]")
+                wait({ self.model?.takenOver != nil && !self.run.state.isActive }, 8) { [self] in
+                    guard let tabID = model?.takenOver?.tabID, c.shownTabID == tabID else { check(false, "Take over makes the page this window's shown tab [\(how) click] (\(model?.takenOver?.tabID ?? "none"), shown \(c.shownTabID ?? "none"))"); return done() }
+                    check(c.engineTab(for: tabID) === page, "Take over: the same page object is this window's tab [\(how) click]")
                     check(model?.takenOver?.tabID == tabID && model?.takenOver?.agentTabID == agentTab, "… the pane remembers the tab and the agent's tab id (\(agentTab))")
                     // The person types in the form and scrolls (page script; the field keeps the value, the page its scroll).
                     evaluate(page, "var f=document.getElementById('f');f.focus();f.value='Typed by the person';f.dispatchEvent(new Event('input',{bubbles:true}));window.scrollTo(0,1200);window.__aircKept='kept';return {y:scrollY,h:history.length}") { [self] typed in
@@ -370,8 +371,9 @@ final class AgentPane2Check {
                                 check(nw?.activeTab === page, "… the same page object (\(engine == "webkit" ? "WKWebView" : "WebContents")) is the agent window's tab again, not a reload of its address")
                                 check(nw?.activeTabID == agentTab, "… with the same tab id (\(nw?.activeTabID.map(String.init) ?? "none") vs \(agentTab))")
                                 check(nw?.tabs.count == 1, "… the window's blank first page closed (\(nw?.tabs.count ?? 0) tabs)")
-                                check(c.store.tab(tabID) == nil && c.engineTab(for: tabID) == nil, "… and the tab left the person's sidebar")
-                                check(c.shownTabID != tabID, "… the person's window shows another tab")
+                                // agentmainview: the page stays where the person left it, in the main view, the agent's again.
+                                check(c.store.tab(tabID) != nil && c.engineTab(for: tabID) === page, "… the tab stays in the person's sidebar, the same page")
+                                check(c.shownTabID == tabID, "… shown in the main view")
                                 check(model?.handBackFailed == nil, "… no move error (\(model?.handBackFailed ?? "none"))")
                                 let body = k.fake.bodies("handback2-after").last ?? ""
                                 check(body.contains("handed it back") && body.contains("don't open its address again"), "… the agent is told the page is its tab again, to read it, not to reopen it")

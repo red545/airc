@@ -25,16 +25,21 @@ extension AgentPane2Check {
         let turns: [FakeModelServer.Turn] = [
             .tool("navigate", ["url": "\(b)/flicker.html"]), .tool("wait", ["duration": 1.5]),
             .tool("left_click", ["coordinate": [200, 205]]), .tool("wait", ["duration": 1]),
-            .tool("scroll", ["scroll_direction": "down", "scroll_amount": 5, "coordinate": [640, 420]]), .tool("wait", ["duration": 1]),
-            .tool("left_click", ["coordinate": [640, 420]]), .tool("wait", ["duration": 1]),
-            .tool("scroll", ["scroll_direction": "up", "scroll_amount": 3, "coordinate": [640, 420]]), .tool("wait", ["duration": 1]),
+            .tool("scroll", ["scroll_direction": "down", "scroll_amount": 5, "coordinate": [300, 400]]), .tool("wait", ["duration": 1]),
+            .tool("left_click", ["coordinate": [300, 400]]), .tool("wait", ["duration": 1]),
+            .tool("scroll", ["scroll_direction": "up", "scroll_amount": 3, "coordinate": [300, 400]]), .tool("wait", ["duration": 1]),
             .tool("navigate", ["url": "\(b)/flicker.html?again"]), .tool("wait", ["duration": 1.5]),
             .tool("left_click", ["coordinate": [200, 205]]), .tool("wait", ["duration": 0.5]),
-            .tool("scroll", ["scroll_direction": "down", "scroll_amount": 2, "coordinate": [640, 420]]),
+            .tool("scroll", ["scroll_direction": "down", "scroll_amount": 2, "coordinate": [300, 400]]),
             .tool("wait", ["duration": 30]), .text("Never reached."),
         ]
         k.front { [self] _ in
+            // agentmainview: the card shows the agent's page while the person looks at another tab (the main view
+            // shows it otherwise), and the viewport is the main view's (the points stay inside it).
+            let home = c.shownTabID
             k.start("flicker", turns, task: "Click around the flicker fixture")
+            wait({ self.k.events.contains("tool wait") || AgentMainView.shared.runShown(in: self.c) }, 20) { [self] in
+            if let home { c.show(home) }
             wait({ self.k.events.contains("tool wait") && AgentPaneLiveView.current?.window != nil && AgentPaneLiveView.current?.mode != "none" }, 20) { [self] in
                 guard let v = AgentPaneLiveView.current, let w = v.window, let rect = AgentPaneFlickerProbe.rect(of: v) else {
                     check(false, "flicker: the live card shows while the agent works"); return stopRun(done)
@@ -102,6 +107,7 @@ extension AgentPane2Check {
                     }
                     stopRun(done)
                 }
+            }
             }
         }
     }

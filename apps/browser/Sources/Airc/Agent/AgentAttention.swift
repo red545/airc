@@ -219,6 +219,8 @@ enum AgentAttention {
             guard let row = it.rowID else { break }
             // The pane task's own page: its pane too (Take over then keeps Hand back).
             if AgentActivity.shared.model.row(row)?.window == AgentRunCenter.shared.runWindowID, AgentUI.usesPane { AgentPaneController.show(c) }
+            // agentmainview: the Airc Agent's page is a tab of this window: it comes into the main view, Return takes over.
+            if let r = AgentActivity.shared.model.row(row), AgentMainView.shared.land(windowID: r.window, tab: r.tab, in: c) { break }
             c.sidebar.agents.openWatch(row)
             // After the pane's own focus (it queues one), and again for a moment (a Space switch hands the keys to
             // the page a little later), until the person clicks or types: the keys end on Watch's Take over.

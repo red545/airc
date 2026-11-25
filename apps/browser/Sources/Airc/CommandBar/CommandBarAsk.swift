@@ -216,8 +216,9 @@ extension CommandBarView {
     /// The window Ask mode works for (private windows have no agent).
     var askWindow: WindowController? { host?.commandBarAgent == nil ? nil : host as? WindowController }
 
-    /// Return in Ask: a new task with what's typed (and the attached tabs), shown in its task view. Not connected, or
-    /// the agent busy with another task: the pane takes the text (its Connect card, or its field).
+    /// Return in Ask: a new task with what's typed (and the attached tabs). agentmainview (owner decision 2026-11-23):
+    /// the task's page becomes the selected tab in the main view, with the pane beside it (the task view stays one click
+    /// away in the Agents folder). Not connected, or the agent busy with another task: the pane takes the text.
     static func startAgentTask(_ text: String, attached: [AgentAskContext], in c: WindowController) {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
@@ -227,14 +228,8 @@ extension CommandBarView {
         if !run.steps.isEmpty { run.newConversation() }
         AgentTaskRecorder.shared.willAsk(spaceID: c.currentSpaceID, profileID: p.id)
         AgentAttention.taskAsked(in: c)
+        AgentMainView.shared.willAsk(in: c, page: nil)
+        if AgentUI.usesPane { AgentPaneController.show(c) }
         run.ask(t + AgentAskContext.promptLine(attached), profileID: p.id, profileName: p.name)
-        // The task's record appears with its first step (AgentTaskRecorder follows the run on the main queue).
-        var tries = 0
-        func open() {
-            if let id = AgentTaskRecorder.shared.currentID { AgentTasksPage.openTask(id, in: c); return }
-            tries += 1
-            if tries < 40 { DispatchQueue.main.asyncAfter(deadline: .now() + 0.025, execute: open) } else { AgentPaneController.show(c) }
-        }
-        DispatchQueue.main.async(execute: open)
     }
 }
