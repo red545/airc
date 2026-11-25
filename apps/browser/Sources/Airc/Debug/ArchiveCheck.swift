@@ -12,6 +12,8 @@ import AircCore
 ///   - a page whose beforeunload handler runs but doesn't ask is archived once its page has closed;
 ///   - a page the person used whose handler would ask isn't asked (no question shows) and stays; when it no longer
 ///     asks, the retry archives it.
+/// SET-3: the pass's daily backup goes to the chosen backup folder; one that's read-only or gone falls back to the
+/// default folder (and stays chosen), and Back Up says so.
 extension SnapshotRunner {
     func autoArchiveLeaveCheck() {
         var plain = "", quiet = "", asks = "", keeper = ""
@@ -24,6 +26,8 @@ extension SnapshotRunner {
         }
         run { [self] in
             oldBackupFolder = app?.settings.values.backupFolder
+            // A chosen folder exists (Settings' Choose… picks one); a made-up path would test the fallback instead.
+            try? FileManager.default.createDirectory(at: custom, withIntermediateDirectories: true)
             app?.settings.values.backupFolder = custom.path
             let sid = c.currentSpaceID
             func open(_ t: String, _ js: String) -> String {
@@ -104,8 +108,39 @@ extension SnapshotRunner {
             let files = (try? FileManager.default.contentsOfDirectory(at: custom, includingPropertiesForKeys: nil)) ?? []
             check(files.contains { $0.lastPathComponent.hasPrefix("airc-backup-") && $0.pathExtension == "json" },
                   "auto-archive: daily backup lands in the selected custom folder")
+        }
+        // SET-3 fallback: the chosen folder read-only, then gone (under a folder that can't be written, like a drive
+        // that isn't plugged in). The auto-archive pass still backs up, to the default folder; the choice stays.
+        run { [self] in
+            let fm = FileManager.default
+            let readOnly = dir.appendingPathComponent("readonly-backups", isDirectory: true)
+            let gone = readOnly.appendingPathComponent("unplugged/Backups", isDirectory: true)
+            try? fm.createDirectory(at: readOnly, withIntermediateDirectories: true)
+            try? fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: readOnly.path)
+            for (name, folder) in [("read-only", readOnly), ("gone", gone)] {
+                for f in dailyBackups(AppPaths.backups) { try? fm.removeItem(at: AppPaths.backups.appendingPathComponent(f)) }
+                app?.settings.values.backupFolder = folder.path
+                c.runAutoArchive()
+                let fallback = dailyBackups(AppPaths.backups)
+                check(fallback.count == 1 && dailyBackups(folder).isEmpty && app?.settings.values.backupFolder == folder.path,
+                      "auto-archive: a \(name) chosen backup folder falls back to the default folder and stays chosen "
+                      + "(default \(fallback), chosen \(dailyBackups(folder)))")
+                if name == "read-only", let backups = app?.settings {
+                    let url = try? backups.backUp(c.store, purpose: .manual)
+                    check(url.map(backups.isFallbackBackup) == true,
+                          "auto-archive: Back Up with a read-only chosen folder saves to the default folder and says so")
+                }
+            }
+            check(!fm.fileExists(atPath: gone.path), "auto-archive: a gone chosen folder isn't recreated")
+            try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: readOnly.path)
             app?.settings.values.backupFolder = oldBackupFolder
         }
+    }
+
+    /// The daily backups' file names in `folder` (airc-backup-YYYY-MM-DD.json).
+    private func dailyBackups(_ folder: URL) -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
+            .filter { $0.range(of: #"^airc-backup-[0-9]{4}-[0-9]{2}-[0-9]{2}\.json$"#, options: .regularExpression) != nil }
     }
 }
 #endif

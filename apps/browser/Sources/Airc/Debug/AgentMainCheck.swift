@@ -29,6 +29,10 @@ extension SnapshotRunner {
         if AgentMainCheck.runs("two") { step { done in m.caseTwo(done) } }
         if AgentMainCheck.runs("long") { step { done in m.caseLong(done) } }
         if AgentMainCheck.runs("dark") { step { done in m.caseDark(done) } }
+        // agentmainfix (AgentMainParked.swift): a parked page keeps its full frame rate.
+        if AgentMainCheck.runs("parked") { step { done in m.caseParked(done) } }
+        // agentmainfix (AgentMainRows.swift): finished tasks leave their page's row and card picture, no about:blank rows.
+        if AgentMainCheck.runs("rows") { step { done in m.caseRows(done) } }
         run { m.finish() }
     }
 }

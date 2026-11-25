@@ -70,7 +70,7 @@ final class AgentMainView {
     private func follow() {
         guard subs.isEmpty else { return }
         let run = AgentRunCenter.shared
-        subs.append(run.$state.sink { [weak self] _ in DispatchQueue.main.async { self?.refreshAll() } })
+        subs.append(run.$state.sink { [weak self] _ in DispatchQueue.main.async { self?.refreshAll(); self?.dropBlankPages() } })
         subs.append(run.$approval.sink { [weak self] _ in DispatchQueue.main.async { self?.refreshAll() } })
     }
 
@@ -110,6 +110,16 @@ final class AgentMainView {
         takenOver = nil
     }
 
+    /// Every entry point that asks (the pane, ⌘T → Ask, a task view's reply, the old panel) records its window right
+    /// before the run (AgentAttention.taskAsked): the next run's page goes there. The pane's own willAsk comes first and
+    /// keeps its tab; any other window replaces an older ask's (agentmainfix: a task view's reply in window B after a pane
+    /// task in A placed B's page in A and switched A to B's Space).
+    func asked(in c: WindowController) {
+        if next?.controller === c { return }
+        follow()
+        next = Start(controller: c, tabID: nil)
+    }
+
     /// Whether a prompt is about the page the person is on (then the agent works in that tab rather than a new one).
     static func isAboutPage(_ prompt: String) -> Bool {
         let t = " " + prompt.lowercased() + " "
@@ -132,6 +142,23 @@ final class AgentMainView {
         guard let c = start?.controller ?? AgentMainView.frontController else { return }
         w.hostsInMainView = true
         let blank = w.activeTabID
+        // agentmainfix: the page shows in the main view only when the window is on a Space of the agent's profile now.
+        // Otherwise it's a row of that profile's Space in this window, parked (live in the card) until the person picks
+        // it: the window the person is in never changes Space by itself.
+        let onProfile = c.store.space(c.currentSpaceID)?.profileID == w.profileID
+        if !onProfile, let b = blank, let page = w.tab(b), let space = space(for: w, in: c) {
+            w.markHosted(b)
+            guard let t = try? c.store.openTab(url: page.url?.absoluteString ?? "about:blank", inSpace: space,
+                                               background: true, activate: false, title: page.title) else { return w.unmarkHosted(b) }
+            let e = Hosted(page: page, controller: c, window: w, tabID: t.id, personOwned: false)
+            e.lastSize = w.size
+            hosted.append(e)
+            c.scheduleReload()
+            onEvent?("present \(t.id) away")
+            refresh(c)
+            changed()
+            return
+        }
         if let id = start?.tabID, let page = c.engineTab(for: id), !page.isClosed, page.profile === w.profile {
             // The task is about this page: the agent works in it.
             let e = Hosted(page: page, controller: c, window: w, tabID: id, personOwned: true)
@@ -474,6 +501,20 @@ final class AgentMainView {
         c.store.updateTab(e.tabID, url: page.url?.absoluteString, title: page.title.isEmpty ? nil : page.title,
                           faviconURL: page.faviconURL?.absoluteString)
         c.refreshRow(e.tabID)
+    }
+
+    /// agentmainfix: a run that ended while its own page never loaded anything (its navigate was refused or failed, or it
+    /// only answered) leaves no "about:blank" row in Today: the person never had that page. The person's own tabs, a page
+    /// still loading and a taken-over tab stay.
+    private func dropBlankPages() {
+        guard !AgentRunCenter.shared.state.isActive else { return }
+        for e in hosted where !e.personOwned && e.tabID != takenOver?.tabID {
+            guard let page = e.page, !page.isClosed, !page.isLoading, let w = e.window, let id = w.hostedID(page) else { continue }
+            let address = page.url?.absoluteString ?? ""
+            guard address.isEmpty || address == "about:blank" else { continue }
+            onEvent?("drop-blank \(e.tabID)")
+            w.closeTab(id)
+        }
     }
 
     // MARK: The chrome over the page

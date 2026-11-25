@@ -346,14 +346,18 @@ final class AgentPane2Check {
     func caseHandBack(_ done: @escaping () -> Void) {
         AgentModelSettings.shared.setBackendForTesting(.apiKey)
         k.start("handback2", [.tool("navigate", ["url": "\(k.base)/form.html"]), .tool("wait", ["duration": 30]), .text("Never reached.")])
-        wait({ self.k.events.contains("tool wait") && self.k.point("agentpane.takeover") != nil }, 25) { [self] in
+        // agentmainfix: in the main view Take over is on the page's bar (the pane's card shows only while away).
+        let bar = { AgentMainView.shared.chromeView(self.c) }
+        wait({ self.k.events.contains("tool wait") && (self.k.point("agentpane.takeover") != nil || bar().flatMap { self.k.point("agentmain.takeover", in: $0) } != nil) }, 25) { [self] in
             guard let wid = run.runWindowID, let w = AgentCenter.shared.windows[wid], let page = w.activeTab, let agentTab = w.activeTabID else {
                 check(false, "the agent works on the form page in its window"); return done()
             }
             check(page.url?.path == "/form.html", "the agent's page is the form (\(page.url?.path ?? "none"))")
             // agentmainview: the agent's page is already this window's selected tab (the main view); Take over leaves it
             // there, the person's at once.
-            k.press("agentpane.takeover", "Take over", fallback: { self.model?.takeOver() }) { [self] how in
+            let onBar = k.point("agentpane.takeover") == nil ? bar() : nil
+            k.press(onBar == nil ? "agentpane.takeover" : "agentmain.takeover", onBar == nil ? "Take over" : "Take over (bar)", in: onBar,
+                    fallback: { self.model?.takeOver() }) { [self] how in
                 wait({ self.model?.takenOver != nil && !self.run.state.isActive }, 8) { [self] in
                     guard let tabID = model?.takenOver?.tabID, c.shownTabID == tabID else { check(false, "Take over makes the page this window's shown tab [\(how) click] (\(model?.takenOver?.tabID ?? "none"), shown \(c.shownTabID ?? "none"))"); return done() }
                     check(c.engineTab(for: tabID) === page, "Take over: the same page object is this window's tab [\(how) click]")

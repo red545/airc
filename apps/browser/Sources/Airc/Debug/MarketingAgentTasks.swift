@@ -75,10 +75,12 @@ extension SnapshotRunner {
             }
         }
         // Two finished tasks first (one seen, one not), so the cards and the sidebar have a history.
-        func task(_ name: String, _ prompt: String, _ turns: [FakeModelServer.Turn], seen: Bool) {
+        // agentmainfix: the turns are made when the task runs (`site` is set by the first step; made earlier, the
+        // navigate went to "/parks.html", was refused, and the tasks left blank pages and no pictures).
+        func task(_ name: String, _ prompt: String, _ turns: @escaping () -> [FakeModelServer.Turn], seen: Bool) {
             step { [self] done in
                 AgentRunCenter.shared.newConversation()
-                fake.begin(name, turns)
+                fake.begin(name, turns())
                 CommandBarView.startAgentTask(prompt, attached: [], in: c)
                 waitUntil({ !AgentRunCenter.shared.state.isActive && AgentRunCenter.shared.steps.contains { $0.kind == .final } }, timeout: 30) {
                     if !seen, let id = AgentTaskRecorder.shared.currentID { AgentTaskRecorder.shared.markUnreadForTesting(id) }
@@ -87,11 +89,11 @@ extension SnapshotRunner {
             }
             wait(0.6)
         }
-        task("t1", "Find the largest park in Brightport", [.tool("navigate", ["url": "\(site)/parks.html"]), .tool("read_page", ["mode": "text"]),
-            .text("The largest park in Brightport is **Brightport Commons**: 412 hectares of meadow, with a lake and two playgrounds.")], seen: true)
-        task("t2", "Compare noise-cancelling headphones under €300", [.tool("navigate", ["url": "\(site)/audio.html"]), .tool("read_page", ["mode": "text"]),
+        task("t1", "Find the largest park in Brightport", { [.tool("navigate", ["url": "\(site)/parks.html"]), .tool("read_page", ["mode": "text"]),
+            .text("The largest park in Brightport is **Brightport Commons**: 412 hectares of meadow, with a lake and two playgrounds.")] }, seen: true)
+        task("t2", "Compare noise-cancelling headphones under €300", { [.tool("navigate", ["url": "\(site)/audio.html"]), .tool("read_page", ["mode": "text"]),
             .tool("find_element", ["text": "battery"]),
-            .text("**Calm 2** (€199) lasts longest at 40 hours; **Quiet One** (€279) has the best noise cancelling; Hush Pro sits between them.")], seen: false)
+            .text("**Calm 2** (€199) lasts longest at 40 hours; **Quiet One** (€279) has the best noise cancelling; Hush Pro sits between them.")] }, seen: false)
         // This pass's own tasks (the working one, the approval), deleted at the end, so the dark pass's Recent tasks show
         // the two finished answers again rather than the light pass's stopped tasks.
         var passTasks: [String] = []

@@ -319,7 +319,8 @@ final class AgentPaneLiveView: NSView {
     private func hold(_ tab: EngineTab?, _ driver: AgentPageDriver?) {
         let id = tab.map { ObjectIdentifier($0 as AnyObject) }
         if let held = heldTab, held.id != id {
-            if let old = held.tab() { held.driver.holdFramesOnHide(old, false) }
+            // A page in the main view keeps its hold (AgentWindow sets it while hosted).
+            if let old = held.tab(), AgentMainView.shared.entry(old) == nil { held.driver.holdFramesOnHide(old, false) }
             heldTab = nil
         }
         if let tab, let id, let driver, heldTab == nil {

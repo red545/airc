@@ -13,12 +13,12 @@ import QuartzCore
 /// on the main thread at the same rate (which view, live/copies, context id, layers hidden), so a bad frame can be
 /// traced to what changed.
 final class AgentPaneFlickerProbe {
-    /// The fixture: marker at page (0,0)–(96,96), counter blocks of 96 px from x = 120 at y = 0, a block that slides,
+    /// The fixture: marker at page (0,0)–(96,96), counter blocks of 40 px from x = 120 to 520 at y = 0 (inside any main-view viewport), a block that slides,
     /// and a tall page to scroll with buttons to click. Fixed elements stay put while the agent scrolls.
     static let page = """
     <title>Flicker fixture</title><style>body{margin:0;background:#f4f1ea;font:22px sans-serif}
     #mk{position:fixed;left:0;top:0;width:96px;height:96px;background:#00c8c8;z-index:3}
-    #bits{position:fixed;left:120px;top:0;height:96px;display:flex;z-index:3}#bits i{display:block;width:96px;height:96px}
+    #bits{position:fixed;left:120px;top:0;height:96px;display:flex;z-index:3}#bits i{display:block;width:40px;height:96px}
     #mv{position:fixed;left:0;top:320px;width:220px;height:220px;background:#e0306a;z-index:2}
     .pad{height:5000px;background:linear-gradient(#f4f1ea,#9fb6d8)}
     button{position:absolute;left:40px;width:320px;height:90px;font:22px sans-serif}</style>
@@ -217,11 +217,14 @@ final class AgentPaneFlickerProbe {
         }
         let box = CGRect(x: minX, y: minY, width: maxX - minX + 2, height: maxY - minY + 2)
         f.marker = box
-        // The counter: block i's centre is (120 + 96 i + 48) page px from the left, at the marker's middle.
+        // The counter: block i's centre is (120 + 40 i + 20) page px from the left, at the marker's middle. agentmainfix:
+        // the blocks were 96 px wide (to x = 1080), so in the main view's real viewport (632 px with the pane open) the five
+        // fast bits were off the page: the counter moved every 32 frames (533 ms), read as "2 frames/s". All ten now end
+        // at x = 520.
         let unit = box.width / 96
         var c = 0
         for i in 0..<10 {
-            let p = px.at(Int(box.minX + (168 + 96 * CGFloat(i)) * unit), Int(box.midY))
+            let p = px.at(Int(box.minX + (140 + 40 * CGFloat(i)) * unit), Int(box.midY))
             c = (c << 1) | (p.0 > p.2 ? 1 : 0)
         }
         f.counter = c

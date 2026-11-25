@@ -254,6 +254,7 @@ final class AgentWindow: NSObject, EngineWindowDelegate, EngineTabDelegate {
         outside.insert(ObjectIdentifier(page))
         activeTabID = id
         if let w = page.view.window { driver.prepare(page, in: w, visible: true) { _ in } }
+        driver.holdFramesOnHide(page, true)
         onTabsChanged?()
         return id
     }
@@ -303,6 +304,9 @@ final class AgentWindow: NSObject, EngineWindowDelegate, EngineTabDelegate {
         outside.insert(ObjectIdentifier(page))
         if page.delegate === self { page.delegate = nil }
         driver.keepLive(page)
+        // agentmainfix: in the main view a navigation to a new view keeps the last frame until the new one draws (engine
+        // patch 042, as the pane's card does): Chromium showed the card's empty fill for a frame at an early navigation.
+        driver.holdFramesOnHide(page, true)
         rearmAfterMove(page)
     }
 
@@ -324,6 +328,7 @@ final class AgentWindow: NSObject, EngineWindowDelegate, EngineTabDelegate {
         let t = tabs.remove(at: i)
         driver.release(t.tab)
         driver.handBack(t.tab)
+        driver.holdFramesOnHide(t.tab, false)
         if t.tab.delegate === self { t.tab.delegate = nil }
         if activeTabID == tabID { activeTabID = tabs.last?.id }
         AgentMainView.shared.unhosted(self, t.tab, closing: closing)

@@ -72,6 +72,9 @@ extension AgentPane2Check {
                     trace.note("event \(e)")
                     if e == "tool navigate", navAt == nil, self?.k.events.filter({ $0 == "tool navigate" }).count ?? 0 >= 2 { navAt = probe.elapsed }
                 }
+                // agentmainfix: the whole counter must be on the page, or its fast bits read as a slow page.
+                let viewport = agent?.size ?? .zero
+                check(viewport.width >= 540, "flicker: the fixture's counter fits the agent's viewport (\(Int(viewport.width)) px wide, counter to 520)")
                 note("agentpane2 \(engine): flicker: card \(NSStringFromRect(v.convert(v.bounds, to: nil))) in window #\(w.windowNumber) (key \(w.isKeyWindow)), mode \(v.mode), capture \(NSStringFromRect(rect))")
                 trace.start()
                 probe.start(seconds: 10) { [self] in

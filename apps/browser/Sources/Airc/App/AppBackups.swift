@@ -5,12 +5,28 @@ import AircKit
 extension AppSettings {
     var backupDirectory: URL { values.backupFolder.map { URL(fileURLWithPath: $0) } ?? AppPaths.backups }
 
-    /// All automatic and explicit recovery backups resolve the current setting here.
-    /// Export… is different: its save panel supplies a one-off destination.
+    /// All automatic and explicit recovery backups resolve the current setting here (launch, auto-archive, Back Up,
+    /// Clear Archive). Export… is different: its save panel supplies a one-off destination.
+    /// SET-3: a chosen folder that can't be written (gone: a drive not plugged in; read-only) doesn't cost the backup:
+    /// it goes to the default folder instead, and the chosen folder stays chosen for next time.
     @discardableResult
     func backUp(_ store: SpacesStore, purpose: SpacesStore.BackupPurpose? = nil) throws -> URL? {
-        if let purpose { return try store.writeBackup(to: backupDirectory, purpose: purpose) }
-        return try store.backupIfNeeded(to: backupDirectory)
+        func write(_ folder: URL) throws -> URL? {
+            if let purpose { return try store.writeBackup(to: folder, purpose: purpose) }
+            return try store.backupIfNeeded(to: folder)
+        }
+        let folder = backupDirectory
+        do { return try write(folder) } catch {
+            guard folder.standardizedFileURL.path != AppPaths.backups.standardizedFileURL.path else { throw error }
+            NSLog("Airc backup: the chosen folder can't be written (%@); backing up to the default folder", error.localizedDescription)
+            return try write(AppPaths.backups)
+        }
+    }
+
+    /// Whether `url` (a backup backUp wrote) is in the default folder although another one is chosen: the fallback.
+    func isFallbackBackup(_ url: URL) -> Bool {
+        backupDirectory.standardizedFileURL.path != AppPaths.backups.standardizedFileURL.path
+            && url.deletingLastPathComponent().standardizedFileURL.path == AppPaths.backups.standardizedFileURL.path
     }
 
     /// Every folder that can hold this Mac's backups: the chosen one and the default (older backups stay there after

@@ -76,6 +76,8 @@ enum AgentAttention {
         taskWindow = c
         taskSpaceID = c.currentSpaceID
         taskProfileID = c.store.profile(ofSpace: c.currentSpaceID).id
+        // The task's page opens in this window too (agentmainfix).
+        AgentMainView.shared.asked(in: c)
     }
 
     /// The recorded window, only while it is open and was asked from in the item's profile (an older record from

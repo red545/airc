@@ -489,7 +489,9 @@ private struct GeneralPage: View {
     private func backUpNow() {
         do {
             if let url = try model.settings.backUp(model.store, purpose: .manual) {
-                lastBackup = "Saved " + url.lastPathComponent
+                lastBackup = model.settings.isFallbackBackup(url)
+                    ? "Saved to the default folder: the chosen one can’t be written"
+                    : "Saved " + url.lastPathComponent
             }
         } catch {
             lastBackup = "Couldn't back up: \(error.localizedDescription)"
