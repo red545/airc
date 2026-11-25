@@ -91,7 +91,7 @@ enum CommandMenus {
             BrowserCommand("Open in Space…", "o", [.command, .option], id: "file.moveToSpace") { _ in NSSound.beep() },
             nil,
             BrowserCommand("Close Tab", "w", .command, id: "file.closeTab") { $0.closeCurrentTab() },
-            BrowserCommand("Close Window", "w", [.command, .shift], id: "file.closeWindow") { $0.window.performClose(nil) },
+            BrowserCommand("Close Window", "w", [.command, .shift], id: "file.closeWindow") { WebKitPasskeyGuard.prepareToClose($0.window); $0.window.performClose(nil) },
             // Arc's ⌥⌘W: every other Today tab to the Archive, as Clear does (pinned tabs and Favorites stay).
             BrowserCommand("Close Other Tabs", "w", [.command, .option], id: "file.closeOtherTabs") { $0.clearToday() },
             BrowserCommand("Reopen Closed Tab", "t", [.command, .shift], id: "file.reopenClosedTab") { $0.undo() },
@@ -377,7 +377,7 @@ enum MainMenu {
         others.keyEquivalentModifierMask = [.command, .option]
         appMenu.addItem(withTitle: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Quit Airc", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "Quit Airc", action: #selector(NSApplication.aircQuit(_:)), keyEquivalent: "q")   // wkpasskeyquit
         add(appMenu, to: main)
 
         add(menu("File", CommandMenus.file(), app), to: main)
@@ -594,7 +594,7 @@ enum KeyMonitor {
 
     static func install(app: AppDelegate) -> Any? {
         _ = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { [weak app] event in
-            if event.charactersIgnoringModifiers?.lowercased() == "q" { quitHold?.cancel(); quitHold = nil }
+            if event.charactersIgnoringModifiers?.lowercased() == "q", !quitKeyUpStoodIn { quitHold?.cancel(); quitHold = nil }
             if event.keyCode == 53 { (app?.controller(for: event.window) ?? app?.controller)?.fullScreen.escapeUp() }
             return event
         }
@@ -608,12 +608,18 @@ enum KeyMonitor {
                 let automated = app.options.isAutomated
                 #endif
                 guard !event.isARepeat, quitHold == nil, !automated else { return nil }
+                #if AIRC_TESTING
+                QuitDiagnostics.mark("⌘Q key-down seen (window \(event.window.map { "\(type(of: $0))" } ?? "none"), key \(NSApp.keyWindow.map { "\(type(of: $0))" } ?? "none"))")
+                #endif
                 (app.controller(for: event.window) ?? app.controller)?.showToast("Hold ⌘Q to Quit")
                 let code = event.keyCode
                 let work = DispatchWorkItem {
                     quitHold = nil
                     // Chromium's application class sends ⌘ key-ups straight to the window, past the key-up monitor
                     // above, so the key itself decides: still down after 0.7 s is a hold.
+                    #if AIRC_TESTING
+                    QuitDiagnostics.mark("hold to quit: held \(quitIsHeld(code))")
+                    #endif
                     if quitIsHeld(code) { quit() }
                 }
                 quitHold = work
@@ -781,7 +787,7 @@ enum KeyMonitor {
     static var quitIsHeld: (UInt16) -> Bool = { code in
         CGEventSource.keyState(.combinedSessionState, key: CGKeyCode(code)) && NSEvent.modifierFlags.contains(.command)
     }
-    static var quit: () -> Void = { NSApp.terminate(nil) }
+    static var quit: () -> Void = { NSApp.aircQuit(nil) }
 
     #if AIRC_TESTING
     /// The shortcuts check (ShortcutsCheck.swift): AppKit's dispatch for a key window, after this monitor, for a test
@@ -789,7 +795,17 @@ enum KeyMonitor {
     static var testKeyWindowDispatch: ((NSEvent) -> Bool)?
     /// The shortcuts check: hold to quit in an automated run (which otherwise ignores ⌘Q).
     static var testQuitHold = false
+    /// passkeyquit: the UI driver presses and releases ⌘Q at once (it can't hold a key), so its key-up stands for one
+    /// that comes after the 0.7 s hold.
+    static var testQuitKeyUpStoodIn = false
     #endif
+    private static var quitKeyUpStoodIn: Bool {
+        #if AIRC_TESTING
+        return testQuitKeyUpStoodIn
+        #else
+        return false
+        #endif
+    }
 
     /// The engine hands back a key the page didn't use (Chromium's unhandled-key callback, WebKit's resend): Chrome's
     /// delayed keys (⌘← ⌘→) run their command now. True: one ran.

@@ -60,6 +60,16 @@ and `isConditionalMediationAvailable` are false, and `create`, `get` and conditi
 passkey support (their other sign-in methods stay). With it, WebKit hands requests to Apple's own passkey sheet
 (iCloud Keychain, security keys, phones), which does its own Touch ID; Airc profile passkeys stay Chromium-only.
 
+A sign-in page can't hold a quit or a close (`WebKitPasskeyGuard.swift`, `--script passkeyquit`). The empty sheet
+appleid.apple.com attached by itself was not WebAuthn: WebKit's Extensible SSO hands that page to macOS's "Sign In With
+Apple" SSO extension, whose remote AppSSOUI view stayed blank, and a quit waited on it for over 15 s. Airc answers that
+one extension with "ignore" through WebKit's SSO policy delegate, so the page shows its web form; other SSO extensions
+(managed Macs) keep WebKit's policy. Quitting, closing a window or tab and loading another address end any
+AuthenticationServices or AppSSO sheet still attached first. With the capability, Airc also joins its own abort signal
+to every passkey request, so those moments abort them too. Safari puts passkeys in the username field's AutoFill; a
+WKWebView app has no public API for that, so with the capability, what WebKit does with a conditional request (Apple's
+AutoFill or a sheet) is WebKit's choice and still to be checked once the owner step is done.
+
 `airc_passkeys.mm` removes local credentials before `AircEngine.deleteProfile` schedules deletion of the profile
 folder. Work runs off the UI thread, retains the profile until completion, and uses its original metadata secret.
 A real Keychain error returns failure and preserves the profile instead of discarding the secret. Cleanup includes

@@ -538,6 +538,7 @@ final class LittleArcController: NSObject, NSWindowDelegate {
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         closing = true
+        WebKitPasskeyGuard.prepareToClose(sender)   // wkpasskeyquit
         if !isMiniPlayer, !miniPlayerPending, let page, offerMiniPlayer(page) { return false }
         return closeForReal()
     }

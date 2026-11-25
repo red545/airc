@@ -124,6 +124,8 @@ final class WebKitProfile: EngineProfile {
         userContent.addUserScript(WKUserScript(source: Self.contextLinkScript, injectionTime: .atDocumentStart,
                                                forMainFrameOnly: false, in: Self.linkWorld))
         userContent.add(router, contentWorld: Self.linkWorld, name: "aircContextLink")
+        // wkpasskeyquit: a page's own passkey request never holds a quit or a close (first: the others wrap it).
+        WebKitPasskeyGuard.install(in: userContent)
         WebKitPasskeyNotice.install(in: userContent, router: router)   // signinfix: say why a passkey sign-in can't work
         PasteAndMatchStyle.add(to: WKWebView.self)   // Edit › Paste and Match Style (Commands.swift)
         library.installMediaBridge()
@@ -253,7 +255,10 @@ final class WebKitProfile: EngineProfile {
 final class ScriptRouter: NSObject, WKScriptMessageHandler {
     private let tabs = NSMapTable<WKWebView, WebKitTab>.weakToWeakObjects()
 
-    func register(_ tab: WebKitTab) { tabs.setObject(tab, forKey: tab.webView) }
+    func register(_ tab: WebKitTab) {
+        tabs.setObject(tab, forKey: tab.webView)
+        WebKitPasskeyGuard.register(tab)
+    }
     func tab(for webView: WKWebView) -> WebKitTab? { tabs.object(forKey: webView) }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -649,6 +654,7 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
     }
 
     func load(_ url: URL) {
+        WebKitPasskeyGuard.cancel(self, reason: "navigation")   // wkpasskeyquit: another address: the old page's sheet goes
         if url.isFileURL {
             webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         } else {
@@ -756,6 +762,8 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
     func close() {
         guard !isClosed else { return }
         isClosed = true
+        // wkpasskeyquit: the page's passkey requests end first, and a system passkey sheet with them.
+        WebKitPasskeyGuard.cancel(self, reason: "tab")
         SystemPictureInPicture.cancelQueuedOpen(for: self, because: "its tab closed")
         webView.pauseAllMediaPlayback(completionHandler: nil)
         // PiP closes asynchronously. Keep the tab/view alive until WebKit has

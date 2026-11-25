@@ -477,6 +477,7 @@ final class PrivateWindowController: NSObject, NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         // Closing may yield to engine unload/download confirmation before willClose.
         CaptureSession.active(in: sender)?.cancel()
+        WebKitPasskeyGuard.prepareToClose(sender)   // wkpasskeyquit
         // An engine that doesn't ask itself before cancelling downloads (WebKit): the app asks, then closes.
         if (app?.engine as? EngineDownloads)?.asksBeforeClosingWithDownloads == false, !confirmedClose, PrivateBrowsing.shared.isLastWindow(self),
            let n = downloads?.runningCount, n > 0 {

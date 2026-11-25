@@ -210,7 +210,19 @@ git --git-dir="$PUB/.git" log -1 --format='%an%n%ae%n%cn%n%ce%n%B' "$commit" >"$
 site_emails=$(grep -oE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' "$work/tree/apps/marketing/src/lib/site.ts" 2>/dev/null | tr '\n' ' ')
 status=0
 "$HERE/scan.sh" "$work/tree" | tee "$work/scan.out" || status=1
-AIRC_PUBLIC_EMAILS="${AIRC_PUBLIC_EMAILS:-} $site_emails" "$HERE/scan.sh" "$work/meta" 2>/dev/null | sed 's/^/  /' | tee "$work/meta.out" || status=1
+meta_status=0
+AIRC_PUBLIC_EMAILS="${AIRC_PUBLIC_EMAILS:-} $site_emails" "$HERE/scan.sh" "$work/meta" 2>/dev/null | sed 's/^/  /' | tee "$work/meta.out" || meta_status=1
+if [[ $status == 0 && $meta_status == 1 ]]; then
+  # A commit subject tripped the metadata scan (e.g. gitleaks reading "passkeyquit, quit/close/..." as a key).
+  # Never approve it: publish with the header line only (no private subjects) and scan that message again.
+  echo "sync-public: the commit message failed the scan; retrying with the header line only (no subjects)"
+  head -1 "$work/message" >"$work/message.short"
+  commit=$(git --git-dir="$PUB/.git" commit-tree "$tree" -p "$parent" -F "$work/message.short")
+  git --git-dir="$PUB/.git" log -1 --format='%an%n%ae%n%cn%n%ce%n%B' "$commit" >"$work/meta/COMMIT-METADATA"
+  meta_status=0
+  AIRC_PUBLIC_EMAILS="${AIRC_PUBLIC_EMAILS:-} $site_emails" "$HERE/scan.sh" "$work/meta" 2>/dev/null | sed 's/^/  /' | tee "$work/meta.out" || meta_status=1
+fi
+[[ $meta_status == 0 ]] || status=1
 if [[ $status != 0 ]]; then
   summary=$(grep -h '^ *Privacy scan: FAIL' "$work/scan.out" "$work/meta.out" | sed 's/^ *Privacy scan: //' | paste -sd ';' -)
   die "SCAN FAILED for ${src:0:7}: ${summary:-scan error}; nothing published. Fix it in the private repo and push."

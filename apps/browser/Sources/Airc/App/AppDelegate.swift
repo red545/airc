@@ -160,6 +160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         launched = true
         let launchSetup = LaunchTimeline.begin("didFinishLaunching")
         defer { launchSetup() }
+        WebKitPasskeyGuard.wrapQuitAppleEvent()   // wkpasskeyquit: a Dock or logout quit isn't held by a system sheet
         AppPaths.prepare(options)
         #if canImport(Sparkle)
         // Dev builds: a check at launch, then every 10 minutes (the ship loop publishes about every 20; Sparkle's own
@@ -855,6 +856,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var awaitingDownloadQuitAnswer = false
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        #if AIRC_TESTING
+        QuitDiagnostics.mark("applicationShouldTerminate")
+        #endif
+        // wkpasskeyquit: a system sheet (and, with the passkey capability, a page's passkey request) ends first.
+        WebKitPasskeyGuard.prepareForQuit()
         if awaitingDownloadQuitAnswer { return .terminateLater }
         let library = MediaLibrary.shared
         guard let downloads = library.downloads, !downloads.engine.asksBeforeClosingWithDownloads,

@@ -131,6 +131,7 @@ final class SnapshotRunner {
         case "callnotes": callNotesScenario()   // Settings › Calendar › Start Granola notes (CallNotesCheck.swift)
         case "oauthapps", "oauthapps-cold", "oauthapps-google": oauthAppsScenario()   // desktop-app sign-in through Airc (OAuthAppsCheck.swift)
         case "signin": signInScenario()   // every Sign in does something visible, both engines (SignInCheck.swift)
+        case "passkeyquit": passkeyQuitScenario()   // a pending passkey request never holds a quit or a close (PasskeyQuitCheck.swift)
         case "peekrules": peekRulesScenario()   // PK-1/AT-1: eTLD+1 same-site, rules for Peek links, real clicks (PeekRulesCheck.swift)
         case "shortcuts": shortcutsScenario()
         case "shortcutremap": shortcutRemapScenario()
@@ -515,6 +516,12 @@ final class SnapshotRunner {
     func finishAsIfCrashed() {
         watchdog.finish()
         _exit(0)
+    }
+
+    /// passkeyquit: the log is on disk and the quit bound runs (as in finish()), and the caller then quits the way a
+    /// person does (⌘Q, the menu), so the product's own quit path is what's measured.
+    func beginQuitByHand() {
+        watchdog.finish()
     }
 
     func finish() {

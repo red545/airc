@@ -530,6 +530,7 @@ final class WindowController: NSObject, NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         // Closing may yield to engine unload/download confirmation before willClose.
         CaptureSession.active(in: sender)?.cancel()
+        WebKitPasskeyGuard.prepareToClose(sender)   // wkpasskeyquit
         if downloadsHoldClose() { return false }
         // WIN-7: the last window leaves Chromium's profiles loaded for the next one.
         app?.keepProfilesIfLastWindowCloses(self)
