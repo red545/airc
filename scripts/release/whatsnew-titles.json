@@ -706,5 +706,23 @@
     "detail": "When you scroll the sidebar without moving the pointer, only the tab under the pointer stays highlighted, instead of every tab it passed.",
     "action": "none",
     "image": null
+  },
+  "Typing after ⌘T over a full-screen video no longer pauses or controls the video; the Command Bar takes the keys": {
+    "title": "⌘T keys stay in the bar",
+    "detail": "Press ⌘T over a full-screen video and type: the Command Bar takes the keys, and the video no longer pauses or pops out.",
+    "action": "commandBar",
+    "image": null
+  },
+  "Tab switches between Search and Ask in the Command Bar again": {
+    "title": "Tab switches Search, Ask",
+    "detail": "In the Command Bar, press Tab or ⇧Tab to switch between Search and Ask with your text kept. After \"yt\" or \"gpt\", Tab still searches that site.",
+    "action": "commandBar",
+    "image": null
+  },
+  "Grain on dark Spaces now looks like Arc's": {
+    "title": "Grain like Arc in the dark",
+    "detail": "A Space's grain texture now looks as it does in Arc, in light and dark Spaces. Set its strength with the grain dial under the Space's Theme….",
+    "action": "none",
+    "image": null
   }
 }

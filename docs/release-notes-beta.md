@@ -1,15 +1,27 @@
-# Airc 0.1.59 public beta
+# Airc 0.1.60 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update makes every sign-in button respond, shows each agent task once in the sidebar and brings fixes. It
-includes everything from 0.1.58. The release manifest records the exact build, source and checksums.
+This update keeps keys typed after ⌘T away from a full-screen video, brings back Tab between Search and Ask and makes
+grain on dark Spaces look like Arc's. It includes everything from 0.1.59. The release manifest records the exact
+build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.58
+## New since 0.1.59
+
+- **Typing after ⌘T over a full-screen video no longer pauses or controls the video; the Command Bar takes the keys.**
+  Keys you type while the Command Bar opens no longer reach the page behind it, so a video doesn't pause or pop out.
+  On a Safari-engine page in full screen, ⌘T now leaves full screen first.
+- **Tab switches between Search and Ask in the Command Bar again.** Tab and ⇧Tab switch with your text kept, and a
+  "Tab to switch" hint shows wherever it works. After a site shortcut such as "yt" or "gpt", Tab still searches that
+  site, as in Arc.
+- **Grain on dark Spaces now looks like Arc's.** A Space's grain texture now darkens its colour as lightly as Arc's
+  does, in light and dark Spaces; on dark Spaces it used to brighten them instead.
+
+## Included from 0.1.59
 
 - **Sign-in buttons always respond.** A first click on a page in Little Airc while Airc is in the background now reaches the
   page, instead of only bringing Airc forward. Where Airc blocks a pop-up and its address-field icon can't be seen (Little

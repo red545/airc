@@ -14,8 +14,7 @@ Two posts on cards of the cut's synthetic shots: Airc Agent tasks in their own v
 and ⌘T Ask as well as Search (agent-tasks-ask, cropped to the Command Bar).
 """
 order = """
-1. ⌘T Ask: 26 Nov 10:30 UTC, approved only at "0.1.60 LIVE" (release072: from 0.1.60 Tab always switches Search ↔ Ask, with a
-   "Tab to switch" hint; before, only where Tab did nothing else). The ChatGPT post (0.1.43) took its 25 Nov slot.
+1. ⌘T Ask at 10:30 UTC on the first day after LIVE whose 10:30 can move (a concrete ⌘T tip, the kind that does best);
    the task view in an afternoon slot a day later.
 """
 checked = """

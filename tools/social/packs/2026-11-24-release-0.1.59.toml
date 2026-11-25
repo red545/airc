@@ -13,7 +13,7 @@ note with Open where the icon can't be seen). One row per agent task is shown by
 re-take, not posted on its own.
 """
 order = """
-1. 5 Dec 15:00 UTC (first free afternoon after LIVE).
+1. One afternoon slot on the first free day after LIVE.
 """
 checked = """
 - Notes: a first click on a page in Little Airc while Airc is in the background reaches the page instead of only
