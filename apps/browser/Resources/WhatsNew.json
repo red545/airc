@@ -2,6 +2,29 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.59",
+      "highlights": [
+        {
+          "title": "Sign-in buttons respond",
+          "lead": "Sign-in buttons always respond",
+          "detail": "A sign-in click in Little Airc now reaches the page even while Airc is in the background, and a blocked pop-up shows a note with an Open button.",
+          "icon": "person.crop.circle.badge.checkmark"
+        },
+        {
+          "title": "One row per agent task",
+          "lead": "Each agent task shows once in the sidebar",
+          "detail": "Each task you give Airc Agent has a single row in the sidebar's Agents folder, and agents in other apps get one row per session.",
+          "icon": "list.bullet"
+        },
+        {
+          "title": "Sidebar scrolling fix",
+          "lead": "Scrolling the sidebar no longer leaves tabs highlighted",
+          "detail": "When you scroll the sidebar without moving the pointer, only the tab under the pointer stays highlighted, instead of every tab it passed.",
+          "icon": "square.on.square"
+        }
+      ]
+    },
+    {
       "version": "0.1.58",
       "highlights": [
         {

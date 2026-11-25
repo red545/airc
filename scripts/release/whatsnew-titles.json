@@ -688,5 +688,23 @@
     "detail": "Airc Agent keeps working until the task is done or you stop it. To set a limit, open Settings › AI › Agent and choose Stop after; it's off by default.",
     "action": "settingsAI",
     "image": null
+  },
+  "Sign-in buttons always respond": {
+    "title": "Sign-in buttons respond",
+    "detail": "A sign-in click in Little Airc now reaches the page even while Airc is in the background, and a blocked pop-up shows a note with an Open button.",
+    "action": "none",
+    "image": null
+  },
+  "Each agent task shows once in the sidebar": {
+    "title": "One row per agent task",
+    "detail": "Each task you give Airc Agent has a single row in the sidebar's Agents folder, and agents in other apps get one row per session.",
+    "action": "none",
+    "image": null
+  },
+  "Scrolling the sidebar no longer leaves tabs highlighted": {
+    "title": "Sidebar scrolling fix",
+    "detail": "When you scroll the sidebar without moving the pointer, only the tab under the pointer stays highlighted, instead of every tab it passed.",
+    "action": "none",
+    "image": null
   }
 }
