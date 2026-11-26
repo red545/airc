@@ -1,0 +1,24 @@
+# Airc 0.1.63 (release075). LIVE 2026-11-26 19:19Z, public tag v0.1.63 shown. Claims from its approved notes.
+slug = "2026-11-26-release-0.1.63"
+title = "Airc 0.1.63: iCloud sync without iCloud Keychain"
+kind = "release"
+since = "0.1.63"
+tag = ""
+summary = """
+One short text post: iCloud sync no longer needs iCloud Keychain (a recovery key instead).
+"""
+order = """
+1. One afternoon slot on the first free day.
+"""
+checked = """
+- Notes: Settings › Sync › Recovery key › Show… (after your Mac's password or Touch ID); on a Mac without iCloud Keychain
+  or whose key got lost, Use Recovery Key…; Start Over… backs up this Mac's sidebar first, nothing in iCloud is deleted,
+  other Macs offer to merge and nothing shows up twice.
+- Not claimed: parallel agent tasks (not in this release).
+"""
+
+[[post]]
+label = "iCloud sync without iCloud Keychain"
+text = """
+Airc's iCloud sync no longer needs iCloud Keychain. Show the recovery key on a Mac that syncs (Settings › Sync), type it on the other Mac, and your sidebar follows. Lost the key everywhere? Start Over backs up first and deletes nothing. Airc 0.1.63.
+"""

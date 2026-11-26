@@ -1,16 +1,24 @@
-# Airc 0.1.62 public beta
+# Airc 0.1.63 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update starts new agent tasks without a blank white page, makes turning on iCloud sync always back up this Mac
-first and updates the Command Bar's Ask text for the agent working in your window. It includes everything from
-0.1.61. The release manifest records the exact build, source and checksums.
+This update lets a Mac without iCloud Keychain join sync with a recovery key and lets you start sync over when no Mac
+has its key. It includes everything from 0.1.62. The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.61
+## New since 0.1.62
+
+- **iCloud sync now works without iCloud Keychain.** On a Mac that syncs, Settings › Sync › Recovery key › Show…
+  shows a recovery key after you enter your Mac's password or use Touch ID. On a Mac where iCloud Keychain is off, or
+  whose key got lost, choose Use Recovery Key… and type it in. Keep the key somewhere safe, like a password manager.
+- **If no Mac has the sync key any more, you can start over.** Start Over… in Settings › Sync backs up this Mac's
+  sidebar first, then starts sync again from it. Nothing in iCloud is deleted. Your other Macs keep their sidebars:
+  once they have the new key, they offer to merge, and nothing shows up twice.
+
+## Included from 0.1.62
 
 - **A new agent task no longer starts on a blank white page.** Until the Airc Agent opens its first page, its tab
   shows “Starting…”, and the tab is named after your task instead of “about:blank”.
@@ -899,3 +907,5 @@ Source: `ea292247f74b9713c3f17a1755d9e5b5a7e7ff7c`. Build: `202611250702`. Chann
 Source: `aedd795e8c965b8bdfdf2d6513d9f469f5fa8511`. Build: `202611252306`. Channel: stable. Engine: official.
 
 Source: `10f50403292d0b4ece92f93c375110c567d68928`. Build: `202611261155`. Channel: stable. Engine: official.
+
+Source: `53d0867e341dcf3eb6e0d4b5f32d7063f02a5cfd`. Build: `202611261832`. Channel: stable. Engine: official.

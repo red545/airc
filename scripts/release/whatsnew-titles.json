@@ -766,5 +766,17 @@
     "detail": "When you give the Airc Agent a task, its new tab shows “Starting…” until the first page loads, and the tab carries your task's name instead of about:blank.",
     "action": "commandBar",
     "image": null
+  },
+  "iCloud sync now works without iCloud Keychain": {
+    "title": "Sync with a recovery key",
+    "detail": "No iCloud Keychain on a Mac? Show the recovery key in Settings › Sync on a Mac that syncs, then choose Use Recovery Key… on the other and type it in.",
+    "action": "settingsSync",
+    "image": null
+  },
+  "If no Mac has the sync key any more, you can start over": {
+    "title": "Start sync over",
+    "detail": "If none of your Macs has the sync key any more, Start Over… in Settings › Sync backs up this Mac and starts again. Nothing in iCloud is deleted, and your other Macs merge.",
+    "action": "settingsSync",
+    "image": null
   }
 }
