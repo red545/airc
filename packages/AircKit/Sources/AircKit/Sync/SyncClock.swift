@@ -11,6 +11,17 @@ public enum SyncError: Error, Equatable {
     case incompleteSnapshot
 }
 
+/// The backup of this Mac's sidebar before the first sync couldn't be written (SyncEngine.choose): nothing was merged,
+/// replaced or sent, and the first-sync screen stays open.
+public struct SyncFirstSyncBackupFailure: Error, LocalizedError {
+    public let underlying: Error
+    public init(underlying: Error) { self.underlying = underlying }
+    public var errorDescription: String? {
+        "Airc couldn't back up this Mac's sidebar first (\(underlying.localizedDescription)), so nothing was merged or "
+            + "replaced. Check the backup folder in Settings › General, then try again."
+    }
+}
+
 /// Total order: physical milliseconds, logical counter, then installation ID.
 public struct SyncStamp: Codable, Hashable, Comparable, Sendable {
     public let milliseconds: Int64

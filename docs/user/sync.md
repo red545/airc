@@ -89,7 +89,8 @@ It's end-to-end encrypted. The key is in your iCloud Keychain, so only your Macs
      Archive; your profiles and logins stay.
 
    Either way Airc saves a backup of this Mac's sidebar first (Settings → Sync shows where; restore it in Settings →
-   Import → Restore from Backup). If iCloud has profiles this Mac doesn't, pick one of yours or a new, empty one.
+   Import → Restore from Backup). If your chosen backup folder isn't there (a drive that isn't plugged in), the backup
+   goes to the default folder; if Airc can't save it at all, nothing changes and the screen says so. If iCloud has profiles this Mac doesn't, pick one of yours or a new, empty one.
 
 After that, changes on either Mac show up on the other within seconds, or when you switch to Airc.
 

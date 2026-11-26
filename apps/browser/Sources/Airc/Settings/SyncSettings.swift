@@ -239,7 +239,8 @@ struct SyncFirstSyncSheet: View {
                     problem = nil
                     SyncCenter.shared.choose(choice, profiles: profiles) { error in
                         working = false
-                        if let error { problem = "Couldn't finish the first sync (\(String(describing: error))). Nothing was changed in iCloud." }
+                        if let error = error as? SyncFirstSyncBackupFailure { problem = error.localizedDescription }
+                        else if let error { problem = "Couldn't finish the first sync (\(String(describing: error))). Nothing was changed in iCloud." }
                     }
                 }
                 .buttonStyle(.airc(.primary)).keyboardShortcut(.defaultAction).disabled(working)

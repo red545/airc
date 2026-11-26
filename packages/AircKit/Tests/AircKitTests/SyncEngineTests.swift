@@ -14,6 +14,8 @@ private final class Mac {
     let name: String
     var machine: String
     var engine: SyncEngine!
+    /// The backup folder can't be written (the chosen one gone and the default one read-only, say).
+    var backupFails = false
 
     init(_ name: String, db: SyncMockCloudDatabase, root: URL, clock: TestClock) throws {
         self.name = name; self.db = db
@@ -31,7 +33,10 @@ private final class Mac {
             keys: keys, stateURL: folder.appendingPathComponent("sync.json"), deviceName: name + "'s Mac", machine: machine,
             createProfile: { name, emoji in try store.createProfile(name: name, emoji: emoji).id },
             applyProfileChange: { space, profile in _ = try? store.setProfile(ofSpace: space, to: profile) },
-            backup: { try store.writeBackup(to: folder.appendingPathComponent("Backups"), purpose: .beforeICloud) })
+            backup: { [unowned self] in
+                if backupFails { throw CocoaError(.fileWriteNoPermission) }
+                return try store.writeBackup(to: folder.appendingPathComponent("Backups"), purpose: .beforeICloud)
+            })
         env.sleep = { _ in }
         engine = SyncEngine(store: store, environment: env)
         engine.automatic = false
@@ -140,6 +145,52 @@ final class SyncEngineTests: XCTestCase {
         await a.engine.syncNow(); await b.engine.syncNow()
         let awaited24 = await db.state.batchCount
         XCTAssertEqual(awaited24, batches)
+    }
+
+    /// A backup that can't be written stops the first sync before anything changes: neither Merge nor Replace goes
+    /// ahead, nothing of this Mac is sent, the first-sync screen stays (no "retrying"), and the same choice works later.
+    func testAFailedBackupKeepsTheFirstSyncScreenAndChangesNothing() async throws {
+        let db = SyncMockCloudDatabase()
+        let a = try Mac("A", db: db, root: root, clock: clock), b = try Mac("B", db: db, root: root, clock: clock)
+        try seedWork(a)
+        await a.turnOn()
+        let group = try XCTUnwrap(a.engine.groupID)
+        let key = try XCTUnwrap(a.keys.key(group: group))
+        let laptop = try b.store.createSpace(name: "Laptop")
+        let t = try b.store.openTab(url: "https://example.org/laptop", inSpace: laptop.id)
+        try b.store.move(.tab(t.id), to: .pinned(spaceID: laptop.id, parentID: nil, index: 0))
+        b.keys.copy(from: a.keys)
+        await b.turnOn()
+        guard case .choosing = b.engine.status else { return XCTFail("expected the first-sync screen, got \(b.engine.status)") }
+        let batches = await db.state.batchCount
+
+        b.backupFails = true
+        for choice in [SyncFirstSyncChoice.merge, .replace] {
+            do {
+                try await b.engine.choose(choice)
+                XCTFail("\(choice) went ahead without a backup")
+            } catch let failure as SyncFirstSyncBackupFailure {
+                XCTAssertTrue(failure.localizedDescription.contains("nothing was merged or replaced"), failure.localizedDescription)
+            }
+            guard case .choosing = b.engine.status else { return XCTFail("\(choice): the first-sync screen went (\(b.engine.status))") }
+            XCTAssertEqual(b.spaceNames, ["Personal", "Laptop"], "\(choice): nothing of iCloud's sidebar came in")
+            XCTAssertFalse(b.engine.hasJoined, "\(choice): not joined")
+        }
+        // A later cycle (the minute's retry) keeps the screen and still sends nothing.
+        await b.engine.syncNow()
+        guard case .choosing = b.engine.status else { return XCTFail("a cycle left the first-sync screen (\(b.engine.status))") }
+        let after = await db.state.batchCount
+        XCTAssertEqual(after, batches, "nothing was sent")
+        let sent = try await uploaded(db, key: key, group: group)
+        XCTAssertFalse(sent.contains("example.org"), "nothing of this Mac was sent")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: b.folder.appendingPathComponent("Backups").path))
+
+        // The folder works again: the same choice goes ahead, after its backup.
+        b.backupFails = false
+        let backup = try await b.engine.choose(.merge)
+        XCTAssertTrue(String(decoding: try Data(contentsOf: backup), as: UTF8.self).contains("Laptop"))
+        XCTAssertEqual(b.engine.status, .upToDate)
+        XCTAssertTrue(b.spaceNames.isSuperset(of: ["Work", "Laptop"]))
     }
 
     func testReplaceTakesICloudSidebarAfterABackupAndSendsNothingOfThisMac() async throws {

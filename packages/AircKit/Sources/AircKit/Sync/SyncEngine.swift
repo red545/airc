@@ -665,7 +665,9 @@ public final class SyncEngine {
         try await exchange(t, group: group, key: key, gen: gen); try live(gen)
     }
 
-    /// The person's answer on the first-sync screen. Backs up this Mac's sidebar first; returns that file.
+    /// The person's answer on the first-sync screen. Backs up this Mac's sidebar first; returns that file. If that backup
+    /// can't be written it throws `SyncFirstSyncBackupFailure` before anything is merged, replaced or sent, and the
+    /// engine stays `.choosing` with the same choice open.
     @discardableResult
     public func choose(_ choice: SyncFirstSyncChoice, profiles: [String: SyncProfileChoice] = [:]) async throws -> URL {
         guard case .choosing = status, let joining = pending, joining.generation == generation, state.enabled else {
@@ -683,13 +685,16 @@ public final class SyncEngine {
                 throw SyncError.cancelled
             }
             if let identity { await t.bind(account: identity); try live(gen) }
-            let backup = try env.backup()
+            // No backup, no first sync: the choice stays open (Merge or Replace again, or Cancel) and nothing changed.
+            let backup: URL
+            do { backup = try env.backup() } catch { throw SyncFirstSyncBackupFailure(underlying: error) }
             try await finishJoin(t, choice, profiles: profiles, gen: gen); try live(gen)
             try await t.verifyAccount(); try live(gen)
             finishCycle()
             return backup
         } catch {
-            if isLive(gen) { handle(error) }
+            // A failed backup isn't a sync failure to retry: the first-sync screen stays, and its caller says why.
+            if isLive(gen), !(error is SyncFirstSyncBackupFailure) { handle(error) }
             throw error
         }
     }

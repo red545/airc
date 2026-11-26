@@ -150,8 +150,10 @@ final class SyncCenter: ObservableObject {
                 }
             },
             backup: { [weak app] in
-                guard let app else { throw StoreError.notFound }
-                return try store.writeBackup(to: app.settings.backupDirectory, purpose: .beforeICloud)
+                // As every other backup (SET-3): a chosen folder that's gone or read-only falls back to the default one.
+                // If neither can be written, choose() throws and the first sync doesn't start.
+                guard let app, let url = try app.settings.backUp(store, purpose: .beforeICloud) else { throw StoreError.notFound }
+                return url
             })
         // Notes' pictures: the data folder's Notes/Images (NoteImages). One that arrives shows in the open notes at once.
         environment.notePictures = SyncNotePictureFolder(folder: NoteImages.folder)
@@ -267,6 +269,7 @@ final class SyncCenter: ObservableObject {
                 if let app { for c in app.controllers where c.store.space(c.currentSpaceID) == nil { c.switchToSpace(c.store.selectedSpace.id, animated: false) } }
                 done?(nil)
             } catch {
+                NSLog("Airc sync: the first sync didn't start: %@", String(describing: error))
                 done?(error)
             }
             refresh()

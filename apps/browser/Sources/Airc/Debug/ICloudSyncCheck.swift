@@ -12,7 +12,8 @@ import CryptoKit
 ///   of a Today tab, a private window or Little Arc is in what it sent. A pinned note (title, text, a picture) goes up
 ///   sealed; a note in Today doesn't (P14b1).
 /// - `icloudsync-second`: another Mac. Waiting for iCloud Keychain, then the first-sync screen; Merge (after a
-///   backup) brings the first Mac's Spaces in, and the note with its title, text and picture; its own edits (the note's
+///   backup; with the chosen backup folder gone and the default one read-only, Merge stops and the screen stays; with
+///   only the chosen one gone, the backup goes to the default folder) brings the first Mac's Spaces in, and the note with its title, text and picture; its own edits (the note's
 ///   too) go up.
 /// - `icloudsync-replace`: a third Mac chooses Replace: its own Space goes (backed up, Today tabs archived), nothing
 ///   of it is sent; but a Space holding its pinned note stays, and the note goes up.
@@ -234,15 +235,52 @@ extension SnapshotRunner {
                       "\(script): it asks about the other Mac's Studio profile, used by Design (\(f?.profiles.map(\.name) ?? []))")
             }
             if !replace { settingsShot("icloudsync-first-sync", sheet: true) }
+            // The backup before the first sync (SET-3, as every other backup): the second Mac's chosen folder is gone (a
+            // drive that isn't plugged in, under a folder that can't be written). With the default folder read-only too,
+            // Merge doesn't go ahead; once the default folder works, Merge backs up there and the choice stays.
+            let fm = FileManager.default
+            let readOnly = AppPaths.dataDirectory.appendingPathComponent("BackupCheck/readonly", isDirectory: true)
+            let gone = readOnly.appendingPathComponent("unplugged/Backups", isDirectory: true)
+            func count(_ folder: URL) -> Int { (try? fm.contentsOfDirectory(atPath: folder.path))?.count ?? 0 }
+            if !replace {
+                var answer: Error?, answered = false
+                run { [self] in
+                    try? fm.createDirectory(at: readOnly, withIntermediateDirectories: true)
+                    try? fm.createDirectory(at: AppPaths.backups, withIntermediateDirectories: true)
+                    try? fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: readOnly.path)
+                    try? fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: AppPaths.backups.path)
+                    app?.settings.values.backupFolder = gone.path
+                    sync.choose(.merge, profiles: [:]) { answer = $0; answered = true }
+                }
+                waitFor("the answer to Merge without a backup folder") { answered }
+                wait(1.0)
+                run { [self] in
+                    let failure = answer as? SyncFirstSyncBackupFailure
+                    check(failure?.localizedDescription.contains("nothing was merged or replaced") == true,
+                          "icloudsync-second: with the chosen backup folder gone and the default one read-only, Merge stops and says the backup failed (\(answer.map { String(describing: $0) } ?? "no error"))")
+                    check(sync.firstSync != nil && app?.settingsWindow?.window.attachedSheet != nil && spaceNamed("Work") == nil
+                          && !uploaded().contains("example.org\\/laptop"),
+                          "icloudsync-second: the first-sync screen stays (status \(sync.status)); nothing came in or went up")
+                    try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: AppPaths.backups.path)
+                    backups = count(AppPaths.backups)
+                }
+            }
             run { sync.choose(replace ? .replace : .merge, profiles: [:]) }
             waitFor("the first sync") { sync.status == .upToDate }
             wait(0.4)
             run { [self] in
                 let store = c.store
                 let backup = sync.lastBackup.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
-                let nowBackups = (try? FileManager.default.contentsOfDirectory(atPath: app!.settings.backupDirectory.path))?.count ?? 0
+                let nowBackups = count(replace ? app!.settings.backupDirectory : AppPaths.backups)
                 check(nowBackups == backups + 1 && backup.contains(replace ? "old.example" : "example.org"),
                       "\(script): a backup of this Mac's sidebar first (\(sync.lastBackup?.lastPathComponent ?? "none"))")
+                if !replace, let settings = app?.settings {
+                    check(sync.lastBackup.map(settings.isFallbackBackup) == true && settings.values.backupFolder == gone.path
+                          && !fm.fileExists(atPath: gone.path),
+                          "icloudsync-second: with the chosen folder gone, the backup went to the default folder; the choice stays, the gone folder isn't made")
+                    settings.values.backupFolder = nil
+                    try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: readOnly.path)
+                }
                 let work = store.orderedSpaces.first { $0.name.hasPrefix("Work") }
                 let docs = store.state.items.values.first { $0.title == "Docs" && $0.spaceID == work?.id }
                 let inDocs = store.state.items.values.contains { $0.savedURL == "https://example.com/docs" && $0.parentID == docs?.id }

@@ -407,7 +407,10 @@ iCloud has a sidebar, shows the first-sync screen: both sidebars, the profiles t
 - **Replace this Mac's sidebar with iCloud's:** this Mac's synced kinds are replaced; Today tabs of removed Spaces go
   to the Archive; profiles stay. Nothing of this Mac's old sidebar is sent.
 
-A backup (`airc-before-icloud-…json` in the backups folder) is taken first either way. Profiles: the group's default
+A backup (`airc-before-icloud-…json` in the backups folder) is taken first either way, through `settings.backUp` like
+every other backup: a chosen folder that's gone or read-only falls back to the default one (the choice stays). If no
+folder can be written, `choose` throws `SyncFirstSyncBackupFailure` before anything is merged, replaced or sent; the
+engine stays `.choosing` (no retry, no other status) and the screen says the backup failed. Profiles: the group's default
 profile maps to this Mac's default profile; others to a choice (a profile of this Mac, offered first when the name
 matches, or a new empty one). Several of the other Mac's profiles may share one profile here (the screen says so); it
 then syncs back as the first one mapped, the default one if it's among them. Profiles another Mac makes later arrive as
