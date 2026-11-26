@@ -10,7 +10,7 @@ summary = """
 One short text post: Airc Agent no longer stops after 25 steps; an optional limit in Settings.
 """
 order = """
-1. One slot after LIVE, a few days away from other agent posts.
+1. 27 Nov 10:30 UTC (planned late, 2026-11-26: its LIVE note was missed).
 """
 checked = """
 - Notes: Airc Agent no longer stops after 25 steps; it keeps going until the task is done or you stop it. Optional limit

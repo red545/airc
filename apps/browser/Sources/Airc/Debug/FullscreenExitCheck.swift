@@ -101,7 +101,9 @@ extension SnapshotRunner {
             }
             self?.finish()
         }
-        let attemptBudget: Double = mode == "native-shortcut" || mode == "native-escape" ? 100 : 44
+        // webkit-switch: the hide contract, six WebKit enter/exit animations (~0.7 s each way) and a return check per
+        // case took ~36 s of 44 already; every wait inside is bounded on its own.
+        let attemptBudget: Double = mode == "native-shortcut" || mode == "native-escape" ? 100 : mode == "webkit-switch" ? 60 : 44
         let deadline = DispatchWorkItem { [weak self] in
             guard let self else { return }
             if c.window.styleMask.contains(.fullScreen) { c.window.toggleFullScreen(nil) }
@@ -746,15 +748,25 @@ extension SnapshotRunner {
                     guard permitted() else { entered = false; return done() }
                     if ProtectedMedia.isWebKitPage(page) {
                         guard appIsActive(name) else { entered = false; return done() }
-                        evaluate("video.play();window.__fs='asked';\(target).requestFullscreen().then(()=>{__fs='in'},e=>{__fs='refused: '+e.message});true") { _ in
-                            poll("document.fullscreenElement===\(target)", timeout: 4) { ok in
-                                entered = ok
-                                page?.evaluate("window.__fs") { state in
-                                    self.check(ok, "\(name): entered (\(state ?? "-"), WebKit full screen \(String(describing: webKitFullscreen().map { $0.rawValue })))")
-                                    // WebKit's own window animates in; leave it once it is there.
-                                    self.waitUntil({ webKitFullscreen() == .inFullscreen }, timeout: 3) {
-                                        presentationWindow = page?.view.window
-                                        done()
+                        // The tab was shown again just before (the hide contract above, or the last case's switch
+                        // back); WebKit makes its document visible a moment later, and refuses full screen in a
+                        // hidden one. A page that stays hidden on its own tab fails here.
+                        poll("document.visibilityState==='visible'", timeout: 3) { visible in
+                            guard visible else {
+                                entered = false
+                                self.check(false, "\(name): the page is visible again on its tab before entering (still hidden after 3 s)")
+                                return done()
+                            }
+                            evaluate("video.play();window.__fs='asked';\(target).requestFullscreen().then(()=>{__fs='in'},e=>{__fs='refused: '+e.message});true") { _ in
+                                poll("document.fullscreenElement===\(target)", timeout: 4) { ok in
+                                    entered = ok
+                                    page?.evaluate("window.__fs") { state in
+                                        self.check(ok, "\(name): entered (\(state ?? "-"), WebKit full screen \(String(describing: webKitFullscreen().map { $0.rawValue })))")
+                                        // WebKit's own window animates in; leave it once it is there.
+                                        self.waitUntil({ webKitFullscreen() == .inFullscreen }, timeout: 3) {
+                                            presentationWindow = page?.view.window
+                                            done()
+                                        }
                                     }
                                 }
                             }
@@ -812,32 +824,64 @@ extension SnapshotRunner {
                 wait(0.4)
                 step { [self] done in
                     guard entered else { return done() }
+                    let switched = exit == "tab" || exit == "space" || exit == "empty"
+                    let webKitPage = ProtectedMedia.isWebKitPage(page)
+                    // WebKit's full-screen window, or any other of its full-screen windows, still on screen.
+                    let browserWindow = little?.window ?? c.window
+                    func strayWindow() -> Bool {
+                        (presentationWindow !== browserWindow && presentationWindow?.isVisible == true)
+                            || NSApp.windows.contains { $0.isVisible && $0 !== browserWindow && String(describing: type(of: $0)).contains("FullScreen") }
+                    }
+                    var strayGone = ""
                     func finished(_ ok: Bool) {
-                        let home = page?.view.window === (little?.window ?? c.window)
+                        let home = page?.view.window === browserWindow
                         let fs = webKitFullscreen().map { " WebKit full screen \($0.rawValue)," } ?? ""
-                        check(ok && (home || exit == "tab" || exit == "space" || exit == "empty"),
-                              "\(name): exited, video still playing, browser alive (\(fs) page in its window \(home))")
+                        if webKitPage && switched {
+                            // WebKit pauses a muted video while its page is hidden (its own media policy, not the app's;
+                            // Chromium keeps playing). So here: out of full screen and hidden on another tab or Space;
+                            // the video must play again once its tab is back (asserted below).
+                            check(ok, "\(name): exited while hidden behind another \(exit == "tab" ? "tab" : "Space"), browser alive (\(fs) page in its window \(home))")
+                        } else {
+                            check(ok && (home || switched),
+                                  "\(name): exited, video still playing, browser alive (\(fs) page in its window \(home))")
+                        }
                         if !ok, let page {
                             page.evaluate("JSON.stringify({fullscreen:!!document.fullscreenElement,paused:video.paused,pip:!!document.pictureInPictureElement,hidden:document.hidden,escSeen:window.__esc|0})") { v in
                                 self.note("fullscreen exit state: \(v ?? "unavailable")" + (exit == "escape" ? ", Esc sent through \(escapeTo)" : ""))
                             }
                         }
-                        if ProtectedMedia.isWebKitPage(page) {
-                            let stray = presentationWindow !== (little?.window ?? c.window) && presentationWindow?.isVisible == true
+                        if webKitPage {
+                            let stray = strayWindow()
                             check(webKitFullscreen() == .notInFullscreen && !stray && home,
-                                  "\(name): WebKit returned the page and closed its fullscreen window (stray \(stray))")
+                                  "\(name): WebKit returned the page and closed its fullscreen window (stray \(stray), \(strayGone))")
                         }
                         // Cleanup even on failed exit; the next request must start windowed.
                         let leave = ProtectedMedia.isWebKitPage(page) ? "(document.fullscreenElement&&document.exitFullscreen(),true)"
                             : "(async()=>{if(document.fullscreenElement)await document.exitFullscreen();return true})()"
                         evaluate(leave) { _ in
-                            if exit == "tab" || exit == "space" || exit == "empty" {
+                            if switched {
                                 self.c.switchToSpace(originalSpace, animated: false)
                                 self.c.show(originalTab, focus: false)
                             }
                             guard mode == "pip" else {
-                                return self.waitUntil({ webKitFullscreen().map { $0 == .notInFullscreen } ?? true }, timeout: 4) {
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: done)
+                                let settle = {
+                                    self.waitUntil({ webKitFullscreen().map { $0 == .notInFullscreen } ?? true }, timeout: 4) {
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: done)
+                                    }
+                                }
+                                guard webKitPage && switched else { return settle() }
+                                // Back on its tab: inline in the browser window, visible and playing again.
+                                return self.waitUntil({ page?.view.window === browserWindow }, timeout: 3) {
+                                    poll("!document.fullscreenElement && !document.hidden && !video.paused", timeout: 3) { back in
+                                        self.check(back && page?.view.window === browserWindow && !strayWindow(),
+                                                   "\(name): back on its tab the video plays inline in the browser window")
+                                        if !back {
+                                            page?.evaluate("JSON.stringify({fullscreen:!!document.fullscreenElement,paused:video.paused,hidden:document.hidden})") { v in
+                                                self.note("fullscreen return state: \(v ?? "unavailable")")
+                                            }
+                                        }
+                                        settle()
+                                    }
                                 }
                             }
                             evaluate("video.requestPictureInPicture().then(()=>document.pictureInPictureElement===video)") { pip in
@@ -849,9 +893,18 @@ extension SnapshotRunner {
                             }
                         }
                     }
-                    if ProtectedMedia.isWebKitPage(page) {
-                        poll("!document.fullscreenElement && !video.paused", timeout: 4) { ok in
-                            self.waitUntil({ webKitFullscreen() == .notInFullscreen }, timeout: 4) { finished(ok) }
+                    if webKitPage {
+                        poll(switched ? "!document.fullscreenElement && document.hidden" : "!document.fullscreenElement && !video.paused", timeout: 4) { ok in
+                            self.waitUntil({ webKitFullscreen() == .notInFullscreen }, timeout: 4) {
+                                // WebKit orders its full-screen window out just after it reports notInFullscreen
+                                // (~20 ms). Wait for that, bounded: a window still up after 1 s is a stuck one.
+                                let zero = CACurrentMediaTime()
+                                self.waitUntil({ !strayWindow() }, timeout: 1) {
+                                    strayGone = strayWindow() ? "window still up 1 s after state 0"
+                                        : String(format: "window gone %.0f ms after state 0", (CACurrentMediaTime() - zero) * 1000)
+                                    finished(ok)
+                                }
+                            }
                         }
                     } else {
                         evaluate("!document.fullscreenElement && !video.paused", finished)

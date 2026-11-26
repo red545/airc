@@ -2,6 +2,38 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.61",
+      "highlights": [
+        {
+          "title": "Agent works in your window",
+          "lead": "The Airc Agent now works right in your window",
+          "detail": "Give the Airc Agent a task and its page opens as a tab in your window, with Take over and Stop on a bar on top. Switch tabs whenever you like; it keeps going.",
+          "icon": "sparkles",
+          "action": "commandBar"
+        },
+        {
+          "title": "⌘T leaves full screen",
+          "lead": "⌘T over a full-screen video now leaves full screen on Chromium pages too",
+          "detail": "Press ⌘T over a full-screen video on any page and the Command Bar opens in your window. Switching away from a full-screen Safari-engine page no longer gets stuck.",
+          "icon": "arrow.down.right.and.arrow.up.left",
+          "action": "commandBar"
+        },
+        {
+          "title": "Quit without waiting",
+          "lead": "Quitting no longer waits on an empty Apple ID sheet",
+          "detail": "On Safari-engine pages, an empty Apple ID sign-in sheet no longer holds up quitting Airc. Apple ID pages show their own sign-in form instead.",
+          "icon": "power"
+        },
+        {
+          "title": "Backup folder fallback",
+          "lead": "Backups still happen when your chosen backup folder is missing",
+          "detail": "If the backup folder you chose in Settings › General is gone or read-only, Airc backs up to its default folder and keeps your choice for next time.",
+          "icon": "externaldrive.badge.checkmark",
+          "action": "settingsGeneral"
+        }
+      ]
+    },
+    {
       "version": "0.1.60",
       "highlights": [
         {

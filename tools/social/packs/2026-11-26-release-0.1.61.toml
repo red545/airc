@@ -1,0 +1,30 @@
+# Airc 0.1.61 (release073; notes on origin/main 0d3e17c3). LIVE 2026-11-26 00:15Z (queue.md 00:21Z). Claims from its
+# approved notes. Public repo: plan only after the v0.1.61 tag shows (owner rule).
+slug = "2026-11-26-release-0.1.61"
+title = "Airc 0.1.61: the agent works right in your window"
+kind = "release"
+since = "0.1.61"
+tag = ""
+summary = """
+One text post on the headline: the agent's page opens as a tab in Today with a glow and a Take over / Stop bar. No
+card: the agent-in-window shots aren't re-taken yet (the lead re-takes them with the homepage demo); the demo video post
+(2026-11-23-agent-demo) gets the new take then.
+"""
+order = """
+1. 28 Nov 10:30 UTC (the slot the old demo video had).
+"""
+checked = """
+- Notes: when you give it a task, its page opens as a tab in Today, with a soft glow in your Space's colour and a bar on
+  top with Take over and Stop; while it works your clicks and typing on that page wait, scrolling is fine; switch tabs
+  whenever you like, the agent keeps going, and the agent pane shows a live picture of its page until you come back.
+- Not posted: ⌘T over full-screen video on Chromium (release073: don't promise "first key"), the Apple ID quit fix,
+  backups fallback (small fixes). Still a beta.
+- Held for this release (2026-11-26): agentdemo-01 (old pane flow), release0146-02 (task-view card: old viewport flow),
+  both until the lead's 0.1.61 re-take; release0156-02 re-approved (lead: Watch is still the name, text true).
+"""
+
+[[post]]
+label = "The agent works in your window"
+text = """
+Airc Agent now works right in your window: its page opens as a tab in Today, with a soft glow and a bar to Take over or Stop. Switch tabs whenever you like, it keeps going, and the agent pane shows a live picture of its page. Beta, new in Airc 0.1.61.
+"""

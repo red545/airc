@@ -724,5 +724,29 @@
     "detail": "A Space's grain texture now looks as it does in Arc, in light and dark Spaces. Set its strength with the grain dial under the Space's Theme….",
     "action": "none",
     "image": null
+  },
+  "The Airc Agent now works right in your window": {
+    "title": "Agent works in your window",
+    "detail": "Give the Airc Agent a task and its page opens as a tab in your window, with Take over and Stop on a bar on top. Switch tabs whenever you like; it keeps going.",
+    "action": "commandBar",
+    "image": null
+  },
+  "Quitting no longer waits on an empty Apple ID sheet": {
+    "title": "Quit without waiting",
+    "detail": "On Safari-engine pages, an empty Apple ID sign-in sheet no longer holds up quitting Airc. Apple ID pages show their own sign-in form instead.",
+    "action": "none",
+    "image": null
+  },
+  "Backups still happen when your chosen backup folder is missing": {
+    "title": "Backup folder fallback",
+    "detail": "If the backup folder you chose in Settings › General is gone or read-only, Airc backs up to its default folder and keeps your choice for next time.",
+    "action": "settingsGeneral",
+    "image": null
+  },
+  "⌘T over a full-screen video now leaves full screen on Chromium pages too": {
+    "title": "⌘T leaves full screen",
+    "detail": "Press ⌘T over a full-screen video on any page and the Command Bar opens in your window. Switching away from a full-screen Safari-engine page no longer gets stuck.",
+    "action": "commandBar",
+    "image": null
   }
 }
