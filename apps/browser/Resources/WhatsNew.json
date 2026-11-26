@@ -2,6 +2,25 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.63",
+      "highlights": [
+        {
+          "title": "Sync with a recovery key",
+          "lead": "iCloud sync now works without iCloud Keychain",
+          "detail": "No iCloud Keychain on a Mac? Show the recovery key in Settings › Sync on a Mac that syncs, then choose Use Recovery Key… on the other and type it in.",
+          "icon": "key",
+          "action": "settingsSync"
+        },
+        {
+          "title": "Start sync over",
+          "lead": "If no Mac has the sync key any more, you can start over",
+          "detail": "If none of your Macs has the sync key any more, Start Over… in Settings › Sync backs up this Mac and starts again. Nothing in iCloud is deleted, and your other Macs merge.",
+          "icon": "arrow.clockwise.icloud",
+          "action": "settingsSync"
+        }
+      ]
+    },
+    {
       "version": "0.1.62",
       "highlights": [
         {
