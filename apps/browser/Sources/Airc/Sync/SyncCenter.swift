@@ -1,6 +1,7 @@
 // Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
 import AircKit
 import AppKit
+import LocalAuthentication
 import CryptoKit
 import IOKit
 
@@ -36,6 +37,9 @@ final class SyncCenter: ObservableObject {
     @Published private(set) var syncsSettings = true
     /// Settings › Sync › "Sync Boosts" (on by default while sync is on).
     @Published private(set) var syncsBoosts = true
+    /// Settings › Sync's recovery sheet (SyncRecovery.swift): the key shown, or the field to type one. Also how the
+    /// scripted check opens it.
+    @Published var recoverySheet: SyncRecoverySheet?
     /// The app's settings for the engine (SettingsSync.swift).
     private(set) var settingsSync: SettingsSync?
     private(set) var backend: Backend = .none
@@ -280,6 +284,54 @@ final class SyncCenter: ObservableObject {
         guard let engine else { return }
         MainActor.assumeIsolated { engine.cancelFirstSync() }
         refresh()
+    }
+
+    // MARK: Recovery (syncrecovery; the sheets are in SyncRecovery.swift)
+
+    /// This Mac syncs with the key here: Settings offers its recovery key.
+    var hasRecoveryKey: Bool {
+        guard let engine else { return false }
+        return MainActor.assumeIsolated { engine.isEnabled && engine.hasJoined && engine.status != .waitingForKeychain }
+    }
+
+    /// The recovery key, after the Mac's login (Touch ID or the password; scripted runs skip it). nil: none, or the
+    /// person cancelled.
+    func revealRecoveryKey(_ done: @escaping (String?) -> Void) {
+        guard let engine else { return done(nil) }
+        let reveal = { done(MainActor.assumeIsolated { (try? engine.recoveryKey()) ?? nil }) }
+        if app?.options.isScripted == true { return reveal() }
+        let context = LAContext()
+        context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: "show the sync recovery key") { ok, _ in
+            DispatchQueue.main.async { if ok { reveal() } else { done(nil) } }
+        }
+    }
+
+    /// A recovery key typed on a Mac waiting for the key. `done` gets the error, if any.
+    func useRecoveryKey(_ text: String, done: ((Error?) -> Void)? = nil) {
+        guard let engine else { return }
+        Task { @MainActor in
+            do { try await engine.useRecoveryKey(text); done?(nil) }
+            catch {
+                NSLog("Airc sync: the recovery key wasn't used: %@", String(describing: error))
+                done?(error)
+            }
+            refresh()
+        }
+    }
+
+    /// "Start over with this Mac's sidebar". `done` gets the error, if any.
+    func startOver(done: ((Error?) -> Void)? = nil) {
+        guard let engine else { return }
+        Task { @MainActor in
+            do {
+                lastBackup = try await engine.startOver()
+                done?(nil)
+            } catch {
+                NSLog("Airc sync: start over didn't happen: %@", String(describing: error))
+                done?(error)
+            }
+            refresh()
+        }
     }
 
     /// A CloudKit push (silent: no alert, nothing shown).

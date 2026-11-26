@@ -133,6 +133,43 @@ builds once set up" and never touches CloudKit (`SyncCapability`).
 
 ## Release gates
 
+### Tests at release time: fast gate, changed-path smokes, tail
+
+A release tests its cut in three steps. Only the first two hold the release.
+
+1. **Fast gate** (`infra/release/fast-gate.py`, about 4 min): launch and quit, HTTP/HTTPS, Notes across a relaunch,
+   the real Little Airc key, a real full-screen exit, local sharing, PiP, onboarding and redirects, on both engines.
+2. **Changed-path smokes** (`infra/release/smokes.py`, budget 15 min): the core set (windows, sidebar, Command Bar,
+   sign-in prompts; both engines), plus each smoke whose product paths changed since the last release. Security
+   picks (outside-agent approval) and engine picks always run. When the picks exceed the budget, the lowest-ranked
+   ones move to the head of the tail. On the signed stage, only the short functional smokes (ctxmenu, ctxmain,
+   feedback, fedcm, mcpprompt, atlaunch, wkrules) hold the release.
+3. **Tail** (after LIVE, on the same test build and stage): every other smoke from the catalog, the changed
+   checks' own test code, the posted/real twins of gate runs, and the timing runs (cbperf, idlecpu, timelines,
+   linkpaint, launchcount). A red tail does not hold the release that started it. It blocks the **next** release
+   (`smokes.py blockers`) until the red is fixed on main, passes on a rerun, or is ruled under the flake rule.
+
+A crash, hang or watchdog red stops the release at any step, and the flake rule never clears it. A new crash
+report on the Mac during the smokes is the same kind of red.
+
+```
+python3 infra/release/smokes.py plan --to <cut> [--extra extra-oe-smokes.txt] --json plan.json   # dry run + estimate
+python3 infra/release/smokes.py run --plan plan.json --tier gate --work <release> --out <dir> --during-staging [--groups g.tsv]
+systemd-run --user --unit=<release>-tail --collect python3 infra/release/smokes.py run --plan plan.json \
+  --tier tail --work <release> --out <dir> --release <version>   # after LIVE
+python3 infra/release/smokes.py blockers      # the next release, before it freezes
+```
+
+`plan` compares the cut with the last release's `Source:` line in `docs/release-notes-beta.md`. It lists the
+changed paths that no smoke covers, and any new check without a catalog entry. Add new checks with `--extra` (the
+release074 `extra-oe-smokes.txt` format) and the PASS count their owner reported. The catalog
+(`infra/release/smoke-catalog.json`) records each smoke's paths, PASS floor and time. It also lists the
+lead-approved allowances (`allow_env`); pass any other approved line with `--allow ID=REGEX[:MAX]`. Before a stage,
+keep the test build's apps and scripts (about 0.7 GB) rather than deleting the work folder: the tail runs on them.
+See `infra/release/fast-gate.md`, "Changed-path smokes".
+
+### Packaging and distribution gates
+
 `package.sh` builds the Chromium app from `out/AircRelease` (or explicit `CHROMIUM_OUT`) as a **public build**
 (below) with the public stable feed, no dev channel, no bundle launch defaults and no test identity. `--app` uses an
 existing bundle but rejects incorrect release metadata rather than rewriting it. Neither mode publishes. The staging

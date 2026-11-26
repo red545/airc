@@ -94,6 +94,24 @@ It's end-to-end encrypted. The key is in your iCloud Keychain, so only your Macs
 
 After that, changes on either Mac show up on the other within seconds, or when you switch to Airc.
 
+## Without iCloud Keychain, or when the key is lost
+
+The key that encrypts your sync lives in iCloud Keychain. If a Mac can't get it (iCloud Keychain is off there, or the
+key was lost), Settings → Sync says **Waiting for iCloud Keychain** and offers two ways out:
+
+- **Use Recovery Key…** On a Mac that syncs, open Settings → Sync → **Recovery key** → **Show…** (it asks for your Mac's
+  password or Touch ID first). Type those 14 groups of characters on the waiting Mac; capitals, spaces and dashes don't
+  matter. A new Mac then shows the usual first-sync choice. A Mac that had synced before carries on where it left off and
+  sends what you changed meanwhile. Anyone with the recovery key and access to your Apple Account can read your synced
+  sidebar, so keep it somewhere safe, like a password manager.
+- **Start Over…** Use this only if none of your Macs has the key any more. Airc backs up this Mac's sidebar, then makes a
+  new sync with it. Nothing in iCloud is deleted: the old data just can't be read any more. Your other Macs keep their
+  sidebars. Each one notices the new sync, waits for its key (from iCloud Keychain, or this Mac's recovery key), then asks
+  how to start: **Merge**, which is preselected, keeps everything on that Mac, including changes that hadn't synced
+  yet, and what both had before shows up once. That Mac's sidebar is backed up first, as always.
+
+A recovery key works until someone starts over; after that, show the new one.
+
 ## Turning it off
 
 Turning sync off stops syncing on this Mac and keeps your sidebar as it is. Turn it on again and it picks up where it

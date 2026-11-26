@@ -28,6 +28,9 @@ public struct SyncFirstSync: Equatable, Sendable {
     /// Every batch in iCloud could be read. When some can't (damaged, or from a newer Airc), Replace isn't offered:
     /// it would replace this Mac's sidebar with part of iCloud's.
     public var complete = true
+    /// This Mac had synced, and another Mac started sync over (syncrecovery): Merge keeps everything here and is offered
+    /// first.
+    public var restartedElsewhere = false
     /// The local profile the group's default profile maps to (already taken: choosing it for another profile too
     /// puts both profiles' Spaces in it).
     public var defaultProfile: String?
@@ -152,6 +155,9 @@ public final class SyncEngine {
         var settings = SyncSettingsState()
         /// Boosts: the switch, and what this Mac last sent or applied (BoostSyncPayload.swift).
         var boosts = SyncBoostsState()
+        /// This Mac had synced with a group another Mac has since started over (syncrecovery): it rejoins the new one
+        /// through the first-sync screen, keeping its sidebar. Cleared by that first sync.
+        var restarted = false
 
         init(device: UUID = UUID(), machine: String?) {
             self.device = device; self.machine = machine
@@ -160,7 +166,7 @@ public final class SyncEngine {
 
         private enum CodingKeys: String, CodingKey {
             case version, enabled, device, machine, group, joined, replica, adapter, outbox, checkpoint, account, lastSynced
-            case published, uploaded, recovery, applyMode, quarantine, malformed, notes, settings, boosts
+            case published, uploaded, recovery, applyMode, quarantine, malformed, notes, settings, boosts, restarted
         }
 
         init(from decoder: Decoder) throws {
@@ -189,6 +195,7 @@ public final class SyncEngine {
             settings = try c.decodeIfPresent(SyncSettingsState.self, forKey: .settings) ?? SyncSettingsState()
             // From before Boosts synced: on, nothing sent yet (the next capture sends this Mac's Boosts).
             boosts = try c.decodeIfPresent(SyncBoostsState.self, forKey: .boosts) ?? SyncBoostsState()
+            restarted = try c.decodeIfPresent(Bool.self, forKey: .restarted) ?? false
         }
     }
 
@@ -476,6 +483,13 @@ public final class SyncEngine {
                 return
             }
             guard let key = try key ?? env.keys.key(group: group) else {
+                // Started over on another Mac meanwhile? Then this Mac joins the new sync, keeping its sidebar.
+                let found = try await t.group(); try live(gen)
+                if let found, found.group != group {
+                    try rejoin()
+                    rerun = true
+                    return
+                }
                 status = .waitingForKeychain
                 return schedule(after: 60)
             }
@@ -513,6 +527,11 @@ public final class SyncEngine {
         let envelopes = try await t.read(); try live(gen)
         let report = await t.takeReadReport(); try live(gen)
         let notes = await t.takeNotes(); try live(gen)
+        if let found = report.group, found.group != group {
+            // Another Mac started sync over (syncrecovery): nothing of this read is merged; this Mac rejoins.
+            try rejoin()
+            throw SyncGroupReplaced()
+        }
         if report.zoneRecreated || (report.full && !state.uploaded.isSubset(of: report.own)) {
             state.recovery = true
             try save()
@@ -588,8 +607,9 @@ public final class SyncEngine {
             let winner = try await t.createGroup(try SyncGroupRecord.make(group: group, key: key, created: env.now()))
             try live(gen)
             guard winner.group == group else {
-                stop("The sync data in iCloud now belongs to another group. Turn sync on to sync with it.")
-                throw SyncError.cancelled
+                // Another Mac started over (or set up anew) while the zone was gone: join its sync, keeping this sidebar.
+                try rejoin()
+                throw SyncGroupReplaced()
             }
             state.outbox = try seal(state.replica.log.filter { $0.stamp.device == state.device }, group: group, key: key)
             try recoverNotes(group: group, key: key)
@@ -708,17 +728,134 @@ public final class SyncEngine {
         trySave()
     }
 
+    // MARK: Recovery (syncrecovery: docs/sync.md, "Recovery key" and "Starting over")
+
+    /// The group key as a recovery key (SyncRecoveryKey), for a Mac without iCloud Keychain. nil: this Mac has no key.
+    /// Settings asks for the Mac's login before it shows it.
+    public func recoveryKey() throws -> String? {
+        guard state.enabled, state.joined, let group = state.group, let key = try key ?? env.keys.key(group: group) else { return nil }
+        return SyncRecoveryKey.format(key)
+    }
+
+    /// The recovery key typed on a Mac waiting for the key: checked against iCloud's group record, then added to this
+    /// Mac's keychain, and the sync goes on (a new Mac to the first-sync screen; a Mac that had synced where it left).
+    /// Throws `SyncRecoveryFailure` (and the transport's failures, e.g. iCloud out of reach); changes nothing then.
+    public func useRecoveryKey(_ text: String) async throws {
+        let key: SymmetricKey
+        do { key = try SyncRecoveryKey.parse(text) } catch { throw SyncRecoveryFailure.malformed }
+        guard state.enabled, status == .waitingForKeychain else { throw SyncRecoveryFailure.notWaiting }
+        let t = liveTransport()
+        let gen = generation
+        let found = try await t.group(); try live(gen)
+        guard let found else { throw SyncRecoveryFailure.notWaiting }
+        guard found.verifies(key) else { throw SyncRecoveryFailure.otherGroup }
+        // Started over elsewhere since this Mac synced: the key is the new sync's, so this Mac rejoins it.
+        if state.joined, state.group != found.group { try rejoin() }
+        do { try env.keys.add(key, group: found.group) }
+        catch SyncKeyError.duplicate {
+            // iCloud Keychain brought it meanwhile, or this Mac has another key under that name (then it can't be
+            // replaced: deleting a synchronizable item deletes it on every Mac).
+            guard (try? env.keys.key(group: found.group)).flatMap({ $0 }).map(found.verifies) == true else {
+                throw SyncRecoveryFailure.keychain
+            }
+        } catch { throw SyncRecoveryFailure.keychain }
+        status = state.joined ? .syncing : .connecting
+        rerun = true
+        syncSoon()
+    }
+
+    /// "Start over with this Mac's sidebar": only while this Mac has no key for the group in iCloud. Backs up this
+    /// Mac's sidebar (a failure throws `SyncFirstSyncBackupFailure` and changes nothing), makes a new group and key,
+    /// puts the new group record in place of the old one (nothing else in iCloud is deleted), and uploads this Mac's
+    /// sidebar, notes, settings and Boosts as the first Mac would. Other Macs rejoin through their first-sync screen.
+    /// Returns the backup.
+    @discardableResult
+    public func startOver() async throws -> URL {
+        guard state.enabled, status == .waitingForKeychain else { throw SyncRecoveryFailure.notWaiting }
+        let t = liveTransport()
+        let gen = generation
+        do {
+            let identity = try await t.accountIdentity(); try live(gen)
+            if let identity, let known = state.account, identity != known {
+                stop("You're signed in to another iCloud account now. Turn sync on to sync with it.")
+                throw SyncError.cancelled
+            }
+            if let identity { state.account = identity; await t.bind(account: identity); try live(gen) }
+            let current = try await t.group(); try live(gen)
+            // Never while this Mac can read the sync after all (the key came meanwhile).
+            if let current, try env.keys.key(group: current.group) != nil { throw SyncRecoveryFailure.notWaiting }
+            let backup: URL
+            do { backup = try env.backup() } catch { throw SyncFirstSyncBackupFailure(underlying: error) }
+            let group = UUID(), key = SyncEnvelope.newGroupKey()
+            try env.keys.add(key, group: group)
+            let record = try SyncGroupRecord.make(group: group, key: key, created: env.now())
+            let winner = try await t.replaceGroup(record, replacing: current?.group); try live(gen)
+            guard winner.group == group else {
+                // Another Mac started over at the same moment and won: no record names this key, so it goes again, and
+                // this Mac joins the winner.
+                try? env.keys.removeUnused(group: group)
+                if state.joined { try rejoin() }
+                throw SyncRecoveryFailure.startedElsewhere
+            }
+            let old = state
+            var fresh = State(device: old.device, machine: old.machine)
+            fresh.enabled = true
+            fresh.account = old.account
+            fresh.group = group
+            fresh.joined = true
+            // Same group profile IDs and record IDs as before, so the other Macs map everything without asking.
+            fresh.adapter = old.adapter.restarted()
+            fresh.settings.off = old.settings.off
+            fresh.boosts.off = old.boosts.off
+            state = fresh
+            self.key = key
+            pending = nil
+            devices = []
+            try capture()
+            status = .syncing
+            await t.restore(checkpoint: nil); try live(gen)
+            try await exchange(t, group: group, key: key, gen: gen); try live(gen)
+            try await t.verifyAccount(); try live(gen)
+            finishCycle()
+            return backup
+        } catch {
+            if isLive(gen), !(error is SyncFirstSyncBackupFailure), !(error is SyncRecoveryFailure) { handle(error) }
+            throw error
+        }
+    }
+
+    /// This Mac's group was started over on another Mac: forget the old group's sync state (never the store: its
+    /// sidebar, notes, settings and Boosts stay, and so do edits that never reached iCloud) and join the new group like a
+    /// new Mac. The first-sync screen then says so, and Merge keeps everything here. The old key stays in the keychain.
+    private func rejoin() throws {
+        let old = state
+        var fresh = State(device: old.device, machine: old.machine)
+        fresh.enabled = old.enabled
+        fresh.account = old.account
+        fresh.adapter = old.adapter.restarted()
+        fresh.settings.off = old.settings.off
+        fresh.boosts.off = old.boosts.off
+        fresh.lastSynced = old.lastSynced
+        fresh.restarted = old.joined || old.restarted
+        state = fresh
+        key = nil
+        pending = nil
+        devices = []
+        try save()
+    }
+
     private func finishJoin(_ t: SyncGroupTransport, _ choice: SyncFirstSyncChoice, profiles choices: [String: SyncProfileChoice],
                             gen: Int) async throws {
         guard let joining = pending else { return }
         try live(gen)
         let found = joining.group, key = joining.key, remote = joining.remote
-        var adapter = SyncStoreAdapter()
+        // A rejoin after a start-over elsewhere keeps how this Mac's profiles map to the group's (syncrecovery).
+        var adapter = state.restarted ? state.adapter.restarted() : SyncStoreAdapter()
         applying = true
         // Profiles: the same one (this Mac's own, synced back), the default one to the default one, then the choices
         // (several may share one local profile), else a new empty one (reused if a crash interrupted an earlier try).
         let descriptors = profileDescriptors(remote)
-        let referenced = referencedProfiles(remote).filter { store.profile($0) == nil }
+        let referenced = referencedProfiles(remote).filter { store.profile($0) == nil && adapter.localProfiles[$0] == nil }
             .sorted { (descriptors[$0]?.isDefault == true ? 0 : 1, $0) < (descriptors[$1]?.isDefault == true ? 0 : 1, $1) }
         do {
             for group in referenced {
@@ -751,6 +888,7 @@ public final class SyncEngine {
         state.malformed = joining.malformed
         state.checkpoint = nil
         state.joined = true
+        state.restarted = false
         self.key = key
         pending = nil
         // Already captured (merge), or this Mac's sidebar is what's being replaced: nothing to capture first.
@@ -787,7 +925,9 @@ public final class SyncEngine {
         let defaultTaken = descriptors.values.contains(where: \.isDefault) ? store.defaultProfile.id : nil
         var profiles: [SyncFirstSync.Profile] = []
         var suggested = Set<String>()
-        for group in referencedProfiles(remote).sorted() where store.profile(group) == nil && descriptors[group]?.isDefault != true {
+        let known = state.restarted ? state.adapter.localProfiles : [:]
+        for group in referencedProfiles(remote).sorted() where store.profile(group) == nil && known[group] == nil
+            && descriptors[group]?.isDefault != true {
             let d = descriptors[group]
             let name = d?.name ?? "Profile"
             let users = spaces.filter { $0[.profile] == .text(group) }.map { if case .text(let n)? = $0[.name] { n } else { "Space" } }
@@ -799,7 +939,9 @@ public final class SyncEngine {
             if let same { suggested.insert(same.id) }
             profiles.append(.init(id: group, name: name, emoji: d?.emoji ?? "", spaces: users, suggestion: same?.id))
         }
-        return SyncFirstSync(thisMac: mine, iCloud: iCloud, profiles: profiles, complete: complete, defaultProfile: defaultTaken)
+        var first = SyncFirstSync(thisMac: mine, iCloud: iCloud, profiles: profiles, complete: complete, defaultProfile: defaultTaken)
+        first.restartedElsewhere = state.restarted
+        return first
     }
 
     private struct Descriptor { var name: String; var emoji: String; var isDefault: Bool }
@@ -1177,6 +1319,8 @@ public final class SyncEngine {
         var work = NoteWork()
         var versions: [SyncNoteVersion] = []
         for record in records where record.device != state.device {
+            // An older group's record (sync was started over since): not this sync's, and not unreadable either.
+            guard record.group == group else { state.notes.unreadable.remove(record.name); continue }
             if let version = try? record.open(group: group, key: key) {
                 versions.append(version)
                 state.notes.unreadable.remove(record.name)
@@ -1432,6 +1576,12 @@ public final class SyncEngine {
     private func handle(_ error: Error) {
         // The session ended (off, Cancel, another account): its status is already set, nothing to retry.
         if error as? SyncError == .cancelled { return }
+        if error is SyncGroupReplaced {
+            // This Mac left the old group (rejoin): the next cycle joins the new one.
+            status = .connecting
+            rerun = true
+            return syncSoon()
+        }
         failures += 1
         let wait = min(900, 5 * pow(3, Double(min(failures, 6) - 1)))
         switch error {

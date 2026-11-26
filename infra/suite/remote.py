@@ -46,11 +46,11 @@ class SnapshotEvidence:
             (self.evidence / 'log.txt').write_bytes(new)
 
 
-def acquire(lock, lease):
-    """Refuse contention; never queue in front of another agent."""
+def acquire(lock, lease, patience=None):
+    """Lowest priority, bounded starvation (priority.admit); the lease is renewed while waiting."""
     lease()
     try:
-        admit(lock)
+        admit(lock, lease, patience=patience)
     except (InterruptedError, OSError, RuntimeError, subprocess.SubprocessError) as error:
         print('@@YIELD@@ ' + str(error), flush=True)
         raise InterruptedError(str(error)) from error
@@ -101,7 +101,8 @@ def main():
     shutdown_observation = None
     with lockpath.open('a+') as lock:
         try:
-            acquire(lock, lease)
+            # UI cases are about a minute each: yield to queued agents for 5 min, builds for the default 20.
+            acquire(lock, lease, 300 if ui else None)
             # Require a fresh authorization after acquisition, never a queued heartbeat.
             while pending or selector.select(0):
                 lease()

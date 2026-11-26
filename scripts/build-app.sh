@@ -732,6 +732,14 @@ if [[ -n "$SNAPSHOTS" ]]; then
         --sync-keychain "$home/ICloudShared/keychain-$sync_keychain" --sync-device-name "${sync_name//-/ }"
     done
     launch --script icloudsync-unavailable --ephemeral --data-dir "$home/ICloudUnavailable"
+    # Recovery without iCloud Keychain (ICloudSyncRecoveryCheck.swift, docs/sync.md "Recovery key"): no key file is ever
+    # copied. B joins A with A's recovery key; C starts over with its own sidebar; A notices, keeps its sidebar and merges.
+    for sync_phase in "icloudsync-recovery-a a RecoveryA" "icloudsync-recovery-b b RecoveryB" "icloudsync-recovery-c c RecoveryC" \
+      "icloudsync-recovery-a2 a RecoveryA"; do
+      read -r sync_script sync_keychain sync_data <<< "$sync_phase"
+      launch --script "$sync_script" --data-dir "$home/$sync_data" --sync-mock "$home/RecoveryShared/cloud" \
+        --sync-keychain "$home/RecoveryShared/keychain-$sync_keychain" --sync-device-name "Recovery Mac ${sync_keychain}"
+    done
     # Settings sync (SettingsSyncCheck.swift, docs/sync.md "Settings") between two instances on another mock database: A's
     # theme, shortcut, Site Search and sidebar side reach B; per-Mac settings stay; the later change wins on both.
     for sync_phase in "settingssync-a a SettingsA" "settingssync-b b SettingsB" "settingssync-a2 a SettingsA"; do

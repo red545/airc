@@ -23,21 +23,44 @@ def contenders(path):
             and row.get('mode', '').endswith('*')]
 
 
-def admit(lock):
-    # Never join the blocking queue. Check both sides of acquisition to avoid
-    # overtaking an already queued peer when its holder releases the lock.
-    if contenders(lock.name):
-        raise InterruptedError('peer lock waiter: ' + str(lock.name))
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        raise InterruptedError('peer lock holder: ' + str(lock.name)) from None
-    try:
-        if contenders(lock.name):
-            raise InterruptedError('peer lock waiter after acquisition: ' + str(lock.name))
-    except BaseException:
-        fcntl.flock(lock, fcntl.LOCK_UN)
-        raise
+PATIENCE = int(os.environ.get('AIRC_SUITE_PATIENCE', 20 * 60))      # yield to queued peers this long
+GIVE_UP = int(os.environ.get('AIRC_SUITE_GIVE_UP', 4 * 3600))         # then stop the attempt (resumable)
+POLL = 2.0
+
+
+def admit(lock, tick=lambda: None, patience=None, give_up=None, clock=time.monotonic, sleep=time.sleep):
+    """Lowest priority with bounded starvation (fastgate2, 26 Nov).
+
+    Before: any queued peer aborted the whole attempt at once, and agents queue for the build and UI locks almost
+    all the time, so no run finished after 13 Nov (379 restarts on 26 Nov alone). Now the suite waits in place,
+    calling tick() every POLL seconds (the coordinator lease and hold markers; it raises to stop). It never takes
+    the lock while a peer is queued, for up to `patience` seconds. After that it takes the lock as soon as it is
+    free, like any other waiter. It never blocks in the kernel queue, so tick keeps running. It gives up only
+    after `give_up`. The run then resumes from its checkpoint."""
+    patience = PATIENCE if patience is None else patience
+    give_up = GIVE_UP if give_up is None else give_up
+    start = clock()
+    while True:
+        tick()
+        waited = clock() - start
+        starved = waited >= patience
+        if starved or not contenders(lock.name):
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                pass
+            else:
+                try:
+                    # a peer that queued while we acquired still goes first, until we are starved
+                    if starved or not contenders(lock.name):
+                        return waited
+                except BaseException:
+                    fcntl.flock(lock, fcntl.LOCK_UN)
+                    raise
+                fcntl.flock(lock, fcntl.LOCK_UN)
+        if waited >= give_up:
+            raise InterruptedError(f'lock not free for {int(waited)} s: ' + str(lock.name))
+        sleep(POLL)
 
 
 def deferred(status, reason, now=None):

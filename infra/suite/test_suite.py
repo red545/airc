@@ -191,12 +191,12 @@ class WorkerProgressTest(unittest.TestCase):
                         self.assertTrue(queued.wait(5))
                         time.sleep(.3)
                         self.assertNotIn(None, events)
-                        self.assertTrue(future.done())
+                        # fastgate2: a held lock no longer aborts the attempt; the worker waits with its lease
+                        self.assertFalse(future.done())
                     finally:
                         fcntl.flock(lock, fcntl.LOCK_UN)
-                    with self.assertRaises(run.Preempted):
-                        future.result(timeout=10)
-            self.assertEqual(events, ['buildmac-setup', 'buildmac-build-lock', 'buildmac-cleanup'])
+                    self.assertEqual(future.result(timeout=20), 0)
+            self.assertEqual(events, ['buildmac-setup', 'buildmac-build-lock', None, 'buildmac-cleanup'])
 
 
 class CheckoutTest(unittest.TestCase):
@@ -386,7 +386,10 @@ class FairQueueTest(unittest.TestCase):
                 try:
                     child.stdin.write(b'RUN\n'); child.stdin.flush()
                     time.sleep(.6)
-                    # Contention alone must refuse promptly, without a STOP.
+                    # Contention alone waits in place (fastgate2: bounded patience, no abort) ...
+                    self.assertIsNone(child.poll())
+                    # ... and a release marker (the coordinator's STOP) cancels it without a launch.
+                    child.stdin.write(b'STOP\n'); child.stdin.flush()
                     self.assertEqual(child.wait(timeout=4),75)
                     self.assertNotIn(b'@@LOCKED@@',child.stdout.read())
                     self.assertTrue((root/'.worker-done').exists())

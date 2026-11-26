@@ -1,0 +1,2325 @@
+{
+ "schema": 1,
+ "about": "Every test-build smoke a release has run since 0.1.61 (release073/074), with what triggers it. select-smokes.py picks core + changed-path entries for the release gate; the rest runs as the post-LIVE background tail on the same test build. Paths: S/ = apps/browser/Sources/Airc/, K/ = packages/AircKit/Sources/AircKit/. seconds = release074's active time per engine (without its fixed idle sleeps). want = release074's PASS floor. Debug files are mapped automatically from SnapshotRunner.swift's case lines. Debug/ files (test code, absent from the public build) put their checks at the head of the tail, not in the gate. Of a script's posted/real twins (same env) the gate runs the one with the higher want; the other runs in the tail.",
+ "defaults": {
+  "limit": 600,
+  "overhead_seconds": 3,
+  "idle_by_mode": {
+   "bg": 0,
+   "posted": 0,
+   "gate": 0,
+   "dgate": 0,
+   "front": 6,
+   "perf": 6,
+   "fg": 6,
+   "fp": 6,
+   "real": 6,
+   "tfg": 6,
+   "pfg": 6
+  }
+ },
+ "ignore_paths": [
+  "docs/*",
+  "apps/marketing/*",
+  "assets/*",
+  "tools/social/*",
+  "*.md",
+  "briefs/*",
+  "apps/browser/Resources/WhatsNew.json",
+  "apps/browser/Resources/WhatsNew/*",
+  "scripts/release/whatsnew*",
+  "infra/*",
+  "engine/host/*",
+  "engine/*.md",
+  "apps/browser/Tests/*",
+  "packages/*/Tests/*",
+  "scripts/marketing-shots.sh",
+  "S/Debug/Marketing*",
+  "S/Debug/Social*",
+  "LICENSE",
+  "NOTICE",
+  ".gitignore"
+ ],
+ "engine_paths": [
+  "engine/core/*",
+  "engine/patches/*",
+  "engine/BUILD*",
+  "engine/*.gn",
+  "engine/*.gni",
+  "CHROMIUM_VERSION",
+  "S/Engine/ChromiumEngine*.swift",
+  "S/Engine/WebKitEngine*.swift",
+  "S/Engine/BrowserEngine.swift",
+  "S/Engine/HybridEngine.swift"
+ ],
+ "broad_paths": [
+  "K/Model.swift",
+  "K/Database.swift",
+  "packages/AircDesign/*",
+  "S/App/AppDelegate.swift",
+  "S/App/main.swift",
+  "S/App/AppSettings.swift",
+  "S/App/Commands.swift",
+  "S/UI/*",
+  "S/Browser/WindowController.swift",
+  "scripts/build-app.sh",
+  "apps/browser/Package.swift",
+  "packages/*/Package.swift",
+  "apps/browser/Info*.plist",
+  "apps/browser/*.entitlements",
+  "S/Debug/SnapshotRunner.swift#harness"
+ ],
+ "core_note": "Always at release time, both engines: windows (winclose), sidebar (sidebarpolish), Command Bar (cbfocus A), sign-in (signin posted). Launch/HTTP/Notes/Little Airc key/full screen/sharing/PiP/onboarding/redirects are the fast gate (fast-gate.json); update is the stage's BinaryDelta + post-LIVE update proof.",
+ "cases": [
+  {
+   "id": "winclose-real",
+   "kind": "nf",
+   "script": "winclose",
+   "mode": "real",
+   "engines": {
+    "chromium": 27,
+    "webkit": 27
+   },
+   "limit": 330,
+   "seconds": {
+    "chromium": 37,
+    "webkit": 37
+   },
+   "tier": "core",
+   "paths": [
+    "S/Browser/WindowActions.swift",
+    "S/Browser/MultiWindow.swift",
+    "S/Browser/PrivateWindow*.swift",
+    "S/Browser/LittleArc*.swift"
+   ]
+  },
+  {
+   "id": "sidebarpolish-bg",
+   "kind": "nf",
+   "script": "sidebarpolish",
+   "mode": "bg",
+   "engines": {
+    "chromium": 47,
+    "webkit": 47
+   },
+   "limit": 330,
+   "seconds": {
+    "chromium": 15,
+    "webkit": 15
+   },
+   "tier": "core",
+   "paths": [
+    "S/Sidebar/*"
+   ]
+  },
+  {
+   "id": "cbfocus-tfg-A",
+   "kind": "nf",
+   "script": "cbfocus",
+   "mode": "tfg",
+   "tag": "-A",
+   "nf_env": [
+    "AIRC_CBFOCUS_CASES=load,click,input,iframe,steal,fullscreen,tabswitch,space"
+   ],
+   "engines": {
+    "chromium": 38,
+    "webkit": 37
+   },
+   "limit": 420,
+   "seconds": {
+    "chromium": 58,
+    "webkit": 60
+   },
+   "tier": "core",
+   "paths": [
+    "S/CommandBar/CommandBar.swift",
+    "S/CommandBar/SuggestionService.swift",
+    "S/CommandBar/SiteIcons.swift",
+    "S/CommandBar/InstantLinks.swift",
+    "S/CommandBar/ChatGPTCommand.swift",
+    "S/CommandBar/CommandBarAsk.swift",
+    "K/CommandSearch.swift"
+   ],
+   "note": "WebKit 37: release074's known 'k i' first-key limit is a lead allowance, pass it with --allow if still current."
+  },
+  {
+   "id": "signin-posted",
+   "kind": "signin",
+   "script": "signin",
+   "mode": "posted",
+   "engines": {
+    "chromium": 26,
+    "webkit": 21
+   },
+   "limit": 420,
+   "seconds": {
+    "chromium": 62,
+    "webkit": 46
+   },
+   "tier": "core",
+   "paths": [
+    "S/Browser/ProfileSignIn.swift",
+    "S/Onboarding/SignInWindow.swift",
+    "K/ProfileSignIn*.swift",
+    "scripts/tests/signin/*"
+   ]
+  },
+  {
+   "id": "cbfocus-tfg-B",
+   "kind": "nf",
+   "script": "cbfocus",
+   "mode": "tfg",
+   "tag": "-B",
+   "nf_env": [
+    "AIRC_CBFOCUS_CASES=twice,held,burst,littlearc,agent,pip,inactive,tab"
+   ],
+   "engines": {
+    "chromium": 41,
+    "webkit": 41
+   },
+   "limit": 420,
+   "seconds": {
+    "chromium": 60,
+    "webkit": 60
+   },
+   "paths": [
+    "S/Browser/LittleArc*.swift",
+    "S/Browser/PictureInPicture.swift",
+    "S/CommandBar/CommandBar.swift",
+    "S/CommandBar/SuggestionService.swift",
+    "S/CommandBar/SiteIcons.swift",
+    "S/CommandBar/InstantLinks.swift",
+    "S/CommandBar/ChatGPTCommand.swift"
+   ]
+  },
+  {
+   "id": "cbfocus-tfg-C",
+   "kind": "nf",
+   "script": "cbfocus",
+   "mode": "tfg",
+   "tag": "-C",
+   "nf_env": [
+    "AIRC_CBFOCUS_CASES=fullscreen,fsesc,fsbutton,fstab,fsrace"
+   ],
+   "engines": {
+    "chromium": 22,
+    "webkit": 21
+   },
+   "limit": 420,
+   "seconds": {
+    "chromium": 30,
+    "webkit": 30
+   },
+   "paths": [
+    "S/Browser/FullScreen.swift",
+    "S/CommandBar/CommandBar.swift",
+    "S/CommandBar/SuggestionService.swift",
+    "S/CommandBar/SiteIcons.swift",
+    "S/CommandBar/InstantLinks.swift",
+    "S/CommandBar/ChatGPTCommand.swift"
+   ]
+  },
+  {
+   "id": "cmdtrust-bg",
+   "kind": "nf",
+   "script": "cmdtrust",
+   "mode": "bg",
+   "engines": {
+    "chromium": 23,
+    "webkit": 23
+   },
+   "limit": 330,
+   "seconds": {
+    "chromium": 17,
+    "webkit": 17
+   },
+   "paths": [
+    "K/OfficialSites.swift",
+    "K/CommonSites*.swift",
+    "S/CommandBar/CommandBar.swift",
+    "S/CommandBar/SuggestionService.swift",
+    "S/CommandBar/SiteIcons.swift",
+    "S/CommandBar/InstantLinks.swift",
+    "S/CommandBar/ChatGPTCommand.swift"
+   ]
+  },
+  {
+   "id": "parityp07-bg",
+   "kind": "nf",
+   "script": "parityp07",
+   "mode": "bg",
+   "engines": {
+    "chromium": 46,
+    "webkit": 46
+   },
+   "limit": 330,
+   "seconds": {
+    "chromium": 18,
+    "webkit": 18
+   },
+   "paths": [
+    "S/Settings/SiteSearchSettings.swift",
+    "K/History*.swift",
+    "S/CommandBar/CommandBar.swift",
+    "S/CommandBar/SuggestionService.swift",
+    "S/CommandBar/SiteIcons.swift",
+    "S/CommandBar/InstantLinks.swift",
+    "S/CommandBar/ChatGPTCommand.swift"
+   ]
+  },
+  {
+   "id": "cbflicker-bg",
+   "kind": "nf",
+   "script": "cbflicker",
+   "mode": "bg",
+   "engines": {
+    "chromium": 99,
+    "webkit": 99
+   },
+   "limit": 600,
+   "seconds": {
+    "chromium": 51,
+    "webkit": 50
+   },
+   "paths": [
+    "K/History*.swift",
+    "K/CommandSearch.swift",
+    "S/CommandBar/CommandBar.swift",
+    "S/CommandBar/SuggestionService.swift",
+    "S/CommandBar/SiteIcons.swift",
+    "S/CommandBar/InstantLinks.swift",
+    "S/CommandBar/ChatGPTCommand.swift"
+   ]
+  },
+  {
+   "id": "parityp07bc-bg",
+   "kind": "nf",
+   "script": "parityp07bc",
+   "mode": "bg",
+   "engines": {
+    "chromium": 46,
+    "webkit": 46
+   },
+   "limit": 330,
+   "seconds": {
+    "chromium": 24,
+    "webkit": 24
+   },
+   "paths": [
+    "S/CommandBar/ChatGPTCommand.swift",
+    "S/CommandBar/InstantLinks.swift",
+    "K/InstantLinks.swift"
+   ]
+  },
+  {
+   "id": "cbperf-perf",
+   "kind": "nf",
+   "script": "cbperf",
+   "mode": "perf",
+   "engines": {
+    "chromium": 30,
+    "webkit": 30
+   },
+   "limit": 600,
+   "seconds": {
+    "chromium": 36,
+    "webkit": 36
+   },
+   "tier": "timing",
+   "budget": "cbperf",
+   "paths": [
+    "K/History*.swift",
+    "S/CommandBar/CommandBar.swift",
+    "S/CommandBar/SuggestionService.swift",
+    "S/CommandBar/SiteIcons.swift",
+    "S/CommandBar/InstantLinks.swift",
+    "S/CommandBar/ChatGPTCommand.swift"
+   ]
+  },
+  {
+   "id": "devtools-real",
+   "kind": "nf",
+   "script": "devtools",
+   "mode": "real",
+   "engines": {
+    "chromium": 41,
+    "webkit": 25
+   },
+   "limit": 330,
+   "seconds": {
+    "chromium": 70,
+    "webkit": 24
+   },
+   "engine": true,
+   "paths": [
+    "S/Engine/*DevTools*.swift",
+    "S/Engine/WebKitInspectorDock.swift",
+    "S/Engine/DevToolsKeyboard.swift",
+    "S/Browser/DeveloperMode*.swift"
+   ],
+   "idle": 125
+  },
+  {
+   "id": "devtoolscommands-real",
+   "kind": "nf",
+   "script": "devtoolscommands",
+   "mode": "real",
+   "engines": {
+    "chromium": 87,
+    "webkit": 74
+   },
+   "limit": 330,
+   "seconds": {
+    "chromium": 15,
+    "webkit": 17
+   },
+   "engine": true,
+   "paths": [
+    "S/Engine/*DevTools*.swift",
+    "S/Engine/EngineDeveloperCommands.swift",
+    "S/Browser/DeveloperMode*.swift"
+   ]
+  },
+  {
+   "id": "parityp20d-bg",
+   "kind": "nf",
+   "script": "parityp20d",
+   "mode": "bg",
+   "engines": {
+    "chromium": 56,
+    "webkit": 65
+   },
+   "limit": 330,
+   "seconds": {
+    "chromium": 18,
+    "webkit": 20
+   },
+   "paths": [
+    "S/Browser/DeveloperMode*.swift",
+    "S/TaskManager/*",
+    "S/Engine/EngineDeveloperCommands.swift"
+   ]
+  },
+  {
+   "id": "parityp20c-gate",
+   "kind": "nf",
+   "script": "parityp20c",
+   "mode": "gate",
+   "engines": {
+    "chromium": 87,
+    "webkit": 82
+   },
+   "limit": 330,
+   "seconds": {
+    "chromium": 12,
+    "webkit": 10
+   },
+   "engine": true,
+   "paths": [
+    "S/Browser/Extension*.swift",
+    "S/Engine/*Library*.swift",
+    "S/Browser/TabUnloading.swift"
+   ]
+  },
+  {
+   "id": "dialogs-dgate",
+   "kind": "nf",
+   "script": "dialogs",
+   "mode": "dgate",
+   "engines": {
+    "chromium": 21
+   },
+   "limit": 600,
+   "seconds": {
+    "chromium": 11
+   },
+   "engine": true,
+   "paths": [
+    "S/Browser/PagePrompts.swift"
+   ]
+  },
+  {
+   "id": "ganalytics-bg",
+   "kind": "nf",
+   "script": "ganalytics",
+   "mode": "bg",
+   "engines": {
+    "chromium": 60,
+    "webkit": 60
+   },
+   "limit": 330,
+   "seconds": {
+    "chromium": 39,
+    "webkit": 48
+   },
+   "engine": true,
+   "network": true,
+   "paths": [
+    "S/Browser/Blocking*.swift",
+    "S/Engine/*Blocking*.swift",
+    "S/Engine/BlockingFilter.swift",
+    "S/Engine/BlockingRuleCompiler.swift",
+    "K/BlockingList*.swift",
+    "apps/browser/Resources/BlockingRules/*"
+   ],
+   "note": "release074's extra rule: no SKIP line and all five plain-rule hosts proven (the runner checks this)."
+  },
+  {
+   "id": "agentpane2-posted",
+   "kind": "agents",
+   "script": "agentpane2",
+   "mode": "posted",
+   "engines": {
+    "chromium": 209,
+    "webkit": 209
+   },
+   "limit": 900,
+   "seconds": {
+    "chromium": 93,
+    "webkit": 87
+   },
+   "paths": [
+    "S/Agent/*",
+    "S/Sidebar/Agent*.swift",
+    "S/Sidebar/SidebarAgents.swift",
+    "S/Sidebar/SidebarTaskRows.swift",
+    "S/Settings/AgentsSettings.swift",
+    "K/Agent*.swift",
+    "K/RemoteAgents.swift",
+    "apps/browser/Sources/AircMCP/*"
+   ]
+  },
+  {
+   "id": "agentpane2-real",
+   "kind": "agents",
+   "script": "agentpane2",
+   "mode": "real",
+   "engines": {
+    "chromium": 223,
+    "webkit": 223
+   },
+   "limit": 900,
+   "seconds": {
+    "chromium": 139,
+    "webkit": 143
+   },
+   "allow_env": {
+    "regex": "isn't on top at its place \\(window #[0-9]+ there, ours #[0-9]+\\); posted",
+    "max": 3,
+    "why": "agentmainfix: the session console covers the Agents row (lead-approved known limit)"
+   },
+   "paths": [
+    "S/Agent/*",
+    "S/Sidebar/Agent*.swift",
+    "S/Sidebar/SidebarAgents.swift",
+    "S/Sidebar/SidebarTaskRows.swift",
+    "K/Agent*.swift"
+   ]
+  },
+  {
+   "id": "agentpane2-posted-ux3",
+   "kind": "agents",
+   "script": "agentpane2",
+   "mode": "posted",
+   "tag": "-ux3",
+   "env": [
+    "AIRC_AGENTPANE2_ONLY=flicker,needsyou"
+   ],
+   "engines": {
+    "chromium": 93,
+    "webkit": 93
+   },
+   "seconds": {
+    "chromium": 62,
+    "webkit": 62
+   },
+   "subset_of": "agentpane2-posted",
+   "paths": [
+    "S/Agent/AgentNeedsYou.swift",
+    "S/Agent/AgentAttention.swift"
+   ]
+  },
+  {
+   "id": "agentpane2-posted-needsyou",
+   "kind": "agents",
+   "script": "agentpane2",
+   "mode": "posted",
+   "tag": "-needsyou",
+   "env": [
+    "AIRC_AGENTPANE2_ONLY=needsyou"
+   ],
+   "engines": {
+    "chromium": 87,
+    "webkit": 87
+   },
+   "seconds": {
+    "chromium": 52,
+    "webkit": 52
+   },
+   "subset_of": "agentpane2-posted",
+   "paths": [
+    "S/Agent/AgentNeedsYou.swift"
+   ]
+  },
+  {
+   "id": "agentpane2-real-agentfix",
+   "kind": "agents",
+   "script": "agentpane2",
+   "mode": "real",
+   "tag": "-agentfix",
+   "env": [
+    "AIRC_AGENTPANE2_ONLY=agentfix,needsyou"
+   ],
+   "engines": {
+    "chromium": 114,
+    "webkit": 114
+   },
+   "seconds": {
+    "chromium": 62,
+    "webkit": 62
+   },
+   "subset_of": "agentpane2-real",
+   "allow_env": {
+    "regex": "isn't on top at its place \\(window #[0-9]+ there, ours #[0-9]+\\); posted",
+    "max": 3,
+    "why": "as agentpane2-real"
+   },
+   "paths": [
+    "S/Agent/AgentNeedsYou.swift"
+   ]
+  },
+  {
+   "id": "agentpane2-posted-flicker60",
+   "kind": "agents",
+   "script": "agentpane2",
+   "mode": "posted",
+   "tag": "-flicker60",
+   "env": [
+    "AIRC_AGENTPANE2_ONLY=flicker",
+    "AIRC_FLICKER_HZ=60"
+   ],
+   "engines": {
+    "chromium": 8,
+    "webkit": 8
+   },
+   "seconds": {
+    "chromium": 16,
+    "webkit": 16
+   },
+   "paths": [
+    "S/Sidebar/AgentWatchView.swift",
+    "S/Agent/Pane/AgentPaneLive.swift",
+    "engine/patches/*042*"
+   ]
+  },
+  {
+   "id": "agentpane2-real-flicker60",
+   "kind": "agents",
+   "script": "agentpane2",
+   "mode": "real",
+   "tag": "-flicker60",
+   "env": [
+    "AIRC_AGENTPANE2_ONLY=flicker",
+    "AIRC_FLICKER_HZ=60"
+   ],
+   "engines": {
+    "chromium": 9,
+    "webkit": 9
+   },
+   "seconds": {
+    "chromium": 17,
+    "webkit": 16
+   },
+   "paths": [
+    "S/Sidebar/AgentWatchView.swift",
+    "S/Agent/Pane/AgentPaneLive.swift"
+   ]
+  },
+  {
+   "id": "agentpane2-real-watchlong",
+   "kind": "agents",
+   "script": "agentpane2",
+   "mode": "real",
+   "tag": "-watchlong",
+   "env": [
+    "AIRC_AGENTPANE2_ONLY=watchlong"
+   ],
+   "engines": {
+    "chromium": 8,
+    "webkit": 8
+   },
+   "seconds": {
+    "chromium": 37,
+    "webkit": 31
+   },
+   "paths": [
+    "S/Sidebar/AgentWatchView.swift",
+    "S/Agent/Pane/AgentPaneLive.swift",
+    "S/Agent/AgentWindow.swift"
+   ],
+   "note": "0.1.62 ran want 6 with the lead-approved 'live card shows the agent's page' allowance (allow-watchlong); pass it with --allow while it stands."
+  },
+  {
+   "id": "agenttasks-posted",
+   "kind": "agents",
+   "script": "agenttasks",
+   "mode": "posted",
+   "engines": {
+    "chromium": 84,
+    "webkit": 84
+   },
+   "seconds": {
+    "chromium": 26,
+    "webkit": 27
+   },
+   "paths": [
+    "S/Agent/Tasks/*",
+    "S/Agent/Pane/AgentTasksPage.swift",
+    "S/Sidebar/SidebarTaskRows.swift",
+    "S/CommandBar/CommandBarAsk.swift",
+    "K/AgentTasks.swift"
+   ]
+  },
+  {
+   "id": "agenttasks-real",
+   "kind": "agents",
+   "script": "agenttasks",
+   "mode": "real",
+   "engines": {
+    "chromium": 85,
+    "webkit": 85
+   },
+   "seconds": {
+    "chromium": 47,
+    "webkit": 47
+   },
+   "paths": [
+    "S/Agent/Tasks/*",
+    "S/Agent/Pane/AgentTasksPage.swift",
+    "S/Sidebar/SidebarTaskRows.swift",
+    "S/CommandBar/CommandBarAsk.swift",
+    "K/AgentTasks.swift"
+   ]
+  },
+  {
+   "id": "agentlong-posted",
+   "kind": "agents",
+   "script": "agentlong",
+   "mode": "posted",
+   "engines": {
+    "chromium": 34,
+    "webkit": 34
+   },
+   "limit": 900,
+   "seconds": {
+    "chromium": 27,
+    "webkit": 26
+   },
+   "paths": [
+    "S/Agent/AgentRun.swift",
+    "S/Agent/AgentModelClient.swift",
+    "K/AgentStream.swift",
+    "K/AgentConversation.swift"
+   ]
+  },
+  {
+   "id": "agentlong-real",
+   "kind": "agents",
+   "script": "agentlong",
+   "mode": "real",
+   "engines": {
+    "chromium": 35,
+    "webkit": 35
+   },
+   "limit": 900,
+   "seconds": {
+    "chromium": 26,
+    "webkit": 27
+   },
+   "paths": [
+    "S/Agent/AgentRun.swift",
+    "S/Agent/AgentModelClient.swift"
+   ]
+  },
+  {
+   "id": "agentpane-posted",
+   "kind": "agents",
+   "script": "agentpane",
+   "mode": "posted",
+   "engines": {
+    "chromium": 98,
+    "webkit": 98
+   },
+   "seconds": {
+    "chromium": 32,
+    "webkit": 31
+   },
+   "paths": [
+    "S/Agent/Pane/*",
+    "S/Agent/AgentModel*.swift"
+   ]
+  },
+  {
+   "id": "agentrecall-posted",
+   "kind": "agents",
+   "script": "agentrecall",
+   "mode": "posted",
+   "data": "recall",
+   "engines": {
+    "chromium": 30,
+    "webkit": 30
+   },
+   "seconds": {
+    "chromium": 20,
+    "webkit": 17
+   },
+   "paths": [
+    "K/AgentRecall.swift",
+    "K/AgentMemory.swift",
+    "S/Agent/Tasks/AgentTaskCards.swift"
+   ]
+  },
+  {
+   "id": "agentrecall-relaunch-posted",
+   "kind": "agents",
+   "script": "agentrecall-relaunch",
+   "mode": "posted",
+   "data": "recall",
+   "after": "agentrecall-posted",
+   "engines": {
+    "chromium": 9,
+    "webkit": 9
+   },
+   "seconds": {
+    "chromium": 6,
+    "webkit": 6
+   },
+   "paths": [
+    "K/AgentRecall.swift",
+    "K/AgentMemory.swift"
+   ]
+  },
+  {
+   "id": "agentrecall-real",
+   "kind": "agents",
+   "script": "agentrecall",
+   "mode": "real",
+   "data": "recall",
+   "engines": {
+    "chromium": 31,
+    "webkit": 31
+   },
+   "seconds": {
+    "chromium": 17,
+    "webkit": 17
+   },
+   "paths": [
+    "K/AgentRecall.swift",
+    "K/AgentMemory.swift",
+    "S/Agent/Tasks/AgentTaskCards.swift"
+   ]
+  },
+  {
+   "id": "agentrecall-relaunch-real",
+   "kind": "agents",
+   "script": "agentrecall-relaunch",
+   "mode": "real",
+   "data": "recall",
+   "after": "agentrecall-real",
+   "engines": {
+    "chromium": 10,
+    "webkit": 10
+   },
+   "seconds": {
+    "chromium": 12,
+    "webkit": 12
+   },
+   "paths": [
+    "K/AgentRecall.swift",
+    "K/AgentMemory.swift"
+   ]
+  },
+  {
+   "id": "agentmain-real-startswitch",
+   "kind": "agents",
+   "script": "agentmain",
+   "mode": "real",
+   "tag": "-startswitch",
+   "env": [
+    "AIRC_AGENTMAIN_ONLY=start,switch"
+   ],
+   "engines": {
+    "chromium": 45,
+    "webkit": 45
+   },
+   "seconds": {
+    "chromium": 30,
+    "webkit": 29
+   },
+   "paths": [
+    "S/Agent/AgentMainView*.swift",
+    "S/Agent/AgentControlPill.swift"
+   ]
+  },
+  {
+   "id": "agentmain-real-twodark",
+   "kind": "agents",
+   "script": "agentmain",
+   "mode": "real",
+   "tag": "-twodark",
+   "env": [
+    "AIRC_AGENTMAIN_ONLY=two,dark"
+   ],
+   "engines": {
+    "chromium": 16,
+    "webkit": 16
+   },
+   "seconds": {
+    "chromium": 12,
+    "webkit": 11
+   },
+   "paths": [
+    "S/Agent/AgentMainView*.swift"
+   ]
+  },
+  {
+   "id": "agentmain-real-long",
+   "kind": "agents",
+   "script": "agentmain",
+   "mode": "real",
+   "tag": "-long",
+   "env": [
+    "AIRC_AGENTMAIN_ONLY=long"
+   ],
+   "engines": {
+    "chromium": 10,
+    "webkit": 10
+   },
+   "seconds": {
+    "chromium": 16,
+    "webkit": 17
+   },
+   "paths": [
+    "S/Agent/AgentMainView*.swift"
+   ]
+  },
+  {
+   "id": "agentmain-real-parked",
+   "kind": "agents",
+   "script": "agentmain",
+   "mode": "real",
+   "tag": "-parked",
+   "env": [
+    "AIRC_AGENTMAIN_ONLY=parked"
+   ],
+   "engines": {
+    "chromium": 7,
+    "webkit": 11
+   },
+   "seconds": {
+    "chromium": 11,
+    "webkit": 11
+   },
+   "paths": [
+    "S/Agent/AgentMainView*.swift"
+   ]
+  },
+  {
+   "id": "agentmain-real-rows",
+   "kind": "agents",
+   "script": "agentmain",
+   "mode": "real",
+   "tag": "-rows",
+   "env": [
+    "AIRC_AGENTMAIN_ONLY=rows"
+   ],
+   "engines": {
+    "chromium": 9,
+    "webkit": 9
+   },
+   "seconds": {
+    "chromium": 11,
+    "webkit": 11
+   },
+   "paths": [
+    "S/Agent/AgentMainView*.swift",
+    "S/Sidebar/SidebarTaskRows.swift"
+   ]
+  },
+  {
+   "id": "agentmain-real-blank",
+   "kind": "agents",
+   "script": "agentmain",
+   "mode": "real",
+   "tag": "-blank",
+   "env": [
+    "AIRC_AGENTMAIN_ONLY=blank"
+   ],
+   "engines": {
+    "chromium": 8,
+    "webkit": 8
+   },
+   "seconds": {
+    "chromium": 11,
+    "webkit": 11
+   },
+   "paths": [
+    "S/Agent/AgentMainView*.swift"
+   ]
+  },
+  {
+   "id": "agentwatch2-real",
+   "kind": "agents",
+   "script": "agentwatch2",
+   "mode": "real",
+   "engines": {
+    "chromium": 46,
+    "webkit": 41
+   },
+   "seconds": {
+    "chromium": 166,
+    "webkit": 158
+   },
+   "paths": [
+    "S/Sidebar/AgentWatchView.swift",
+    "S/Agent/AgentWindow.swift",
+    "S/Agent/AgentMCP.swift",
+    "S/Engine/WebKitPasskey*.swift"
+   ],
+   "note": "release074 allowed one webkit line 'the page moves in Watch (the agent window off screen)' (lead-approved)."
+  },
+  {
+   "id": "agentwatch2-real-occl",
+   "kind": "agents",
+   "script": "agentwatch2",
+   "mode": "real",
+   "tag": "-occl",
+   "env": [
+    "AIRC_KEEP_OCCLUSION=1"
+   ],
+   "engines": {
+    "chromium": 45
+   },
+   "seconds": {
+    "chromium": 164
+   },
+   "paths": [
+    "S/Sidebar/AgentWatchView.swift",
+    "S/Agent/AgentWindow.swift"
+   ]
+  },
+  {
+   "id": "agentfixquote-posted",
+   "kind": "agents",
+   "script": "agentfixquote",
+   "mode": "posted",
+   "engines": {
+    "chromium": 4,
+    "webkit": 4
+   },
+   "seconds": {
+    "chromium": 27,
+    "webkit": 31
+   },
+   "paths": [
+    "S/Browser/SelectionShare.swift",
+    "S/Browser/SelectionActions.swift"
+   ]
+  },
+  {
+   "id": "agentfixfairplay-posted",
+   "kind": "agents",
+   "script": "agentfixfairplay",
+   "mode": "posted",
+   "engines": {
+    "chromium": 5
+   },
+   "seconds": {
+    "chromium": 19
+   },
+   "paths": [
+    "S/Media/FairPlay*.swift"
+   ]
+  },
+  {
+   "id": "shortcuts-posted-quit",
+   "kind": "agents",
+   "script": "shortcuts",
+   "mode": "posted",
+   "tag": "-quit",
+   "env": [
+    "AIRC_SHORTCUTS_ONLY=quit"
+   ],
+   "engines": {
+    "chromium": 4,
+    "webkit": 4
+   },
+   "limit": 330,
+   "seconds": {
+    "chromium": 11,
+    "webkit": 11
+   },
+   "paths": [
+    "S/App/ShortcutCenter.swift",
+    "S/Settings/ShortcutsSettings.swift",
+    "K/Shortcut*.swift"
+   ]
+  },
+  {
+   "id": "archivenever-real",
+   "kind": "agents",
+   "script": "archivenever",
+   "mode": "real",
+   "engines": {
+    "chromium": 18,
+    "webkit": 18
+   },
+   "seconds": {
+    "chromium": 148,
+    "webkit": 148
+   },
+   "paths": [
+    "K/ArchiveScope.swift",
+    "S/Sidebar/SidebarRows.swift"
+   ]
+  },
+  {
+   "id": "idlecpu-front",
+   "kind": "nf",
+   "script": "idlecpu",
+   "mode": "front",
+   "engines": {
+    "chromium": 1,
+    "webkit": 1
+   },
+   "limit": 800,
+   "seconds": {
+    "chromium": 524,
+    "webkit": 375
+   },
+   "tier": "timing",
+   "budget": "idlecpu",
+   "needs_build_lock_free": true,
+   "paths": [
+    "S/Agent/*",
+    "S/Sidebar/*"
+   ]
+  },
+  {
+   "id": "fairplaybridge-fp",
+   "kind": "nf",
+   "script": "fairplaybridge",
+   "mode": "fp",
+   "engines": {
+    "chromium": 27
+   },
+   "limit": 330,
+   "seconds": {
+    "chromium": 71
+   },
+   "engine": true,
+   "network": true,
+   "paths": [
+    "S/Media/FairPlayBridge*.swift",
+    "K/FairPlayBridgeSites.swift",
+    "S/Engine/*ProtectedContent*.swift"
+   ]
+  },
+  {
+   "id": "fairplayvideo-fg",
+   "kind": "nf",
+   "script": "fairplayvideo",
+   "mode": "fg",
+   "engines": {
+    "chromium": 21
+   },
+   "limit": 330,
+   "seconds": {
+    "chromium": 19
+   },
+   "engine": true,
+   "network": true,
+   "paths": [
+    "S/Media/FairPlayVideo*.swift",
+    "K/FairPlayMP4.swift",
+    "K/ProtectedMedia.swift",
+    "S/Browser/ProtectedMediaUI.swift"
+   ]
+  },
+  {
+   "id": "fairplayua-bg",
+   "kind": "nf",
+   "script": "fairplayua",
+   "mode": "bg",
+   "engines": {
+    "chromium": 4
+   },
+   "limit": 330,
+   "seconds": {
+    "chromium": 4
+   },
+   "engine": true,
+   "paths": [
+    "S/Media/FairPlayVideo*.swift"
+   ]
+  },
+  {
+   "id": "spotifyprobe-fg",
+   "kind": "nf",
+   "script": "spotifyprobe",
+   "mode": "fg",
+   "engines": {
+    "chromium": 5
+   },
+   "limit": 330,
+   "seconds": {
+    "chromium": 20
+   },
+   "network": true,
+   "paths": [
+    "S/Media/FairPlayBridge*.swift",
+    "K/FairPlayBridgeSites.swift"
+   ]
+  },
+  {
+   "id": "tidypolish-tfg",
+   "kind": "nf",
+   "script": "tidypolish",
+   "mode": "tfg",
+   "engines": {
+    "chromium": 47,
+    "webkit": 47
+   },
+   "seconds": {
+    "chromium": 54,
+    "webkit": 53
+   },
+   "paths": [
+    "S/AI/Tidy*.swift"
+   ]
+  },
+  {
+   "id": "tidyux-tfg",
+   "kind": "nf",
+   "script": "tidyux",
+   "mode": "tfg",
+   "engines": {
+    "chromium": 21,
+    "webkit": 21
+   },
+   "seconds": {
+    "chromium": 15,
+    "webkit": 16
+   },
+   "paths": [
+    "S/AI/Tidy*.swift"
+   ]
+  },
+  {
+   "id": "parityp18b-bg",
+   "kind": "nf",
+   "script": "parityp18b",
+   "mode": "bg",
+   "engines": {
+    "chromium": 17,
+    "webkit": 17
+   },
+   "limit": 330,
+   "seconds": {
+    "chromium": 9,
+    "webkit": 8
+   },
+   "paths": [
+    "S/AI/TidyTabs*.swift"
+   ]
+  },
+  {
+   "id": "archive-bg",
+   "kind": "nf",
+   "script": "archive",
+   "mode": "bg",
+   "engines": {
+    "chromium": 21,
+    "webkit": 21
+   },
+   "limit": 330,
+   "seconds": {
+    "chromium": 15,
+    "webkit": 15
+   },
+   "paths": [
+    "K/ArchiveScope.swift",
+    "S/Settings/BackupRestore.swift"
+   ]
+  },
+  {
+   "id": "multiselect-bg",
+   "kind": "nf",
+   "script": "multiselect",
+   "mode": "bg",
+   "engines": {
+    "chromium": 57,
+    "webkit": 57
+   },
+   "limit": 330,
+   "seconds": {
+    "chromium": 57,
+    "webkit": 56
+   },
+   "paths": [
+    "S/Sidebar/SidebarRows.swift",
+    "S/Browser/MenuMoveAndBulk.swift",
+    "K/BulkActions.swift",
+    "K/MoveToCommands.swift"
+   ]
+  },
+  {
+   "id": "paritytodayfolders-bg",
+   "kind": "nf",
+   "script": "paritytodayfolders",
+   "mode": "bg",
+   "engines": {
+    "chromium": 15,
+    "webkit": 15
+   },
+   "limit": 330,
+   "seconds": {
+    "chromium": 12,
+    "webkit": 14
+   },
+   "paths": [
+    "S/Sidebar/SidebarRows.swift",
+    "K/FolderCommands.swift"
+   ]
+  },
+  {
+   "id": "events-fg",
+   "kind": "nf",
+   "script": "events",
+   "mode": "fg",
+   "engines": {
+    "chromium": 200
+   },
+   "seconds": {
+    "chromium": 120
+   },
+   "paths": [
+    "S/Browser/Peek.swift",
+    "S/Previews/*",
+    "S/Calendar/*",
+    "K/Calendar/*"
+   ],
+   "idle": 125
+  },
+  {
+   "id": "paritytextures-bg",
+   "kind": "nf",
+   "script": "paritytextures",
+   "mode": "bg",
+   "engines": {
+    "chromium": 32,
+    "webkit": 32
+   },
+   "seconds": {
+    "chromium": 17,
+    "webkit": 17
+   },
+   "paths": [
+    "S/Spaces/ThemePickerPanel.swift",
+    "K/ArcTheme.swift",
+    "packages/AircDesign/Sources/AircDesign/Theme/*"
+   ]
+  },
+  {
+   "id": "importux-bg",
+   "kind": "nf",
+   "script": "importux",
+   "mode": "bg",
+   "engines": {
+    "chromium": 53,
+    "webkit": 53
+   },
+   "seconds": {
+    "chromium": 96,
+    "webkit": 96
+   },
+   "subset_of": "profile-group",
+   "paths": [
+    "S/Import/*",
+    "packages/AircImport/*"
+   ]
+  },
+  {
+   "id": "themeparity-bg",
+   "kind": "nf",
+   "script": "themeparity",
+   "mode": "bg",
+   "engines": {
+    "chromium": 29,
+    "webkit": 29
+   },
+   "seconds": {
+    "chromium": 14,
+    "webkit": 12
+   },
+   "paths": [
+    "S/Spaces/ThemePickerPanel.swift",
+    "S/Browser/ThemePagePalette.swift",
+    "S/App/AppAppearance.swift",
+    "K/ArcTheme.swift"
+   ]
+  },
+  {
+   "id": "managespaces-bg",
+   "kind": "nf",
+   "script": "managespaces",
+   "mode": "bg",
+   "engines": {
+    "chromium": 17,
+    "webkit": 17
+   },
+   "seconds": {
+    "chromium": 17,
+    "webkit": 18
+   },
+   "paths": [
+    "S/Spaces/*"
+   ]
+  },
+  {
+   "id": "signin-real",
+   "kind": "signin",
+   "script": "signin",
+   "mode": "real",
+   "engines": {
+    "chromium": 27,
+    "webkit": 23
+   },
+   "limit": 420,
+   "seconds": {
+    "chromium": 67,
+    "webkit": 52
+   },
+   "paths": [
+    "S/Browser/ProfileSignIn.swift",
+    "S/Onboarding/SignInWindow.swift",
+    "K/ProfileSignIn*.swift",
+    "scripts/tests/signin/*"
+   ]
+  },
+  {
+   "id": "passkeyquit-real-wreal",
+   "kind": "passkeyquit",
+   "script": "passkeyquit",
+   "mode": "real",
+   "tag": "wreal",
+   "env": [
+    "REAL=1"
+   ],
+   "engines": {
+    "webkit": 16
+   },
+   "limit": 300,
+   "seconds": {
+    "webkit": 61
+   },
+   "engine": true,
+   "paths": [
+    "S/Engine/WebKitPasskey*.swift",
+    "S/App/AppDelegate.swift",
+    "scripts/tests/passkeyquit/*"
+   ]
+  },
+  {
+   "id": "passkeyquit-real-creal",
+   "kind": "passkeyquit",
+   "script": "passkeyquit",
+   "mode": "real",
+   "tag": "creal",
+   "env": [
+    "REAL=1"
+   ],
+   "engines": {
+    "chromium": 16
+   },
+   "limit": 300,
+   "seconds": {
+    "chromium": 28
+   },
+   "engine": true,
+   "paths": [
+    "S/Engine/WebKitPasskey*.swift",
+    "scripts/tests/passkeyquit/*"
+   ]
+  },
+  {
+   "id": "passkeyquit-posted-wae",
+   "kind": "passkeyquit",
+   "script": "passkeyquit",
+   "mode": "posted",
+   "tag": "wae",
+   "env": [
+    "QUIT=ae",
+    "REAL=1"
+   ],
+   "engines": {
+    "webkit": 15
+   },
+   "limit": 300,
+   "seconds": {
+    "webkit": 64
+   },
+   "paths": [
+    "S/Engine/WebKitPasskey*.swift",
+    "scripts/tests/passkeyquit/*"
+   ]
+  },
+  {
+   "id": "passkeyquit-posted-cae",
+   "kind": "passkeyquit",
+   "script": "passkeyquit",
+   "mode": "posted",
+   "tag": "cae",
+   "env": [
+    "QUIT=ae"
+   ],
+   "engines": {
+    "chromium": 13
+   },
+   "limit": 300,
+   "seconds": {
+    "chromium": 16
+   },
+   "paths": [
+    "S/Engine/WebKitPasskey*.swift",
+    "scripts/tests/passkeyquit/*"
+   ]
+  },
+  {
+   "id": "passkeyquit-posted-cmenu",
+   "kind": "passkeyquit",
+   "script": "passkeyquit",
+   "mode": "posted",
+   "tag": "cmenu",
+   "env": [
+    "QUIT=menu"
+   ],
+   "engines": {
+    "chromium": 13
+   },
+   "limit": 300,
+   "seconds": {
+    "chromium": 16
+   },
+   "paths": [
+    "S/Engine/WebKitPasskey*.swift",
+    "scripts/tests/passkeyquit/*"
+   ]
+  },
+  {
+   "id": "passkeyquit-posted-wmenusso",
+   "kind": "passkeyquit",
+   "script": "passkeyquit",
+   "mode": "posted",
+   "tag": "wmenusso",
+   "env": [
+    "QUIT=menu",
+    "GUARD=sso",
+    "REAL=1"
+   ],
+   "engines": {
+    "webkit": 11
+   },
+   "limit": 300,
+   "seconds": {
+    "webkit": 31
+   },
+   "paths": [
+    "S/Engine/WebKitPasskey*.swift",
+    "scripts/tests/passkeyquit/*"
+   ]
+  },
+  {
+   "id": "passkeyquit-posted-waesso",
+   "kind": "passkeyquit",
+   "script": "passkeyquit",
+   "mode": "posted",
+   "tag": "waesso",
+   "env": [
+    "QUIT=ae",
+    "GUARD=sso",
+    "REAL=1"
+   ],
+   "engines": {
+    "webkit": 11
+   },
+   "limit": 300,
+   "seconds": {
+    "webkit": 32
+   },
+   "paths": [
+    "S/Engine/WebKitPasskey*.swift",
+    "scripts/tests/passkeyquit/*"
+   ]
+  },
+  {
+   "id": "paritybackupfolder-bg",
+   "kind": "nf",
+   "script": "paritybackupfolder",
+   "mode": "bg",
+   "engines": {
+    "chromium": 10,
+    "webkit": 10
+   },
+   "limit": 330,
+   "seconds": {
+    "chromium": 3,
+    "webkit": 4
+   },
+   "paths": [
+    "S/Settings/BackupRestore.swift",
+    "S/App/AppBackups.swift",
+    "K/Backups.swift"
+   ]
+  },
+  {
+   "id": "paritymenuappearance-tfg",
+   "kind": "nf",
+   "script": "paritymenuappearance",
+   "mode": "tfg",
+   "engines": {
+    "chromium": 12,
+    "webkit": 12
+   },
+   "seconds": {
+    "chromium": 12,
+    "webkit": 13
+   },
+   "paths": [
+    "S/Sidebar/SidebarChrome.swift",
+    "S/App/AppAppearance.swift",
+    "S/App/NativeEditingMenus.swift"
+   ]
+  },
+  {
+   "id": "windowleak-bg-direct",
+   "kind": "nf",
+   "script": "windowleak",
+   "mode": "bg",
+   "tag": "-direct",
+   "nf_env": [
+    "AIRC_WINDOWLEAK_CLOSE=direct"
+   ],
+   "engines": {
+    "chromium": 25,
+    "webkit": 21
+   },
+   "seconds": {
+    "chromium": 40,
+    "webkit": 22
+   },
+   "paths": [
+    "S/Browser/WindowController.swift",
+    "S/Browser/WindowActions.swift",
+    "S/Browser/MultiWindow.swift"
+   ]
+  },
+  {
+   "id": "windowleak-tfg",
+   "kind": "nf",
+   "script": "windowleak",
+   "mode": "tfg",
+   "engines": {
+    "chromium": 26,
+    "webkit": 22
+   },
+   "seconds": {
+    "chromium": 28,
+    "webkit": 28
+   },
+   "paths": [
+    "S/Browser/WindowController.swift",
+    "S/Browser/WindowActions.swift"
+   ]
+  },
+  {
+   "id": "fsrest-real",
+   "kind": "nf",
+   "script": "fsrest",
+   "mode": "real",
+   "engines": {
+    "chromium": 34,
+    "webkit": 34
+   },
+   "seconds": {
+    "chromium": 32,
+    "webkit": 29
+   },
+   "paths": [
+    "S/Browser/FullScreen.swift",
+    "S/Browser/TrafficLightHover.swift"
+   ]
+  },
+  {
+   "id": "fullscreen-real",
+   "kind": "nf",
+   "script": "fullscreen",
+   "mode": "real",
+   "engines": {
+    "chromium": 10,
+    "webkit": 10
+   },
+   "seconds": {
+    "chromium": 15,
+    "webkit": 14
+   },
+   "paths": [
+    "S/Browser/FullScreen.swift"
+   ]
+  },
+  {
+   "id": "fullscreen-exit-real",
+   "kind": "nf",
+   "script": "fullscreen-exit",
+   "mode": "real",
+   "idle": 185,
+   "engines": {
+    "chromium": 9,
+    "webkit": 9
+   },
+   "seconds": {
+    "chromium": 22,
+    "webkit": 20
+   },
+   "paths": [
+    "S/Browser/FullScreen.swift"
+   ]
+  },
+  {
+   "id": "fullscreen-exit-real-realcase",
+   "kind": "nf",
+   "script": "fullscreen-exit",
+   "mode": "real",
+   "tag": "-realcase",
+   "nf_env": [
+    "AIRC_FULLSCREEN_CASE=real"
+   ],
+   "idle": 185,
+   "engines": {
+    "chromium": 14,
+    "webkit": 14
+   },
+   "seconds": {
+    "chromium": 72,
+    "webkit": 73
+   },
+   "paths": [
+    "S/Browser/FullScreen.swift"
+   ]
+  },
+  {
+   "id": "fullscreen-exit-fxhtml",
+   "kind": "agents",
+   "script": "fullscreen-exit",
+   "mode": "real",
+   "tag": "-fxhtml",
+   "env": [
+    "AIRC_FULLSCREEN_CASE=html"
+   ],
+   "idle": 185,
+   "engines": {
+    "chromium": 13
+   },
+   "limit": 300,
+   "seconds": {
+    "chromium": 17
+   },
+   "paths": [
+    "S/Browser/FullScreen.swift",
+    "S/Engine/ChromiumEngine.swift"
+   ]
+  },
+  {
+   "id": "fullscreen-exit-fxswitch",
+   "kind": "agents",
+   "script": "fullscreen-exit",
+   "mode": "real",
+   "tag": "-fxswitch",
+   "env": [
+    "AIRC_FULLSCREEN_CASE=switch"
+   ],
+   "idle": 185,
+   "engines": {
+    "chromium": 13
+   },
+   "limit": 300,
+   "seconds": {
+    "chromium": 17
+   },
+   "paths": [
+    "S/Browser/FullScreen.swift"
+   ]
+  },
+  {
+   "id": "fullscreen-exit-fxpip",
+   "kind": "agents",
+   "script": "fullscreen-exit",
+   "mode": "real",
+   "tag": "-fxpip",
+   "env": [
+    "AIRC_FULLSCREEN_CASE=pip"
+   ],
+   "idle": 185,
+   "engines": {
+    "chromium": 25
+   },
+   "limit": 300,
+   "seconds": {
+    "chromium": 11
+   },
+   "paths": [
+    "S/Browser/FullScreen.swift",
+    "S/PictureInPicture/*"
+   ]
+  },
+  {
+   "id": "fullscreen-exit-fxwebkit",
+   "kind": "agents",
+   "script": "fullscreen-exit",
+   "mode": "real",
+   "tag": "-fxwebkit",
+   "env": [
+    "AIRC_FULLSCREEN_CASE=webkit"
+   ],
+   "idle": 185,
+   "engines": {
+    "chromium": 20
+   },
+   "limit": 300,
+   "seconds": {
+    "chromium": 22
+   },
+   "paths": [
+    "S/Browser/FullScreen.swift",
+    "S/Engine/WebKitEngine.swift"
+   ]
+  },
+  {
+   "id": "fullscreen-exit-fxwebkit-switch",
+   "kind": "agents",
+   "script": "fullscreen-exit",
+   "mode": "real",
+   "tag": "-fxwebkit-switch",
+   "env": [
+    "AIRC_FULLSCREEN_CASE=webkit-switch"
+   ],
+   "idle": 185,
+   "engines": {
+    "chromium": 32
+   },
+   "limit": 300,
+   "seconds": {
+    "chromium": 26
+   },
+   "paths": [
+    "S/Browser/FullScreen.swift"
+   ]
+  },
+  {
+   "id": "littlearc-tfg",
+   "kind": "nf",
+   "script": "littlearc",
+   "mode": "tfg",
+   "engines": {
+    "chromium": 57,
+    "webkit": 57
+   },
+   "seconds": {
+    "chromium": 16,
+    "webkit": 15
+   },
+   "paths": [
+    "S/Browser/LittleArc*.swift",
+    "K/LittleArcProfiles.swift"
+   ]
+  },
+  {
+   "id": "pipreturn-bg",
+   "kind": "nf",
+   "script": "pipreturn",
+   "mode": "bg",
+   "engines": {
+    "chromium": 89,
+    "webkit": 89
+   },
+   "seconds": {
+    "chromium": 21,
+    "webkit": 21
+   },
+   "paths": [
+    "S/PictureInPicture/*",
+    "S/Browser/PictureInPicture.swift",
+    "K/MiniPlayer.swift"
+   ]
+  },
+  {
+   "id": "pipcontrols-bg",
+   "kind": "nf",
+   "script": "pipcontrols",
+   "mode": "bg",
+   "engines": {
+    "chromium": 52,
+    "webkit": 8
+   },
+   "seconds": {
+    "chromium": 38,
+    "webkit": 4
+   },
+   "paths": [
+    "S/PictureInPicture/*",
+    "S/Engine/WebKitMediaControls.swift"
+   ],
+   "idle": 125
+  },
+  {
+   "id": "pipcontrols-pfg",
+   "kind": "nf",
+   "script": "pipcontrols",
+   "mode": "pfg",
+   "idle": 125,
+   "engines": {
+    "chromium": 83
+   },
+   "seconds": {
+    "chromium": 50
+   },
+   "paths": [
+    "S/PictureInPicture/*"
+   ]
+  },
+  {
+   "id": "hoverscroll-real",
+   "kind": "nf",
+   "script": "hoverscroll",
+   "mode": "real",
+   "engines": {
+    "chromium": 23,
+    "webkit": 23
+   },
+   "limit": 330,
+   "seconds": {
+    "chromium": 13,
+    "webkit": 12
+   },
+   "paths": [
+    "S/Sidebar/SidebarRows.swift",
+    "S/Sidebar/OptionReveal.swift",
+    "S/Sidebar/TabPreview*.swift"
+   ]
+  },
+  {
+   "id": "agentspike-group",
+   "kind": "group",
+   "script": "agentspike",
+   "engines": {
+    "chromium": 144,
+    "webkit": 138
+   },
+   "seconds": {
+    "chromium": 92,
+    "webkit": 91
+   },
+   "paths": [
+    "S/Agent/AgentServer.swift",
+    "S/Agent/AgentMCP.swift",
+    "S/Agent/AgentClientIdentity.swift",
+    "S/Agent/AgentApproval.swift",
+    "S/Agent/AgentBridge.swift",
+    "S/Agent/AgentTools.swift",
+    "S/Agent/AgentDriver*.swift",
+    "S/Agent/AgentsConnect.swift",
+    "apps/browser/Sources/AircMCP/*",
+    "K/RemoteAgents.swift"
+   ],
+   "security": true,
+   "note": "Approval of outside agents (unknown/changed/spoofed scripts are asked). Every FAIL counts; a red is never a self-ruled flake.",
+   "scripts": [
+    "agentspike"
+   ]
+  },
+  {
+   "id": "parityfedcm-group",
+   "kind": "group",
+   "script": "parityfedcm",
+   "engines": {
+    "chromium": 22
+   },
+   "seconds": {
+    "chromium": 21
+   },
+   "engine": true,
+   "paths": [
+    "S/Browser/PagePrompts.swift",
+    "engine/patches/*fedcm*"
+   ],
+   "scripts": [
+    "parityfedcm"
+   ]
+  },
+  {
+   "id": "paritypagebubbles-group",
+   "kind": "group",
+   "script": "paritypagebubbles",
+   "engines": {
+    "chromium": 25
+   },
+   "seconds": {
+    "chromium": 17
+   },
+   "engine": true,
+   "paths": [
+    "S/Browser/PagePrompts.swift",
+    "S/Browser/PageToolbar.swift"
+   ],
+   "scripts": [
+    "paritypagebubbles"
+   ]
+  },
+  {
+   "id": "paritycontextmenu-group",
+   "kind": "group",
+   "script": "paritycontextmenu",
+   "engines": {
+    "chromium": 33
+   },
+   "seconds": {
+    "chromium": 12
+   },
+   "engine": true,
+   "paths": [
+    "S/Browser/PageContextMenu.swift",
+    "S/Engine/WebKitPageContextMenu.swift"
+   ],
+   "scripts": [
+    "paritycontextmenu"
+   ]
+  },
+  {
+   "id": "essentials-group",
+   "kind": "group",
+   "script": "darkfix+autodark",
+   "engines": {
+    "chromium": 97,
+    "webkit": 97
+   },
+   "seconds": {
+    "chromium": 47,
+    "webkit": 46
+   },
+   "paths": [
+    "S/App/AppAppearance.swift",
+    "S/Browser/PageColorScheme.swift",
+    "S/Engine/*ColorScheme*.swift"
+   ],
+   "scripts": [
+    "darkfix",
+    "autodark"
+   ]
+  },
+  {
+   "id": "callnotes-group",
+   "kind": "group",
+   "script": "callnotes",
+   "engines": {
+    "chromium": 21
+   },
+   "seconds": {
+    "chromium": 28
+   },
+   "paths": [
+    "S/Call/*",
+    "S/Calendar/*",
+    "K/CallNotesTrigger.swift"
+   ],
+   "scripts": [
+    "callnotes"
+   ]
+  },
+  {
+   "id": "agentux-group",
+   "kind": "group",
+   "script": "agentpane+agentpanel+parityagentrows+agentlights",
+   "engines": {
+    "chromium": 714,
+    "webkit": 715
+   },
+   "seconds": {
+    "chromium": 201,
+    "webkit": 201
+   },
+   "paths": [
+    "S/Agent/Pane/*",
+    "S/Agent/Panel/*",
+    "S/Agent/AgentControlPill.swift",
+    "S/Sidebar/SidebarAgents.swift",
+    "S/Sidebar/AgentToolbarButton.swift"
+   ],
+   "scripts": [
+    "agentpanel",
+    "parityagentrows",
+    "agentlights"
+   ]
+  },
+  {
+   "id": "settingsux-group",
+   "kind": "group",
+   "script": "settingsux+parityprefs+sidebarpolish",
+   "engines": {
+    "chromium": 135,
+    "webkit": 135
+   },
+   "seconds": {
+    "chromium": 110,
+    "webkit": 110
+   },
+   "paths": [
+    "S/Settings/*",
+    "K/AppPersonalization.swift"
+   ],
+   "scripts": [
+    "settingsux",
+    "parityprefs"
+   ]
+  },
+  {
+   "id": "sidebar-group",
+   "kind": "group",
+   "script": "quotecopy+feedbackbtn+paritysmallgaps+littlearcstage",
+   "engines": {
+    "chromium": 70,
+    "webkit": 70
+   },
+   "seconds": {
+    "chromium": 101,
+    "webkit": 101
+   },
+   "paths": [
+    "S/Browser/SelectionShare.swift",
+    "S/Sidebar/SidebarChrome.swift",
+    "S/Feedback/*",
+    "S/Browser/LittleArc*.swift",
+    "K/ShareLinks.swift",
+    "K/LinkCopyPolicy.swift"
+   ],
+   "scripts": [
+    "quotecopy",
+    "feedbackbtn",
+    "paritysmallgaps",
+    "littlearcstage"
+   ]
+  },
+  {
+   "id": "profile-group",
+   "kind": "group",
+   "script": "profilejourney+profilesignin+importux",
+   "engines": {
+    "chromium": 177,
+    "webkit": 175
+   },
+   "seconds": {
+    "chromium": 158,
+    "webkit": 148
+   },
+   "paths": [
+    "S/Spaces/CreateProfilePanel.swift",
+    "S/Browser/ProfileHost.swift",
+    "S/Browser/ProfileSignIn.swift",
+    "S/Browser/ExtensionProfiles.swift",
+    "S/Import/*",
+    "packages/AircImport/*",
+    "K/ProfileSignIn*.swift",
+    "K/Import.swift"
+   ],
+   "scripts": [
+    "profilejourney",
+    "profilesignin"
+   ]
+  },
+  {
+   "id": "sync-group",
+   "kind": "group",
+   "script": "icloudsync+boostsync+settingssync",
+   "engines": {
+    "chromium": 88,
+    "webkit": 88
+   },
+   "seconds": {
+    "chromium": 72,
+    "webkit": 72
+   },
+   "paths": [
+    "S/Sync/*",
+    "S/Settings/SyncSettings.swift",
+    "K/Sync/*",
+    "infra/release/cloudkit-schema.ckdb"
+   ],
+   "scripts": [
+    "icloudsync",
+    "icloudsync-second",
+    "icloudsync-replace",
+    "icloudsync-return",
+    "icloudsync-unavailable",
+    "boostsync",
+    "settingssync"
+   ]
+  },
+  {
+   "id": "chromeaccept-group",
+   "kind": "group",
+   "script": "chromeaccept+write+read",
+   "engines": {
+    "chromium": 40
+   },
+   "seconds": {
+    "chromium": 31
+   },
+   "engine": true,
+   "paths": [
+    "S/Engine/ChromiumEngine.swift",
+    "S/App/CrashLog.swift",
+    "S/App/SafeStorageKey.swift"
+   ],
+   "scripts": [
+    "chromeaccept",
+    "chromeaccept-write",
+    "chromeaccept-read"
+   ]
+  },
+  {
+   "id": "diaimport-group",
+   "kind": "group",
+   "script": "diaimport",
+   "engines": {
+    "chromium": 18
+   },
+   "seconds": {
+    "chromium": 80
+   },
+   "paths": [
+    "S/Import/*",
+    "packages/AircImport/*",
+    "S/Import/CredentialImport.swift"
+   ],
+   "scripts": [
+    "diaimport"
+   ]
+  },
+  {
+   "id": "onepassword-group",
+   "kind": "group",
+   "script": "op-real",
+   "engines": {
+    "chromium": 1
+   },
+   "seconds": {
+    "chromium": 40
+   },
+   "network": true,
+   "paths": [
+    "S/Browser/PasswordManagerOffer.swift",
+    "S/Browser/PasswordPicker.swift",
+    "S/Engine/NativeMessagingHosts.swift"
+   ],
+   "scripts": [
+    "op-real"
+   ]
+  },
+  {
+   "id": "guard-group",
+   "kind": "group",
+   "script": "safestorage-file+safestorage-scratch+arcimport3 (promptwatch)",
+   "engines": {
+    "chromium": 76
+   },
+   "seconds": {
+    "chromium": 113
+   },
+   "engine": true,
+   "security": true,
+   "paths": [
+    "S/App/SafeStorageKey.swift",
+    "S/Import/*",
+    "packages/AircImport/*",
+    "S/Engine/ChromiumEngine.swift"
+   ],
+   "note": "No keychain prompt on launch/import (promptwatch). Paths only; an engine change selects it too.",
+   "scripts": [
+    "safestorage",
+    "arcimport3"
+   ]
+  },
+  {
+   "id": "oauthapps-group",
+   "kind": "group",
+   "script": "oauthapps warm/cold posted/real + routing/parityfedcm/prompts",
+   "engines": {
+    "chromium": 129,
+    "webkit": 128
+   },
+   "seconds": {
+    "chromium": 80,
+    "webkit": 80
+   },
+   "paths": [
+    "S/App/URLEvents.swift",
+    "S/Browser/ProfileSignIn.swift",
+    "scripts/tests/oauthapps/*",
+    "K/LinkRules.swift"
+   ],
+   "note": "oauthapps-smoke.sh sleeps 130 s after each real case; drop that for idle-wait.sh 6 when porting (520 s of its 679 s in 0.1.62).",
+   "scripts": [
+    "oauthapps",
+    "oauthapps-cold",
+    "oauthapps-google"
+   ]
+  }
+ ],
+ "signed": [
+  {
+   "id": "signed-ctx-feedback-fedcm-mcp",
+   "seconds": 150,
+   "tier": "release",
+   "what": "ctxmenu, ctxmain, feedback, fedcm, mcpprompt smokes on the signed stage"
+  },
+  {
+   "id": "signed-timeline-atlaunch-c",
+   "seconds": 140,
+   "tier": "release",
+   "what": "timeline atlaunch Chromium (first launch of the signed app)"
+  },
+  {
+   "id": "signed-wkrules",
+   "seconds": 2,
+   "tier": "release",
+   "what": "bundled WebKit rule list check"
+  },
+  {
+   "id": "signed-timeline-late",
+   "seconds": 320,
+   "tier": "tail",
+   "what": "timeline late C + W"
+  },
+  {
+   "id": "signed-linkpaint",
+   "seconds": 780,
+   "tier": "tail",
+   "what": "linkpaint C + W vs the previous release"
+  },
+  {
+   "id": "signed-launchcount",
+   "seconds": 365,
+   "tier": "tail",
+   "what": "launchcount C"
+  }
+ ]
+}

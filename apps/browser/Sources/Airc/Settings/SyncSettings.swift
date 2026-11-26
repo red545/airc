@@ -45,6 +45,7 @@ struct SyncSettingsPage: View {
                             .disabled(syncingNow || sync.firstSync != nil)
                         }
                     }
+                    if sync.isEnabled { SyncRecoveryRows() }
                     if sync.notesHeld {
                         SettingsRow(title: "Notes aren't syncing yet",
                                     subtitle: "iCloud doesn't take Airc's notes yet. They wait on this Mac and go as soon as it does; everything else syncs.") { EmptyView() }
@@ -178,16 +179,21 @@ struct SyncFirstSyncSheet: View {
     init(model: SettingsModel, preview: SyncFirstSync) {
         self.model = model
         self.preview = preview
-        // Nothing of its own pinned yet (a new Mac): iCloud's sidebar is what it wants, if all of it can be read.
-        _choice = State(initialValue: preview.complete && preview.thisMac.pinned + preview.thisMac.favorites == 0 ? .replace : .merge)
+        // Nothing of its own pinned yet (a new Mac): iCloud's sidebar is what it wants, if all of it can be read. A Mac
+        // whose sync was started over elsewhere had synced: Merge keeps everything it has.
+        _choice = State(initialValue: !preview.restartedElsewhere && preview.complete && preview.thisMac.pinned + preview.thisMac.favorites == 0
+                        ? .replace : .merge)
         _profiles = State(initialValue: Dictionary(uniqueKeysWithValues: preview.profiles.map { ($0.id, $0.suggestion.map(SyncProfileChoice.use) ?? .create) }))
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Your other Mac's sidebar is in iCloud").aircFont(AircFont.title2).foregroundStyle(theme.surfaceText.color)
-                Text("Choose how this Mac starts syncing. Airc saves a backup of this Mac's sidebar first.")
+                Text(preview.restartedElsewhere ? "Sync was started over on another Mac" : "Your other Mac's sidebar is in iCloud")
+                    .aircFont(AircFont.title2).foregroundStyle(theme.surfaceText.color)
+                Text(preview.restartedElsewhere
+                     ? "Merge keeps everything on this Mac, including changes that hadn't synced yet, and adds the new sync's sidebar. Airc saves a backup of this Mac's sidebar first."
+                     : "Choose how this Mac starts syncing. Airc saves a backup of this Mac's sidebar first.")
                     .aircFont(AircFont.body).foregroundStyle(theme.surfaceTextSecondary.color)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -220,7 +226,9 @@ struct SyncFirstSyncSheet: View {
             }
             VStack(spacing: 8) {
                 option(.merge, title: "Merge with this Mac's sidebar",
-                       detail: "Keeps everything from both Macs. Spaces that are on both show up twice.")
+                       detail: preview.restartedElsewhere
+                           ? "Keeps everything from both Macs. What both had before the restart shows up once."
+                           : "Keeps everything from both Macs. Spaces that are on both show up twice.")
                 option(.replace, title: "Replace this Mac's sidebar with iCloud's",
                        detail: preview.complete
                            ? "iCloud's Spaces, pinned tabs and Favorites take the place of this Mac's. Its pinned notes stay, with their folders and Spaces, and sync to your other Mac. Today tabs in Spaces that go move to the Archive. Profiles and logins stay."

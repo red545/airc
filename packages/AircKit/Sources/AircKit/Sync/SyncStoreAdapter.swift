@@ -76,6 +76,16 @@ public struct SyncStoreAdapter: Codable, Sendable {
     /// The group's profile ID → this Mac's.
     public var localProfiles: [String: String] { inboundProfiles }
 
+    /// For a new group after a start-over (syncrecovery): the same record IDs and profile mappings, no baseline, so the
+    /// next capture sends everything again under the same names.
+    public func restarted() -> SyncStoreAdapter {
+        var fresh = SyncStoreAdapter(includeToday: includeToday)
+        fresh.aliases = aliases
+        fresh.groupProfiles = groupProfiles
+        fresh.inboundProfiles = inboundProfiles
+        return fresh
+    }
+
     /// The caller must persist adapter + replica + encrypted outbox atomically before upload.
     /// Remote application must rebase this baseline rather than emit the imported edits again.
     @discardableResult

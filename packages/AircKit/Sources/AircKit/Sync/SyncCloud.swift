@@ -55,11 +55,13 @@ public struct SyncReadReport: Equatable, Sendable {
     /// Batch records that parsed, and records deleted: either settles an earlier malformed record of that name.
     public var valid: Set<String> = []
     public var deleted: Set<String> = []
+    /// The `group` record, when the read brought it (a full read, or another Mac started sync over: syncrecovery).
+    public var group: SyncGroupRecord?
 
     public init(zoneRecreated: Bool = false, full: Bool = false, own: Set<UUID> = [], malformed: [String] = [],
-                valid: Set<String> = [], deleted: Set<String> = []) {
+                valid: Set<String> = [], deleted: Set<String> = [], group: SyncGroupRecord? = nil) {
         self.zoneRecreated = zoneRecreated; self.full = full; self.own = own; self.malformed = malformed
-        self.valid = valid; self.deleted = deleted
+        self.valid = valid; self.deleted = deleted; self.group = group
     }
 }
 
@@ -159,6 +161,9 @@ public protocol SyncGroupTransport: SyncTransport {
     func group() async throws -> SyncGroupRecord?
     /// Creates the group record, or returns the one another Mac created first.
     func createGroup(_ record: SyncGroupRecord) async throws -> SyncGroupRecord
+    /// Start over (syncrecovery): overwrites the group record with `record` if it's still the group `old` (or there's
+    /// none), then returns the record on the server: `record`, or the group another Mac put there first.
+    func replaceGroup(_ record: SyncGroupRecord, replacing old: UUID?) async throws -> SyncGroupRecord
     func publish(_ device: SyncDeviceRecord) async throws
     var devices: [SyncDeviceRecord] { get async }
     /// After `read()`, the engine merges and saves, then calls this; until then `read()` returns the same changes again.
@@ -184,6 +189,9 @@ public protocol SyncGroupTransport: SyncTransport {
 }
 
 extension SyncGroupTransport {
+    public func replaceGroup(_ record: SyncGroupRecord, replacing old: UUID?) async throws -> SyncGroupRecord {
+        throw SyncError.invalidOperation
+    }
     public func saveNote(_ record: SyncNoteRecord) async throws {}
     public func saveAsset(_ asset: SyncNoteAsset) async throws {}
     public func fetchNotes(_ names: [String]) async throws -> [SyncNoteRecord] { [] }
@@ -376,6 +384,7 @@ public actor CloudKitSyncTransport: SyncGroupTransport {
         var full = next.token == nil
         var own = Set<UUID>()
         var notes: [String: SyncNoteRecord] = [:]
+        var groupRecord: SyncGroupRecord?
         // Each batch record's last outcome in this read, in page order: a record malformed on one page and repaired or
         // deleted on a later one ends valid or deleted (one name has at most one event per page).
         enum Outcome { case malformed, valid, deleted }
@@ -394,6 +403,7 @@ public actor CloudKitSyncTransport: SyncGroupTransport {
                 own = []
                 notes = [:]
                 outcome = [:]
+                groupRecord = nil
                 continue
             } catch SyncCloudFailure.zoneNotFound {
                 // The zone is gone (reset in the CloudKit console, or by another Mac's recovery): recreate it empty;
@@ -418,6 +428,8 @@ public actor CloudKitSyncTransport: SyncGroupTransport {
                     if envelope.device == device { own.insert(envelope.id) } else { envelopes.append(envelope) }
                 case SyncCloudSchema.device:
                     if let d = SyncCloudSchema.device(record) { next.devices[d.device] = d }
+                case SyncCloudSchema.group:
+                    if let g = SyncCloudSchema.group(record) { groupRecord = g }
                 case SyncCloudSchema.note:
                     guard let note = SyncCloudSchema.note(record) else { outcome[record.name] = .malformed; break }
                     outcome[record.name] = .valid
@@ -435,7 +447,7 @@ public actor CloudKitSyncTransport: SyncGroupTransport {
         lastRead = SyncReadReport(full: full, own: own,
                                   malformed: outcome.filter { $0.value == .malformed }.map(\.key).sorted(),
                                   valid: Set(outcome.filter { $0.value == .valid }.map(\.key)),
-                                  deleted: Set(outcome.filter { $0.value == .deleted }.map(\.key)))
+                                  deleted: Set(outcome.filter { $0.value == .deleted }.map(\.key)), group: groupRecord)
         pending = next
         lastNotes = notes.values.sorted { $0.name < $1.name }
         return envelopes
@@ -465,6 +477,14 @@ public actor CloudKitSyncTransport: SyncGroupTransport {
             guard let existing = try await group() else { throw SyncCloudFailure.other("group record unreadable") }
             return existing
         }
+    }
+
+    public func replaceGroup(_ record: SyncGroupRecord, replacing old: UUID?) async throws -> SyncGroupRecord {
+        // CloudKit has no compare-and-swap here: check, overwrite, read back. Two Macs starting over at once: the last
+        // overwrite wins, and the other one rejoins at its next read (its group isn't the zone's).
+        if let current = try await group(), current.group != old, current.group != record.group { return current }
+        try await save(SyncCloudSchema.record(record), mode: .overwrite)
+        return try await group() ?? record
     }
 
     public func saveNote(_ record: SyncNoteRecord) async throws {

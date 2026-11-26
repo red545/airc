@@ -12,31 +12,58 @@ from priority import admit, contenders, deferred, progressed, night_hold
 from run import build_lock, Preempted
 
 class PriorityTest(unittest.TestCase):
-    def test_real_kernel_waiter_is_seen_and_never_overtaken(self):
+    def test_real_kernel_waiter_is_seen_and_not_overtaken_within_patience(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'lock'
             with path.open('a') as holder:
                 fcntl.flock(holder,fcntl.LOCK_EX)
                 peer=subprocess.Popen([sys.executable,'-c',
-                    'import fcntl,sys; f=open(sys.argv[1],"a"); fcntl.flock(f,fcntl.LOCK_EX)',str(path)])
+                    'import fcntl,sys,time; f=open(sys.argv[1],"a"); fcntl.flock(f,fcntl.LOCK_EX); time.sleep(.5)',str(path)])
                 try:
                     until=time.monotonic()+5
                     while not contenders(path) and time.monotonic()<until: time.sleep(.02)
                     self.assertIn(peer.pid,contenders(path))
                     with path.open('a') as suite:
-                        with self.assertRaisesRegex(InterruptedError,'waiter'): admit(suite)
+                        with patch('priority.POLL',.05):
+                            with self.assertRaisesRegex(InterruptedError,'not free'): admit(suite,patience=10,give_up=.3)
                     self.assertIsNone(peer.poll())
                 finally:
                     fcntl.flock(holder,fcntl.LOCK_UN)
-                    peer.wait(timeout=3)
-            with path.open('a') as suite: admit(suite)
+                # the queued peer goes first; the suite gets the lock after it, without aborting
+                with path.open('a') as suite, patch('priority.POLL',.05):
+                    admit(suite,patience=10,give_up=10)
+                    self.assertEqual(peer.wait(timeout=3),0)
 
-    def test_waiter_arrives_during_acquisition_releases_lock(self):
+    def test_waits_in_place_and_ticks_instead_of_aborting(self):
         with tempfile.TemporaryDirectory() as d:
             with (Path(d)/'lock').open('a') as lock:
-                with patch('priority.contenders',side_effect=[[],[42]]):
-                    with self.assertRaises(InterruptedError): admit(lock)
-                with open(lock.name,'a') as peer: fcntl.flock(peer,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                ticks=[]; now=[0.0]
+                with patch('priority.contenders',side_effect=[[42],[42],[],[]]):
+                    waited=admit(lock,tick=lambda: ticks.append(1),patience=100,give_up=1000,
+                                 clock=lambda: now[0],sleep=lambda s: now.__setitem__(0,now[0]+s))
+                self.assertEqual(len(ticks),3); self.assertEqual(waited,4.0)
+
+    def test_waiter_arrives_during_acquisition_goes_first(self):
+        with tempfile.TemporaryDirectory() as d:
+            with (Path(d)/'lock').open('a') as lock:
+                now=[0.0]
+                with patch('priority.contenders',side_effect=[[],[42],[],[]]):
+                    admit(lock,patience=100,give_up=1000,clock=lambda: now[0],sleep=lambda s: now.__setitem__(0,now[0]+s))
+                self.assertEqual(now[0],2.0)   # released once for the peer, then took it
+
+    def test_starved_suite_takes_a_free_lock_despite_waiters(self):
+        with tempfile.TemporaryDirectory() as d:
+            with (Path(d)/'lock').open('a') as lock:
+                now=[0.0]
+                with patch('priority.contenders',return_value=[42]):
+                    waited=admit(lock,patience=10,give_up=1000,clock=lambda: now[0],sleep=lambda s: now.__setitem__(0,now[0]+s))
+                self.assertGreaterEqual(waited,10)
+
+    def test_tick_can_stop_the_wait(self):
+        with tempfile.TemporaryDirectory() as d:
+            with (Path(d)/'lock').open('a') as lock, patch('priority.contenders',return_value=[42]):
+                def tick(): raise InterruptedError('coordinator cancelled')
+                with self.assertRaisesRegex(InterruptedError,'cancelled'): admit(lock,tick=tick)
 
     def test_marker_appears_after_acquisition(self):
         with tempfile.TemporaryDirectory() as d:

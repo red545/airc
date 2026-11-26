@@ -26,6 +26,12 @@ extension FolderSyncTransport: SyncGroupTransport {
         }
     }
 
+    public func replaceGroup(_ record: SyncGroupRecord, replacing old: UUID?) throws -> SyncGroupRecord {
+        if let current = try group(), current.group != old, current.group != record.group { return current }
+        try JSONEncoder().encode(record).write(to: groupFile, options: .atomic)
+        return try group() ?? record
+    }
+
     public func publish(_ device: SyncDeviceRecord) throws {
         guard device.device == self.device else { throw SyncError.invalidEnvelope }
         try FileManager.default.createDirectory(at: deviceFolder, withIntermediateDirectories: true)
@@ -51,6 +57,7 @@ extension FolderSyncTransport: SyncGroupTransport {
     public func restore(checkpoint: Data?) {}
     /// Every read is full; `own` is this device's batches in the folder.
     public func takeReadReport() -> SyncReadReport {
-        SyncReadReport(full: true, own: Set(((try? read()) ?? []).filter { $0.device == device }.map(\.id)))
+        SyncReadReport(full: true, own: Set(((try? read()) ?? []).filter { $0.device == device }.map(\.id)),
+                       group: try? group())
     }
 }

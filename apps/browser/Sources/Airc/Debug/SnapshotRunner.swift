@@ -362,6 +362,8 @@ final class SnapshotRunner {
         case "library2": library2Scenario()
         case "l04": l04Scenario()   // L04LibraryCheck.swift: Library media and recent files, real input
         case "icloudsync", "icloudsync-second", "icloudsync-replace", "icloudsync-return", "icloudsync-unavailable": iCloudSyncScenario()
+        case "icloudsync-recovery-a", "icloudsync-recovery-b", "icloudsync-recovery-c", "icloudsync-recovery-a2":
+            iCloudSyncRecoveryScenario()   // recovery key and start over, no iCloud Keychain (ICloudSyncRecoveryCheck.swift)
         case "settingssync-a", "settingssync-b", "settingssync-a2": settingsSyncScenario()   // settings sync (SettingsSyncCheck.swift)
         case "boostsync-a", "boostsync-b", "boostsync-a2", "boostsync-b2": boostSyncScenario()   // Boosts and archive timing sync (BoostSyncCheck.swift)
         case "icloudsync-real-a", "icloudsync-real-b", "icloudsync-real-live-a", "icloudsync-real-live-b", "icloudsync-real-cleanup":

@@ -61,3 +61,40 @@ those suites passed. Signing, app/DMG notarization and stapling, Gatekeeper, mou
 privacy scan, stable identity and EdDSA continuity, a real previous-release delta
 built/applied locally, and public install smoke remain mandatory distribution
 checks. Actual automatic-update network proof remains separately recorded.
+
+## Changed-path smokes and the release tail
+
+Before fastgate2 (26 Nov), release agents carried forward about 160 hand-written smoke launches. They took
+4.0–4.1 h per release (0.1.61, 0.1.62), and 1.7 h of that was fixed `sleep 130`/`sleep 200` idle waits.
+`smokes.py` replaces that list. It keeps every one of those launches and changes when each one runs:
+
+- **Selection** (`smokes.py plan`): `git diff` from the last release's `Source:` commit to the cut, matched against
+  `smoke-catalog.json`. Each changed product path selects the smokes that cover it. A changed engine input
+  (`engine/core`, `engine/patches`, GN, `CHROMIUM_VERSION`, the engine Swift adapters) selects every engine
+  smoke. Debug check files are mapped through SnapshotRunner's case lines (`case "x": fn() // (File.swift)`),
+  including extension files such as `AgentMainBlank.swift`. Test-only changes (Debug/, `scripts/tests/`) can't
+  reach the public build, so their checks run first in the tail. The core set always runs.
+- **Budget**: the gate's smokes have a 900 s budget (`--budget`). Core comes first, then security and engine picks
+  (outside the budget), then the remaining picks by match specificity (exact file paths over directories). Picks
+  that don't fit move to the head of the tail. Of a script's posted and real twins with the same environment, the
+  gate runs the one with more assertions.
+- **Idle waits**: a check that needs the Mac's HID clock idle (full-screen exit 180 s, PiP controls 120 s) waits
+  only for its own need (`smokes/mac-helper.sh idle`). The plan places those checks after launches that post no
+  HID input (bg, posted, gate), so the idle time builds up during useful work. Every other launch waits 6 s.
+- **Judging** is unchanged from release074. A launch needs at least the catalog's PASS floor and has no FAIL,
+  FAIL-ENV or ENGINE-FAIL line, except a bounded, lead-approved allowance. A `hang.txt` sample or zero assertions
+  is red. A crash/hang-class line, or any new `Airc*` report in DiagnosticReports during the run, is critical and
+  stops the gate at once.
+- **Bespoke groups** (agentspike, profile, sync, oauthapps, guard, …) need fixtures, fake apps or a mock cloud.
+  They run their release script through `--groups` (`id<TAB>command`). A selected group with no command is red,
+  never skipped. When you port oauthapps-smoke.sh, replace its `sleep 130` with `mac-helper.sh idle 6 900`.
+- **Tail**: `run --tier tail` writes `status/release-tail.json`. It yields when another release creates
+  `release-staging`. `blockers` exits 1 for an unruled red or any critical red. Rule a flake by adding the run id
+  to `ruled`, with the evidence in your REPORT.
+
+Estimates (`plan`, timings from release074): 0.1.61→0.1.62's cut 13 launches ≈ 15 min (before: 4.1 h), main
+after 0.1.62 (notes only) 8 launches ≈ 6 min, the parallel-tasks branch 21 launches ≈ 15 min (49 launches
+≈ 47 min uncapped). Tail ≈ 2.6–3.0 h after LIVE.
+
+The background full suite (`infra/suite`) has not finished a run since 13 Nov. Every attempt aborts on "peer
+lock waiter". Until it runs again, the release tail is the only regular run of the full smoke inventory.

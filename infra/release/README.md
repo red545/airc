@@ -1,4 +1,11 @@
 
+## Release smokes by change
+
+`smokes.py` with `smoke-catalog.json` and `smokes/` picks, orders, estimates and runs a release's test-build smokes:
+core and changed paths in the gate, everything else in the tail after LIVE, where a red blocks the next release.
+See fast-gate.md, "Changed-path smokes", and docs/release.md, "Release gates". `test_smokes.py` covers the selection
+helpers, judging, idle ordering and blockers.
+
 ## Background suite and qualified candidates
 
 `infra/suite/install.py --repo OWNED_CHECKOUT --remote ORIGIN_URL --status STATUS --queue QUEUE [--hours 6]`
@@ -26,8 +33,7 @@ archives only its appended log and changed evidence files after releasing the lo
 
 Every build step takes the Linux and Mac build locks; every UI case takes and
 releases the Mac UI lock.
-Both Mac lock waits join the blocking kernel queue instead of polling for an
-idle gap. Each case releases the lock before evidence copying and requeues for
+Both Mac lock waits poll with the lease kept (see "Background suite priority"). Each case releases the lock before evidence copying and requeues for
 the next case, allowing queued agents to interleave. A case-level environment
 refusal is recorded and the remaining inventory continues; it cannot qualify.
 All four priority markers are checked before work and
@@ -125,19 +131,23 @@ is unchanged and may enforce a stricter result.
 
 ### Background suite priority
 
-The background suite is always below agent work: before every package/app build
-and every single UI case it checks for peer lock contenders, takes the lock only
-nonblocking, and checks again after acquisition. Linux uses `lslocks` waiter
-records; on the build Mac, `lsof` conservatively treats any other process with
-the lock file open as a contender. It never queues ahead of agents. Contention
-returns 75, performs normal cleanup/checkpoint preemption, and retries after
-60 seconds. Release, quiet, relink and priority-build markers still preempt it.
+The background suite stays below agent work, with bounded starvation (`priority.admit`, fastgate2, 26 Nov).
+Before every package/app build and every UI case, it polls every 2 s for peer lock contenders and takes the lock
+only nonblocking. While it waits it keeps the coordinator lease, and it checks the release, quiet, relink and
+priority-build markers on each poll; a marker stops the attempt for a checkpoint resume. Linux uses `lslocks`
+waiter records. On the build Mac, `lsof` conservatively counts any other process with the lock file open.
+While a peer is queued, the suite doesn't take the lock: for up to 20 min for builds and 5 min for a UI case
+(`AIRC_SUITE_PATIENCE`). After that it takes the lock as soon as it is free, like any waiter. After 4 h without
+the lock (`AIRC_SUITE_GIVE_UP`) the attempt ends with 75 and resumes from its checkpoint. Earlier code returned
+75 at the first queued peer. Agents queue for these locks most of the day, so no run finished from 13 Nov to
+26 Nov (379 restarts on 26 Nov alone).
 
-After six hours of contention without a completed case, retries wait for
-00:00–06:00 UTC. Nighttime does not bypass peer waiters or priority markers.
+After six hours without an admission (or a completed case), retries wait for
+00:00–06:00 UTC.
 The persistent `suite/low-priority.json` records the first deferral and reason;
-`suite/scheduler.json` exposes the overnight hold. A completed case resets the
-starvation clock. Checkpoint validation, pinned revision, interrupted-case rerun
+`suite/scheduler.json` exposes the overnight hold. An admission or a completed
+case resets the starvation clock (before 26 Nov only a completed case did, so a
+15 Nov deferral kept the clock running for 11 days). Checkpoint validation, pinned revision, interrupted-case rerun
 and the 24-hour expiry remain unchanged. Changing the runner itself invalidates
 older checkpoints under the existing runner-SHA rule.
 

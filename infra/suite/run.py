@@ -64,9 +64,13 @@ def build_lock(status):
         try:
             if blocked(status):
                 raise InterruptedError('priority before build lock')
-            admit(lock)
+            def tick():
+                if blocked(status):
+                    raise InterruptedError('priority marker while waiting for build lock')
+            admit(lock, tick)
             if blocked(status):
                 raise InterruptedError('priority changed after build lock')
+            progressed(status)   # admitted: the starvation clock restarts
         except InterruptedError as error:
             deferred(status, str(error))
             raise Preempted(str(error)) from error

@@ -83,6 +83,7 @@ active (at most every 20 s), every 10 minutes, after each local change (1.5 s de
 | network unavailable/failure, service unavailable, rate limited, zone busy | retries (1, 4, 15 s, CloudKit's retry-after if longer), then "Can't reach iCloud right now", backoff up to 15 min |
 | not authenticated / no account | "Sign in to iCloud in System Settings to sync", checks again |
 | quota exceeded | "Your iCloud storage is full", every 30 min |
+| a read brings a `group` record of another group, or recovery finds one (another Mac started over, or set up anew after a reset) | **rejoins** (syncrecovery): forgets the old group's sync state (never the store), keeps the switches, joins the new group like a new Mac (waits for its key, then the first-sync screen with "started over on another Mac", Merge preselected, backup first). Before: recovery turned sync off |
 | zone not found on save or read, or a full read missing any batch this Mac uploaded | recreates the zone and enters **recovery** (saved): puts the group record back and checks it is this group's, uploads this Mac's whole history again, and only then leaves recovery (every Mac does: a third Mac still gets everything) |
 | a record of a page CloudKit couldn't return | the page's token isn't used: nothing is acknowledged past it, it comes again |
 | change token expired | reads everything again |
@@ -417,6 +418,48 @@ then syncs back as the first one mapped, the default one if it's among them. Pro
 new empty profiles with their names.
 Cancel turns sync off and changes nothing.
 
+### Recovery key (no iCloud Keychain)
+
+`SyncRecoveryKey` (K/Sync/SyncRecovery.swift) writes the group key out for a person: the 32 bytes plus a 3-byte checksum
+(SHA-256 of a fixed prefix and the key), Crockford base32, 14 groups of 4 (`XXXX-…`). Parsing forgives case, spaces,
+dashes and O/I/L; a wrong length, character or checksum is `.malformed` ("check it for typos").
+
+- **Showing it:** Settings › Sync › Recovery key › Show… on a Mac that has joined and has the key, after
+  LocalAuthentication's `.deviceOwnerAuthentication` (scripted test runs skip it). `SyncEngine.recoveryKey()`. It's
+  shown and copied, never stored anywhere else.
+- **Using it:** only while `.waitingForKeychain`. `useRecoveryKey(_:)` fetches the group record and checks the key with
+  its `check` (another group's key: `.otherGroup`), then **adds** it to the key store, the same item iCloud Keychain
+  would bring (never replacing one; a different key under that name is `.keychain`). The cycle goes on: a new Mac to
+  the first-sync screen, a joined Mac where it left off (its replica, adapter and outbox are untouched while it waits; a
+  capture needs the key, so nothing is sealed meanwhile and the next capture sends the edits made since).
+- **A joined Mac without its key** fetches the group record once a minute while waiting: another group means it was
+  started over elsewhere, and it rejoins (below).
+
+### Starting over
+
+`startOver()` is offered only while `.waitingForKeychain`, and refuses (`.notWaiting`) if the key is in the store after all.
+1. The backup, through the first sync's hook: a failure throws `SyncFirstSyncBackupFailure`, nothing changes.
+2. A new group UUID and key, added to the key store.
+3. `replaceGroup(_:replacing:)` overwrites the `group` record if it's still the group this Mac was waiting for (or
+   none), then reads it back. CloudKit has no compare-and-swap for it: two Macs starting over at once both write, the
+   last wins, and the other rejoins at its next read. A Mac that sees another group already there removes its unused key
+   and throws `.startedElsewhere`.
+4. This Mac's state is the first Mac's: a new replica, outbox, checkpoint, note state, and cleared settings and Boost
+   baselines (their switches kept). The adapter keeps its record aliases and profile mappings
+   (`SyncStoreAdapter.restarted()`), so the same records and group profile IDs come back, and a Mac that rejoins maps
+   them without asking and merges without duplicates.
+5. A capture of the whole sidebar, then a normal exchange.
+
+**Nothing in iCloud is deleted.** The old group's batches, device and note records and pictures stay. Batches,
+devices and notes of another group are skipped silently (a note record of another group isn't "unreadable"). Reclaiming
+them is the garbage collection follow-up below.
+
+**Rejoining** (`rejoin()`, any Mac that finds another group): a fresh state with the same device, account, switches
+and `lastSynced`, the adapter's `restarted()` mappings, and `restarted = true`; the key is forgotten in memory only (the
+old item stays in the keychain: deleting a synchronizable item deletes it on every Mac). Then `join` as for a new Mac.
+`SyncFirstSync.restartedElsewhere` makes the screen say so and preselect Merge; profiles the old adapter mapped aren't
+asked about again. Merge captures the store, edits that never reached iCloud included.
+
 ## Applying remote changes
 
 `SyncEngine` observes the store, so every committed action is captured (content-only page updates aren't). Before
@@ -456,6 +499,14 @@ never use the real CloudKit.
   convergence through CloudKit transports, and the engine on several "Macs" with fake keychains (waiting, merge,
   replace with backup, profile choices and later profiles, privacy, failures, outbox across a relaunch, deletes and
   moves, zone reset with a third Mac, concurrent first setup, copied data folders).
+- `swift test --package-path packages/AircKit --filter SyncRecovery`: the recovery key's round trip and typos, a Mac
+  without iCloud Keychain joining with it, a joined Mac that lost its key resuming and sending its edits, start over with
+  a failed backup (nothing changes) and while the key is there (refused), start over and the other Mac rejoining with an
+  unsynced edit and nothing twice, a Mac without a key noticing a start-over, an old recovery key refused, a lost
+  start-over race, and a zone reset to another group rejoining instead of turning sync off.
+- `--script icloudsync-recovery-a`, `-b`, `-c`, `-a2` (Debug/ICloudSyncRecoveryCheck.swift, both engines, no key file ever
+  copied): A shows its recovery key; B joins with it (a typo and another key refused, Merge after a backup); C starts over
+  (backup, new group, old batches kept); A notices, keeps its unsynced tab, joins with C's key and merges, nothing twice.
 - `--script icloudsync`, then `icloudsync-second`, `icloudsync-replace`, `icloudsync-return` (Debug/ICloudSyncCheck.swift,
   in the snapshot suite on both engines): four app instances share a mock database in a folder, each with its own fake
   keychain; a copied key file plays iCloud Keychain. The first uploads (nothing of a Today tab, a private window or
@@ -591,7 +642,8 @@ pushes, offline and account changes, and a notarized release's first sync on a c
   pictures stay until the zone is deleted. Garbage collection needs the same all-device acknowledgement as the log.
 - Merge doesn't detect the same Space on both Macs (each Mac's first "Personal" shows twice); Replace is the choice
   for a new Mac, and the screen offers it first when this Mac has nothing pinned.
-- No key recovery or pairing without iCloud Keychain; no device retirement.
+- No device retirement. Without iCloud Keychain, a Mac joins with the recovery key (above); a start-over leaves the
+  old group's records in iCloud until the zone is deleted (the same garbage collection as notes').
 - Profile names sync only to name new empty profiles; renaming a profile on one Mac doesn't rename it on another.
 - Silent pushes need the Push Notifications capability on the App ID (the profile's `aps-environment`); without it
   sync is on activation and every 10 minutes.
