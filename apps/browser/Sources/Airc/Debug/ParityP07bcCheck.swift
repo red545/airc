@@ -237,11 +237,19 @@ extension SnapshotRunner {
         openBar()
         typeText("why do lisbon trams have bells")
         run { [self] in
-            let ask = bar?.results.firstIndex { $0.title == "Ask ChatGPT" && $0.badge == "Ask" }
-            let row = ask.flatMap { bar?.results[$0] }
-            check(row?.subtitle == "why do lisbon trams have bells" && row?.opensInNewTab == true
-                  && ask == min(CommandBarView.askRowIndex, (bar?.results.count ?? 1) - 1),
-                  "\(tag): a typed question offers Ask ChatGPT, third (askai) (\(bar?.resultTitles.joined(separator: " | ") ?? "-"))")
+            let typed = "why do lisbon trams have bells"
+            let results = bar?.results ?? []
+            let ask = results.firstIndex { $0.title == "Ask ChatGPT" && $0.badge == "Ask" }
+            let row = ask.flatMap { results[$0] }
+            // askai: two arrows down (third), or right under the rows there are; agentpanel2's "Ask Airc to…" (normal
+            // windows, key or not) right under it. This fixture has no history for the question, so: Search | Ask | Agent.
+            let others = results.filter { $0.badge != "Ask" && $0.badge != "Agent" }.count
+            let agent = results.firstIndex { $0.title == CommandBarView.agentRowTitle && $0.badge == "Agent" }
+            check(row?.subtitle == typed && row?.opensInNewTab == true
+                  && results.first?.badge == "Search" && results.first?.title == typed
+                  && ask == min(CommandBarView.askRowIndex, others)
+                  && agent != nil && agent == ask.map { $0 + 1 } && agent.map { results[$0].subtitle } == typed,
+                  "\(tag): a typed question offers Ask ChatGPT under the search row, Ask Airc to… under it (askai) (\(bar?.resultTitles.joined(separator: " | ") ?? "-"))")
         }
         typeText("weather")
         run { [self] in
