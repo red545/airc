@@ -2,6 +2,32 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.62",
+      "highlights": [
+        {
+          "title": "No blank page at the start",
+          "lead": "A new agent task no longer starts on a blank white page",
+          "detail": "When you give the Airc Agent a task, its new tab shows “Starting…” until the first page loads, and the tab carries your task's name instead of about:blank.",
+          "icon": "sparkles",
+          "action": "commandBar"
+        },
+        {
+          "title": "Safer first iCloud sync",
+          "lead": "Turning on iCloud sync always backs up this Mac first",
+          "detail": "Turning on sync in Settings › Sync backs up this Mac first, to the default folder if yours is missing. If no backup can be saved, nothing is merged or sent.",
+          "icon": "icloud.and.arrow.up",
+          "action": "settingsSync"
+        },
+        {
+          "title": "Ask says where agents work",
+          "lead": "Ask in the Command Bar says where the agent works",
+          "detail": "Ask mode in the Command Bar (⌘T) and the device chip now say the Airc Agent works in a tab of this window, not in a window of its own.",
+          "icon": "sparkles",
+          "action": "commandBar"
+        }
+      ]
+    },
+    {
       "version": "0.1.61",
       "highlights": [
         {

@@ -748,5 +748,23 @@
     "detail": "Press ⌘T over a full-screen video on any page and the Command Bar opens in your window. Switching away from a full-screen Safari-engine page no longer gets stuck.",
     "action": "commandBar",
     "image": null
+  },
+  "Turning on iCloud sync always backs up this Mac first": {
+    "title": "Safer first iCloud sync",
+    "detail": "Turning on sync in Settings › Sync backs up this Mac first, to the default folder if yours is missing. If no backup can be saved, nothing is merged or sent.",
+    "action": "settingsSync",
+    "image": null
+  },
+  "Ask in the Command Bar says where the agent works": {
+    "title": "Ask says where agents work",
+    "detail": "Ask mode in the Command Bar (⌘T) and the device chip now say the Airc Agent works in a tab of this window, not in a window of its own.",
+    "action": "commandBar",
+    "image": null
+  },
+  "A new agent task no longer starts on a blank white page": {
+    "title": "No blank page at the start",
+    "detail": "When you give the Airc Agent a task, its new tab shows “Starting…” until the first page loads, and the tab carries your task's name instead of about:blank.",
+    "action": "commandBar",
+    "image": null
   }
 }

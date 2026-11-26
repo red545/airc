@@ -1,16 +1,27 @@
-# Airc 0.1.61 public beta
+# Airc 0.1.62 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update lets the Airc Agent work right in your window, makes ⌘T leave full screen on Chromium pages too, stops an
-empty Apple ID sheet from holding up quitting and keeps backups going when your backup folder is missing. It includes
-everything from 0.1.60. The release manifest records the exact build, source and checksums.
+This update starts new agent tasks without a blank white page, makes turning on iCloud sync always back up this Mac
+first and updates the Command Bar's Ask text for the agent working in your window. It includes everything from
+0.1.61. The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.60
+## New since 0.1.61
+
+- **A new agent task no longer starts on a blank white page.** Until the Airc Agent opens its first page, its tab
+  shows “Starting…”, and the tab is named after your task instead of “about:blank”.
+- **Turning on iCloud sync always backs up this Mac first.** Before the first sync merges anything, Airc backs up
+  this Mac's sidebar. If the backup folder you chose is gone (say, on a drive that isn't plugged in), the backup goes
+  to the default folder, as every other backup already did. If Airc can't save a backup at all, nothing is merged or
+  sent, and the first-sync screen tells you why.
+- **Ask in the Command Bar says where the agent works.** Ask mode and the device chip now say the Airc Agent works in
+  a tab of this window, not in a window of its own.
+
+## Included from 0.1.61
 
 - **The Airc Agent now works right in your window.** When you give it a task, its page opens as a tab in Today, with
   a soft glow in your Space's colour and a bar on top with **Take over** and **Stop**. While it works, your clicks
