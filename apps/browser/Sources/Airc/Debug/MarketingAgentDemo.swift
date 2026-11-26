@@ -9,14 +9,19 @@ import CoreVideo
 /// X's Airc Agent video, recorded from the real window. The demo profile's Personal Space (made-up Favorites, pinned
 /// tabs and Today tabs for this part) is on Steepwell, a made-up coffee and tea shop of our own (tools/agent-demo-shop:
 /// static pages and product photos rendered from our own models, steepwell.aircbrowser.com through the engine's host
-/// rules, served by MarketingServer on loopback). The person clicks ✦ in the toolbar row, uses Codex (signed in with
-/// ChatGPT) from the pane's Connect card and types a task; the agent compares two kettles in its own window while the
-/// pane's live card shows it, picks one with a reason, goes to payment, and Airc stops it at Pay with the approval card;
-/// the person watches it from the Agents folder and allows once; the agent says what it did.
+/// rules, served by MarketingServer on loopback).
 ///
-/// Scripted: "Codex" is the fake `codex` CLI (AgentCLIFakes.swift, app-server protocol) in a scratch folder, following the steps in
-/// `script` (say / tool / hold). Every tool call is real: it goes through Airc's MCP server, which acts on the fixture
-/// pages, and Airc's own risk gate asks before Pay. No real account, model or key.
+/// aidemo4 (0.1.61, the agent in the main view): the person opens the Command Bar (⌘T), picks Ask and types a task; the
+/// task's page opens as a Today tab with the glow and the bar "Airc Agent is using this tab · Take over · Stop", and
+/// the agent compares two kettles there while the pane beside it lists its steps. The pointer rests on Take over for a
+/// moment (the person could take the tab at any time); the agent picks one with a reason, goes to payment, Airc stops it
+/// at Pay ("waiting for your OK"), the person allows once in the pane, and the agent says what it did.
+///
+/// Scripted: "Codex" is the fake `codex` CLI (AgentCLIFakes.swift, app-server protocol) in a scratch folder, following the
+/// steps in `script` (say / tool / hold). Every tool call is real: it goes through Airc's MCP server, which acts on the
+/// fixture pages in the main view, and Airc's own risk gate asks before Pay. No real account, model or key. The click
+/// targets are measured in the app before the take (the shop's `#m` hash), at the main view's real size with the pane
+/// open, which is the agent's viewport.
 ///
 /// The recording: the window server's picture of this window only (CGWindowListCreateImage with its window number, no
 /// Screen Recording permission, nothing else on screen), 2×, ~30 fps, with the real pointer (its real position and the
@@ -43,6 +48,10 @@ final class AgentDemo {
     var real = false
     let host = "http://steepwell.aircbrowser.com"
     var timeline: [[String: Any]] = []
+    /// Centres of the shop's controls per page (the `#m` measurement), at the agent's viewport.
+    var m: [String: [String: [Int]]] = [:]
+    var viewport = CGSize.zero
+    var measured = false
 
     init(runner: SnapshotRunner, demo: MarketingDemo) { self.runner = runner; self.demo = demo }
 
@@ -56,47 +65,66 @@ final class AgentDemo {
 
     var pane: AgentPaneController? { AgentPaneController.pane(of: c) }
     var run: AgentRunCenter { .shared }
+    var main: AgentMainView { .shared }
+    var chrome: AgentMainChromeView? { main.chromeView(c) }
 
     // MARK: The task and the script
 
     static let task = "Compare the Pour and Rapid kettles and buy the better one for pour over coffee. Ask me before you pay."
 
-    /// The fake Codex's steps for the task (one user turn). Coordinates are the fixture pages' fixed positions
-    /// (CSS px = the agent window's screenshot pixels).
+    /// A measured centre ([x, y] in the agent's screenshot pixels = CSS px).
+    func at(_ page: String, _ id: String) -> [Int] {
+        guard let r = m[page]?[id], r.count >= 2 else { note("MISSING: no measured \(id) on \(page)"); return [10, 10] }
+        return [r[0], r[1]]
+    }
+
+    /// The fake Codex's steps for the task (one user turn), with the coordinates measured at the agent's viewport.
     var script: [[String: Any]] {
         let say: (String) -> [String: Any] = { ["say": $0, "every": 0.045] }
         let tool: (String, [String: Any]) -> [String: Any] = { ["tool": $0, "args": $1] }
         let hold: (Double) -> [String: Any] = { ["hold": $0] }
-        // Centres from tools/agent-demo-shop/measure.py at the agent window's 1280 × 800 viewport.
+        let mid = [Int(viewport.width / 2), Int(viewport.height * 0.6)]
         return [
             say("I'll find both kettles on Steepwell."), hold(0.5),
-            tool("navigate", ["url": "\(host)/"]), hold(0.7),
-            tool("left_click", ["coordinate": [932, 72]]), hold(0.4),
+            tool("navigate", ["url": "\(host)/"]), hold(0.6),
+            tool("screenshot", [:]), hold(0.5),
+            tool("left_click", ["coordinate": at("/", "search")]), hold(0.4),
             tool("type", ["text": "kettle"]), hold(0.3),
             tool("key", ["text": "Return"]), hold(0.5),
             tool("wait_for_load", [:]), hold(0.4),
             tool("read_page", ["mode": "text"]), hold(0.7),
             say("Both are here: Pour at €79 and Rapid at €64. I'll put them side by side."), hold(0.5),
-            tool("left_click", ["coordinate": [136, 684]]), hold(0.7),
-            tool("left_click", ["coordinate": [422, 684]]), hold(0.9),
-            tool("left_click", ["coordinate": [793, 749]]), hold(0.5),
+            tool("left_click", ["coordinate": at("/search", "compare-pour")]), hold(0.7),
+            tool("left_click", ["coordinate": at("/search", "compare-rapid")]), hold(0.9),
+            tool("left_click", ["coordinate": at("/search#m2", "compare-go")]), hold(0.5),
             tool("wait_for_load", [:]), hold(0.4),
             tool("read_page", ["mode": "text"]), hold(0.8),
-            tool("scroll", ["coordinate": [640, 520], "scroll_direction": "down", "scroll_amount": 5]), hold(1.4),
-            tool("scroll", ["coordinate": [640, 420], "scroll_direction": "up", "scroll_amount": 10]), hold(0.5),
+            tool("scroll", ["coordinate": mid, "scroll_direction": "down", "scroll_amount": 5]), hold(1.8),
+            tool("scroll", ["coordinate": mid, "scroll_direction": "up", "scroll_amount": 10]), hold(0.6),
+            tool("screenshot", [:]), hold(0.5),
             say("For pour over, the Pour is the better pick: its gooseneck gives a slow, steady stream, and it holds 40–100 °C "
                 + "to the degree. The Rapid boils faster and holds more, but its wide spout pours too fast for a dripper. "
                 + "Adding the Pour to the bag."), hold(0.5),
-            tool("left_click", ["coordinate": [590, 315]]), hold(0.5),
+            tool("left_click", ["coordinate": at("/compare", "add-pour")]), hold(0.5),
             tool("wait_for_load", [:]), hold(0.5),
-            tool("left_click", ["coordinate": [1010, 430]]), hold(0.5),
+            tool("left_click", ["coordinate": at("/bag", "continue")]), hold(0.5),
             tool("wait_for_load", [:]), hold(0.4),
             tool("read_page", ["mode": "text"]), hold(0.6),
-            tool("left_click", ["coordinate": [1010, 510]]), hold(0.5),
+        ] + payClick + [
             tool("wait_for_load", [:]), hold(0.4),
             say("Done. I bought the Pour gooseneck kettle in Slate for €79.00 with your saved card ending 4242. For pour over "
                 + "it beats the Rapid (€64): a controlled stream and the exact temperature. Order SW-48213 arrives Thursday."),
         ]
+    }
+
+    /// Pay: where the page shows it. Below the fold (a narrow viewport stacks the summary under the form), the agent
+    /// scrolls to the bottom first and clicks it there.
+    var payClick: [[String: Any]] {
+        let p = at("/checkout", "pay"), maxScroll = m["/checkout"]?["_maxScroll"]?.first ?? 0
+        if CGFloat(p[1]) < viewport.height - 30 { return [["tool": "left_click", "args": ["coordinate": p]], ["hold": 0.5]] }
+        return [["tool": "scroll", "args": ["coordinate": [Int(viewport.width / 2), Int(viewport.height / 2)], "scroll_direction": "down", "scroll_amount": 15]],
+                ["hold": 1.2], ["tool": "screenshot", "args": [:] as [String: Any]], ["hold": 0.4],
+                ["tool": "left_click", "args": ["coordinate": [p[0], p[1] - maxScroll]]], ["hold": 0.5]]
     }
 
     // MARK: Set up
@@ -137,46 +165,72 @@ final class AgentDemo {
         c.navigate(to: URL(string: "\(host)/")!, newTab: true)
         runner.waitUntil({ (AgentPaneProvider.all().prefix(2).allSatisfy(\.ready)) }, timeout: 15) { [self] in
             note("providers: \(AgentPaneProvider.all().map { "\($0.name) \($0.ready ? "ready" : "not ready")" }.joined(separator: ", "))")
-            after(2.5) { self.front { ok in self.note("in front: \(ok)"); done() } }
+            // Codex, signed in with ChatGPT (owner 2026-11-19 20:45: lead with the ChatGPT subscription), chosen before
+            // the take: the video starts from a person who has set it up.
+            if let codex = AgentPaneProvider.all().first(where: { $0.name == "Codex" }) { codex.choose() }
+            AgentPaneProvider.refresh()
+            note("connected: \(run.hasKey)")
+            measure { [self] in
+                after(1.5) { self.front { ok in self.note("in front: \(ok)"); done() } }
+            }
         }
     }
 
-    /// Personal, made up for this video: no real brands in the sidebar. Favorites, pinned tabs and Today tabs of sites
-    /// that don't exist, with our own letter icons (served on loopback: the app fetches icons outside the host rules).
-    func stageSidebar() {
-        let s = c.store
-        guard let space = demo.space["personal"] else { return }
-        let profile = s.profile(ofSpace: space).id
-        let port = ProcessInfo.processInfo.environment["AIRC_MARKETING_PORT"] ?? "0"
-        let icon = { (name: String) in "http://127.0.0.1:\(port)/assets/fav/\(name).png" }
-        let site = { (name: String, path: String) in "http://\(name).aircbrowser.com\(path)" }
-        do {
-            for i in s.favorites(ofProfile: profile) { try s.deleteItem(i.id) }
-            for i in s.pinnedRoots(ofSpace: space) { try s.deleteItem(i.id) }
-            for t in s.todayTabs(ofSpace: space) { _ = try s.closeTab(t.id) }
-            for (url, title, ic) in [(site("kite", "/inbox"), "Inbox (2) – Kite Mail", "kite"),
-                                     (site("daybook", "/week"), "This week – Daybook", "daybook"),
-                                     (site("loop", "/mix"), "Sunday morning – Loop", "loop"),
-                                     (site("shelf", "/files"), "Home – Shelf", "shelf")] {
-                try runner.favorite(url, title: title, icon: icon(ic), profile: profile, space: space)
+    /// The agent's viewport is the main view's card beside the pane: open the pane, read the size, and measure the shop's
+    /// click targets in the person's tab at that size (the shop's `#m` hash puts them in the title), then close it
+    /// again and go back to the shop's home page. All before the recording starts.
+    func measure(_ done: @escaping () -> Void) {
+        _ = AgentPaneController.show(c)
+        after(1.2) { [self] in
+            viewport = c.card.hostView?.bounds.size ?? .zero
+            note("viewport with the pane open: \(Int(viewport.width))x\(Int(viewport.height))")
+            let pages = ["/search", "/compare", "/search#m2", "/bag", "/checkout", "/"]   // "/" last: from "/" itself, "/#m" would not load
+            func next(_ i: Int) {
+                guard i < pages.count else {
+                    pane?.close()
+                    measured = pages.allSatisfy { m[$0] != nil }
+                    note("measured: \(measured) \(m.map { "\($0.key) \($0.value.count)" }.sorted().joined(separator: ", "))")
+                    note("checkout scrolls \(m["/checkout"]?["_maxScroll"]?.first ?? -1) px")
+                    for (pg, id) in [("/", "search"), ("/search", "compare-pour"), ("/search", "compare-rapid"), ("/search#m2", "compare-go"),
+                                     ("/compare", "add-pour"), ("/bag", "continue"), ("/checkout", "pay")] {
+                        let p = at(pg, id)
+                        let inside = p[0] > 0 && p[1] > 0 && CGFloat(p[0]) < viewport.width && CGFloat(p[1]) < viewport.height
+                        note("target \(pg) \(id): \(p) \(inside ? "" : "OUTSIDE the viewport")")
+                    }
+                    c.navigate(to: URL(string: "\(host)/")!, newTab: false)
+                    return after(2.0, done)
+                }
+                let pg = pages[i]
+                let hash = pg.hasSuffix("#m2") ? "" : "#m"
+                let path = pg == "/" ? "/" : pg
+                c.navigate(to: URL(string: host + path + hash)!, newTab: false)
+                let want = pg.hasSuffix("#m2") ? "#m2" : "#m"
+                let wantPath = pg.components(separatedBy: "#")[0]
+                var tries = 0
+                func poll() {
+                    tries += 1
+                    guard let t = c.shownTabID.flatMap({ c.engineTab(for: $0) }) else { return tries < 40 ? after(0.25, poll) : next(i + 1) }
+                    t.evaluate("JSON.stringify([location.pathname, location.hash, document.title, String(document.documentElement.scrollHeight - innerHeight)])") { [self] v in
+                        if let s = v as? String, let d = s.data(using: .utf8), let a = try? JSONSerialization.jsonObject(with: d) as? [String],
+                           a.count == 4, a[0] == wantPath, a[1] == want, a[2].hasPrefix("{"),
+                           var o = try? JSONSerialization.jsonObject(with: Data(a[2].utf8)) as? [String: [Int]] {
+                            o["_maxScroll"] = [Int(a[3]) ?? 0, 0]
+                            m[pg] = o
+                            return next(i + 1)
+                        }
+                        if tries < 40 { after(0.25, poll) } else { note("MISSING: no measurement for \(pg)"); next(i + 1) }
+                    }
+                }
+                after(0.5, poll)
             }
-            try runner.pin(site("tally", "/budget-2027"), title: "Home budget 2027 – Tally", icon: icon("tally"), space: space)
-            let recipes = try s.createFolder(named: "Recipes", inSpace: space)
-            try runner.pin(site("crumb", "/pasteis-de-nata"), title: "Pastéis de nata – Crumb", icon: icon("crumb"), space: space, parent: recipes.id)
-            try runner.pin(site("crumb", "/shakshuka"), title: "Shakshuka for two – Crumb", icon: icon("crumb"), space: space, parent: recipes.id)
-            let reading = try s.createFolder(named: "Reading list", inSpace: space)
-            try runner.pin(site("fieldnotes", "/a-quieter-web"), title: "A quieter web – Field Notes", icon: icon("fieldnotes"), space: space, parent: reading.id)
-            try s.toggleFolder(reading.id)
-            for (url, title, ic) in [(site("stride", "/plan/week-6"), "Week 6 – Stride run plan", "stride"),
-                                     (site("atlas", "/porto"), "Weekend in Porto – Atlas", "atlas"),
-                                     (site("crumb", "/sourdough"), "Sourdough schedule – Crumb", "crumb")] {
-                let t = try s.openTab(url: url, inSpace: space, activate: false, title: title)
-                s.updateTab(t.id, faviconURL: icon(ic))
-            }
-            c.reloadAll(animated: false)
-        } catch {
-            note("sidebar: \(error)")
+            next(0)
         }
+    }
+
+    /// Personal, made up for this video: no real brands in the sidebar (SnapshotRunner.stageMadeUpSidebar).
+    func stageSidebar() {
+        guard let space = demo.space["personal"] else { return }
+        runner.stageMadeUpSidebar(space: space, todayTabs: true)
     }
 
     func writeState() {
@@ -195,7 +249,7 @@ final class AgentDemo {
         if run.state.isActive { run.stop() }
         // Ends the CLI session too: its socket and MCP config in $TMPDIR go with it (a left one breaks agentpanel).
         run.newConversation()
-        c.sidebar.agents.closeWatch()
+        c.closeCommandBar()
         pane?.close()
         AgentUI.forcedForTesting = nil
         AgentCLIDetector.shared.setDirForTesting(nil)
@@ -204,6 +258,13 @@ final class AgentDemo {
     }
 
     // MARK: Pointer and keys (real)
+
+    /// A view's point (its own coordinates) in Quartz global points.
+    func global(_ p: CGPoint, in v: NSView) -> CGPoint? {
+        guard let w = v.window, let main = NSScreen.screens.first else { return nil }
+        let r = w.convertToScreen(NSRect(origin: v.convert(p, to: nil), size: .zero))
+        return CGPoint(x: r.minX.rounded(), y: (main.frame.maxY - r.minY).rounded())
+    }
 
     /// An anchor's centre in Quartz global points.
     func point(_ name: String, in host: NSView? = nil) -> CGPoint? {
@@ -225,16 +286,15 @@ final class AgentDemo {
         }
     }
 
-    /// Moves to an anchor and clicks it for real; `fallback` (posted/direct) when that can't be done.
-    func click(_ anchor: String, _ what: String, in host: NSView? = nil, ms: Int = 700, fallback: @escaping () -> Void, _ done: @escaping () -> Void) {
-        guard real, let p = point(anchor, in: host) else {
-            note("\(what): \(real ? "anchor \(anchor) missing" : "posted"), direct action")
+    /// Moves to a point and clicks it for real; `fallback` (direct) when that can't be done.
+    func click(at p: CGPoint?, _ what: String, ms: Int = 700, fallback: @escaping () -> Void, _ done: @escaping () -> Void) {
+        guard real, let p else {
+            note("\(what): \(real ? "no point" : "posted"), direct action")
             fallback()
             return after(0.4, done)
         }
         move(to: p, ms: ms) { [self] in
-            guard let q = point(anchor, in: host) else { fallback(); return done() }
-            UIDriverClient.run(["--click", "\(Int(q.x))", "\(Int(q.y))"]) { ok, out in
+            UIDriverClient.run(["--click", "\(Int(p.x))", "\(Int(p.y))"]) { ok, out in
                 if !ok { self.note("\(what): driver refused (\(out)), direct action"); fallback() }
                 self.mark("click: \(what)")
                 done()
@@ -242,25 +302,19 @@ final class AgentDemo {
         }
     }
 
-    func typeTask(_ done: @escaping () -> Void) {
-        click("agentpane.field", "the composer", in: pane?.card?.hostingView, ms: 650, fallback: { self.pane?.focus() }) { [self] in
-        pane?.focus()
-        after(0.3) { [self] in
-            guard real, let keys = UIDriverClient.keys(typing: Self.task) else { pane?.model.text = Self.task; return done() }
-            mark("typing start")
-            UIDriverClient.press(keys, pid: getpid()) { ok, out in
-                if !ok { self.note("typing failed (\(out)); set directly"); self.pane?.model.text = Self.task }
-                self.mark("typing end")
-                done()
-            }
-        }
+    func key(_ combo: String, _ what: String, fallback: @escaping () -> Void, _ done: @escaping () -> Void) {
+        guard real else { fallback(); mark("key: \(what) (direct)"); return done() }
+        UIDriverClient.run(["--key", combo, "--pid", "\(getpid())"]) { ok, out in
+            if !ok { self.note("\(what): driver refused (\(out)), direct action"); fallback() }
+            self.mark("key: \(what)")
+            done()
         }
     }
 
     // MARK: The take
 
     func record(_ done: @escaping () -> Void) {
-        guard demo.serverUp else { return done() }
+        guard demo.serverUp, measured else { note("MISSING: not measured, no take"); return done() }
         guard let rec = WindowRecorder(window: c.window, url: dir.appendingPathComponent("aidemo.mov")) else {
             note("MISSING: the recorder didn't start (window not capturable?)"); return done()
         }
@@ -271,113 +325,100 @@ final class AgentDemo {
         move(to: park, ms: 200, dwell: 0.2) { [self] in
             rec.start()
             mark("start")
-            after(2.2) { self.openPane(done) }
+            after(2.0) { self.commandBar(done) }
         }
     }
 
-    /// ✦ in the sidebar's toolbar row (since 0.1.47), clicked for real; ⌥⌘A if it isn't there.
-    func openPane(_ done: @escaping () -> Void) {
-        let opened: () -> Void = { [self] in
-            runner.waitUntil({ self.pane?.isShown == true }, timeout: 5) { [self] in
-                mark("pane open, mode \(String(describing: pane?.model.mode))")
-                after(1.4) { self.connect(done) }
-            }
-        }
-        let button = c.sidebar.header.agent.button
-        if real, !button.isHiddenOrHasHiddenAncestor, button.bounds.width > 4, let w = button.window, let main = NSScreen.screens.first {
-            let r = w.convertToScreen(button.convert(button.bounds, to: nil))
-            let p = CGPoint(x: r.midX.rounded(), y: (main.frame.maxY - r.midY).rounded())
-            move(to: p, ms: 900, dwell: 0.35) { [self] in
-                UIDriverClient.run(["--click", "\(Int(p.x))", "\(Int(p.y))"]) { ok, out in
-                    if !ok { self.note("agent button: driver refused (\(out))"); AgentUI.toggle(self.c) }
-                    self.mark("click: ✦ in the toolbar")
-                    opened()
+    /// ⌘T, Ask (a real click on the bar's switch), the task typed, Return.
+    func commandBar(_ done: @escaping () -> Void) {
+        key("cmd+t", "⌘T", fallback: { self.c.openCommandBar(mode: .newTab) }) { [self] in
+            runner.waitUntil({ self.c.commandBar != nil }, timeout: 4) { [self] in
+                mark("command bar open")
+                after(1.1) { [self] in
+                    guard let bar = c.commandBar else { note("MISSING: no Command Bar"); return finish(done) }
+                    let t = bar.modeToggleForTesting
+                    t.layoutSubtreeIfNeeded()
+                    let ask = global(CGPoint(x: t.bounds.width - 2 - CommandBarModeToggle.segment.width / 2, y: t.bounds.midY), in: t)
+                    click(at: ask, "Ask", ms: 750, fallback: { self.c.commandBar?.setAskMode(true) }) { [self] in
+                        runner.waitUntil({ self.c.commandBar?.askMode == true }, timeout: 3) { [self] in
+                            mark("ask mode: \(c.commandBar?.askMode == true)")
+                            after(0.6) { self.typeTask(done) }
+                        }
+                    }
                 }
             }
-        } else {
-            note("✦ not clickable (real \(real), hidden \(button.isHiddenOrHasHiddenAncestor)): ⌥⌘A")
-            guard real else { AgentUI.toggle(c); return opened() }
-            UIDriverClient.run(["--key", "cmd+opt+a", "--pid", "\(getpid())"]) { ok, _ in
-                if !ok { AgentUI.toggle(self.c) }
-                self.mark("key: ⌥⌘A")
-                opened()
-            }
         }
     }
 
-    func connect(_ done: @escaping () -> Void) {
-        let host = pane?.card?.hostingView
-        // Codex, signed in with ChatGPT (owner 2026-11-19 20:45: lead with the ChatGPT subscription).
-        let use = "agentpane.provider.cli-codex.use"
-        let rows = pane?.model.providers ?? []
-        click(use, "Use on Codex", in: host, fallback: { if let r = rows.first(where: { $0.name == "Codex" }) { self.pane?.model.switchProvider(r, retrying: false) } }) { [self] in
-            runner.waitUntil({ self.pane?.model.mode == .newTask }, timeout: 5) { [self] in
-                mark("connected: \(pane?.model.providerLabel ?? "?")")
-                after(1.0) { self.task(done) }
-            }
-        }
-    }
-
-    func task(_ done: @escaping () -> Void) {
+    func typeTask(_ done: @escaping () -> Void) {
         writeState()
-        typeTask { [self] in
-            after(0.5) { [self] in
-                let send: (@escaping () -> Void) -> Void = { [self] k in
-                    guard real else { pane?.model.send(); return k() }
-                    UIDriverClient.run(["--key", "return", "--pid", "\(getpid())"]) { ok, _ in
-                        if !ok { self.pane?.model.send() }
-                        k()
-                    }
-                }
-                send { [self] in
-                    mark("sent")
-                    // The agent works; the pane's live card shows it. Wait for Airc's question at Pay.
-                    runner.waitUntil({ self.approvalShown }, timeout: 90) { [self] in
-                        mark(approvalShown ? "approval shown" : "no approval (timeout)")
-                        after(2.6) { self.watch(done) }
-                    }
-                }
+        // Off the bar: the pointer rests on the page while the task is typed.
+        let f = c.window.frame, top = NSScreen.screens.first?.frame.maxY ?? 0
+        move(to: CGPoint(x: (f.minX + f.width * 0.62).rounded(), y: (top - f.maxY + f.height * 0.86).rounded()), ms: 600, dwell: 0.2) { [self] in
+            guard real, let keys = UIDriverClient.keys(typing: Self.task) else {
+                c.commandBar?.type(Self.task)
+                return after(0.5) { self.send(done) }
+            }
+            mark("typing start")
+            UIDriverClient.press(keys, pid: getpid()) { [self] ok, out in
+                if !ok { note("typing failed (\(out)); set directly"); c.commandBar?.type(Self.task) }
+                mark("typing end")
+                after(0.7) { self.send(done) }
             }
         }
     }
 
-    var approvalShown: Bool {
-        run.approval != nil
-    }
-
-    /// The person opens the run from the Agents folder (Watch), sees the same question there and allows once.
-    func watch(_ done: @escaping () -> Void) {
-        let folder: NSView = c.sidebar.agents
-        guard let row = AgentActivity.shared.model.rows.last(where: { $0.isLive })?.id else {
-            note("no live Agents folder row"); return finish(done)
-        }
-        guard let p = point("agents-row-\(row)", in: folder) else {
-            c.sidebar.agents.openWatch(row); return afterWatch(done)
-        }
-        move(to: p, ms: 800, dwell: 0.5) { [self] in
-            click("agents-watch-\(row)", "Watch", in: folder, ms: 250, fallback: { self.c.sidebar.agents.openWatch(row) }) { [self] in
-                afterWatch(done)
+    func send(_ done: @escaping () -> Void) {
+        let typed = c.commandBar?.query ?? ""
+        note("typed in the bar: \(typed == Self.task ? "the task" : "“\(typed)”")")
+        key("return", "Return", fallback: { CommandBarView.startAgentTask(Self.task, attached: [], in: self.c) }) { [self] in
+            mark("sent")
+            runner.waitUntil({ self.main.runEntry?.page != nil && self.c.shownTabID == self.main.runEntry?.tabID }, timeout: 10) { [self] in
+                let tab = main.runEntry.flatMap { c.store.tab($0.tabID) }
+                mark("agent tab: \(tab?.isToday == true ? "Today" : "?") shown \(c.shownTabID == main.runEntry?.tabID), mode \(main.modeShown(c))")
+                takeOverMoment(done)
             }
         }
     }
 
-    func afterWatch(_ done: @escaping () -> Void) {
-        runner.waitUntil({ self.c.sidebar.agents.watch != nil }, timeout: 4) { [self] in
-            mark("watch open: \(c.sidebar.agents.watch?.mode ?? "none")")
-            after(3.0) { [self] in
-                let watchView: NSView? = c.sidebar.agents.watch
-                click("agentwatch-allow", "Allow Once (Watch)", in: watchView, fallback: { self.allowDirect() }) { [self] in
-                    runner.waitUntil({ !self.run.state.isActive }, timeout: 40) { [self] in
-                        mark("run ended: \(run.state)")
-                        after(2.2) { [self] in
-                            // Back to the person's page: the pane shows the answer.
-                            if let w = c.sidebar.agents.watch, point("agentwatch-close", in: w) != nil {
-                                click("agentwatch-close", "close Watch", in: w, ms: 600, fallback: { self.c.sidebar.agents.closeWatch() }) { self.finish(done) }
-                            } else {
-                                c.sidebar.agents.closeWatch()
-                                finish(done)
+    /// While the agent reads the comparison, the pointer rests on Take over (it could take the tab at any time), then
+    /// moves off to the pane. Hover only: the agent goes on.
+    func takeOverMoment(_ done: @escaping () -> Void) {
+        let onCompare = { [self] in main.runEntry?.page?.url?.path == "/compare" }
+        runner.waitUntil(onCompare, timeout: 60) { [self] in
+            mark("agent on compare: \(onCompare())")
+            after(1.6) { [self] in
+                guard let ch = chrome, let p = point("agentmain.takeover", in: ch) else { note("no Take over in the bar"); return awaitApproval(done) }
+                move(to: p, ms: 900, dwell: 0.1) { [self] in
+                    mark("hover: Take over")
+                    after(2.4) { [self] in
+                        let q = point("agentmain.stop", in: ch) ?? p
+                        move(to: q, ms: 350, dwell: 0.1) { [self] in
+                            mark("hover: Stop")
+                            after(1.4) { [self] in
+                                // Off the bar, onto the pane's steps.
+                                let f = c.window.frame, top = NSScreen.screens.first?.frame.maxY ?? 0
+                                move(to: CGPoint(x: (f.maxX - 190).rounded(), y: (top - f.maxY + f.height * 0.42).rounded()), ms: 800, dwell: 0.1) { [self] in
+                                    mark("pointer off the bar")
+                                    awaitApproval(done)
+                                }
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    func awaitApproval(_ done: @escaping () -> Void) {
+        runner.waitUntil({ self.run.approval != nil }, timeout: 90) { [self] in
+            mark(run.approval != nil ? "approval shown, mode \(main.modeShown(c))" : "no approval (timeout)")
+            after(2.6) { [self] in
+                let host = pane?.card?.hostingView
+                click(at: point("agentpane.allow", in: host), "Allow once (pane)", ms: 900, fallback: { self.allowDirect() }) { [self] in
+                    runner.waitUntil({ !self.run.state.isActive }, timeout: 40) { [self] in
+                        mark("run ended: \(run.state)")
+                        after(1.2) { self.finish(done) }
                     }
                 }
             }
@@ -388,24 +429,19 @@ final class AgentDemo {
         if run.approval != nil { run.answerApproval(allow: true) }
     }
 
-    /// The fake CLI logged its last step.
-    var cliDone: Bool {
-        guard let s = try? String(contentsOf: cliBin.appendingPathComponent("fake-log.jsonl"), encoding: .utf8) else { return false }
-        return s.contains("\"say\"") || s.contains("Order SW-48213") || s.split(separator: "\n").contains { $0.contains("\"event\": \"exit\"") }
-    }
-
     func finish(_ done: @escaping () -> Void) {
         // Park the pointer off the controls and hold on the answer.
         let f = c.window.frame, top = NSScreen.screens.first?.frame.maxY ?? 0
         move(to: CGPoint(x: (f.minX + f.width * 0.45).rounded(), y: (top - f.maxY + f.height * 0.7).rounded()), ms: 700) { [self] in
-            mark("answer")
-            after(4.5) { [self] in
+            mark("answer, mode \(main.modeShown(c))")
+            after(5.0) { [self] in
                 mark("end")
                 let log = (try? String(contentsOf: cliBin.appendingPathComponent("fake-log.jsonl"), encoding: .utf8)) ?? ""
                 try? log.write(to: dir.appendingPathComponent("fake-log.jsonl"), atomically: true, encoding: .utf8)
                 recorder?.stop { [self] in
                     let o: [String: Any] = ["task": Self.task, "input": real ? "real" : "posted", "events": timeline,
                                             "frames": recorder?.frames ?? 0, "dropped": recorder?.dropped ?? 0,
+                                            "viewport": [viewport.width, viewport.height],
                                             "size": [recorder?.size.width ?? 0, recorder?.size.height ?? 0]]
                     if let d = try? JSONSerialization.data(withJSONObject: o, options: [.prettyPrinted, .sortedKeys]) {
                         try? d.write(to: dir.appendingPathComponent("timeline.json"))
@@ -414,6 +450,54 @@ final class AgentDemo {
                     done()
                 }
             }
+        }
+    }
+}
+
+extension SnapshotRunner {
+    /// A made-up sidebar for agent videos and shots: no real brands. Favorites, pinned tabs and (with `todayTabs`)
+    /// Today tabs of sites that don't exist, with our own letter icons from tools/agent-demo-shop (served on loopback:
+    /// the app fetches icons outside the host rules; needs SteepwellShop loaded). The Space's other Today tabs close, and
+    /// so do open tabs of real sites anywhere.
+    func stageMadeUpSidebar(space: String, todayTabs: Bool) {
+        let s = c.store
+        let profile = s.profile(ofSpace: space).id
+        let port = ProcessInfo.processInfo.environment["AIRC_MARKETING_PORT"] ?? "0"
+        let icon = { (name: String) in "http://127.0.0.1:\(port)/assets/fav/\(name).png" }
+        let site = { (name: String, path: String) in "http://\(name).aircbrowser.com\(path)" }
+        do {
+            for i in s.favorites(ofProfile: profile) { try s.deleteItem(i.id) }
+            for i in s.pinnedRoots(ofSpace: space) { try s.deleteItem(i.id) }
+            for t in s.todayTabs(ofSpace: space) { _ = try s.closeTab(t.id) }
+            // The base profile's open tabs in other Spaces (real sites) would be listed by the Command Bar: close them.
+            for t in s.state.tabs.values {
+                let h = URL(string: t.url)?.host ?? ""
+                if !h.isEmpty, !h.hasSuffix("aircbrowser.com"), h != "127.0.0.1" { _ = try? s.closeTab(t.id) }
+            }
+            for (url, title, ic) in [(site("kite", "/inbox"), "Inbox (2) – Kite Mail", "kite"),
+                                     (site("daybook", "/week"), "This week – Daybook", "daybook"),
+                                     (site("loop", "/mix"), "Sunday morning – Loop", "loop"),
+                                     (site("shelf", "/files"), "Home – Shelf", "shelf")] {
+                try favorite(url, title: title, icon: icon(ic), profile: profile, space: space)
+            }
+            try pin(site("tally", "/budget-2027"), title: "Home budget 2027 – Tally", icon: icon("tally"), space: space)
+            let recipes = try s.createFolder(named: "Recipes", inSpace: space)
+            try pin(site("crumb", "/pasteis-de-nata"), title: "Pastéis de nata – Crumb", icon: icon("crumb"), space: space, parent: recipes.id)
+            try pin(site("crumb", "/shakshuka"), title: "Shakshuka for two – Crumb", icon: icon("crumb"), space: space, parent: recipes.id)
+            let reading = try s.createFolder(named: "Reading list", inSpace: space)
+            try pin(site("fieldnotes", "/a-quieter-web"), title: "A quieter web – Field Notes", icon: icon("fieldnotes"), space: space, parent: reading.id)
+            try s.toggleFolder(reading.id)
+            if todayTabs {
+                for (url, title, ic) in [(site("stride", "/plan/week-6"), "Week 6 – Stride run plan", "stride"),
+                                         (site("atlas", "/porto"), "Weekend in Porto – Atlas", "atlas"),
+                                         (site("crumb", "/sourdough"), "Sourdough schedule – Crumb", "crumb")] {
+                    let t = try s.openTab(url: url, inSpace: space, activate: false, title: title)
+                    s.updateTab(t.id, faviconURL: icon(ic))
+                }
+            }
+            c.reloadAll(animated: false)
+        } catch {
+            note("sidebar: \(error)")
         }
     }
 }
@@ -562,7 +646,8 @@ final class WindowRecorder {
 enum SteepwellShop {
     static var paths: [String] = []
 
-    static func load() -> Bool {
+    /// `only`: load just the files under this path (e.g. "/assets/fav/", the sidebar's letter icons).
+    static func load(only: String? = nil) -> Bool {
         guard let dir = ProcessInfo.processInfo.environment["AIRC_AIDEMO_SHOP"] else { return false }
         let root = URL(fileURLWithPath: dir, isDirectory: true).standardizedFileURL
         guard let e = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey]) else { return false }
@@ -571,6 +656,7 @@ enum SteepwellShop {
             guard (try? u.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true,
                   let data = try? Data(contentsOf: u) else { continue }
             let rel = String(u.standardizedFileURL.path.dropFirst(root.path.count))
+            if let only, !rel.hasPrefix(only) { continue }
             if u.pathExtension == "html" {
                 let path = rel == "/index.html" ? "/" : String(rel.dropLast(5))
                 MarketingServer.extraPages[path] = String(decoding: data, as: UTF8.self)
@@ -580,7 +666,7 @@ enum SteepwellShop {
                 paths.append(rel)
             }
         }
-        return MarketingServer.extraPages["/"] != nil
+        return only == nil ? MarketingServer.extraPages["/"] != nil : !paths.isEmpty
     }
 
     static func unload() {

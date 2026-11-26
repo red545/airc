@@ -4,9 +4,11 @@ slug = "2026-11-26-release-0.1.61"
 title = "Airc 0.1.61: the agent works right in your window"
 kind = "release"
 since = "0.1.61"
-tag = ""
+tag = "New in Airc 0.1.61"
+end_title = "Airc 0.1.61"
+end_line = "Free for Mac · aircbrowser.com"
 summary = """
-One text post on the headline: the agent's page opens as a tab in Today with a glow and a Take over / Stop bar. No
+One post on the headline, with aidemo4's agent-in-window still as a card: the agent's page opens as a tab in Today with a glow and a Take over / Stop bar. No
 card: the agent-in-window shots aren't re-taken yet (the lead re-takes them with the homepage demo); the demo video post
 (2026-11-23-agent-demo) gets the new take then.
 """
@@ -23,8 +25,20 @@ checked = """
   both until the lead's 0.1.61 re-take; release0156-02 re-approved (lead: Watch is still the name, text true).
 """
 
+[[image]]
+id = "inwindow"
+# aidemo4's still (2026-11-26, 0.1.61 UI: the bar reads as in 0.1.61; no 0.1.62 copy in it), saved as
+# scratch/social-shots/marketing/agent-in-window.png; the whole window, so a plate.
+shot = "agent-in-window"
+shots_rev = ""
+mode = "plate"
+title = "The agent works in your window."
+line = "Its own tab in Today. Take over or stop it any time."
+alt = "Airc with an agent task working in a tab of the window: Steepwell, a made-up coffee shop, shows two kettles side by side with a soft glow around the page and a bar on top reading “Codex is using this tab · Take over · Stop”; the tab “Compare Pour and Rapid” is selected in Today, and the agent pane beside it lists the steps. A demo shop."
+
 [[post]]
 label = "The agent works in your window"
+media = ["inwindow:16x9"]
 text = """
 Airc Agent now works right in your window: its page opens as a tab in Today, with a soft glow and a bar to Take over or Stop. Switch tabs whenever you like, it keeps going, and the agent pane shows a live picture of its page. Beta, new in Airc 0.1.61.
 """

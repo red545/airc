@@ -2,23 +2,23 @@ WEBVTT
 
 NOTE The recording has no sound; these captions say what happens on screen.
 
-00:00.000 --> 00:02.700
-Airc, on a made-up coffee shop. The ✦ button next to Back and Forward opens the Airc Agent.
+00:00.000 --> 00:05.236
+Airc, on a made-up coffee shop. ⌘T opens the Command Bar; Ask hands what you type to the Airc Agent.
 
-00:02.700 --> 00:07.454
-Connect your AI: “Use your ChatGPT subscription” (Codex) is picked with Use.
-
-00:07.454 --> 00:11.548
+00:05.236 --> 00:08.999
 The task: “Compare the Pour and Rapid kettles and buy the better one for pour over coffee. Ask me before you pay.”
 
-00:11.548 --> 00:26.548
-The agent's page plays live in the pane: it searches the shop, puts both kettles side by side, says why the Pour suits pour-over, and adds it to the bag.
+00:08.999 --> 00:17.819
+The task's page opens as a tab in Today, with a glow and the bar “Airc Agent is using this tab”. The agent searches the shop and puts both kettles side by side, while the pane beside it lists each step.
 
-00:26.548 --> 00:31.469
-At Pay, Airc stops it and asks: “Pay on steepwell.aircbrowser.com?” Deny, or Allow once.
+00:17.819 --> 00:24.075
+Take over gives you the tab at once; Stop ends the task. Until then your clicks and typing don't reach the page.
 
-00:31.469 --> 00:38.469
-The task's one row in the sidebar's Agents folder opens Watch, and Allow once is clicked.
+00:24.075 --> 00:28.702
+The agent says why the Pour suits pour-over, adds it to the bag and goes to payment.
 
-00:38.469 --> 00:43.969
-The order is placed, and the agent says which kettle it bought and why.
+00:28.702 --> 00:35.956
+At Pay, Airc stops it and asks in the pane. Allow once is clicked.
+
+00:35.956 --> 00:41.456
+The order is placed, the tab is yours again, and the agent says which kettle it bought and why.

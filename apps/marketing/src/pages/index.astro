@@ -44,35 +44,37 @@ const chromiumMajor = status.chromium.split(".")[0];
 const agentsOn = await agentsShown();
 const followOn = await followAlongShown();
 const remoteOn = await remoteShown();
-// The Airc Agent: a recording of the real app (artifacts aidemo3, on Steepwell, the made-up shop in tools/agent-demo-shop).
+// The Airc Agent: a recording of the real app (artifacts aidemo4: 0.1.61's agent in the main view, on Steepwell, the
+// made-up shop in tools/agent-demo-shop).
 const agentVideo = {
   width: 1600,
   height: 1000,
-  seconds: 44.0,
-  alt: "A recording of Airc on a made-up coffee shop: ✦ in the toolbar, next to Back and Forward, opens the Airc Agent pane, “Use your ChatGPT subscription” (Codex) is picked on its Connect card, and the task “Compare the Pour and Rapid kettles and buy the better one for pour over coffee. Ask me before you pay.” is typed. The pane’s live card shows the agent searching the shop, putting both kettles side by side and saying why the Pour is better for pour-over, then adding it to the bag and going to payment. At Pay, Airc stops and asks. The task’s one row in the sidebar’s Agents folder opens Watch, Allow once is clicked, the order is placed and the agent says what it bought and why.",
+  seconds: 41.5,
+  alt: "A recording of Airc on a made-up coffee shop: ⌘T opens the Command Bar, Ask is picked, and the task “Compare the Pour and Rapid kettles and buy the better one for pour over coffee. Ask me before you pay.” is typed. The task’s page opens as a tab in Today, with a glow and the bar “Codex is using this tab · Take over · Stop”, while the pane beside it lists each step. The agent searches the shop and puts both kettles side by side; the pointer rests on Take over and Stop. It says why the Pour is better for pour-over, adds it to the bag and goes to payment. At Pay, Airc stops and asks in the pane, Allow once is clicked, the order is placed and the agent says what it bought and why.",
 };
-// Where each part of the recording starts, in seconds (aidemo3's chapters.json, homepage cut).
+// Where each part of the recording starts, in seconds (aidemo4's chapters.json, homepage cut).
 const agentChapters = [
-  { at: 0, label: "Click ✦" },
-  { at: 7.5, label: "Say what you need" },
-  { at: 11.5, label: "Watch it work" },
-  { at: 26.5, label: "It asks before it pays" },
-  { at: 38.5, label: "Done" },
+  { at: 0, label: "Ask from ⌘T" },
+  { at: 5.2, label: "Say what you need" },
+  { at: 9, label: "It works in your tab" },
+  { at: 17.8, label: "Take over any time" },
+  { at: 28.7, label: "It asks before it pays" },
+  { at: 36, label: "Done" },
 ];
 const agentPoints = [
   {
     key: "button",
     img: cropButton,
-    alt: "The top of Airc's sidebar: Back, Forward, Reload and the ✦ Airc Agent button, with the pointer on ✦.",
-    title: "One click to start.",
-    body: "Click ✦ next to Back and Forward, and use your ChatGPT subscription through Codex, or your own Claude Code. An API key works too.",
+    alt: "Airc's Command Bar in Ask mode, with the ✦ and the task being typed: “Compare the Pour and Rapid kettle…”.",
+    title: "Ask from anywhere.",
+    body: "Press ⌘T and pick Ask, or click ✦ next to Back and Forward. Use your ChatGPT subscription through Codex, or your own Claude Code. An API key works too.",
   },
   {
     key: "live",
     img: cropLive,
-    alt: "The agent's live page card in the Airc Agent pane: the demo shop's two kettles side by side, with a Take over button.",
-    title: "Sees the page live.",
-    body: "The agent's page plays in the pane while it clicks, types and scrolls. Take over any time, or watch it from its row in the Agents folder.",
+    alt: "The agent's tab in Airc's main view: the made-up shop's two kettles side by side, with a soft glow around the page and the bar “Codex is using this tab · Take over · Stop” at its top.",
+    title: "Works in your tab.",
+    body: "The task's page opens as a tab in your window, with a glow and a bar. Take over any time, or stop it. Switch away and it keeps going.",
   },
   {
     key: "ask",
@@ -1252,7 +1254,7 @@ const faqs = [
     border-radius: 12px;
     box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.1), 0 1px 2px rgb(0 0 0 / 0.04), 0 18px 36px -18px rgb(30 25 20 / 0.32);
   }
-  .agent-crop-button :global(img) { width: min(100%, 220px); border-radius: 12px 12px 12px 22px; }
+  .agent-crop-button :global(img) { width: min(100%, 340px); border-radius: 12px; }
   .agent-crop-live :global(img) { width: min(100%, 320px); }
   .agent-crop-ask :global(img) { width: min(100%, 340px); }
 

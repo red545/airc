@@ -31,6 +31,7 @@ extension SnapshotRunner {
         var site = ""
         var model = ""
         var appearanceBefore: Appearance?
+        var shopLoaded = false
         let orders = "<title>Corner Shop · Orders</title><body style=\"font:16px -apple-system,sans-serif;margin:0;background:#fffaf2\"><div style=\"padding:18px 26px;background:#f2994a;color:#fff;font-weight:700;font-size:20px\">Corner Shop</div><div style=\"padding:22px 26px\"><h2>Your orders</h2><p>Sourdough loaf × 1 · Oat milk × 2 · Apples × 6</p><button style=\"font-size:16px;padding:8px 16px;border-radius:8px;border:0;background:#2f855a;color:#fff\">Reorder</button></div></body>"
         step { [self] done in
             let s = LocalPageServer(responses: [:])
@@ -71,6 +72,8 @@ extension SnapshotRunner {
                 let profile = c.store.profile(ofSpace: c.currentSpaceID).id
                 app?.history?.recordVisit(profileID: profile, url: "\(site)/orders.html", title: "Corner Shop · Orders")
                 app?.history?.recordVisit(profileID: profile, url: "\(site)/weekly.html", title: "Corner Shop · Weekly groceries")
+                // aidemo4: a made-up sidebar (no real brands) when the shop's icons are there (AIRC_AIDEMO_SHOP).
+                if d.serverUp, SteepwellShop.load(only: "/assets/fav/") { stageMadeUpSidebar(space: c.currentSpaceID, todayTabs: false); shopLoaded = true }
                 done()
             }
         }
@@ -90,9 +93,12 @@ extension SnapshotRunner {
             wait(0.6)
         }
         task("t1", "Find the largest park in Brightport", { [.tool("navigate", ["url": "\(site)/parks.html"]), .tool("read_page", ["mode": "text"]),
+            .toolThenHold("wait", ["duration": 1], hold: 0.2),
             .text("The largest park in Brightport is **Brightport Commons**: 412 hectares of meadow, with a lake and two playgrounds.")] }, seen: true)
         task("t2", "Compare noise-cancelling headphones under €300", { [.tool("navigate", ["url": "\(site)/audio.html"]), .tool("read_page", ["mode": "text"]),
             .tool("find_element", ["text": "battery"]),
+            // aidemo4: the page paints before the run ends, so its card keeps a picture of it (not its bare background).
+            .toolThenHold("wait", ["duration": 1], hold: 0.2),
             .text("**Calm 2** (€199) lasts longest at 40 hours; **Quiet One** (€279) has the best noise cancelling; Hush Pro sits between them.")] }, seen: false)
         // This pass's own tasks (the working one, the approval), deleted at the end, so the dark pass's Recent tasks show
         // the two finished answers again rather than the light pass's stopped tasks.
@@ -164,6 +170,7 @@ extension SnapshotRunner {
             AgentWatchView.ignoresOcclusion = false
             AgentModelSettings.shared.setTestKey(nil, provider: .anthropic, base: nil)
             for p in ["parks", "audio", "orders", "checkout"] { MarketingServer.extraPages["/agents/\(p).html"] = nil }
+            if shopLoaded { SteepwellShop.unload() }
             server?.stop()
         }
         wait(0.4)

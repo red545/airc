@@ -261,7 +261,7 @@ if [ "$ON_MAC" = 1 ]; then
     disabled_features=HttpsUpgrades
     case "$part" in calls|media2) disabled_features+=,WebRtcHideLocalIpsWithMdns; mkdir -p "$home/$part/Chromium"; gate_args="--airc-data-dir=$home/$part --airc-test=parityp16a --airc-switches=autoPip=off" ;; esac
     python3 "$ROOT/scripts/ui-check-lock.py" open -g -n -W --env "CFFIXED_USER_HOME=$home" --env "AIRC_MARKETING_PART=$part" --env "AIRC_MARKETING_PORT=$port" \
-      --env "AIRC_LIVE_SUGGESTIONS=$live" --env "AIRC_SYNC_DEVICE_NAME=MacBook Pro" "$app" --args \
+      --env "AIRC_LIVE_SUGGESTIONS=$live" --env "AIRC_SYNC_DEVICE_NAME=MacBook Pro" --env "AIRC_AIDEMO_SHOP=$ROOT/tools/agent-demo-shop/site" "$app" --args \
       --engine="${AIRC_MARKETING_ENGINE:-chromium}" --snapshot "$out/png" --script marketing --ephemeral --data-dir "$home/$part" \
       --autoplay-policy=no-user-gesture-required "--host-resolver-rules=MAP *.aircbrowser.com 127.0.0.1:$port,MAP meet.localhost 127.0.0.1:$port" \
       "--unsafely-treat-insecure-origin-as-secure=$secure" --disable-features="$disabled_features" \

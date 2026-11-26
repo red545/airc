@@ -12,8 +12,8 @@ One post with aidemo2's X cut: ✦ in the toolbar, use your ChatGPT subscription
 asks before it pays.
 """
 order = """
-1. 28 Nov 10:30 UTC, aidemo3's re-take (one Agents row per task, as in 0.1.59). Approve only at "0.1.59 LIVE" (nothing
-   unreleased); if 0.1.59 isn't live by then, move it to the next free 10:30.
+1. aidemo4's take (2026-11-26, 0.1.61's agent-in-window flow) at 9 Dec 10:30, moved earlier once approved. HOLD
+   until "0.1.62 LIVE": the video's Ask hint line is 0.1.62 copy (aidemo4). Then approve and take the next free 10:30.
 """
 checked = """
 - Every frame checked (2026-11-23): ✦ clicked in the toolbar next to Back and Forward (0.1.47+); Connect card leads with
@@ -26,5 +26,5 @@ checked = """
 label = "Airc Agent demo (video)"
 media = ["agentdemo-video:16x9"]
 text = """
-Click ✦ in Airc's toolbar, use your ChatGPT subscription (or your own Claude Code), and say what you need. It works in the page while you watch, and asks before it pays or sends anything. Beta, in Airc today.
+Press ⌘T, switch to Ask, and say what you need. Airc's agent works in a tab of your window, where you can take over or stop it any time, and it asks before it pays. Use your ChatGPT subscription or your own Claude Code. Beta.
 """
