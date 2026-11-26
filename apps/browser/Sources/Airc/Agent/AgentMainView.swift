@@ -1,5 +1,6 @@
 // Copyright 2026 The Airc Authors; SPDX-License-Identifier: Apache-2.0
 import AppKit
+import AircKit
 import Combine
 
 /// The Airc Agent works in the main view (owner decision 2026-11-23, agentmainview; docs/design/agent-ux.md §5).
@@ -34,6 +35,10 @@ final class AgentMainView {
         var seen = 0
         var closedByPerson = false
         var lastSize: CGSize = .zero
+        /// The task's new tab before its first page: the card's own fill with "Starting…" over it (never a white page),
+        /// and its Today row titled with the task, not "about:blank".
+        var starting = false
+        var taskTitle: String?
         init(page: EngineTab, controller: WindowController, window: AgentWindow, tabID: String, personOwned: Bool) {
             self.page = page
             self.controller = controller
@@ -153,6 +158,7 @@ final class AgentMainView {
             let e = Hosted(page: page, controller: c, window: w, tabID: t.id, personOwned: false)
             e.lastSize = w.size
             hosted.append(e)
+            beginStarting(e)
             c.scheduleReload()
             onEvent?("present \(t.id) away")
             refresh(c)
@@ -174,7 +180,9 @@ final class AgentMainView {
                 w.unmarkHosted(b)
                 return
             }
-            hosted.append(Hosted(page: page, controller: c, window: w, tabID: id, personOwned: false))
+            let e = Hosted(page: page, controller: c, window: w, tabID: id, personOwned: false)
+            hosted.append(e)
+            beginStarting(e)
             w.unparked(page)
             onEvent?("present \(id)")
         }
@@ -491,13 +499,61 @@ final class AgentMainView {
     func pageURLChanged(_ page: EngineTab) {
         guard let e = entry(page), let w = e.window else { return }
         w.hostedURLChanged(page)
+        if e.starting { followStart(e) }
     }
 
-    func pageTitleChanged(_ page: EngineTab) { entry(page)?.window?.hostedTitleChanged(page) }
+    func pageTitleChanged(_ page: EngineTab) {
+        guard let e = entry(page) else { return }
+        e.window?.hostedTitleChanged(page)
+        if e.starting { followStart(e) }
+    }
+
+    // MARK: Before the first page (aidemo4, 2026-11-26)
+
+    private static func isBlank(_ page: EngineTab) -> Bool {
+        let u = page.url?.absoluteString ?? ""
+        return u.isEmpty || u == "about:blank"
+    }
+
+    /// A task's new tab on its blank page: the cover and the task's title until the first page has loaded.
+    private func beginStarting(_ e: Hosted) {
+        guard let page = e.page, Self.isBlank(page) else { return }
+        e.starting = true
+        e.taskTitle = AgentRunCenter.shared.steps.first { $0.kind == .user }.map { AgentTaskTitle.make($0.text) }
+        titleRow(e)
+        onEvent?("starting \(e.tabID)")
+        followStart(e)
+    }
+
+    /// While the page is blank, its row says the task's name (the person's window writes the page's address there).
+    private func titleRow(_ e: Hosted) {
+        guard let c = e.controller, let t = e.taskTitle, !t.isEmpty, c.store.tab(e.tabID)?.title != t else { return }
+        c.store.updateTab(e.tabID, title: t)
+        c.refreshRow(e.tabID)
+    }
+
+    /// Ends the starting state once the first page has loaded (its own pixels replace the cover), or after 20 s.
+    private func followStart(_ e: Hosted, since: Date = Date()) {
+        guard e.starting, let page = e.page, !page.isClosed else { return }
+        if Self.isBlank(page) {
+            titleRow(e)
+            return
+        }
+        if page.isLoading, Date().timeIntervalSince(since) < 20 {
+            return DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self, weak e] in
+                if let self, let e { self.followStart(e, since: since) }
+            }
+        }
+        e.starting = false
+        onEvent?("started \(e.tabID)")
+        if let c = e.controller { refresh(c) }
+    }
 
     /// A parked page's title or address changed: the person's row follows.
     func parkedTitleChanged(_ w: AgentWindow, _ page: EngineTab) {
         guard let e = entry(page), let c = e.controller, w.isParked(page) else { return }
+        if e.starting { followStart(e) }
+        if e.starting, Self.isBlank(page) { return titleRow(e) }
         c.store.updateTab(e.tabID, url: page.url?.absoluteString, title: page.title.isEmpty ? nil : page.title,
                           faviconURL: page.faviconURL?.absoluteString)
         c.refreshRow(e.tabID)
@@ -553,6 +609,8 @@ final class AgentMainView {
         v.bar.name = AgentRunCenter.shared.cliKind.map { "\($0.name)" } ?? "Airc Agent"
         v.page = c.shownTabID.flatMap { c.engineTab(for: $0) }?.view
         v.set(mode)
+        // Before the task's first page: the card's own fill and "Starting…", never the blank page's white.
+        v.setStarting(mode != .off && c.shownTabID.flatMap { entry(tabID: $0, in: c) }?.starting == true)
         #if AIRC_TESTING
         lastMode[ObjectIdentifier(c)] = mode
         #endif

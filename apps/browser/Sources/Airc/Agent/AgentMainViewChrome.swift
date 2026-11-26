@@ -45,6 +45,10 @@ final class AgentMainChromeView: NSView {
     private let glowRing = CAShapeLayer()
     private let edgeLine = CAShapeLayer()
     private let pulseLayer = CALayer()
+    /// aidemo4: over a task's tab before its first page: the card's own fill with "Starting…" (no white page).
+    private let cover = CALayer()
+    private let coverText = CATextLayer()
+    private(set) var starting = false
     private var barHost: AircFirstClickHostingView<AnyView>!
     private var hintWork: DispatchWorkItem?
     private var accent: NSColor = .controlAccentColor
@@ -64,6 +68,13 @@ final class AgentMainChromeView: NSView {
         edgeLine.lineWidth = 1.5
         glow.addSublayer(edgeLine)
         glow.opacity = 0
+        cover.isHidden = true
+        coverText.string = "Starting…"
+        coverText.alignmentMode = .center
+        coverText.fontSize = 13
+        coverText.font = NSFont.systemFont(ofSize: 13, weight: .medium)
+        cover.addSublayer(coverText)
+        layer?.addSublayer(cover)
         layer?.addSublayer(glow)
         layer?.addSublayer(pulseLayer)
         let root = AnyView(AgentMainBar(model: bar))
@@ -89,6 +100,12 @@ final class AgentMainChromeView: NSView {
         barHost.appearance = NSAppearance(named: palette.isDark ? .darkAqua : .aqua)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        // The card's own fill with a faint wash of the Space's accent (with the glow, the tab reads as the agent's,
+        // starting): never the blank page's white, also in light themes, whose card fill is near-white.
+        let t = palette.resolved
+        cover.backgroundColor = t.accent.alpha(t.isDark ? 0.10 : 0.09).over(t.surface).cgColor
+        coverText.foregroundColor = palette.resolved.surfaceTextTertiary.nsColor.cgColor
+        coverText.contentsScale = window?.backingScaleFactor ?? 2
         glowRing.fillColor = accent.cgColor
         glowRing.shadowColor = accent.cgColor
         edgeLine.strokeColor = accent.withAlphaComponent(palette.isDark ? 0.75 : 0.6).cgColor
@@ -113,6 +130,25 @@ final class AgentMainChromeView: NSView {
         if case .working = m {} else { glow.removeAnimation(forKey: "breathe") }
         needsLayout = true
         reclaimKeys()
+    }
+
+    /// Before the task's first page: the cover on (the card's fill and "Starting…"); off once the page has loaded.
+    func setStarting(_ on: Bool) {
+        guard on != starting else { return }
+        starting = on
+        CATransaction.begin()
+        if on {
+            // At once: the blank page is never seen.
+            CATransaction.setDisableActions(true)
+            cover.isHidden = false
+            cover.opacity = 1
+        } else {
+            // The page's first pixels come in under a short fade.
+            CATransaction.setAnimationDuration(0.15)
+            CATransaction.setCompletionBlock { [weak self] in if self?.starting == false { self?.cover.isHidden = true } }
+            cover.opacity = 0
+        }
+        CATransaction.commit()
     }
 
     /// The person's keys stop at the shield while the agent drives (a WebKit click by the agent can hand the page the
@@ -160,6 +196,8 @@ final class AgentMainChromeView: NSView {
         layer?.cornerRadius = cornerRadius
         glow.frame = bounds
         pulseLayer.frame = bounds
+        cover.frame = bounds
+        coverText.frame = CGRect(x: 0, y: (bounds.height / 2 - 9).rounded(), width: bounds.width, height: 18)
         // CGPath's rounded rect traps when the corner is more than half the side (an empty frame before layout).
         guard bounds.width > 2 * cornerRadius + 2, bounds.height > 2 * cornerRadius + 2 else { CATransaction.commit(); return }
         let inner = CGPath(roundedRect: bounds, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)

@@ -33,6 +33,8 @@ extension SnapshotRunner {
         if AgentMainCheck.runs("parked") { step { done in m.caseParked(done) } }
         // agentmainfix (AgentMainRows.swift): finished tasks leave their page's row and card picture, no about:blank rows.
         if AgentMainCheck.runs("rows") { step { done in m.caseRows(done) } }
+        // aidemo4: a new task's tab before its first page: no white page, the row titled with the task (AgentMainBlank.swift).
+        if AgentMainCheck.runs("blank") { step { done in m.caseBlank(done) } }
         run { m.finish() }
     }
 }
@@ -550,8 +552,12 @@ final class AgentMainCheck {
             }
         }
         var active = true
+        // aidemo4: before the task's first page has loaded, the "Starting…" cover is there on purpose (the card's fill
+        // with the accent wash, never white): those pictures aren't page pictures; they must all come before the first.
+        var covered: [Int] = []
         sampleWhile({ active }, into: { [weak self] p in
             guard let self, let path = self.entry?.page?.url?.path, path.hasPrefix("/am-") else { return }
+            if self.chrome?.starting == true { covered.append(navDone); return }
             samples.append((navDone, path, self.look(p, want: path.contains("am-a") ? pink : blue), false))
         }) {}
         wait({ self.k.events.contains("tool wait") }, 60) { [self] in
@@ -580,6 +586,7 @@ final class AgentMainCheck {
                         check(settled.count >= navCount - 2, "\(navCount) navigations, a main-view picture after each (\(settled.count))")
                         check(!settled.isEmpty && bad.isEmpty, "… every one shows live page pixels, never white or empty (\(bad.count) bad)")
                         check(Double(own) >= 0.8 * Double(settled.count), "… the page just loaded in \(own) of \(settled.count) (else the one before it, still painting)")
+                        check(covered.allSatisfy { $0 <= 1 }, "… the “Starting…” cover only before the first page (\(covered.count) samples, at navigations \(Set(covered).sorted()))")
                         let blank = samples.filter { empty($0.look) }.count
                         check(blank == 0, "… and at 8 per second, never a white or empty main view (\(blank) of \(samples.count))")
                         run.onEvent = observer
