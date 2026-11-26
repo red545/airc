@@ -63,7 +63,7 @@ struct AgentAskChips: View {
                 Divider()
                 Button("Agent Settings…") { (NSApp.delegate as? AppDelegate)?.showSettings(page: .ai) }
             }
-            .help("Runs on this Mac in your “\(profileName)” profile, in a window of its own")
+            .help("Runs on this Mac in your “\(profileName)” profile, in a tab of this window")
             chipMenu(symbol: "checkmark.shield", label: compact ? nil : "Asks first", anchor: "agentask.safety") {
                 Text("Asks you before it pays, sends, posts or deletes")
                 Text("Never sees your passwords: saved logins fill in by name")

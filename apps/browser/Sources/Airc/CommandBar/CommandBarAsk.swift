@@ -165,7 +165,7 @@ struct CommandBarAskContent: View {
             if CommandBarAskPanel.hasRecent(spaceID: model.spaceID) {
                 AgentRecentTasks(spaceID: model.spaceID, open: { model.openTask?($0) }, showAll: model.showAll)
             } else {
-                Text(chips.connected ? "Airc works in your signed-in sites in a window of its own, and asks before it pays, sends, posts or deletes."
+                Text(chips.connected ? "Airc works in a tab of this window, in your signed-in sites, and asks before it pays, sends, posts or deletes."
                                      : "Connect your AI first: your ChatGPT subscription through your own Codex, your own Claude Code, or an API key.")
                     .aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextTertiary.color)
                     .fixedSize(horizontal: false, vertical: true)
