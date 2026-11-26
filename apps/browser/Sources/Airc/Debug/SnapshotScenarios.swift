@@ -14,6 +14,11 @@ struct FrameTime: CustomStringConvertible {
     var frame: Double
     /// Main-thread work the action left for later (deferred reloads, animation ticks) in the next 100 ms.
     var followUp: Double
+    /// wktabpaint: from the action's start until its own Core Animation transaction committed (CA's after-commit
+    /// phase). On macOS 26 that commit runs in an UpdateCycle step, often well before the run loop is first about to
+    /// wait (`frame`), which also counts whatever the turn does after the commit. nil when the runtime has no commit
+    /// phases.
+    var committed: Double? = nil
 
     var description: String {
         String(format: "%.2f ms to first frame (action %.2f ms), then %.2f ms more main-thread work over 100 ms", frame, work, followUp)
@@ -32,6 +37,8 @@ enum FrameTiming {
         os_signpost(.begin, log: signposts, name: "frame", signpostID: id)
         work()
         let t1 = CACurrentMediaTime()
+        var committedAt: Double?
+        FrameProbe.onCommitPhase(2) { if committedAt == nil { committedAt = CACurrentMediaTime() } }
         var first: Double?
         var busyStart: Double?
         var busy = 0.0
@@ -51,7 +58,8 @@ enum FrameTiming {
             }
             if t - t0 > 0.1 {
                 CFRunLoopRemoveObserver(CFRunLoopGetMain(), o, .commonModes)
-                completion(FrameTime(work: (t1 - t0) * 1000, frame: ((first ?? t) - t0) * 1000, followUp: busy * 1000))
+                completion(FrameTime(work: (t1 - t0) * 1000, frame: ((first ?? t) - t0) * 1000, followUp: busy * 1000,
+                                     committed: committedAt.map { ($0 - t0) * 1000 }))
             }
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)

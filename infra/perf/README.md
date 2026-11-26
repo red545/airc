@@ -28,8 +28,9 @@ python3 infra/perf/aggregate.py --output STATUS_DIR/perf/<name> OUT/on-*/results
 ```
 
 Headline values are medians over the runs that measured them (`spread`: min, max, n; `runs`: every run).
-`--foreground` runs decide the timing budgets (launch, Space, tab, sidebar ready, New Space); memory and CPU
-come from the background runs, like Chrome's. `complete` is true only for three or more error-free runs with
+`--foreground` runs decide the timing budgets (launch, Space, tab, sidebar ready, New Space) on both engines (WebKit
+too since 2026-11-26: App Nap throttles a hidden app, so its hidden-window timings are diagnostics only); memory and
+CPU come from the background runs, like Chrome's. `complete` is true only for three or more error-free runs with
 MEM-4's 8 pages verified in both browsers. The status page reads `status/perf/*/results.json` next to the
 nightly's `runs/*/results.json` (newest by timestamp) and shows the latest WebKit result separately.
 `--foreground` launches activate Airc, so run them only with `AIRC_UI_DEDICATED_SESSION=1` on the dedicated
@@ -122,6 +123,12 @@ what it measured.
 
 With the display asleep (the screen is locked at night) there are no presented frames: frame timings are then taken
 to the Core Animation commit and say so (`frame_source`).
+
+Frame timings (wktabpaint, 2026-11-26) end at the earlier of the action's own Core Animation commit and the run loop's
+first idle (or the frame presented after it). On macOS 26 that commit runs in an UpdateCycle step, before the turn is
+done: the older end point, the first idle, also counted the turn's work after the commit (a sidebar reload, engine IPC)
+and, in hidden-window runs, time the throttled app wasn't scheduled. Results keep that older value as `*_idle_ms`
+(`tab_paint_idle_ms`, `space_frame_idle_ms`).
 
 ## Earlier capability notes (2026-11-05)
 

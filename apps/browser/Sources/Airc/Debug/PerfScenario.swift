@@ -273,6 +273,7 @@ final class PerfRun {
         if FrameProbe.enabled { r.run { MainThreadSampler.shared.start() } }
         // Space switches between neighbours, as a footer click or ⌃-number does (animated).
         var spaceFrames: [Double] = []
+        var spaceIdle: [Double] = []
         var spaceSource = "display"
         var switchStart: CFTimeInterval = 0
         r.run { switchStart = CACurrentMediaTime() }
@@ -282,6 +283,7 @@ final class PerfRun {
                 let target = spaces[(i % 2 == 0) ? 1 : 0].id
                 probed("switch \(i)", tag: 600 + i, { self.c.switchToSpace(target, animated: true) }) { v, src in
                     spaceFrames.append(v)
+                    spaceIdle.append(self.lastIdle)
                     if src != "display" { spaceSource = src }
                     done()
                 }
@@ -292,24 +294,28 @@ final class PerfRun {
             timings["space_frame_ms"] = median(spaceFrames)
             timings["space_frame_samples_ms"] = spaceFrames.map(round2)
             timings["space_frame_source"] = spaceSource
+            timings["space_frame_idle_ms"] = median(spaceIdle)
             timings["space_frame_sections"] = sectionLines
             timings["dropped_frames"] = clock.running ? clock.dropped(from: switchStart, to: CACurrentMediaTime()) : NSNull()
         }
         // A loaded tab: switch between two loaded tabs of the first Space.
         var tabFrames: [Double] = []
+        var tabIdle: [Double] = []
         for i in 0..<6 {
             r.step { [self] done in
                 let space = c.store.orderedSpaces[0].id
                 let candidates = c.store.todayTabs(ofSpace: space).filter { c.engineTab(for: $0.id) != nil }
                 guard candidates.count >= 2 else { return done() }
                 let t = candidates[i % 2]
-                probed("tab \(i)", tag: 700 + i, { self.c.show(t.id, focus: false) }) { v, _ in tabFrames.append(v); done() }
+                probed("tab \(i)", tag: 700 + i, { self.c.show(t.id, focus: false) }) { v, _ in tabFrames.append(v); tabIdle.append(self.lastIdle); done() }
             }
             r.wait(0.25)
         }
         r.run { [self] in
             timings["tab_paint_ms"] = tabFrames.isEmpty ? NSNull() : median(tabFrames)
-            timings["tab_paint_note"] = "input to the presented frame that shows the already-loaded page view; the engine's own paint is not observable"
+            timings["tab_paint_samples_ms"] = tabFrames.map(round2)
+            timings["tab_paint_idle_ms"] = tabIdle.isEmpty ? NSNull() : median(tabIdle)
+            timings["tab_paint_note"] = "input to the presented frame (hidden windows: the commit) that shows the already-loaded page view; the engine's own paint is not observable. *_idle_ms: the pre-2026-11-25 value, to the run loop's first idle after the action"
             timings["tab_paint_sections"] = Array(sectionLines.dropFirst(spaceFrames.count))
         }
         if FrameProbe.enabled {
@@ -531,17 +537,28 @@ final class PerfRun {
     }
 
     /// The same, with the main thread's time in `work` itself (ms): the rest is layout, drawing and the commit.
+    /// wktabpaint: to the commit of the action's own transaction (FrameTime.committed, or the first idle if that's
+    /// earlier), or the frame presented after it. Until 2026-11-25 this ended at the run loop's first before-waiting, which on macOS 26 also counts the turn's
+    /// work after that commit (a sidebar reload, IPC) and, in hidden-window runs, time the throttled app isn't
+    /// scheduled; that older value is kept in `lastIdle` (`*_idle_ms`).
     private func frame(_ work: () -> Void, _ done: @escaping (Double, String, Double) -> Void) {
         let t0 = CACurrentMediaTime()
         FrameTiming.measure(work) { [self] t in
-            let commit = t0 + t.frame / 1000
+            let idle = t0 + t.frame / 1000
+            // The earlier of the two: a handler added after an action whose changes were already flushed (an animated
+            // pager's own transaction) attaches to a later one, and CA has committed everything by the first idle.
+            let commit = min(t.committed.map { t0 + $0 / 1000 } ?? idle, idle)
             if clock.running, let shown = clock.presented(after: commit) {
+                lastIdle = clock.presented(after: idle).map { ms($0 - t0) } ?? round2(t.frame)
                 done(ms(shown - t0), "display", round2(t.work))
             } else {
-                done(round2(t.frame), "commit", round2(t.work))
+                lastIdle = round2(t.frame)
+                done(round2((commit - t0) * 1000), "commit", round2(t.work))
             }
         }
     }
+    /// The last `frame`'s value by the pre-2026-11-25 definition (to the run loop's first before-waiting).
+    private var lastIdle: Double = 0
 
     // MARK: Control (the 100-tab leak cycle)
 

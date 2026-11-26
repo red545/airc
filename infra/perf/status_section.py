@@ -5,6 +5,12 @@ import html
 import json
 import math
 
+FRAME_NOTE = ('Since 2026-11-26 the frame rows (Space switch, loaded tab painted, New Space, Command Bar frames) end at '
+              "the earlier of the action's own Core Animation commit and the run loop's first idle, or the frame presented "
+              'after it; before, they ended at the first idle (results keep that value as *_idle_ms). WebKit timing '
+              'budgets come from foreground runs since then; hidden-window timings are diagnostics.')
+
+
 def render(runs_dir):
     # Nightly runs (runs/<run>/results.json) and repeated runs combined by aggregate.py (perf/<name>/results.json),
     # oldest to newest by measurement time. A repeated run's headline values are medians; `spread` has min–max.
@@ -118,8 +124,13 @@ def render(runs_dir):
                             + (f'<td>{was("airc",k,w)}</td><td>{was("airc",k,w,ratio=True)}</td>' if since(w) else '') + '</tr>'
                             for k,t in [('main_mb','Main physical footprint (MB)'),('total_mb','All-process physical footprint (MB)'),
                                         ('idle_cpu_percent','Idle CPU (%)')])
-                  + ''.join(f'<tr><td>{t} (ms)</td><td>{cell("airc",k,w)}</td><td></td><td></td>'
-                            + (f'<td>{was("airc",k,w)}</td><td></td>' if since(w) else '') + '</tr>' for k,t in timing[:6]) + '</table>'
+                  # wktabpaint (2026-11-26): WebKit timing budgets come from foreground runs, as Chromium's; the hidden-
+                  # window value stays beside it as a diagnostic (App Nap throttles a hidden app).
+                  + ''.join(f'<tr><td>{t} (ms{", foreground" if w.get("foreground") else ""})</td>'
+                            f'<td>{cell("foreground",k,w) if w.get("foreground") else cell("airc",k,w)}</td>'
+                            f'<td>{("hidden window: " + cell("airc",k,w)) if w.get("foreground") else ""}</td><td></td>'
+                            + (f'<td>{was("foreground" if w.get("foreground") else "airc",k,w)}</td><td></td>' if since(w) else '')
+                            + '</tr>' for k,t in timing[:6]) + '</table>'
                   + budget_table(w))
     m = latest.get('machine') or {}
     machine = ' · '.join(esc(x) for x in [m.get('cpu'), m.get('macos') and 'macOS ' + m['macos'],
@@ -128,6 +139,7 @@ def render(runs_dir):
     return (f'<p>{esc(latest.get("timestamp",""))} · <b>{"Complete" if latest.get("complete") else "Incomplete / diagnostic only"}</b> · '
             f'<a href="{href(path)}">JSON</a>' + (f' · {machine}' if machine else '') + '</p>'
             + ''.join(f'<p class="dim">{esc(n)}</p>' for n in latest.get('notes',[]))
+            + f'<p class="dim">{esc(FRAME_NOTE)}</p>'
             + (f'<p class="dim">Before → after: {since()} = {esc((latest.get("baseline") or {}).get("timestamp", ""))} '
                f'({esc(((latest.get("baseline") or {}).get("machine") or {}).get("cpu", ""))}), its own medians, unchanged.</p>' if since() else '')
             + f'<table><tr><th>Metric</th><th>Airc</th><th>Chrome{" (same 8 pages)" if chrome == "chrome_8" else ""}</th><th>Airc/Chrome</th>'

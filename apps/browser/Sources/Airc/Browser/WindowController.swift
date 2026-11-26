@@ -730,6 +730,16 @@ final class WindowController: NSObject, NSWindowDelegate {
         CFRunLoopAddObserver(CFRunLoopGetMain(), o, .commonModes)
     }
 
+    /// Test builds can let a tab pick's store change reload before the commit, as before wktabpaint
+    /// (`AIRC_TAB_RELOAD_BASELINE=1`), to compare in one binary.
+    static let tabReloadBaseline: Bool = {
+        #if AIRC_TESTING
+        return ProcessInfo.processInfo.environment["AIRC_TAB_RELOAD_BASELINE"] == "1"
+        #else
+        return false
+        #endif
+    }()
+
     /// Test builds can reload before the commit the old way (`AIRC_SPACE_SWITCH_BASELINE=1`), to compare in one binary.
     private static let defersReloadPastFrame: Bool = {
         #if AIRC_TESTING
@@ -1081,12 +1091,22 @@ final class WindowController: NSObject, NSWindowDelegate {
             pageVisibilityChanged(hidden: previous, shown: tabID)
             scheduleSpareBarRefresh()   // ⌘T lists the other tabs, most recent first
         }
-        Perf.time("show.storeActivate") { try? store.activate(tabID, inSpace: currentSpaceID) }
+        // wktabpaint: the store's change (last-active tab and time) would queue a whole reload (every page and the
+        // chrome) on the main queue, which drains in this turn, and its pending flag turned `scheduleReloadAfterFrame`
+        // below into a no-op. Quiet here, the same reload runs once, after this frame's commit.
+        let reloadsForStore = quiet == 0
+        if Self.tabReloadBaseline { Perf.time("show.storeActivate") { try? store.activate(tabID, inSpace: currentSpaceID) } } else {
+            quiet += 1
+            Perf.time("show.storeActivate") { try? store.activate(tabID, inSpace: currentSpaceID) }
+            quiet -= 1
+        }
         if focus { if let page { Perf.time("show.focus") { page.focus() } } else { note?.focus() } }
         if previous != tabID { prompts.refresh() }
         if previous != tabID, updatesRows {
             // Selection shows in the same frame as the press (Arc activates on press).
             pageView(for: currentSpaceID)?.reload(animated: false)
+            scheduleReloadAfterFrame()
+        } else if reloadsForStore, !Self.tabReloadBaseline {
             scheduleReloadAfterFrame()
         }
         Perf.time("show.refreshChrome") { refreshChrome() }
