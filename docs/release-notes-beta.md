@@ -1,16 +1,33 @@
-# Airc 0.1.60 public beta
+# Airc 0.1.61 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update keeps keys typed after ⌘T away from a full-screen video, brings back Tab between Search and Ask and makes
-grain on dark Spaces look like Arc's. It includes everything from 0.1.59. The release manifest records the exact
-build, source and checksums.
+This update lets the Airc Agent work right in your window, makes ⌘T leave full screen on Chromium pages too, stops an
+empty Apple ID sheet from holding up quitting and keeps backups going when your backup folder is missing. It includes
+everything from 0.1.60. The release manifest records the exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.59
+## New since 0.1.60
+
+- **The Airc Agent now works right in your window.** When you give it a task, its page opens as a tab in Today, with
+  a soft glow in your Space's colour and a bar on top with **Take over** and **Stop**. While it works, your clicks
+  and typing on that page wait; scrolling to look is fine. Switch tabs whenever you like: the agent keeps going, and
+  the agent pane shows a live picture of its page until you come back. A task you start in one window stays in that
+  window.
+- **⌘T over a full-screen video now leaves full screen on Chromium pages too.** The Command Bar opens in your window,
+  as it already did on Safari-engine pages. And switching tabs or Spaces away from a Safari-engine page in full
+  screen no longer leaves it stuck there.
+- **Quitting no longer waits on an empty Apple ID sheet.** On Safari-engine pages, Apple's Apple ID sign-in extension
+  could leave an empty sheet on the window, and quitting Airc then took about 16 seconds. Airc now leaves that
+  extension out, so Apple ID pages show their own sign-in form, and Airc quits right away.
+- **Backups still happen when your chosen backup folder is missing.** If the folder you chose in Settings › General
+  is gone (say, on a drive that isn't plugged in) or can't be written, Airc saves the backup to its default folder
+  instead and keeps your choice for next time.
+
+## Included from 0.1.60
 
 - **Typing after ⌘T over a full-screen video no longer pauses or controls the video; the Command Bar takes the keys.**
   Keys you type while the Command Bar opens no longer reach the page behind it, so a video doesn't pause or pop out.
