@@ -264,6 +264,22 @@ extension SnapshotRunner {
             fire(m?.items.first { $0.title == "Disable Shared Quotes" })
             check(names == ["Disable Shared Quotes"] && app?.settings.values.sharedQuotes == false,
                   "parityp01c: the offer's right-click menu has Arc's Disable Shared Quotes, which turns them off (\(names))")
+        }
+        // Arc's caption: with Shared Quotes off, Copy URL as Quote (⌃⇧⌘C) still copies the URL with the selection as a quote.
+        step { [self] done in
+            let before = board.changeCount
+            c.copyURLQuote()
+            waitUntil({ board.changeCount != before }, timeout: 3) { [self] in
+                let got = board.string(forType: .string) ?? ""
+                let caption = SettingsSearch.catalog.first { $0.title == "Enable Shared Quotes when highlighting text" }?.detail ?? ""
+                check(app?.settings.values.sharedQuotes == false && got.hasPrefix("> Alpha words to quote here") && got.contains("](http")
+                      && c.toast.shownText == "Copied URL as Quote" && caption.hasSuffix("If it's off, you can still copy the URL as a quote with ⌃⇧⌘C."),
+                      "parityp01c: Shared Quotes off, Copy URL as Quote still quotes the selection (\(got.prefix(40).debugDescription), "
+                      + "“\(c.toast.shownText ?? "-")”), as the switch's caption says (\(caption.debugDescription))")
+                done()
+            }
+        }
+        run { [self] in
             app?.settings.values.sharedQuotes = true
             WindowController.copyWatchPasteboard = .general
             WindowController.linkPasteboard = .general

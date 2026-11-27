@@ -437,7 +437,8 @@ private struct GeneralPage: View {
             PictureInPictureSection(model: model)
             SettingsSection(title: "Shared Quotes") {
                 // P01c (Browser/SelectionShare.swift): Arc's shareQuoteLinkEnabled, on by default.
-                AircToggleRow("Enable Shared Quotes when highlighting text", subtitle: "After ⌘C on text you selected in a page, Airc offers a link straight to that text.",
+                // Arc 1.171's caption: "If disabled, you can still copy URL as a quote using" and the key (C06).
+                AircToggleRow("Enable Shared Quotes when highlighting text", subtitle: "After ⌘C on text you selected in a page, Airc offers a link straight to that text. If it's off, you can still copy the URL as a quote with ⌃⇧⌘C.",
                               isOn: Binding(get: { model.settings.values.sharedQuotes }, set: { model.settings.values.sharedQuotes = $0 }))
             }
             CalendarSettingsSection(model: model)

@@ -87,7 +87,8 @@ each pinned folder in the Space (⌘Z puts the tab back).
   there. Right-click it for **Disable Shared Quotes**.
   The offer goes away by itself; nothing changes unless you click it. To stop the offers, right-click it and choose
   **Disable Shared Quotes**, use Disable Shared Quotes in the Command Bar (Enable Shared Quotes turns them back on), or
-  turn off **Settings → General → Shared Quotes → Enable Shared Quotes when highlighting text**.
+  turn off **Settings → General → Shared Quotes → Enable Shared Quotes when highlighting text**. With them off,
+  **Copy URL as Quote** (⌃⇧⌘C) still copies the URL with your selection as a quote, as in Arc.
 - **Clean links.** Copy URL, Copy Link and Share leave out the tracking parameters that ads, newsletters and share
   buttons add (`utm_…`, `fbclid`, `gclid`, YouTube's and Spotify's `si`, X's `s` and `t`, and similar). Everything the
   page needs stays, in its order. When something was removed, the message says "Copied a clean link without

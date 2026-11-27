@@ -24,7 +24,7 @@ extension SettingsSearch {
         .row(.general, "Add a site", section: "Picture in Picture"),
         .row(.general, "Position", section: "Picture in Picture", detail: "The next one opens at the bottom right."),
         .section(.general, "Shared Quotes"),
-        .row(.general, "Enable Shared Quotes when highlighting text", section: "Shared Quotes", detail: "After ⌘C on text you selected in a page, Airc offers a link straight to that text."),
+        .row(.general, "Enable Shared Quotes when highlighting text", section: "Shared Quotes", detail: "After ⌘C on text you selected in a page, Airc offers a link straight to that text. If it's off, you can still copy the URL as a quote with ⌃⇧⌘C."),
         .section(.general, "Calendar", detail: "Works with a calendar Favorite (Google Calendar, Outlook, Proton or Fastmail) and the calendars on this Mac, set up in System Settings → Internet Accounts. Nothing leaves your Mac."),
         .row(.general, "Show upcoming meetings", section: "Calendar", detail: "A countdown on the calendar Favorite, your next meetings when you point at it, and Join when one starts."),
         .row(.general, "Show Meeting Link", section: "Calendar", detail: "Join under your Favorites, before each meeting with a call. ⌃⌘J joins any time."),

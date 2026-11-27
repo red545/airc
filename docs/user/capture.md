@@ -27,9 +27,6 @@ What Capture can and can't take:
   Recording permission. The page stays still while you select: what you see under the rectangle is what you get.
 - In Split View it takes every pane under the rectangle; with Peek open, the Peek page too.
 - A note on the card, alone or beside a page in Split View, is taken as it's drawn.
-- Known limitation: in a full-page Capture of a page that opens in [Safari's engine](protected-media.md) and is longer
-  than 14,000 points, a fixed footer can come out a few points short (10 points in Airc's tests), with the page showing
-  below it. The page above the footer is complete.
 - Protected video (Netflix, Disney+ and other DRM streams) usually comes out black, as in other browsers'
   screenshots.
 - Page zoom doesn't change the picture's resolution, only how much of the page is in it.
@@ -47,9 +44,8 @@ Page** in Capture's bar, or choose **View › Capture Full Page** (also in the C
   page: never the sidebar or the toolbar.
 - The page is taken as it is at its top, whatever you've scrolled to (Airc scrolls it there for the picture and back
   again). Parts that stay put on screen show once: a fixed header at the top; a fixed footer, cookie bar or "back to
-  top" button where the bottom of the window is (on [sites that open in Safari's engine](protected-media.md), at the
-  page's foot, or at the foot of its first 14,000 points on a longer page). Sticky headers are in their place in the
-  page.
+  top" button where the bottom of the window is. That's the same on both engines and however long the page is. Sticky
+  headers are in their place in the page.
 - A very long page is limited to keep memory in check: over about 48 megapixels it's taken at fewer pixels per point
   (down to one per point), and past that the picture stops at 48 megapixels or 32,000 pixels, whichever comes first.
   The size above the picture then says "the first … of … pt".

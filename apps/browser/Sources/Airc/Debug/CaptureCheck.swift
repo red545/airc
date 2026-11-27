@@ -396,7 +396,8 @@ extension SnapshotRunner {
             native.layer?.backgroundColor = NSColor.red.cgColor
             c.root.addSubview(native)
             c.root.addSubview(transient)
-            transient.show("expiring", palette: c.currentPalette, in: native.frame, duration: 0.01)
+            // Over the red view, in a container a toast accepts (0a802829: none narrower than 120 pt or lower than 60 pt).
+            transient.show("expiring", palette: c.currentPalette, in: native.frame.insetBy(dx: -60, dy: 0), duration: 0.01)
             let png = CaptureSession.picture(of: native).flatMap { CaptureSession.png($0, scale: c.window.backingScaleFactor) }
             try? png?.write(to: dir.appendingPathComponent("capture-native-subtree.png"))
             let colored = decode(png).map { d in

@@ -14,8 +14,10 @@ import AircCore
 ///     full size screenshot"). Its clip is in points. Fixed parts are painted once, where they are on screen with the
 ///     page at its top: a fixed header at the top, a fixed footer where the window's foot is.
 ///   - WebKit: `createPDF` of the page's whole length (WebKit paints the document, vector), in parts of `pdfChunk`
-///     points (a PDF page stops at 14,400), rasterised at the same pixels per point. Fixed parts once, laid out for
-///     the whole page (a fixed footer at its foot), or for the first part on a page longer than that.
+///     points (a PDF page stops at 14,400), rasterised at the same pixels per point, with fixed parts hidden and sticky
+///     ones in their place. Then the window's view of the page at its top (`takeSnapshot`, fixed parts included) goes
+///     over the picture's top, so fixed parts show once where they are on screen, as on Chromium. (Laid out by the PDF
+///     parts themselves, a fixed footer landed about 10 pt short of a part's foot on a page past 14,000 pt.)
 /// Both take the page as at its top: it's scrolled there for the picture and back afterwards.
 /// Memory is bounded: a page whose picture would pass `maxPixels` is taken at fewer pixels per point (down to 1), and
 /// one still longer is cut at `maxPixels` (and `maxHeight`), which `Picture.truncated` says.
@@ -162,10 +164,23 @@ enum FullPageCapture {
                                     DispatchQueue.main.async {
                                         guard isCurrent() else { return finish(.failure(.cancelled)) }
                                         guard let tile else { return finish(.failure(.engine(error ?? "no picture"))) }
-                                        let top = (y * Double(s)).rounded()
+                                        // Its rows from its top to the next tile's (both rounded the same way), so tiles meet
+                                        // without a seam at a fractional scale (the engine rounds each tile on its own).
+                                        let top = (y * Double(s)).rounded(), foot = min(Double(height), ((y + h) * Double(s)).rounded())
+                                        #if AIRC_TESTING
+                                        if y == 0 {
+                                            lastDiagnostics["tile0"] = [tile.width, tile.height]
+                                            lastDiagnostics["tile0Space"] = (tile.colorSpace?.name as String?) ?? "untagged"
+                                        }
+                                        #endif
+                                        // The engine's pixels are in the display's colours, whatever the PNG says: at scale 1 it comes
+                                        // untagged, at a fractional one (a page past 14,000 pt, taken at fewer pixels per point)
+                                        // tagged sRGB with the same values, which drawn as sRGB washed saturated colours out. Every
+                                        // tile is drawn as the untagged ones are, in the picture's own colours.
+                                        let pixels = tile.colorSpace != nil && tile.colorSpace != ctx.colorSpace
+                                            ? ctx.colorSpace.flatMap { tile.copy(colorSpace: $0) } ?? tile : tile
                                         // CG counts from the bottom: the tile's top row goes `top` pixels down.
-                                        ctx.draw(tile, in: CGRect(x: 0, y: Double(height) - top - Double(tile.height),
-                                                                  width: Double(width), height: Double(tile.height)))
+                                        ctx.draw(pixels, in: CGRect(x: 0, y: Double(height) - foot, width: Double(width), height: foot - top))
                                         y += h
                                         progress(min(1, y / clipHeight))
                                         next()
@@ -255,8 +270,9 @@ enum FullPageCapture {
 
     private static func renderWebKit(_ web: WKWebView, zoom: Double, scale: CGFloat, isCurrent: @escaping () -> Bool,
                                      _ done: @escaping (Result<Picture, Failure>) -> Void) {
-        // WebKit lays fixed and sticky parts out for each PDF part again: after the first part they're held still (fixed
-        // ones hidden, sticky ones in their place), so they show once; put back however it ends.
+        // WebKit lays fixed and sticky parts out for each PDF part again (a fixed footer at each part's foot, a few points
+        // short past 14,000 pt): for the parts they're held still (fixed ones hidden, sticky ones in their place), and the
+        // window's own view of the page's top brings the fixed ones back once; put back however it ends.
         var held = false
         let finish: (Result<Picture, Failure>) -> Void = { result in
             if held { web.callAsyncJavaScript(releaseFixed, arguments: [:], in: nil, in: .defaultClient) { _ in } }
@@ -274,54 +290,72 @@ enum FullPageCapture {
             let (s, captured) = plan(points: pagePoints, scale: scale)
             let width = Int((captured.width * s).rounded()), height = Int((captured.height * s).rounded())
             guard width > 0, height > 0, let ctx = context(width: width, height: height) else { return finish(.failure(.noContent)) }
+            // What the window shows with the page at its top (its fixed parts where they are on screen), in points.
+            let top = CGRect(x: 0, y: 0, width: captured.width, height: min(captured.height, web.bounds.height.rounded(.down)))
+            let shot = WKSnapshotConfiguration()
+            shot.rect = top
+            shot.snapshotWidth = NSNumber(value: Double(top.width))
+            shot.afterScreenUpdates = true
             // A PDF page is at most 14,400 points long (WebKit's stopped there): the page in parts of `pdfChunk` points,
             // each drawn at its place and let go.
-            var y: CGFloat = 0
-            var parts = 0
-            var boxes: [[Double]] = []
-            func next() {
-                guard isCurrent() else { return finish(.failure(.cancelled)) }
-                guard y < captured.height else {
-                    #if AIRC_TESTING
-                    lastDiagnostics = ["cssWidth": a[0], "cssHeight": a[1], "zoom": z, "scale": Double(s), "pdfParts": parts, "pdfBoxes": boxes, "picture": [width, height]]
-                    #endif
-                    guard let image = ctx.makeImage() else { return finish(.failure(.noContent)) }
-                    return finish(.success(Picture(image: image, scale: s, pagePoints: pagePoints, capturedPoints: captured)))
-                }
-                if y > 0, !held {
-                    held = true
-                    return web.callAsyncJavaScript(holdFixed, arguments: [:], in: nil, in: .defaultClient) { _ in next() }
-                }
-                let h = min(pdfChunk, captured.height - y)
-                let config = WKPDFConfiguration()
-                // In the web view's coordinates (points), from the page's top.
-                config.rect = CGRect(x: 0, y: y, width: pagePoints.width, height: h)
-                web.createPDF(configuration: config) { result in
-                    DispatchQueue.main.async {
-                        guard isCurrent() else { return finish(.failure(.cancelled)) }
-                        guard case .success(let data) = result, let doc = PDFDocument(data: data), let page = doc.page(at: 0), let ref = page.pageRef else {
-                            if case .failure(let e) = result { return finish(.failure(.engine(e.localizedDescription))) }
-                            return finish(.failure(.noContent))
+            func parts(_ view: CGImage?) {
+                var y: CGFloat = 0
+                var count = 0
+                var boxes: [[Double]] = []
+                func next() {
+                    guard isCurrent() else { return finish(.failure(.cancelled)) }
+                    guard y < captured.height else {
+                        // The window's view over the picture's top, at the picture's pixels per point.
+                        if let view, top.height >= 1 {
+                            let h = (top.height * s).rounded()
+                            ctx.draw(view, in: CGRect(x: 0, y: CGFloat(height) - h, width: CGFloat(width), height: h))
                         }
-                        let box = page.bounds(for: .mediaBox)
-                        guard box.width > 0, box.height > 0 else { return finish(.failure(.noContent)) }
-                        boxes.append([Double(y), Double(h), Double(box.minX), Double(box.minY), Double(box.width), Double(box.height)])
-                        // The part's points onto the picture's pixels at one scale, its top `y` points down (CG counts
-                        // from the bottom).
-                        let k = CGFloat(width) / box.width
-                        ctx.saveGState()
-                        ctx.translateBy(x: 0, y: CGFloat(height) - (y * s).rounded() - box.height * k)
-                        ctx.scaleBy(x: k, y: k)
-                        ctx.translateBy(x: -box.minX, y: -box.minY)
-                        ctx.drawPDFPage(ref)
-                        ctx.restoreGState()
-                        y += h
-                        parts += 1
-                        next()
+                        #if AIRC_TESTING
+                        lastDiagnostics = ["cssWidth": a[0], "cssHeight": a[1], "zoom": z, "scale": Double(s), "pdfParts": count, "pdfBoxes": boxes,
+                                           "picture": [width, height], "viewTop": view.map { [$0.width, $0.height] } ?? []]
+                        #endif
+                        guard let image = ctx.makeImage() else { return finish(.failure(.noContent)) }
+                        return finish(.success(Picture(image: image, scale: s, pagePoints: pagePoints, capturedPoints: captured)))
+                    }
+                    let h = min(pdfChunk, captured.height - y)
+                    let config = WKPDFConfiguration()
+                    // In the web view's coordinates (points), from the page's top.
+                    config.rect = CGRect(x: 0, y: y, width: pagePoints.width, height: h)
+                    web.createPDF(configuration: config) { result in
+                        DispatchQueue.main.async {
+                            guard isCurrent() else { return finish(.failure(.cancelled)) }
+                            guard case .success(let data) = result, let doc = PDFDocument(data: data), let page = doc.page(at: 0), let ref = page.pageRef else {
+                                if case .failure(let e) = result { return finish(.failure(.engine(e.localizedDescription))) }
+                                return finish(.failure(.noContent))
+                            }
+                            let box = page.bounds(for: .mediaBox)
+                            guard box.width > 0, box.height > 0 else { return finish(.failure(.noContent)) }
+                            boxes.append([Double(y), Double(h), Double(box.minX), Double(box.minY), Double(box.width), Double(box.height)])
+                            // The part's points onto the picture's pixels at one scale, its top `y` points down (CG counts
+                            // from the bottom).
+                            let k = CGFloat(width) / box.width
+                            ctx.saveGState()
+                            ctx.translateBy(x: 0, y: CGFloat(height) - (y * s).rounded() - box.height * k)
+                            ctx.scaleBy(x: k, y: k)
+                            ctx.translateBy(x: -box.minX, y: -box.minY)
+                            ctx.drawPDFPage(ref)
+                            ctx.restoreGState()
+                            y += h
+                            count += 1
+                            next()
+                        }
                     }
                 }
+                next()
             }
-            next()
+            web.takeSnapshot(with: shot) { image, _ in
+                guard isCurrent() else { return finish(.failure(.cancelled)) }
+                let view = image?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+                web.callAsyncJavaScript(holdFixed, arguments: [:], in: nil, in: .defaultClient) { _ in
+                    held = true
+                    parts(view)
+                }
+            }
         }
     }
 }

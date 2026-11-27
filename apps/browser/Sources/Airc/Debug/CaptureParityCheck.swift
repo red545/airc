@@ -8,6 +8,8 @@ import AppKit
 ///     every band once, in order, at its height × zoom × pixels per point; the fixed and sticky parts once; nothing of
 ///     the window around the page; at 2× in several tiles, at 150 % page zoom, and at 1×; Copy's PNG at that size and
 ///     resolution; the bar's Full Page, F and View › Capture Full Page;
+///   - the same page with 500-px bands (15 030 px, past 14,000 pt) at the engines' own part sizes: all of it, the
+///     fixed footer once at its full height where the window's foot is (on WebKit too, in two or more PDF parts);
 ///   - a page too long for one picture: taken at fewer pixels per point and cut at the limit, which the overlay says;
 ///   - Esc while a full page is being taken: nothing copied, nothing left; Save into a folder that isn't there: it says
 ///     so and the Capture stays;
@@ -16,25 +18,32 @@ extension SnapshotRunner {
     func captureParityChecks(board: NSPasteboard, scratch: URL, usedCount: @escaping () -> Int) {
         var server: LocalPageServer?
         var base = ""
-        var longTab = "", veryLongTab = "", leftTab = "", rightTab = ""
+        var longTab = "", longerTab = "", veryLongTab = "", leftTab = "", rightTab = ""
         let active = { CaptureSession.active(in: self.c.window) }
         // Colours 70 apart (an RGB grid), each at least 80 from the fixed header (black), footer (magenta), sticky bar
         // (cyan) and white; neighbours far apart.
         let bands: [UInt32] = [0x641EAA, 0x64641E, 0xAAF0F0, 0xAAAA1E, 0xF01EAA, 0xF01E1E, 0x64F01E, 0x1EAAAA, 0xAA6464, 0xAAAAF0,
                                0xAA1E64, 0x64F0F0, 0xAA64AA, 0x1E1EAA, 0xF0AA64, 0x1EF0AA, 0x641E1E, 0x1EAAF0, 0x641EF0, 0x64F064,
                                0x646464, 0xAA1EF0, 0xAA1E1E, 0x64AAF0, 0x1E1EF0, 0x641E64, 0x1E64F0, 0xF0641E, 0xAAAAAA, 0x6464F0]
-        let bandCSS = 160.0, headCSS = 40.0, footCSS = 24.0, stickyCSS = 30.0
-        let pageCSS = bandCSS * Double(bands.count) + stickyCSS
+        // The bands are 160 CSS px on the long page, 500 on the longer one (15 030 px: past WebKit's 14,000-pt PDF parts
+        // at their own size, and past Chromium's 4 096-px tiles).
+        let longBandCSS = 160.0, longerBandCSS = 500.0
+        var bandCSS = longBandCSS
+        let headCSS = 40.0, footCSS = 24.0, stickyCSS = 30.0
+        var pageCSS: Double { bandCSS * Double(bands.count) + stickyCSS }
         let hex = { (c: UInt32) in String(format: "#%06X", c) }
-        var long = "<title>Long</title><style>html,body{margin:0}.b{height:\(Int(bandCSS))px}"
-            + "#head{position:fixed;top:0;left:0;right:0;height:\(Int(headCSS))px;background:#000}"
-            + "#foot{position:fixed;bottom:0;left:0;right:0;height:\(Int(footCSS))px;background:#F0F}"
-            + "#stick{position:sticky;top:\(Int(headCSS))px;height:\(Int(stickyCSS))px;background:#0FF}</style><div id=head></div>"
-        for (i, c) in bands.enumerated() {
-            long += "<div class=b style=\"background:\(hex(c))\"></div>"
-            if i == 2 { long += "<div id=stick></div>" }
+        func banded(_ title: String, band: Double) -> String {
+            var html = "<title>\(title)</title><style>html,body{margin:0}.b{height:\(Int(band))px}"
+                + "#head{position:fixed;top:0;left:0;right:0;height:\(Int(headCSS))px;background:#000}"
+                + "#foot{position:fixed;bottom:0;left:0;right:0;height:\(Int(footCSS))px;background:#F0F}"
+                + "#stick{position:sticky;top:\(Int(headCSS))px;height:\(Int(stickyCSS))px;background:#0FF}</style><div id=head></div>"
+            for (i, c) in bands.enumerated() {
+                html += "<div class=b style=\"background:\(hex(c))\"></div>"
+                if i == 2 { html += "<div id=stick></div>" }
+            }
+            return html + "<div id=foot></div>"
         }
-        long += "<div id=foot></div>"
+        let long = banded("Long", band: longBandCSS), longer = banded("Longer", band: longerBandCSS)
         let veryLong = "<title>Very long</title><style>html,body{margin:0}.r{height:400px;background:#e53935}.b{height:400px;background:#1e88e5}</style>"
             + String(repeating: "<div class=r></div><div class=b></div>", count: 250)
         let left = "<title>Left</title><style>html,body{margin:0;height:100%;background:#e53935}</style>"
@@ -106,10 +115,10 @@ extension SnapshotRunner {
         }
         func summary(_ r: [(label: String, rows: Int)]) -> String { r.map { "\($0.label) \($0.rows)" }.joined(separator: ", ") }
         /// What each row should be: the bands and the sticky bar where they are in the page, the fixed header over the
-        /// top and the fixed footer over `footTop` (CSS pixels; Chromium paints it where the window's foot is, WebKit at
-        /// the page's foot). Rows within 2 px of an edge between parts aren't judged (they blend). Every band once and
-        /// in order follows from every row matching.
-        func judge(_ d: (w: Int, h: Int, px: [UInt8]), fx: Double, scale: Double, footTop: Double, footSlack: Double = 0) -> (ok: Bool, why: String) {
+        /// top and the fixed footer over `footTop` (CSS pixels; both engines paint it where the window's foot is, the page
+        /// at its top). Rows within 2 px of an edge between parts aren't judged (they blend). Every band once and in order
+        /// follows from every row matching, and the footer's rows are counted: exactly its height, once.
+        func judge(_ d: (w: Int, h: Int, px: [UInt8]), fx: Double, scale: Double, footTop: Double) -> (ok: Bool, why: String) {
             var known: [(String, RGB)] = [("head", (0, 0, 0)), ("foot", (255, 0, 255)), ("sticky", (0, 255, 255))]
             known += bands.enumerated().map { ("b\($0.offset)", rgb($0.element)) }
             func underneath(_ y: Double) -> String {
@@ -122,7 +131,6 @@ extension SnapshotRunner {
                 if y >= footTop, y < footTop + footCSS { return "foot" }
                 return underneath(y)
             }
-            var footRows = 0
             var edges = [headCSS, footTop, footTop + footCSS, 3 * bandCSS, 3 * bandCSS + stickyCSS]
             edges += (1..<bands.count).map { i in Double(i) * bandCSS + (i >= 3 ? stickyCSS : 0) }
             let x = Int(Double(d.w) * fx)
@@ -133,14 +141,14 @@ extension SnapshotRunner {
                 let c = pixel(d, x, row).0
                 let best = known.min { dist($0.1, c) < dist($1.1, c) }!
                 let got = dist(best.1, c) <= 60 ? best.0 : "?"
-                if got == "foot" { footRows += 1 }
-                // Where WebKit's parts draw the footer short of the part's foot: below its top, it or the page under it
-                // (never above its top: the page there must be row-exact, see `aboveFooter`).
-                if footSlack > 0, y >= footTop, y < footTop + footCSS + footSlack, got == "foot" || got == underneath(y) { continue }
                 if got != expected(y), wrong.count < 6 { wrong.append("row \(row): \(got), not \(expected(y))") }
                 else if got != expected(y) { wrong.append("…") ; break }
             }
-            if footSlack > 0, footRows == 0 || Double(footRows) > (footCSS + footSlack) * scale { wrong.append("the footer \(footRows) rows") }
+            // The footer once, at its height (every row of the column, edges included).
+            let feet = runs(d, fx: fx).filter { $0.label == "foot" }
+            if feet.count != 1 || abs(Double(feet[0].rows) - footCSS * scale) > 2 {
+                wrong.append("the footer \(feet.map(\.rows)) rows, want once \(Int((footCSS * scale).rounded()))")
+            }
             return (wrong.isEmpty, wrong.joined(separator: "; "))
         }
         func fullPage(_ name: String, tab: @escaping () -> String, zoomSteps: Int = 0, scale: CGFloat? = nil, start: @escaping () -> Void) {
@@ -180,16 +188,18 @@ extension SnapshotRunner {
                       "capture full page (\(name)): the page's whole length, \(picture.image.width) × \(picture.image.height) px "
                       + "(want about \(Int(viewportPt * px)) × \(Int(wantH)): the page area only, no sidebar or toolbar)")
                 if let img = decode(picture.image) {
-                    // Chromium paints a fixed footer where the window's foot is (the page at its top), WebKit at the page's foot,
-                    // or at the foot of its first part when it takes the page in parts.
-                    let parts = (FullPageCapture.lastDiagnostics["pdfParts"] as? Int) ?? 1
-                    let footTop = page is WebKitTab ? (parts > 1 ? Double(FullPageCapture.pdfChunk) / zoom : pageCSS) - footCSS
-                        : Double(page.view.bounds.height) / zoom - footCSS
-                    let slack = page is WebKitTab && parts > 1 ? 12.0 : 0
-                    let verdict = judge(img, fx: 0.5, scale: d, footTop: footTop, footSlack: slack)
-                    let edge = judge(img, fx: 0.02, scale: d, footTop: footTop, footSlack: slack)
+                    // Both engines paint a fixed footer where the window's foot is, the page at its top (WebKit's PDF parts
+                    // without it, the window's view of the page's top over them).
+                    let footTop = Double(page.view.bounds.height) / zoom - footCSS
+                    let verdict = judge(img, fx: 0.5, scale: d, footTop: footTop)
+                    let edge = judge(img, fx: 0.02, scale: d, footTop: footTop)
                     let above = aboveFooter(img, scale: d, footTop: footTop)
                     check(above.ok, "capture full page (\(name)): the 12 px above the fixed footer are the page's own, row for row (\(above.why))")
+                    if !(verdict.ok && edge.ok), let png = CaptureSession.png(picture.image, scale: px) {
+                        try? png.write(to: scratch.deletingLastPathComponent().appendingPathComponent("capture-full-\(name.filter { $0.isLetter || $0.isNumber }).png"))
+                        note("capture full page (\(name)): picture saved, colour space \((picture.image.colorSpace?.name as String?) ?? "untagged"), "
+                             + "first pixel at 50 %: \(pixel(img, img.w / 2, img.h / 2))")
+                    }
                     check(verdict.ok && edge.ok, "capture full page (\(name)): every part once, in order, at its size (footer at \(Int(footTop)) px "
                           + (page is WebKitTab ? "on WebKit" : "on Chromium") + "): " + (verdict.ok && edge.ok ? summary(runs(img)) : verdict.why + " | left edge: " + edge.why + " — " + summary(runs(img))))
                 }
@@ -222,7 +232,7 @@ extension SnapshotRunner {
         }
 
         step { [self] done in
-            server = LocalPageServer(responses: ["/long.html": .init(body: long), "/verylong.html": .init(body: veryLong),
+            server = LocalPageServer(responses: ["/long.html": .init(body: long), "/longer.html": .init(body: longer), "/verylong.html": .init(body: veryLong),
                                                  "/left.html": .init(body: left), "/right.html": .init(body: right)])
             server?.start { port in
                 base = port.map { "http://localhost:\($0)" } ?? ""
@@ -339,6 +349,26 @@ extension SnapshotRunner {
                   "capture: Save into a missing folder says \"\(c.toast.shownText ?? "nothing")\", keeps the Capture and counts nothing")
             s.cancel()
             CaptureSession.downloadsDirectory = { scratch }
+        }
+
+        // A page past 14,000 pt (15 030 CSS px), with the engines' own part sizes (WebKit's PDF parts of 14,000 pt, its
+        // fixed footer once and at its full height; Chromium's 4 096-px tiles): all of it, every band once, the footer once.
+        run { [self] in
+            longerTab = (try? c.store.openTab(url: base + "/longer.html", inSpace: c.currentSpaceID, title: "Longer"))?.id ?? ""
+            c.show(longerTab, focus: false)
+        }
+        step { [self] done in waitUntil({ self.c.engineTab(for: longerTab).map { !$0.isLoading && $0.title == "Longer" } == true }, timeout: 15) { done() } }
+        wait(1.0)
+        run { bandCSS = longerBandCSS }
+        fullPage("past 14,000 pt", tab: { longerTab }) { [self] in c.startCapture(fullPage: true) }
+        run { [self] in
+            let parts = (FullPageCapture.lastDiagnostics["pdfParts"] as? Int) ?? 0
+            if c.engineTab(for: longerTab) is WebKitTab {
+                check(parts >= 2, "capture full page (past 14,000 pt): WebKit took it in \(parts) PDF parts of at most \(Int(FullPageCapture.pdfChunk)) pt")
+            }
+            bandCSS = longBandCSS
+            if !longerTab.isEmpty { c.closeTab(longerTab) }
+            longerTab = ""
         }
 
         // A page too long for one picture.
