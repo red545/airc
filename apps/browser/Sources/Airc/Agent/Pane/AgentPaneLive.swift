@@ -243,6 +243,8 @@ final class AgentPaneLiveView: NSView {
         if pageSize != w.size { pageSize = w.size; needsLayout = true }
         // The engine's own output while it can host it.
         if AgentWatchView.allowsLive, !AgentWatchView.ignoresOcclusion {
+            // agentparkcpu: a live card copies nothing, so it tells the page it's seen (an idle page rests otherwise).
+            if win.occlusionState.contains(.visible), !isHiddenOrHasHiddenAncestor { w.driver.wake(tab, for: 0) }
             let current = w.driver.liveContextID(tab, in: w.window)
             let interval = CACurrentMediaTime() < fastUntil ? 1.0 / 120 : Self.liveCheckInterval
             if let live, live.id == current { liveMissSince = nil; return again(interval) }

@@ -16,9 +16,16 @@ private final class GCMac {
     let name: String
     let clock: TestClock
     var engine: SyncEngine!
+    /// Whether clean-up really deletes: on for the delete-path tests (as in test builds), nil keeps the environment's
+    /// default (`SyncGarbage.deletesEnabled`, off in the package's public configuration).
+    var deletes: Bool?
+    /// The sync log's lines.
+    var logged: [String] = []
+    /// The environment the last launch had.
+    private(set) var environment: SyncEngine.Environment!
 
-    init(_ name: String, db: SyncMockCloudDatabase, root: URL, clock: TestClock) throws {
-        self.name = name; self.db = db; self.clock = clock
+    init(_ name: String, db: SyncMockCloudDatabase, root: URL, clock: TestClock, deletes: Bool? = true) throws {
+        self.name = name; self.db = db; self.clock = clock; self.deletes = deletes
         folder = root.appendingPathComponent(name)
         pictures = SyncNotePictureFolder(folder: folder.appendingPathComponent("Notes/Images"))
         store = try makeStore(clock)
@@ -37,6 +44,9 @@ private final class GCMac {
         env.sleep = { _ in }
         env.now = { clock.date }
         env.notePictures = pictures
+        if let deletes { env.gcDeletes = deletes }
+        env.log = { [weak self] line in self?.logged.append(line) }
+        environment = env
         engine = SyncEngine(store: store, environment: env)
         engine.automatic = false
     }
@@ -71,9 +81,10 @@ final class SyncGarbageTests: XCTestCase {
     // MARK: Helpers
 
     /// Macs in one group: the first makes it with `seed`, the others merge.
-    private func group(_ names: [String], seed: (GCMac) throws -> Void = { _ in }) async throws -> ([GCMac], SyncMockCloudDatabase) {
+    private func group(_ names: [String], deletes: Bool? = true,
+                       seed: (GCMac) throws -> Void = { _ in }) async throws -> ([GCMac], SyncMockCloudDatabase) {
         let db = SyncMockCloudDatabase()
-        let macs = try names.map { try GCMac($0, db: db, root: root, clock: clock) }
+        let macs = try names.map { try GCMac($0, db: db, root: root, clock: clock, deletes: deletes) }
         _ = try macs[0].store.createSpace(name: "Work")
         try seed(macs[0])
         await macs[0].turnOn()
@@ -228,6 +239,76 @@ final class SyncGarbageTests: XCTestCase {
         XCTAssertEqual(Set(b.store.orderedSpaces.map(\.name)), Set(c.store.orderedSpaces.map(\.name)))
         let batches = await db.state.batchCount
         XCTAssertGreaterThan(batches, 0, "the batch log is never cleaned up")
+    }
+
+    /// Public builds (SyncGarbage.deletesEnabled off until Y01's real-iCloud proof): acks, the agreement and the picture
+    /// proposal run as in test builds, each plan is checked, but nothing is deleted; the sync log and Settings › Sync get
+    /// the counts and record types (never names or content). Turned on, the same clean-up goes at the next cycles.
+    func testPublicBuildsDeleteNothingLogWhatWouldGoAndCleanUpOnceDeletesAreOn() async throws {
+        #if !AIRC_TESTING
+        XCTAssertFalse(SyncGarbage.deletesEnabled, "the public configuration deletes nothing")
+        #endif
+        let (macs, db) = try await group(["A", "B", "C"], deletes: nil)
+        let (a, b, c) = (macs[0], macs[1], macs[2])
+        for mac in macs { XCTAssertEqual(mac.environment.gcDeletes, SyncGarbage.deletesEnabled, "the default is the switch") }
+        try XCTSkipIf(SyncGarbage.deletesEnabled, "compiled with AIRC_TESTING: the public configuration isn't under test")
+        let (id, picture) = try await sharedNote(macs)
+        let kept = try await sharedNote(macs, picture: Data("another".utf8))
+        let key = try key(a), group = try XCTUnwrap(a.engine.groupID)
+        clock.advance(10)
+        try a.store.deleteItem(XCTUnwrap(a.row(id)).id)
+        await rounds(macs, 3)
+        for _ in 0..<2 { clock.advance(settle); await rounds(macs, 3) }
+
+        let deletes = await db.count(.delete)
+        XCTAssertEqual(deletes, 0, "no delete reached iCloud")
+        var texts = await textRecords(db, note: id, key: key, group: group)
+        XCTAssertEqual(texts.values.filter { $0 }.count, 2, "B's and C's texts stay (A's record is its removal): \(texts)")
+        var pictures = await pictureRecords(db)
+        XCTAssertEqual(pictures.count, 2, "both pictures stay")
+        let acks = await records(db).filter { $0.name.hasPrefix("ack.") }.count
+        XCTAssertEqual(acks, 3, "every Mac still acks")
+        // What would go: B's and C's own texts (A's own record holds no text), and the picture, by its collector.
+        let dry = macs.compactMap(\.engine.cleanUpDryRun)
+        XCTAssertEqual(dry.count, 3, "every Mac checked a plan")
+        XCTAssertEqual(dry.map { $0.types[SyncCloudSchema.note] ?? 0 }.reduce(0, +), 2)
+        XCTAssertEqual(dry.map { $0.types[SyncCloudSchema.noteAsset] ?? 0 }.reduce(0, +), 1)
+        XCTAssertEqual(dry.map(\.records).reduce(0, +), 3)
+        XCTAssertEqual(a.engine.cleanUpDryRun?.types[SyncCloudSchema.note], nil)
+        XCTAssertEqual(b.engine.cleanUpDryRun?.kinds["noteText"], 1)
+        XCTAssertEqual(c.engine.cleanUpDryRun?.kinds["noteText"], 1)
+        let lines = macs.flatMap(\.logged)
+        XCTAssertTrue(lines.contains { $0.contains("would delete 1 record(s): 1 SyncNote (1 deleted note's text)") }, "\(lines)")
+        XCTAssertTrue(lines.contains { $0.contains("SyncNoteAsset") && $0.contains("1 unused picture") }, "\(lines)")
+        XCTAssertTrue(lines.allSatisfy { $0.contains("dry run") }, "nothing logged as deleted: \(lines)")
+        let secrets = [id, kept.0, "Plans", picture.file, SyncNoteAsset.name(for: picture.file, key: key), "note.", "noteasset."]
+        for line in lines { for secret in secrets { XCTAssertFalse(line.contains(secret), "no names or content: \(line)") } }
+        // Nothing marked as done: no text counted as collected, no picture announced gone, the proposal still open.
+        for mac in macs {
+            XCTAssertTrue(mac.engine.gcState.collected.isEmpty, mac.name)
+            XCTAssertTrue(mac.engine.gcState.gone.isEmpty, mac.name)
+            XCTAssertTrue(mac.engine.gcState.plan.isEmpty, mac.name)
+            XCTAssertEqual(mac.engine.status, .upToDate, mac.name)
+        }
+        XCTAssertEqual(macs.filter { $0.engine.gcState.proposal != nil }.count, 1, "the collector's proposal stays open")
+        // The same plan isn't checked or logged again every cycle.
+        let count = lines.count
+        await rounds(macs, 2)
+        XCTAssertEqual(macs.flatMap(\.logged).count, count)
+
+        // Deletes on (after Y01): the agreed clean-up goes at once, nothing else.
+        for mac in macs { mac.deletes = true; mac.relaunch() }
+        await rounds(macs, 2)
+        texts = await textRecords(db, note: id, key: key, group: group)
+        XCTAssertEqual(texts.count, 1, "only the removal is left: \(texts)")
+        XCTAssertEqual(texts.values.first, false)
+        pictures = await pictureRecords(db)
+        XCTAssertEqual(pictures, [SyncNoteAsset.name(for: kept.1.file, key: key)])
+        for mac in macs {
+            XCTAssertNil(mac.engine.cleanUpDryRun, mac.name)
+            XCTAssertEqual(mac.store.note(kept.0)?.document.plainText, "Plans, C", mac.name)
+        }
+        XCTAssertTrue(macs.flatMap(\.logged).contains { $0.hasPrefix("clean-up deleted ") })
     }
 
     func testAnOfflineMacHoldsCleanUpBackUntilItComesBackAndAcks() async throws {

@@ -8,7 +8,8 @@ import Foundation
 // agreed by every Mac that synced within `horizon` (their acks), then deleted only after `settle` if it still qualifies.
 // Nothing is deleted while a Mac that synced within the horizon has no ack (an older build), while this Mac's own state
 // isn't clean (unreadable batches, uploads waiting), or while the inventory isn't complete. Removal records (a note's
-// tombstones, no text) and the current group's batches are never deleted.
+// tombstones, no text) and the current group's batches are never deleted. Public builds don't delete yet
+// (`SyncGarbage.deletesEnabled`): everything else runs, and what would go is logged.
 //
 // No CloudKit schema change: an ack is a `SyncDevice` record named `ack.<device>` (builds from before syncgc ignore it,
 // their mapping wants `device.<device>`), its `sealed` field a sealed `SyncGCAck`.
@@ -74,7 +75,49 @@ public struct SyncGCAck: Codable, Equatable, Sendable {
     }
 }
 
+/// What clean-up would have deleted while deletes are off (`SyncGarbage.deletesEnabled`): counts and record types only,
+/// never names or content. In the sync log and Settings › Sync's diagnostics.
+public struct SyncGCDryRun: Codable, Equatable, Sendable {
+    /// When the plan was checked (each record fetched and checked again, as before a real delete).
+    public var at: Date
+    /// Records that would be deleted.
+    public var records: Int
+    /// Per CloudKit record type (SyncNote, SyncNoteAsset, …).
+    public var types: [String: Int]
+    /// Per kind: `noteText` (deleted notes' texts), `asset` (unused pictures), `oldGroup` (an old group's records).
+    public var kinds: [String: Int]
+
+    public init(at: Date, records: Int, types: [String: Int], kinds: [String: Int]) {
+        self.at = at; self.records = records; self.types = types; self.kinds = kinds
+    }
+
+    /// "2 deleted notes' texts, 1 unused picture" (nothing: "nothing").
+    public var what: String {
+        let parts: [(String, String, String)] = [("noteText", "deleted note's text", "deleted notes' texts"),
+                                                 ("asset", "unused picture", "unused pictures"),
+                                                 ("oldGroup", "record of an old group", "records of an old group")]
+        let said = parts.compactMap { key, one, many in kinds[key].flatMap { $0 > 0 ? "\($0) " + ($0 == 1 ? one : many) : nil } }
+        return said.isEmpty ? "nothing" : said.joined(separator: ", ")
+    }
+
+    /// The sync log's line.
+    public var logLine: String {
+        let byType = types.sorted { $0.key < $1.key }.map { "\($0.value) \($0.key)" }.joined(separator: ", ")
+        return "clean-up dry run (deletes are off in this build): would delete \(records) record(s)"
+            + (byType.isEmpty ? "" : ": " + byType) + " (" + what + ")"
+    }
+}
+
 public enum SyncGarbage {
+    /// Whether clean-up really deletes records from iCloud. Off in public builds until the real-iCloud proof (parity
+    /// audit Y01 with a delete pass in a test zone): acks, proposals and bookkeeping still run, and each plan is checked
+    /// as before a delete, but nothing is deleted; what would go is logged (`SyncGCDryRun`). On in test builds, so the
+    /// scripted checks keep proving the delete path. The engine reads it through `Environment.gcDeletes`.
+    #if AIRC_TESTING
+    public static let deletesEnabled = true
+    #else
+    public static let deletesEnabled = false
+    #endif
     /// A Mac that hasn't synced for this long stops holding clean-up back (docs/sync.md "Clean-up"; ASK: 30 days).
     public static let horizon: TimeInterval = 30 * 86400
     /// Everything that qualifies waits this long, then is checked again before it's deleted.
@@ -169,12 +212,16 @@ struct SyncGCState: Codable, Equatable {
     var planProposal: Int?
     /// Proposed pictures a Mac kept (a Today note uses them): not proposed again until the horizon has passed.
     var held: [String: Date] = [:]
+    /// Deletes off (`SyncGarbage.deletesEnabled`): the last dry run, and the plan it checked (the same plan isn't
+    /// checked and logged again until the settle delay has passed).
+    var dryRun: SyncGCDryRun?
+    var dryRunPlan: [Doomed] = []
 
     init() {}
 
     private enum CodingKeys: String, CodingKey {
         case ack, agreed, collected, swept, inventory, inventoryComplete, oldGroups, proposal, epoch, gone, goneRead, plan
-        case planCollects, planSweeps, planProposal, held
+        case planCollects, planSweeps, planProposal, held, dryRun, dryRunPlan
     }
 
     init(from decoder: Decoder) throws {
@@ -195,6 +242,8 @@ struct SyncGCState: Codable, Equatable {
         planSweeps = try c.decodeIfPresent([String].self, forKey: .planSweeps) ?? []
         planProposal = try c.decodeIfPresent(Int.self, forKey: .planProposal)
         held = try c.decodeIfPresent([String: Date].self, forKey: .held) ?? [:]
+        dryRun = try c.decodeIfPresent(SyncGCDryRun.self, forKey: .dryRun)
+        dryRunPlan = try c.decodeIfPresent([Doomed].self, forKey: .dryRunPlan) ?? []
     }
 
     /// A read's records into the inventory: pictures of any group and anything of another group are kept; this group's

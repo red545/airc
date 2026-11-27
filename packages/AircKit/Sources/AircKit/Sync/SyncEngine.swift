@@ -116,6 +116,11 @@ public final class SyncEngine {
         /// `gcSettle` and is checked again. Tests and scripted checks shorten them.
         public var gcHorizon: TimeInterval = SyncGarbage.horizon
         public var gcSettle: TimeInterval = SyncGarbage.settle
+        /// Whether clean-up really deletes (`SyncGarbage.deletesEnabled`: off in public builds, on in test builds). Off,
+        /// each plan is a dry run: checked as before a delete, logged as counts and record types, nothing deleted.
+        public var gcDeletes: Bool = SyncGarbage.deletesEnabled
+        /// The sync log: a line per event worth keeping, never content or record names. The system log by default.
+        public var log: (String) -> Void = { NSLog("Airc sync: %@", $0) }
 
         public init(transport: @escaping (UUID) -> SyncGroupTransport, keys: SyncKeyStore, stateURL: URL, deviceName: String,
                     machine: String? = nil, createProfile: @escaping (String, String) throws -> String,
@@ -283,6 +288,10 @@ public final class SyncEngine {
     public var needsRecovery: Bool { state.recovery }
     /// Settings › Sync › "Sync settings": on by default while sync is on.
     public var syncsSettings: Bool { !state.settings.off }
+    /// Clean-up with deletes off (`SyncGarbage.deletesEnabled`): what the last check would have deleted. nil: none yet.
+    public var cleanUpDryRun: SyncGCDryRun? { state.gc.dryRun }
+    /// Clean-up's bookkeeping (unit tests).
+    var gcState: SyncGCState { state.gc }
 
     /// The "Sync settings" switch. Turning it on sends what changed here meanwhile and takes what changed elsewhere, by
     /// the same rule (the later change wins); off sends and applies nothing.
@@ -1587,9 +1596,13 @@ public final class SyncEngine {
         healPictures(view, used: used, key: key)
         if state.gc.plan.isEmpty, !view.blocked { planCleanUp(view, devices: devices, used: used, group: group) }
         if !state.gc.plan.isEmpty {
-            // On disk before anything goes: a quit or crash mid-way is finished (checked again) by the next cycle.
-            try save()
-            try await executePlan(t, group: group, key: key, gen: gen); try live(gen)
+            if env.gcDeletes {
+                // On disk before anything goes: a quit or crash mid-way is finished (checked again) by the next cycle.
+                try save()
+                try await executePlan(t, group: group, key: key, gen: gen); try live(gen)
+            } else {
+                try await dryRun(t, group: group, key: key, gen: gen); try live(gen)
+            }
         }
         let ack = makeAck(view, used: used, now: now)
         if ack != state.gc.ack {
@@ -1707,6 +1720,78 @@ public final class SyncEngine {
     /// and, after the deletes, the pictures announced as gone.
     private func executePlan(_ t: SyncGroupTransport, group: UUID, key: SymmetricKey, gen: Int) async throws {
         let plan = state.gc.plan
+        let doomed = try await check(plan, t, group: group, key: key, gen: gen); try live(gen)
+        try await t.delete(doomed.sorted()); try live(gen)
+        if !doomed.isEmpty { env.log("clean-up deleted \(doomed.count) record(s): " + summary(of: plan, doomed: doomed).what) }
+        state.gc.dryRun = nil
+        state.gc.dryRunPlan = []
+        let now = env.now()
+        for name in doomed { state.gc.inventory[name] = nil }
+        let pictures = plan.filter { $0.kind == .asset && doomed.contains($0.name) }.map(\.name)
+        for name in pictures { state.gc.gone[name] = now }
+        state.gc.pruneGone(now: now)
+        if !pictures.isEmpty {
+            let gone = Set(pictures)
+            state.notes.picturesUp = state.notes.picturesUp.filter { !gone.contains(SyncNoteAsset.name(for: $0, key: key)) }
+        }
+        for id in state.gc.planCollects { state.gc.collected[id] = now }
+        for id in state.gc.planSweeps { state.gc.swept[id] = now }
+        if let epoch = state.gc.planProposal, let p = state.gc.proposal, p.epoch == epoch {
+            // Proposed and answered: those a Mac kept wait a horizon before they're proposed again.
+            for name in p.assets where !doomed.contains(name) && state.gc.inventory[name] != nil { state.gc.held[name] = now }
+            state.gc.proposal = nil
+        }
+        clearPlan()
+        try save()
+    }
+
+    /// Deletes off (`SyncGarbage.deletesEnabled`): the plan is checked as `executePlan` would, and what would go is
+    /// logged and kept for Settings › Sync, but nothing is deleted and none of the bookkeeping that follows a delete
+    /// happens (nothing is marked collected, no picture announced gone, the proposal stays open). So the next cycle plans
+    /// the same again, and once deletes are on, it all goes at the first cycle. The same plan is checked and logged
+    /// again only after the settle delay.
+    private func dryRun(_ t: SyncGroupTransport, group: UUID, key: SymmetricKey, gen: Int) async throws {
+        let plan = state.gc.plan
+        let now = env.now()
+        let fresh = state.gc.dryRun.map { plan == state.gc.dryRunPlan && now.timeIntervalSince($0.at) < env.gcSettle } ?? false
+        if !fresh {
+            let doomed = try await check(plan, t, group: group, key: key, gen: gen); try live(gen)
+            let result = summary(of: plan, doomed: doomed, at: now)
+            state.gc.dryRun = result
+            state.gc.dryRunPlan = plan
+            env.log(result.logLine)
+            onChange?()
+        }
+        clearPlan()
+        try save()
+    }
+
+    private func clearPlan() {
+        state.gc.plan = []
+        state.gc.planCollects = []
+        state.gc.planSweeps = []
+        state.gc.planProposal = nil
+    }
+
+    /// Counts and record types of what a plan deletes: never names (they carry device and note IDs) or content.
+    private func summary(of plan: [SyncGCState.Doomed], doomed: Set<String>, at: Date? = nil) -> SyncGCDryRun {
+        var types: [String: Int] = [:], kinds: [String: Int] = [:]
+        for item in plan where doomed.contains(item.name) {
+            let type = switch item.kind {
+            case .noteText: SyncCloudSchema.note
+            case .asset: SyncCloudSchema.noteAsset
+            case .oldGroup: state.gc.inventory[item.name]?.type ?? "unknown"
+            }
+            types[type, default: 0] += 1
+            kinds[item.kind.rawValue, default: 0] += 1
+        }
+        return SyncGCDryRun(at: at ?? env.now(), records: doomed.count, types: types, kinds: kinds)
+    }
+
+    /// The plan's records that may go now, each checked again first where a Mac overwrites that name: a note's text only
+    /// while the agreed removal still covers it, another group's record only while it's still that group's.
+    private func check(_ plan: [SyncGCState.Doomed], _ t: SyncGroupTransport, group: UUID, key: SymmetricKey,
+                       gen: Int) async throws -> Set<String> {
         var doomed = Set<String>()
         let texts = plan.filter { $0.kind == .noteText }
         var found: [String: SyncNoteRecord] = [:]
@@ -1727,28 +1812,7 @@ public final class SyncEngine {
         for item in plan where item.kind == .asset || (item.kind == .oldGroup && !SyncGarbage.isMutable(item.name)) {
             doomed.insert(item.name)
         }
-        try await t.delete(doomed.sorted()); try live(gen)
-        let now = env.now()
-        for name in doomed { state.gc.inventory[name] = nil }
-        let pictures = plan.filter { $0.kind == .asset && doomed.contains($0.name) }.map(\.name)
-        for name in pictures { state.gc.gone[name] = now }
-        state.gc.pruneGone(now: now)
-        if !pictures.isEmpty {
-            let gone = Set(pictures)
-            state.notes.picturesUp = state.notes.picturesUp.filter { !gone.contains(SyncNoteAsset.name(for: $0, key: key)) }
-        }
-        for id in state.gc.planCollects { state.gc.collected[id] = now }
-        for id in state.gc.planSweeps { state.gc.swept[id] = now }
-        if let epoch = state.gc.planProposal, let p = state.gc.proposal, p.epoch == epoch {
-            // Proposed and answered: those a Mac kept wait a horizon before they're proposed again.
-            for name in p.assets where !doomed.contains(name) && state.gc.inventory[name] != nil { state.gc.held[name] = now }
-            state.gc.proposal = nil
-        }
-        state.gc.plan = []
-        state.gc.planCollects = []
-        state.gc.planSweeps = []
-        state.gc.planProposal = nil
-        try save()
+        return doomed
     }
 
     /// This Mac's ack: the notes it has removed, its answer to each proposal it read, its own proposal and deletions.

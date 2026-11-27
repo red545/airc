@@ -175,6 +175,12 @@ windows and Watch, unchanged.
   size), so the agent keeps going and the pane's live card shows it; the Today row follows its title. Picking the row,
   the card, Take over or "needs you" moves the same page back (no reload). Several agent tabs: each is a Today tab; only
   the selected one is in the main view.
+- **Idle rest (agentparkcpu):** a page in an agent window (parked, or an outside app's) that no tool call, agent input,
+  Watch or card copy has needed for 5 s goes back to the engine's own behaviour for a window off screen: no frames, no
+  rAF (WebKit: occlusion detection on again; Chromium: focus emulation off; then the window's occlusion is re-read).
+  Every tool call (a `wait` for its whole duration), input, copy and a live card or Watch on screen wakes it first, so
+  the agent's steps take as long as before. A page in the person's window is never rested. Three parked animating
+  pages: WebKit app 7.9 % + pages 12.5 % → 0.06 % + 0.08 %; Chromium helpers 40.8 % → 0.2 % (AgentIdleRest.swift).
 - **Several tasks (agentparallel):** every task has its own Today tab(s). Only the shown tab is in the main view; the
   others are parked live in their own runs' agent windows. The glow, bar and shield over a page belong to that page's task
   (AgentMainView.shownRun), and the bar's Take over / Stop / Hand back act on it and open the pane on it. Where a run
@@ -381,4 +387,8 @@ The pane needs these from every backend (API, Claude Code, Codex), as one Swift 
   three tasks at once in one window (own runs, windows, Today tabs, rows, records; overlapping calls; each page counts
   only its own clicks; no Space change, window stays key); Stop on one task's bar leaves the others running; two
   approvals at once routed to their own tasks; two windows of two profiles at once; CPU and memory with three parked;
-  the queue past the limit (`AIRC_AGENT_MAX_PARALLEL=2`); a 429 waits and goes on.
+  the queue past the limit (`AIRC_AGENT_MAX_PARALLEL=2`); a 429 waits and goes on. Opt-in (agentparkcpu,
+  `AIRC_AGENTPARALLEL_ONLY=parkcpu` with `AIRC_PARKCPU_TASKS=1|3`, or `parkstep`; run with `AIRC_KEEP_OCCLUSION=1`, as
+  test launches otherwise switch Chromium's occlusion off): parked-task CPU (app, engine processes, our pages) with the
+  idle rest off and on in alternating rounds, resting pages draw no frames and wake on a tool call, the pane's card
+  keeps its page live; the agent's looks after an idle wait, rest off vs on.

@@ -840,6 +840,9 @@ final class AgentCenter {
         }
         s.currentWindow = w.id
         w.lastUsed = Date()
+        // agentparkcpu: an idle parked page draws at the engine's hidden rate; a tool call (a wait for its whole
+        // duration) brings it back to full rate first.
+        if let tab = w.activeTab, !tab.isClosed { w.driver.wake(tab, for: (a["duration"] as? NSNumber)?.doubleValue ?? 0) }
         body(w)
     }
 

@@ -23,6 +23,33 @@ final class ChromiumAgentDriver: AgentPageDriver {
     /// Scrolls the script did because the native wheel didn't answer (checks and reports).
     private(set) var wheelFallbacks = 0
 
+    /// agentparkcpu (AgentIdleRest): an idle page nobody sees drops its focus emulation (the engine's hidden-window
+    /// behaviour: no frames, no rAF); waking arms it again. The keeping loop stays attached either way. Chromium reads
+    /// a window's occlusion only when it changes, and a static off-screen window never changes (the page kept drawing
+    /// at 126 frames/s without its capturer): the window's occlusion notification follows, as for WebKit.
+    private(set) lazy var idleRest: AgentIdleRest? = AgentIdleRest(
+        rest: { [weak self] tab in
+            self?.call(tab, "Emulation.setFocusEmulationEnabled", ["enabled": false]) { [weak tab] _, _ in
+                guard let tab, let w = tab.view.window, w is AgentHostWindow else { return }
+                NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: w)
+            }
+        },
+        wake: { [weak self] tab in self?.arm(tab) { _ in } })
+
+    func wake(_ tab: EngineTab, for seconds: Double) { need(tab, for: seconds) }
+
+    /// A kept page must draw (now and `seconds` more).
+    private func need(_ tab: EngineTab, for seconds: Double = 0) {
+        guard kept.contains(ObjectIdentifier(tab)) else { return }
+        idleRest?.need(tab, for: seconds)
+    }
+
+    /// Arms the page unless it rests (its next wake arms it).
+    private func armUnlessResting(_ tab: EngineTab) {
+        if idleRest?.isResting(tab) == true { return }
+        arm(tab) { _ in }
+    }
+
     private func core(_ tab: EngineTab) -> AircTab? { (tab as? ChromiumTab)?.core }
 
     func call(_ tab: EngineTab, _ method: String, _ params: [String: Any]?, timeout: TimeInterval = 10,
@@ -39,6 +66,8 @@ final class ChromiumAgentDriver: AgentPageDriver {
             return call(tab, "Runtime.evaluate", ["expression": AgentPageScripts.guards]) { _, error in completion(error) }
         }
         kept.insert(ObjectIdentifier(tab))
+        idleRest?.forget(tab)
+        need(tab)
         keepAttached(tab)
         arm(tab, completion)
     }
@@ -79,18 +108,24 @@ final class ChromiumAgentDriver: AgentPageDriver {
             let wait = error.map { $0.contains("can't attach") || $0.contains("closed") } == true ? 0.5 : (fast ? 0.25 : 0)
             DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
                 self.keepAttached(tab)
-                self.arm(tab) { _ in }
+                self.armUnlessResting(tab)
             }
         }
     }
 
-    func release(_ tab: EngineTab) { kept.remove(ObjectIdentifier(tab)); loops[ObjectIdentifier(tab)] = nil }
+    func release(_ tab: EngineTab) {
+        kept.remove(ObjectIdentifier(tab))
+        loops[ObjectIdentifier(tab)] = nil
+        idleRest?.forget(tab)
+    }
 
     /// Watch (watchfix): the page must be drawing while someone watches it. Kept pages are armed again (focus
     /// emulation and its visible capturer; idempotent), and a page whose keeping had ended is kept again.
     func keepLive(_ tab: EngineTab) {
         guard !tab.isClosed else { return }
         if kept.insert(ObjectIdentifier(tab)).inserted { keepAttached(tab) }
+        idleRest?.forget(tab)
+        need(tab)
         arm(tab) { _ in }
     }
 
@@ -100,7 +135,7 @@ final class ChromiumAgentDriver: AgentPageDriver {
     func rearm(_ tab: EngineTab) {
         guard !AgentWatchView.legacy, kept.contains(ObjectIdentifier(tab)), !tab.isClosed else { return }
         keepAttached(tab)
-        arm(tab) { _ in }
+        armUnlessResting(tab)
     }
 
     /// Whether the page is kept visible for the engine now (checks and the report).
@@ -109,6 +144,7 @@ final class ChromiumAgentDriver: AgentPageDriver {
     func watchFrame(_ tab: EngineTab, maxPixels: CGSize, completion: @escaping (CGImage?) -> Void) {
         // A copy of the compositor's surface (the page is kept visible, so it's live): no DevTools call, no PNG.
         guard let core = core(tab), !tab.isClosed else { return completion(nil) }
+        need(tab)
         core.snapshot(withMaxSize: maxPixels) { image in
             completion(image.flatMap { $0.cgImage(forProposedRect: nil, context: nil, hints: nil) })
         }
@@ -203,11 +239,13 @@ final class ChromiumAgentDriver: AgentPageDriver {
         // The endless promise stays pending until the next navigation and then isn't renewed (`kept` no longer holds
         // the tab); focus and drags go back to the engine now.
         kept.remove(ObjectIdentifier(tab))
+        idleRest?.forget(tab)
         call(tab, "Emulation.setFocusEmulationEnabled", ["enabled": false]) { _, _ in }
         call(tab, "Input.setInterceptDrags", ["enabled": false]) { _, _ in }
     }
 
     func capture(_ tab: EngineTab, completion: @escaping (Result<CGImage, AgentDriverError>) -> Void) {
+        need(tab)
         call(tab, "Page.captureScreenshot", ["format": "png", "fromSurface": true, "optimizeForSpeed": true], timeout: 10) { r, error in
             guard let b64 = r?["data"] as? String, let data = Data(base64Encoded: b64),
                   let src = CGImageSourceCreateWithData(data as CFData, nil),
@@ -223,6 +261,7 @@ final class ChromiumAgentDriver: AgentPageDriver {
     }
 
     func mouse(_ tab: EngineTab, _ e: AgentMouse, completion: @escaping (String?) -> Void) {
+        need(tab)
         if e.kind == .pressed {
             return installGuards(tab) { [weak self] in
                 guard let self else { return completion("the driver is gone") }
@@ -246,6 +285,7 @@ final class ChromiumAgentDriver: AgentPageDriver {
     }
 
     func key(_ tab: EngineTab, _ k: AgentKey, down: Bool, modifiers: AgentModifiers, completion: @escaping (String?) -> Void) {
+        need(tab)
         var p: [String: Any] = ["key": k.key, "code": k.code, "windowsVirtualKeyCode": k.windowsCode,
                                 "nativeVirtualKeyCode": Int(k.macCode), "modifiers": modifiers.rawValue]
         if down {
@@ -262,6 +302,7 @@ final class ChromiumAgentDriver: AgentPageDriver {
     }
 
     func insertText(_ tab: EngineTab, _ text: String, completion: @escaping (String?) -> Void) {
+        need(tab)
         call(tab, "Input.insertText", ["text": text]) { _, error in completion(error) }
     }
 
@@ -273,6 +314,7 @@ final class ChromiumAgentDriver: AgentPageDriver {
 
     func scroll(_ tab: EngineTab, at p: CGPoint, dx: CGFloat, dy: CGFloat, modifiers: AgentModifiers,
                 completion: @escaping (String?) -> Void) {
+        need(tab)
         call(tab, "Input.dispatchMouseEvent", ["type": "mouseWheel", "x": p.x, "y": p.y, "deltaX": dx, "deltaY": dy,
                                                "modifiers": modifiers.rawValue], timeout: Self.wheelTimeout) { [weak self] _, error in
             guard let error, let self else { return completion(nil) }
@@ -284,6 +326,7 @@ final class ChromiumAgentDriver: AgentPageDriver {
 
     func evaluate(_ tab: EngineTab, _ script: String, completion: @escaping (Any?) -> Void) {
         // The engine's page channel (as every other Airc page script); the value comes back as JSON.
+        need(tab)
         tab.evaluate(script) { completion($0) }
     }
 

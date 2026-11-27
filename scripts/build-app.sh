@@ -749,6 +749,15 @@ if [[ -n "$SNAPSHOTS" ]]; then
       launch --script "$sync_script" --data-dir "$home/$sync_data" --sync-mock "$home/GCShared/cloud" \
         --sync-keychain "$home/GCShared/keychain-$sync_keychain" --sync-device-name "Clean-up Mac ${sync_keychain}" --sync-gc-settle 2
     done
+    # The same as public builds run it (SyncGarbage.deletesEnabled off, `--sync-gc-dry-run`), on its own mock database:
+    # nothing is deleted, and each Mac's dry run counts what the run above deletes (2 note texts, 1 picture in all).
+    for sync_phase in "icloudsync-gc-a a GCDryA" "icloudsync-gc-b b GCDryB" "icloudsync-gc-c c GCDryC" "icloudsync-gc-a2 a GCDryA" \
+      "icloudsync-gc-b2 b GCDryB" "icloudsync-gc-c2 c GCDryC" "icloudsync-gc-a3 a GCDryA" "icloudsync-gc-b3 b GCDryB" "icloudsync-gc-c3 c GCDryC"; do
+      read -r sync_script sync_keychain sync_data <<< "$sync_phase"
+      launch --script "$sync_script" --data-dir "$home/$sync_data" --sync-mock "$home/GCDryShared/cloud" \
+        --sync-keychain "$home/GCDryShared/keychain-$sync_keychain" --sync-device-name "Dry-run Mac ${sync_keychain}" --sync-gc-settle 2 \
+        --sync-gc-dry-run
+    done
     # Settings sync (SettingsSyncCheck.swift, docs/sync.md "Settings") between two instances on another mock database: A's
     # theme, shortcut, Site Search and sidebar side reach B; per-Mac settings stay; the later change wins on both.
     for sync_phase in "settingssync-a a SettingsA" "settingssync-b b SettingsB" "settingssync-a2 a SettingsA"; do

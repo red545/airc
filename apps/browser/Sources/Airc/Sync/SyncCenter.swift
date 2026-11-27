@@ -37,6 +37,9 @@ final class SyncCenter: ObservableObject {
     @Published private(set) var syncsSettings = true
     /// Settings › Sync › "Sync Boosts" (on by default while sync is on).
     @Published private(set) var syncsBoosts = true
+    /// Clean-up with deletes off (SyncGarbage.deletesEnabled, public builds): what it would have deleted, for Settings ›
+    /// Sync's diagnostics. Counts and record types only.
+    @Published private(set) var cleanUpDryRun: SyncGCDryRun?
     /// Settings › Sync's recovery sheet (SyncRecovery.swift): the key shown, or the field to type one. Also how the
     /// scripted check opens it.
     @Published var recoverySheet: SyncRecoverySheet?
@@ -53,6 +56,8 @@ final class SyncCenter: ObservableObject {
     private(set) var cloudDatabasesMade = 0
     private(set) var keyStore: SyncKeyStore?
     #if AIRC_TESTING
+    /// The sync log's lines this launch (scripted checks read them).
+    nonisolated(unsafe) static var loggedForTests: [String] = []
     static var testSubscription: String {
         if MainActor.assumeIsolated({ ICloudTwoMacCheck.requested }),
            let zone = MainActor.assumeIsolated({ ICloudTwoMacCheck.argument("--sync-cloudkit-test-zone") }), zone.hasPrefix("AircSidebarTest") {
@@ -176,6 +181,10 @@ final class SyncCenter: ObservableObject {
         if let i = argv.firstIndex(of: "--sync-gc-settle"), i + 1 < argv.count, let seconds = Double(argv[i + 1]), seconds >= 0 {
             environment.gcSettle = seconds
         }
+        // `--sync-gc-dry-run`: clean-up as public builds run it (deletes off), for icloudsync-gc's dry-run variant.
+        if argv.contains("--sync-gc-dry-run") { environment.gcDeletes = false }
+        let systemLog = environment.log
+        environment.log = { line in systemLog(line); SyncCenter.loggedForTests.append(line) }
         #endif
         let engine = MainActor.assumeIsolated { SyncEngine(store: store, environment: environment) }
         self.engine = engine
@@ -363,6 +372,8 @@ final class SyncCenter: ObservableObject {
             (engine.status, engine.devices, engine.lastSynced, engine.isEnabled, engine.notesTooLarge, engine.notesHeld, engine.syncsSettings)
         }
         let boosts = MainActor.assumeIsolated { engine.syncsBoosts }
+        let dryRun = MainActor.assumeIsolated { engine.cleanUpDryRun }
+        if cleanUpDryRun != dryRun { cleanUpDryRun = dryRun }
         if syncsSettings != settings { syncsSettings = settings }
         if syncsBoosts != boosts { syncsBoosts = boosts }
         if notesTooLarge != tooLarge { notesTooLarge = tooLarge }

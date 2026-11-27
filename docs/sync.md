@@ -472,6 +472,17 @@ that isn't there counts as deleted), and each Mac's answers go in an **ack**, a 
 `ack.<device>` whose `sealed` field is a sealed `SyncGCAck` (AAD `Airc-sync-ack|group|device`). Builds from before
 syncgc map only `device.<device>` names, so they ignore acks.
 
+**Deletes are off in public builds** (syncgcguard) until the real-iCloud test (parity audit Y01) has run a clean-up
+delete pass in a test zone: `SyncGarbage.deletesEnabled` is false unless compiled with `AIRC_TESTING`, and the engine
+reads it as `Environment.gcDeletes`. Everything else runs as described here (acks, agreements, picture proposals and
+answers, the inventory), and each plan is checked exactly as before a delete (the same fetches and checks), but it's a
+**dry run**: nothing is deleted, nothing is marked collected, no picture is announced gone, and a proposal stays open, so
+the same plan comes back each cycle and goes at the first cycle once deletes are on. What would go is logged to the sync
+log (the system log, "Airc sync: clean-up dry run …") and kept for Settings › Sync's diagnostics row as counts per record
+type and kind (`SyncGCDryRun`), never record names or content; an unchanged plan is checked and logged again only after
+the settle delay. Test builds delete, so `icloudsync-gc` keeps proving the delete path; its dry-run variant
+(`--sync-gc-dry-run`, test builds only) runs the same nine phases the way public builds do and checks the counts.
+
 | What | Deleted when | By |
 |---|---|---|
 | A deleted note's **text** records (a version the removal saw) | every Mac that counts lists the note as removed with the same version vector, and still does a settle delay later | each Mac its own record; the collector those of Macs that don't count |

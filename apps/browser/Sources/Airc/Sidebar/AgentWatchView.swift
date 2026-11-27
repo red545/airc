@@ -257,6 +257,8 @@ final class AgentWatchView: NSView {
         // Live where the engine can host its own output and the tab is the one its window shows: nothing to copy, only a
         // look 10 times a second that the context is still the one shown (and a few looks at what the window server drew).
         if Self.allowsLive, !Self.ignoresOcclusion, w.activeTabID == row.tab {
+            // agentparkcpu: a live view copies nothing, so it tells the page it's seen (an idle page rests otherwise).
+            if let win = window, win.occlusionState.contains(.visible), !isHiddenOrHasHiddenAncestor { w.driver.wake(tab, for: 0) }
             // agentux3: checked as the host is made (the tab's own first), and swapped in one commit.
             let current = w.driver.liveContextID(tab, in: w.window)
             let check = CACurrentMediaTime() < fastUntil ? 1.0 / 120 : AgentPaneLiveView.liveCheckInterval

@@ -29,6 +29,11 @@ extension SnapshotRunner {
         if AgentParallelCheck.runs("idle") { step { done in m.caseIdle(done) } }
         if AgentParallelCheck.runs("queue") { step { done in m.caseQueue(done) } }
         if AgentParallelCheck.runs("ratelimit") { step { done in m.caseRateLimit(done) } }
+        // agentparkcpu (AgentParkCPUCheck.swift): measurements, only when asked for by name.
+        if AgentParallelCheck.only?.contains("parkcpu") == true { step { done in m.caseParkCPU(done) } }
+        if AgentParallelCheck.only?.contains("parkstep") == true { step { done in m.caseParkStep(done) } }
+        if AgentParallelCheck.only?.contains("cardframe") == true { step { done in m.caseCardFrame(done) } }
+        if AgentParallelCheck.only?.contains("cardrepro") == true { step { done in m.caseCardRepro(done) } }
         run { m.finish() }
     }
 }
@@ -66,6 +71,7 @@ final class AgentParallelCheck {
         k.label = "agentparallel"
         k.extraPages = ["/pa-1.html": Self.tally("One", "#1e8c7a"), "/pa-2.html": Self.tally("Two", "#2f6fdf"),
                         "/pa-3.html": Self.tally("Three", "#c0392b"), "/pa-4.html": Self.tally("Four", "#7a3fd0")]
+        k.extraPages.merge(Self.parkPages) { a, _ in a }
     }
 
     func check(_ ok: Bool, _ what: String) { k.check(ok, what) }

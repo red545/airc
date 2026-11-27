@@ -60,6 +60,14 @@ struct SyncSettingsPage: View {
                                 .buttonStyle(.airc(.plain))
                         }
                     }
+                    if let dry = sync.cleanUpDryRun, dry.records > 0 {
+                        // Diagnostics (SyncGarbage.deletesEnabled): clean-up runs, but deletes nothing from iCloud yet.
+                        SettingsRow(title: "iCloud clean-up: checking only",
+                                    subtitle: "Nothing is deleted from iCloud yet. Last check \(Self.relative(dry.at)): "
+                                        + "\(dry.records) old record\(dry.records == 1 ? "" : "s") could go (\(dry.what)).") {
+                            EmptyView()
+                        }
+                    }
                     ForEach(sync.devices) { d in
                         SettingsRow(title: d.isThisMac ? "\(d.name) (this Mac)" : d.name,
                                     subtitle: d.isThisMac ? nil : "Last synced " + Self.relative(d.seen)) {

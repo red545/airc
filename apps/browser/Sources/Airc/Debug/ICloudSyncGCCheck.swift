@@ -17,11 +17,18 @@ import CryptoKit
 ///   collector proposes the deleted note's picture, the others answer, and it goes. At the end only C's removal (a
 ///   tombstone, no text) is left of the deleted note; "Keeps", its picture and the sidebar are untouched everywhere, and
 ///   nothing in iCloud is readable.
+///
+/// Dry-run variant (`--sync-gc-dry-run`, on its own mock database; how public builds run while
+/// SyncGarbage.deletesEnabled is off): the same nine phases, but nothing is ever deleted. Where the run above proves a
+/// delete, this one proves the dry run counted it: each Mac's own text record (1 SyncNote on A and B, 0 on C, whose
+/// record is its removal), and at the end, over the three Macs, 2 SyncNote and 1 SyncNoteAsset (the collector's), each
+/// logged once as a "dry run" line in the sync log with counts and record types only, and none as deleted.
 extension SnapshotRunner {
     func iCloudSyncGCScenario() {
         let sync = SyncCenter.shared
         let args = ProcessInfo.processInfo.arguments
-        let tag = app?.engine.name.hasPrefix("Chromium") == true ? "chromium" : "webkit"
+        let dry = args.contains("--sync-gc-dry-run")
+        let tag = (app?.engine.name.hasPrefix("Chromium") == true ? "chromium" : "webkit") + (dry ? ", dry run" : "")
         func folder(_ name: String) -> URL? {
             args.firstIndex(of: name).flatMap { $0 + 1 < args.count ? URL(fileURLWithPath: args[$0 + 1], isDirectory: true) : nil }
         }
@@ -31,6 +38,8 @@ extension SnapshotRunner {
         }
         let shared = mock.deletingLastPathComponent()
         let idsFile = shared.appendingPathComponent("gc-notes.txt")
+        let dryFile = shared.appendingPathComponent("gc-dry-run.txt")
+        let me = keychain.lastPathComponent.replacingOccurrences(of: "keychain-", with: "").uppercased()
         let firstKeychain = keychain.deletingLastPathComponent().appendingPathComponent("keychain-a", isDirectory: true)
         let database = try? SyncFolderCloudDatabase(folder: mock)
         let fm = FileManager.default
@@ -101,6 +110,24 @@ extension SnapshotRunner {
                 run { sync.choose(.merge, profiles: [:]) }
             }
             waitFor("up to date") { sync.status == .upToDate }
+        }
+        /// Dry run: this Mac's last check (record type → count), the sync log's dry-run lines, and any delete line.
+        func dryRun() -> SyncGCDryRun? { MainActor.assumeIsolated { sync.engine?.cleanUpDryRun } }
+        func logged(_ prefix: String) -> [String] { SyncCenter.loggedForTests.filter { $0.hasPrefix(prefix) } }
+        /// Dry run: this Mac's latest result, one line per Mac in the shared file (Mac, SyncNote, SyncNoteAsset, records,
+        /// dry-run lines logged, delete lines logged, and whether every logged line is free of names and content).
+        func recordDryRun(_ id: String) {
+            let d = dryRun()
+            let lines = logged("clean-up")
+            let clean = lines.allSatisfy { line in !line.contains(id) && !line.contains("note.") && !line.contains("noteasset.")
+                && !["Clean-up plan", "Keeps", "edited on"].contains { line.contains($0) } }
+            let row = [me, "\(d?.types[SyncCloudSchema.note] ?? 0)", "\(d?.types[SyncCloudSchema.noteAsset] ?? 0)",
+                       "\(d?.records ?? 0)", "\(logged("clean-up dry run").count)", "\(logged("clean-up deleted").count)",
+                       clean ? "clean" : "LEAK"].joined(separator: "\t")
+            var rows = ((try? String(contentsOf: dryFile, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
+            rows.removeAll { $0.hasPrefix(me + "\t") }
+            rows.append(row)
+            try? (rows.sorted().joined(separator: "\n") + "\n").write(to: dryFile, atomically: true, encoding: .utf8)
         }
         /// Nothing of the notes' words in any record (everything is sealed).
         func readable() -> Bool {
@@ -182,8 +209,40 @@ extension SnapshotRunner {
                 let id = ids().first ?? ""
                 let device = MainActor.assumeIsolated { sync.engine?.deviceID } ?? UUID()
                 let mine = SyncCloudSchema.noteName(device: device, note: id)
-                say(noteRecords(id)[mine] != true && sync.status == .upToDate,
-                    "every Mac agreed: this Mac's own text record of the deleted note is gone (\(noteRecords(id).count) records left)")
+                if dry {
+                    let records = noteRecords(id), d = dryRun()
+                    let ownText = records[mine] == true ? 1 : 0
+                    say(records.count == 3 && records.values.filter { $0 }.count == 2 && pictures().count == 2 && sync.status == .upToDate,
+                        "every Mac agreed, and nothing is deleted: 3 note records (2 texts), 2 pictures (\(records.count), \(pictures().count))")
+                    say(d != nil && d?.kinds["noteText"] ?? 0 == ownText && d == sync.cleanUpDryRun
+                        && logged("clean-up dry run").count >= 1 && logged("clean-up deleted").isEmpty,
+                        "the dry run counted this Mac's own text record (\(ownText)): \(d.map(\.logLine) ?? "no dry run")")
+                    recordDryRun(id)
+                } else {
+                    say(noteRecords(id)[mine] != true && sync.status == .upToDate,
+                        "every Mac agreed: this Mac's own text record of the deleted note is gone (\(noteRecords(id).count) records left)")
+                }
+            }
+
+        case "icloudsync-gc-c3" where dry:
+            connect(join: false)
+            settleCycles()
+            run { [self] in
+                let ids = ids()
+                let gone = ids.first ?? ""
+                recordDryRun(gone)
+                let left = noteRecords(gone)
+                say(left.count == 3 && left.values.filter { $0 }.count == 2 && pictures().count == 2,
+                    "nothing was deleted: the deleted note's 3 records (2 texts) and both pictures are in iCloud")
+                let rows = ((try? String(contentsOf: dryFile, encoding: .utf8)) ?? "").split(separator: "\n")
+                    .map { $0.split(separator: "\t").map(String.init) }.filter { $0.count == 7 }
+                func sum(_ i: Int) -> Int { rows.map { Int($0[i]) ?? 0 }.reduce(0, +) }
+                say(rows.map { $0[0] } == ["A", "B", "C"] && sum(1) == 2 && sum(2) == 1 && sum(3) == 3,
+                    "over the three Macs the dry run would delete 2 SyncNote and 1 SyncNoteAsset (\(rows.map { $0.joined(separator: " ") }))")
+                say(rows.allSatisfy { (Int($0[4]) ?? 0) >= 1 && $0[5] == "0" && $0[6] == "clean" },
+                    "each Mac logged it as a dry run, never as deleted, with counts and record types only")
+                let unreadable = MainActor.assumeIsolated { sync.engine?.unreadableBatches }
+                say(!readable() && sync.status == .upToDate && unreadable == 0, "nothing readable in iCloud; up to date")
             }
 
         case "icloudsync-gc-c3":

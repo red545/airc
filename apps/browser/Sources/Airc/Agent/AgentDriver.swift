@@ -167,6 +167,11 @@ protocol AgentPageDriver: AnyObject {
     func holdFramesOnHide(_ tab: EngineTab, _ on: Bool)
     /// Watch is showing this page: it must keep drawing (Chromium arms its kept-visible session again; default none).
     func keepLive(_ tab: EngineTab)
+    /// agentparkcpu: a tool call is about to act on this page (or wait on it for `seconds`): it draws at full rate
+    /// from now until a while after (WebKit; default none).
+    func wake(_ tab: EngineTab, for seconds: Double)
+    /// agentparkcpu: the driver's idle rest (AgentIdleRest), where it has one.
+    var idleRest: AgentIdleRest? { get }
 }
 
 extension AgentPageDriver {
@@ -178,6 +183,8 @@ extension AgentPageDriver {
     func liveContextID(_ tab: EngineTab, in window: NSWindow) -> UInt32? { liveContextID(in: window) }
     func holdFramesOnHide(_ tab: EngineTab, _ on: Bool) {}
     func keepLive(_ tab: EngineTab) {}
+    func wake(_ tab: EngineTab, for seconds: Double) {}
+    var idleRest: AgentIdleRest? { nil }
 
     /// A right click without the engine's context menu, which is a modal menu on the owner's screen: the page gets
     /// the mouse events and `contextmenu`, from a script.

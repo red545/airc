@@ -26,6 +26,35 @@ final class WebKitAgentDriver: AgentPageDriver {
     private var eventNumber = 1
     private var visible: Set<ObjectIdentifier> = []
 
+    // MARK: Idle pages nobody sees (agentparkcpu, AgentIdleRest)
+
+    /// Resting: WebKit's own occlusion detection again (a window off screen: the hidden-page rate). The switch alone
+    /// changes nothing until WebKit looks at the window's occlusion again (a static off-screen window never changes:
+    /// agentparkcpu's first build drew 63 frames/s "resting"), so the window's occlusion notification follows it: the
+    /// same path a real change takes.
+    private(set) lazy var idleRest: AgentIdleRest? = AgentIdleRest(
+        rest: { [weak self] tab in if let v = self?.web(tab) { self?.setOcclusionDetection(v, true, recheck: true) } },
+        wake: { [weak self] tab in if let v = self?.web(tab) { self?.setOcclusionDetection(v, false, recheck: true) } })
+
+    private func setOcclusionDetection(_ v: WKWebView, _ on: Bool, recheck: Bool = false) {
+        let sel = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
+        guard v.responds(to: sel) else { return }
+        typealias Set = @convention(c) (AnyObject, Selector, Bool) -> Void
+        unsafeBitCast(v.method(for: sel), to: Set.self)(v, sel, on)
+        if recheck, let w = v.window { NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: w) }
+    }
+
+    func wake(_ tab: EngineTab, for seconds: Double) { need(tab, for: seconds) }
+
+    /// A kept-visible page must draw (now and `seconds` more).
+    private func need(_ tab: EngineTab, for seconds: Double = 0) {
+        guard visible.contains(ObjectIdentifier(tab)) else { return }
+        idleRest?.need(tab, for: seconds)
+    }
+
+    /// Watch shows the page (or it moved windows): it draws again.
+    func keepLive(_ tab: EngineTab) { need(tab) }
+
     /// An AppKit function-key character (NSUpArrowFunctionKey…).
     private func fk(_ code: Int) -> String { String(Character(UnicodeScalar(UInt16(code))!)) }
 
@@ -35,6 +64,7 @@ final class WebKitAgentDriver: AgentPageDriver {
         guard let v = web(tab) else { return completion("not a WebKit page") }
         if keep {
             visible.insert(ObjectIdentifier(tab))
+            need(tab)
             let sel = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
             if v.responds(to: sel) {
                 typealias Set = @convention(c) (AnyObject, Selector, Bool) -> Void
@@ -53,10 +83,16 @@ final class WebKitAgentDriver: AgentPageDriver {
         v.evaluateJavaScript(AgentPageScripts.guards, in: nil, in: .page) { _ in done() }
     }
 
-    func release(_ tab: EngineTab) { visible.remove(ObjectIdentifier(tab)) }
+    func release(_ tab: EngineTab) {
+        visible.remove(ObjectIdentifier(tab))
+        forget(tab)
+    }
+
+    private func forget(_ tab: EngineTab) { idleRest?.forget(tab) }
 
     func watchFrame(_ tab: EngineTab, maxPixels: CGSize, completion: @escaping (CGImage?) -> Void) {
         guard let v = web(tab), !tab.isClosed else { return completion(nil) }
+        need(tab)
         var answered = false
         let once: (CGImage?) -> Void = { image in
             guard !answered else { return }
@@ -89,6 +125,7 @@ final class WebKitAgentDriver: AgentPageDriver {
 
     func handBack(_ tab: EngineTab) {
         visible.remove(ObjectIdentifier(tab))
+        forget(tab)
         guard let v = web(tab) else { return }
         let sel = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
         if v.responds(to: sel) {
@@ -104,6 +141,7 @@ final class WebKitAgentDriver: AgentPageDriver {
 
     func capture(_ tab: EngineTab, completion: @escaping (Result<CGImage, AgentDriverError>) -> Void) {
         guard let v = web(tab) else { return completion(.failure(.failed("not a WebKit page"))) }
+        need(tab)
         var answered = false
         let once: (Result<CGImage, AgentDriverError>) -> Void = { r in
             guard !answered else { return }
@@ -130,6 +168,7 @@ final class WebKitAgentDriver: AgentPageDriver {
 
     func mouse(_ tab: EngineTab, _ e: AgentMouse, completion: @escaping (String?) -> Void) {
         guard let v = web(tab), let w = v.window else { return completion("not a WebKit page") }
+        need(tab)
         // A new document since the last press may not have its guards yet (no dialogs, no native drags).
         if e.kind == .pressed { return guardPage(v) { self.deliver(v, w, e, completion) } }
         deliver(v, w, e, completion)
@@ -199,6 +238,7 @@ final class WebKitAgentDriver: AgentPageDriver {
 
     func key(_ tab: EngineTab, _ k: AgentKey, down: Bool, modifiers: AgentModifiers, completion: @escaping (String?) -> Void) {
         guard let v = web(tab), let w = v.window else { return completion("not a WebKit page") }
+        need(tab)
         guard nativeKeyAllowed(k, modifiers) else {
             if down { keyCounts["script"]! += 1 }
             return scriptKey(v, k, down: down, modifiers: modifiers, completion: completion)
@@ -237,6 +277,7 @@ final class WebKitAgentDriver: AgentPageDriver {
 
     func insertText(_ tab: EngineTab, _ text: String, completion: @escaping (String?) -> Void) {
         guard let v = web(tab) else { return completion("not a WebKit page") }
+        need(tab)
         v.insertText(text)
         barrier(v, completion)
     }
@@ -244,6 +285,7 @@ final class WebKitAgentDriver: AgentPageDriver {
     func scroll(_ tab: EngineTab, at p: CGPoint, dx: CGFloat, dy: CGFloat, modifiers: AgentModifiers,
                 completion: @escaping (String?) -> Void) {
         guard let v = web(tab), let w = v.window else { return completion("not a WebKit page") }
+        need(tab)
         // A scroll-wheel CGEvent (made, never posted) for the window; AppKit wheel deltas point the other way.
         let screen = w.convertPoint(toScreen: windowPoint(v, p))
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
@@ -267,6 +309,7 @@ final class WebKitAgentDriver: AgentPageDriver {
 
     func evaluate(_ tab: EngineTab, _ script: String, completion: @escaping (Any?) -> Void) {
         guard let v = web(tab) else { return completion(nil) }
+        need(tab)
         v.evaluateJavaScript(script, in: nil, in: .defaultClient) { result in
             switch result { case .success(let value): completion(value); case .failure: completion(nil) }
         }

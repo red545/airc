@@ -15,7 +15,13 @@ import SwiftUI
 final class AgentTaskThumbs: ObservableObject {
     static let shared = AgentTaskThumbs()
 
-    struct Shot { let image: CGImage; let title: String; let host: String? }
+    struct Shot {
+        let image: CGImage; let title: String; let host: String?
+        /// agentparkcpu: the page's address and how much it shows (`detail`), so a later copy of the same page caught
+        /// mid-paint never replaces a good one (nil / 0: unknown, e.g. read from disk).
+        var url: URL? = nil
+        var detail: Double = 0
+    }
     /// By task id: the agent's last page.
     private(set) var tasks: [String: Shot] = [:]
     /// By step key (the step's id): the page an "Opening …" step opened.
@@ -25,6 +31,11 @@ final class AgentTaskThumbs: ObservableObject {
     /// agentparallel: each task's run, followed from when AgentTaskCenter makes it.
     private var subs: [ObjectIdentifier: [AnyCancellable]] = [:]
     private var wasActive: [ObjectIdentifier: Bool] = [:]
+    #if AIRC_TESTING
+    /// Checks: copies a richer picture of the same page kept out (task/step key), and every copy made.
+    private(set) var keptOver: [String] = []
+    private(set) var captureLog: [String] = []
+    #endif
     static let maxPixels = CGSize(width: 720, height: 450)
     static let keep = 40
     let store = AgentTaskPictureStore(folder: AppPaths.dataDirectory.appendingPathComponent("Agent/Tasks/Pictures", isDirectory: true))
@@ -93,6 +104,12 @@ final class AgentTaskThumbs: ObservableObject {
 
     private func stepsChanged(_ all: [AgentStep], _ run: AgentRunCenter) {
         if all.isEmpty { return }
+        // agentparkcpu: the answer is in while the page is still the agent's (the run's end comes a hop later, when it
+        // may already be on its way back to the person's window): the card's picture now; the end copies once more.
+        for s in all where s.kind == .final && !seen.contains(s.id) {
+            seen.insert(s.id)
+            capture(step: nil, run: run)
+        }
         for s in all where s.kind == .action && !seen.contains(s.id) {
             seen.insert(s.id)
             guard s.text.hasPrefix("Opening") else { continue }
@@ -113,14 +130,31 @@ final class AgentTaskThumbs: ObservableObject {
         guard let wid = run.runWindowID, let w = AgentCenter.shared.windows[wid], let tab = w.activeTab,
               let task = AgentTaskRecorder.shared.recordID(run) else { return }
         let title = tab.title
-        let host = tab.url?.host.map(AgentPaneTimeline.trimmed)
+        let url = tab.url
+        let host = url?.host.map(AgentPaneTimeline.trimmed)
         let privateWindow = run.privateWindow
+        #if AIRC_TESTING
+        let parked = AgentMainView.shared.entry(tab).flatMap { e in e.window.map { $0.isParked(tab) } }
+        let asked = CACurrentMediaTime()
+        #endif
         w.driver.watchFrame(tab, maxPixels: Self.maxPixels) { [weak self] picture in
+            #if AIRC_TESTING
+            self?.captureLog.append("task \(task) \(step == nil ? "card" : "step") \(url?.path ?? "-") parked \(parked.map { "\($0)" } ?? "not hosted") view \(tab.view.window.map { NSStringFromClass(type(of: $0)) } ?? "no window") \(Int((CACurrentMediaTime() - asked) * 1000)) ms: \(picture.map { "\($0.width)x\($0.height) detail \(String(format: "%.2f", Self.detail($0))) blank \(Self.isBlank($0))" } ?? "none")")
+            #endif
             // A frame copied before the page painted is one colour (black or white): keep the site's tile instead.
             guard let self, let picture, !Self.isBlank(picture) else { return }
-            let shot = Shot(image: picture, title: title, host: host)
-            if let step { self.steps[step.uuidString] = shot }
-            self.tasks[task] = shot
+            let shot = Shot(image: picture, title: title, host: host, url: url, detail: Self.detail(picture))
+            // A copy caught mid-paint (the page's background, its boxes without their text) never replaces a good
+            // picture of the same page: the last good frame stays (aidemo4's empty "Compare noise-cancelling…" card).
+            let keepCard = self.tasks[task].map { !Self.replaces(shot, $0) } ?? false
+            let keepStep = step.flatMap { self.steps[$0.uuidString] }.map { !Self.replaces(shot, $0) } ?? false
+            #if AIRC_TESTING
+            if keepCard { self.keptOver.append(task) }
+            if keepStep, let step { self.keptOver.append(step.uuidString) }
+            #endif
+            if keepCard && (step == nil || keepStep) { return }
+            if let step, !keepStep { self.steps[step.uuidString] = shot }
+            if !keepCard { self.tasks[task] = shot }
             self.trim(keepTask: task, keepStep: step?.uuidString)
             self.revision += 1
             // Never on disk for a private window's task.
@@ -130,7 +164,7 @@ final class AgentTaskThumbs: ObservableObject {
                 #endif
                 return
             }
-            self.write(picture, task: task, keys: [AgentTaskPictureStore.card] + (step.map { [$0.uuidString] } ?? []))
+            self.write(picture, task: task, keys: (keepCard ? [] : [AgentTaskPictureStore.card]) + (step.flatMap { keepStep ? nil : [$0.uuidString] } ?? []))
         }
     }
 
@@ -207,6 +241,37 @@ final class AgentTaskThumbs: ObservableObject {
     }
 
     /// Whether a picture is (nearly) one colour: drawn into 8×8 pixels, every channel within 6 of the first pixel.
+    /// Whether a new copy may replace `old`: always for another page (or an old one of unknown detail); for the same
+    /// page only when it shows at least a third as much (a copy with far less is the page caught mid-paint).
+    static func replaces(_ new: Shot, _ old: Shot) -> Bool {
+        guard let u = new.url, u == old.url, old.detail > 0 else { return true }
+        return new.detail >= old.detail / 3
+    }
+
+    /// How much a picture shows: the mean brightness step between neighbouring pixels of a 32×32 copy (text, edges
+    /// and pictures count; a flat background or empty boxes come out near 0).
+    static func detail(_ image: CGImage) -> Double {
+        let n = 32
+        var px = [UInt8](repeating: 0, count: n * n)
+        let drawn: Bool = px.withUnsafeMutableBytes { buf in
+            guard let ctx = CGContext(data: buf.baseAddress, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n,
+                                      space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return false }
+            ctx.interpolationQuality = .medium
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: n, height: n))
+            return true
+        }
+        guard drawn else { return 0 }
+        var sum = 0
+        for y in 0..<n {
+            for x in 0..<n {
+                let v = Int(px[y * n + x])
+                if x + 1 < n { sum += abs(v - Int(px[y * n + x + 1])) }
+                if y + 1 < n { sum += abs(v - Int(px[(y + 1) * n + x])) }
+            }
+        }
+        return Double(sum) / Double(2 * n * (n - 1))
+    }
+
     static func isBlank(_ image: CGImage) -> Bool {
         var px = [UInt8](repeating: 0, count: 8 * 8 * 4)
         let drawn: Bool = px.withUnsafeMutableBytes { buf in
@@ -390,9 +455,16 @@ struct AgentTaskCard: View {
         if live, let run, run.runWindowID != nil {
             AgentPaneLivePicture(run: run).allowsHitTesting(false).testAnchor("agentask.card.live")
         } else if let shot = thumbs.task(task.id) {
-            Image(decorative: shot.image, scale: 1).resizable().aspectRatio(contentMode: .fill)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).clipped()
-                .testAnchor("agentask.card.thumb")
+            // The top of the page (its header), not its middle: a .fill picture taller than the tile makes a flexible
+            // frame take the picture's size, so its alignment did nothing and the tile showed the page's vertical middle,
+            // which for a short page is its bare background (aidemo4's empty "Compare noise-cancelling…" card). Laid over
+            // a clear tile-sized view instead, aligned to its top.
+            Color.clear.overlay(alignment: .top) {
+                Image(decorative: shot.image, scale: 1).resizable().aspectRatio(contentMode: .fill)
+            }
+            .clipped()
+            .testAnchor("agentask.card.thumb")
+            .testAnchor("agentask.card.thumb.\(task.id)")
         } else {
             AgentTaskSiteTile(host: task.sites.last)
         }

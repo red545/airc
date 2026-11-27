@@ -105,21 +105,19 @@ key was lost), Settings → Sync says **Waiting for iCloud Keychain** and offers
   sends what you changed meanwhile. Anyone with the recovery key and access to your Apple Account can read your synced
   sidebar, so keep it somewhere safe, like a password manager.
 - **Start Over…** Use this only if none of your Macs has the key any more. Airc backs up this Mac's sidebar, then makes a
-  new sync with it. The old data can't be read any more; Airc deletes it from iCloud once your other Macs have joined the
-  new sync, or haven't synced for 30 days. Your other Macs keep their
+  new sync with it. The old data can't be read any more; for now it stays in iCloud (see below). Your other Macs keep their
   sidebars. Each one notices the new sync, waits for its key (from iCloud Keychain, or this Mac's recovery key), then asks
   how to start: **Merge**, which is preselected, keeps everything on that Mac, including changes that hadn't synced
   yet, and what both had before shows up once. That Mac's sidebar is backed up first, as always.
 
 A recovery key works until someone starts over; after that, show the new one.
 
-## What Airc deletes from iCloud
+## What Airc keeps in iCloud
 
-A note you delete takes its text and pictures out of iCloud too, but not at once: Airc waits until every Mac that synced
-in the last 30 days has seen the deletion, then a day more. A picture another note (or a note in Today) still shows
-stays. A Mac that comes back after longer than that loses nothing: an edit it made meanwhile still wins, and its pictures
-are uploaded again. Your Macs need this version of Airc or later for it; while one with an older Airc syncs, nothing is
-deleted.
+For now, a note you delete leaves its encrypted text and pictures in iCloud, and so does the old data after **Start
+Over…**. Nobody can read them without your key, and they don't come back into your sidebar. A later update will clean
+them up safely, once every Mac that synced recently has seen the deletion. To remove everything Airc keeps in iCloud
+today, see the next section.
 
 ## Turning it off
 
