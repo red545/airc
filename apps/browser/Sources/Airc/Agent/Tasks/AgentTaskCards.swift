@@ -22,8 +22,9 @@ final class AgentTaskThumbs: ObservableObject {
     private(set) var steps: [String: Shot] = [:]
     @Published private(set) var revision = 0
     private var seen = Set<UUID>()
-    private var subs: [AnyCancellable] = []
-    private var wasActive = false
+    /// agentparallel: each task's run, followed from when AgentTaskCenter makes it.
+    private var subs: [ObjectIdentifier: [AnyCancellable]] = [:]
+    private var wasActive: [ObjectIdentifier: Bool] = [:]
     static let maxPixels = CGSize(width: 720, height: 450)
     static let keep = 40
     let store = AgentTaskPictureStore(folder: AppPaths.dataDirectory.appendingPathComponent("Agent/Tasks/Pictures", isDirectory: true))
@@ -39,10 +40,20 @@ final class AgentTaskThumbs: ObservableObject {
     private(set) var privateSkips = 0
     #endif
 
-    private init() {
-        let run = AgentRunCenter.shared
-        subs.append(run.$steps.sink { [weak self] s in DispatchQueue.main.async { self?.stepsChanged(s) } })
-        subs.append(run.$state.sink { [weak self] s in DispatchQueue.main.async { self?.stateChanged(s) } })
+    private init() {}
+
+    func attach(_ run: AgentRunCenter) {
+        let key = ObjectIdentifier(run)
+        guard subs[key] == nil else { return }
+        subs[key] = [
+            run.$steps.sink { [weak self, weak run] s in DispatchQueue.main.async { if let run { self?.stepsChanged(s, run) } } },
+            run.$state.sink { [weak self, weak run] s in DispatchQueue.main.async { if let run { self?.stateChanged(s, run) } } },
+        ]
+    }
+
+    func detach(_ run: AgentRunCenter) {
+        subs[ObjectIdentifier(run)] = nil
+        wasActive[ObjectIdentifier(run)] = nil
     }
 
     /// The task's card picture: in memory, else read from disk (nil now; `revision` changes once it's there).
@@ -80,27 +91,27 @@ final class AgentTaskThumbs: ObservableObject {
         }
     }
 
-    private func stepsChanged(_ all: [AgentStep]) {
-        if all.isEmpty { seen = []; return }
+    private func stepsChanged(_ all: [AgentStep], _ run: AgentRunCenter) {
+        if all.isEmpty { return }
         for s in all where s.kind == .action && !seen.contains(s.id) {
             seen.insert(s.id)
             guard s.text.hasPrefix("Opening") else { continue }
             // The page needs a moment to paint; the step's own row shows the site's icon until then.
             let id = s.id
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in self?.capture(step: id) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self, weak run] in if let run { self?.capture(step: id, run: run) } }
         }
     }
 
-    private func stateChanged(_ s: AgentRunCenter.State) {
-        defer { wasActive = s.isActive }
-        if wasActive, !s.isActive { capture(step: nil) }
+    private func stateChanged(_ s: AgentRunCenter.State, _ run: AgentRunCenter) {
+        let key = ObjectIdentifier(run)
+        defer { wasActive[key] = s.isActive }
+        if wasActive[key] == true, !s.isActive { capture(step: nil, run: run) }
     }
 
     /// Copies the agent's shown page once (both engines' Watch frame copy, scaled down), and keeps it as a JPEG.
-    func capture(step: UUID?) {
-        let run = AgentRunCenter.shared
+    func capture(step: UUID?, run: AgentRunCenter) {
         guard let wid = run.runWindowID, let w = AgentCenter.shared.windows[wid], let tab = w.activeTab,
-              let task = AgentTaskRecorder.shared.current?.id else { return }
+              let task = AgentTaskRecorder.shared.recordID(run) else { return }
         let title = tab.title
         let host = tab.url?.host.map(AgentPaneTimeline.trimmed)
         let privateWindow = run.privateWindow
@@ -273,12 +284,14 @@ struct AgentTaskCard: View {
     let task: AgentTaskRecord
     let open: () -> Void
     @ObservedObject private var thumbs = AgentTaskThumbs.shared
-    @ObservedObject private var run = AgentRunCenter.shared
+    /// agentparallel: every task's card follows its own run.
+    @ObservedObject private var tasks = AgentTaskCenter.shared
+    private var run: AgentRunCenter? { tasks.run(task: task.id) }
     @State private var hovered = false
     @Environment(\.aircTheme) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var live: Bool { AgentTaskRecorder.shared.current?.id == task.id && run.state.isActive }
+    private var live: Bool { run?.isBusy == true }
 
     var body: some View {
         Button(action: open) {
@@ -332,12 +345,13 @@ struct AgentTaskCard: View {
     func statusWords(now: Date) -> String {
         switch task.status {
         case .running, .takenOver:
-            let start = live ? (run.startedAt ?? task.createdAt) : task.createdAt
+            let start = live ? (run?.startedAt ?? task.createdAt) : task.createdAt
             return "Working for " + AgentPaneItem.duration(now.timeIntervalSince(start))
         case .waiting: return "Waiting for your OK"
         case .failed: return "Failed · " + Self.ago(task.updatedAt, now: now)
         case .stopped: return "Stopped · " + Self.ago(task.updatedAt, now: now)
         case .done: return Self.ago(task.endedAt ?? task.updatedAt, now: now)
+        case .queued: return "Queued"
         }
     }
 
@@ -373,8 +387,8 @@ struct AgentTaskCard: View {
 
     @ViewBuilder private var picture: some View {
         let _ = thumbs.revision
-        if live, run.runWindowID != nil {
-            AgentPaneLivePicture().allowsHitTesting(false).testAnchor("agentask.card.live")
+        if live, let run, run.runWindowID != nil {
+            AgentPaneLivePicture(run: run).allowsHitTesting(false).testAnchor("agentask.card.live")
         } else if let shot = thumbs.task(task.id) {
             Image(decorative: shot.image, scale: 1).resizable().aspectRatio(contentMode: .fill)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).clipped()

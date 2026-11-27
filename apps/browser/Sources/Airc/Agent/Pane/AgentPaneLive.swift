@@ -10,7 +10,7 @@ import SwiftUI
 /// copies of its frames at most twice a second. Clicking it opens Watch over the page.
 struct AgentPaneLiveCard: View {
     @ObservedObject var model: AgentPaneModel
-    @ObservedObject private var run = AgentRunCenter.shared
+    private var run: AgentRunCenter { model.run }
     @Environment(\.aircTheme) private var theme
     @AppStorage("AircAgentPaneLiveCollapsed") private var collapsed = false
     /// The Agents folder row of the agent's page: the folder's rows aren't observable, so this follows its notification
@@ -76,8 +76,19 @@ struct AgentPaneLiveCard: View {
 /// Without a pane model (the task page's cards, asidepass) each SwiftUI make is a new view, as before.
 struct AgentPaneLivePicture: NSViewRepresentable {
     var model: AgentPaneModel? = nil
-    func makeNSView(context: Context) -> AgentPaneLiveView { model?.liveView ?? AgentPaneLiveView(frame: .zero) }
-    func updateNSView(_ v: AgentPaneLiveView, context: Context) { v.refresh() }
+    /// Without a pane model: the task whose page it shows.
+    var run: AgentRunCenter? = nil
+    func makeNSView(context: Context) -> AgentPaneLiveView {
+        if let model { return model.liveView }
+        let v = AgentPaneLiveView(frame: .zero)
+        let r = run
+        v.source = { [weak r] in r }
+        return v
+    }
+    func updateNSView(_ v: AgentPaneLiveView, context: Context) {
+        if model == nil, let r = run { v.source = { [weak r] in r } }
+        v.refresh()
+    }
     static func dismantleNSView(_ v: AgentPaneLiveView, coordinator: ()) { if !v.isPaneOwned { v.stopAll() } }
 }
 
@@ -126,6 +137,8 @@ final class AgentPaneLiveView: NSView {
     private var nextCopy: CFTimeInterval = 0
     /// Kept by a pane model across SwiftUI rebuilds (its picture stays when the card is rebuilt).
     var isPaneOwned = false
+    /// agentparallel: the task whose page this shows (the pane's task; it changes when the pane shows another one).
+    var source: (() -> AgentRunCenter?)?
     /// "live", "copies" or "none" (the checks read it).
     private(set) var mode = "none"
     private(set) var framesShown = 0
@@ -190,7 +203,7 @@ final class AgentPaneLiveView: NSView {
 
     /// The live check outside the loop (the engine just replaced its host).
     private func checkLiveNow() {
-        guard window != nil, live != nil, let id = AgentRunCenter.shared.runWindowID, let w = AgentCenter.shared.windows[id], let tab = w.activeTab,
+        guard window != nil, live != nil, let id = source?()?.runWindowID, let w = AgentCenter.shared.windows[id], let tab = w.activeTab,
               let current = w.driver.liveContextID(tab, in: w.window), current != live?.id, let made = w.driver.liveLayer(tab, in: w.window) else { return }
         swapsByWatch += 1
         installLive(made)
@@ -223,8 +236,7 @@ final class AgentPaneLiveView: NSView {
 
     private func tick() {
         guard scheduled, let win = window else { scheduled = false; return }
-        let run = AgentRunCenter.shared
-        guard let id = run.runWindowID, let w = AgentCenter.shared.windows[id], let tab = w.activeTab else {
+        guard let id = source?()?.runWindowID, let w = AgentCenter.shared.windows[id], let tab = w.activeTab else {
             return again(0.25)
         }
         if sourceWindow != id { clear(); sourceWindow = id }

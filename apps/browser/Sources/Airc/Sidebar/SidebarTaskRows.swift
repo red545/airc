@@ -22,26 +22,27 @@ enum SidebarTaskList {
 
     static func tasks(spaceID: String, profileID: String? = nil) -> [AgentTaskRecord] {
         let mine = AgentTaskRecorder.shared.tasks.filter { $0.spaceID == spaceID || $0.spaceID.isEmpty }
-        let hot = mine.filter { $0.status == .running || $0.status == .waiting || $0.status == .takenOver || $0.unread }
+        let working: [AgentTaskRecord.Status] = [.running, .waiting, .takenOver, .queued]
+        let hot = mine.filter { working.contains($0.status) || $0.unread }
         let rest = mine.filter { !hot.contains($0) }
         var out = Array((hot + rest.prefix(max(0, recent - hot.count))).prefix(cap))
-        // The running task always has its row (its page has no other one), also in the profile's other Spaces while it
+        // A running task always has its row (its page has no other one), also in the profile's other Spaces while it
         // works or waits: its page's row used to show there, and with it the folder and its Needs you badge.
-        if let id = AgentTaskRecorder.shared.currentID, !out.contains(where: { $0.id == id }),
-           let t = AgentTaskRecorder.shared.tasks.first(where: { $0.id == id }),
-           mine.contains(where: { $0.id == id }) || (t.profileID == profileID && [.running, .waiting, .takenOver].contains(t.status)) {
+        // agentparallel: every running task, not only the last one.
+        for run in AgentTaskCenter.shared.runs.reversed() where run.isBusy {
+            guard let id = AgentTaskRecorder.shared.recordID(run), !out.contains(where: { $0.id == id }),
+                  let t = AgentTaskRecorder.shared.tasks.first(where: { $0.id == id }),
+                  mine.contains(where: { $0.id == id }) || (t.profileID == profileID && working.contains(t.status)) else { continue }
             out.insert(t, at: 0)
         }
         return out
     }
 
-    /// The folder's lines for `tasks`: the running one with its live page (icon, Needs you, Watch).
+    /// The folder's lines for `tasks`: a running one with its live page (icon, Needs you, Watch).
     static func lines(_ tasks: [AgentTaskRecord]) -> [SidebarTaskLine] {
-        let current = AgentTaskRecorder.shared.currentID
-        let pageRow = AgentAttention.paneRowID
         let waits = AgentAttention.items()
         return tasks.map { t in
-            let live = t.id == current ? pageRow : nil
+            let live = AgentTaskCenter.shared.run(task: t.id).flatMap { AgentAttention.paneRowID(for: $0) }
             let row = live.flatMap { AgentActivity.shared.model.row($0) }
             let need = live.flatMap { id in waits.first { $0.rowID == id && $0.kind != .approval } }
             let icon = row.flatMap { AgentCenter.shared.windows[$0.window]?.tab($0.tab)?.favicon }
@@ -77,6 +78,7 @@ struct SidebarTaskLine: Equatable, Identifiable {
     /// A line under the title only when it says something the icon doesn't.
     var subtitle: String? {
         if task.status == .waiting { return "Waiting for your OK" }
+        if task.status == .queued, need == nil { return "Queued: starts when a task ends" }
         return need
     }
 }
@@ -218,6 +220,7 @@ struct SidebarTaskRow: View {
         case .failed: return "Failed"
         case .stopped: return "Stopped"
         case .done: return "Done"
+        case .queued: return "Queued"
         }
     }
 

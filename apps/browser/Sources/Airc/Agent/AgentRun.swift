@@ -24,11 +24,26 @@ struct AgentApprovalRequest: Identifiable, Equatable {
     var title: String { "\(risk.category.verb) on \(site.isEmpty ? "this page" : site)?" }
 }
 
-/// The Airc Agent (docs/design/agent.md): the person's task, run as a loop of model turns and tool calls with budgets,
-/// a risk gate, Stop, and a visible step list. One conversation at a time; a task runs in the profile of the Space it
-/// was asked in.
+/// The Airc Agent (docs/design/agent.md): one task, run as a loop of model turns and tool calls with budgets, a risk
+/// gate, Stop, and a visible step list. agentparallel: one of these per task (AgentTaskCenter keeps them all), so tasks
+/// run side by side, each with its own conversation, agent window, approval and Stop; a task runs in the profile of the
+/// Space it was asked in.
 final class AgentRunCenter: ObservableObject {
-    static let shared = AgentRunCenter()
+    #if AIRC_TESTING
+    /// Checks written for one task at a time: the task started (or made) last.
+    static var shared: AgentRunCenter { AgentTaskCenter.shared.latest }
+    #endif
+
+    /// The task record this conversation writes (`<data folder>/Agent/Tasks/<id>.json`); a new conversation gets a new one.
+    private(set) var taskID = UUID().uuidString
+    /// Where the task was asked: its window, Space and profile (its page, approvals and "needs you" land there).
+    weak var askedIn: WindowController?
+    var askedSpaceID: String?
+    var askedProfileID: String?
+    /// More tasks than the person's limit run at once: this one waits for a free slot (its prompt, shown as Queued).
+    @Published fileprivate(set) var queuedPrompt: String?
+    /// The pane's step stamps, sites and icons for this conversation.
+    private(set) lazy var timeline = AgentPaneTimeline(run: self)
 
     enum State: Equatable {
         case idle, running, waiting, done
@@ -68,6 +83,11 @@ final class AgentRunCenter: ObservableObject {
     private var partialFlush = false
     /// A turn whose stream dropped is sent again once.
     private var dropRetries = 0
+    /// agentparallel: rate-limited answers in a row (several tasks share one key). The turn waits and goes again; only
+    /// `rateLimitTries` in a row without one answer (no progress at all) end the task.
+    private var rateWaits = 0
+    static let rateLimitTries = 12
+    private var rateStep: UUID?
     private var retryWork: DispatchWorkItem?
     /// Side-effect-free calls started while their turn still streams (call id → result), in order, one at a time.
     private final class EarlyCall { var out: AgentToolOutput?; var note: String?; var waiter: ((AgentToolOutput, String?) -> Void)? }
@@ -141,14 +161,17 @@ final class AgentRunCenter: ObservableObject {
     private var system: String { memoryOn ? Self.system + Self.memoryPrompt : Self.system }
     private var tools: [AgentToolSpec] { (bridge?.specs ?? []) + (memoryOn ? [Self.rememberTool] : []) }
 
-    var canSend: Bool { !state.isActive }
+    var canSend: Bool { !state.isActive && queuedPrompt == nil }
+    /// Running, waiting for an OK, or queued for a free slot.
+    var isBusy: Bool { state.isActive || queuedPrompt != nil }
     /// The run's agent window (its Agents folder row's), while it has one.
     var runWindowID: Int? { bridge?.windowID }
     /// Hand back: given to the next run's bridge, which moves the page into its window when it opens.
     var handBack: ((AgentWindow) -> Void)?
     /// Whether the chosen backend can take a task: a saved key, or the person's CLI not known to be missing or logged
     /// out (an unknown status is checked when the task is sent).
-    var hasKey: Bool {
+    var hasKey: Bool { Self.hasKey }
+    static var hasKey: Bool {
         let s = AgentModelSettings.shared
         if let k = s.values.backend.cli { return AgentCLIDetector.shared.status(k).map { $0.isReady || $0 == .checking } ?? true }
         return s.hasKey(s.values.provider)
@@ -166,7 +189,25 @@ final class AgentRunCenter: ObservableObject {
     /// `privateWindow`: asked from a private window (no entry point does today; see `privateWindow`).
     func ask(_ text: String, profileID: String, profileName: String, privateWindow: Bool = false) {
         let task = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !task.isEmpty, !state.isActive else { return }
+        guard !task.isEmpty, !state.isActive, queuedPrompt == nil else { return }
+        AgentTaskCenter.shared.started(self)
+        // agentparallel: past the person's limit of tasks at once, it waits for one to end (shown as Queued).
+        if !AgentTaskCenter.shared.hasSlot(for: self) {
+            queuedPrompt = task
+            // The pane and the task view show the prompt and that it waits; both lines go when it starts.
+            let prompt = AgentStep(kind: .user, text: task)
+            let note = AgentStep(kind: .info, text: "Queued: \(AgentTaskCenter.shared.limit) tasks are running. It starts when one of them ends.")
+            steps.append(prompt)
+            steps.append(note)
+            event("queued")
+            AgentTaskCenter.shared.enqueue(self) { [weak self] in
+                guard let self, self.queuedPrompt != nil else { return }
+                self.queuedPrompt = nil
+                self.steps.removeAll { $0.id == prompt.id || $0.id == note.id }
+                self.ask(task, profileID: profileID, profileName: profileName, privateWindow: privateWindow)
+            }
+            return
+        }
         if privateWindow != self.privateWindow { reset(keepSteps: true) }
         self.privateWindow = privateWindow
         let settings = AgentModelSettings.shared
@@ -200,6 +241,7 @@ final class AgentRunCenter: ObservableObject {
         stopRequested = nil
         event("state running")
         let b = bridge ?? AgentBridge(profileID: profileID)
+        b.taskID = taskID
         bridge = b
         b.session.privateWindow = privateWindow
         if let h = handBack { handBack = nil; b.pendingHandBack = h }
@@ -221,6 +263,7 @@ final class AgentRunCenter: ObservableObject {
         state = .running
         stopRequested = nil
         let b = bridge ?? AgentBridge(profileID: profileID ?? "")
+        b.taskID = taskID
         bridge = b
         b.session.privateWindow = privateWindow
         b.openWindow { [weak self] error in
@@ -236,6 +279,14 @@ final class AgentRunCenter: ObservableObject {
 
     /// Stop in the panel, Esc, Stop in the Agents folder or Watch, Dock › Stop Agents.
     func stop(_ reason: String = "You stopped it.") {
+        if queuedPrompt != nil, !state.isActive {
+            AgentTaskCenter.shared.dequeue(self)
+            queuedPrompt = nil
+            steps.append(AgentStep(kind: .info, text: reason))
+            state = .stopped(reason)
+            event("state \(state)")
+            return
+        }
         guard state.isActive else { return }
         if let cli {
             // The person's CLI: its turn is interrupted (its process group killed if it doesn't stop within 1.5 s); a
@@ -268,12 +319,14 @@ final class AgentRunCenter: ObservableObject {
     /// A fresh conversation: the run's window closes.
     func newConversation() {
         handBack = nil
+        if queuedPrompt != nil { AgentTaskCenter.shared.dequeue(self) }
         stop()
         reset(keepSteps: false)
         privateWindow = false
         approval = nil
         decide = nil
         state = .idle
+        taskID = UUID().uuidString
     }
 
     private func reset(keepSteps: Bool) {
@@ -341,6 +394,26 @@ final class AgentRunCenter: ObservableObject {
             switch result {
             case .failure(let e):
                 if e.cancelled || self.stopRequested != nil { return self.end(.stopped(self.stopRequested ?? "Stopped.")) }
+                if e.rateLimited && self.rateWaits < Self.rateLimitTries {
+                    self.rateWaits += 1
+                    // Retry-After when the service says, else 2, 4, 8 … up to 60 s; a little jitter so tasks sharing
+                    // the key don't all ask again at once.
+                    let delay = min(60, max(1, e.retryAfter ?? pow(2, Double(self.rateWaits)))) + Double.random(in: 0...0.5)
+                    let text = "\(conversation.provider.name) is busy (rate limit). Trying again in \(Int(delay.rounded())) s."
+                    if let id = self.rateStep, let i = self.steps.firstIndex(where: { $0.id == id }) { self.steps[i].text = text } else {
+                        let step = AgentStep(kind: .info, text: text)
+                        self.rateStep = step.id
+                        self.steps.append(step)
+                    }
+                    self.event("rate limited \(Int(delay.rounded()))")
+                    let work = DispatchWorkItem { [weak self] in
+                        guard let self, self.state.isActive else { return }
+                        self.retryWork = nil
+                        self.turn(key: key)
+                    }
+                    self.retryWork = work
+                    return DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+                }
                 if e.dropped && self.dropRetries < 1 {
                     // Nothing of the cut turn is in the history; its early (read-only) results are dropped with it.
                     self.dropRetries += 1
@@ -357,6 +430,8 @@ final class AgentRunCenter: ObservableObject {
                 self.fail(e.message)
             case .success(let t):
                 self.dropRetries = 0
+                self.rateWaits = 0
+                self.rateStep = nil
                 self.usage = self.usage + t.usage
                 let said = t.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 switch t.stop {
@@ -566,6 +641,8 @@ final class AgentRunCenter: ObservableObject {
         early = [:]
         earlyQueue = []
         dropRetries = 0
+        rateWaits = 0
+        rateStep = nil
         retryWork?.cancel()
         retryWork = nil
         setPartial("")
@@ -698,6 +775,7 @@ extension AgentRunCenter {
     private func openCLIWindow(task: String?, _ then: @escaping () -> Void) {
         guard let kind = cliKind else { return }
         let b = bridge ?? AgentBridge(profileID: profileID ?? "", clientName: kind.clientName)
+        b.taskID = taskID
         bridge = b
         b.session.privateWindow = privateWindow
         if let h = handBack { handBack = nil; b.pendingHandBack = h }

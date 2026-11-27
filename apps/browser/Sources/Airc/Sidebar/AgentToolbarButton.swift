@@ -39,7 +39,7 @@ final class AgentToolbarButton {
         dot.isHidden = true
         dot.zPosition = 1
         glyph.layer?.addSublayer(dot)
-        subs.append(AgentRunCenter.shared.$state.map(\.isActive).removeDuplicates().receive(on: DispatchQueue.main)
+        subs.append(NotificationCenter.default.publisher(for: AgentTaskCenter.changed).receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.refresh() })
         subs.append(NotificationCenter.default.publisher(for: AgentPaneController.visibilityChanged)
             .sink { [weak self] _ in self?.refresh() })
@@ -71,7 +71,7 @@ final class AgentToolbarButton {
         let open = controller.map { AgentUI.isShown($0) } ?? false
         glyph.tint = open ? .controlAccentColor : tint
         glyph.setAccessibilityValue(open ? "open" : "closed")
-        let working = AgentRunCenter.shared.state.isActive
+        let working = AgentTaskCenter.shared.anyActive
         let waiting = AgentAttention.count
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -94,9 +94,9 @@ final class AgentToolbarButton {
         return m
     }
 
-    /// The Airc Agent's live page, for Watch.
+    /// The Airc Agent's live page, for Watch (the task started last that still has one).
     var liveAgentRow: String? {
-        guard let w = AgentRunCenter.shared.runWindowID else { return nil }
+        guard let w = AgentTaskCenter.shared.runs.last(where: { $0.state.isActive && $0.runWindowID != nil })?.runWindowID else { return nil }
         let rows = AgentActivity.shared.model.rows.filter { $0.window == w && $0.isLive }
         let active = AgentCenter.shared.windows[w]?.activeTabID
         return (rows.first { $0.tab == active } ?? rows.last)?.id

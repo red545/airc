@@ -6,23 +6,22 @@ import Combine
 import SwiftUI
 
 /// When each line of the conversation appeared, and which site and page each step was on, for the pane's step rows,
-/// "Done in …" summaries and site chips. One for the app (the conversation is AgentRunCenter's, one at a time); it starts
-/// with the first pane and follows the run from then on.
+/// "Done in …" summaries and site chips. agentparallel: one per task (its run's `timeline`), following that run.
 final class AgentPaneTimeline: ObservableObject {
-    static let shared = AgentPaneTimeline()
 
     struct Stamp { var at: Date; var host: String?; var url: URL? }
     private(set) var stamps: [UUID: Stamp] = [:]
     /// A run's end (its prompt's id → when the run stopped being active).
     private(set) var ends: [UUID: Date] = [:]
-    /// Site icons by host, from the agent's pages.
-    private(set) var icons: [String: NSImage] = [:]
+    /// Site icons by host, from every task's pages (sites, not tasks: shared).
+    private(set) static var icons: [String: NSImage] = [:]
     @Published private(set) var revision = 0
     private var subs: [AnyCancellable] = []
     private var lastState: AgentRunCenter.State = .idle
+    private weak var run: AgentRunCenter?
 
-    private init() {
-        let run = AgentRunCenter.shared
+    init(run: AgentRunCenter) {
+        self.run = run
         stamp(run.steps)
         subs.append(run.$steps.sink { [weak self] steps in self?.stamp(steps) })
         subs.append(run.$state.sink { [weak self] s in self?.stateChanged(s) })
@@ -31,7 +30,7 @@ final class AgentPaneTimeline: ObservableObject {
     private func stamp(_ steps: [AgentStep]) {
         let now = Date()
         var changed = false
-        let window = AgentRunCenter.shared.runWindowID.flatMap { AgentCenter.shared.windows[$0] }
+        let window = run?.runWindowID.flatMap { AgentCenter.shared.windows[$0] }
         let pageURL = window?.activeTab?.url
         for s in steps where stamps[s.id] == nil {
             var host: String?
@@ -46,7 +45,7 @@ final class AgentPaneTimeline: ObservableObject {
         }
         if let window {
             for t in window.tabs {
-                if let h = t.tab.url?.host.map(Self.trimmed), let icon = t.tab.favicon, icons[h] == nil { icons[h] = icon; changed = true }
+                if let h = t.tab.url?.host.map(Self.trimmed), let icon = t.tab.favicon, Self.icons[h] == nil { Self.icons[h] = icon; changed = true }
             }
         }
         if changed { revision += 1 }
@@ -54,7 +53,7 @@ final class AgentPaneTimeline: ObservableObject {
 
     private func stateChanged(_ s: AgentRunCenter.State) {
         defer { lastState = s }
-        guard lastState.isActive, !s.isActive, let prompt = AgentRunCenter.shared.steps.last(where: { $0.kind == .user }) else { return }
+        guard lastState.isActive, !s.isActive, let prompt = run?.steps.last(where: { $0.kind == .user }) else { return }
         ends[prompt.id] = Date()
         revision += 1
     }
@@ -63,7 +62,8 @@ final class AgentPaneTimeline: ObservableObject {
     func host(_ id: UUID) -> String? { stamps[id]?.host }
     func url(_ id: UUID) -> URL? { stamps[id]?.url }
     func end(_ promptID: UUID) -> Date? { ends[promptID] }
-    func icon(_ host: String?) -> NSImage? { host.flatMap { icons[$0] } }
+    func icon(_ host: String?) -> NSImage? { Self.icon(host) }
+    static func icon(_ host: String?) -> NSImage? { host.flatMap { icons[$0] } }
 
     static func trimmed(_ host: String) -> String { host.hasPrefix("www.") ? String(host.dropFirst(4)) : host }
 
@@ -315,6 +315,7 @@ final class AgentPaneModel: ObservableObject {
     lazy var liveView: AgentPaneLiveView = {
         let v = AgentPaneLiveView(frame: .zero)
         v.isPaneOwned = true
+        v.source = { [weak self] in self?.run }
         return v
     }()
     @Published var expanded: Set<UUID> = []
@@ -360,20 +361,20 @@ final class AgentPaneModel: ObservableObject {
         var step: Step
     }
 
-    let run = AgentRunCenter.shared
-    let timeline = AgentPaneTimeline.shared
+    /// agentparallel: the task this pane shows (per window and Space). Other tasks keep running; picking one shows it.
+    @Published private(set) var run: AgentRunCenter
+    var timeline: AgentPaneTimeline { run.timeline }
+    /// Take overs of the tasks this pane showed (the banner belongs to its task).
+    private var takenOvers: [ObjectIdentifier: TakenOver] = [:]
+    private var runSubs: [AnyCancellable] = []
 
     init() {
+        run = AgentTaskCenter.shared.draft()
+        bindRun()
         subs.append(NotificationCenter.default.publisher(for: AgentModelSettings.changed).sink { [weak self] _ in self?.providerRevision += 1 })
         subs.append(NotificationCenter.default.publisher(for: AgentCLIDetector.changed).sink { [weak self] _ in
             self?.providerRevision += 1
             self?.setupStatusChanged()
-        })
-        // The approval answered (anywhere): the keys go back to the composer.
-        subs.append(run.$approval.sink { [weak self] a in
-            guard a == nil, let self, self.approvalFocused else { return }
-            self.approvalFocused = false
-            self.pane?.focus()
         })
         // Back from Terminal or the CLI's sign-in page: look again (design §8: re-check when Airc becomes active).
         subs.append(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification).sink { [weak self] _ in self?.recheckSetup() })
@@ -384,6 +385,34 @@ final class AgentPaneModel: ObservableObject {
     }
 
     var controller: WindowController? { pane?.controller }
+
+    private func bindRun() {
+        runSubs = []
+        // The approval answered (anywhere): the keys go back to the composer.
+        runSubs.append(run.$approval.sink { [weak self] a in
+            guard a == nil, let self, self.approvalFocused else { return }
+            self.approvalFocused = false
+            self.pane?.focus()
+        })
+        // The shown task's changes redraw the pane (its views observe the model).
+        runSubs.append(run.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() })
+        runSubs.append(run.timeline.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() })
+    }
+
+    /// Shows this task in the pane (a task row, a card, "needs you", the bar on its page). Its draft, if empty, is let go.
+    func show(_ r: AgentRunCenter) {
+        guard r !== run else { return }
+        takenOvers[ObjectIdentifier(run)] = takenOver
+        let old = run
+        run = r
+        takenOver = takenOvers.removeValue(forKey: ObjectIdentifier(r))
+        approvalFocused = false
+        armedStop = false
+        expanded = []
+        bindRun()
+        if old.steps.isEmpty, !old.isBusy, !AgentPaneController.shows(old) { AgentTaskCenter.shared.forget(old) }
+        pane?.taskShown()
+    }
 
     /// Shown or re-shown in a window: the window's page becomes the chip (unless removed for this tab).
     func windowOpened(from c: WindowController) {
@@ -420,6 +449,7 @@ final class AgentPaneModel: ObservableObject {
     }
 
     var placeholder: String {
+        if run.queuedPrompt != nil { return "Queued: it starts when a running task ends" }
         if run.approval != nil { return "Or tell it what to change…" }
         if run.state.isActive { return "Tell it something while it works…" }
         if run.steps.isEmpty { return "Ask Airc to…" }
@@ -490,9 +520,10 @@ final class AgentPaneModel: ObservableObject {
 
     // MARK: Actions
 
+    /// ✎ New: an empty task in this pane; the tasks that run go on (agentparallel).
     func newTask() {
         cancelSetup()
-        run.newConversation()
+        if !run.steps.isEmpty || run.isBusy { show(AgentTaskCenter.shared.draft()) }
         takenOver = nil
         expanded = []
         if let c = controller { removedChipForTab = nil; windowOpened(from: c) }
@@ -522,9 +553,12 @@ final class AgentPaneModel: ObservableObject {
     }
 
     /// The Command Bar's task: sent now if the agent is free and connected, else left in the field.
-    func ask(_ typed: String) {
+    /// `newTask`: a new task from outside the pane (⌘T → Ask, a task view): it gets its own conversation; the tasks that
+    /// run go on (agentparallel).
+    func ask(_ typed: String, newTask: Bool = false) {
         let t = typed.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
+        if newTask, connected, !run.steps.isEmpty || run.isBusy { show(AgentTaskCenter.shared.draft()) }
         guard connected, run.canSend, let p = pane?.profile() else { text = t; return }
         lastPrompt = t
         var prompt = t
@@ -539,12 +573,11 @@ final class AgentPaneModel: ObservableObject {
                 prompt += AgentPaneItem.ownPageNote
             }
         }
-        if takenOver != nil { AgentMainView.shared.endTakeOver() }
+        if takenOver != nil { AgentMainView.shared.endTakeOver(run) }
         takenOver = nil
         if let c = controller {
-            if !run.state.isActive { AgentMainView.shared.willAsk(in: c, page: own) }
-            AgentTaskRecorder.shared.willAsk(spaceID: c.currentSpaceID, profileID: p.id)
-            AgentAttention.taskAsked(in: c)
+            AgentAttention.taskAsked(in: c, run: run)
+            if !run.state.isActive { AgentMainView.shared.willAsk(run, in: c, page: own) }
         }
         run.ask(prompt, profileID: p.id, profileName: p.name)
     }
@@ -769,14 +802,14 @@ final class AgentPaneModel: ObservableObject {
 
     func openWatch() {
         // agentmainview: the run's page is a tab of the person's window: back into the main view.
-        if AgentMainView.shared.bringBack() { return }
+        if AgentMainView.shared.bringBack(run) { return }
         guard let id = liveRowID else { return }
         controller?.sidebar.agents.openWatch(id)
     }
 
     /// Take over: the agent's page becomes this window's tab; the task waits for Hand back.
     func takeOver() {
-        if let c = controller, let h = AgentMainView.shared.takeOver(in: c) {
+        if let c = controller, let h = AgentMainView.shared.takeOver(run, in: c) {
             // The page is already the person's tab in the main view: it's theirs at once, where it is.
             takenOver = TakenOver(title: h.title.isEmpty ? (h.url?.host ?? "the page") : h.title, url: h.url, tabID: h.tabID,
                                   agentTabID: h.agentTabID)
@@ -829,7 +862,7 @@ final class AgentPaneModel: ObservableObject {
     private(set) var handBackFailed: String?
 
     func stopTask() {
-        if takenOver != nil { AgentMainView.shared.endTakeOver() }
+        if takenOver != nil { AgentMainView.shared.endTakeOver(run) }
         takenOver = nil
         run.stop()
     }

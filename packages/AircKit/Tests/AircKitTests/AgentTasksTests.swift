@@ -30,6 +30,26 @@ final class AgentTasksTests: XCTestCase {
         XCTAssertEqual(ordered.map(\.title), ["waiting", "running", "new done", "stopped", "old done"])
     }
 
+    /// agentparallel: a queued task comes after the running ones, before finished ones, and says Queued.
+    func testQueuedOrderAndLabel() throws {
+        let now = Date()
+        func rec(_ title: String, _ s: AgentTaskRecord.Status, _ ago: TimeInterval) -> AgentTaskRecord {
+            var r = AgentTaskRecord(title: title, spaceID: "s", profileID: "p", provider: "x", status: s)
+            r.updatedAt = now.addingTimeInterval(-ago)
+            return r
+        }
+        let ordered = AgentTaskRecord.ordered([rec("done", .done, 1), rec("queued", .queued, 1), rec("running", .running, 100)])
+        XCTAssertEqual(ordered.map(\.title), ["running", "queued", "done"])
+        XCTAssertEqual(AgentTaskRecord.Status.queued.label, "Queued")
+        XCTAssertEqual(AgentTaskRecord.Status.queued.chip, "Running")
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("airc-tasks-queued-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = AgentTaskStore(folder: dir)
+        let r = rec("queued", .queued, 0)
+        try store.save(r)
+        XCTAssertEqual(store.load(r.id)?.status, .queued)
+    }
+
     func testStoreRoundTripAndPermissions() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("agenttasks-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }

@@ -17,8 +17,9 @@ struct AgentPaneRoot: View {
 
 struct AgentPaneView: View {
     @ObservedObject var model: AgentPaneModel
-    @ObservedObject private var run = AgentRunCenter.shared
-    @ObservedObject private var timeline = AgentPaneTimeline.shared
+    /// agentparallel: the task this pane shows (the model passes its changes on).
+    private var run: AgentRunCenter { model.run }
+    private var timeline: AgentPaneTimeline { model.timeline }
     @Environment(\.aircTheme) private var theme
     /// agentmainview: bumped when the run's page moves in or out of the main view (the card shows only while away).
     @State private var mainRevision = 0
@@ -32,7 +33,7 @@ struct AgentPaneView: View {
             case .newTask: ScrollView { newTask.padding(16) }.frame(maxHeight: .infinity)
             case .conversation: conversation
             }
-            if let a = run.approval { AgentPaneApproval(request: a, focused: model.approvalFocused).padding(.horizontal, 12).padding(.bottom, 8).transition(.move(edge: .bottom).combined(with: .opacity)) }
+            if let a = run.approval { AgentPaneApproval(run: run, request: a, focused: model.approvalFocused).padding(.horizontal, 12).padding(.bottom, 8).transition(.move(edge: .bottom).combined(with: .opacity)) }
             if let t = model.takenOver { takenOverBanner(t).padding(.horizontal, 12).padding(.bottom, 8) }
             if let s = model.setup { AgentPaneSetupCard(setup: s, model: model).padding(.horizontal, 12).padding(.bottom, 8) }
             if let p = model.keyEntry { AgentPaneKeyCard(provider: p, model: model).padding(.horizontal, 12).padding(.bottom, 8) }
@@ -133,7 +134,7 @@ struct AgentPaneView: View {
             // agentmainview: only while the page isn't in this window's main view (the person looks at another tab);
             // a click on it brings the page back.
             if run.state.isActive || run.approval != nil, model.takenOver == nil, run.runWindowID != nil,
-               !(mainRevision >= 0 && model.controller.map { AgentMainView.shared.runShown(in: $0) } == true) {
+               !(mainRevision >= 0 && model.controller.map { AgentMainView.shared.runShown(model.run, in: $0) } == true) {
                 AgentPaneLiveCard(model: model).padding(.horizontal, 14).padding(.top, 10)
             }
             transcript
@@ -253,7 +254,7 @@ struct AgentPaneItemView: View {
         case .text(_, let text, let final):
             AgentPaneMarkdown(text: text).testAnchor(final ? "agentpane.answer" : "agentpane.say")
         case .steps(_, let rows, let running):
-            AgentPaneStepRail(rows: rows, runningLast: running && AgentRunCenter.shared.state == .running)
+            AgentPaneStepRail(rows: rows, runningLast: running && model.run.state == .running)
                 .testAnchor("agentpane.steps")
         case .summary(let id, let line, let rows):
             VStack(alignment: .leading, spacing: 6) {
@@ -279,7 +280,7 @@ struct AgentPaneItemView: View {
                 AgentPaneNote(kind: .memory, text: step.text, detail: step.detail)
                 Spacer(minLength: 4)
                 if step.memoryLine != nil {
-                    Button("Undo") { AgentRunCenter.shared.undoMemory(step.id) }.buttonStyle(.airc(.secondary, size: .small))
+                    Button("Undo") { model.run.undoMemory(step.id) }.buttonStyle(.airc(.secondary, size: .small))
                         .testAnchor("agentpane.memory.undo")
                 }
             }
@@ -427,7 +428,7 @@ struct AgentPaneSiteIcon: View {
     @Environment(\.aircTheme) private var theme
 
     var body: some View {
-        if let img = AgentPaneTimeline.shared.icon(host) {
+        if let img = AgentPaneTimeline.icon(host) {
             Image(nsImage: img).resizable().interpolation(.high).frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: 3))
         } else {
             Image(systemName: "globe").font(.system(size: size * 0.8)).foregroundStyle(theme.surfaceTextTertiary.color).frame(width: size, height: size)
@@ -716,6 +717,7 @@ struct AgentPaneKeyCard: View {
 
 /// Pay, send, post, delete: pinned above the composer. Nothing is pre-selected; Esc denies.
 struct AgentPaneApproval: View {
+    let run: AgentRunCenter
     let request: AgentApprovalRequest
     /// The keys are here (a "needs you" click landed on it): Allow once is the default button, Return presses it.
     var focused = false
@@ -733,9 +735,9 @@ struct AgentPaneApproval: View {
                 Text(focused ? "Return allows once · Esc denies" : "Esc denies").aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextTertiary.color)
                     .testAnchor("agentpane.approval.keys")
                 Spacer()
-                Button("Deny") { AgentRunCenter.shared.answerApproval(allow: false) }.buttonStyle(.airc(.secondary, size: .small))
+                Button("Deny") { run.answerApproval(allow: false) }.buttonStyle(.airc(.secondary, size: .small))
                     .testAnchor("agentpane.deny")
-                Button("Allow once") { AgentRunCenter.shared.answerApproval(allow: true) }.buttonStyle(.airc(focused ? .primary : .secondary, size: .small))
+                Button("Allow once") { run.answerApproval(allow: true) }.buttonStyle(.airc(focused ? .primary : .secondary, size: .small))
                     .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.focusRing.color.opacity(focused ? 0.8 : 0), lineWidth: 2).padding(-3))
                     .testAnchor("agentpane.allow")
             }
@@ -755,7 +757,7 @@ struct AgentPaneApproval: View {
 
 struct AgentPaneComposer: View {
     @ObservedObject var model: AgentPaneModel
-    @ObservedObject private var run = AgentRunCenter.shared
+    private var run: AgentRunCenter { model.run }
     @Environment(\.aircTheme) private var theme
     @FocusState private var focused: Bool
 

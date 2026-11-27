@@ -1975,8 +1975,10 @@ final class CommandBarView: NSView, NSTextFieldDelegate {
         let text = input.stringValue
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let attached = askPanel?.model.attached ?? []
+        // ⌥↩: start it in the background (agentparallel).
+        let background = NSApp.currentEvent?.modifierFlags.contains(.option) == true
         host?.closeCommandBar(focusingPage: false)
-        Self.startAgentTask(text, attached: attached, in: c)
+        Self.startAgentTask(text, attached: attached, in: c, background: background)
     }
 
     #if AIRC_TESTING

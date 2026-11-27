@@ -55,7 +55,13 @@ AgentTask
   (the Command Bar's index) and its open/pinned tabs and Favorites; read-only, no approval (like `read_page`), never
   another profile, unavailable for a private window, not offered to outside apps.
 - **Title:** the first prompt cut to ~48 characters at a word boundary. No extra model call. Double-click to rename.
-- **Several at once:** up to 3 tasks run at the same time (more start as "Queued"). Each has its own agent window(s).
+- **Several at once (agentparallel, 2026-11-25):** up to `maxParallel` tasks run at the same time (Settings › AI › Agent,
+  default 3, 0 = no limit; more start as **Queued**, record status `.queued`, and start in order when one ends). Each task
+  is its own `AgentRunCenter` (conversation, model connection or CLI process with its own MCP socket, agent window,
+  approval, Stop), kept by `AgentTaskCenter` (Agent/AgentTaskCenter.swift); the recorder, the step timeline and the card
+  pictures follow each run. An API key shared by several tasks can hit the provider's rate limit: a 429/503/529 answer
+  waits (Retry-After, else 2 s doubling to 60 s, with jitter) and sends the same turn again; only 12 in a row without one
+  answer end the task (a no-progress guard, not a time limit).
 - **Private windows:** no tasks, no pane (unchanged).
 
 ## 2. Entry points
@@ -169,6 +175,12 @@ windows and Watch, unchanged.
   size), so the agent keeps going and the pane's live card shows it; the Today row follows its title. Picking the row,
   the card, Take over or "needs you" moves the same page back (no reload). Several agent tabs: each is a Today tab; only
   the selected one is in the main view.
+- **Several tasks (agentparallel):** every task has its own Today tab(s). Only the shown tab is in the main view; the
+  others are parked live in their own runs' agent windows. The glow, bar and shield over a page belong to that page's task
+  (AgentMainView.shownRun), and the bar's Take over / Stop / Hand back act on it and open the pane on it. Where a run
+  starts, its parked page, its take-over and its "released" tab are per task (keyed by the run's task id, which its agent
+  window carries). A task started in the background (⌘T ⌥↩) gets a Today row, parked, never selected; no start, step,
+  approval or end selects a tab in another window, makes another window key or switches a Space by itself.
 - **End:** Stop, or a new task: the tabs stay the person's ordinary tabs. Closing the agent's tab stops the task. The
   agent closing a tab it opened closes that tab; it never closes the person's own tab.
 - The agent window remains the tools' container (tab ids, list_tabs) and the parking place.
@@ -184,7 +196,8 @@ Codex reach pages only through the Airc MCP tools, so the same `AgentRisk` check
    task / Deny / Allow once), opened once when the request arrives if the window is key, otherwise the row pulses once
    and keeps the ✋ glyph;
 4. in **Watch** (existing mirror).
-One answer clears all. Nothing is pre-selected when the request appears (agentux3: a "needs you" click is the person
+One answer clears all (of that request: each waiting task has its own request, item, card and row popover; an answer
+goes only to its own task, and AgentAttention lands each "needs you" in its own task's window and pane). Nothing is pre-selected when the request appears (agentux3: a "needs you" click is the person
 choosing to answer, so it lands with Allow once as the default button: Return allows once, Esc denies; see
 Agent/AgentAttention.swift for every entry point). Esc = Deny; ⌘↩ = Allow once only while the card has focus (it takes
 focus when it appears if the composer is empty). Typing in the composer and sending = Deny plus that text, sent at
@@ -307,7 +320,9 @@ transcript (red outline), task status `.failed`/`.paused`, row glyph !.
   where it fits (approval card, memory lines, live partial line).
 - "Connect your AI" + "Hand to Claude Desktop / Claude Code" become the provider list (§8). Handing to Claude
   Desktop stays only in Settings › Agents (connector setup), not in the pane.
-- `AgentRunCenter` (one run) becomes `AgentTaskCenter` (many tasks, each with runs); approvals keyed by task.
+- `AgentRunCenter` (one run) becomes `AgentTaskCenter` (many tasks, each with runs); approvals keyed by task. Done
+  (agentparallel): one `AgentRunCenter` per task, `AgentTaskCenter` keeps them (finished ones too, up to 8, for
+  follow-ups); the pane shows one task per window (its ✎ New makes an empty one and leaves the running ones alone).
 - The Agents folder's "Airc Agent · site" rows become task rows (§7), with pages as children; agentrows' work on
   external-app rows (no row until a real action, titles, auto-close) applies unchanged.
 - The Command Bar row shows for any ready provider, not only with an API key.
@@ -361,3 +376,9 @@ The pane needs these from every backend (API, Claude Code, Codex), as one Swift 
   `.command` path is checked by its file content).
 - Snapshots for the marketing set: pane running (M1), approval (M2), first-run (M3 B), sidebar with task rows.
 - AircKit unit tests: task store encode/decode and the never-stored rules, title shortening, row ordering by state.
+- `--script agentparallel` (agentparallel, both engines, real input; `AIRC_AGENTPARALLEL_ONLY=three,stop,approvals,
+  windows,idle,queue,ratelimit`): FakeModelServer scripts per task (a marker in each prompt), one tally page per task;
+  three tasks at once in one window (own runs, windows, Today tabs, rows, records; overlapping calls; each page counts
+  only its own clicks; no Space change, window stays key); Stop on one task's bar leaves the others running; two
+  approvals at once routed to their own tasks; two windows of two profiles at once; CPU and memory with three parked;
+  the queue past the limit (`AIRC_AGENT_MAX_PARALLEL=2`); a 429 waits and goes on.

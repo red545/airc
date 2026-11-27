@@ -52,14 +52,24 @@ final class AgentMainView {
     struct Start {
         weak var controller: WindowController?
         var tabID: String?
+        /// agentparallel: started without looking at it (⌘T ⌥↩): its page is a row, parked, never selected.
+        var background = false
     }
 
     private(set) var hosted: [Hosted] = []
-    private var next: Start?
-    /// The run's page when its window closed (Stop, a budget stop): Continue goes on in the same tab.
-    private var lastReleased: (controller: WeakController, tabID: String)?
+    /// agentparallel: everything below is per task (its run's taskID), so tasks run side by side.
+    /// Where each task's next run starts.
+    private var starts: [String: Start] = [:]
+    /// A run's page when its window closed (Stop, a budget stop): Continue goes on in the same tab.
+    private var released: [String: (controller: WeakController, tabID: String)] = [:]
     /// The person's tab they took over (the pane's Take over), until Hand back or Stop.
-    private var takenOver: (controller: WeakController, tabID: String)?
+    private var takenOvers: [String: (controller: WeakController, tabID: String)] = [:]
+    /// Each window's task asked last in the foreground: only its page may take the main view when its agent window
+    /// opens (agent windows of tasks asked back to back can open in any order; an earlier one's page is a parked row).
+    private var latestAsk: [ObjectIdentifier: String] = [:]
+    /// The tasks running at the last change: only a task that just ended drops its never-loaded pages.
+    private var wasActive: Set<String> = []
+    private var tasks: AgentTaskCenter { AgentTaskCenter.shared }
     private var chromes: [ObjectIdentifier: AgentMainChromeView] = [:]
     private var subs: [AnyCancellable] = []
     private var acting: [Int: Int] = [:]
@@ -74,10 +84,14 @@ final class AgentMainView {
     /// Follows the run once there is one (nothing at launch: the tab hooks call in for every window from the start).
     private func follow() {
         guard subs.isEmpty else { return }
-        let run = AgentRunCenter.shared
-        subs.append(run.$state.sink { [weak self] _ in DispatchQueue.main.async { self?.refreshAll(); self?.dropBlankPages() } })
-        subs.append(run.$approval.sink { [weak self] _ in DispatchQueue.main.async { self?.refreshAll() } })
+        // Any task's state or approval (agentparallel: every task's chrome and rows follow their own run).
+        subs.append(NotificationCenter.default.publisher(for: AgentTaskCenter.changed).sink { [weak self] _ in
+            DispatchQueue.main.async { self?.refreshAll(); self?.dropBlankPages() }
+        })
     }
+
+    /// The task whose run owns this agent window.
+    private func run(of w: AgentWindow?) -> AgentRunCenter? { w.flatMap { tasks.run(agentWindow: $0.id) } }
 
     // MARK: Lookups
 
@@ -85,44 +99,54 @@ final class AgentMainView {
     func entry(tabID: String, in c: WindowController) -> Hosted? { hosted.first { $0.tabID == tabID && $0.controller === c } }
     func isHosted(_ tabID: String) -> Bool { hosted.contains { $0.tabID == tabID && $0.page != nil } }
 
-    /// The run's current page, if hosted.
-    var runEntry: Hosted? {
-        guard let w = AgentRunCenter.shared.runWindowID.flatMap({ AgentCenter.shared.windows[$0] }), let p = w.activeTab else { return nil }
+    /// The task's current page, if hosted.
+    func entry(for run: AgentRunCenter) -> Hosted? {
+        guard let w = run.runWindowID.flatMap({ AgentCenter.shared.windows[$0] }), let p = w.activeTab else { return nil }
         return entry(p)
     }
 
-    /// Whether the run's current page is the one this window shows now (the pane then needs no live card).
-    func runShown(in c: WindowController) -> Bool {
-        guard let e = runEntry, e.controller === c, let page = e.page, let w = e.window else { return false }
+    /// Whether the task's current page is the one this window shows now (the pane then needs no live card).
+    func runShown(_ run: AgentRunCenter, in c: WindowController) -> Bool {
+        guard let e = entry(for: run), e.controller === c, let page = e.page, let w = e.window else { return false }
         return c.shownTabID == e.tabID && !w.isParked(page)
+    }
+
+    /// The task whose page this window shows now (its glow, bar and shield), or whose page the person took over there.
+    func shownRun(in c: WindowController) -> AgentRunCenter? {
+        guard let id = c.shownTabID else { return nil }
+        if let t = takenOvers.first(where: { $0.value.tabID == id && $0.value.controller.c === c }) { return tasks.run(task: t.key) }
+        guard let e = entry(tabID: id, in: c) else { return nil }
+        return run(of: e.window)
     }
 
     // MARK: Starting
 
     /// The size a new run's agent window starts at: the main view of the window it will show in (its card's page).
-    var nextViewport: CGSize? {
-        guard let c = next?.controller ?? Self.frontController else { return nil }
+    func nextViewport(task: String?) -> CGSize? {
+        guard let c = task.flatMap({ starts[$0]?.controller }) ?? Self.frontController else { return nil }
         let s = c.card.hostView?.bounds.size ?? c.card.bounds.size
         return s.width >= 320 && s.height >= 240 ? s : nil
     }
 
     /// The pane (every way to ask goes through it) says where the next run is asked. `page`: the person's tab, used by
     /// the agent itself when the task is about it.
-    func willAsk(in c: WindowController, page tabID: String?) {
+    func willAsk(_ run: AgentRunCenter, in c: WindowController, page tabID: String?, background: Bool = false) {
         follow()
-        next = Start(controller: c, tabID: tabID)
-        lastReleased = nil
-        takenOver = nil
+        starts[run.taskID] = Start(controller: c, tabID: tabID, background: background)
+        if !background { latestAsk[ObjectIdentifier(c)] = run.taskID }
+        released[run.taskID] = nil
+        takenOvers[run.taskID] = nil
     }
 
     /// Every entry point that asks (the pane, ⌘T → Ask, a task view's reply, the old panel) records its window right
     /// before the run (AgentAttention.taskAsked): the next run's page goes there. The pane's own willAsk comes first and
     /// keeps its tab; any other window replaces an older ask's (agentmainfix: a task view's reply in window B after a pane
     /// task in A placed B's page in A and switched A to B's Space).
-    func asked(in c: WindowController) {
-        if next?.controller === c { return }
+    func asked(_ run: AgentRunCenter, in c: WindowController) {
+        if starts[run.taskID]?.controller === c { return }
         follow()
-        next = Start(controller: c, tabID: nil)
+        starts[run.taskID] = Start(controller: c, tabID: nil)
+        latestAsk[ObjectIdentifier(c)] = run.taskID
     }
 
     /// Whether a prompt is about the page the person is on (then the agent works in that tab rather than a new one).
@@ -136,13 +160,13 @@ final class AgentMainView {
 
     /// The run's agent window opened (AgentBridge): its first page becomes the person's tab, shown in the main view.
     func windowOpened(_ w: AgentWindow) {
-        var start = next
-        next = nil
+        let task = w.taskID ?? ""
+        var start = starts.removeValue(forKey: task)
         // Continue after a stop: the same tab, which the person still has.
-        if start == nil, let r = lastReleased, let c = r.controller.c, c.engineTab(for: r.tabID) != nil {
+        if start == nil, let r = released[task], let c = r.controller.c, c.engineTab(for: r.tabID) != nil {
             start = Start(controller: c, tabID: r.tabID)
         }
-        lastReleased = nil
+        released[task] = nil
         follow()
         guard let c = start?.controller ?? AgentMainView.frontController else { return }
         w.hostsInMainView = true
@@ -150,8 +174,11 @@ final class AgentMainView {
         // agentmainfix: the page shows in the main view only when the window is on a Space of the agent's profile now.
         // Otherwise it's a row of that profile's Space in this window, parked (live in the card) until the person picks
         // it: the window the person is in never changes Space by itself.
+        // agentparallel: a task started in the background (⌥↩) is a row too, parked, never selected.
         let onProfile = c.store.space(c.currentSpaceID)?.profileID == w.profileID
-        if !onProfile, let b = blank, let page = w.tab(b), let space = space(for: w, in: c) {
+        // A later task asked in this window since: its page has the main view (or will), this one is a row.
+        let superseded = start?.controller != nil && latestAsk[ObjectIdentifier(c)].map { $0 != task } == true && start?.tabID == nil
+        if !onProfile || start?.background == true || superseded, let b = blank, let page = w.tab(b), let space = space(for: w, in: c) {
             w.markHosted(b)
             guard let t = try? c.store.openTab(url: page.url?.absoluteString ?? "about:blank", inSpace: space,
                                                background: true, activate: false, title: page.title) else { return w.unmarkHosted(b) }
@@ -192,8 +219,7 @@ final class AgentMainView {
 
     /// A follow-up or Continue in the same window: the run's page comes back into the main view.
     func runResumed(_ w: AgentWindow) {
-        let asker = next?.controller
-        next = nil
+        let asker = starts.removeValue(forKey: w.taskID ?? "")?.controller
         guard let p = w.activeTab, let e = entry(p), let c = e.controller else { return }
         // Asked from another window (its task view, its pane): that window isn't the page's; the page's own window keeps
         // its Space and tab (no surprise switch there).
@@ -272,8 +298,8 @@ final class AgentMainView {
                 if w.isParked(page) { page.close() }
                 c.closeTab(e.tabID)
             }
-        } else if let c, AgentRunCenter.shared.runWindowID == w.id || AgentRunCenter.shared.runWindowID == nil, w.activeTab == nil || w.activeTab === page {
-            lastReleased = (WeakController(c), e.tabID)
+        } else if let c, let task = w.taskID, w.activeTab == nil || w.activeTab === page {
+            released[task] = (WeakController(c), e.tabID)
         }
         if !closing, w.isParked(page), let c, !page.isClosed {
             // The run ended while its page was parked: it goes back to the person's window, as their tab, not shown.
@@ -305,16 +331,17 @@ final class AgentMainView {
         guard !hosted.isEmpty else { return }
         guard c.store.tab(tabID) == nil, let e = entry(tabID: tabID, in: c), let page = e.page, let w = e.window else { return }
         e.closedByPerson = true
-        let wasRun = AgentRunCenter.shared.runWindowID == w.id && w.activeTab === page
+        let run = run(of: w)
+        let wasRun = run?.runWindowID == w.id && w.activeTab === page
         if let id = w.hostedID(page) { w.unhost(id, closing: true) }
-        if wasRun, AgentRunCenter.shared.state.isActive { AgentRunCenter.shared.stop("You closed the agent's tab.") }
-        if takenOver?.tabID == tabID { takenOver = nil }
+        if wasRun, let run, run.state.isActive { run.stop("You closed the agent's tab.") }
+        for (k, t) in takenOvers where t.tabID == tabID && t.controller.c === c { takenOvers[k] = nil }
         onEvent?("closed \(tabID)")
     }
 
     /// The person's window shows `shown` and stopped showing `hidden`.
     func visibilityChanged(in c: WindowController, hidden: String?, shown: String?) {
-        guard !hosted.isEmpty || chromes[ObjectIdentifier(c)] != nil || takenOver != nil else { return }
+        guard !hosted.isEmpty || chromes[ObjectIdentifier(c)] != nil || !takenOvers.isEmpty else { return }
         let e = hidden.flatMap { entry(tabID: $0, in: c) }
         refresh(c)
         // After the show has finished (never inside it, and after it gave the page the keys).
@@ -357,12 +384,16 @@ final class AgentMainView {
 
     /// The card, the task row, a notification: the run's page into the main view of its window.
     @discardableResult
-    func bringBack(windowID: Int? = nil) -> Bool {
-        let w = (windowID ?? AgentRunCenter.shared.runWindowID).flatMap { AgentCenter.shared.windows[$0] }
+    func bringBack(windowID: Int?) -> Bool {
+        let w = windowID.flatMap { AgentCenter.shared.windows[$0] }
         guard let page = w?.activeTab, let e = entry(page) else { return false }
         bringBack(e)
         return true
     }
+
+    /// The task's page into the main view of its window.
+    @discardableResult
+    func bringBack(_ run: AgentRunCenter) -> Bool { bringBack(windowID: run.runWindowID) }
 
     /// "Needs you" on the run's page (a sign-in, a captcha): the page in the main view, Return takes over.
     func land(windowID: Int, tab: Int, in c: WindowController) -> Bool {
@@ -387,10 +418,10 @@ final class AgentMainView {
     // MARK: Take over, Hand back, Stop
 
     /// Take over: the run's page in the main view, the person's now (the run stops; Hand back starts it again).
-    func takeOver(in c: WindowController) -> (tabID: String, title: String, url: URL?, agentTabID: Int?)? {
-        guard let e = runEntry, let page = e.page, e.controller === c else { return nil }
+    func takeOver(_ run: AgentRunCenter, in c: WindowController) -> (tabID: String, title: String, url: URL?, agentTabID: Int?)? {
+        guard let e = entry(for: run), let page = e.page, e.controller === c else { return nil }
         bringBack(e)
-        takenOver = (WeakController(c), e.tabID)
+        takenOvers[run.taskID] = (WeakController(c), e.tabID)
         let agentTab = e.window?.hostedID(page)
         // The page is theirs: their clicks and keys go to it at once.
         refresh(c)
@@ -404,9 +435,10 @@ final class AgentMainView {
     func handBack(_ tabID: String, from c: WindowController, into w: AgentWindow, as agentTabID: Int?) -> String? {
         guard let page = c.engineTab(for: tabID), !page.isClosed else { return "The page is gone." }
         guard page.profile === w.profile else { return "The page is in another profile than the agent's." }
-        takenOver = nil
-        next = nil
-        lastReleased = nil
+        let task = w.taskID ?? ""
+        takenOvers[task] = nil
+        starts[task] = nil
+        released[task] = nil
         follow()
         w.hostsInMainView = true
         let blanks = w.tabs.filter { !$0.hosted }.map(\.id)
@@ -429,13 +461,12 @@ final class AgentMainView {
     }
 
     /// The pane's banner is gone (Stop, a new task): no Hand back over the page any more.
-    func endTakeOver() {
-        let c = takenOver?.controller.c
-        takenOver = nil
+    func endTakeOver(_ run: AgentRunCenter) {
+        let c = takenOvers.removeValue(forKey: run.taskID)?.controller.c
         if let c { refresh(c) }
     }
 
-    var takenOverTabID: String? { takenOver?.tabID }
+    func takenOverTabID(_ run: AgentRunCenter) -> String? { takenOvers[run.taskID]?.tabID }
 
     // MARK: The agent's calls (AgentBridge)
 
@@ -456,7 +487,8 @@ final class AgentMainView {
     func willCall(_ w: AgentWindow?, tool: String, args: [String: Any]) {
         guard let w, let p = w.activeTab, let e = entry(p), let c = e.controller else { return }
         acting[w.id, default: 0] += 1
-        chrome(c, create: false)?.setActing(true)
+        // agentparallel: the glow breathes for the task whose page the window shows, not for a parked one.
+        if c.shownTabID == e.tabID { chrome(c, create: false)?.setActing(true) }
         if Self.pointed.contains(tool), tool != "mouse_move", tool != "scroll",
            let xy = (args["coordinate"] ?? args["start_coordinate"]) as? [Any], xy.count == 2,
            let x = (xy[0] as? NSNumber)?.doubleValue, let y = (xy[1] as? NSNumber)?.doubleValue, c.shownTabID == e.tabID {
@@ -474,6 +506,7 @@ final class AgentMainView {
             // A short rest between calls keeps the glow from flickering on every step.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self, weak c] in
                 guard let self, let c, (self.acting[w.id] ?? 0) == 0 else { return }
+                if let shown = c.shownTabID.flatMap({ self.entry(tabID: $0, in: c) }), let sw = shown.window, sw !== w, (self.acting[sw.id] ?? 0) > 0 { return }
                 self.chrome(c, create: false)?.setActing(false)
             }
             refresh(c)
@@ -519,7 +552,8 @@ final class AgentMainView {
     private func beginStarting(_ e: Hosted) {
         guard let page = e.page, Self.isBlank(page) else { return }
         e.starting = true
-        e.taskTitle = AgentRunCenter.shared.steps.first { $0.kind == .user }.map { AgentTaskTitle.make($0.text) }
+        // agentparallel: the title of the task whose page this is.
+        e.taskTitle = run(of: e.window)?.steps.first { $0.kind == .user }.map { AgentTaskTitle.make($0.text) }
         titleRow(e)
         onEvent?("starting \(e.tabID)")
         followStart(e)
@@ -563,8 +597,12 @@ final class AgentMainView {
     /// only answered) leaves no "about:blank" row in Today: the person never had that page. The person's own tabs, a page
     /// still loading and a taken-over tab stay.
     private func dropBlankPages() {
-        guard !AgentRunCenter.shared.state.isActive else { return }
-        for e in hosted where !e.personOwned && e.tabID != takenOver?.tabID {
+        let now = Set(tasks.active.map(\.taskID))
+        let ended = wasActive.subtracting(now)
+        wasActive = now
+        guard !ended.isEmpty else { return }
+        let taken = Set(takenOvers.values.map(\.tabID))
+        for e in hosted where !e.personOwned && !taken.contains(e.tabID) && e.window?.taskID.map(ended.contains) == true {
             guard let page = e.page, !page.isClosed, !page.isLoading, let w = e.window, let id = w.hostedID(page) else { continue }
             let address = page.url?.absoluteString ?? ""
             guard address.isEmpty || address == "about:blank" else { continue }
@@ -586,14 +624,21 @@ final class AgentMainView {
         if let v = chromes[key] { return v }
         guard create else { return nil }
         let v = AgentMainChromeView(frame: .zero)
-        v.bar.onTakeOver = { [weak c] in guard let c else { return }; AgentPaneController.show(c).model.takeOver() }
-        v.bar.onStop = { [weak self, weak c] in
-            guard let c else { return }
-            AgentPaneController.show(c).model.stopTask()   // stops the run and clears a Take over's banner
-            AgentRunCenter.shared.stop()
-            self?.endTakeOver()
+        // agentparallel: the bar acts on the task whose page it lies over, and opens the pane on that task.
+        v.bar.onTakeOver = { [weak self, weak c] in
+            guard let self, let c, let r = self.shownRun(in: c) else { return }
+            AgentPaneController.show(c, task: r).model.takeOver()
         }
-        v.bar.onHandBack = { [weak c] in guard let c else { return }; AgentPaneController.show(c).model.handBack() }
+        v.bar.onStop = { [weak self, weak c] in
+            guard let self, let c, let r = self.shownRun(in: c) else { return }
+            AgentPaneController.show(c, task: r).model.stopTask()   // stops the run and clears a Take over's banner
+            r.stop()
+            self.endTakeOver(r)
+        }
+        v.bar.onHandBack = { [weak self, weak c] in
+            guard let self, let c, let r = self.shownRun(in: c) else { return }
+            AgentPaneController.show(c, task: r).model.handBack()
+        }
         v.onPersonScroll = { [weak self, weak c] in if let c { self?.personScrolled(in: c) } }
         c.card.addPageOverlay(v)
         chromes[key] = v
@@ -606,7 +651,7 @@ final class AgentMainView {
         guard mode != .off || chromes[ObjectIdentifier(c)] != nil else { return }
         guard let v = chrome(c, create: true) else { return }
         v.setTheme(c.currentPalette)
-        v.bar.name = AgentRunCenter.shared.cliKind.map { "\($0.name)" } ?? "Airc Agent"
+        v.bar.name = shownRun(in: c)?.cliKind.map { "\($0.name)" } ?? "Airc Agent"
         v.page = c.shownTabID.flatMap { c.engineTab(for: $0) }?.view
         v.set(mode)
         // Before the task's first page: the card's own fill and "Starting…", never the blank page's white.
@@ -618,16 +663,21 @@ final class AgentMainView {
 
     private func mode(_ c: WindowController) -> AgentMainChromeView.Mode {
         guard let id = c.shownTabID, c.store.split(containing: id) == nil || c.visibleTabIDs.count <= 1 else { return .off }
-        if takenOver?.tabID == id, takenOver?.controller.c === c { return .takenOver }
+        if takenOvers.values.contains(where: { $0.tabID == id && $0.controller.c === c }) { return .takenOver }
         guard let e = entry(tabID: id, in: c), let w = e.window, let page = e.page, !w.isParked(page) else { return .off }
-        let run = AgentRunCenter.shared
-        guard run.state.isActive, run.runWindowID == w.id else { return .off }
+        guard let run = run(of: w), run.state.isActive, run.runWindowID == w.id else { return .off }
         return .working(waiting: run.approval != nil)
     }
 
     private func changed() { NotificationCenter.default.post(name: Self.changed, object: self) }
 
     #if AIRC_TESTING
+    /// One-task checks: the task started last.
+    func runShown(in c: WindowController) -> Bool { runShown(AgentRunCenter.shared, in: c) }
+    @discardableResult
+    func bringBack() -> Bool { bringBack(AgentRunCenter.shared) }
+    var takenOverTabID: String? { takenOverTabID(AgentRunCenter.shared) }
+    var runEntry: Hosted? { entry(for: AgentRunCenter.shared) }
     private(set) var lastMode: [ObjectIdentifier: AgentMainChromeView.Mode] = [:]
     func chromeView(_ c: WindowController) -> AgentMainChromeView? { chromes[ObjectIdentifier(c)] }
     func modeShown(_ c: WindowController) -> AgentMainChromeView.Mode { mode(c) }

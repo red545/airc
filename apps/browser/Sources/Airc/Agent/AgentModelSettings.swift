@@ -26,6 +26,9 @@ final class AgentModelSettings {
         var blockedSites: [String] = []
         /// "Remember things between tasks" (docs/design/agent.md, "Memory"): off by default.
         var memory = false
+        /// agentparallel: how many Airc Agent tasks run at once; more start as Queued. 0 = no limit.
+        var maxParallel = Values.defaultMaxParallel
+        static let defaultMaxParallel = 3
 
         init() {}
         init(from decoder: Decoder) throws {
@@ -38,6 +41,7 @@ final class AgentModelSettings {
             stepCap = (try? c.decodeIfPresent(Int.self, forKey: .stepCap)).flatMap { $0 > 0 ? $0 : nil }
             blockedSites = (try? c.decode([String].self, forKey: .blockedSites)) ?? []
             memory = (try? c.decode(Bool.self, forKey: .memory)) ?? false
+            maxParallel = max(0, (try? c.decode(Int.self, forKey: .maxParallel)) ?? Values.defaultMaxParallel)
         }
     }
 
@@ -61,6 +65,8 @@ final class AgentModelSettings {
         #if AIRC_TESTING
         let args = CommandLine.arguments
         if let b = args.first(where: { $0.hasPrefix("--agent-model-base=") }) { baseOverride = String(b.dropFirst("--agent-model-base=".count)) }
+        // agentparallel checks: the limit of tasks at once for this run only (not saved).
+        if let n = ProcessInfo.processInfo.environment["AIRC_AGENT_MAX_PARALLEL"].flatMap(Int.init) { values.maxParallel = max(0, n) }
         if let k = args.first(where: { $0.hasPrefix("--agent-model-key=") }) {
             inMemory = true
             hasKeyCache = nil

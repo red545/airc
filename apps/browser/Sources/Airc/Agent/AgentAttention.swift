@@ -32,18 +32,18 @@ enum AgentAttention {
         let profileID: String?
         /// "Pay on shop.example?" / "Sign in to Example Mail".
         let title: String
+        /// agentparallel: the Airc Agent task it belongs to (an approval, or a page of that task).
+        var taskID: String? = nil
     }
 
     static let changed = Notification.Name("AircAgentAttentionChanged")
 
     /// When each row's page started waiting (rows only know that they wait).
     private static var pageSince: [String: Date] = [:]
-    private static var approvalSince: (id: UUID, at: Date)?
-    /// Where the agent's current task was asked: its window, Space and profile (its approval lands there). Every entry
-    /// point that starts or continues a task records it (the pane, ⌘T → Ask, a task view's reply, the old panel).
-    private(set) static weak var taskWindow: WindowController?
-    private(set) static var taskSpaceID: String?
-    private(set) static var taskProfileID: String?
+    /// When each waiting approval was asked (by request id).
+    private static var approvalSince: [UUID: Date] = [:]
+    /// The approvals announced so far (agentparallel: one per waiting task).
+    private static var announced: [String: UUID] = [:]
     /// The item the last click landed on (the next click goes to the one after it).
     private static var lastLanded: String?
     private static var subs: [AnyCancellable] = []
@@ -67,25 +67,40 @@ enum AgentAttention {
         installed = true
         let isAutomated = (NSApp.delegate as? AppDelegate)?.options.isAutomated == true
         if !isAutomated { UNUserNotificationCenter.current().delegate = NotificationDelegate.shared }
-        subs.append(AgentRunCenter.shared.$approval.removeDuplicates().receive(on: DispatchQueue.main).sink { a in approvalChanged(a) })
+        // Posted on the main thread already, one hop after the run's change (as the single run's approval was followed).
+        subs.append(NotificationCenter.default.publisher(for: AgentTaskCenter.changed).sink { _ in approvalsChanged() })
         subs.append(NotificationCenter.default.publisher(for: AgentActivity.changed).receive(on: DispatchQueue.main).sink { _ in rowsChanged() })
     }
 
-    /// Right before `AgentRunCenter.ask`, from every entry point: the task's window, Space and profile.
-    static func taskAsked(in c: WindowController) {
-        taskWindow = c
-        taskSpaceID = c.currentSpaceID
-        taskProfileID = c.store.profile(ofSpace: c.currentSpaceID).id
+    /// Right before `AgentRunCenter.ask`, from every entry point: the task's window, Space and profile (on its run:
+    /// agentparallel, each task lands in its own window).
+    static func taskAsked(in c: WindowController, run: AgentRunCenter) {
+        run.askedIn = c
+        run.askedSpaceID = c.currentSpaceID
+        run.askedProfileID = c.store.profile(ofSpace: c.currentSpaceID).id
         // The task's page opens in this window too (agentmainfix).
-        AgentMainView.shared.asked(in: c)
+        AgentMainView.shared.asked(run, in: c)
     }
 
-    /// The recorded window, only while it is open and was asked from in the item's profile (an older record from
+    #if AIRC_TESTING
+    /// One-task checks: where the task started last was asked.
+    static var taskWindow: WindowController? { AgentRunCenter.shared.askedIn }
+    static var paneRowID: String? { paneRowID(for: AgentRunCenter.shared) }
+    #endif
+
+    /// The task an item belongs to: its approval's, or the task whose agent window holds its page.
+    static func run(of it: Item) -> AgentRunCenter? {
+        if let t = it.taskID, let r = AgentTaskCenter.shared.run(task: t) { return r }
+        guard let row = it.rowID.flatMap({ AgentActivity.shared.model.row($0) }) else { return nil }
+        return AgentTaskCenter.shared.run(agentWindow: row.window)
+    }
+
+    /// The task's recorded window, only while it is open and was asked from in the item's profile (an older record from
     /// another profile never takes a "needs you").
     private static func recordedWindow(for it: Item, in all: [WindowController]) -> WindowController? {
-        guard let c = taskWindow, all.contains(where: { $0 === c }) else { return nil }
+        guard let run = run(of: it), let c = run.askedIn, all.contains(where: { $0 === c }) else { return nil }
         if let p = it.profileID {
-            guard taskProfileID == p, c.windowSpaces.contains(where: { $0.profileID == p }) else { return nil }
+            guard run.askedProfileID == p, c.windowSpaces.contains(where: { $0.profileID == p }) else { return nil }
         }
         return c
     }
@@ -94,10 +109,10 @@ enum AgentAttention {
 
     static func items() -> [Item] {
         var out: [Item] = []
-        let run = AgentRunCenter.shared
-        if let a = run.approval {
-            out.append(Item(id: "approval-" + a.id.uuidString, kind: .approval, since: approvalSince?.id == a.id ? approvalSince!.at : Date(),
-                            rowID: paneRowID, client: "Airc Agent", profileID: run.profileID, title: a.title))
+        // agentparallel: every task waiting for an OK.
+        for run in AgentTaskCenter.shared.waiting {
+            guard let a = run.approval else { continue }
+            out.append(approvalItem(run, a))
         }
         for r in AgentActivity.shared.model.rows where r.isLive && r.shown {
             guard let why = r.needsYou, why != AgentPrompts.reason else { continue }
@@ -128,9 +143,14 @@ enum AgentAttention {
         items().first { $0.rowID == rowID && $0.kind != .approval } ?? items().first { $0.rowID == rowID }
     }
 
-    /// The Airc Agent run's current page row.
-    static var paneRowID: String? {
-        guard let w = AgentRunCenter.shared.runWindowID else { return nil }
+    private static func approvalItem(_ run: AgentRunCenter, _ a: AgentApprovalRequest) -> Item {
+        Item(id: "approval-" + a.id.uuidString, kind: .approval, since: approvalSince[a.id] ?? Date(), rowID: paneRowID(for: run),
+             client: "Airc Agent", profileID: run.profileID, title: a.title, taskID: run.taskID)
+    }
+
+    /// A task's current page row.
+    static func paneRowID(for run: AgentRunCenter) -> String? {
+        guard let w = run.runWindowID else { return nil }
         let rows = AgentActivity.shared.model.rows.filter { $0.window == w && $0.isLive }
         let active = AgentCenter.shared.windows[w]?.activeTabID
         return (rows.first { $0.tab == active } ?? rows.last)?.id
@@ -195,7 +215,9 @@ enum AgentAttention {
     static func isShown(_ it: Item, in c: WindowController) -> Bool {
         guard c.window.isKeyWindow, NSApp.isActive else { return false }
         switch it.kind {
-        case .approval: return AgentPaneController.pane(of: c)?.isShown == true && AgentPaneController.pane(of: c)?.model.approvalFocused == true
+        case .approval:
+            guard let p = AgentPaneController.pane(of: c) else { return false }
+            return p.isShown && p.model.approvalFocused && (it.taskID == nil || p.model.run.taskID == it.taskID)
         case .page: return c.sidebar.agents.watch?.rowID == it.rowID
         case .prompt(let id):
             if let row = it.rowID { return c.sidebar.agents.watch?.rowID == row && c.sidebar.agents.watch?.promptShown?.id == id }
@@ -215,12 +237,12 @@ enum AgentAttention {
         case .approval:
             if c.sidebar.agents.watch != nil { c.sidebar.agents.closeWatch() }
             c.sidebar.agents.closeApproval()
-            let p = AgentPaneController.show(c)
+            let p = run(of: it).map { AgentPaneController.show(c, task: $0) } ?? AgentPaneController.show(c)
             p.focusApproval()
         case .page:
             guard let row = it.rowID else { break }
-            // The pane task's own page: its pane too (Take over then keeps Hand back).
-            if AgentActivity.shared.model.row(row)?.window == AgentRunCenter.shared.runWindowID, AgentUI.usesPane { AgentPaneController.show(c) }
+            // A pane task's own page: its pane too, on that task (Take over then keeps Hand back).
+            if AgentUI.usesPane, let r = run(of: it) { AgentPaneController.show(c, task: r) }
             // agentmainview: the Airc Agent's page is a tab of this window: it comes into the main view, Return takes over.
             if let r = AgentActivity.shared.model.row(row), AgentMainView.shared.land(windowID: r.window, tab: r.tab, in: c) { break }
             c.sidebar.agents.openWatch(row)
@@ -235,7 +257,7 @@ enum AgentAttention {
             // person took over. No button takes Return: allowing is always a deliberate click.
             AgentPrompts.shared.reopen(id)
             if let row = it.rowID {
-                if AgentActivity.shared.model.row(row)?.window == AgentRunCenter.shared.runWindowID, AgentUI.usesPane { AgentPaneController.show(c) }
+                if AgentUI.usesPane, let r = run(of: it) { AgentPaneController.show(c, task: r) }
                 c.sidebar.agents.openWatch(row)
                 c.sidebar.agents.watch?.syncPrompt()
             } else if let tab = AgentPrompts.shared.page(id), let (_, tabID) = AgentPrompts.controller(holding: tab) {
@@ -255,7 +277,7 @@ enum AgentAttention {
     static func window(for it: Item) -> WindowController? {
         let all = AgentCenter.shared.app?.controllers ?? []
         if case .prompt(let id) = it.kind, it.rowID == nil, let tab = AgentPrompts.shared.page(id), let (c, _) = AgentPrompts.controller(holding: tab) { return c }
-        let paneTask = it.kind == .approval || (it.rowID.flatMap { AgentActivity.shared.model.row($0)?.window } == AgentRunCenter.shared.runWindowID)
+        let paneTask = it.kind == .approval || run(of: it) != nil
         if paneTask, let c = recordedWindow(for: it, in: all) { return c }
         if let p = it.profileID {
             let showing = AgentActivity.shared.windows(showing: p)
@@ -267,7 +289,8 @@ enum AgentAttention {
     }
 
     private static func switchSpace(_ c: WindowController, for it: Item) {
-        if it.kind == .approval, let s = taskSpaceID, taskWindow === c, s != c.currentSpaceID,
+        let task = run(of: it)
+        if it.kind == .approval, let s = task?.askedSpaceID, task?.askedIn === c, s != c.currentSpaceID,
            let space = c.windowSpaces.first(where: { $0.id == s }), it.profileID == nil || space.profileID == it.profileID {
             return c.switchToSpace(s, animated: false)
         }
@@ -287,14 +310,19 @@ enum AgentAttention {
 
     // MARK: Following approvals and pages
 
-    private static func approvalChanged(_ a: AgentApprovalRequest?) {
-        if let a {
-            if approvalSince?.id != a.id { approvalSince = (a.id, Date()) }
-            announce(Item(id: "approval-" + a.id.uuidString, kind: .approval, since: approvalSince!.at, rowID: paneRowID, client: "Airc Agent",
-                          profileID: AgentRunCenter.shared.profileID, title: a.title))
-        } else {
-            approvalSince = nil
-            Notifications.withdraw("agent-approval")
+    /// agentparallel: each task's approval is announced once when it comes, and its notification withdrawn when it goes.
+    private static func approvalsChanged() {
+        var now: [String: (AgentRunCenter, AgentApprovalRequest)] = [:]
+        for run in AgentTaskCenter.shared.waiting { if let a = run.approval { now[run.taskID] = (run, a) } }
+        for (task, id) in announced where now[task]?.1.id != id {
+            announced[task] = nil
+            approvalSince[id] = nil
+            Notifications.withdraw("agent-approval-" + task)
+        }
+        for (task, (run, a)) in now where announced[task] != a.id {
+            announced[task] = a.id
+            if approvalSince[a.id] == nil { approvalSince[a.id] = Date() }
+            announce(approvalItem(run, a))
         }
         updateBadges()
     }
@@ -342,7 +370,8 @@ enum AgentAttention {
     /// approval's notification when Airc isn't in front (the page's comes from AgentNeedsYou after 8 s).
     private static func announce(_ it: Item) {
         guard let c = window(for: it) else { return }
-        let shownThere = it.kind == .approval ? AgentPaneController.pane(of: c)?.isShown == true && c.window.isKeyWindow && NSApp.isActive
+        let pane = AgentPaneController.pane(of: c)
+        let shownThere = it.kind == .approval ? pane?.isShown == true && (it.taskID == nil || pane?.model.run.taskID == it.taskID) && c.window.isKeyWindow && NSApp.isActive
                                               : c.sidebar.agents.watch?.rowID == it.rowID
         if !shownThere {
             let text = it.kind == .approval ? "\(it.client) needs your OK · \(it.title)" : "\(it.client) needs you · \(it.title)"
@@ -351,7 +380,9 @@ enum AgentAttention {
             AgentCenter.shared.onEvent?("attention-toast \(it.id)")
         }
         if it.kind == .approval, !(NSApp.isActive && c.window.isKeyWindow) {
-            Notifications.post(id: "agent-approval", title: "\(it.client) needs your OK", body: it.title + " Click to answer.",
+            let task = it.taskID.flatMap { id in AgentTaskRecorder.shared.tasks.first(where: { $0.id == id })?.title }
+            Notifications.post(id: "agent-approval-" + (it.taskID ?? ""), title: "\(it.client) needs your OK",
+                               body: (task.map { "\($0): " } ?? "") + it.title + " Click to answer.",
                                info: ["agentApproval": it.id])
         }
     }

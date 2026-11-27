@@ -7,23 +7,23 @@ import SwiftUI
 
 /// Keeps a task record (AircKit's AgentTaskRecord, `<data folder>/Agent/Tasks/<id>.json`) for each pane conversation:
 /// title, state, provider, steps, sites and the answer's first line. Never page text, typed values or keys; its pictures
-/// are AgentTaskThumbs' own files (agentrecall), deleted with it.
+/// are AgentTaskThumbs' own files (agentrecall), deleted with it. agentparallel: one record per running task, each
+/// following its own run (AgentTaskCenter).
 final class AgentTaskRecorder: ObservableObject {
     static let shared = AgentTaskRecorder()
 
     let store = AgentTaskStore(folder: AppPaths.dataDirectory.appendingPathComponent("Agent/Tasks", isDirectory: true))
     @Published private(set) var tasks: [AgentTaskRecord] = []
-    /// The conversation the pane shows now.
-    private(set) var currentID: String?
-    private var space: (id: String, profile: String)?
-    private var subs: [AnyCancellable] = []
-    private var saveQueued = false
+    /// Each run's record (run → record id), while its conversation has one.
+    private var live: [ObjectIdentifier: String] = [:]
+    private var subs: [ObjectIdentifier: [AnyCancellable]] = [:]
+    private var saveQueued: Set<ObjectIdentifier> = []
 
     private init() {
-        // A task can't be running when Airc starts (one conversation, in this process): a record a quit or crash
-        // left running or waiting says Stopped.
+        // A task can't be running when Airc starts (its run lives in this process): a record a quit or crash left
+        // running, waiting or queued says Stopped.
         var loaded = store.all()
-        for i in loaded.indices where [.running, .waiting, .takenOver].contains(loaded[i].status) {
+        for i in loaded.indices where [.running, .waiting, .takenOver, .queued].contains(loaded[i].status) {
             loaded[i].status = .stopped
             loaded[i].endedAt = loaded[i].endedAt ?? loaded[i].updatedAt
             try? store.save(loaded[i])
@@ -31,54 +31,84 @@ final class AgentTaskRecorder: ObservableObject {
         tasks = AgentTaskRecord.ordered(loaded)
         let ids = Set(loaded.map(\.id))
         DispatchQueue.main.async { AgentTaskThumbs.shared.prune(keeping: ids) }
-        let run = AgentRunCenter.shared
-        subs.append(run.$steps.sink { [weak self] s in DispatchQueue.main.async { self?.stepsChanged(s) } })
-        subs.append(run.$state.sink { [weak self] _ in DispatchQueue.main.async { self?.queueSave() } })
-        subs.append(run.$approval.sink { [weak self] _ in DispatchQueue.main.async { self?.queueSave() } })
     }
 
-    /// The pane starts a task in this Space.
-    func willAsk(spaceID: String, profileID: String) { space = (spaceID, profileID) }
+    /// From AgentTaskCenter.make: follow this run.
+    func attach(_ run: AgentRunCenter) {
+        let key = ObjectIdentifier(run)
+        guard subs[key] == nil else { return }
+        var s: [AnyCancellable] = []
+        s.append(run.$steps.sink { [weak self, weak run] steps in
+            DispatchQueue.main.async { if let run { self?.stepsChanged(run, steps) } }
+        })
+        s.append(run.$queuedPrompt.sink { [weak self, weak run] q in
+            DispatchQueue.main.async { if let run, q != nil { self?.queued(run) } }
+        })
+        s.append(run.$state.sink { [weak self, weak run] _ in DispatchQueue.main.async { if let run { self?.queueSave(run) } } })
+        s.append(run.$approval.sink { [weak self, weak run] _ in DispatchQueue.main.async { if let run { self?.queueSave(run) } } })
+        subs[key] = s
+    }
 
-    private func stepsChanged(_ steps: [AgentStep]) {
+    func detach(_ run: AgentRunCenter) {
+        let key = ObjectIdentifier(run)
+        subs[key] = nil
+        live[key] = nil
+    }
+
+    /// The pane starts a task in this Space (now on the run itself: AgentAttention.taskAsked).
+    func willAsk(spaceID: String, profileID: String) {}
+
+    /// The record this run writes now.
+    func recordID(_ run: AgentRunCenter) -> String? { live[ObjectIdentifier(run)] }
+
+    private func makeRecord(_ run: AgentRunCenter, prompt: String, status: AgentTaskRecord.Status) {
+        let v = AgentModelSettings.shared.values
+        let provider = v.backend.cli?.name ?? v.provider.name + " API key"
+        let r = AgentTaskRecord(id: run.taskID, title: AgentTaskTitle.make(prompt), spaceID: run.askedSpaceID ?? "",
+                                profileID: run.askedProfileID ?? run.profileID ?? "", provider: provider, status: status)
+        live[ObjectIdentifier(run)] = r.id
+        upsert(r)
+    }
+
+    /// Past the person's limit: the task shows as Queued until it starts.
+    private func queued(_ run: AgentRunCenter) {
+        guard live[ObjectIdentifier(run)] == nil, !run.privateWindow, let q = run.queuedPrompt else { return }
+        makeRecord(run, prompt: q, status: .queued)
+    }
+
+    private func stepsChanged(_ run: AgentRunCenter, _ steps: [AgentStep]) {
+        let key = ObjectIdentifier(run)
         if steps.isEmpty {
-            // A new conversation leaves the old task where it was; one still marked working was cut off.
-            if let id = currentID, var r = tasks.first(where: { $0.id == id }), [.running, .waiting, .takenOver].contains(r.status) {
+            // A new conversation leaves the old task where it was; one still marked working or queued was cut off.
+            if let id = live[key], var r = tasks.first(where: { $0.id == id }), [.running, .waiting, .takenOver, .queued].contains(r.status) {
                 r.status = .stopped
                 r.endedAt = Date()
                 r.updatedAt = Date()
                 upsert(r)
             }
-            currentID = nil
+            live[key] = nil
             return
         }
         // A private window's conversation is never a task (docs/design/agent-ux.md §1): no record, no pictures.
-        if currentID == nil, AgentRunCenter.shared.privateWindow { return }
-        if currentID == nil, let first = steps.first(where: { $0.kind == .user }) {
-            let v = AgentModelSettings.shared.values
-            let provider = v.backend.cli?.name ?? v.provider.name + " API key"
-            let r = AgentTaskRecord(title: AgentTaskTitle.make(first.text), spaceID: space?.id ?? "", profileID: space?.profile ?? AgentRunCenter.shared.profileID ?? "",
-                                    provider: provider)
-            currentID = r.id
-            upsert(r)
-        }
-        queueSave()
+        if live[key] == nil, run.privateWindow { return }
+        if live[key] == nil, let first = steps.first(where: { $0.kind == .user }) { makeRecord(run, prompt: first.text, status: .running) }
+        queueSave(run)
     }
 
-    private func queueSave() {
-        guard currentID != nil, !saveQueued else { return }
-        saveQueued = true
+    private func queueSave(_ run: AgentRunCenter) {
+        let key = ObjectIdentifier(run)
+        guard live[key] != nil, !saveQueued.contains(key) else { return }
+        saveQueued.insert(key)
         // Coalesced: a streaming run changes its steps many times a second.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.saveQueued = false
-            self?.saveNow()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self, weak run] in
+            self?.saveQueued.remove(key)
+            if let run { self?.saveNow(run) }
         }
     }
 
-    private func saveNow() {
-        guard let id = currentID, var r = tasks.first(where: { $0.id == id }) else { return }
-        let run = AgentRunCenter.shared
-        let timeline = AgentPaneTimeline.shared
+    private func saveNow(_ run: AgentRunCenter) {
+        guard let id = live[ObjectIdentifier(run)], var r = tasks.first(where: { $0.id == id }) else { return }
+        let timeline = run.timeline
         r.updatedAt = Date()
         r.steps = run.steps.filter { $0.kind == .action }.count
         var sites: [String] = []
@@ -89,7 +119,7 @@ final class AgentTaskRecorder: ObservableObject {
             r.answerHead = AgentTaskRecord.answerHead(a)
         }
         r.entries = AgentTaskRecord.capped(Self.entries(run.steps, timeline: timeline))
-        r.endedAt = run.state.isActive ? nil : (r.endedAt ?? Date())
+        r.endedAt = run.isBusy ? nil : (r.endedAt ?? Date())
         let before = r.status
         switch run.state {
         case .running: r.status = .running
@@ -97,9 +127,9 @@ final class AgentTaskRecorder: ObservableObject {
         case .done: r.status = .done
         case .stopped: r.status = .stopped
         case .failed: r.status = .failed
-        case .idle: break
+        case .idle: if run.queuedPrompt != nil { r.status = .queued }
         }
-        if before != r.status, r.status == .done { r.unread = !AgentUI.anyPaneShows }
+        if before != r.status, r.status == .done { r.unread = !AgentUI.paneShows(run) }
         upsert(r)
     }
 
@@ -121,7 +151,9 @@ final class AgentTaskRecorder: ObservableObject {
         }
     }
 
-    /// The task the agent runs now (nil: none, or the pane shows a new empty task).
+    /// The task started last, while it has a record (the old panel and one-task checks; every live task has its own run:
+    /// AgentTaskCenter.run(task:)).
+    var currentID: String? { AgentTaskCenter.shared.runs.last(where: { live[ObjectIdentifier($0)] != nil }).flatMap { live[ObjectIdentifier($0)] } }
     var current: AgentTaskRecord? { currentID.flatMap { id in tasks.first { $0.id == id } } }
 
     private func upsert(_ r: AgentTaskRecord) {
@@ -149,7 +181,10 @@ final class AgentTaskRecorder: ObservableObject {
 
     /// Delete: the record goes; the current conversation's agent window closes with it.
     func delete(_ id: String) {
-        if id == currentID { AgentRunCenter.shared.newConversation() }
+        if let run = AgentTaskCenter.shared.run(task: id) {
+            run.newConversation()
+            AgentTaskCenter.shared.forget(run)
+        }
         tasks.removeAll { $0.id == id }
         store.delete(id)
         AgentTaskThumbs.shared.forget(task: id)
@@ -161,6 +196,13 @@ extension AgentUI {
     static var anyPaneShows: Bool {
         guard let c = (NSApp.keyWindow?.delegate as? WindowController) ?? (NSApp.delegate as? AppDelegate)?.controller else { return false }
         return AgentPaneController.pane(of: c)?.isShown == true && NSApp.isActive
+    }
+
+    /// agentparallel: the key window's pane is open on this task (the person sees it end; else it's unread).
+    static func paneShows(_ run: AgentRunCenter) -> Bool {
+        guard NSApp.isActive, let c = (NSApp.keyWindow?.delegate as? WindowController) ?? (NSApp.delegate as? AppDelegate)?.controller,
+              let p = AgentPaneController.pane(of: c) else { return false }
+        return p.isShown && p.model.run === run
     }
 }
 

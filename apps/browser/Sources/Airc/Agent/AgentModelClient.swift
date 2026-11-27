@@ -18,6 +18,7 @@ final class AgentModelClient: NSObject, URLSessionDataDelegate {
         let parser = AgentSSEParser()
         let assembler: AgentStreamAssembler
         var status = 0
+        var retryAfter: Double?
         var errorBody = Data()
         let onText: (String) -> Void
         let onCall: (AgentToolCall) -> Void
@@ -89,6 +90,7 @@ final class AgentModelClient: NSObject, URLSessionDataDelegate {
                     completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
         guard dataTask === task, let s = current else { return completionHandler(.cancel) }
         s.status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        s.retryAfter = ((response as? HTTPURLResponse)?.value(forHTTPHeaderField: "retry-after")).flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }
         completionHandler(.allow)
     }
 
@@ -116,7 +118,11 @@ final class AgentModelClient: NSObject, URLSessionDataDelegate {
         if !(200..<300).contains(s.status) && s.status != 0 {
             current = nil
             task = nil
-            return s.finish(.failure(AgentModelError(AgentConversation.errorMessage(status: s.status, body: s.errorBody))))
+            var e = AgentModelError(AgentConversation.errorMessage(status: s.status, body: s.errorBody))
+            // agentparallel: several tasks share one key: a rate limit (429) or an overloaded service (529, 503) waits
+            // and tries again rather than failing the task.
+            if [429, 503, 529].contains(s.status) { e.rateLimited = true; e.retryAfter = s.retryAfter }
+            return s.finish(.failure(e))
         }
         if s.assembler.finished { return complete(s) }
         current = nil
@@ -148,6 +154,10 @@ struct AgentModelError: Error {
     /// The turn didn't arrive whole (a dropped stream, a stream error event): nothing was added to the history, so
     /// sending the same request again is safe.
     var dropped = false
+    /// 429 / 503 / 529: nothing was added to the history; the same request can go again after `retryAfter` (seconds, from
+    /// the answer's Retry-After) or a backoff.
+    var rateLimited = false
+    var retryAfter: Double?
     init(_ message: String, cancelled: Bool = false, dropped: Bool = false) {
         self.message = message
         self.cancelled = cancelled

@@ -20,7 +20,8 @@ lacks, next to agent browsers such as Aside, is:
  ┌──────────── Airc.app (main thread) ────────────────────────────────────────────────┐
  │  Agent panel (⌥⌘A)  ── chat, live steps, approval cards, Stop, usage              │
  │        │                                                                            │
- │  AgentRun (one task) ── loop: model turn → tool calls → results → next turn        │
+ │  AgentRun (one per task; several run at once, AgentTaskCenter) ── loop: model turn  │
+ │        → tool calls → results → next turn                                          │
  │        │        │                                                                   │
  │        │   ModelClient ── AnthropicClient (Messages API)  ┐ HTTPS, the person's    │
  │        │                └ OpenAIClient (Responses API)    ┘ own key from Keychain   │
@@ -229,7 +230,7 @@ panel (Show) and edit in any editor. `AgentMemoryStore` / `AgentMemoryGuard` in 
   under askai's "Ask Claude/ChatGPT" row (else third), badge "Agent". Only in normal windows and only with a key saved
   (a cached flag: the per-key cost is one bool and one comparison, Perf section `cb.agentrow`). Return opens the panel in
   that window and runs the task; while a task runs, it waits in the field.
-- **Watch** shows the approval card too (phase 2): the same request (AgentRunCenter.approval), mirrored while Watch
+- **Watch** shows the approval card too (phase 2): the same request (its task's AgentRunCenter.approval), mirrored while Watch
   shows the run's own row; Allow Once / Deny in either place answers both, Esc in Watch declines, and Watch's caption
   says "Waiting for your OK".
 - **Hand to Claude** (no key; phase 2): "Hand to Claude Desktop" / "Hand to Claude Code" for the ones installed. The

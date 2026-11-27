@@ -63,7 +63,7 @@ struct AgentModelSection: View {
             SettingsRow(title: "Tasks", subtitle: AgentLevel.help) {
                 Picker("", selection: Binding(get: { values.level }, set: { l in
                     settings.update { $0.level = l }
-                    AgentRunCenter.shared.level = l
+                    for r in AgentTaskCenter.shared.runs where !r.isBusy { r.level = l }
                     reload()
                 })) {
                     ForEach(AgentLevel.allCases, id: \.self) { Text($0.name).tag($0) }

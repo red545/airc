@@ -31,6 +31,13 @@ works in that tab itself. The pane beside it shows each step as one line with th
 - **Switch tabs whenever you like.** The agent keeps going in its tab, and the pane shows a small live picture of it until
   you come back; click the picture, the tab's row in Today or the task's row in the Agents folder to bring it back. When
   the agent opens a second tab, that one is in Today too; only the tab you pick is in the main view.
+- **Several tasks at once.** Start another task while one works (✎ New in the pane, ⌘T → Ask, or a reply in another
+  task's view): each runs in its own tab with its own row in the Agents folder, its own Recent tasks card, its own
+  approvals and its own **Watch**, **Take over** and **Stop**. Stopping one leaves the others running. The bar on a page
+  and the pane act on that page's task; picking a task's row shows it in the pane. Up to 3 run at the same time (Settings
+  › AI › Agent; 0 for no limit); more wait as **Queued** and start by themselves when one ends. In the Command Bar,
+  **⌥↩** starts a task in the background: its page becomes a row in Today and nothing else moves. Tasks never switch your
+  Space or take another window to the front by themselves.
 
 When it's done, the steps fold into "Done in … · N steps", and
 the sites it used are chips under the answer. The task also shows in the sidebar's **Agents** folder; when it waits for
@@ -70,7 +77,8 @@ your OK and the pane is closed, its row says so and asks there. **◷** in the p
 - **It asks before risky actions.** Before anything that looks like paying, sending a message or email, posting,
   deleting or changing your account, the agent stops and shows a card above the field: **Allow once** or **Deny** (Esc).
   The same question shows in **Watch** and on the task's row in the Agents folder; answer it in any of them. Deny ends
-  the task. Every answer stays in the task.
+  the task. Every answer stays in the task. When several tasks wait, each asks for itself: an answer only ever goes to
+  the task it belongs to, and the folder's "needs you" goes to each in turn.
 - **No step limit.** A task keeps going until it's done, you stop it, or it needs you (an approval, or a page only you
   can handle). Quick or Thorough sets how hard the model thinks on each step; neither has a limit. The pane shows the
   time and steps as it works. **Stop** (■, Esc twice, or ⌘.) ends a task at once. If you want a cap, set **Settings ›
@@ -125,7 +133,8 @@ agent looked for a page you saw before, the step says so ("Searched your history
 found as small rows (title, site, and whether it's an open tab, a pinned tab, a Favorite or from your history); click a
 row to open that page in a new tab. Click a
 run's "Worked for …" line to fold its steps. At the bottom, **Reply, @ for context** goes on with the same task (with the
-same chips, and **■ Stop** while it works); a reply to an older task starts a new task that refers to it. When the agent
+same chips, and **■ Stop** while it works), also while other tasks run; a reply to a task from before Airc last quit
+starts a new task that refers to it. When the agent
 needs your OK, the card sits above the composer: **Deny** (Esc) or **Allow once**. The pane (⌥⌘A) stays the compact
 form of the same task.
 

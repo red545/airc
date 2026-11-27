@@ -86,6 +86,23 @@ final class AgentPaneController: NSObject {
 
     static func pane(of c: WindowController) -> AgentPaneController? { panes[ObjectIdentifier(c)] }
 
+    /// agentparallel: some window's pane shows this task (open or not).
+    static func shows(_ run: AgentRunCenter) -> Bool { panes.values.contains { $0.model.run === run } }
+
+    /// The pane of `c`, open on this task (a task row, a card, "needs you", the bar on the task's page).
+    @discardableResult
+    static func show(_ c: WindowController, task run: AgentRunCenter) -> AgentPaneController {
+        let p = show(c)
+        p.model.show(run)
+        return p
+    }
+
+    /// The pane switched to another task.
+    func taskShown() {
+        guard let c = controller else { return }
+        NotificationCenter.default.post(name: Self.visibilityChanged, object: c)
+    }
+
     /// Open in the window's current Space.
     var isShown: Bool { card != nil && controller.map { openSpaces.contains($0.currentSpaceID) } == true }
 
@@ -182,7 +199,7 @@ final class AgentPaneController: NSObject {
 
     /// The Command Bar's task: sent now if the agent is free and connected, else kept in the field.
     func ask(_ text: String) {
-        model.ask(text)
+        model.ask(text, newTask: true)
         focus()
     }
 
@@ -193,13 +210,14 @@ final class AgentPaneController: NSObject {
     /// agentux3: a "needs you" click landed here (AgentAttention): the keys go to the approval card, its Allow once
     /// drawn as the default button; Return allows once, Esc denies, typing goes to the composer (sending = Deny + text).
     func focusApproval() {
-        guard let id = AgentRunCenter.shared.approval?.id else { return }
+        let run = model.run
+        guard let id = run.approval?.id else { return }
         model.approvalFocused = true
         // Again for a moment (a Space switch or a closing Watch hands the keys to the page a little later), but never
         // after the person clicked or typed anywhere in Airc (AgentAttention.LandingFocus): a Return meant for a page
         // field must never allow, and a pane the person closed stays closed.
         AgentAttention.LandingFocus.run { [weak self] delay in
-            guard let self, AgentRunCenter.shared.approval?.id == id else { return }
+            guard let self, run.approval?.id == id, self.model.run === run else { return }
             if !self.isShown {
                 guard delay == 0 else { return }
                 self.open()
@@ -257,7 +275,7 @@ final class AgentPaneController: NSObject {
 
     /// Esc in the pane: deny a waiting approval, else Stop on a second Esc while running, else close.
     func escape() {
-        let run = AgentRunCenter.shared
+        let run = model.run
         if run.approval != nil { return run.answerApproval(allow: false) }
         if run.state.isActive {
             if model.armedStop { model.armedStop = false; return run.stop() }
@@ -339,10 +357,10 @@ final class AgentPaneCardView: NSView {
     override var acceptsFirstResponder: Bool { approvalKeys }
 
     override func keyDown(with event: NSEvent) {
-        guard approvalKeys, AgentRunCenter.shared.approval != nil else { return super.keyDown(with: event) }
+        guard approvalKeys, let run = pane?.model.run, run.approval != nil else { return super.keyDown(with: event) }
         switch event.keyCode {
-        case 36, 76: AgentRunCenter.shared.answerApproval(allow: true)    // Return, Enter
-        case 53: AgentRunCenter.shared.answerApproval(allow: false)       // Esc
+        case 36, 76: run.answerApproval(allow: true)    // Return, Enter
+        case 53: run.answerApproval(allow: false)       // Esc
         default:
             // Typing: into the composer, as if it had the keys.
             focusField()

@@ -19,6 +19,9 @@ final class AgentBridge {
     let center: AgentCenter
     let session: AgentSession
     private(set) var windowID: Int?
+    /// agentparallel: the task this run belongs to (its agent window carries it, so the main view, approvals and Stop
+    /// find the right task).
+    var taskID: String?
 
     /// `clientName`: how the run is named in the Agents folder, Watch and Activity ("Claude Code (in Airc)" when the
     /// person's own CLI runs the task; docs/design/agent-cli.md).
@@ -59,6 +62,7 @@ final class AgentBridge {
     /// (AgentMainView), at that view's real size; a follow-up brings the run's page back there.
     func openWindow(_ done: @escaping (String?) -> Void) {
         if let w = window {
+            w.taskID = taskID
             if pendingHandBack != nil { applyHandBack() } else { AgentMainView.shared.runResumed(w) }
             return done(nil)
         }
@@ -66,7 +70,7 @@ final class AgentBridge {
         center.admitPanel(session)
         guard let tool = center.tools.first(where: { $0.name == "open_window" }) else { return done("Airc isn't ready.") }
         var args: [String: Any] = [:]
-        if let size = AgentMainView.shared.nextViewport {
+        if let size = AgentMainView.shared.nextViewport(task: taskID) {
             args["width"] = Int(size.width)
             args["height"] = Int(size.height)
         }
@@ -74,6 +78,7 @@ final class AgentBridge {
             guard let self else { return }
             if result.isError { return done(Self.text(result)) }
             self.windowID = (result.structured?["window"] as? Int) ?? self.session.currentWindow
+            self.window?.taskID = self.taskID
             if self.pendingHandBack != nil { self.applyHandBack() } else if let w = self.window { AgentMainView.shared.windowOpened(w) }
             done(self.windowID == nil ? "No agent window." : nil)
         }

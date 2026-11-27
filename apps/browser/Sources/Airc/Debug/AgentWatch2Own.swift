@@ -12,6 +12,9 @@ import AircKit
 /// in both, while the agent runs on the fixture (Stop closes the run's window: from Stop until Watch follows Continue's page,
 /// and a page that isn't the fixture yet (a new window's about:blank), aren't counted). Checked: each shows the page in ≥ 90 % of samples after its first, never misses it for longer than 1 s, and
 /// still shows it live at the end.
+/// agentparallel (lead 2026-11-25): since agentmainview the agent's page is a tab of the window and the pane's card shows
+/// only while another tab is selected. The case selects the person's own tab once the page is hosted (and again after
+/// Continue brings the page back), and counts card samples only while another tab is selected.
 extension AgentPane2Check {
     func caseWatchLong(_ done: @escaping () -> Void) {
         k.extraPages["/flicker.html"] = AgentPaneFlickerProbe.page
@@ -31,8 +34,9 @@ extension AgentPane2Check {
         turns.append(.text("Never reached."))
         k.front { [self] _ in
             k.start("watchlong", turns, task: "Look through the listings")
-            wait({ AgentPaneLiveView.current?.window != nil && AgentAttention.paneRowID != nil }, 20) { [self] in
+            wait({ AgentAttention.paneRowID != nil && AgentMainView.shared.runEntry != nil }, 20) { [self] in
                 guard let row = AgentAttention.paneRowID else { check(false, "watchlong: the agent's page has a row"); return stopRun(done) }
+                wlShowOwnTab()
                 c.sidebar.agents.openWatch(row, takeKeys: false)
                 var samples: [(t: Double, watch: Bool?, card: Bool?)] = []
                 var trace: [String] = []
@@ -69,6 +73,8 @@ extension AgentPane2Check {
                             continued = true
                             trace.append(String(format: "%.2f CONTINUE", CACurrentMediaTime() - t0))
                             run.continueRun()
+                            // Continue brings the page back into the main view: the person goes to their own tab again.
+                            wlAfter(2) { [self] in wlShowOwnTab() }
                             wait({ navCount() >= turns.count - 3 && self.k.events.filter { $0 == "tool wait" }.count >= 2 }, 90) { [self] in
                                 wlAfter(1.5) { [self] in
                                     timer.invalidate()
@@ -125,12 +131,22 @@ extension AgentPane2Check {
         return px.allSatisfy { $0.r < 60 && $0.g > 160 && $0.b > 160 }
     }
 
+    /// The person picks their own tab (the fixture's home page): the agent's page parks and the pane shows its card.
+    private func wlShowOwnTab() {
+        guard let t = c.store.state.tabs.values.first(where: { $0.spaceID == c.currentSpaceID && $0.url.hasSuffix("/home.html") }) else {
+            return note("agentpane2 \(engine): watchlong: no own tab to switch to")
+        }
+        if c.shownTabID != t.id { c.show(t.id, focus: false) }
+    }
+
     private func wlWatchMarker() -> Bool? {
         guard let w = c.sidebar.agents.watch else { return nil }
         return wlMarker(in: w, at: [CGPoint(x: 30, y: 30), CGPoint(x: 60, y: 60)].map { w.viewPoint($0) })
     }
 
     private func wlCardMarker() -> Bool? {
+        // The card exists only while another tab than the agent's is selected: not counted otherwise.
+        guard !AgentMainView.shared.runShown(in: c) else { return nil }
         guard let v = AgentPaneLiveView.current, v.window != nil, v.bounds.width > 20 else { return nil }
         // The card shows the page's width across it, top-aligned: page point p at p × (card width / page width).
         let page = run.runWindowID.flatMap { AgentCenter.shared.windows[$0]?.size.width } ?? 1280

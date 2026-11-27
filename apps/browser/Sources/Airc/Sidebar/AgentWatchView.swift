@@ -131,7 +131,10 @@ final class AgentWatchView: NSView {
         c.card.addSubview(self, positioned: .above, relativeTo: nil)
         update(row: row, state: AgentActivity.shared.model.state(row, now: Date()))
         token = AgentActivity.shared.watch(rowID) { [weak self] e in self?.handle(e) }
-        approvalSub = AgentRunCenter.shared.$approval.sink { [weak self] a in self?.syncApproval(a) }
+        // agentparallel: the approval of the task whose page this is (any task's change re-checks).
+        approvalSub = NotificationCenter.default.publisher(for: AgentTaskCenter.changed).receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.syncApproval(self?.run?.approval) }
+        syncApproval(run?.approval)
         previousResponder = c.window.firstResponder
         if takeKeys { c.window.makeFirstResponder(self) }
         running = true
@@ -239,7 +242,8 @@ final class AgentWatchView: NSView {
             // watchfix (owner evidence 0.1.55): Stop then Continue gives the Airc Agent's run a new window and row; Watch
             // follows the run to its page instead of staying on the ended one (it showed nothing from then on).
             if !Self.legacy, let old = AgentActivity.shared.model.row(rowID), old.clientKey == AgentBridge.clientKey,
-               let next = AgentAttention.paneRowID, next != rowID, let c = controller {
+               let next = AgentTaskCenter.shared.run(agentWindow: old.window).flatMap({ AgentAttention.paneRowID(for: $0) }), next != rowID,
+               let c = controller {
                 AgentCenter.shared.onEvent?("watch-follows-run \(rowID) → \(next)")
                 let keys = window?.firstResponder === self
                 return DispatchQueue.main.async { c.sidebar.agents.openWatch(next, takeKeys: keys) }
@@ -636,10 +640,15 @@ final class AgentWatchView: NSView {
 
     /// The run's approval, shown here while this row is the Airc Agent run's own window; answering here or in the panel
     /// resolves both (one request, AgentRunCenter.answerApproval).
+    /// The Airc Agent task whose page this row is (nil for outside apps).
+    private var run: AgentRunCenter? {
+        guard let row = AgentActivity.shared.model.row(rowID), row.clientKey == AgentBridge.clientKey else { return nil }
+        return AgentTaskCenter.shared.run(agentWindow: row.window)
+    }
+
     private func syncApproval(_ a: AgentApprovalRequest?) {
-        let run = AgentRunCenter.shared
         let row = AgentActivity.shared.model.row(rowID)
-        let mine = row?.clientKey == AgentBridge.clientKey && row?.window != nil && row?.window == run.runWindowID
+        let mine = run.map { row?.window != nil && row?.window == $0.runWindowID } ?? false
         let shown = mine ? a : nil
         guard overlay.approval != shown else { return }
         overlay.approval = shown
@@ -647,7 +656,7 @@ final class AgentWatchView: NSView {
         if shown != nil { NSAccessibility.post(element: self, notification: .layoutChanged) }
     }
 
-    func answerApproval(allow: Bool) { AgentRunCenter.shared.answerApproval(allow: allow) }
+    func answerApproval(allow: Bool) { run?.answerApproval(allow: allow) }
 
     // MARK: The agent's page asks for the person (watchfix: a passkey request, attributed)
 
@@ -675,9 +684,9 @@ final class AgentWatchView: NSView {
 
     func takeOver() {
         // The pane task's page with its pane open: the pane's Take over, which keeps Hand back.
-        if let c = controller, let row = AgentActivity.shared.model.row(rowID), row.window == AgentRunCenter.shared.runWindowID, AgentUI.usesPane,
-           let p = AgentPaneController.pane(of: c), p.isShown {
+        if let c = controller, let run, AgentUI.usesPane, let p = AgentPaneController.pane(of: c), p.isShown {
             c.sidebar.agents.closeWatch()
+            p.model.show(run)
             return p.model.takeOver()
         }
         controller?.sidebar.agents.takeOver(rowID)

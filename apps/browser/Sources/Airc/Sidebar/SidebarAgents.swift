@@ -50,7 +50,7 @@ final class SidebarAgentsView: NSView {
         h.safeAreaRegions = []
         addSubview(h)
         host = h
-        for name in [AgentActivity.changed, AgentCenter.changed, AgentAttention.changed] {
+        for name in [AgentActivity.changed, AgentCenter.changed, AgentAttention.changed, AgentTaskCenter.changed] {
             observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.refresh() }
             })
@@ -124,13 +124,14 @@ final class SidebarAgentsView: NSView {
 
     func openTask(_ id: String) {
         guard let c = controller else { return }
-        if AgentTaskRecorder.shared.currentID == id {
-            // agentux3: the running task waits for the person: straight to it (its page's sign-in, else the OK).
+        if let run = AgentTaskCenter.shared.run(task: id) {
+            // agentux3: a running task waits for the person: straight to it (its page's sign-in, else its OK).
             if let row = model.tasks.first(where: { $0.id == id })?.liveRowID, AgentAttention.go(row: row, from: "taskRow") { return }
-            if let it = AgentAttention.items().first(where: { $0.kind == .approval }) { return AgentAttention.go(it, from: "taskRow") }
-            // agentmainview: a running task's page is a tab of this window: back into the main view, the pane beside it.
-            if AgentRunCenter.shared.state.isActive, AgentMainView.shared.bringBack() {
-                if AgentUI.usesPane { AgentPaneController.show(c) }
+            if let it = AgentAttention.items().first(where: { $0.kind == .approval && $0.taskID == id }) { return AgentAttention.go(it, from: "taskRow") }
+            // agentmainview: a running task's page is a tab of this window: back into the main view, the pane beside it
+            // on that task (agentparallel: the others keep running, parked).
+            if run.state.isActive, AgentMainView.shared.bringBack(run) {
+                if AgentUI.usesPane { AgentPaneController.show(c, task: run) }
                 return
             }
         }
@@ -153,7 +154,7 @@ final class SidebarAgentsView: NSView {
     }
 
     func stopTask(_ id: String) {
-        if AgentTaskRecorder.shared.currentID == id { AgentRunCenter.shared.stop() }
+        AgentTaskCenter.shared.run(task: id)?.stop()
     }
 
     func setExpanded(_ on: Bool) {
@@ -211,13 +212,13 @@ final class SidebarAgentsView: NSView {
     /// "✋ Pay on …?" with Open task / Deny / Allow once, pointing at the row. An AppKit popover on a first-click hosting
     /// view, so the first press on an inactive popover answers (SwiftUI's popover spent it on activation). It closes when
     /// the approval is answered anywhere (one answer clears all).
-    func showApproval(at rowFrame: CGRect, open: @escaping () -> Void) {
-        guard approvalPopover?.isShown != true, let host, window != nil, rowFrame.height > 0, let a = AgentRunCenter.shared.approval else { return }
+    func showApproval(_ run: AgentRunCenter, at rowFrame: CGRect, open: @escaping () -> Void) {
+        guard approvalPopover?.isShown != true, let host, window != nil, rowFrame.height > 0, let a = run.approval else { return }
         let p = NSPopover()
         p.behavior = .applicationDefined
         p.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         p.appearance = NSAppearance(named: model.theme.isDark ? .darkAqua : .aqua)
-        let v = AircFirstClickHostingView(rootView: AgentRowApproval(request: a, open: { [weak self] in self?.closeApproval(); open() },
+        let v = AircFirstClickHostingView(rootView: AgentRowApproval(run: run, request: a, open: { [weak self] in self?.closeApproval(); open() },
                                                                     close: { [weak self] in self?.closeApproval() }).testAnchorRoot())
         v.frame.size = v.fittingSize
         let vc = NSViewController()
@@ -226,7 +227,7 @@ final class SidebarAgentsView: NSView {
         p.contentSize = v.fittingSize
         approvalPopover = p
         p.show(relativeTo: rowFrame, of: host, preferredEdge: controller?.sidebarOnRight == true ? .minX : .maxX)
-        approvalSub = AgentRunCenter.shared.$approval.dropFirst().sink { [weak self] new in if new?.id != a.id { self?.closeApproval() } }
+        approvalSub = run.$approval.dropFirst().sink { [weak self] new in if new?.id != a.id { self?.closeApproval() } }
     }
 
     func closeApproval() {
@@ -256,6 +257,10 @@ final class SidebarAgentsView: NSView {
     func stop(_ rowID: String) {
         guard let row = AgentActivity.shared.model.row(rowID) else { return }
         if watch?.rowID == rowID { closeWatch() }
+        // agentparallel: an Airc Agent page's Stop ends its own task; the others keep running.
+        if row.clientKey == AgentBridge.clientKey, let run = AgentTaskCenter.shared.run(agentWindow: row.window) {
+            return run.stop("Stopped from the Agents folder.")
+        }
         if let key = row.clientKey { AgentCenter.shared.stopClient(key) }
         else { AgentCenter.shared.closeSessionWindows(row.sessionKey) }
     }
@@ -390,7 +395,7 @@ struct AgentsFolderContent: View {
 
 private struct AgentsFolderHeader: View {
     @ObservedObject var model: AgentsFolderModel
-    @ObservedObject private var run = AgentRunCenter.shared
+    @ObservedObject private var tasks = AgentTaskCenter.shared
     @Binding var hovered: Bool
     @Environment(\.aircTheme) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -408,7 +413,7 @@ private struct AgentsFolderHeader: View {
             Text("Agents")
                 .aircFont(AircFont.callout.weight(.semibold))
                 .foregroundStyle(theme.textSecondary.color)
-            if AgentActivity.shared.model.needsYouCount > 0 || run.approval != nil {
+            if AgentActivity.shared.model.needsYouCount > 0 || !tasks.waiting.isEmpty {
                 // An agent waits for the person (a sign-in, a captcha: AgentNeedsYou.swift; an approval): one click goes
                 // there, the next to the next one waiting (AgentAttention).
                 Button { AgentAttention.goNext(from: "folderBadge") } label: {
@@ -458,12 +463,17 @@ private struct AgentsFolderHeader: View {
 private struct AgentTaskFolderRow: View {
     let line: SidebarTaskLine
     @ObservedObject var model: AgentsFolderModel
-    @ObservedObject private var run = AgentRunCenter.shared
+    /// agentparallel: every task row follows its own run.
+    @ObservedObject private var tasks = AgentTaskCenter.shared
     @State private var frameInFolder: CGRect = .zero
 
-    private var current: Bool { AgentTaskRecorder.shared.currentID == line.id }
-    private var waiting: Bool { current && run.approval != nil }
-    private var paneShown: Bool { model.view?.controller.flatMap { AgentPaneController.pane(of: $0) }?.isShown == true }
+    private var run: AgentRunCenter? { tasks.run(task: line.id) }
+    private var waiting: Bool { run?.approval != nil }
+    /// The pane is open on this very task.
+    private var paneShown: Bool {
+        guard let p = model.view?.controller.flatMap({ AgentPaneController.pane(of: $0) }) else { return false }
+        return p.isShown && p.model.run === run
+    }
     private var live: Bool { line.liveRowID != nil && (line.task.status == .running || line.task.status == .waiting || line.task.status == .takenOver) }
 
     var body: some View {
@@ -479,10 +489,10 @@ private struct AgentTaskFolderRow: View {
                     .onAppear { frameInFolder = g.frame(in: .named(AgentsFolderContent.space)) }
                     .onChange(of: g.frame(in: .named(AgentsFolderContent.space))) { _, f in frameInFolder = f }
             })
-            .onChange(of: run.approval) { _, a in
-                if a != nil, waiting, !paneShown { model.view?.showApproval(at: frameInFolder, open: { model.view?.openTask(t.id) }) }
+            .onChange(of: run?.approval) { _, a in
+                if a != nil, waiting, !paneShown, let run { model.view?.showApproval(run, at: frameInFolder, open: { model.view?.openTask(t.id) }) }
             }
-            .onAppear { if waiting && !paneShown { model.view?.showApproval(at: frameInFolder, open: { model.view?.openTask(t.id) }) } }
+            .onAppear { if waiting && !paneShown, let run { model.view?.showApproval(run, at: frameInFolder, open: { model.view?.openTask(t.id) }) } }
     }
 }
 
@@ -495,16 +505,21 @@ private struct AgentFolderRow: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     // agentux: the pane's own task (docs/design/agent-ux.md §7): it opens in the pane, and a waiting approval shows on
     // the row (✋, "Waiting for your OK") and as a popover when the pane isn't showing the task.
-    @ObservedObject private var run = AgentRunCenter.shared
+    @ObservedObject private var tasks = AgentTaskCenter.shared
+    /// agentparallel: the Airc Agent task whose window this row's page is in.
+    private var run: AgentRunCenter? { item.live ? tasks.run(agentWindow: item.window) : nil }
 
-    private var paneTask: Bool { AgentUI.usesPane && item.live && run.runWindowID == item.window && (item.client == AgentBridge.clientName || item.clientKey == "airc-panel") }
-    private var waiting: Bool { paneTask && run.approval != nil }
-    private var paneShown: Bool { model.view?.controller.flatMap { AgentPaneController.pane(of: $0) }?.isShown == true }
+    private var paneTask: Bool { AgentUI.usesPane && run != nil && (item.client == AgentBridge.clientName || item.clientKey == "airc-panel") }
+    private var waiting: Bool { paneTask && run?.approval != nil }
+    private var paneShown: Bool {
+        guard let p = model.view?.controller.flatMap({ AgentPaneController.pane(of: $0) }) else { return false }
+        return p.isShown && p.model.run === run
+    }
 
     private func open() {
         // agentux3: a row that waits for the person goes straight to the answer (the approval card, or its page in front).
         if item.live, AgentAttention.go(row: item.id, from: "row") { return }
-        if paneTask, let c = model.view?.controller { AgentPaneController.show(c) } else if item.live { model.view?.openWatch(item.id) }
+        if paneTask, let run, let c = model.view?.controller { AgentPaneController.show(c, task: run) } else if item.live { model.view?.openWatch(item.id) }
     }
 
     @State private var frameInFolder: CGRect = .zero
@@ -516,10 +531,10 @@ private struct AgentFolderRow: View {
                     .onAppear { frameInFolder = g.frame(in: .named(AgentsFolderContent.space)) }
                     .onChange(of: g.frame(in: .named(AgentsFolderContent.space))) { _, f in frameInFolder = f }
             })
-            .onChange(of: run.approval) { _, a in
-                if a != nil, waiting, !paneShown { model.view?.showApproval(at: frameInFolder, open: { open() }) }
+            .onChange(of: run?.approval) { _, a in
+                if a != nil, waiting, !paneShown, let run { model.view?.showApproval(run, at: frameInFolder, open: { open() }) }
             }
-            .onAppear { if waiting && !paneShown { model.view?.showApproval(at: frameInFolder, open: { open() }) } }
+            .onAppear { if waiting && !paneShown, let run { model.view?.showApproval(run, at: frameInFolder, open: { open() }) } }
     }
 
     private var row: some View {
@@ -673,6 +688,7 @@ struct AgentPulseDot: NSViewRepresentable {
 
 /// The popover's content: what the agent wants to do, and the three answers. Nothing is pre-selected.
 private struct AgentRowApproval: View {
+    let run: AgentRunCenter
     let request: AgentApprovalRequest
     let open: () -> Void
     let close: () -> Void
@@ -687,9 +703,9 @@ private struct AgentRowApproval: View {
             HStack(spacing: 6) {
                 Button("Open task", action: open).buttonStyle(.airc(.secondary, size: .small)).testAnchor("agents-popover-open")
                 Spacer()
-                Button("Deny") { close(); AgentRunCenter.shared.answerApproval(allow: false) }.buttonStyle(.airc(.secondary, size: .small))
+                Button("Deny") { close(); run.answerApproval(allow: false) }.buttonStyle(.airc(.secondary, size: .small))
                     .testAnchor("agents-popover-deny")
-                Button("Allow once") { close(); AgentRunCenter.shared.answerApproval(allow: true) }.buttonStyle(.airc(.secondary, size: .small))
+                Button("Allow once") { close(); run.answerApproval(allow: true) }.buttonStyle(.airc(.secondary, size: .small))
                     .testAnchor("agents-popover-allow")
             }
         }

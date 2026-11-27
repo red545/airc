@@ -349,6 +349,7 @@ final class SnapshotRunner {
         case "agentcli": agentCLIScenario()       // the panel on fake Claude Code / Codex CLIs (AgentCLICheck.swift)
         case "agentpane": agentPaneScenario()   // the Airc Agent pane in the window (AgentPaneCheck.swift)
         case "agentmain": agentMainScenario()   // agentmainview: the Airc Agent in the main view (AgentMainCheck.swift)
+        case "agentparallel": agentParallelScenario()   // agentparallel: Airc Agent tasks side by side (AgentParallelCheck.swift)
         case "agentpane2": agentPane2Scenario()   // the pane's Install…, Sign in… and Hand back on fake CLIs (AgentPane2Check.swift)
         case "agentlong": agentLongScenario()   // nosteplimit: no step limit by default, the optional cap, the end banner (AgentLongTaskCheck.swift)
         case "agenttasks": agentTasksScenario()   // asidepass: Ask mode, task view, sidebar task rows, Recent tasks (AgentTasksCheck.swift)

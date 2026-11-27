@@ -218,18 +218,20 @@ extension CommandBarView {
 
     /// Return in Ask: a new task with what's typed (and the attached tabs). agentmainview (owner decision 2026-11-23):
     /// the task's page becomes the selected tab in the main view, with the pane beside it (the task view stays one click
-    /// away in the Agents folder). Not connected, or the agent busy with another task: the pane takes the text.
-    static func startAgentTask(_ text: String, attached: [AgentAskContext], in c: WindowController) {
+    /// away in the Agents folder). Not connected: the pane takes the text.
+    /// agentparallel: always a new task of its own, also while others run; `background` (⌥↩): its page is a row of
+    /// Today, parked and not selected, and the pane doesn't open (only its task row appears).
+    static func startAgentTask(_ text: String, attached: [AgentAskContext], in c: WindowController, background: Bool = false) {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
-        let run = AgentRunCenter.shared
-        guard run.hasKey, run.canSend else { return AgentUI.ask(c, t) }
+        guard AgentRunCenter.hasKey else { return AgentUI.ask(c, t) }
+        // This window's empty pane task if it has one (nothing else shows it), else a new one.
+        let shown = AgentPaneController.pane(of: c)?.model.run
+        let run = shown.flatMap { $0.steps.isEmpty && !$0.isBusy ? $0 : nil } ?? AgentTaskCenter.shared.make()
         let p = c.store.profile(ofSpace: c.currentSpaceID)
-        if !run.steps.isEmpty { run.newConversation() }
-        AgentTaskRecorder.shared.willAsk(spaceID: c.currentSpaceID, profileID: p.id)
-        AgentAttention.taskAsked(in: c)
-        AgentMainView.shared.willAsk(in: c, page: nil)
-        if AgentUI.usesPane { AgentPaneController.show(c) }
+        AgentAttention.taskAsked(in: c, run: run)
+        AgentMainView.shared.willAsk(run, in: c, page: nil, background: background)
+        if AgentUI.usesPane, !background { AgentPaneController.show(c, task: run) }
         run.ask(t + AgentAskContext.promptLine(attached), profileID: p.id, profileName: p.name)
     }
 }

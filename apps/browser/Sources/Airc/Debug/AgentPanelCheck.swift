@@ -884,6 +884,19 @@ final class FakeModelServer {
     private var offset = 0
     private var log: [(name: String, path: String, body: String, auth: String)] = []
     private var got: [String] = []
+    /// agentparallel: scripts for tasks that run at once, by a marker in the task's first prompt ("[[p1]]").
+    private var tagged: [(marker: String, name: String, turns: [Turn])] = []
+    /// Script names whose next request is answered 429 with Retry-After once (several tasks on one key).
+    private var rateLimitOnce: Set<String> = []
+
+    /// agentparallel: a script for the task whose prompt carries `marker`; any number at once.
+    func begin(tagged marker: String, _ name: String, _ t: [Turn]) {
+        lock.lock(); defer { lock.unlock() }
+        tagged.removeAll { $0.marker == marker }
+        tagged.append((marker, name, t))
+    }
+
+    func rateLimitNext(_ name: String) { lock.lock(); rateLimitOnce.insert(name); lock.unlock() }
 
     /// `offset`: model turns already in the conversation before this script's first.
     func begin(_ name: String, _ t: [Turn], offset o: Int = 0) {
@@ -923,12 +936,19 @@ final class FakeModelServer {
         let anthropic = r.path == "/v1/messages"
         lock.lock()
         let auth = anthropic ? (r.headers["x-api-key"] ?? "") : (r.headers["authorization"] ?? "")
-        log.append((caseName, r.path, body, auth))
-        let script = turns
-        let skip = offset
-        let current = caseName
-        let n = log.filter { $0.name == caseName }.count
+        // The marker the person typed comes first; a later one is an attached page's title (another task's tab).
+        let tag = tagged.compactMap { t in body.range(of: t.marker).map { (t, $0.lowerBound) } }.min { $0.1 < $1.1 }?.0
+        let current = tag?.name ?? caseName
+        log.append((current, r.path, body, auth))
+        let script = tag?.turns ?? turns
+        let skip = tag == nil ? offset : 0
+        let n = log.filter { $0.name == current }.count
+        let limited = rateLimitOnce.remove(current) != nil
         lock.unlock()
+        if limited {
+            return LocalPageServer.Page(status: "429 Too Many Requests", headers: ["Content-Type": "application/json", "retry-after": "1"],
+                                        body: #"{"type":"error","error":{"type":"rate_limit_error","message":"Fixture rate limit"}}"#)
+        }
         let index: Int
         if anthropic {
             index = (o["messages"] as? [[String: Any]] ?? []).filter { $0["role"] as? String == "assistant" }.count

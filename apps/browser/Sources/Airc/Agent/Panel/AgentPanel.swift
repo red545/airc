@@ -52,7 +52,7 @@ final class AgentPanelController: NSObject {
         effect.layer?.cornerRadius = 12
         effect.layer?.masksToBounds = true
         let host = NSHostingView(rootView: AgentPanelView(look: look, profile: { [weak self] in self?.profile() }, close: { [weak self] in self?.close() },
-                                                         asking: { [weak self] in if let c = self?.controller { AgentAttention.taskAsked(in: c) } }))
+                                                         asking: { [weak self] in if let c = self?.controller { AgentAttention.taskAsked(in: c, run: AgentTaskCenter.shared.latest) } }))
         host.translatesAutoresizingMaskIntoConstraints = false
         effect.addSubview(host)
         NSLayoutConstraint.activate([host.leadingAnchor.constraint(equalTo: effect.leadingAnchor), host.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
@@ -64,7 +64,7 @@ final class AgentPanelController: NSObject {
 
     /// The Command Bar's "Ask Airc to…" (or any caller): the task runs now if the agent is free, else it waits in the field.
     func ask(_ text: String) {
-        let run = AgentRunCenter.shared
+        let run = AgentTaskCenter.shared.latest
         focus()
         guard run.canSend, run.hasKey, let p = profile() else {
             look.draft = text
@@ -73,7 +73,7 @@ final class AgentPanelController: NSObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in self?.caretToEnd() }
             return
         }
-        if let c = controller { AgentAttention.taskAsked(in: c) }
+        if let c = controller { AgentAttention.taskAsked(in: c, run: AgentTaskCenter.shared.latest) }
         run.ask(text, profileID: p.id, profileName: p.name)
     }
 
@@ -142,7 +142,7 @@ final class AgentPanelController: NSObject {
 
     /// Esc: decline a waiting approval, else stop a run, else close.
     private func escape() {
-        let run = AgentRunCenter.shared
+        let run = AgentTaskCenter.shared.latest
         if run.approval != nil { return run.answerApproval(allow: false) }
         if run.state.isActive { return run.stop() }
         close()
@@ -194,7 +194,7 @@ struct AgentPanelView: View {
     let close: () -> Void
     /// Right before a task is sent: AgentAttention records the panel's window, Space and profile.
     var asking: () -> Void = {}
-    @ObservedObject private var run = AgentRunCenter.shared
+    @ObservedObject private var run = AgentTaskCenter.shared.latest
     @State private var text = ""
     @State private var settingsRev = 0
     @State private var handoffNote: String?
@@ -413,7 +413,7 @@ private struct StepRow: View {
                 line("book.closed", step.text, step.detail, theme.surfaceTextSecondary.color)
                 Spacer(minLength: 4)
                 if step.memoryLine != nil {
-                    Button("Undo") { AgentRunCenter.shared.undoMemory(step.id) }
+                    Button("Undo") { AgentTaskCenter.shared.latest.undoMemory(step.id) }
                         .buttonStyle(.airc(.secondary, size: .small)).help("Remove this line from your Memory folder.")
                         .testAnchor("agent.memory.undo")
                 } else if step.text.hasPrefix("Used memory") {
@@ -454,8 +454,8 @@ private struct ApprovalCard: View {
             Text("The agent waits for your answer, here or in Watch (the sidebar's Agents folder).")
                 .aircFont(AircFont.callout).foregroundStyle(theme.surfaceTextTertiary.color).fixedSize(horizontal: false, vertical: true)
             HStack {
-                Button("Deny") { AgentRunCenter.shared.answerApproval(allow: false) }.buttonStyle(.airc(.secondary)).testAnchor("agent.deny")
-                Button("Allow Once") { AgentRunCenter.shared.answerApproval(allow: true) }.buttonStyle(.airc(.secondary)).testAnchor("agent.allow")
+                Button("Deny") { AgentTaskCenter.shared.latest.answerApproval(allow: false) }.buttonStyle(.airc(.secondary)).testAnchor("agent.deny")
+                Button("Allow Once") { AgentTaskCenter.shared.latest.answerApproval(allow: true) }.buttonStyle(.airc(.secondary)).testAnchor("agent.allow")
             }
         }
         .padding(12)

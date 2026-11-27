@@ -195,7 +195,7 @@ extension AgentPane2Check {
                             after(0.6) { [self] in
                                 if p.entry == "toast" { check(c.toast.shownText?.contains("needs your OK") == true, "\(label): Airc's own toast says so (“\(c.toast.shownText ?? "none")”)") }
                                 if p.away != .otherSpace {
-                                    check(AgentAttention.Notifications.recorded.last?.id == "agent-approval",
+                                    check(AgentAttention.Notifications.recorded.last?.id.hasPrefix("agent-approval") == true,
                                           "\(label): … a notification is posted (recorded in scripted runs: \(AgentAttention.Notifications.recorded.last?.title ?? "none"))")
                                 }
                                 if p.entry == "dock" { check(NSApp.dockTile.badgeLabel == "1", "\(label): the Dock badge counts it (\(NSApp.dockTile.badgeLabel ?? "none"))") }
@@ -258,13 +258,27 @@ extension AgentPane2Check {
                         enter("agentButton", in: b) { [self] how in
                             landedOnApproval("needs you [✦ in a full-screen window] [\(how)]", home: nil) { [self] in
                                 check(!b.window.isOnActiveSpace, "needs you [✦ in a full-screen window]: … macOS left the full-screen Space for the task's")
+                                // Who makes which window key from here on (the diagnosis of the notification landing).
+                                let keyWatch = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { [weak self] n in
+                                    guard let self, let w = n.object as? NSWindow else { return }
+                                    let stack = Thread.callStackSymbols.prefix(16).dropFirst(2).map { String($0.split(separator: " ", omittingEmptySubsequences: true).dropFirst(3).first ?? "") }.joined(separator: " < ")
+                                    self.note("agentpane2 \(self.engine): needs you (full screen): key #\(w.windowNumber) (task #\(self.c.window.windowNumber)) \(stack)")
+                                }
+                                after(30) { NotificationCenter.default.removeObserver(keyWatch) }
                                 answerKey("return") { [self] _ in
                                     wait({ self.run.approval == nil }, 4) { [self] in
                                         // The second approval while the full-screen window is in front again: the notification.
                                         fullScreen(true) { [self] _ in
                                             wait({ self.run.approval != nil }, 20) { [self] in
                                                 note("agentpane2 \(engine): needs you (full screen, again): before: task window on the active Space \(c.window.isOnActiveSpace), full-screen window key \(b.window.isKeyWindow)")
+                                                note("agentpane2 \(engine): needs you (full screen) at the click: key #\(NSApp.keyWindow?.windowNumber ?? 0) task #\(c.window.windowNumber) key \(c.window.isKeyWindow) main \(c.window.isMainWindow) tasks \(AgentTaskCenter.shared.runs.count) busy \(AgentTaskCenter.shared.busy.count) waiting \(AgentTaskCenter.shared.waiting.count) items \(AgentAttention.items().map(\.id))")
                                                 enter("notification") { [self] how in
+                                                    // Where the windows are while the landing settles (Space and key, 4 Hz), for the report.
+                                                    for i in 0..<16 {
+                                                        after(Double(i) * 0.25) { [self] in
+                                                            note("agentpane2 \(engine): needs you (full screen) +\(Double(i) * 0.25) s: key #\(NSApp.keyWindow?.windowNumber ?? 0) task #\(c.window.windowNumber) on Space \(c.window.isOnActiveSpace) full-screen #\(b.window.windowNumber) on Space \(b.window.isOnActiveSpace) fs \(b.window.styleMask.contains(.fullScreen)) landed \(AgentAttention.lastLanding?.window === c ? "task" : AgentAttention.lastLanding?.window === b ? "fs" : "other")")
+                                                        }
+                                                    }
                                                     landedOnApproval("needs you [notification, from a full-screen window] [\(how)]", home: nil) { [self] in
                                                         answerKey("escape") { [self] _ in
                                                             wait({ !self.run.state.isActive }, 5) { cleanUp() }

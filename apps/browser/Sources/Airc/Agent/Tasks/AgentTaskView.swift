@@ -83,23 +83,46 @@ final class AgentTaskViewModel: ObservableObject {
     @Published var theme: ResolvedTheme
     weak var controller: WindowController?
     let recorder = AgentTaskRecorder.shared
-    let run = AgentRunCenter.shared
+    /// agentparallel: this task's run while it has one this launch (it streams here and replies go to it); else an
+    /// empty stand-in nothing ever asks.
+    var run: AgentRunCenter { AgentTaskCenter.shared.run(task: taskID) ?? Self.none }
+    private static let none = AgentRunCenter()
+    private var subs: [AnyCancellable] = []
+    private var runSubs: [AnyCancellable] = []
+    private weak var bound: AgentRunCenter?
 
     init(taskID: String, theme: ResolvedTheme) {
         self.taskID = taskID
         self.theme = theme
+        // Follow this task's run (it may start, end or be let go while the view shows).
+        subs.append(AgentTaskCenter.shared.$revision.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.bindRun() })
+        subs.append($taskID.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in self?.bindRun() })
+        bindRun()
+    }
+
+    private func bindRun() {
+        let r = AgentTaskCenter.shared.run(task: taskID)
+        guard r !== bound || (r == nil && !runSubs.isEmpty) else { return }
+        bound = r
+        runSubs = []
+        if let r {
+            runSubs.append(r.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() })
+            runSubs.append(r.timeline.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() })
+        }
+        objectWillChange.send()
     }
 
     var record: AgentTaskRecord? { recorder.tasks.first { $0.id == taskID } }
-    /// This is the conversation the agent has now (one at a time): it streams here and the composer replies to it.
-    var isCurrent: Bool { recorder.currentID == taskID }
-    var live: Bool { isCurrent && run.state.isActive }
+    /// This task has its conversation in this launch: it streams here and the composer replies to it (agentparallel:
+    /// any number of tasks at once).
+    var isCurrent: Bool { AgentTaskCenter.shared.run(task: taskID) != nil }
+    var live: Bool { isCurrent && run.isBusy }
 
     var title: String { record?.title ?? "Task" }
 
     var lines: [AgentTaskLine] {
         if isCurrent {
-            let timeline = AgentPaneTimeline.shared
+            let timeline = run.timeline
             var summaries: [String: String] = [:]
             var raw: [AgentTaskLine.Raw] = []
             var runs: [[AgentStep]] = []
@@ -155,8 +178,8 @@ final class AgentTaskViewModel: ObservableObject {
     func send() {
         let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !typed.isEmpty, let c = controller else { return }
-        // Not connected, or another task is the agent's now: the pane takes it (its Connect card, or the field).
-        guard AgentRunCenter.shared.hasKey, isCurrent || !run.state.isActive else {
+        // Not connected: the pane takes it (its Connect card).
+        guard AgentRunCenter.hasKey else {
             text = ""
             return AgentUI.ask(c, typed)
         }
@@ -170,29 +193,29 @@ final class AgentTaskViewModel: ObservableObject {
         ask(c, typed)
     }
 
-    /// A reply to this task: the same conversation if it's the agent's now; a finished older task can't be resumed
-    /// (one conversation at a time), so the reply starts a new task that names it.
+    /// A reply to this task: the same conversation while it has one this launch; a task from an earlier launch can't be
+    /// resumed, so the reply starts a new task that names it (other tasks keep running either way: agentparallel).
     private func ask(_ c: WindowController, _ typed: String) {
         let p = c.store.profile(ofSpace: c.currentSpaceID)
         var prompt = typed + AgentAskContext.promptLine(attached)
         attached = []
-        if !isCurrent {
+        let fresh = !isCurrent
+        let target: AgentRunCenter
+        if fresh {
             if let r = record {
                 let before = [r.title, r.answerHead].compactMap { $0 }.joined(separator: " — ")
                 prompt += "\n\nEarlier task: " + before
             }
-            run.newConversation()
+            target = AgentTaskCenter.shared.make()
+        } else {
+            target = run
         }
-        AgentTaskRecorder.shared.willAsk(spaceID: c.currentSpaceID, profileID: p.id)
-        AgentAttention.taskAsked(in: c)
-        run.ask(prompt, profileID: p.id, profileName: p.name)
-        if !isCurrent {
-            // The new conversation's record appears with its first step; follow it in this tab.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                guard let self, let id = AgentTaskRecorder.shared.currentID else { return }
-                self.taskID = id
-                AgentTasksPage.retitle(self, in: c)
-            }
+        AgentAttention.taskAsked(in: c, run: target)
+        target.ask(prompt, profileID: p.id, profileName: p.name)
+        if fresh {
+            // The new conversation is this tab's task from now on.
+            taskID = target.taskID
+            AgentTasksPage.retitle(self, in: c)
         }
     }
 
@@ -209,8 +232,8 @@ final class AgentTaskViewModel: ObservableObject {
     func stop() { if isCurrent { run.stop() } }
 
     func takeOver() {
-        guard let c = controller else { return }
-        AgentPaneController.show(c).model.takeOver()
+        guard let c = controller, isCurrent else { return }
+        AgentPaneController.show(c, task: run).model.takeOver()
     }
 
     func openWatch() {
@@ -240,7 +263,7 @@ final class AgentTaskViewModel: ObservableObject {
 
     func openInPane() {
         guard let c = controller else { return }
-        AgentPaneController.show(c)
+        if isCurrent { AgentPaneController.show(c, task: run) } else { AgentPaneController.show(c) }
     }
 
     /// The tab this view is in: a task counts as seen only while that tab is the window's shown one.
@@ -258,8 +281,8 @@ final class AgentTaskViewModel: ObservableObject {
 struct AgentTaskViewRoot: View {
     @ObservedObject var model: AgentTaskViewModel
     @ObservedObject private var recorder = AgentTaskRecorder.shared
-    @ObservedObject private var run = AgentRunCenter.shared
-    @ObservedObject private var timeline = AgentPaneTimeline.shared
+    private var run: AgentRunCenter { model.run }
+    private var timeline: AgentPaneTimeline { model.run.timeline }
     @ObservedObject private var thumbs = AgentTaskThumbs.shared
     @Environment(\.aircTheme) private var theme
 
@@ -385,7 +408,7 @@ struct AgentTaskViewRoot: View {
 
     private var composer: some View {
         VStack(spacing: 6) {
-            if model.isCurrent, let a = run.approval { AgentTaskApproval(request: a).transition(.move(edge: .bottom).combined(with: .opacity)) }
+            if model.isCurrent, let a = run.approval { AgentTaskApproval(run: run, request: a).transition(.move(edge: .bottom).combined(with: .opacity)) }
             AgentTaskComposer(model: model)
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: run.approval)
@@ -662,7 +685,7 @@ struct AgentTaskFoundRow: View {
 /// step, Watch and Take over.
 struct AgentTaskLiveCard: View {
     @ObservedObject var model: AgentTaskViewModel
-    @ObservedObject private var run = AgentRunCenter.shared
+    private var run: AgentRunCenter { model.run }
     @State private var hovered = false
     @Environment(\.aircTheme) private var theme
 
@@ -680,7 +703,7 @@ struct AgentTaskLiveCard: View {
                 }
             }
             .padding(.horizontal, 10).frame(height: 32)
-            AgentPaneLivePicture()
+            AgentPaneLivePicture(run: run)
                 .aspectRatio(16.0 / 10.0, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .padding([.horizontal, .bottom], 5)
@@ -701,6 +724,7 @@ struct AgentTaskLiveCard: View {
 /// Pay, send, post, delete, in the task view: the same answer as the pane's card (Airc's approval rule), above the
 /// composer. Nothing is pre-selected; Esc denies.
 struct AgentTaskApproval: View {
+    let run: AgentRunCenter
     let request: AgentApprovalRequest
     @Environment(\.aircTheme) private var theme
 
@@ -715,10 +739,10 @@ struct AgentTaskApproval: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
-            Button("Deny") { AgentRunCenter.shared.answerApproval(allow: false) }.buttonStyle(.airc(.secondary, size: .small))
+            Button("Deny") { run.answerApproval(allow: false) }.buttonStyle(.airc(.secondary, size: .small))
                 .keyboardShortcut(.cancelAction)
                 .testAnchor("agenttask.deny")
-            Button("Allow once") { AgentRunCenter.shared.answerApproval(allow: true) }.buttonStyle(.airc(.secondary, size: .small))
+            Button("Allow once") { run.answerApproval(allow: true) }.buttonStyle(.airc(.secondary, size: .small))
                 .testAnchor("agenttask.allow")
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
@@ -733,7 +757,7 @@ struct AgentTaskApproval: View {
 /// "Reply, @ for context", the chips under it, and Send ↑ / Stop ■.
 struct AgentTaskComposer: View {
     @ObservedObject var model: AgentTaskViewModel
-    @ObservedObject private var run = AgentRunCenter.shared
+    private var run: AgentRunCenter { model.run }
     @FocusState private var focused: Bool
     @Environment(\.aircTheme) private var theme
 

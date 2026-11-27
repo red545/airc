@@ -24,6 +24,8 @@ public enum AgentTaskTitle {
 public struct AgentTaskRecord: Codable, Equatable, Identifiable, Sendable {
     public enum Status: String, Codable, Sendable, CaseIterable {
         case running, waiting, takenOver, done, stopped, failed
+        /// agentparallel: past the person's limit of tasks at once; starts when one ends.
+        case queued
 
         public var label: String {
             switch self {
@@ -33,13 +35,14 @@ public struct AgentTaskRecord: Codable, Equatable, Identifiable, Sendable {
             case .done: return "Done"
             case .stopped: return "Stopped"
             case .failed: return "Failed"
+            case .queued: return "Queued"
             }
         }
 
         /// The All tasks page's status chips.
         public var chip: String {
             switch self {
-            case .running, .takenOver: return "Running"
+            case .running, .takenOver, .queued: return "Running"
             case .waiting: return "Waiting"
             case .done: return "Done"
             case .stopped, .failed: return "Stopped"
@@ -51,7 +54,8 @@ public struct AgentTaskRecord: Codable, Equatable, Identifiable, Sendable {
             switch self {
             case .waiting: return 0
             case .running, .takenOver: return 1
-            default: return 2
+            case .queued: return 2
+            default: return 3
             }
         }
     }

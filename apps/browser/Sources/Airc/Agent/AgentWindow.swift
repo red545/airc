@@ -75,6 +75,8 @@ final class AgentWindow: NSObject, EngineWindowDelegate, EngineTabDelegate {
     var clientKey: String?
     /// The Airc Agent's run window: its pages are hosted in the person's window (AgentMainView).
     var hostsInMainView = false
+    /// agentparallel: the Airc Agent task whose run owns this window (nil for outside apps).
+    var taskID: String?
     /// Tabs opened, closed, or a page's title or address changed (the Agents folder's rows follow).
     var onTabsChanged: (() -> Void)?
     private var screensObserver: NSObjectProtocol?

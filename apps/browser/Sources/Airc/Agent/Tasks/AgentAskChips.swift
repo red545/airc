@@ -49,7 +49,8 @@ struct AgentAskChips: View {
     let profileName: String
     var disabled = false
     var compact = false
-    @ObservedObject private var run = AgentRunCenter.shared
+    /// agentparallel: the chips set up the next task; tasks already running never lock them.
+    private var level: AgentLevel { _ = settings.providers; return AgentModelSettings.shared.values.level }
     @ObservedObject private var settings = AgentAskChipsModel.shared
     @Environment(\.aircTheme) private var theme
 
@@ -155,7 +156,6 @@ struct AgentAskChips: View {
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
         .foregroundStyle(theme.surfaceTextTertiary.color)
         .padding(.horizontal, 6).padding(.vertical, 3)
-        .disabled(run.state.isActive)
         .help("Who runs the agent")
         .testAnchor("agentask.provider")
     }
@@ -163,18 +163,20 @@ struct AgentAskChips: View {
     private var levelMenu: some View {
         Menu {
             ForEach(AgentLevel.allCases, id: \.self) { l in
-                Button(l == run.level ? "✓ \(l.name)" : l.name) { run.level = l }
+                Button(l == level ? "✓ \(l.name)" : l.name) {
+                    AgentModelSettings.shared.update { $0.level = l }
+                    for r in AgentTaskCenter.shared.runs where !r.isBusy { r.level = l }
+                }
             }
         } label: {
             HStack(spacing: 3) {
-                Text(run.level.name).aircFont(AircFont.caption)
+                Text(level.name).aircFont(AircFont.caption)
                 Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold)).opacity(0.6)
             }
         }
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
         .foregroundStyle(theme.surfaceTextTertiary.color)
         .padding(.horizontal, 6).padding(.vertical, 3)
-        .disabled(run.state.isActive)
         .help(AgentLevel.help)
         .testAnchor("agentask.level")
     }
@@ -206,5 +208,5 @@ final class AgentAskChipsModel: ObservableObject {
         return p.name.replacingOccurrences(of: " API key", with: "") + " · " + AgentModelSettings.shared.model.name
     }
 
-    var connected: Bool { AgentRunCenter.shared.hasKey }
+    var connected: Bool { AgentRunCenter.hasKey }
 }

@@ -200,6 +200,8 @@ final class AgentPaneCheck {
         fake.begin(name, turns)
         setKeys(anthropic: true)
         let p = AgentPaneController.show(window ?? c)
+        // agentparallel: the pane may show another (finished) task than the one reset above: a fresh one, as before.
+        p.model.newTask()
         p.model.text = task
         p.model.send()
     }

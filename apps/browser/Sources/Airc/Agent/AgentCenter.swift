@@ -223,7 +223,7 @@ final class AgentCenter {
     /// The kill switch: every connection closes and every agent window with it. The server listens again (Stop
     /// isn't Off), unless `off`.
     func stopAgents(reason: String, off: Bool = false) {
-        AgentRunCenter.shared.stopFromFolder()
+        AgentTaskCenter.shared.stopAll("Stopped from the Agents folder.")
         stopRemote()
         server?.stop()
         server = nil
@@ -473,7 +473,8 @@ final class AgentCenter {
     /// fails with a clear message, and new connections are refused, until the person allows it again.
     func stopClient(_ key: String) {
         // The Airc Agent panel (Agent/AgentBridge.swift): Stop ends its run; there's no app to refuse later.
-        if key == AgentBridge.clientKey { return AgentRunCenter.shared.stopFromFolder() }
+        // agentparallel: every Airc Agent task (one row's Stop goes through stopRow).
+        if key == AgentBridge.clientKey { return AgentTaskCenter.shared.stopAll("Stopped from the Agents folder.") }
         if let i = settings.clients.firstIndex(where: { $0.key == key }) {
             settings.clients[i].stopped = true
             saveSettings()
