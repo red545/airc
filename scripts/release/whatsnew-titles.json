@@ -778,5 +778,47 @@
     "detail": "If none of your Macs has the sync key any more, Start Over… in Settings › Sync backs up this Mac and starts again. Nothing in iCloud is deleted, and your other Macs merge.",
     "action": "settingsSync",
     "image": null
+  },
+  "The Airc Agent can now work on several tasks at once": {
+    "title": "Several tasks at once",
+    "detail": "Start another Airc Agent task while one works: each gets its own tab, row, approvals and Stop. Up to 3 run at once; more wait as Queued (Settings › AI › Agent).",
+    "action": "commandBar",
+    "image": null
+  },
+  "Start a task in the background with ⌥↩": {
+    "title": "Start tasks in background",
+    "detail": "In the Command Bar's Ask, press ⌥↩ instead of ↩ to start a task without leaving your page. Its tab shows up in Today.",
+    "action": "commandBar",
+    "image": null
+  },
+  "A busy AI service no longer ends a task": {
+    "title": "Tasks wait out busy AIs",
+    "detail": "When your AI provider is busy or rate-limited, an Airc Agent task now waits, shows how long, and tries again by itself instead of stopping.",
+    "action": "none",
+    "image": null
+  },
+  "Capture Full Page gets the whole page, however long": {
+    "title": "Whole long pages captured",
+    "detail": "Capture Full Page (F in Capture, or View › Capture Full Page) now takes very long pages top to bottom on both engines, with a site's fixed header shown once.",
+    "action": "none",
+    "image": null
+  },
+  "Switching tabs is quicker with the Safari engine": {
+    "title": "Quicker tab switching",
+    "detail": "With the Safari engine (WebKit), a tab you pick now shows about a quarter sooner, because Airc no longer redraws the whole sidebar first.",
+    "action": "none",
+    "image": null
+  },
+  "Settings say how to quote with Shared Quotes off": {
+    "title": "Quote links with ⌃⇧⌘C",
+    "detail": "Settings › General › Shared Quotes now says that with Shared Quotes off, ⌃⇧⌘C still copies the page's link with your selection as a quote.",
+    "action": "settingsGeneral",
+    "image": null
+  },
+  "Fix: after you go to an agent task that needs you, your typing stays there": {
+    "title": "Typing stays with the task",
+    "detail": "After you go to an Airc Agent task that asks for you, your keys stay in its window. Before, an earlier jump to it could take them back a moment later.",
+    "action": "none",
+    "image": null
   }
 }

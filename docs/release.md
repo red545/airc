@@ -142,7 +142,11 @@ A release tests its cut in three steps. Only the first two hold the release.
 2. **Changed-path smokes** (`infra/release/smokes.py`, budget 15 min): the core set (windows, sidebar, Command Bar,
    sign-in prompts; both engines), plus each smoke whose product paths changed since the last release. Security
    picks (outside-agent approval) and engine picks always run. When the picks exceed the budget, the lowest-ranked
-   ones move to the head of the tail. On the signed stage, only the short functional smokes (ctxmenu, ctxmain,
+   ones move to the head of the tail. **Headline checks** don't: a check that is new or changed since the last
+   release (on the `--extra` freeze list with its owner's PASS count, a new script, or a new or edited catalog
+   entry) and whose own product paths changed always runs at the gate. The plan raises the budget by their cost
+   (and only theirs), names them as HEADLINE and records them in `budget_raised`. An edit to an existing Debug check
+   alone (a check fix) is not a headline; list the check in `--extra` to make it one. On the signed stage, only the short functional smokes (ctxmenu, ctxmain,
    feedback, fedcm, mcpprompt, atlaunch, wkrules) hold the release.
 3. **Tail** (after LIVE, on the same test build and stage): every other smoke from the catalog, the changed
    checks' own test code, the posted/real twins of gate runs, and the timing runs (cbperf, idlecpu, timelines,
@@ -156,7 +160,7 @@ waits for ReportCrash (it writes about 25 s after the crash); a sweep run right 
 0.1.63 tail.
 
 ```
-python3 infra/release/smokes.py plan --to <cut> [--extra extra-oe-smokes.txt] --json plan.json   # dry run + estimate
+python3 infra/release/smokes.py plan --to <cut> [--extra extra-oe-smokes.txt] [--allow ID=REGEX[:MAX]]… --json plan.json
 python3 infra/release/smokes.py run --plan plan.json --tier gate --work <release> --out <dir> --during-staging [--groups g.tsv]
 systemd-run --user --unit=<release>-tail --collect python3 infra/release/smokes.py run --plan plan.json \
   --tier tail --work <release> --out <dir> --release <version>   # after LIVE
@@ -165,9 +169,20 @@ python3 infra/release/smokes.py blockers      # the next release, before it free
 
 `plan` compares the cut with the last release's `Source:` line in `docs/release-notes-beta.md`. It lists the
 changed paths that no smoke covers, and any new check without a catalog entry. Add new checks with `--extra` (the
-release074 `extra-oe-smokes.txt` format) and the PASS count their owner reported. The catalog
-(`infra/release/smoke-catalog.json`) records each smoke's paths, PASS floor and time. It also lists the
-lead-approved allowances (`allow_env`); pass any other approved line with `--allow ID=REGEX[:MAX]`. Before a stage,
+release074 `extra-oe-smokes.txt` format) and the PASS count their owner reported. Add `paths=GLOB,GLOB` (`S/`, `K/`
+prefixes) to an extra line when the catalog has no entry for its script; without paths the plan can't tell whether
+it is a headline check and says `HEADLINE?`. The catalog (`infra/release/smoke-catalog.json`) records each smoke's
+paths, PASS floor and time. It also lists the standing FAIL-ENV notes (`allow_env`), which excuse a note printed
+besides the PASS lines and leave the want as it is.
+
+A lead-ruled line goes in with `--allow ID=REGEX[:MAX]` (ID is a case, e.g. `agentpane2-real`, or one engine's run,
+e.g. `webkit-agentpane2-real`; MAX defaults to 1). Give it to `plan` at the freeze, so the plan json's `allow` list
+carries it to both tiers (`run --allow` adds more). Each FAIL line it excuses stands for a PASS the check didn't
+print, so it also lowers that run's PASS want by one: a run whose only FAILs are ruled lines is green. It stays
+strict: any other FAIL, a missing PASS beyond the excused lines, or more matches than MAX (then none is excused) is
+red. Each result in `gate-smokes.json` / `status/release-tail.json` records `want`, `want_effective` and the
+`allowances` it used, and the state's `allow` lists every rule the run had. The plan warns about an `--allow` ID
+that matches no run. Before a stage,
 keep the test build's apps and scripts (about 0.7 GB) rather than deleting the work folder: the tail runs on them.
 See `infra/release/fast-gate.md`, "Changed-path smokes".
 

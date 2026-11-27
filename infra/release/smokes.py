@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 """Release smokes by change: pick, order, estimate and run the test-build smokes a release needs.
 
-  smokes.py plan    [--from REV] [--to REV] [--extra FILE] [--json OUT]   dry run: selected checks + estimate
+  smokes.py plan    [--from REV] [--to REV] [--extra FILE] [--allow ID=REGEX[:MAX]]… [--json OUT]   dry run
   smokes.py run     --plan PLAN.json --tier gate|tail --work NAME --out DIR [--allow ID=REGEX[:MAX]]…
   smokes.py tail-status [--status DIR]                                     the last release tail, for the lead
   smokes.py blockers    [--status DIR]                                     exit 1 if the next release must wait
 
 The catalog (smoke-catalog.json) lists every smoke releases ran since 0.1.61 with the paths it covers. The gate
 runs the core set plus every smoke whose paths, Debug check file or SnapshotRunner case changed since the last
-release (--from, default: the last `Source:` line in docs/release-notes-beta.md). Everything else, timing smokes and
+release (--from, default: the last `Source:` line in docs/release-notes-beta.md), within a 15-min budget. HEADLINE
+checks (the check is new or changed since the last release AND its own product paths changed) always run at the gate:
+the budget is raised by their cost and the plan says so. A lead-ruled --allow line (an exact FAIL line, at most MAX
+per run) excuses that FAIL and lowers the run's PASS want by the lines it excused; the plan/state json records it.
+Everything else, timing smokes and
 the slow signed-build measurements run in the release's TAIL, after LIVE, on the same test build. A red tail blocks
 the next release (blockers); it never holds the release that made it. Crash/hang-class reds always stop.
 See infra/release/fast-gate.md, "Changed-path smokes", and docs/release.md, "Release gates".
@@ -100,7 +104,8 @@ def runner_cases_changed(base, rev):
 
 
 def load_extra(path):
-    """release074's extra-oe-smokes.txt format: engine script mode want limit tag OPEN_ENV(-)."""
+    """release074's extra-oe-smokes.txt format: engine script mode want limit tag OPEN_ENV(-) [paths=GLOB,GLOB].
+    paths= names the product paths the new check covers (S/, K/ prefixes): with them changed it is a headline check."""
     cases = []
     if not path:
         return cases
@@ -108,16 +113,19 @@ def load_extra(path):
         if not line.strip() or line.lstrip().startswith('#'):
             continue
         e, sc, m, want, lim, *rest = line.split()
+        paths = [p for t in rest if t.startswith('paths=') for p in t[6:].split(',') if p]
+        rest = [t for t in rest if not t.startswith('paths=')]
         tag = rest[0] if rest and rest[0] != '-' else ''
         oe = rest[1] if len(rest) > 1 and rest[1] != '-' else ''
         kind = 'agents' if m == 'posted' or (m == 'real' and oe) else 'nf'
         cases.append(dict(id=f'{sc}-{m}{tag}', kind=kind, script=sc, mode=m, tag=tag, engines={e: int(want)},
                           limit=int(lim), env=[oe] if oe and kind == 'agents' else [], nf_env=[oe] if oe and kind == 'nf' else [],
-                          seconds={e: 60}, paths=[], reason=['extra (freeze list)']))
+                          seconds={e: 60}, paths=paths, extra=True, reason=['extra (freeze list)']))
     merged = {}
     for c in cases:
         if c['id'] in merged:
             merged[c['id']]['engines'].update(c['engines']); merged[c['id']]['seconds'].update(c['seconds'])
+            merged[c['id']]['paths'] = sorted(set(merged[c['id']]['paths']) | set(c['paths']))
         else:
             merged[c['id']] = c
     return list(merged.values())
@@ -138,6 +146,35 @@ def debug_scripts(path, debug):
         if len(root) >= 6 and stem.startswith(root) and (best is None or len(root) > len(best[0])):
             best = (root, scripts)
     return best[1] if best else set()
+
+
+def catalog_cases_at(rev):
+    """The catalog's cases at rev by id, or None when it had no catalog (then no case counts as changed by it)."""
+    try:
+        return {c['id']: c for c in json.loads(git('show', f'{rev}:infra/release/smoke-catalog.json'))['cases']}
+    except (subprocess.CalledProcessError, ValueError, KeyError):
+        return None
+
+
+CASE_KEYS = ('script', 'scripts', 'mode', 'tag', 'env', 'nf_env', 'engines', 'data', 'after')   # not paths: a remap is no change
+
+
+def headline_reason(c, new_scripts, old_cases):
+    """Why a picked check counts as added or changed since the last release (None if it doesn't): on the freeze
+    list (--extra, with its owner's new PASS count), a new script, or a new or edited catalog entry. An edit to an
+    existing Debug check alone (a check fix) is not a headline; put the check in --extra to make it one."""
+    names = {c['script'], *c.get('scripts', [])}
+    if c.get('extra'):
+        return 'new check (--extra)'
+    if names & new_scripts:
+        return 'new check'
+    if old_cases is not None:
+        old = old_cases.get(c['id'])
+        if old is None:
+            return 'new catalog entry'
+        if any(old.get(k) != c.get(k) for k in CASE_KEYS):
+            return 'catalog entry changed'
+    return None
 
 
 def select(catalog, base, rev, extra=None):
@@ -202,12 +239,29 @@ def select(catalog, base, rev, extra=None):
     for c in load_extra(extra):
         if c['id'] in picked:
             picked[c['id']]['engines'].update(c['engines'])
+            picked[c['id']]['extra'] = True
+            picked[c['id']]['paths'] = sorted(set(picked[c['id']].get('paths', [])) | set(c['paths']))
         else:
+            if not c['paths']:   # a new run of a catalogued check covers that check's paths
+                c['paths'] = sorted({p for k in by_script.get(c['script'], []) for p in k.get('paths', [])})
             picked[c['id']] = c
         new_scripts.discard(c['script'])
+    # headline checks: the check itself was added or changed since the last release AND its own product paths
+    # changed. They are what the release is about, so they run before LIVE whatever the budget (plan raises it).
+    old_cases = catalog_cases_at(base)
+    product = [p for p in changed if p not in ignored and not p.startswith((DEBUG, 'scripts/tests/'))]
+    for cid, c in picked.items():
+        if c.get('tier') in ('core', 'timing'):
+            continue
+        why = headline_reason(c, new_scripts, old_cases)
+        own = sorted({p for p in product if matches(p, c.get('paths', []))})
+        if why and own:
+            c['headline'] = f"{why}; own paths changed: {', '.join(Path(p).name for p in own[:3])}{' …' if len(own) > 3 else ''}"
+        elif c.get('extra') and not c.get('paths'):
+            c['headline_unknown'] = 'extra without paths= and no catalog entry: add paths= to tell whether it is a headline check'
     # a full run replaces its subsets
     for cid, c in list(picked.items()):
-        if c.get('subset_of') in picked:
+        if c.get('subset_of') in picked and not c.get('headline'):
             picked[c['subset_of']]['reason'].append(f'(covers {cid})')
             tail_first.setdefault(cid, dict(c, reason=['subset of a gate run']))
             del picked[cid]
@@ -218,7 +272,7 @@ def select(catalog, base, rev, extra=None):
             twins.setdefault((c['script'], tuple(c.get('env', [])), tuple(c.get('nf_env', [])), c.get('tag', '').replace(c.get('mode', ''), '')), []).append(cid)
     for ids in twins.values():
         if len(ids) > 1:
-            keep = max(ids, key=lambda i: (max(picked[i]['engines'].values()), picked[i].get('mode') == 'real'))
+            keep = max(ids, key=lambda i: (bool(picked[i].get('headline')), max(picked[i]['engines'].values()), picked[i].get('mode') == 'real'))
             for i in ids:
                 if i != keep:
                     tail_first.setdefault(i, dict(picked[i], reason=[f'twin of {keep}']))
@@ -285,10 +339,14 @@ def plan(args):
     # the gate budget: core, then security/engine picks, then the most specific changed-path picks per second
     gate_cases = sorted((c for c in sel['picked'] if c.get('tier') != 'timing'),
                         key=lambda c: (c.get('tier') != 'core', -c.get('score', 0), sum(c.get('seconds', {}).values())))
-    spent, kept, over = 0, [], []
+    spent, kept, over, raised = 0, [], [], []
     for c in gate_cases:
         cost = sum(c.get('seconds', {}).values()) + catalog['defaults']['overhead_seconds'] * len(c['engines'])
-        if c.get('tier') == 'core' or c.get('score', 0) >= 50 or not args.budget or spent + cost <= args.budget:
+        if c.get('headline') and c.get('tier') != 'core' and c.get('score', 0) < 50:
+            # the release's own new/changed checks: before LIVE, on top of the budget (not taken from it)
+            kept.append(c); c['reason'] = ['HEADLINE ' + c['headline'], *c['reason']]
+            raised.append(dict(id=c['id'], seconds=cost, why=c['headline']))
+        elif c.get('tier') == 'core' or c.get('score', 0) >= 50 or not args.budget or spent + cost <= args.budget:
             kept.append(c); spent += cost
         else:
             over.append(dict(c, reason=['over the gate budget (' + '; '.join(c['reason'])[:60] + ')']))
@@ -313,6 +371,12 @@ def plan(args):
                budget=args.budget, estimate=dict(gate_smokes_s=round(gm['total']), gate_idle_waits_s=round(gm['waits']),
                              signed_release_s=signed_gate, tail_s=round(tm['total'] + signed_tail),
                              tail_idle_waits_s=round(tm['waits'])))
+    out['budget_raised'] = dict(seconds=sum(x['seconds'] for x in raised), checks=raised,
+                                why='headline checks (new/changed since the last release, own paths changed) run before LIVE') if raised else None
+    out['headline_unknown'] = [dict(id=c['id'], why=c['headline_unknown']) for c in sel['picked'] if c.get('headline_unknown')]
+    out['allow'] = [dict(target=t, regex=rx, max=mx) for t, rules in parse_allow(args.allow).items() for rx, mx in rules]
+    ids = {x for r in gate + tail for x in (r['id'], r['case'])}
+    out['allow_unknown'] = [a['target'] for a in out['allow'] if a['target'] not in ids]
     if args.json:
         Path(args.json).write_text(json.dumps(out, indent=1) + '\n')
     report(out, catalog)
@@ -330,11 +394,21 @@ def report(p, catalog):
             print(f'  {label}: ' + ', '.join(p[key][:12]) + (' …' if len(p[key]) > 12 else ''))
     if p['new_scripts']:
         print('  NEW CHECKS without a catalog entry (add them to --extra with the owner\'s PASS count): ' + ', '.join(p['new_scripts']))
-    print(f"\nGATE (test build, after the fast gate; budget {p['budget'] or 'none'} s): {len(p['gate'])} launches")
+    br = p.get('budget_raised')
+    raised = f" + {br['seconds']} s for {len(br['checks'])} headline checks" if br else ''
+    print(f"\nGATE (test build, after the fast gate; budget {p['budget'] or 'none'} s{raised}): {len(p['gate'])} launches")
     for r in p['gate']:
         wait = f" (+{r['est_wait']} s idle)" if r['est_wait'] > 8 else ''
         print(f"  {mmss(r['est_end']):>6}  {r['engine']:8s} {r['script']:22s} {r['mode']}{r['tag']:12s} want {r['want']:>3}{wait}  ← {'; '.join(r['reason'])[:90]}")
     e = p['estimate']
+    if br:
+        print('  budget raised for headline checks (they run before LIVE): ' +
+              '; '.join(f"{x['id']} {x['seconds']} s ({x['why']})" for x in br['checks']))
+    for x in p.get('headline_unknown', []):
+        print(f"  HEADLINE? {x['id']}: {x['why']}")
+    for a in p.get('allow', []):
+        print(f"  allowance (lowers the want by the lines it excuses): {a['target']} ≤ {a['max']}: {a['regex']}"
+              + ('   ← NO SUCH RUN OR CASE in this plan' if a['target'] in p.get('allow_unknown', []) else ''))
     print(f"  ≈ {mmss(e['gate_smokes_s'])} min smokes ({mmss(e['gate_idle_waits_s'])} of it idle waits) + {mmss(e['signed_release_s'])} min signed-build smokes")
     print(f"\nTAIL (after LIVE, same test build; a red blocks the NEXT release): {len(p['tail'])} launches ≈ {e['tail_s'] / 3600:.1f} h "
           f"(idle waits {mmss(e['tail_idle_waits_s'])} min), incl. timing: " +
@@ -383,23 +457,44 @@ def remote_command(r, work):
     return name, None, None
 
 
+def parse_allow(items):
+    """--allow CASE_OR_RUN_ID=REGEX[:MAX] (MAX default 1) → {id: [(regex, max)]}."""
+    allow = {}
+    for a in items or []:
+        cid, rule = a.split('=', 1)
+        regex, _, mx = rule.rpartition(':') if re.search(r':\d+$', rule) else (rule, '', '1')
+        if (regex, int(mx)) not in allow.get(cid, []):
+            allow.setdefault(cid, []).append((regex, int(mx)))
+    return allow
+
+
 def judge(text, r, allow):
+    """(ok, critical, passes, unexcused fails, excused fails, info). info: want_effective and the rules used.
+    A lead-ruled line (allow) stands for a PASS the check didn't print, so each line it excuses lowers the want by
+    one: a run whose only FAILs are excused lines is green, and any other FAIL or missing PASS stays red. A rule
+    that matches more lines than its MAX excuses none of them. The catalog's allow_env (FAIL-ENV notes printed
+    besides the PASS lines) excuses without changing the want."""
     lines = text.splitlines()
     p = sum(l.startswith('PASS') for l in lines)
     fails = [l for l in lines if re.match(r'(FAIL|FAIL-ENV|ENGINE-FAIL)\b', l)]
-    allowed = []
+    taken, lead, used = set(), set(), []
     if r.get('allow_env'):
-        a = [l for l in fails if l.startswith('FAIL-ENV') and re.search(r['allow_env']['regex'], l)]
+        a = [i for i, l in enumerate(fails) if l.startswith('FAIL-ENV') and re.search(r['allow_env']['regex'], l)]
         if len(a) <= r['allow_env']['max']:
-            allowed += a
-    for rule in allow.get(r['case'], []) + allow.get(r['id'], []):
-        a = [l for l in fails if re.search(rule[0], l)]
-        if len(a) <= rule[1]:
-            allowed += a
-    left = [l for l in fails if l not in allowed]
+            taken.update(a)
+    for target in (r['case'], r['id']):
+        for regex, mx in allow.get(target, []):
+            a = [i for i, l in enumerate(fails) if i not in taken and re.search(regex, l)]
+            if a:
+                used.append(dict(target=target, regex=regex, max=mx, matched=len(a), excused=len(a) <= mx))
+            if a and len(a) <= mx:
+                taken.update(a); lead.update(a)
+    want = max(0, r['want'] - len(lead))
+    left = [l for i, l in enumerate(fails) if i not in taken]
+    allowed = [l for i, l in enumerate(fails) if i in taken]
     critical = bool(CRITICAL.search('\n'.join(left)))
-    ok = p >= r['want'] and not left
-    return ok, critical, p, left, allowed
+    ok = p >= want and not left
+    return ok, critical, p, left, allowed, dict(want=r['want'], want_effective=want, lowered_by=len(lead), rules=used)
 
 
 def run(args):
@@ -407,18 +502,16 @@ def run(args):
     items = p[args.tier]
     out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
     log = out / 'smokes.log'
-    allow = {}
-    for a in args.allow or []:
-        cid, rule = a.split('=', 1)
-        regex, _, mx = rule.rpartition(':') if re.search(r':\d+$', rule) else (rule, '', '1')
-        allow.setdefault(cid, []).append((regex, int(mx)))
+    # the plan's allowances (set at the freeze) plus any given here
+    allow = parse_allow([f"{a['target']}={a['regex']}:{a['max']}" for a in p.get('allow', [])] + (args.allow or []))
     groups = {}
     for line in (Path(args.groups).read_text().splitlines() if args.groups else []):
         if line.strip() and not line.startswith('#'):
             k, _, v = line.partition('\t'); groups[k.strip()] = v.strip()
     state_file = STATUS / 'release-tail.json' if args.tier == 'tail' else out / 'gate-smokes.json'
     state = dict(tier=args.tier, rev=p['rev'], work=args.work, release=args.release, started=now(), state='running',
-                 results=[], reds=[], critical=[])
+                 results=[], reds=[], critical=[],
+                 allow=[dict(target=t, regex=rx, max=mx) for t, rules in allow.items() for rx, mx in rules])
     def save():
         tmp = state_file.with_suffix('.tmp'); tmp.write_text(json.dumps(state, indent=1) + '\n'); tmp.replace(state_file)
     save()
@@ -458,23 +551,25 @@ def run(args):
             d.mkdir(parents=True, exist_ok=True)
             subprocess.run(['rsync', '-az', '--exclude=home', '--exclude=Data', '--exclude=Chromium', f'buildmac:{remote_out.replace("~/", "")}/', f'{d}/'])
             text = (d / 'log.txt').read_text(errors='replace') if (d / 'log.txt').exists() else ''
-            ok, critical, npass, left, allowed = judge(text, r, allow)
+            ok, critical, npass, left, allowed, info = judge(text, r, allow)
             if (d / 'hang.txt').exists():
                 ok, critical = False, True; left.append('runner: still running at its limit (hang.txt sampled)')
             if not text.strip():
                 ok = False; left.append('no log.txt / 0 assertions (zero-guard)')
             if r['script'] == 'cbperf':   # standing ruling: first key must PASS, the median is recorded
-                ok = npass >= r['want'] and 'PASS cbperf: first keystroke' in text and not [l for l in left if 'median keystroke' not in l]
+                ok = npass >= info['want_effective'] and 'PASS cbperf: first keystroke' in text and not [l for l in left if 'median keystroke' not in l]
             verdict = 'PASS' if ok else 'FAIL'
             res = dict(id=r['id'], script=r['script'], mode=r['mode'] + r['tag'], verdict=verdict, critical=critical, rc=rc,
-                       passes=npass, want=r['want'], fails=left[:20], allowed=allowed, idle=idle, at=now())
+                       passes=npass, want=r['want'], want_effective=info['want_effective'], fails=left[:20], allowed=allowed,
+                       allowances=info['rules'], idle=idle, at=now())
             state['results'].append(res)
             if not ok:
                 state['reds'].append(r['id'])
             if critical:
                 state['critical'].append(r['id'])
             save()
-            print(f"{now()} smoke {args.tier} {r['engine']} {r['script']} {r['mode']}{r['tag']}: PASS {npass} (want >= {r['want']}) "
+            wanted = f"{info['want_effective']} = {r['want']} - {info['lowered_by']} allowed" if info['lowered_by'] else r['want']
+            print(f"{now()} smoke {args.tier} {r['engine']} {r['script']} {r['mode']}{r['tag']}: PASS {npass} (want >= {wanted}) "
                   f"FAIL {len(left)}{' ALLOWED ' + str(len(allowed)) if allowed else ''} rc {rc} [{idle}] -> {verdict}{' CRITICAL' if critical else ''}",
                   file=L, flush=True)
             if critical and args.tier == 'gate':
@@ -522,6 +617,7 @@ def main():
     sub = ap.add_subparsers(dest='cmd', required=True)
     a = sub.add_parser('plan'); a.add_argument('--from', dest='base'); a.add_argument('--to', default='HEAD')
     a.add_argument('--extra'); a.add_argument('--json')
+    a.add_argument('--allow', action='append', help='CASE_OR_RUN_ID=REGEX[:MAX]: a lead-ruled line, stored in the plan for run')
     a.add_argument('--budget', type=int, default=900, help='gate smoke seconds (core always runs; security/engine picks too); 0 = no cap')
     b = sub.add_parser('run'); b.add_argument('--plan', required=True); b.add_argument('--tier', choices=('gate', 'tail'), required=True)
     b.add_argument('--work', required=True); b.add_argument('--out', required=True); b.add_argument('--release', default='')

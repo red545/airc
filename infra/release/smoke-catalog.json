@@ -2287,6 +2287,76 @@
     "oauthapps-cold",
     "oauthapps-google"
    ]
+  },
+  {
+   "id": "agentparallel-real",
+   "kind": "agents",
+   "script": "agentparallel",
+   "mode": "real",
+   "env": [
+    "AIRC_AGENTPARALLEL_ONLY=three,stop,approvals,ratelimit,windows,queue"
+   ],
+   "engines": {
+    "chromium": 61,
+    "webkit": 61
+   },
+   "limit": 900,
+   "seconds": {
+    "chromium": 240,
+    "webkit": 240
+   },
+   "paths": [
+    "S/Agent/AgentTaskCenter.swift",
+    "S/Agent/AgentRun.swift",
+    "S/Agent/AgentWindow.swift",
+    "S/Agent/Tasks/*",
+    "S/Agent/Pane/AgentTasksPage.swift",
+    "S/Sidebar/SidebarTaskRows.swift",
+    "K/AgentTasks.swift"
+   ],
+   "note": "agentparallel (0.1.64): three+stop 28, approvals+429 18, windows 8, queue 7 per engine; idle is a timing case (idlecpu). seconds are an estimate until a tail measures them."
+  },
+  {
+   "id": "capture-bg",
+   "kind": "nf",
+   "script": "capture",
+   "mode": "bg",
+   "engines": {
+    "chromium": 153,
+    "webkit": 152
+   },
+   "limit": 600,
+   "seconds": {
+    "chromium": 120,
+    "webkit": 120
+   },
+   "paths": [
+    "S/Browser/Capture.swift",
+    "S/Browser/FullPageCapture.swift",
+    "S/Browser/PortraitCapture.swift"
+   ],
+   "note": "smallgaps2 N02 (0.1.64) counts; seconds are an estimate until a tail measures them."
+  },
+  {
+   "id": "parityp01c-bg",
+   "kind": "nf",
+   "script": "parityp01c",
+   "mode": "bg",
+   "engines": {
+    "chromium": 13,
+    "webkit": 13
+   },
+   "limit": 330,
+   "seconds": {
+    "chromium": 40,
+    "webkit": 40
+   },
+   "paths": [
+    "S/Settings/SettingsWindow.swift",
+    "S/Settings/SettingsSearchCatalog.swift",
+    "S/Browser/SelectionShare.swift"
+   ],
+   "note": "P01c incl. smallgaps2 C06 Shared Quotes off (0.1.64); seconds are an estimate until a tail measures them."
   }
  ],
  "signed": [

@@ -23,7 +23,7 @@ class Judge(unittest.TestCase):
         r = dict(case='x', id='chromium-x', want=2, allow_env=None)
         self.assertTrue(smokes.judge('PASS a\nPASS b\n', r, {})[0])
         self.assertFalse(smokes.judge('PASS a\n', r, {})[0])
-        ok, critical, _, left, _ = smokes.judge('PASS a\nPASS b\nFAIL the app crashed\n', r, {})
+        ok, critical, _, left, _, _ = smokes.judge('PASS a\nPASS b\nFAIL the app crashed\n', r, {})
         self.assertFalse(ok); self.assertTrue(critical); self.assertEqual(len(left), 1)
 
     def test_allowances_are_bounded(self):
@@ -31,6 +31,82 @@ class Judge(unittest.TestCase):
         self.assertTrue(smokes.judge('PASS a\nFAIL-ENV covered\n', r, {})[0])
         self.assertFalse(smokes.judge('PASS a\nFAIL-ENV covered\nFAIL-ENV covered\n', r, {})[0])
         self.assertTrue(smokes.judge('PASS a\nFAIL k i\n', r, {'x': [('k i', 1)]})[0])
+
+    def test_lead_allowance_lowers_the_want(self):
+        # agentpane2 real, 0.1.64: 222 PASS + the one ruled line = the want 223: green, and the json says why
+        r = dict(case='agentpane2-real', id='chromium-agentpane2-real', want=4, allow_env=None)
+        allow = smokes.parse_allow(['chromium-agentpane2-real=^FAIL needs you \\[notification\\]:1'])
+        ok, critical, n, left, allowed, info = smokes.judge('PASS a\nPASS b\nPASS c\nFAIL needs you [notification]\n', r, allow)
+        self.assertTrue(ok); self.assertFalse(critical); self.assertEqual(left, [])
+        self.assertEqual((info['want'], info['want_effective'], info['lowered_by']), (4, 3, 1))
+        self.assertEqual(info['rules'][0]['matched'], 1)
+        # strict: one more missing PASS is red
+        self.assertFalse(smokes.judge('PASS a\nPASS b\nFAIL needs you [notification]\n', r, allow)[0])
+        # strict: any other FAIL is red
+        self.assertFalse(smokes.judge('PASS a\nPASS b\nPASS c\nFAIL needs you [notification]\nFAIL other\n', r, allow)[0])
+        # the allowed line passing instead: the want stays whole
+        ok, _, _, _, _, info = smokes.judge('PASS a\nPASS b\nPASS c\nPASS needs you\n', r, allow)
+        self.assertTrue(ok); self.assertEqual(info['want_effective'], 4)
+        self.assertFalse(smokes.judge('PASS a\nPASS b\nPASS c\n', r, allow)[0])
+        # over MAX: nothing is excused and the want is not lowered
+        two = 'PASS a\nPASS b\nFAIL needs you [notification]\nFAIL needs you [notification]\n'
+        ok, _, _, left, _, info = smokes.judge(two, r, allow)
+        self.assertFalse(ok); self.assertEqual(len(left), 2); self.assertEqual(info['want_effective'], 4)
+        self.assertFalse(info['rules'][0]['excused'])
+
+    def test_allowance_rules_for_case_and_run_count_a_line_once(self):
+        r = dict(case='x', id='webkit-x', want=2, allow_env={'regex': 'covered', 'max': 1})
+        allow = {'x': [('dup', 1)], 'webkit-x': [('dup', 1)]}
+        ok, _, _, _, allowed, info = smokes.judge('PASS a\nFAIL dup\nFAIL-ENV covered\n', r, allow)
+        self.assertTrue(ok); self.assertEqual(info['lowered_by'], 1); self.assertEqual(len(allowed), 2)
+        # the catalog's FAIL-ENV note excuses but does not lower the want
+        ok, _, _, _, _, info = smokes.judge('PASS a\nFAIL-ENV covered\n', r, allow)
+        self.assertFalse(ok); self.assertEqual(info['want_effective'], 2)
+
+    def test_parse_allow(self):
+        self.assertEqual(smokes.parse_allow(['a=^FAIL x:3', 'a=^FAIL x:3', 'b=FAIL 10:20 y']),
+                         {'a': [('^FAIL x', 3)], 'b': [('FAIL 10:20 y', 1)]})
+
+
+class Headline(unittest.TestCase):
+    def test_reason(self):
+        old = {'a-bg': dict(id='a-bg', script='a', mode='bg', engines={'chromium': 5})}
+        same = dict(id='a-bg', script='a', mode='bg', engines={'chromium': 5}, paths=['S/x'])
+        self.assertIsNone(smokes.headline_reason(same, set(), old))                       # unchanged check
+        self.assertIsNone(smokes.headline_reason(same, set(), None))                      # no catalog at base
+        self.assertIn('--extra', smokes.headline_reason(dict(same, extra=True), set(), old))
+        self.assertEqual(smokes.headline_reason(same, {'a'}, old), 'new check')
+        self.assertEqual(smokes.headline_reason(dict(same, engines={'chromium': 9}), set(), old), 'catalog entry changed')
+        self.assertEqual(smokes.headline_reason(dict(same, id='a-real'), set(), old), 'new catalog entry')
+        self.assertIsNone(smokes.headline_reason(dict(same, paths=['S/y']), set(), old))  # a path remap is no change
+
+    def test_plan_raises_the_budget_for_headline_checks_only(self):
+        cat = dict(defaults=dict(overhead_seconds=0, idle_by_mode={}), signed=[], cases=[
+            dict(id='core-bg', kind='nf', script='core', mode='bg', tier='core', engines={'chromium': 1}, seconds={'chromium': 100}),
+            dict(id='new-bg', kind='nf', script='new', mode='bg', engines={'chromium': 1}, seconds={'chromium': 500}),
+            dict(id='old-bg', kind='nf', script='old', mode='bg', engines={'chromium': 1}, seconds={'chromium': 300}),
+            dict(id='old2-bg', kind='nf', script='old2', mode='bg', engines={'chromium': 1}, seconds={'chromium': 300})])
+        sel = dict(changed=['S/a'], ignored=[], engine=[], broad=[], unmapped=[], new_scripts=[], tail_first=[],
+                   picked=[dict(cat['cases'][0], reason=['core']),
+                           dict(cat['cases'][1], reason=['S/a'], score=1, headline='new check (--extra); own paths changed: a'),
+                           dict(cat['cases'][2], reason=['S/a'], score=4), dict(cat['cases'][3], reason=['S/a'], score=3)])
+        orig = (smokes.select, smokes.git, smokes.CATALOG)
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / 'cat.json'; f.write_text(json.dumps(cat)); out = Path(d) / 'plan.json'
+            smokes.select, smokes.git, smokes.CATALOG = (lambda *a: sel), (lambda *a: 'f' * 40), f
+            try:
+                smokes.plan(SimpleNamespace(to='HEAD', base='b', extra=None, budget=450, json=str(out),
+                                            allow=['old-bg=^FAIL x:2', 'nope=y']))
+            finally:
+                smokes.select, smokes.git, smokes.CATALOG = orig
+            p = json.loads(out.read_text())
+        gate = {r['case'] for r in p['gate']}
+        self.assertEqual(gate, {'core-bg', 'new-bg', 'old-bg'})       # 100 + 300 within 450; the headline 500 on top
+        self.assertIn('old2-bg', {r['case'] for r in p['tail']})
+        self.assertEqual(p['budget_raised']['seconds'], 500)
+        self.assertEqual([c['id'] for c in p['budget_raised']['checks']], ['new-bg'])
+        self.assertEqual(p['allow'][0], dict(target='old-bg', regex='^FAIL x', max=2))
+        self.assertEqual(p['allow_unknown'], ['nope'])
 
 
 class Order(unittest.TestCase):

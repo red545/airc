@@ -1,0 +1,27 @@
+# Airc 0.1.64 (release076; notes on main 37bded43). LIVE 2026-11-27 07:23Z, public tag v0.1.64 shown. Claims from its
+# approved notes.
+slug = "2026-11-27-release-0.1.64"
+title = "Airc 0.1.64: several agent tasks at once"
+kind = "release"
+since = "0.1.64"
+tag = ""
+summary = """
+One text post on the headline: several agent tasks at once, each in its own tab; ⌥↩ starts one in the background. No
+card yet: no shot of parallel tasks; add one if the lead's next demo re-take makes one.
+"""
+order = """
+1. 1 Dec 10:30 UTC (only the 10:30 slot posts since 27 Nov); "Airc from your other devices" moved to 12 Dec.
+"""
+checked = """
+- Notes: start another task while one works (✎ New in the pane, or Ask in ⌘T); each runs in its own tab with its own
+  row in the Agents folder, approvals and Stop; up to 3 at the same time, more wait as Queued and start by themselves;
+  limit in Settings › AI › Agent. ⌥↩ in the Command Bar's Ask starts a task in the background, your page stays put.
+  A busy or rate-limited AI provider no longer ends a task (it waits, says how long, retries).
+- Not posted alone: Capture Full Page, WebKit tab switching, Shared Quotes note, focus fix. Still a beta.
+"""
+
+[[post]]
+label = "Several agent tasks at once"
+text = """
+Airc Agent can now work on several tasks at once, each in its own tab with its own Stop. Press ⌥↩ in ⌘T's Ask to start one in the background and keep reading. If your AI service is busy, it waits and tries again. Beta, new in Airc 0.1.64.
+"""
