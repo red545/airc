@@ -1,15 +1,37 @@
-# Airc 0.1.63 public beta
+# Airc 0.1.64 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update lets a Mac without iCloud Keychain join sync with a recovery key and lets you start sync over when no Mac
-has its key. It includes everything from 0.1.62. The release manifest records the exact build, source and checksums.
+This update lets the Airc Agent work on several tasks at once, each in its own tab, and makes Capture Full Page take
+whole long pages on both engines. It includes everything from 0.1.63. The release manifest records the exact build,
+source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.62
+## New since 0.1.63
+
+- **The Airc Agent can now work on several tasks at once.** Start another task while one works (✎ New in the pane, or
+  Ask in ⌘T): each runs in its own tab, with its own row in the Agents folder, its own approvals and its own Stop.
+  Stopping one leaves the others running. Up to 3 run at the same time; more wait as Queued and start by themselves
+  when one ends. You can change the limit in Settings › AI › Agent.
+- **Start a task in the background with ⌥↩.** In the Command Bar's Ask, press ⌥↩ instead of ↩. The task starts in its
+  own tab, which shows up as a row in Today, and your page stays where it is.
+- **A busy AI service no longer ends a task.** When your AI provider says it's busy or you've hit its rate limit, the
+  task waits, says how long, and tries again by itself. Stop still ends it at once.
+- **Capture Full Page gets the whole page, however long.** On both engines, Capture Full Page (F in Capture, or View
+  › Capture Full Page) now takes very long pages from top to foot. Parts that stay put while you scroll, like a
+  site's header, show once, where the window shows them. With Chromium, very long pages no longer come out washed out
+  or with thin lines across them.
+- **Switching tabs is quicker with the Safari engine.** Picking a tab no longer redraws the whole sidebar before the
+  tab shows, so with the Safari engine (WebKit) the new tab appears about a quarter sooner.
+- **Settings say how to quote with Shared Quotes off.** Settings › General › Shared Quotes now says that with Shared
+  Quotes off, ⌃⇧⌘C (Copy URL as Quote) still copies the page's link with your selection as a quote, as in Arc.
+- **Fix: after you go to an agent task that needs you, your typing stays there.** Before, when you got there twice in
+  a row (say, from the Dock and then ✦), the first one could take the keys back a moment later.
+
+## Included from 0.1.63
 
 - **iCloud sync now works without iCloud Keychain.** On a Mac that syncs, Settings › Sync › Recovery key › Show…
   shows a recovery key after you enter your Mac's password or use Touch ID. On a Mac where iCloud Keychain is off, or
