@@ -63,6 +63,9 @@ The private database, one custom zone **`AircSidebar`**, five record types:
 | `SyncDevice` | `device.<device UUID>` | `group`, `device`, `sealed` (its name), `seen` | by its device, overwritten at most every 6 hours |
 | `SyncNote` | `note.<device UUID>.<note ID>` | `group`, `device`, `note`, `version` (format 1), `sealed` (bytes, ≤ 256 KB) or `payload` (asset, ≤ 8 MB) | by its device, overwritten with its latest version of that note |
 | `SyncNoteAsset` | `noteasset.<40 hex>` | `group`, `version` (1), `data` (asset: one sealed picture, ≤ 32 MB) | by the first Mac that has the picture, create-only, never changed |
+| `SyncDevice` (an ack) | `ack.<device UUID>` | `group`, `device`, `sealed` (its `SyncGCAck`), `seen` (when written) | by its device, overwritten when its content changes ([Clean-up](#clean-up)) |
+
+Records are deleted only by [Clean-up](#clean-up): a deleted note's text records, pictures no note uses, an old group.
 
 A device only creates names with its own UUID; readers drop a batch whose name, `device` field and sealed author don't
 agree. Batches hold at most 512 KB of operations (below).
@@ -450,15 +453,70 @@ dashes and O/I/L; a wrong length, character or checksum is `.malformed` ("check 
    them without asking and merges without duplicates.
 5. A capture of the whole sidebar, then a normal exchange.
 
-**Nothing in iCloud is deleted.** The old group's batches, device and note records and pictures stay. Batches,
-devices and notes of another group are skipped silently (a note record of another group isn't "unreadable"). Reclaiming
-them is the garbage collection follow-up below.
+**Nothing in iCloud is deleted by the start-over itself.** The old group's batches, device and note records and pictures
+stay. Batches, devices and notes of another group are skipped silently (a note record of another group isn't
+"unreadable"). [Clean-up](#clean-up) deletes them once every Mac of the old group has rejoined or is gone.
 
 **Rejoining** (`rejoin()`, any Mac that finds another group): a fresh state with the same device, account, switches
 and `lastSynced`, the adapter's `restarted()` mappings, and `restarted = true`; the key is forgotten in memory only (the
 old item stays in the keychain: deleting a synchronizable item deletes it on every Mac). Then `join` as for a new Mac.
 `SyncFirstSync.restartedElsewhere` makes the screen say so and preselect Merge; profiles the old adapter mapped aren't
 asked about again. Merge captures the store, edits that never reached iCloud included.
+
+## Clean-up
+
+syncgc (`Sync/SyncGarbage.swift`, the engine's `collect` step at the end of every cycle) deletes records nothing needs any
+more, in two phases: what qualifies is first agreed by every Mac that counts, then deleted after a **settle delay**, if it
+still qualifies then. No CloudKit schema change: deletes are plain record deletes (`SyncCloudDatabase.delete`; a record
+that isn't there counts as deleted), and each Mac's answers go in an **ack**, a `SyncDevice` record named
+`ack.<device>` whose `sealed` field is a sealed `SyncGCAck` (AAD `Airc-sync-ack|group|device`). Builds from before
+syncgc map only `device.<device>` names, so they ignore acks.
+
+| What | Deleted when | By |
+|---|---|---|
+| A deleted note's **text** records (a version the removal saw) | every Mac that counts lists the note as removed with the same version vector, and still does a settle delay later | each Mac its own record; the collector those of Macs that don't count |
+| A deleted note's **removal** records | never: tombstones without text (~300 bytes), so a Mac that edited the note while away still finds the removal and keeps its edit ([Conflicts](#conflicts)) | |
+| **Pictures** no note shown on any Mac uses | the collector proposed them, every Mac that counts answered which it still uses (`keep`), and a settle delay passed | the collector |
+| An **old group** (after a Start Over) | no device record of that group was written within the horizon (each old Mac rejoined, so its device record names the new group, or is gone), still so a settle delay later | the collector |
+| The current group's batches, device records, the group record | never (log compaction and device retirement are separate) | |
+
+- **Who counts:** every Mac whose device record or ack of this group was written within the **horizon** (30 days;
+  `SyncGarbage.horizon`), and this one. While one of them has no readable ack (an older build, a newer ack format),
+  nothing is deleted. The **collector** is the one with the lowest device UUID.
+- **Settle delay:** 24 hours (`SyncGarbage.settle`; scripted checks pass `--sync-gc-settle 2`).
+- **Only from a clean state:** nothing is collected, and no ack sent, while this Mac has unreadable batches or note
+  records, anything waiting to upload, a recovery or an unfinished apply. A clean-up failure never fails the cycle.
+- **The ack** (`SyncGCAck`, format 1): `notes` (each note removed here, not pinned, nothing of it waiting to go up, with
+  its `known` vector, and when this Mac deleted its own text record; kept 90 days after that), `seen` and `keep` (the
+  proposal epoch read per collector, and which of its pictures this Mac still uses), `proposal` (the collector's own),
+  `gone` (pictures it deleted, a year or 2000 at most). Published when its content changes.
+- **The inventory:** the transport reports every record's name, type and group (`SyncReadReport.records`); the engine
+  keeps pictures and other groups' records (`SyncGCState.inventory`). It's complete after a full read: the first cycle
+  after an update rescans once (`rescan()`).
+- **Checked again before each delete:** a text record is fetched and deleted only if its version is still one the
+  agreed vector covers; another group's mutable record (`note.`, `device.`, `ack.`) only if it's still that group's.
+  Batches and pictures are create-only.
+- **Crash safety:** the plan is saved before anything is deleted; a quit, crash or network failure mid-way leaves it,
+  and the next cycle checks it again and finishes. Pictures are announced in `gone` after they're deleted.
+- **Pictures stay whole:** a Mac that reads a proposal stops counting those pictures as uploaded (unless it uses them),
+  and one that reads `gone` queues the deleted pictures its pinned notes use again; so a picture used again after it was
+  proposed or deleted is uploaded again. A proposed picture a Mac keeps (a Today note) isn't proposed again for a horizon.
+- **A Mac that comes back after the horizon** loses nothing: it clears what it believes is uploaded (pictures go up again
+  on their next use), its edits to a deleted note win over the kept removal, and its stray batches into an old group
+  are collected later.
+
+### Tests (clean-up)
+
+- `swift test --package-path packages/AircKit --filter SyncGarbage`: the ack record and its older-build view, the
+  transport's acks, inventory, deletes and rescan, and three engines on the mock database: a deleted note's texts and
+  picture going after agreement and the settle delay (nothing before), a Mac away within the horizon holding it back,
+  a Mac gone past the horizon not holding it back and losing nothing when it returns, a live older build blocking
+  everything, a picture a Today note or another Mac uses staying and one used again going up again, a crash mid-delete
+  finished after a relaunch, a note unpinned to Today and pinned again, and Start Over with the old group collected once
+  every old Mac rejoined or is gone.
+- `--script icloudsync-gc-a` … `-c3` (Debug/ICloudSyncGCCheck.swift, both engines, `--sync-gc-settle 2`): three app
+  instances on a mock database; C deletes a note all three edited; nothing goes while A and B haven't answered; then each
+  Mac's own text record, and the picture; only C's removal is left, the other note and picture stay, nothing readable.
 
 ## Applying remote changes
 
@@ -637,13 +695,13 @@ pushes, offline and account changes, and a notarized release's first sync on a c
 
 ## Limits and follow-ups
 
-- The log keeps every operation and tombstone (no compaction yet); fine for sidebars, but it grows.
-- Note records and pictures are never deleted from iCloud: a deleted note's records (one per Mac that wrote it) and its
-  pictures stay until the zone is deleted. Garbage collection needs the same all-device acknowledgement as the log.
+- The log keeps every operation and tombstone (no compaction yet); fine for sidebars, but it grows. [Clean-up](#clean-up)
+  deletes deleted notes' texts, unused pictures and old groups, not the current group's batches; compacting them would
+  reuse its acks (a snapshot every Mac has acked past).
 - Merge doesn't detect the same Space on both Macs (each Mac's first "Personal" shows twice); Replace is the choice
   for a new Mac, and the screen offers it first when this Mac has nothing pinned.
-- No device retirement. Without iCloud Keychain, a Mac joins with the recovery key (above); a start-over leaves the
-  old group's records in iCloud until the zone is deleted (the same garbage collection as notes').
+- No device retirement (a gone Mac's device record stays). Without iCloud Keychain, a Mac joins with the recovery key
+  (above); a start-over's old group is deleted by [Clean-up](#clean-up).
 - Profile names sync only to name new empty profiles; renaming a profile on one Mac doesn't rename it on another.
 - Silent pushes need the Push Notifications capability on the App ID (the profile's `aps-environment`); without it
   sync is on activation and every 10 minutes.

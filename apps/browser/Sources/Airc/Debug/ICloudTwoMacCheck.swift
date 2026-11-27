@@ -210,6 +210,7 @@ final class ICloudTwoMacDatabase: SyncCloudDatabase, @unchecked Sendable {
     func save(_ records: [SyncCloudRecord], zone: String, mode: SyncSaveMode) async throws -> [String: Result<SyncCloudRecord, SyncCloudFailure>] { try check(); return try await base.save(records, zone: zone, mode: mode) }
     func fetch(_ names: [String], zone: String) async throws -> [SyncCloudRecord] { try check(); return try await base.fetch(names, zone: zone) }
     func subscribe(zone: String, id: String) async throws { try check(); try await base.subscribe(zone: zone, id: id) }
+    func delete(_ names: [String], zone: String) async throws { try check(); try await base.delete(names, zone: zone) }
 }
 /// Logs lookup time and result only; no key material or account identity leaves the Keychain.
 final class ICloudTwoMacKeys: SyncKeyStore, @unchecked Sendable {

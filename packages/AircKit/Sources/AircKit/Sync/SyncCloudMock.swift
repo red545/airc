@@ -101,11 +101,22 @@ public struct SyncMockCloudState: Codable, Sendable {
         _ = try zone(name)
         subscriptions.insert(name + "/" + id)
     }
+
+    /// Deletes records (missing ones are fine); a change fetch reports each deletion once, in order.
+    mutating func delete(_ names: [String], zone name: String) throws {
+        var z = try zone(name)
+        for record in names where z.records[record] != nil {
+            seq += 1
+            z.records[record] = nil
+            z.deletions[record] = seq
+        }
+        zones[name] = z
+    }
 }
 
 /// In-memory mock with injectable failures, for unit tests.
 public actor SyncMockCloudDatabase: SyncCloudDatabase {
-    public enum Call: String, Sendable { case accountStatus, accountIdentity, createZone, fetchChanges, save, fetch, subscribe }
+    public enum Call: String, Sendable { case accountStatus, accountIdentity, createZone, fetchChanges, save, fetch, subscribe, delete }
     public private(set) var state = SyncMockCloudState()
     private var faults: [Call: [SyncCloudFailure]] = [:]
     private var recordFaults: [String: SyncCloudFailure] = [:]
@@ -152,6 +163,22 @@ public actor SyncMockCloudDatabase: SyncCloudDatabase {
     }
     public func fetch(_ names: [String], zone: String) throws -> [SyncCloudRecord] { try enter(.fetch); return try state.fetch(names, zone: zone) }
     public func subscribe(zone: String, id: String) throws { try enter(.subscribe); try state.subscribe(zone: zone, id: id) }
+    /// `deleteLimit`: a crash mid-delete (tests): only this many of the next delete's records go, then it fails.
+    public var deleteLimit: Int?
+    public func limitDeletes(_ n: Int?) { deleteLimit = n }
+    public private(set) var deleted: [String] = []
+    public func delete(_ names: [String], zone: String) throws {
+        try enter(.delete)
+        if let limit = deleteLimit {
+            deleteLimit = nil
+            let done = Array(names.prefix(limit))
+            try state.delete(done, zone: zone)
+            deleted += done
+            throw SyncCloudFailure.other("stopped mid-delete")
+        }
+        try state.delete(names, zone: zone)
+        deleted += names
+    }
 }
 
 /// The same database in a folder, shared by several app instances (two "Macs" in the scripted check). Each call reads
@@ -193,4 +220,5 @@ public struct SyncFolderCloudDatabase: SyncCloudDatabase {
     }
     public func fetch(_ names: [String], zone: String) throws -> [SyncCloudRecord] { try withState { try $0.fetch(names, zone: zone) } }
     public func subscribe(zone: String, id: String) throws { try withState { try $0.subscribe(zone: zone, id: id) } }
+    public func delete(_ names: [String], zone: String) throws { try withState { try $0.delete(names, zone: zone) } }
 }

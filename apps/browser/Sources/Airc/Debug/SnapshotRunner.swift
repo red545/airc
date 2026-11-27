@@ -365,6 +365,9 @@ final class SnapshotRunner {
         case "icloudsync", "icloudsync-second", "icloudsync-replace", "icloudsync-return", "icloudsync-unavailable": iCloudSyncScenario()
         case "icloudsync-recovery-a", "icloudsync-recovery-b", "icloudsync-recovery-c", "icloudsync-recovery-a2":
             iCloudSyncRecoveryScenario()   // recovery key and start over, no iCloud Keychain (ICloudSyncRecoveryCheck.swift)
+        case "icloudsync-gc-a", "icloudsync-gc-b", "icloudsync-gc-c", "icloudsync-gc-a2", "icloudsync-gc-b2", "icloudsync-gc-c2",
+             "icloudsync-gc-a3", "icloudsync-gc-b3", "icloudsync-gc-c3":
+            iCloudSyncGCScenario()   // clean-up of a deleted note's records and picture, three Macs (ICloudSyncGCCheck.swift)
         case "settingssync-a", "settingssync-b", "settingssync-a2": settingsSyncScenario()   // settings sync (SettingsSyncCheck.swift)
         case "boostsync-a", "boostsync-b", "boostsync-a2", "boostsync-b2": boostSyncScenario()   // Boosts and archive timing sync (BoostSyncCheck.swift)
         case "icloudsync-real-a", "icloudsync-real-b", "icloudsync-real-live-a", "icloudsync-real-live-b", "icloudsync-real-cleanup":

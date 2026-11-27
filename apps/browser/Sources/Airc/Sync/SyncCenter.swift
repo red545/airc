@@ -170,6 +170,13 @@ final class SyncCenter: ObservableObject {
         environment.boosts = SyncBoostsSource(current: { thisMac in
             BoostCenter.shared.map { SyncBoosts.payloads($0.store, thisMac: thisMac) } ?? [:]
         }, apply: { incoming in BoostCenter.shared?.applySynced(incoming) ?? [] })
+        #if AIRC_TESTING
+        // Scripted clean-up checks (ICloudSyncGCCheck.swift): `--sync-gc-settle SECONDS` instead of a day.
+        let argv = ProcessInfo.processInfo.arguments
+        if let i = argv.firstIndex(of: "--sync-gc-settle"), i + 1 < argv.count, let seconds = Double(argv[i + 1]), seconds >= 0 {
+            environment.gcSettle = seconds
+        }
+        #endif
         let engine = MainActor.assumeIsolated { SyncEngine(store: store, environment: environment) }
         self.engine = engine
         #if AIRC_TESTING

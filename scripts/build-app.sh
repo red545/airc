@@ -740,6 +740,15 @@ if [[ -n "$SNAPSHOTS" ]]; then
       launch --script "$sync_script" --data-dir "$home/$sync_data" --sync-mock "$home/RecoveryShared/cloud" \
         --sync-keychain "$home/RecoveryShared/keychain-$sync_keychain" --sync-device-name "Recovery Mac ${sync_keychain}"
     done
+    # Clean-up (ICloudSyncGCCheck.swift, docs/sync.md "Clean-up"): three instances on another mock database, the settle
+    # delay two seconds. C deletes a note all three edited; once every Mac answered, its text records and picture go and
+    # only its removal stays; the other note and its picture stay.
+    for sync_phase in "icloudsync-gc-a a GCA" "icloudsync-gc-b b GCB" "icloudsync-gc-c c GCC" "icloudsync-gc-a2 a GCA" \
+      "icloudsync-gc-b2 b GCB" "icloudsync-gc-c2 c GCC" "icloudsync-gc-a3 a GCA" "icloudsync-gc-b3 b GCB" "icloudsync-gc-c3 c GCC"; do
+      read -r sync_script sync_keychain sync_data <<< "$sync_phase"
+      launch --script "$sync_script" --data-dir "$home/$sync_data" --sync-mock "$home/GCShared/cloud" \
+        --sync-keychain "$home/GCShared/keychain-$sync_keychain" --sync-device-name "Clean-up Mac ${sync_keychain}" --sync-gc-settle 2
+    done
     # Settings sync (SettingsSyncCheck.swift, docs/sync.md "Settings") between two instances on another mock database: A's
     # theme, shortcut, Site Search and sidebar side reach B; per-Mac settings stay; the later change wins on both.
     for sync_phase in "settingssync-a a SettingsA" "settingssync-b b SettingsB" "settingssync-a2 a SettingsA"; do

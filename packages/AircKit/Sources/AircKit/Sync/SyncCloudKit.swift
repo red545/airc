@@ -121,6 +121,18 @@ public final class CloudKitSyncDatabase: SyncCloudDatabase, @unchecked Sendable 
         } catch let failure as SyncCloudFailure { throw failure } catch { throw Self.failure(error) }
     }
 
+    public func delete(_ names: [String], zone: String) async throws {
+        guard !names.isEmpty else { return }
+        do {
+            let result = try await database.modifyRecords(saving: [], deleting: names.map { CKRecord.ID(recordName: $0, zoneID: zoneID(zone)) },
+                                                          savePolicy: .allKeys, atomically: false)
+            for (_, outcome) in result.deleteResults {
+                // Gone already (another Mac deleted it, or it never came): that's what was asked.
+                if case .failure(let error) = outcome, Self.failure(error) != .notFound { throw error }
+            }
+        } catch { throw Self.failure(error) }
+    }
+
     public func subscribe(zone: String, id: String) async throws {
         let subscription = CKRecordZoneSubscription(zoneID: zoneID(zone), subscriptionID: id)
         let info = CKSubscription.NotificationInfo()

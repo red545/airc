@@ -57,11 +57,14 @@ public struct SyncReadReport: Equatable, Sendable {
     public var deleted: Set<String> = []
     /// The `group` record, when the read brought it (a full read, or another Mac started sync over: syncrecovery).
     public var group: SyncGroupRecord?
+    /// Every record the read brought, by name: its type and group (syncgc's inventory, SyncGarbage.swift).
+    public var records: [String: SyncInventoryEntry] = [:]
 
     public init(zoneRecreated: Bool = false, full: Bool = false, own: Set<UUID> = [], malformed: [String] = [],
-                valid: Set<String> = [], deleted: Set<String> = [], group: SyncGroupRecord? = nil) {
+                valid: Set<String> = [], deleted: Set<String> = [], group: SyncGroupRecord? = nil,
+                records: [String: SyncInventoryEntry] = [:]) {
         self.zoneRecreated = zoneRecreated; self.full = full; self.own = own; self.malformed = malformed
-        self.valid = valid; self.deleted = deleted; self.group = group
+        self.valid = valid; self.deleted = deleted; self.group = group; self.records = records
     }
 }
 
@@ -116,6 +119,12 @@ public protocol SyncCloudDatabase: Sendable {
     func save(_ records: [SyncCloudRecord], zone: String, mode: SyncSaveMode) async throws -> [String: Result<SyncCloudRecord, SyncCloudFailure>]
     func fetch(_ names: [String], zone: String) async throws -> [SyncCloudRecord]
     func subscribe(zone: String, id: String) async throws
+    /// Deletes these records (syncgc). A record that isn't there counts as deleted.
+    func delete(_ names: [String], zone: String) async throws
+}
+
+extension SyncCloudDatabase {
+    public func delete(_ names: [String], zone: String) async throws { throw SyncCloudFailure.other("delete not supported") }
 }
 
 // MARK: - Group and device records
@@ -175,6 +184,20 @@ public protocol SyncGroupTransport: SyncTransport {
     /// which of this device's batches it saw, and unparseable records. The engine decides recovery from it.
     func takeReadReport() async -> SyncReadReport
 
+    // Clean-up (syncgc, SyncGarbage.swift). A transport without it (the test builds' folder transport) collects nothing.
+    /// Whether this transport takes part in clean-up (acks and deletes).
+    var cleansUp: Bool { get async }
+    /// Writes this device's ack record (`ack.<device>`), replacing its earlier one.
+    func publishAck(_ ack: SyncDeviceRecord) async throws
+    /// Every device's ack record known from the reads (any group).
+    var acks: [SyncDeviceRecord] { get async }
+    /// Deletes these records; one that isn't there counts as deleted.
+    func delete(_ names: [String]) async throws
+    /// The next `read()` starts from no token: a full read (the clean-up inventory needs one).
+    func rescan() async
+    /// For each of these records that exists: its `group` field (checked again just before a delete).
+    func fetchGroups(_ names: [String]) async throws -> [String: String]
+
     // Notes (NoteSyncPayload.swift). A transport without them (the test builds' folder transport) carries no notes.
     /// Writes this device's record of one note, replacing its earlier one.
     func saveNote(_ record: SyncNoteRecord) async throws
@@ -197,6 +220,12 @@ extension SyncGroupTransport {
     public func fetchNotes(_ names: [String]) async throws -> [SyncNoteRecord] { [] }
     public func fetchAssets(_ names: [String]) async throws -> [SyncNoteAsset] { [] }
     public func takeNotes() async -> [SyncNoteRecord] { [] }
+    public var cleansUp: Bool { get async { false } }
+    public func publishAck(_ ack: SyncDeviceRecord) async throws {}
+    public var acks: [SyncDeviceRecord] { get async { [] } }
+    public func delete(_ names: [String]) async throws { throw SyncError.invalidOperation }
+    public func rescan() async {}
+    public func fetchGroups(_ names: [String]) async throws -> [String: String] { [:] }
 }
 
 // MARK: - CloudKit transport
@@ -215,6 +244,9 @@ public enum SyncCloudSchema {
     /// `<device>.<envelope>`: a device only ever creates names with its own UUID.
     public static func batchName(_ envelope: SyncEnvelope) -> String { envelope.device.uuidString + "." + envelope.id.uuidString }
     public static func deviceName(_ device: UUID) -> String { "device." + device.uuidString }
+    /// A device's clean-up ack (syncgc): a `SyncDevice` record under another name, which builds from before it ignore
+    /// (their mapping wants `device.<its device>`).
+    public static func ackName(_ device: UUID) -> String { "ack." + device.uuidString }
 
     public static func record(_ envelope: SyncEnvelope) -> SyncCloudRecord {
         SyncCloudRecord(name: batchName(envelope), type: batch, fields: [
@@ -261,6 +293,20 @@ public enum SyncCloudSchema {
               let sealed = record.bytes("sealed"), let seen = record.date("seen") else { return nil }
         return SyncDeviceRecord(group: group, device: id, sealed: sealed, seen: seen)
     }
+
+    /// An ack is stored like a device record: `seen` is when it was written, `sealed` the sealed `SyncGCAck`.
+    public static func record(ack: SyncDeviceRecord) -> SyncCloudRecord {
+        var record = record(ack)
+        record.name = ackName(ack.device)
+        return record
+    }
+
+    public static func ack(_ record: SyncCloudRecord) -> SyncDeviceRecord? {
+        guard record.type == device, let id = record.string("device").flatMap(UUID.init(uuidString:)), record.name == ackName(id),
+              let group = record.string("group").flatMap(UUID.init(uuidString:)), let sealed = record.bytes("sealed"),
+              let seen = record.date("seen") else { return nil }
+        return SyncDeviceRecord(group: group, device: id, sealed: sealed, seen: seen)
+    }
 }
 
 /// The CloudKit transport: one record per encrypted batch in a custom zone of the private database, named after the
@@ -280,6 +326,24 @@ public actor CloudKitSyncTransport: SyncGroupTransport {
         var zoneReady = false
         var subscribed = false
         var devices: [UUID: SyncDeviceRecord] = [:]
+        /// Clean-up acks (syncgc), by device.
+        var acks: [UUID: SyncDeviceRecord] = [:]
+
+        init(token: Data? = nil, zoneReady: Bool = false, subscribed: Bool = false, devices: [UUID: SyncDeviceRecord] = [:]) {
+            self.token = token; self.zoneReady = zoneReady; self.subscribed = subscribed; self.devices = devices
+        }
+
+        private enum CodingKeys: String, CodingKey { case token, zoneReady, subscribed, devices, acks }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            token = try c.decodeIfPresent(Data.self, forKey: .token)
+            zoneReady = try c.decodeIfPresent(Bool.self, forKey: .zoneReady) ?? false
+            subscribed = try c.decodeIfPresent(Bool.self, forKey: .subscribed) ?? false
+            devices = try c.decodeIfPresent([UUID: SyncDeviceRecord].self, forKey: .devices) ?? [:]
+            // A checkpoint from before syncgc: no acks known yet (the inventory's full read brings them).
+            acks = try c.decodeIfPresent([UUID: SyncDeviceRecord].self, forKey: .acks) ?? [:]
+        }
     }
 
     public let database: SyncCloudDatabase
@@ -326,6 +390,16 @@ public actor CloudKitSyncTransport: SyncGroupTransport {
     }
 
     public var devices: [SyncDeviceRecord] { (pending ?? committed).devices.values.sorted { $0.device.uuidString < $1.device.uuidString } }
+    public var acks: [SyncDeviceRecord] {
+        get async { (pending ?? committed).acks.values.sorted { $0.device.uuidString < $1.device.uuidString } }
+    }
+    public var cleansUp: Bool { get async { true } }
+
+    // `async`, like the requirement: in an async context a sync actor method loses to the protocol's async default.
+    public func rescan() async {
+        committed.token = nil
+        pending = nil
+    }
 
     public func takeReadReport() -> SyncReadReport {
         var report = lastRead
@@ -385,6 +459,7 @@ public actor CloudKitSyncTransport: SyncGroupTransport {
         var own = Set<UUID>()
         var notes: [String: SyncNoteRecord] = [:]
         var groupRecord: SyncGroupRecord?
+        var inventory: [String: SyncInventoryEntry] = [:]
         // Each batch record's last outcome in this read, in page order: a record malformed on one page and repaired or
         // deleted on a later one ends valid or deleted (one name has at most one event per page).
         enum Outcome { case malformed, valid, deleted }
@@ -404,6 +479,7 @@ public actor CloudKitSyncTransport: SyncGroupTransport {
                 notes = [:]
                 outcome = [:]
                 groupRecord = nil
+                inventory = [:]
                 continue
             } catch SyncCloudFailure.zoneNotFound {
                 // The zone is gone (reset in the CloudKit console, or by another Mac's recovery): recreate it empty;
@@ -421,6 +497,7 @@ public actor CloudKitSyncTransport: SyncGroupTransport {
                 throw failure
             }
             for record in changes.changed {
+                inventory[record.name] = SyncInventoryEntry(type: record.type, group: record.string("group"))
                 switch record.type {
                 case SyncCloudSchema.batch:
                     guard let envelope = SyncCloudSchema.envelope(record) else { outcome[record.name] = .malformed; break }
@@ -428,6 +505,7 @@ public actor CloudKitSyncTransport: SyncGroupTransport {
                     if envelope.device == device { own.insert(envelope.id) } else { envelopes.append(envelope) }
                 case SyncCloudSchema.device:
                     if let d = SyncCloudSchema.device(record) { next.devices[d.device] = d }
+                    else if let a = SyncCloudSchema.ack(record) { next.acks[a.device] = a }
                 case SyncCloudSchema.group:
                     if let g = SyncCloudSchema.group(record) { groupRecord = g }
                 case SyncCloudSchema.note:
@@ -437,9 +515,12 @@ public actor CloudKitSyncTransport: SyncGroupTransport {
                 default: break
                 }
             }
-            for name in changes.deleted { outcome[name] = .deleted; notes[name] = nil }
+            for name in changes.deleted { outcome[name] = .deleted; notes[name] = nil; inventory[name] = nil }
             for name in changes.deleted where name.hasPrefix("device.") {
                 if let id = UUID(uuidString: String(name.dropFirst(7))) { next.devices[id] = nil }
+            }
+            for name in changes.deleted where name.hasPrefix("ack.") {
+                if let id = UUID(uuidString: String(name.dropFirst(4))) { next.acks[id] = nil }
             }
             next.token = changes.token
             if !changes.moreComing { break }
@@ -447,7 +528,8 @@ public actor CloudKitSyncTransport: SyncGroupTransport {
         lastRead = SyncReadReport(full: full, own: own,
                                   malformed: outcome.filter { $0.value == .malformed }.map(\.key).sorted(),
                                   valid: Set(outcome.filter { $0.value == .valid }.map(\.key)),
-                                  deleted: Set(outcome.filter { $0.value == .deleted }.map(\.key)), group: groupRecord)
+                                  deleted: Set(outcome.filter { $0.value == .deleted }.map(\.key)), group: groupRecord,
+                                  records: inventory)
         pending = next
         lastNotes = notes.values.sorted { $0.name < $1.name }
         return envelopes
@@ -504,6 +586,39 @@ public actor CloudKitSyncTransport: SyncGroupTransport {
     public func fetchAssets(_ names: [String]) async throws -> [SyncNoteAsset] {
         guard !names.isEmpty else { return [] }
         return try await retrying { try await self.database.fetch(names, zone: self.zone) }.compactMap(SyncCloudSchema.noteAsset)
+    }
+
+    public func publishAck(_ ack: SyncDeviceRecord) async throws {
+        guard ack.device == device else { throw SyncError.invalidEnvelope }
+        try await save(SyncCloudSchema.record(ack: ack), mode: .overwrite)
+        committed.acks[ack.device] = ack
+    }
+
+    public func fetchGroups(_ names: [String]) async throws -> [String: String] {
+        guard !names.isEmpty else { return [:] }
+        var result: [String: String] = [:]
+        for start in stride(from: 0, to: names.count, by: 200) {
+            let slice = Array(names[start..<min(names.count, start + 200)])
+            for record in try await retrying({ try await self.database.fetch(slice, zone: self.zone) }) {
+                if let group = record.string("group") { result[record.name] = group }
+            }
+        }
+        return result
+    }
+
+    public func delete(_ names: [String]) async throws {
+        guard !names.isEmpty else { return }
+        // At most 400 records per CloudKit request.
+        for start in stride(from: 0, to: names.count, by: 400) {
+            let slice = Array(names[start..<min(names.count, start + 400)])
+            try await retrying { try await self.database.delete(slice, zone: self.zone) }
+            for name in slice where name.hasPrefix("ack.") {
+                if let id = UUID(uuidString: String(name.dropFirst(4))) { committed.acks[id] = nil }
+            }
+            for name in slice where name.hasPrefix("device.") {
+                if let id = UUID(uuidString: String(name.dropFirst(7))) { committed.devices[id] = nil }
+            }
+        }
     }
 
     public func publish(_ device: SyncDeviceRecord) async throws {

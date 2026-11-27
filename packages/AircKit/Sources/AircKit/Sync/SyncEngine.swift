@@ -112,6 +112,10 @@ public final class SyncEngine {
         public var settings: SyncSettingsSource?
         /// The app's Boosts (BoostSyncPayload.swift). nil: Boosts don't sync.
         public var boosts: SyncBoostsSource?
+        /// Clean-up (SyncGarbage.swift): a Mac not seen for this long stops holding it back; what qualifies waits
+        /// `gcSettle` and is checked again. Tests and scripted checks shorten them.
+        public var gcHorizon: TimeInterval = SyncGarbage.horizon
+        public var gcSettle: TimeInterval = SyncGarbage.settle
 
         public init(transport: @escaping (UUID) -> SyncGroupTransport, keys: SyncKeyStore, stateURL: URL, deviceName: String,
                     machine: String? = nil, createProfile: @escaping (String, String) throws -> String,
@@ -158,6 +162,8 @@ public final class SyncEngine {
         /// This Mac had synced with a group another Mac has since started over (syncrecovery): it rejoins the new one
         /// through the first-sync screen, keeping its sidebar. Cleared by that first sync.
         var restarted = false
+        /// Clean-up of records nothing needs any more (SyncGarbage.swift).
+        var gc = SyncGCState()
 
         init(device: UUID = UUID(), machine: String?) {
             self.device = device; self.machine = machine
@@ -166,7 +172,7 @@ public final class SyncEngine {
 
         private enum CodingKeys: String, CodingKey {
             case version, enabled, device, machine, group, joined, replica, adapter, outbox, checkpoint, account, lastSynced
-            case published, uploaded, recovery, applyMode, quarantine, malformed, notes, settings, boosts, restarted
+            case published, uploaded, recovery, applyMode, quarantine, malformed, notes, settings, boosts, restarted, gc
         }
 
         init(from decoder: Decoder) throws {
@@ -196,6 +202,8 @@ public final class SyncEngine {
             // From before Boosts synced: on, nothing sent yet (the next capture sends this Mac's Boosts).
             boosts = try c.decodeIfPresent(SyncBoostsState.self, forKey: .boosts) ?? SyncBoostsState()
             restarted = try c.decodeIfPresent(Bool.self, forKey: .restarted) ?? false
+            // From before syncgc: nothing collected yet; the inventory starts with a full read.
+            gc = try c.decodeIfPresent(SyncGCState.self, forKey: .gc) ?? SyncGCState()
         }
     }
 
@@ -522,8 +530,16 @@ public final class SyncEngine {
         try live(gen)
         // A quit or crash after remote changes reached the store, before the baseline was saved: apply again first.
         if let mode = state.applyMode { try apply(replace: mode == .replace, captureFirst: false) }
+        // Away longer than the clean-up horizon: pictures may have been cleaned up meanwhile, so a later use of one
+        // uploads it again (an upload of one that's there is a success).
+        if let last = state.lastSynced, env.now().timeIntervalSince(last) > env.gcHorizon, !state.notes.picturesUp.isEmpty {
+            state.notes.picturesUp = []
+        }
         try capture()
         try await upload(t, gen); try live(gen)
+        // Clean-up needs a complete inventory: one full read (once after an update, or after a reset).
+        let cleansUp = await t.cleansUp; try live(gen)
+        if cleansUp && !state.gc.inventoryComplete { await t.rescan(); try live(gen) }
         let envelopes = try await t.read(); try live(gen)
         let report = await t.takeReadReport(); try live(gen)
         let notes = await t.takeNotes(); try live(gen)
@@ -532,6 +548,7 @@ public final class SyncEngine {
             try rejoin()
             throw SyncGroupReplaced()
         }
+        if cleansUp { state.gc.take(report, group: group) }
         if report.zoneRecreated || (report.full && !state.uploaded.isSubset(of: report.own)) {
             state.recovery = true
             try save()
@@ -561,6 +578,9 @@ public final class SyncEngine {
         try? await publishDevice(t, group: group, key: key, gen: gen)
         try live(gen)
         await refreshDevices(t, group: group, key: key, gen: gen); try live(gen)
+        // Clean-up never fails a cycle: what didn't happen waits for the next one. A session or account end still ends it.
+        do { try await collect(t, group: group, key: key, gen: gen); try live(gen) }
+        catch let failure as SyncCloudFailure where !Self.endsCleanUp(failure) { try live(gen) }
     }
 
     /// The quarantined batches this cycle retries: the first `quarantineRetryCount` (and `quarantineRetryBytes`);
@@ -1536,6 +1556,222 @@ public final class SyncEngine {
         state.notes.picturesWanted += missing
         try save()
         if !arrived.isEmpty { env.picturesArrived?(arrived) }
+    }
+
+    // MARK: Clean-up (syncgc: SyncGarbage.swift, docs/sync.md "Clean-up")
+
+    /// Failures that mean more than "try clean-up again later".
+    private static func endsCleanUp(_ failure: SyncCloudFailure) -> Bool {
+        switch failure {
+        case .accountChanged, .userDeletedZone, .notSignedIn, .zoneNotFound, .missingEntitlement: true
+        default: false
+        }
+    }
+
+    /// Nothing is cleaned up, and no ack sent, unless everything this Mac read could be read and everything it owes is up.
+    private var cleanForCollection: Bool {
+        state.joined && state.quarantine.isEmpty && state.malformed.isEmpty && state.notes.unreadable.isEmpty
+            && state.outbox.isEmpty && state.notes.outbox.isEmpty && !state.recovery && state.applyMode == nil
+    }
+
+    /// One clean-up step at the end of a cycle: act on what other Macs said (pictures they deleted or propose), finish an
+    /// interrupted plan or make one (when every Mac that counts has acked), then publish this Mac's ack if it changed.
+    private func collect(_ t: SyncGroupTransport, group: UUID, key: SymmetricKey, gen: Int) async throws {
+        let cleansUp = await t.cleansUp; try live(gen)
+        guard cleansUp, cleanForCollection else { return }
+        let devices = await t.devices; try live(gen)
+        let acks = await t.acks; try live(gen)
+        let now = env.now()
+        let view = SyncGCView(me: state.device, group: group, now: now, horizon: env.gcHorizon, devices: devices, acks: acks, key: key)
+        let used = usedPictureNames(key: key)
+        healPictures(view, used: used, key: key)
+        if state.gc.plan.isEmpty, !view.blocked { planCleanUp(view, devices: devices, used: used, group: group) }
+        if !state.gc.plan.isEmpty {
+            // On disk before anything goes: a quit or crash mid-way is finished (checked again) by the next cycle.
+            try save()
+            try await executePlan(t, group: group, key: key, gen: gen); try live(gen)
+        }
+        let ack = makeAck(view, used: used, now: now)
+        if ack != state.gc.ack {
+            let sealed = try ack.seal(group: group, device: state.device, key: key)
+            try await t.publishAck(SyncDeviceRecord(group: group, device: state.device, sealed: sealed, seen: now)); try live(gen)
+            state.gc.ack = ack
+        }
+        try save()
+    }
+
+    /// The record names of every picture a note shown here uses (pinned, Today or Archive), and of those waiting to go up.
+    /// A deleted note's text stays in the store until the next launch, but nothing shows it any more.
+    private func usedPictureNames(key: SymmetricKey) -> Set<String> {
+        var files = state.notes.pictureOutbox
+        for id in store.referencedNoteIDs { files.formUnion(store.state.notes[id]?.document.imageFiles ?? []) }
+        return Set(files.map { SyncNoteAsset.name(for: $0, key: key) })
+    }
+
+    /// Pictures another Mac deleted, or proposes to, aren't "up" here any more, so a later use uploads them again; the
+    /// deleted ones a pinned note here uses go up at once (they were deleted while this Mac's use wasn't known yet).
+    private func healPictures(_ view: SyncGCView, used: Set<String>, key: SymmetricKey) {
+        let pinned = SyncNotes.pinnedNotes(store.state)
+        let pinnedFiles = Set(pinned.keys.compactMap { store.state.notes[$0] }.flatMap { $0.document.imageFiles })
+        var files: [String: String] = [:]
+        for file in state.notes.picturesUp.union(pinnedFiles) { files[SyncNoteAsset.name(for: file, key: key)] = file }
+        var proposals = view.acks.values.compactMap(\.proposal)
+        if let own = state.gc.proposal { proposals.append(own) }
+        for name in Set(proposals.flatMap(\.assets)) where !used.contains(name) {
+            if let file = files[name] { state.notes.picturesUp.remove(file) }
+        }
+        for (device, ack) in view.acks.sorted(by: { $0.key.uuidString < $1.key.uuidString }) {
+            let since = state.gc.goneRead[device.uuidString] ?? .distantPast
+            let fresh = ack.gone.filter { $0.value > since }
+            guard let latest = fresh.values.max() else { continue }
+            for name in fresh.keys.sorted() {
+                guard let file = files[name] else { continue }
+                state.notes.picturesUp.remove(file)
+                if pinnedFiles.contains(file) { state.notes.pictureOutbox.insert(file) }
+            }
+            state.gc.goneRead[device.uuidString] = latest
+        }
+    }
+
+    /// What qualifies now (docs/sync.md "Clean-up"), into the plan: this Mac's own text records of notes every Mac has
+    /// removed, and as the collector gone Macs' text records of them, unused pictures (after their proposal was
+    /// answered) and old groups no Mac uses. Each waits `gcSettle` after it first qualifies.
+    private func planCleanUp(_ view: SyncGCView, devices: [SyncDeviceRecord], used: Set<String>, group: UUID) {
+        let now = view.now, settle = env.gcSettle, me = state.device
+        var plan: [SyncGCState.Doomed] = []
+        var collects: [String] = [], sweeps: [String] = []
+        for (id, e) in state.notes.entries.sorted(by: { $0.key < $1.key }) {
+            guard e.removed, !e.pinned, state.notes.outbox[id] == nil, view.agree(note: id, vector: e.known) else {
+                state.gc.agreed[id] = nil
+                if !e.removed { state.gc.collected[id] = nil; state.gc.swept[id] = nil }
+                continue
+            }
+            let since = state.gc.agreed[id] ?? now
+            state.gc.agreed[id] = since
+            guard now.timeIntervalSince(since) >= settle else { continue }
+            if state.gc.collected[id] == nil {
+                plan.append(.init(name: SyncCloudSchema.noteName(device: me, note: id), kind: .noteText, vector: e.known))
+                collects.append(id)
+            }
+            if view.isCollector, state.gc.swept[id] == nil {
+                for d in e.known.devices where d != me && !view.live.contains(d) {
+                    plan.append(.init(name: SyncCloudSchema.noteName(device: d, note: id), kind: .noteText, vector: e.known))
+                }
+                sweeps.append(id)
+            }
+        }
+        var proposalDone: Int?
+        if view.isCollector, state.gc.inventoryComplete {
+            let pictures = Set(state.gc.inventory.filter { $0.value.type == SyncCloudSchema.noteAsset && $0.value.group == group.uuidString }.keys)
+            if let p = state.gc.proposal {
+                let answered = view.live.allSatisfy { $0 == me || (view.acks[$0]?.seen[me.uuidString] ?? 0) >= p.epoch }
+                if answered, now.timeIntervalSince(p.at) >= settle {
+                    let kept = Set(view.live.flatMap { view.acks[$0]?.keep ?? [] })
+                    for name in p.assets where pictures.contains(name) && !kept.contains(name) && !used.contains(name) {
+                        plan.append(.init(name: name, kind: .asset))
+                    }
+                    proposalDone = p.epoch
+                }
+            } else {
+                state.gc.held = state.gc.held.filter { now.timeIntervalSince($0.value) <= env.gcHorizon && pictures.contains($0.key) }
+                let candidates = pictures.subtracting(used).subtracting(state.gc.held.keys)
+                if !candidates.isEmpty {
+                    state.gc.epoch += 1
+                    state.gc.proposal = .init(epoch: state.gc.epoch, at: now, assets: candidates.sorted())
+                }
+            }
+            let groups = Set(state.gc.inventory.values.compactMap(\.group)).subtracting([group.uuidString])
+            for g in groups.sorted() {
+                // Every Mac of that group has rejoined (its device record names this group now) or is gone.
+                let busy = devices.contains { $0.group.uuidString == g && now.timeIntervalSince($0.seen) <= env.gcHorizon }
+                if busy { state.gc.oldGroups[g] = nil; continue }
+                let since = state.gc.oldGroups[g] ?? now
+                state.gc.oldGroups[g] = since
+                guard now.timeIntervalSince(since) >= settle else { continue }
+                for (name, entry) in state.gc.inventory where entry.group == g && entry.type != SyncCloudSchema.group {
+                    plan.append(.init(name: name, kind: .oldGroup, group: g))
+                }
+            }
+            state.gc.oldGroups = state.gc.oldGroups.filter { groups.contains($0.key) }
+        } else if !view.isCollector {
+            state.gc.proposal = nil
+        }
+        state.gc.plan = plan.sorted { $0.name < $1.name }
+        state.gc.planCollects = collects
+        state.gc.planSweeps = sweeps
+        state.gc.planProposal = proposalDone
+    }
+
+    /// Deletes the plan's records, each checked again first where a Mac overwrites that name: a note's text only while
+    /// the agreed removal still covers it, another group's record only while it's still that group's. Then the bookkeeping
+    /// and, after the deletes, the pictures announced as gone.
+    private func executePlan(_ t: SyncGroupTransport, group: UUID, key: SymmetricKey, gen: Int) async throws {
+        let plan = state.gc.plan
+        var doomed = Set<String>()
+        let texts = plan.filter { $0.kind == .noteText }
+        var found: [String: SyncNoteRecord] = [:]
+        for start in stride(from: 0, to: texts.count, by: 200) {
+            let slice = texts[start..<min(texts.count, start + 200)].map(\.name)
+            let records = try await t.fetchNotes(slice); try live(gen)
+            for record in records { found[record.name] = record }
+        }
+        for item in texts {
+            guard let record = found[item.name], record.group == group, let vector = item.vector,
+                  let version = try? record.open(group: group, key: key), !version.removed else { continue }
+            let order = version.vector.compare(vector)
+            if order == .older || order == .same { doomed.insert(item.name) }
+        }
+        let mutable = plan.filter { $0.kind == .oldGroup && SyncGarbage.isMutable($0.name) }
+        let groups = try await t.fetchGroups(mutable.map(\.name)); try live(gen)
+        for item in mutable where groups[item.name] == item.group && item.group != group.uuidString { doomed.insert(item.name) }
+        for item in plan where item.kind == .asset || (item.kind == .oldGroup && !SyncGarbage.isMutable(item.name)) {
+            doomed.insert(item.name)
+        }
+        try await t.delete(doomed.sorted()); try live(gen)
+        let now = env.now()
+        for name in doomed { state.gc.inventory[name] = nil }
+        let pictures = plan.filter { $0.kind == .asset && doomed.contains($0.name) }.map(\.name)
+        for name in pictures { state.gc.gone[name] = now }
+        state.gc.pruneGone(now: now)
+        if !pictures.isEmpty {
+            let gone = Set(pictures)
+            state.notes.picturesUp = state.notes.picturesUp.filter { !gone.contains(SyncNoteAsset.name(for: $0, key: key)) }
+        }
+        for id in state.gc.planCollects { state.gc.collected[id] = now }
+        for id in state.gc.planSweeps { state.gc.swept[id] = now }
+        if let epoch = state.gc.planProposal, let p = state.gc.proposal, p.epoch == epoch {
+            // Proposed and answered: those a Mac kept wait a horizon before they're proposed again.
+            for name in p.assets where !doomed.contains(name) && state.gc.inventory[name] != nil { state.gc.held[name] = now }
+            state.gc.proposal = nil
+        }
+        state.gc.plan = []
+        state.gc.planCollects = []
+        state.gc.planSweeps = []
+        state.gc.planProposal = nil
+        try save()
+    }
+
+    /// This Mac's ack: the notes it has removed, its answer to each proposal it read, its own proposal and deletions.
+    private func makeAck(_ view: SyncGCView, used: Set<String>, now: Date) -> SyncGCAck {
+        var ack = SyncGCAck()
+        let old = Int64((now.timeIntervalSince1970 - SyncGarbage.collectedRetention - env.gcHorizon) * 1000)
+        for (id, e) in state.notes.entries where e.removed && !e.pinned && state.notes.outbox[id] == nil {
+            let collected = state.gc.collected[id]
+            if let collected, now.timeIntervalSince(collected) > SyncGarbage.collectedRetention { continue }
+            // Removed long before (a Mac that joined later knows every removal): the others are done with it.
+            if e.head.milliseconds < old { continue }
+            ack.notes[id] = .init(vector: e.known, collected: collected)
+        }
+        var keep = Set<String>()
+        for (device, other) in view.acks {
+            guard let p = other.proposal else { continue }
+            ack.seen[device.uuidString] = p.epoch
+            keep.formUnion(Set(p.assets).intersection(used))
+        }
+        ack.keep = keep.sorted()
+        ack.proposal = view.isCollector ? state.gc.proposal : nil
+        ack.gone = state.gc.gone
+        return ack
     }
 
     // MARK: Devices
