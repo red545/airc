@@ -421,6 +421,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func openWindowAtLaunch() {
         let deadline = Date().addingTimeInterval(1.5)
         func decide() {
+            LaunchTimeline.mark("launch window decision")
             let launch = LaunchEvent.shared
             if pendingURLs.isEmpty, launch.announcesLink, Date() < deadline {
                 return DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: decide)
@@ -808,6 +809,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         let l = LittleArcController(app: self, url: url, spaceID: sid, frame: frame, overFullScreen: fullScreenApp != nil,
                                     deferPage: deferPage)
+        if deferPage { LaunchTimeline.mark("little airc window made") }
         Telemetry.shared.record(.featureUsed(.littleArcOpen(url == nil ? .shortcut : .link)))
         littleArcs.append(l)
         littleArcsOpened += 1

@@ -22,6 +22,7 @@ from priority import admit, deferred, progressed
 
 HOLD = ('release-staging', 'quiet-pending', 'relink-pending', 'priority-build')
 CRITICAL = re.compile(r'\b(?:crash(?:ed|es|ing)?|died|hung|hang(?:s|ing)?|still alive|watchdog|no PID|never started|wrote no log|hard timeout)\b', re.I)
+TRANSIENT_LIMIT = 5   # SSH/rsync failures per campaign that still resume (buildmac offline, network)
 SSH = ['ssh', '-o', 'ConnectTimeout=15', '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=3', 'buildmac']
 
 
@@ -185,6 +186,35 @@ def summarize(result, previous):
     return result
 
 
+def status_line(result):
+    """One line for latest.json and the status page: where the run is and why it last stopped."""
+    running = result.get('state') == 'running'
+    step = result.get('current_step') if running else result.get('last_step', result.get('current_step'))
+    plan = result.get('plan') or []
+    rev = f"rev {str(result.get('revision', '?'))[:8]}"
+    if result.get('commits_behind_main'):
+        rev += f" (pinned, main +{result['commits_behind_main']})"
+    parts = [str(result.get('state', '?')), rev, f'step {step}']
+    if plan:
+        parts.append(f"builds {len(result.get('steps', {}))}/{len(plan)}")
+    parts.append(f"cases {len(result.get('cases', []))}/{result.get('expected', 0)}")
+    if running and result.get('waiting_on'):
+        parts.append('waiting on ' + str(result['waiting_on']))
+    last = result.get('last_yield')
+    if last:
+        when = time.strftime('%Y-%m-%dT%H:%MZ', time.gmtime(last['at']))
+        parts.append(f"last yield: {last['reason']} ({when}, {result.get('yields', 1)} total)")
+    return ' · '.join(parts)
+
+
+def main_distance(git, pinned, main):
+    """Commits main is ahead of the pinned revision; None if it is no longer an ancestor."""
+    if subprocess.run(git + ['merge-base', '--is-ancestor', pinned, main],
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
+        return None
+    return int(subprocess.check_output(git + ['rev-list', '--count', f'{pinned}..{main}'], text=True))
+
+
 def critical_failure(text, receipt):
     # Names/paths such as "crashreports" and ordinary assertions containing
     # "changed" are not evidence that an app crashed or hung.
@@ -242,8 +272,13 @@ def main():
         previous = json.loads(latest.read_text()) if latest.exists() else {}
         checkpoints = Checkpoints(suite)
         runner_sha, runner_files = runner_identity(a.repo)
-        resumed, discarded = (None, None) if a.dry_run else checkpoints.select(marker, runner_sha)
         current_main = rev
+        resumed = discarded = None
+        if not a.dry_run and checkpoints.read():
+            pinned = (checkpoints.read().get('result') or {}).get('revision', '')
+            behind = (main_distance(git, pinned, current_main)
+                      if re.fullmatch(r'[0-9a-f]{40}', str(pinned)) else None)
+            resumed, discarded = checkpoints.select(marker, runner_sha, behind=behind)
         if resumed:
             rev = resumed['result']['revision']
             # The owned clone fetches main first; a valid checkpoint alone pins
@@ -254,7 +289,8 @@ def main():
             result.update(state='running', resumed_after_preemption=True,
                           resume_label='resumed after preemption',
                           resume_count=result.get('resume_count', 0) + 1,
-                          current_main=current_main)
+                          current_main=current_main,
+                          commits_behind_main=main_distance(git, rev, current_main))
             result.pop('ended', None)
             result.pop('cleanup_exit', None)
             result.pop('reason', None)
@@ -265,7 +301,7 @@ def main():
             result = dict(revision=rev, started=time.time(), state='running', dry_run=a.dry_run,
                           expected=0, cases=[], steps={}, engine_marker=marker, logs=attempt,
                           current_step='source-export', waiting_on=None, step_started=time.time(), waiting_since=None,
-                          runner_sha=runner_sha, runner_sha256=runner_files)
+                          runner_sha=runner_sha, runner_sha256=runner_files, plan=[], yields=0)
             if discarded:
                 result['checkpoint_discarded'] = discarded
         subprocess.run(['bash', '-c', 'source "$1/infra/engine-inputs.sh"; engine_inputs_diff "$1" "$2" "$3"',
@@ -280,6 +316,7 @@ def main():
         def publish():
             result['updated_at'] = time.time()
             summarize(result, previous)
+            result['status_line'] = status_line(result)
             save(logs / 'summary.json', result)
             save(dest / 'summary.json', result)
             save(latest, result)
@@ -294,6 +331,12 @@ def main():
             result.update(current_step=step, waiting_on=waiting_on)
             publish()
         try:
+            if resumed and resumed.get('cleanup_pending'):
+                # The last attempt could not confirm its Mac worker stopped. Finish that
+                # cleanup first; while it still fails this is a bounded transient yield.
+                progress('source-export', 'buildmac-cleanup')
+                subprocess.run(SSH + ['python3 -c ' + shlex.quote(cleanup_code(resumed['cleanup_pending'], remove=True))],
+                               check=True, timeout=60)
             archive = subprocess.Popen(git + ['archive', rev], stdout=subprocess.PIPE)
             subprocess.run(['tar', '-x', '-C', str(source)], stdin=archive.stdout, check=True)
             archive.stdout.close()
@@ -306,6 +349,12 @@ def main():
             result['expected'] = len(cases)
             save(logs / 'inventory.json', cases)
             publish()
+            steps = [(f'unit-{p.parent.name}', ['swift', 'test', '--package-path', str(p.parent.relative_to(source))])
+                     for p in sorted((source / 'packages').glob('*/Package.swift'))]
+            steps += [(f'build-{e}', ['bash', 'scripts/build-app.sh', '--no-test', '--engine', e]) for e in ('webkit', 'chromium')]
+            if resumed and result['plan'] != [name for name, _ in steps]:
+                raise RuntimeError('pinned build plan differs from its checkpoint')
+            result['plan'] = [name for name, _ in steps]
             if blocked(a.status, marker):
                 raise InterruptedError('held before export')
             progress('source-export', 'buildmac-transfer')
@@ -316,11 +365,19 @@ def main():
             subprocess.run(SSH + [f'mkdir -p {remote}/build/snapshot-home'], check=True, timeout=30)
             restore = checkpoints.directory(resumed) / 'build' if resumed else source / 'build/snapshot-home'
             restore_target = remote + '/build/' if resumed else remote + '/build/snapshot-home/'
-            subprocess.run(['rsync', '-az', str(restore) + '/', 'buildmac:' + restore_target], check=True, timeout=180)
-            steps = [(f'unit-{p.parent.name}', ['swift', 'test', '--package-path', str(p.parent.relative_to(source))])
-                     for p in sorted((source / 'packages').glob('*/Package.swift'))]
-            steps += [(f'build-{e}', ['bash', 'scripts/build-app.sh', '--no-test', '--engine', e]) for e in ('webkit', 'chromium')]
-            for name, command in ([] if resumed else steps):
+            # A checkpoint can carry both app bundles (~0.6 GB).
+            subprocess.run(['rsync', '-az', str(restore) + '/', 'buildmac:' + restore_target], check=True, timeout=1800)
+            def checkpoint(step):
+                # Every finished step or case is a resume point, keyed by the pinned
+                # revision, engine marker and runner (checkpoint.select guards them).
+                if not a.dry_run:
+                    progress(step, 'checkpoint-copy')
+                    checkpoints.snapshot('buildmac:' + remote + '/build/', result, previous, cases, inventory_source)
+            if not resumed:
+                checkpoint('source-export')   # pins revision + inventory before any build
+            for name, command in steps:
+                if name in result['steps']:
+                    continue   # done before a yield; its products came back from the checkpoint
                 if blocked(a.status, marker):
                     raise InterruptedError('held before build')
                 progress(name, 'linux-build-lock')
@@ -331,9 +388,7 @@ def main():
                 publish()
                 if rc:
                     raise RuntimeError(name + ' failed')
-            if not a.dry_run and not resumed:
-                progress('checkpoint', 'checkpoint-copy')
-                checkpoints.snapshot('buildmac:' + remote + '/build/', result, previous, cases, inventory_source)
+                checkpoint(name)
             completed = len(result['cases'])
             for i, (case, caseid) in enumerate(zip(cases, case_ids(cases))):
                 if i < completed:
@@ -385,6 +440,18 @@ def main():
             result['state'] = 'complete'
         except (Preempted, InterruptedError, BlockingIOError) as error:
             result.update(state='aborted', reason=str(error))
+            result['yields'] = result.get('yields', 0) + 1
+            result['last_yield'] = dict(reason=str(error), at=time.time(), step=result['current_step'])
+        except subprocess.SubprocessError as error:
+            # buildmac asleep or the network dropped: resume from the checkpoint
+            # (bounded, so a deterministic transfer failure still ends as an error).
+            result['transient_errors'] = result.get('transient_errors', 0) + 1
+            if result['transient_errors'] > TRANSIENT_LIMIT:
+                result.update(state='error', reason=str(error))
+            else:
+                result.update(state='aborted', reason='transient: ' + str(error)[:300])
+                result['yields'] = result.get('yields', 0) + 1
+                result['last_yield'] = dict(reason=result['reason'], at=time.time(), step=result['current_step'])
         except Exception as error:
             result.update(state='error', reason=str(error))
         finally:
@@ -401,7 +468,12 @@ def main():
                 subprocess.run(SSH + ['python3 -c ' + shlex.quote(cleanup_code(remote, remove=True))], check=True, timeout=60)
                 result['cleanup_exit'] = 0
             except (subprocess.SubprocessError, OSError) as error:
-                result.update(cleanup_exit=75, state='error', cleanup_error=str(error))
+                result.update(cleanup_exit=75, cleanup_error=str(error))
+                result['transient_errors'] = result.get('transient_errors', 0) + 1
+                # A yielded run whose Mac side could not be confirmed stopped stays
+                # resumable: the next attempt finishes this cleanup before it exports.
+                if result['state'] != 'aborted' or result['transient_errors'] > TRANSIENT_LIMIT:
+                    result['state'] = 'error'
             shutil.rmtree(source)
             result['ended'] = time.time()
             result.update(current_step=result['state'], waiting_on=None, waiting_since=None)
@@ -409,7 +481,7 @@ def main():
             save(segment / 'summary.json', result)
             if not a.dry_run:
                 if result['state'] == 'aborted':
-                    checkpoints.preempted(result)
+                    checkpoints.preempted(result, cleanup_pending=remote if result['cleanup_exit'] else None)
                 elif result['state'] == 'complete':
                     checkpoints.complete(attempt)
         return 0 if result['state'] == 'complete' else 75

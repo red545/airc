@@ -21,6 +21,8 @@ def panel(status):
     rows = ''.join(f'<li>{e(engine)}: {e(c.get("PASS", 0))} pass / {e(c.get("FAIL", 0))} fail / {e(c.get("ENV", 0))} environment</li>'
                    for engine, c in latest.get('counts', {}).items())
     progress = f'<p>{e(latest["resume_label"])} (pinned revision above)</p>' if latest.get('resume_label') else ''
+    if latest.get('status_line'):
+        progress += f'<p><code>{e(latest["status_line"])}</code></p>'
     if latest.get('state') == 'running':
         progress += f'<p>Current step: {e(latest.get("current_step", "starting"))}'
         progress += f' · Waiting on: {e(latest["waiting_on"])}' if latest.get('waiting_on') else ' · Executing'

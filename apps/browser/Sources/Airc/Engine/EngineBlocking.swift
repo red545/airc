@@ -44,9 +44,12 @@ import AircCore
 extension ChromiumEngine: EngineBlocking {
     func configureBlocking(text: String, policy: EngineBlockingPolicy, profile: EngineProfile,
                            ready: (() -> Void)?, completion: @escaping (Bool) -> Void) {
-        guard let native = core(of: profile), let wk = webKitProfile(for: profile) else { return completion(false) }
+        guard let native = core(of: profile) else { return completion(false) }
         #if AIRC_TESTING
-        if LinkLaunchBaseline.enabled { return configureBlockingSerially(text: text, policy: policy, profile: profile, native: native, wk: wk, completion: completion) }
+        if LinkLaunchBaseline.enabled {
+            guard let wk = webKitProfile(for: profile) else { return completion(false) }
+            return configureBlockingSerially(text: text, policy: policy, profile: profile, native: native, wk: wk, completion: completion)
+        }
         #endif
         let current = BlockingInstallation.begin(profile)
         let state = ChromiumBlockingPolicy.state(for: profile)
@@ -60,18 +63,66 @@ extension ChromiumEngine: EngineBlocking {
             LaunchTimeline.mark("blocking chromium navigations held \(profile.directory)")
         }
         let early = state.holding
-        // The two engines' rules install side by side, and a Chromium page needs only Chromium's. Before,
-        // every Chromium page (a link at launch too) waited for the hybrid WebKit pages' rules first: a lookup and the
-        // YouTube scriptlets (~0.4 s), or a whole WebKit compile (~4.4 s) when it wasn't cached. WebKit pages of the
-        // profile hold their navigations until their own rules are in (only before the first install; an update keeps
-        // the previous rules in force until the new ones replace them).
-        WebKitBlocking.holdNavigations(wk)
         var chromium: Bool?, webKit: Bool?
-        if early { ready?() }
+        var webKitHeld = false
         func settle() {
             guard let c = chromium, let w = webKit else { return }
             completion(c && w)
         }
+        // The two engines' rules install side by side, and a Chromium page needs only Chromium's. Before,
+        // every Chromium page (a link at launch too) waited for the hybrid WebKit pages' rules first: a lookup and the
+        // YouTube scriptlets (~0.4 s), or a whole WebKit compile (~4.4 s) when it wasn't cached.
+        func installChromium() {
+            let coreStep = LaunchTimeline.begin("blocking chromium lists \(profile.directory)")
+            LinkLaunchBaseline.afterTestDelay { [self] in
+            core.setBlockingLists(text, enabled: policy.enabled, profile: native) { [self] installed in
+                coreStep()
+                guard current() else { chromium = false; return settle() }
+                guard installed else {
+                    // As the profile gate did on a failed install: pages go ahead with what the profile has (the notice).
+                    if state.holding { state.holding = false; native.releaseNavigationHold("airc blocking lists failed") }
+                    chromium = false; return settle()
+                }
+                let old = state
+                for host in old.exceptions.subtracting(policy.exceptions) {
+                    _ = core.setBlockingException(false, site: "https://" + host + "/", profile: native)
+                }
+                for host in policy.exceptions {
+                    _ = core.setBlockingException(true, site: "https://" + host + "/", profile: native)
+                }
+                old.exceptions = policy.exceptions
+                old.cookieManaged = !core.setThirdPartyCookiesBlocked(policy.blockThirdPartyCookies, profile: native)
+                chromium = true
+                state.installed = true
+                if state.holding { state.holding = false; native.releaseNavigationHoldReady() }
+                LaunchTimeline.mark("blocking chromium ready \(profile.directory)")
+                // A page may load only once the hybrid WebKit side holds its navigations too (below, this same turn;
+                // the engine replies on a later one).
+                if !early, webKitHeld { ready?() }
+                settle()
+            }
+            }
+        }
+        // launchtails: Chromium's lists start compiling first. Making the profile's WebKit side (its website data
+        // store, 46–56 ms on main at launch on the build Mac) used to come before, on the link-at-launch page's critical path.
+        let chromiumFirst = !LaunchTailsBaseline.enabled
+        if chromiumFirst { installChromium() }
+        let wkProfileStep = LaunchTimeline.begin("blocking webkit profile \(profile.directory)")
+        let wkProfile = webKitProfile(for: profile)
+        wkProfileStep()
+        guard let wk = wkProfile else {
+            // No WebKit side (as before: nothing installed). Chromium's install, if started, settles its own part.
+            webKit = false; webKitHeld = true
+            if !chromiumFirst { installChromium() }
+            if early { ready?() } else if chromium == true { ready?() }
+            return settle()
+        }
+        // WebKit pages of the profile hold their navigations until their own rules are in (only before the first
+        // install; an update keeps the previous rules in force until the new ones replace them).
+        WebKitBlocking.holdNavigations(wk)
+        webKitHeld = true
+        if early { ready?() } else if chromium == true { ready?() }
+        if !chromiumFirst { installChromium() }
         let wkStep = LaunchTimeline.begin("blocking webkit rules \(profile.directory)")
         WebKitBlocking.prepare(text: text, policy: policy, privateSession: native.offTheRecord) { prepared in
             wkStep()
@@ -86,33 +137,6 @@ extension ChromiumEngine: EngineBlocking {
                 webKit = prepared != nil
                 settle()
             }
-        }
-        let coreStep = LaunchTimeline.begin("blocking chromium lists \(profile.directory)")
-        LinkLaunchBaseline.afterTestDelay { [self] in
-        core.setBlockingLists(text, enabled: policy.enabled, profile: native) { [self] installed in
-            coreStep()
-            guard current() else { chromium = false; return settle() }
-            guard installed else {
-                // As the profile gate did on a failed install: pages go ahead with what the profile has (the notice).
-                if state.holding { state.holding = false; native.releaseNavigationHold("airc blocking lists failed") }
-                chromium = false; return settle()
-            }
-            let old = state
-            for host in old.exceptions.subtracting(policy.exceptions) {
-                _ = core.setBlockingException(false, site: "https://" + host + "/", profile: native)
-            }
-            for host in policy.exceptions {
-                _ = core.setBlockingException(true, site: "https://" + host + "/", profile: native)
-            }
-            old.exceptions = policy.exceptions
-            old.cookieManaged = !core.setThirdPartyCookiesBlocked(policy.blockThirdPartyCookies, profile: native)
-            chromium = true
-            state.installed = true
-            if state.holding { state.holding = false; native.releaseNavigationHoldReady() }
-            LaunchTimeline.mark("blocking chromium ready \(profile.directory)")
-            if !early { ready?() }
-            settle()
-        }
         }
     }
     #if AIRC_TESTING
@@ -205,6 +229,16 @@ enum LinkLaunchBaseline {
         #endif
         work()
     }
+}
+
+/// launchtails' before/after switch on one test binary: AIRC_LAUNCHTAILS_BASELINE=1 makes a Chromium profile's WebKit
+/// side before its Chromium lists start compiling (0.1.63's order). Always off in public builds.
+enum LaunchTailsBaseline {
+    #if AIRC_TESTING
+    static let enabled = ProcessInfo.processInfo.environment["AIRC_LAUNCHTAILS_BASELINE"] == "1"
+    #else
+    static let enabled = false
+    #endif
 }
 
 /// Async compilation may finish out of order. Only the most recent request for

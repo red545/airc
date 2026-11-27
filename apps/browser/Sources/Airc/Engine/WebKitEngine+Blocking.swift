@@ -144,8 +144,10 @@ final class WebKitBlocking {
                     // linklaunch: the scriptlets depend only on the list text and the hosts, so they are kept on disk by
                     // digest. A launch reads a few KB instead of compiling the whole adblock engine (~0.1–0.5 s).
                     if let cached = await VideoScriptletCache.read(digest: digest, hosts: sites) {
+                        LaunchTimeline.mark("blocking video scriptlets cached")
                         scripts = cached
                     } else {
+                        LaunchTimeline.mark("blocking video scriptlets not cached")
                         let filter = try await SharedBlockingFilters.filter(text: text, digest: digest)
                         scripts = try await Task.detached(priority: .userInitiated) {
                             Dictionary(uniqueKeysWithValues: sites.map {
