@@ -162,8 +162,13 @@ enum AgentAttention {
     /// page a little later), but only until the person acts: their first click or key in Airc after the landing ends
     /// the passes. Otherwise a key meant for a page field could be taken back to the approval card, and its Return
     /// would allow the agent's action (review21). One monitor per landing, removed after its last pass.
+    /// A newer landing ends the older one's passes too (tailreds): otherwise a Dock landing's 0.15 s pass took the
+    /// keys back to the approval card right after ✦ had landed on a page, and Return allowed instead of taking over.
     final class LandingFocus {
         static let delays: [Double] = [0.0, 0.15, 0.4, 0.8, 1.5]
+        private static var generation = 0
+        /// Ends every earlier landing's remaining passes.
+        static func supersede() { generation &+= 1 }
         private(set) var personActed = false
         private var monitor: Any?
 
@@ -183,10 +188,11 @@ enum AgentAttention {
 
         /// `pass(delay)` at each delay while the person hasn't acted; the monitor goes after the last one.
         static func run(_ pass: @escaping (Double) -> Void) {
-            let f = LandingFocus()
+            supersede()
+            let f = LandingFocus(), mine = generation
             for delay in delays {
                 DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                    if !f.personActed { pass(delay) }
+                    if !f.personActed && mine == generation { pass(delay) }
                     if delay == delays.last { f.end() }
                 }
             }
@@ -227,6 +233,7 @@ enum AgentAttention {
 
     static func go(_ it: Item, from: String) {
         lastLanded = it.id
+        LandingFocus.supersede()
         guard let c = window(for: it) else {
             AgentCenter.shared.onEvent?("attention \(from) \(it.id): no window")
             return

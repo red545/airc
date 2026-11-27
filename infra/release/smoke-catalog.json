@@ -2148,15 +2148,16 @@
   {
    "id": "sync-group",
    "kind": "group",
-   "script": "icloudsync+boostsync+settingssync",
+   "script": "icloudsync+boostsync+settingssync+icloudsync-recovery",
    "engines": {
-    "chromium": 88,
-    "webkit": 88
+    "chromium": 109,
+    "webkit": 109
    },
    "seconds": {
-    "chromium": 72,
-    "webkit": 72
+    "chromium": 102,
+    "webkit": 102
    },
+   "note": "One mock cloud per engine, dedicated session (release075 sync-smoke.sh rows): icloudsync 43, boostsync 26, settingssync 19, icloudsync-recovery a/b/c/a2 3+7+4+7 = 21 (syncrecovery 07f83d27).",
    "paths": [
     "S/Sync/*",
     "S/Settings/SyncSettings.swift",
@@ -2170,7 +2171,11 @@
     "icloudsync-return",
     "icloudsync-unavailable",
     "boostsync",
-    "settingssync"
+    "settingssync",
+    "icloudsync-recovery-a",
+    "icloudsync-recovery-b",
+    "icloudsync-recovery-c",
+    "icloudsync-recovery-a2"
    ]
   },
   {

@@ -393,7 +393,7 @@ extension SnapshotRunner {
         run { [self] in
             check(InstantLinksFeature.lastOutcome == .search(URL(string: base() + "/plain?q=tram+guide+plain"), .declined)
                   && shownURL() == base() + "/plain?q=tram+guide+plain",
-                  "\(tag): a model that declines falls back to a normal search (\(shownURL()))")
+                  "\(tag): a model that declines falls back to a normal search (\(shownURL()); outcome \(InstantLinksFeature.lastOutcome.map { "\($0)" } ?? "none"))")
             model.declines = false
         }
 
@@ -407,7 +407,7 @@ extension SnapshotRunner {
         run { [self] in
             check(InstantLinksFeature.lastOutcome == .search(URL(string: base() + "/slow?q=slow+trams"), .timeout)
                   && shownURL() == base() + "/slow?q=slow+trams",
-                  "\(tag): a results page that's too slow falls back to a normal search (\(shownURL()))")
+                  "\(tag): a results page that's too slow falls back to a normal search (\(shownURL()); outcome \(InstantLinksFeature.lastOutcome.map { "\($0)" } ?? "none"))")
             InstantLinksFeature.lastOutcome = nil
         }
         openBar()

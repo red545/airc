@@ -150,7 +150,10 @@ A release tests its cut in three steps. Only the first two hold the release.
    (`smokes.py blockers`) until the red is fixed on main, passes on a rerun, or is ruled under the flake rule.
 
 A crash, hang or watchdog red stops the release at any step, and the flake rule never clears it. A new crash
-report on the Mac during the smokes is the same kind of red.
+report on the Mac during the smokes is the same kind of red. A check that crashes on purpose (chromeaccept's
+`chrome://crash`) moves its own reports with `infra/release/smokes/mac-helper.sh sweep <marker> <dest> <n>`, which
+waits for ReportCrash (it writes about 25 s after the crash); a sweep run right after the check missed one in the
+0.1.63 tail.
 
 ```
 python3 infra/release/smokes.py plan --to <cut> [--extra extra-oe-smokes.txt] --json plan.json   # dry run + estimate
