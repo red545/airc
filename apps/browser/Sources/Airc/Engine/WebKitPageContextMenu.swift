@@ -20,6 +20,7 @@ final class PageMenuWebView: WKWebView {
     #endif
     func appendPageItems(to menu: NSMenu) {
         guard let tab = pageTab else { return }
+        followInspectElement(in: menu, tab: tab)
         retargetSearchItem(in: menu, tab: tab)
         insertLinkSpaces(in: menu, tab: tab)
         // WebKit's menu on selected text has its Copy (C06's Copy Quote Link goes right after it, as in Chromium's).
@@ -65,6 +66,25 @@ extension PageMenuWebView {
         item.submenu = sub
         let open = menu.items.firstIndex { $0.identifier?.rawValue == "WKMenuItemIdentifierOpenLinkInNewWindow" }
         menu.insertItem(item, at: (open ?? anchor) + 1)
+    }
+
+    /// WebKit's Inspect Element (developer extras are on for every page: WebKitProfile.makeConfiguration).
+    static let inspectElementItem = NSUserInterfaceItemIdentifier("WKMenuItemIdentifierInspectElement")
+
+    /// Inspect Element opens Web Inspector as ⌥⌘I does: attached to this window on the side last used, and Airc follows
+    /// it (hidden with its page on a tab switch, remembered when closed). WebKit's own action still runs (it selects
+    /// the element); a relay around it notes the Inspector's view once WebKit has put it next to the page.
+    func followInspectElement(in menu: NSMenu, tab: WebKitTab) {
+        guard let item = menu.items.first(where: { $0.identifier == Self.inspectElementItem }), let action = item.action,
+              !(item.target is InspectElementRelay) else { return }
+        #if AIRC_TESTING
+        // A/B (--script devtools): AIRC_DEVTOOLSDOCK_BASELINE=1 leaves WebKit's item as it was.
+        if ProcessInfo.processInfo.environment["AIRC_DEVTOOLSDOCK_BASELINE"] == "1" { return }
+        #endif
+        let relay = InspectElementRelay(target: item.target, action: action, tab: tab)
+        objc_setAssociatedObject(item, &InspectElementRelay.key, relay, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        item.target = relay
+        item.action = #selector(InspectElementRelay.run(_:))
     }
 
     /// WebKit's Copy, in its menu on selected text.
@@ -136,5 +156,31 @@ private final class LinkSpaceMenuItem: NSMenuItem {
         guard let pageView, let tab = pageView.pageTab, let url = pageView.contextLink,
               let id = sender.representedObject as? String else { return }
         tab.delegate?.tab(tab, openLink: url, inSpace: id)
+    }
+}
+
+/// Runs WebKit's Inspect Element (its own target and action, with the item as sender), then attaches and follows the
+/// Inspector it opened (WebKitInspectorDock).
+final class InspectElementRelay: NSObject, NSMenuItemValidation {
+    static var key = 0
+    private weak var target: AnyObject?
+    private let action: Selector
+    private weak var tab: WebKitTab?
+    init(target: AnyObject?, action: Selector, tab: WebKitTab) {
+        self.target = target
+        self.action = action
+        self.tab = tab
+    }
+    @objc func run(_ sender: NSMenuItem) {
+        guard let tab, !tab.isClosed else { NSApp.sendAction(action, to: target, from: sender); return }
+        // The Inspector views next to the page before WebKit opens one: the new one is the Inspector's.
+        let known = WebKitInspectorDock.siblings(of: tab)
+        WebKitInspectorDock.prepare(tab)
+        tab.inspectorGeneration += 1
+        NSApp.sendAction(action, to: target, from: sender)
+        WebKitInspectorDock.attach(tab, known: known)
+    }
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        (target as? NSMenuItemValidation)?.validateMenuItem(item) ?? true
     }
 }

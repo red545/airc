@@ -168,6 +168,11 @@ final class WebKitProfile: EngineProfile {
         }
         c.applicationNameForUserAgent = Self.safariProduct
         c.allowsAirPlayForMediaPlayback = true
+        // The page's context menu has Inspect Element on every page, as Chrome's and Arc's have Inspect (WebKit shows it
+        // only with developer extras on). It opens Web Inspector attached to the window (WebKitPageContextMenu.swift).
+        if c.preferences.responds(to: NSSelectorFromString("_setDeveloperExtrasEnabled:")) {
+            c.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        }
         return c
     }
 

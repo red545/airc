@@ -38,8 +38,8 @@ Developer Tools open **docked in the window you're inspecting**, beside the page
 bottom or the right, with every panel (Elements, Console, Sources, Network, Performance, Memory, Application, Security,
 Lighthouse). Panels that don't fit go under the tab strip's **»**.
 
-- **⌥⌘I** opens or closes them, **⌥⌘J** opens the Console, **⌥⌘C** picks an element on the page. The context menu's
-  **Inspect** opens them at that element.
+- **⌥⌘I** opens or closes them, **⌥⌘J** opens the Console, **⌥⌘C** picks an element on the page. Right-click (or
+  Control-click) the page and choose **Inspect** to open them at that element, docked the same way.
 - Drag the line between the page and Developer Tools to resize them. **⋮ › Dock side** docks them at the bottom, the
   right or the left, or undocks them into their own window; **⌘⇧D** (with the keyboard in Developer Tools) switches
   back to the last side. Each profile remembers its side and size, as Chrome does.
@@ -48,8 +48,9 @@ Lighthouse). Panels that don't fit go under the tab strip's **»**.
 - With the keyboard in Developer Tools, their own shortcuts come first (⌘F finds in a panel, ⌘P opens a file, ⌘Z undoes
   an edit); ⌘T, ⌘W, ⌘N and the ⌥⌘ commands stay Airc's.
 - On Safari's engine, **Web Inspector** attaches to the window the same way (bottom or right, with its own dock buttons
-  and splitter), with the same shortcuts; ⌥⌘C turns on its element picker. Airc remembers if you last kept it in its
-  own window.
+  and splitter), with the same shortcuts; ⌥⌘C turns on its element picker. Every page's context menu has **Inspect
+  Element**, which opens it attached at that element. Each profile remembers its side and whether you last kept it in
+  its own window; private windows remember nothing.
 
 ## Task Manager
 

@@ -73,12 +73,12 @@ final class DevToolsDockCheck {
         var list: [() async -> Void] = [setUp]
         #if canImport(AircCore)
         if !isWebKit {
-            list += [chromiumOpen, chromiumDockMenu, chromiumPanels, chromiumContextMenus, chromiumSplitter, chromiumToggleSide, chromiumOverflow,
+            list += [chromiumContextInspect, chromiumOpen, chromiumDockMenu, chromiumPanels, chromiumContextMenus, chromiumSplitter, chromiumToggleSide, chromiumOverflow,
                      chromiumDark, chromiumUndock, chromiumFollowTab, chromiumShortcuts, chromiumSplit, chromiumLittle,
                      chromiumAgentPane, chromiumClose]
         }
         #endif
-        if isWebKit { list += [webKitOpen, webKitTabs, webKitSides, webKitFollowTab, webKitClose] }
+        if isWebKit { list += [webKitContextInspect, webKitOpen, webKitTabs, webKitSides, webKitFollowTab, webKitClose] }
         return list
     }
 
@@ -231,6 +231,30 @@ final class DevToolsDockCheck {
         if real { check(await front(), "the window is key for real input") }
     }
 
+    var menuTitles: [String]?
+    /// The page's context menu (a real ⌃-click at `p`, window coordinates), then its item `pick` (type-select + Return,
+    /// real keys; Escape when the menu doesn't have it). Returns the menu's titles (nil when no menu opened).
+    func pageContextMenu(at p: NSPoint, pick: String) async -> [String]? {
+        menuTitles = nil
+        let observer = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { [weak self] n in
+            guard let m = n.object as? NSMenu, m !== NSApp.mainMenu, m.supermenu == nil else { return }
+            MainActor.assumeIsolated { self?.menuTitles = m.items.map(\.title).filter { !$0.isEmpty } }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        let g = global(p, in: c.window)
+        let (ok, out) = await driver(["--click", "\(Int(g.x))", "\(Int(g.y))", "--mods", "ctrl"])
+        if !ok { note("devtools \(engine): driver ⌃-click: \(out)") }
+        await until(5) { self.menuTitles != nil }
+        guard let titles = menuTitles else { return nil }
+        note("devtools \(engine): page context menu: \(titles)")
+        if titles.contains(pick) {
+            for ch in pick.lowercased().prefix(4) { _ = await key(String(ch)) }
+            _ = await key("return")
+        } else {
+            _ = await key("escape")
+        }
+        return titles
+    }
     // MARK: Chromium
 
     #if canImport(AircCore)
@@ -353,6 +377,39 @@ final class DevToolsDockCheck {
     func devToolsPicture(_ t: ChromiumTab?) async -> CGImage? {
         guard let t else { return nil }
         return await withCheckedContinuation { k in t.core.copyDevToolsPicture(5) { k.resume(returning: $0) } }
+    }
+
+    func chromiumContextInspect() async {
+        guard real, let t = chromium else { return skip("Inspect from the page's context menu needs real input") }
+        let titles = await pageContextMenu(at: windowPoint(60, 40, in: t.core.view), pick: "Inspect")
+        check(titles?.contains("Inspect") == true, "a real ⌃-click on the page opens its context menu with Inspect")
+        let opened = await until(12) { self.tools(t) != nil && self.layout(t).inWindow }
+        note("devtools \(engine): after context-menu Inspect: \(describe(t))")
+        let l = layout(t)
+        check(opened && l.sameHost && l.tools == l.host && ["right", "bottom", "left"].contains(l.side),
+              "context-menu Inspect docks DevTools in the page's own window (\(l.side))")
+        check(NSApp.windows.filter({ $0.isVisible && $0.title == "Developer Tools" }).isEmpty, "no separate Developer Tools window")
+        // A new profile (this run's scratch data) has no side yet. Chrome's frontend starts on the right; the bottom
+        // default needs the engine to seed the profile's DevTools side (artifacts/devtoolsdock, engine ASK), so this
+        // is a note until that engine is linked.
+        note("devtools \(engine): a new profile's first side: \(l.side)")
+        await sleep(0.8)
+        let p = await panelState()
+        let picked = await element(".elements-disclosure li.selected")
+        check(p?.id == "elements" && picked != nil, "it opens on Elements with the element selected (\(p?.id ?? "-"))")
+        // Follows the tab, then ⌥⌘I closes it.
+        if opened, let b = c.engineTab(for: tabB) as? ChromiumTab {
+            c.show(tabB, focus: true)
+            await sleep(0.6)
+            check(tools(t).map { $0.isHiddenOrHasHiddenAncestor || $0.window == nil } ?? true, "context-menu DevTools hide with their tab")
+            check(tools(b) == nil, "the other tab has none")
+            c.show(tabA, focus: true)
+            check(await until(3) { self.layout(t).inWindow && self.layout(t).side == l.side }, "and come back with it (\(describe(t)))")
+        }
+        _ = await front()
+        _ = await key("cmd+opt+i")
+        let closed = await until(5) { !t.isDevToolsOpen && self.tools(t) == nil }
+        check(closed && t.core.view.superview.map { t.core.view.frame == $0.bounds } == true, "⌥⌘I closes them and the page fills the card again")
     }
 
     func chromiumOpen() async {
@@ -536,7 +593,6 @@ final class DevToolsDockCheck {
             } else { check(false, "» opens a list of the hidden panels (no menu appeared)"); _ = await key("escape") }
         }
     }
-    var menuTitles: [String]?
 
     func chromiumDark() async {
         guard real, let t = chromium, let tv = tools(t) else { return skip("dark: DevTools aren't docked") }
@@ -732,6 +788,32 @@ final class DevToolsDockCheck {
                 k.resume(returning: v)
             }
         }
+    }
+
+    func webKitContextInspect() async {
+        guard real, let t = webKit else { return skip("Inspect Element from the page's context menu needs real input") }
+        let titles = await pageContextMenu(at: windowPoint(60, 40, in: t.webView), pick: "Inspect Element")
+        check(titles?.contains("Inspect Element") == true, "a real ⌃-click on the page opens its context menu with Inspect Element")
+        let ok = await until(8) { self.webKitAttached(t).attached }
+        let a = webKitAttached(t)
+        note("devtools \(engine): after context-menu Inspect Element: attached \(a.attached) side \(a.side) page \(fmt(a.page)) inspector \(fmt(a.inspector)); windows \(NSApp.windows.filter { $0.isVisible }.map { $0.title })")
+        check(ok && a.side != "overlap", "Inspect Element attaches Web Inspector to the page's window (\(a.side))")
+        check(a.side == "bottom", "a new profile's Web Inspector attaches at the bottom (\(a.side))")
+        check(NSApp.windows.filter({ $0.isVisible && $0.title.hasPrefix("Web Inspector") }).isEmpty, "no separate Web Inspector window")
+        check(await until(4) { t.inspectorView != nil }, "Airc follows that Inspector (it knows its view)")
+        if ok {
+            c.show(tabB, focus: true)
+            await sleep(0.6)
+            let iv = inspectorView(t)
+            check(iv.map { $0.isHiddenOrHasHiddenAncestor || $0.window == nil } ?? true, "switching tabs hides it")
+            c.show(tabA, focus: true)
+            check(await until(3) { self.webKitAttached(t).attached && self.webKitAttached(t).side == a.side }, "and it's back with its tab")
+        }
+        _ = await front()
+        _ = await key("cmd+opt+i")
+        let closed = await until(5) { !t.isDevToolsOpen }
+        check(closed && t.webView.superview.map { abs(t.webView.frame.height - $0.bounds.height) < 1 && abs(t.webView.frame.width - $0.bounds.width) < 1 } == true,
+              "⌥⌘I closes it and the page fills the card again (\(fmt(t.webView.frame)))")
     }
 
     func webKitOpen() async {
