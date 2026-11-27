@@ -149,6 +149,9 @@ final class WebKitProfile: EngineProfile {
     }
     #endif
 
+    /// WebKit has no spare to warm. (littleaircfast measured WebKit's own prewarmed process, SPI `_warmInitialProcess`,
+    /// at profile load: ~39 ms more main thread before the launch window for ~16 ms less before the page's first
+    /// navigation, and one link in ten whose first navigation came 6 s late; left out.)
     func warmSpareRenderer() {}
 
     func clearBrowsingData(completion: @escaping () -> Void) {
@@ -493,6 +496,8 @@ final class WebKitWindow: EngineWindow {
 }
 
 final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
+    /// littleaircfast: the process's first navigation decision is on the launch timeline (web process start).
+    private static var askedFirstNavigation = false
     /// Web Inspector's page while attached next to this tab's web view (WebKitInspectorDock).
     weak var inspectorView: NSView?
     /// Bumped by every show and close: a late attach or re-close from an older one does nothing.
@@ -935,6 +940,7 @@ final class WebKitTab: NSObject, EngineTab, WKNavigationDelegate, WKUIDelegate {
             decisionHandler(.download, preferences)
             return
         }
+        if !Self.askedFirstNavigation { Self.askedFirstNavigation = true; LaunchTimeline.mark("webkit first navigation asked") }
         // linklaunch: a Chromium profile's WebKit page made before its WebKit rules are in waits for them here.
         WebKitBlocking.whenNavigable(webKitProfile) { [weak self] in
             guard let self else { return decisionHandler(.cancel, preferences) }

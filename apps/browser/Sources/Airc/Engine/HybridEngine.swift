@@ -115,6 +115,28 @@ final class HybridProfileState {
     var webKitMediaTabs: [EngineTab] = []
 
     func emitMediaTabs() { mediaHandler?(chromiumMediaTabs + webKitMediaTabs) }
+
+    /// littleaircfast: the WebKit side is made only when something needs it (ChromiumEngine.webKitProfile(for:)), not
+    /// at the profile's first rule install. Its rules are prepared meanwhile: `webKitRules` the last prepared ones,
+    /// `webKitRulesPreparing` while an install is still preparing them.
+    var webKitRulesPreparing = false
+    var webKitRules: WebKitBlocking.Prepared?
+
+    /// The install's WebKit rules are prepared (nil: they failed). Into the side if it was made meanwhile; a failure
+    /// lets its held navigations go ahead with what it has, as the profile gate does on a failed install.
+    func webKitRulesFinished(_ prepared: WebKitBlocking.Prepared?) {
+        webKitRulesPreparing = false
+        if let prepared { webKitRules = prepared }
+        guard let w = webKit else { return }
+        if let prepared { WebKitBlocking.install(prepared, profile: w) } else { WebKitBlocking.releaseNavigations(w) }
+    }
+
+    /// The side was just made, before any page of it exists: the prepared rules go in at once; rules still preparing
+    /// hold its navigations until they're in (an already installed set stays in force meanwhile).
+    func webKitSideMade(_ w: WebKitProfile) {
+        if let r = webKitRules { WebKitBlocking.install(r, profile: w) }
+        if webKitRulesPreparing { WebKitBlocking.holdNavigations(w) }
+    }
 }
 
 extension ChromiumEngine {
@@ -126,6 +148,10 @@ extension ChromiumEngine {
         webKit.loadProfile(directory: p.directory) { made = $0 as? WebKitProfile }
         guard let w = made else { return nil }
         p.hybrid.webKit = w
+        if p.hybrid.webKitRules != nil || p.hybrid.webKitRulesPreparing {
+            LaunchTimeline.mark("blocking webkit side made \(p.directory)")
+            p.hybrid.webKitSideMade(w)
+        }
         // Observers the app installed before this profile's first WebKit page.
         if let h = p.hybrid.downloadsHandler { webKit.observeDownloadItems(in: w, h) }
         if p.hybrid.mediaHandler != nil {

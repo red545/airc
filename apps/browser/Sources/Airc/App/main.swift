@@ -12,6 +12,9 @@ AppPaths.prepare(LaunchOptions.current)
 // The blocking lists' integrity scan, off the main thread while the engine starts (BlockingListStore.load takes it).
 BlockingListStore.preload(directory: AppPaths.dataDirectory, seeds: Bundle.main.resourceURL?.appendingPathComponent("BlockingLists"))
 CrashLog.install()
+// littleaircfast: the Space textures' tiles (grain: ~ms of noise maths each) for the launch's first window, Little Airc's
+// or the browser's, are made off the main thread while the app and engine start, instead of in its first layout.
+LittleArcBuildSpans.prewarmTextures()
 // linklaunch: the launch's Apple event (a link from another app, or a plain launch), whichever engine runs NSApp.
 LaunchEvent.shared.observe()
 

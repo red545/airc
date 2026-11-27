@@ -107,6 +107,34 @@ extension ChromiumEngine: EngineBlocking {
         // store, 46–56 ms on main at launch on the build Mac) used to come before, on the link-at-launch page's critical path.
         let chromiumFirst = !LaunchTailsBaseline.enabled
         if chromiumFirst { installChromium() }
+        // littleaircfast: a profile without a WebKit side yet doesn't make one here (its website data store, ~50 ms on
+        // main at launch, before the launch's first window). Its WebKit rules are prepared all the same; the side is
+        // made when a page (or its site data) first needs it, and then holds its navigations until those rules are in
+        // (HybridProfileState.webKitSideMade), so no WebKit request ever goes out before its rules.
+        if LittleAircFast.lazyWebKitSide, let hybrid = (profile as? ChromiumProfile)?.hybrid, hybrid.webKit == nil {
+            LaunchTimeline.mark("blocking webkit side deferred \(profile.directory)")
+            hybrid.webKitRulesPreparing = true
+            webKitHeld = true
+            if early { ready?() } else if chromium == true { ready?() }
+            if !chromiumFirst { installChromium() }
+            let wkStep = LaunchTimeline.begin("blocking webkit rules \(profile.directory)")
+            LittleAircFast.afterWebKitTestDelay {
+            WebKitBlocking.prepare(text: text, policy: policy, privateSession: native.offTheRecord) { prepared in
+                wkStep()
+                guard current() else { webKit = false; return settle() }
+                guard let prepared else { hybrid.webKitRulesFinished(nil); webKit = false; return settle() }
+                let videoStep = LaunchTimeline.begin("blocking video scriptlets \(profile.directory)")
+                WebKitBlocking.prepareVideo(text: text, prepared: prepared) { prepared in
+                    videoStep()
+                    guard current() else { webKit = false; return settle() }
+                    hybrid.webKitRulesFinished(prepared)
+                    webKit = prepared != nil
+                    settle()
+                }
+            }
+            }
+            return
+        }
         let wkProfileStep = LaunchTimeline.begin("blocking webkit profile \(profile.directory)")
         let wkProfile = webKitProfile(for: profile)
         wkProfileStep()
@@ -238,6 +266,41 @@ enum LaunchTailsBaseline {
     static let enabled = ProcessInfo.processInfo.environment["AIRC_LAUNCHTAILS_BASELINE"] == "1"
     #else
     static let enabled = false
+    #endif
+}
+
+/// littleaircfast's before/after switches on one test binary: AIRC_LITTLEAIRCFAST_BASELINE=1 turns every change off,
+/// or a comma-separated list turns off only those (`lazywk`: a Chromium profile's WebKit side made at its first rule
+/// install, as before; `window`: the Space texture tiles made in the first window's layout, as before). Always on in
+/// public builds.
+enum LittleAircFast {
+    #if AIRC_TESTING
+    private static let off: Set<String> = {
+        let v = ProcessInfo.processInfo.environment["AIRC_LITTLEAIRCFAST_BASELINE"] ?? ""
+        return v == "1" ? ["lazywk", "window"] : Set(v.split(separator: ",").map { String($0) })
+    }()
+    static var lazyWebKitSide: Bool { !off.contains("lazywk") }
+    static var lightWindow: Bool { !off.contains("window") }
+    #else
+    static let lazyWebKitSide = true
+    static let lightWindow = true
+    #endif
+
+    /// AIRC_LAF_SLOW_WEBKIT_RULES=<s> (test builds): a Chromium profile's first lazy WebKit-side rule preparation starts
+    /// that much later, so launchtimeline's hybrid run (AIRC_LAF_HYBRID=1) makes the side while its rules still prepare.
+    static func afterWebKitTestDelay(_ work: @escaping () -> Void) {
+        #if AIRC_TESTING
+        if let s = Double(ProcessInfo.processInfo.environment["AIRC_LAF_SLOW_WEBKIT_RULES"] ?? ""), s > 0, !delayedWebKit {
+            delayedWebKit = true
+            LaunchTimeline.mark("blocking webkit rules delayed \(s) s (test)")
+            DispatchQueue.main.asyncAfter(deadline: .now() + s, execute: work)
+            return
+        }
+        #endif
+        work()
+    }
+    #if AIRC_TESTING
+    private static var delayedWebKit = false
     #endif
 }
 

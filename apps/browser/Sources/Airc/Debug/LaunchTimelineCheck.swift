@@ -39,6 +39,14 @@ extension SnapshotRunner {
     func run() async {
         let profileID = c.currentProfileID
         let name = app.store.profile(profileID)?.name ?? profileID
+        // littleaircfast: AIRC_LAF_HYBRID=1 (Chromium): the fixture's host plays in WebKit (ProtectedMedia.testHosts), so
+        // the tab and the link are the Chromium build's WebKit pages, made right after launch: their profile's WebKit
+        // side is made lazily then, and must hold them until its own rules are in (AIRC_LAF_SLOW_WEBKIT_RULES makes it).
+        let hybrid = chromium && ProcessInfo.processInfo.environment["AIRC_LAF_HYBRID"] == "1"
+        if hybrid {
+            ProtectedMedia.shared.testHosts = ["localhost"]
+            runner.note("launchtimeline: hybrid run, localhost pages play in WebKit")
+        }
         let readyAtStart = app.profiles.isReady(profileID)
         // linklaunch: a profile is "ready" as soon as its pages may be made; their requests wait for the rules (the
         // engine's navigation hold), so readiness no longer orders against the window. Protection is asserted below on
@@ -113,6 +121,7 @@ extension SnapshotRunner {
         let installed = await wait(seconds: 30) { rulesIn }
         check(installed, "the fixture rules were installed")
         guard shown, let tab = c.engineTab(for: row.id) else { watcher.invalidate(); server.stop(); return }
+        if hybrid { check(ProtectedMedia.isWebKitPage(tab), "hybrid: the fixture tab is a WebKit page") }
         let loaded = await wait(seconds: 20) { await self.evaluate(tab, "document.documentElement.dataset.fixtureDone") as? String != nil && !tab.isLoading }
         let done = await evaluate(tab, "document.documentElement.dataset.fixtureDone") as? String
         check(loaded && done == "yes", "the profile's first page loads with its third-party ad script blocked (\(done ?? "not loaded"))")
@@ -120,10 +129,27 @@ extension SnapshotRunner {
         check(!adRequested, "the blocked ad script never reached the network")
         // The page's first request came after the engine had the fixture rules in force for it (the last install's end
         // on the engine side; Chromium's lists, or WebKit's rules and its first filter).
-        let inForce = LaunchTimeline.all.compactMap { e -> Double? in
+        let inForce = hybrid
+            // The hybrid WebKit side's rules: its preparation's end (the scriptlets step installs them), or its hold's release.
+            ? LaunchTimeline.all.compactMap { e -> Double? in
+                if e.name.hasPrefix("webkit navigation released") { return e.start }
+                return e.name.hasPrefix("blocking video scriptlets") ? e.end : nil
+            }.min()
+            : LaunchTimeline.all.compactMap { e -> Double? in
             if e.name.hasPrefix("blocking chromium ready") || e.name.hasPrefix("webkit navigation released") { return e.start }
             return e.name.hasPrefix("blocking engine install") ? e.end : nil
         }.min()
+        if hybrid {
+            let deferred = LaunchTimeline.first("blocking webkit side deferred Default"), made = LaunchTimeline.first("blocking webkit side made Default")
+            let rulesEnd = LaunchTimeline.all.first { $0.name.hasPrefix("blocking video scriptlets") }?.end
+            if LittleAircFast.lazyWebKitSide {
+                check(deferred != nil && made != nil && deferred! < made!, "hybrid: the WebKit side was deferred at the first install and made when a page needed it")
+                if let made, let rulesEnd, made < rulesEnd {
+                    check(LaunchTimeline.first("webkit navigation held (rules) Default") != nil, "hybrid: the side made before its rules held its pages' navigations")
+                }
+            }
+            runner.note(String(format: "launchtimeline: hybrid side deferred %.0f ms, made %.0f ms, its rules in %.0f ms", deferred ?? -1, made ?? -1, rulesEnd ?? -1))
+        }
         if let pageAt, let inForce {
             check(pageAt >= inForce, String(format: "the page's first request (%.0f ms) came after its rules were in force (%.0f ms)", pageAt, inForce))
         } else if pageAt == nil {

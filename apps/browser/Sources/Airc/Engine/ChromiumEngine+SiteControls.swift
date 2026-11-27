@@ -51,7 +51,8 @@ extension ChromiumEngine: EngineSiteControls {
 
     func siteData(origin: String, in profile: EngineProfile, completion: @escaping (SiteDataUsage?) -> Void) {
         // A site that plays in WebKit keeps its data in the profile's WebKit store (HybridEngine.swift).
-        if ProtectedMedia.shared.engine(for: URL(string: origin)) == .webKit, let w = loadedWebKitProfile(for: profile) {
+        // littleaircfast: the side is made when first needed, so it is asked for here (not only a loaded one).
+        if ProtectedMedia.shared.engine(for: URL(string: origin)) == .webKit, let w = webKitProfile(for: profile) {
             return webKit.siteData(origin: origin, in: w, completion: completion)
         }
         guard SiteCore.available, let p = core(of: profile) else { return completion(nil) }

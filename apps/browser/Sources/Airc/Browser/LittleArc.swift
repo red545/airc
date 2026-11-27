@@ -79,6 +79,10 @@ final class LittleArcController: NSObject, NSWindowDelegate {
         // Its own window class: the engine's dialog anchor must not send it behind the browser window (LittleArcWindow).
         // Over another app's full screen, a panel that doesn't activate the app (LittleArcPanel).
         let style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        // littleaircfast: the window's construction steps on the launch timeline (only the process's first window
+        // records them: LaunchTimeline stops after 60 s).
+        let span = LittleArcBuildSpans()
+        span.step("nswindow")
         let hosted: NSWindow = overFullScreen
             ? LittleArcPanel(contentRect: frame, styleMask: style, backing: .buffered, defer: false)
             : LittleArcWindow(contentRect: frame, styleMask: style, backing: .buffered, defer: false)
@@ -87,13 +91,17 @@ final class LittleArcController: NSObject, NSWindowDelegate {
             hosted.alphaValue = 0
             hosted.ignoresMouseEvents = true
         }
+        span.step("engine window")
         engineWindow = (app.engine as? EngineCallHosting)?.makeWindow(hosting: hosted) ?? app.engine.makeWindow(contentRect: frame)
+        span.step("background")
         let space = app.store.space(spaceID) ?? app.store.selectedSpace
         background = ThemeBackgroundView(theme: Palette(theme: space.theme, systemDark: Self.systemDark).resolved)
         super.init()
         engineWindow.delegate = self
-        setUpWindow(frame: frame)
+        setUpWindow(frame: frame, span: span)
+        span.step("prompts")
         app.promptCenter?.register(prompts)
+        span.end()
         if deferPage { deferredURL = .some(url) } else { open(url) }
         scheduleArchive()
     }
@@ -144,7 +152,8 @@ final class LittleArcController: NSObject, NSWindowDelegate {
     }
     var profileID: String? { store?.space(spaceID)?.profileID }
 
-    private func setUpWindow(frame: NSRect) {
+    private func setUpWindow(frame: NSRect, span: LittleArcBuildSpans? = nil) {
+        span?.step("window setup")
         let w = window
         w.titlebarAppearsTransparent = true
         w.titleVisibility = .hidden
@@ -168,6 +177,7 @@ final class LittleArcController: NSObject, NSWindowDelegate {
         root.frame = NSRect(origin: .zero, size: frame.size)
         root.wantsLayer = true
         w.contentView = root
+        span?.step("views")
         root.addSubview(background)
         root.addSubview(card)
         root.addSubview(bar)
@@ -196,7 +206,9 @@ final class LittleArcController: NSObject, NSWindowDelegate {
         // menu (owner, 2026-11-07). The separate ↗ button is gone.
         chip.onOpen = { [weak self] in self?.openInSpace() }
         chip.onMenu = { [weak self] in self?.showChipMenu() }
+        span?.step("traffic lights")
         lights = TrafficLights(window: w, centers: AircMetrics.LittleArc.trafficLightCenters)
+        span?.step("chrome")
         refreshChrome()
     }
 
@@ -1085,6 +1097,25 @@ final class LittleArcFront {
             w.orderFront(nil)
         }
         LinkLog.write("Little Arc: in front again as the engine attached its dialog anchor")
+    }
+}
+
+/// littleaircfast: consecutive LaunchTimeline spans named "little airc build: <step>" (one open at a time).
+final class LittleArcBuildSpans {
+    private var open: (() -> Void)?
+    func step(_ name: String) { open?(); open = LaunchTimeline.begin("little airc build: \(name)") }
+    func end() { open?(); open = nil }
+
+    /// From main.swift: the Space textures' tiles (grain: a few ms of noise maths each, static lets) are made off the
+    /// main thread while the app and engine start, instead of in the launch's first window (Little Airc's or the
+    /// browser's) on the main thread.
+    static func prewarmTextures() {
+        guard LittleAircFast.lightWindow else { return }
+        DispatchQueue.global(qos: .userInitiated).async(execute: DispatchWorkItem {
+            let step = LaunchTimeline.begin("space texture tiles")
+            for t in AircDesign.SpaceTheme.Texture.allCases { _ = AircTextures.tile(t) }
+            step()
+        })
     }
 }
 
