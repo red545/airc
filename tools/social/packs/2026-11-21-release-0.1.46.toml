@@ -32,9 +32,10 @@ checked = """
 
 [[image]]
 id = "ask"
-shot = "agent-tasks-ask"
-# Since 2026-11-25: re-taken on 0.1.60 (5085477d, shotask) with the "Tab to switch" keycap (owner rule: nothing outdated).
-shots_rev = "5085477d"
+shot = "agent-tasks-ask-065"
+# Since 2026-11-27: shotask2's re-take on 0.1.65 (every Recent tasks card shows its page, as 0.1.65 does; the Tab to
+# switch keycap), saved as scratch/social-shots/marketing/agent-tasks-ask-065.png (owner rule: nothing outdated).
+shots_rev = ""
 title = "⌘T can Ask, not just Search."
 line = "Type what you want done, press Tab."
 clip = [338, 282, 764, 376]

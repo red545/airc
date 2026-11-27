@@ -1,0 +1,25 @@
+# Airc 0.1.65 (release077). LIVE 2026-11-27 15:24Z. Claims from its approved notes. Plan only once the public repo
+# shows v0.1.65 (owner rule).
+slug = "2026-11-27-release-0.1.65"
+title = "Airc 0.1.65: background agent tasks barely use power"
+kind = "release"
+since = "0.1.65"
+tag = ""
+summary = """
+One short text post: background agent tasks' pages rest when the agent doesn't need them.
+"""
+order = """
+1. The next free 10:30 UTC (only 10:30 posts since 27 Nov).
+"""
+checked = """
+- Notes: a task working in a tab you're not looking at (or started with ⌥↩) rests its page whenever the agent hasn't
+  needed it for 5 seconds and wakes the moment it acts; with three such tasks, their pages went from about a fifth of
+  a core (Safari engine) or two-fifths (Chromium) to almost nothing; tasks run just as fast.
+- Finished tasks' cards showing the page: in the ⌘T Ask card (0.1.46 pack, re-rendered from shotask2's 0.1.65 still).
+"""
+
+[[post]]
+label = "Background agent tasks barely use power"
+text = """
+Run three Airc Agent tasks in the background and their pages now use almost no power: each rests whenever the agent doesn't need it and wakes the moment it acts. Before, that was up to two-fifths of a processor core. Just as fast. Airc 0.1.65.
+"""

@@ -103,9 +103,13 @@ extension SnapshotRunner {
         // This pass's own tasks (the working one, the approval), deleted at the end, so the dark pass's Recent tasks show
         // the two finished answers again rather than the light pass's stopped tasks.
         var passTasks: [String] = []
+        // shotask2: the Today tabs this pass's tasks open (orders, checkout) are closed at its end too, so the dark
+        // shot's Today lists the same rows as the light one (no second "Corner Shop · Orders", no "Checkout").
+        var tabsBefore: Set<String> = []
         for dark in [false, true] {
             let sfx = dark ? "-dark" : ""
             run { [self] in
+                tabsBefore = Set(c.store.todayTabs(ofSpace: c.currentSpaceID).map(\.id))
                 if dark { appearanceBefore = c.store.space(c.currentSpaceID)?.theme.appearance }
                 NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
                 if dark { try? c.store.updateSpace(c.currentSpaceID) { $0.theme.appearance = .dark } }
@@ -159,6 +163,10 @@ extension SnapshotRunner {
             }
             wait(0.4)
             run { for id in passTasks { AgentTaskRecorder.shared.delete(id) }; passTasks = [] }
+            wait(0.4)
+            run { [self] in
+                for t in c.store.todayTabs(ofSpace: c.currentSpaceID) where !tabsBefore.contains(t.id) { c.closeTab(t.id) }
+            }
             wait(0.4)
         }
         run { [self] in
