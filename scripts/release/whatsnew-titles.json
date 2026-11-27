@@ -820,5 +820,23 @@
     "detail": "After you go to an Airc Agent task that asks for you, your keys stay in its window. Before, an earlier jump to it could take them back a moment later.",
     "action": "none",
     "image": null
+  },
+  "Background agent tasks barely use any power now": {
+    "title": "Background tasks rest",
+    "detail": "Airc Agent tasks working in the background barely use any power now: their pages rest while the agent doesn't need them and wake as soon as it acts.",
+    "action": "none",
+    "image": null
+  },
+  "Finished tasks' cards show the top of the page": {
+    "title": "Task cards show the page",
+    "detail": "In the Command Bar's Ask (⌘T), Recent tasks cards now show the top of the last page each task saw, instead of an empty-looking middle.",
+    "action": "commandBar",
+    "image": null
+  },
+  "Links from other apps open a little sooner with Chromium": {
+    "title": "Links open sooner",
+    "detail": "With the Chromium engine, a link you click in another app while Airc starts now shows its page a little sooner.",
+    "action": "none",
+    "image": null
   }
 }
