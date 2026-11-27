@@ -1,16 +1,28 @@
-# Airc 0.1.64 public beta
+# Airc 0.1.65 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update lets the Airc Agent work on several tasks at once, each in its own tab, and makes Capture Full Page take
-whole long pages on both engines. It includes everything from 0.1.63. The release manifest records the exact build,
-source and checksums.
+This update lets Airc Agent tasks in the background rest when nothing needs them, so they barely use any power, and
+makes finished tasks' cards show their page. It includes everything from 0.1.64. The release manifest records the
+exact build, source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.63
+## New since 0.1.64
+
+- **Background agent tasks barely use any power now.** When an Airc Agent task works in a tab you're not looking at
+  (or one you started with ⌥↩), its page now rests whenever the agent hasn't needed it for 5 seconds, and wakes the
+  moment the agent acts. With three such tasks, their pages went from about a fifth of a processor core (Safari
+  engine) or two-fifths (Chromium) to almost nothing. Tasks run just as fast.
+- **Finished tasks' cards show the top of the page.** In the Command Bar's Ask, the Recent tasks cards now show the
+  top of the last page a task saw, and keep a good picture of it. Before, a short page could show up as an empty
+  card.
+- **Links from other apps open a little sooner with Chromium.** When you click a link in another app and Airc has to
+  start, Airc now gets ad blocking ready before anything else, so the page shows a little sooner.
+
+## Included from 0.1.64
 
 - **The Airc Agent can now work on several tasks at once.** Start another task while one works (✎ New in the pane, or
   Ask in ⌘T): each runs in its own tab, with its own row in the Agents folder, its own approvals and its own Stop.
