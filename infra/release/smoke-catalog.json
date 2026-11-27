@@ -2297,13 +2297,13 @@
     "AIRC_AGENTPARALLEL_ONLY=three,stop,approvals,ratelimit,windows,queue"
    ],
    "engines": {
-    "chromium": 61,
-    "webkit": 61
+    "chromium": 55,
+    "webkit": 55
    },
    "limit": 900,
    "seconds": {
-    "chromium": 240,
-    "webkit": 240
+    "chromium": 90,
+    "webkit": 90
    },
    "paths": [
     "S/Agent/AgentTaskCenter.swift",
