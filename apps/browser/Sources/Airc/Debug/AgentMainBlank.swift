@@ -47,5 +47,83 @@ extension AgentMainCheck {
             }
         }
     }
+
+    /// agentpanescope (shotask2's finding): ⌘T → "Ask Airc to…" → Return with Codex (the fake `codex`, its first turn
+    /// held 2.5 s as a real one's start is): the new task's Today row has the task's name from the first frame it exists
+    /// (sampled every ~16 ms), never "about:blank" or an address, until the page's own title arrives.
+    func caseBlankAsk(_ done: @escaping () -> Void) {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("airc-blankask-\(getpid())", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        for (n, source) in [("claude", AgentCLIFakes.claude), ("codex", AgentCLIFakes.codex)] {
+            let u = dir.appendingPathComponent(n)
+            try? source.write(to: u, atomically: true, encoding: .utf8)
+            chmod(u.path, 0o755)
+        }
+        let turns: [[[String: Any]]] = [[["hold": 2.5], ["tool": "navigate", "args": ["url": "\(base)/am-shop.html"]],
+                                         ["tool": "wait", "args": ["duration": 1]], ["say": "Done."]]]
+        if let d = try? JSONSerialization.data(withJSONObject: ["case": "blankask", "loggedIn": true, "turns": turns]) {
+            try? d.write(to: dir.appendingPathComponent("fake-state.json"), options: .atomic)
+        }
+        AgentCLIDetector.shared.setDirForTesting(dir.path)
+        AgentModelSettings.shared.update { $0.backend = .codex }
+        func restore() {
+            AgentModelSettings.shared.update { $0.backend = .apiKey }
+            AgentCLIDetector.shared.setDirForTesting(k.cliNone.path)
+        }
+        let task = "Count the tally at the corner shop"
+        let title = AgentTaskTitle.make(task)
+        AgentCLIDetector.shared.check(.codex, maxAge: 0) { [self] st in
+            guard st.isReady else { check(false, "blankask: the fake Codex is ready (\(st.summary(.codex)))"); restore(); return done() }
+            AgentPaneController.pane(of: c)?.close()
+            c.closeCommandBar()
+            c.window.makeKeyAndOrderFront(nil)
+            let before = Set(c.store.state.tabs.keys)
+            var rows: [String] = [], firstRow: String?, sampling = true, tabID: String?
+            func tick() {
+                guard sampling else { return }
+                if tabID == nil { tabID = c.store.state.tabs.values.first { !before.contains($0.id) && $0.isToday }?.id }
+                if let id = tabID, let t = c.store.tab(id) {
+                    // What the row shows (an empty title shows the address).
+                    if firstRow == nil { firstRow = t.displayTitle }
+                    if rows.last != t.displayTitle { rows.append(t.displayTitle) }
+                }
+                after(0.016, tick)
+            }
+            c.openCommandBar(mode: .newTab)
+            after(0.3) { [self] in
+                c.commandBar?.type(task)
+                after(0.6) { [self] in
+                    let results = c.commandBar?.results ?? []
+                    guard let i = results.firstIndex(where: { $0.title == CommandBarView.agentRowTitle }) else {
+                        check(false, "blankask: ⌘T offers “Ask Airc to…” (\(results.map(\.title).joined(separator: " | ")))")
+                        c.closeCommandBar(); restore(); return done()
+                    }
+                    var downs = i
+                    func next() {
+                        guard downs > 0 else {
+                            tick()
+                            return k.barKey("return") { [self] in
+                                wait({ self.entry?.page.map { $0.url?.host != nil && !$0.title.isEmpty && $0.title != "about:blank" } == true }, 20) { [self] in
+                                    after(0.3) { [self] in
+                                        sampling = false
+                                        let blankish = rows.filter { $0.isEmpty || $0.hasPrefix("about:") || $0.hasPrefix("http") || $0.contains("127.0.0.1") }
+                                        check(run.cliKind == .codex, "blankask: the task runs on Codex (\(run.cliKind?.rawValue ?? "no CLI")) [\(k.real ? "real keys" : "posted keys")]")
+                                        check(firstRow == title, "blankask: ⌘T Ask → Codex: the new Today row has the task's name from its first frame (“\(firstRow ?? "no row")”)")
+                                        check(blankish.isEmpty && rows.first == title, "blankask: … never about:blank or an address before the page's title (rows: “\(rows.joined(separator: "” → “"))”)")
+                                        let t = entry.flatMap { c.store.tab($0.tabID)?.title } ?? ""
+                                        check(t.hasPrefix("Tally") || t.hasPrefix("Counted"), "blankask: … then the page's own title (“\(t)”)")
+                                        k.untilIdle(15) { restore(); done() }
+                                    }
+                                }
+                            }
+                        }
+                        downs -= 1
+                        k.barKey("down", next)
+                    }
+                    next()
+                }
+            }
+        }
+    }
 }
 #endif

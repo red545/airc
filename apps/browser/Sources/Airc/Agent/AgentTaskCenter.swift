@@ -23,14 +23,15 @@ final class AgentTaskCenter: ObservableObject {
 
     private init() {}
 
-    /// A new, empty task (the pane's ✎ New, ⌘T → Ask, a task view's reply to an older task).
-    func make() -> AgentRunCenter {
+    /// A new, empty task (the pane's ✎ New, ⌘T → Ask, a task view's reply to an older task). `latest: false`: it doesn't
+    /// become `latest` until it's asked (the empty state a Space switch shows, agentpanescope).
+    func make(latest: Bool = true) -> AgentRunCenter {
         let r = AgentRunCenter()
         // Checks follow every task with the closure they gave the last one.
         r.onEvent = last?.onEvent
         _ = r.timeline   // stamps from the first step on
         runs.append(r)
-        last = r
+        if latest || last == nil { last = r }
         AgentTaskRecorder.shared.attach(r)
         AgentTaskThumbs.shared.attach(r)
         // Its state, approval or place in the queue: everything that follows all tasks hears of it.
@@ -52,9 +53,9 @@ final class AgentTaskCenter: ObservableObject {
     var latest: AgentRunCenter { last ?? make() }
 
     /// The empty task to type into: an empty one no pane shows yet, else a new one.
-    func draft() -> AgentRunCenter {
+    func draft(latest: Bool = true) -> AgentRunCenter {
         if let r = runs.last(where: { $0.steps.isEmpty && !$0.isBusy && !AgentPaneController.shows($0) }) { return r }
-        return make()
+        return make(latest: latest)
     }
 
     func run(task id: String?) -> AgentRunCenter? {

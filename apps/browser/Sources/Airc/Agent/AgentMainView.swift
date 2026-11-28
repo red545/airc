@@ -180,8 +180,10 @@ final class AgentMainView {
         let superseded = start?.controller != nil && latestAsk[ObjectIdentifier(c)].map { $0 != task } == true && start?.tabID == nil
         if !onProfile || start?.background == true || superseded, let b = blank, let page = w.tab(b), let space = space(for: w, in: c) {
             w.markHosted(b)
+            // agentpanescope: the row has the task's name from its first frame (its page has no title yet).
+            let rowTitle = page.title.isEmpty && Self.isBlank(page) ? (taskTitle(w, in: c) ?? page.title) : page.title
             guard let t = try? c.store.openTab(url: page.url?.absoluteString ?? "about:blank", inSpace: space,
-                                               background: true, activate: false, title: page.title) else { return w.unmarkHosted(b) }
+                                               background: true, activate: false, title: rowTitle) else { return w.unmarkHosted(b) }
             let e = Hosted(page: page, controller: c, window: w, tabID: t.id, personOwned: false)
             e.lastSize = w.size
             hosted.append(e)
@@ -203,7 +205,7 @@ final class AgentMainView {
         } else if let b = blank, let page = w.tab(b) {
             guard let space = space(for: w, in: c) else { return }
             w.markHosted(b)
-            guard c.adoptMovedPage(page, inSpace: space), let id = c.tabID(for: page) else {
+            guard c.adoptMovedPage(page, inSpace: space, title: Self.isBlank(page) ? taskTitle(w, in: c) : nil), let id = c.tabID(for: page) else {
                 w.unmarkHosted(b)
                 return
             }
@@ -553,14 +555,26 @@ final class AgentMainView {
         guard let page = e.page, Self.isBlank(page) else { return }
         e.starting = true
         // agentparallel: the title of the task whose page this is.
-        e.taskTitle = run(of: e.window)?.steps.first { $0.kind == .user }.map { AgentTaskTitle.make($0.text) }
+        if let c = e.controller, let w = e.window { e.taskTitle = taskTitle(w, in: c) }
         titleRow(e)
-        onEvent?("starting \(e.tabID)")
+        onEvent?("starting \(e.tabID)\(e.taskTitle == nil ? " (no task title yet)" : "")")
         followStart(e)
+    }
+
+    /// The name of the task whose agent window this is, from its prompt: its run found by the window, by the window's
+    /// task, or (agentpanescope: the ⌘T Ask → Codex row read "about:blank" for 0.8 s) the task asked last in `c` while it
+    /// has no other window yet. Nil while none of them has its prompt yet.
+    private func taskTitle(_ w: AgentWindow, in c: WindowController) -> String? {
+        var r = run(of: w) ?? w.taskID.flatMap { tasks.run(task: $0) }
+        if r == nil, let last = latestAsk[ObjectIdentifier(c)].flatMap({ tasks.run(task: $0) }), last.runWindowID == nil || last.runWindowID == w.id {
+            r = last
+        }
+        return r?.steps.first { $0.kind == .user }.map { AgentTaskTitle.make($0.text) }
     }
 
     /// While the page is blank, its row says the task's name (the person's window writes the page's address there).
     private func titleRow(_ e: Hosted) {
+        if e.taskTitle == nil, let c = e.controller, let w = e.window { e.taskTitle = taskTitle(w, in: c) }
         guard let c = e.controller, let t = e.taskTitle, !t.isEmpty, c.store.tab(e.tabID)?.title != t else { return }
         c.store.updateTab(e.tabID, title: t)
         c.refreshRow(e.tabID)
@@ -571,6 +585,12 @@ final class AgentMainView {
         guard e.starting, let page = e.page, !page.isClosed else { return }
         if Self.isBlank(page) {
             titleRow(e)
+            // The task's name isn't known yet: look again shortly (nothing else calls back while the page stays blank).
+            if e.taskTitle == nil, Date().timeIntervalSince(since) < 20 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak e] in
+                    if let self, let e { self.followStart(e, since: since) }
+                }
+            }
             return
         }
         if page.isLoading, Date().timeIntervalSince(since) < 20 {

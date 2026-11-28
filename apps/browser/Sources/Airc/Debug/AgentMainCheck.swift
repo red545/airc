@@ -35,6 +35,8 @@ extension SnapshotRunner {
         if AgentMainCheck.runs("rows") { step { done in m.caseRows(done) } }
         // aidemo4: a new task's tab before its first page: no white page, the row titled with the task (AgentMainBlank.swift).
         if AgentMainCheck.runs("blank") { step { done in m.caseBlank(done) } }
+        // agentpanescope: the same on the ⌘T Ask → Codex path (shotask2's about:blank row).
+        if AgentMainCheck.runs("blankask") { step { done in m.caseBlankAsk(done) } }
         run { m.finish() }
     }
 }

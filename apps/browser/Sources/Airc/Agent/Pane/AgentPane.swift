@@ -86,8 +86,8 @@ final class AgentPaneController: NSObject {
 
     static func pane(of c: WindowController) -> AgentPaneController? { panes[ObjectIdentifier(c)] }
 
-    /// agentparallel: some window's pane shows this task (open or not).
-    static func shows(_ run: AgentRunCenter) -> Bool { panes.values.contains { $0.model.run === run } }
+    /// agentparallel: some window's pane shows this task (open or not), or keeps it for another of its Spaces.
+    static func shows(_ run: AgentRunCenter) -> Bool { panes.values.contains { $0.model.holds(run) } }
 
     /// The pane of `c`, open on this task (a task row, a card, "needs you", the bar on the task's page).
     @discardableResult
@@ -129,6 +129,7 @@ final class AgentPaneController: NSObject {
         _ = AgentTaskRecorder.shared
         super.init()
         model.pane = self
+        model.start(in: c.currentSpaceID)
         let key = ObjectIdentifier(c)
         closeObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: c.window, queue: .main) { [weak self] _ in
             self?.teardown()
@@ -165,9 +166,11 @@ final class AgentPaneController: NSObject {
         NotificationCenter.default.post(name: Self.visibilityChanged, object: c)
     }
 
-    /// A Space switch: the pane shows if it was open in that Space.
+    /// A Space switch: the pane shows if it was open in that Space, on that Space's task (agentpanescope).
     func spaceChanged() {
         guard let c = controller else { return }
+        keep?.end()
+        model.spaceChanged(to: c.currentSpaceID)
         if openSpaces.contains(c.currentSpaceID) {
             if card == nil { install(c) }
             card?.isHidden = false
@@ -187,6 +190,7 @@ final class AgentPaneController: NSObject {
     }
 
     private func teardown() {
+        keep?.end()
         model.paneHidden()
         card?.removeFromSuperview()
         card = nil
@@ -203,8 +207,68 @@ final class AgentPaneController: NSObject {
         focus()
     }
 
+    /// The keys go to the field when the pane opens or takes a task, and stay there for a moment (agentpanescope): a
+    /// page that takes the keyboard back a little later (a WebKit page refocusing after the Command Bar closed, the
+    /// cbflicker red in tailreds2's report) gives it back to the field. Never once the person clicked or used a shortcut,
+    /// never after something else took the keys on purpose (the address bar, Watch, a landing), and only a few times.
+    private var keep: AgentPaneFieldKeep?
+
     func focus() {
-        DispatchQueue.main.async { [weak self] in self?.card?.focusField() }
+        keep?.end()
+        let k = AgentPaneFieldKeep(fieldHasKeys: { [weak self] in self?.fieldHasKeys == true })
+        keep = k
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !k.ended, self.keep === k else { return }
+            self.card?.focusField()
+            guard let w = self.card?.window else { return k.end() }
+            k.tabID = self.controller?.shownTabID
+            k.hadKeys = self.fieldHasKeys
+            k.observation = w.observe(\.firstResponder, options: [.new]) { [weak self] _, _ in
+                DispatchQueue.main.async { self?.hold(k, "refocus") }
+            }
+            for delay in AgentPaneFieldKeep.passes {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    self?.hold(k, "+\(delay) s")
+                    if delay == AgentPaneFieldKeep.passes.last { k.end() }
+                }
+            }
+        }
+    }
+
+    /// The pane's field (or the field editor in it) has the window's keyboard.
+    var fieldHasKeys: Bool {
+        guard let card, let w = card.window, let v = w.firstResponder as? NSView else { return false }
+        return v !== card && v.isDescendant(of: card)
+    }
+
+    /// One look while the keep lasts: the keys back to the field if the page (or nobody) took them.
+    private func hold(_ k: AgentPaneFieldKeep, _ why: String) {
+        guard !k.ended, keep === k else { return }
+        guard !k.personActed, isShown, let card, let w = card.window, let c = controller, !card.approvalKeys else { return k.end() }
+        // Another tab came into the main view (a task's page presented, a tab switch): its page may have the keys.
+        guard c.shownTabID == k.tabID else { return k.end() }
+        let r = w.firstResponder
+        if let v = r as? NSView, v.isDescendant(of: card) { k.hadKeys = true; return }
+        // Something other than the page took the keys after the field had them: that was meant, and the keep is over.
+        // (Before, the field may not be laid out yet: it takes them once it is.)
+        guard Self.isPage(r, in: c) || !k.hadKeys else { return k.end() }
+        guard k.reasserts < AgentPaneFieldKeep.maxReasserts else { return k.end() }
+        k.reasserts += 1
+        card.focusField()
+        AgentCenter.shared.onEvent?("pane-focus \(why): the field takes the keys back from \(r.map { String(describing: type(of: $0)) } ?? "nobody") (took \(fieldHasKeys))")
+    }
+
+    /// Something gives the page the keys on purpose (Take over).
+    func endFocusKeep() { keep?.end() }
+
+    /// The window's page (a shown tab's engine view, or inside it), or nobody / the window itself.
+    private static func isPage(_ r: NSResponder?, in c: WindowController) -> Bool {
+        guard let r, r !== c.window else { return true }
+        guard let v = r as? NSView else { return false }
+        return c.visibleTabIDs.contains { id in
+            guard let page = c.engineTab(for: id)?.view else { return false }
+            return v === page || v.isDescendant(of: page)
+        }
     }
 
     /// agentux3: a "needs you" click landed here (AgentAttention): the keys go to the approval card, its Allow once
@@ -212,6 +276,8 @@ final class AgentPaneController: NSObject {
     func focusApproval() {
         let run = model.run
         guard let id = run.approval?.id else { return }
+        // The landing's own passes keep the keys on the approval card from here.
+        keep?.end()
         model.approvalFocused = true
         // Again for a moment (a Space switch or a closing Watch hands the keys to the page a little later), but never
         // after the person clicked or typed anywhere in Airc (AgentAttention.LandingFocus): a Return meant for a page
@@ -390,6 +456,44 @@ final class AgentPaneCardView: NSView {
     #if AIRC_TESTING
     var hostingView: NSView { host }
     #endif
+}
+
+/// agentpanescope: one "keep the keys on the field" window after the pane focused its field (AgentPaneController.focus).
+final class AgentPaneFieldKeep {
+    /// Looks after the focus, besides every first-responder change of the window (2 s in all).
+    static let passes: [Double] = [0.05, 0.15, 0.4, 0.8, 1.4, 2.0]
+    /// A page that keeps taking the keys wins after this many: no tug of war.
+    static let maxReasserts = 3
+    private(set) var ended = false
+    /// The person clicked anywhere in Airc, or pressed a key that wasn't typing into the field.
+    private(set) var personActed = false
+    var reasserts = 0
+    /// The tab shown when the keep began.
+    var tabID: String?
+    /// The field has had the keys in this keep.
+    var hadKeys = false
+    var observation: NSKeyValueObservation?
+    private var monitor: Any?
+
+    init(fieldHasKeys: @escaping () -> Bool) {
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]) { [weak self] e in
+            // Typing into the field is using it; a shortcut, Tab, Return or Esc can move the keys on purpose.
+            let typing = e.type == .keyDown && fieldHasKeys() && e.modifierFlags.intersection([.command, .control]).isEmpty
+                && ![36, 76, 48, 53].contains(e.keyCode)
+            if !typing { self?.personActed = true }
+            return e
+        }
+    }
+
+    func end() {
+        ended = true
+        observation?.invalidate()
+        observation = nil
+        if let m = monitor { NSEvent.removeMonitor(m) }
+        monitor = nil
+    }
+
+    deinit { end() }
 }
 
 /// The pane's inner edge: drag to resize (340–560 pt), double-click to reset to 400 pt.
