@@ -44,22 +44,22 @@ const chromiumMajor = status.chromium.split(".")[0];
 const agentsOn = await agentsShown();
 const followOn = await followAlongShown();
 const remoteOn = await remoteShown();
-// The Airc Agent: a recording of the real app (artifacts aidemo4: 0.1.61's agent in the main view, on Steepwell, the
+// The Airc Agent: a recording of the real app (artifacts aidemo6: the agent in the main view, re-taken on 61d232bc, on Steepwell, the
 // made-up shop in tools/agent-demo-shop).
 const agentVideo = {
   width: 1600,
   height: 1000,
-  seconds: 41.5,
+  seconds: 42.3,
   alt: "A recording of Airc on a made-up coffee shop: ⌘T opens the Command Bar, Ask is picked, and the task “Compare the Pour and Rapid kettles and buy the better one for pour over coffee. Ask me before you pay.” is typed. The task’s page opens as a tab in Today, with a glow and the bar “Codex is using this tab · Take over · Stop”, while the pane beside it lists each step. The agent searches the shop and puts both kettles side by side; the pointer rests on Take over and Stop. It says why the Pour is better for pour-over, adds it to the bag and goes to payment. At Pay, Airc stops and asks in the pane, Allow once is clicked, the order is placed and the agent says what it bought and why.",
 };
-// Where each part of the recording starts, in seconds (aidemo4's chapters.json, homepage cut).
+// Where each part of the recording starts, in seconds (aidemo6's chapters.json, homepage cut).
 const agentChapters = [
   { at: 0, label: "Ask from ⌘T" },
-  { at: 5.2, label: "Say what you need" },
-  { at: 9, label: "It works in your tab" },
-  { at: 17.8, label: "Take over any time" },
-  { at: 28.7, label: "It asks before it pays" },
-  { at: 36, label: "Done" },
+  { at: 5.4, label: "Say what you need" },
+  { at: 9.2, label: "It works in your tab" },
+  { at: 18.8, label: "Take over any time" },
+  { at: 29.7, label: "It asks before it pays" },
+  { at: 36.8, label: "Done" },
 ];
 const agentPoints = [
   {

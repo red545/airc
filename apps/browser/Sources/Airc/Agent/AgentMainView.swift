@@ -35,6 +35,11 @@ final class AgentMainView {
         var seen = 0
         var closedByPerson = false
         var lastSize: CGSize = .zero
+        /// agentparkclick: the page's size in its own Space, taken as a Space switch starts. The new Space's layout (its
+        /// pane open or closed) resizes the page before the switch hides it, and the park must not keep that size: the
+        /// agent would look at it, the page would come back at its real size, and its next click would be refused as a
+        /// stale look.
+        var parkSize: CGSize?
         /// The task's new tab before its first page: the card's own fill with "Starting…" over it (never a white page),
         /// and its Today row titled with the task, not "about:blank".
         var starting = false
@@ -54,6 +59,9 @@ final class AgentMainView {
         var tabID: String?
         /// agentparallel: started without looking at it (⌘T ⌥↩): its page is a row, parked, never selected.
         var background = false
+        /// agentparkclick: the Space it was asked in. Its page goes there even when the person switched Space before
+        /// the agent window opened (then as a parked row: the person's window never changes Space by itself).
+        var spaceID: String?
     }
 
     private(set) var hosted: [Hosted] = []
@@ -132,7 +140,7 @@ final class AgentMainView {
     /// the agent itself when the task is about it.
     func willAsk(_ run: AgentRunCenter, in c: WindowController, page tabID: String?, background: Bool = false) {
         follow()
-        starts[run.taskID] = Start(controller: c, tabID: tabID, background: background)
+        starts[run.taskID] = Start(controller: c, tabID: tabID, background: background, spaceID: c.currentSpaceID)
         if !background { latestAsk[ObjectIdentifier(c)] = run.taskID }
         released[run.taskID] = nil
         takenOvers[run.taskID] = nil
@@ -145,7 +153,7 @@ final class AgentMainView {
     func asked(_ run: AgentRunCenter, in c: WindowController) {
         if starts[run.taskID]?.controller === c { return }
         follow()
-        starts[run.taskID] = Start(controller: c, tabID: nil)
+        starts[run.taskID] = Start(controller: c, tabID: nil, spaceID: c.currentSpaceID)
         latestAsk[ObjectIdentifier(c)] = run.taskID
     }
 
@@ -178,7 +186,12 @@ final class AgentMainView {
         let onProfile = c.store.space(c.currentSpaceID)?.profileID == w.profileID
         // A later task asked in this window since: its page has the main view (or will), this one is a row.
         let superseded = start?.controller != nil && latestAsk[ObjectIdentifier(c)].map { $0 != task } == true && start?.tabID == nil
-        if !onProfile || start?.background == true || superseded, let b = blank, let page = w.tab(b), let space = space(for: w, in: c) {
+        // agentparkclick: asked in a Space the window has left since (asked, then a Space switch before the agent window
+        // opened): the page goes to the asked Space, as a row there.
+        let asked = askedSpace(start, for: w, in: c)
+        let movedAway = asked != nil && asked != c.currentSpaceID && start?.tabID == nil
+        if !onProfile || start?.background == true || superseded || movedAway, let b = blank, let page = w.tab(b),
+           let space = asked ?? space(for: w, in: c) {
             w.markHosted(b)
             // agentpanescope: the row has the task's name from its first frame (its page has no title yet).
             let rowTitle = page.title.isEmpty && Self.isBlank(page) ? (taskTitle(w, in: c) ?? page.title) : page.title
@@ -189,7 +202,7 @@ final class AgentMainView {
             hosted.append(e)
             beginStarting(e)
             c.scheduleReload()
-            onEvent?("present \(t.id) away")
+            onEvent?("present \(t.id) away\(movedAway ? " asked-space" : "")")
             refresh(c)
             changed()
             return
@@ -203,7 +216,7 @@ final class AgentMainView {
             if c.shownTabID != id { c.show(id) }
             onEvent?("present \(id) own")
         } else if let b = blank, let page = w.tab(b) {
-            guard let space = space(for: w, in: c) else { return }
+            guard let space = asked ?? space(for: w, in: c) else { return }
             w.markHosted(b)
             guard c.adoptMovedPage(page, inSpace: space, title: Self.isBlank(page) ? taskTitle(w, in: c) : nil), let id = c.tabID(for: page) else {
                 w.unmarkHosted(b)
@@ -235,6 +248,12 @@ final class AgentMainView {
         return all.first { $0.window.isKeyWindow } ?? all.first { $0.window.isMainWindow } ?? all.first
     }
 
+    /// The Space the task was asked in, while it's still there and has the agent's profile.
+    private func askedSpace(_ start: Start?, for w: AgentWindow, in c: WindowController) -> String? {
+        guard let id = start?.spaceID, start?.controller === c, let s = c.store.space(id), s.profileID == w.profileID else { return nil }
+        return id
+    }
+
     /// The Space a new agent tab goes in: the current one when it has the agent's profile, else that profile's first.
     private func space(for w: AgentWindow, in c: WindowController) -> String? {
         if c.store.space(c.currentSpaceID)?.profileID == w.profileID { return c.currentSpaceID }
@@ -247,7 +266,12 @@ final class AgentMainView {
     func agentOpened(_ w: AgentWindow, _ id: Int, foreground: Bool) {
         guard w.hostsInMainView, let page = w.tab(id), entry(page) == nil else { return }
         let anchor = hosted.first { $0.window === w && $0.controller != nil }
-        guard let c = anchor?.controller, let space = space(for: w, in: c) else { return }
+        guard let c = anchor?.controller else { return }
+        // agentparkclick: in the Space of the run's page (not whichever Space the window is on now).
+        let anchorSpace = anchor.flatMap { c.store.tab($0.tabID)?.spaceID }.flatMap { id in
+            c.store.space(id)?.profileID == w.profileID ? id : nil
+        }
+        guard let space = anchorSpace ?? space(for: w, in: c) else { return }
         let shownNow = anchor.map { c.shownTabID == $0.tabID } ?? false
         w.markHosted(id)
         if foreground, shownNow {
@@ -350,6 +374,7 @@ final class AgentMainView {
         DispatchQueue.main.async { [weak self, weak c] in
             guard let self, let c else { return }
             if let e, let hidden, !c.visibleTabIDs.contains(hidden) { self.park(e, in: c) }
+            for h in self.hosted where h.controller === c { h.parkSize = nil }
             self.refresh(c)
             self.chrome(c, create: false)?.reclaimKeys()
         }
@@ -357,17 +382,36 @@ final class AgentMainView {
 
     private func park(_ e: Hosted, in c: WindowController) {
         guard let page = e.page, let w = e.window, !page.isClosed, !w.isParked(page), c.engineTab(for: e.tabID) === page else { return }
-        let size = page.view.bounds.size
+        let now = page.view.bounds.size
+        var size = now
+        if let s = e.parkSize, s.width >= 1, s.height >= 1, Self.keepsSpaceSize { size = s }
+        e.parkSize = nil
         guard c.releasePage(e.tabID) != nil else { return }
         if w.park(page, size: size) {
             e.lastSize = size
             onEvent?("park \(e.tabID)")
+            onEvent?("park-size \(e.tabID) \(Int(size.width))x\(Int(size.height))\(size != now ? " (laid out \(Int(now.width))x\(Int(now.height)))" : "")")
         } else {
             c.adopt(page, as: e.tabID)
             onEvent?("park-failed \(e.tabID)")
         }
         changed()
     }
+
+    /// A Space switch in `c` starts (WindowController.applySpace, before the new Space's pane lays the window out): the
+    /// shown task page's size now is the one it parks at.
+    func spaceWillSwitch(in c: WindowController) {
+        guard !hosted.isEmpty, let id = c.shownTabID, let e = entry(tabID: id, in: c), let p = e.page, let w = e.window,
+              !p.isClosed, !w.isParked(p), c.engineTab(for: id) === p else { return }
+        e.parkSize = p.view.bounds.size
+    }
+
+    /// Off only for an A/B of agentparkclick's fix (test builds, AIRC_PARK_LAIDOUT=1: park at the laid-out size).
+    #if AIRC_TESTING
+    static var keepsSpaceSize = ProcessInfo.processInfo.environment["AIRC_PARK_LAIDOUT"] != "1"
+    #else
+    static let keepsSpaceSize = true
+    #endif
 
     /// WindowController.ensurePage: a parked page of this window's tab comes back (the same page, live, no reload).
     func reclaim(_ tabID: String, into c: WindowController) -> EngineTab? {
@@ -380,6 +424,7 @@ final class AgentMainView {
         c.adopt(page, as: tabID)
         if e.lastSize != .zero, page.view.bounds.size != e.lastSize { e.viewRevision += 1 }
         onEvent?("reclaim \(tabID)")
+        onEvent?("reclaim-size \(tabID) \(Int(page.view.bounds.width))x\(Int(page.view.bounds.height)) (parked \(Int(e.lastSize.width))x\(Int(e.lastSize.height)), revision \(e.viewRevision), seen \(e.seen))")
         DispatchQueue.main.async { [weak self] in self?.changed() }
         return page
     }
@@ -580,6 +625,30 @@ final class AgentMainView {
         c.refreshRow(e.tabID)
     }
 
+    /// agentparkclick: the name a task's new tab shows (its Today row, the store's title) while it's starting on its blank
+    /// page, shown or parked; nil for any other page (then the page's own title). aidemo5: on the shown path the row
+    /// drew the live page's title, "about:blank", for ~0.8 s after ⌘T Ask → Return.
+    func startingName(_ page: EngineTab?) -> String? {
+        #if AIRC_TESTING
+        if ProcessInfo.processInfo.environment["AIRC_STARTNAME_OFF"] == "1" { return nil }   // A/B of this fix only
+        #endif
+        guard let page, !hosted.isEmpty, let e = entry(page), e.starting, Self.isBlank(page) || !Self.hasRealTitle(page) else { return nil }
+        if e.taskTitle == nil, let c = e.controller, let w = e.window { e.taskTitle = taskTitle(w, in: c) }
+        guard let t = e.taskTitle, !t.isEmpty else { return nil }
+        return t
+    }
+
+    /// A title the page set itself: not empty, not "about:blank", not its own address (what an engine shows before the
+    /// page's <title> arrives).
+    private static func hasRealTitle(_ page: EngineTab) -> Bool {
+        let t = page.title.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty, t != "about:blank" else { return false }
+        guard let u = page.url else { return true }
+        let full = u.absoluteString
+        let bare = full.replacingOccurrences(of: "\(u.scheme ?? "")://", with: "")
+        return t != full && t != bare && t != u.host
+    }
+
     /// Ends the starting state once the first page has loaded (its own pixels replace the cover), or after 20 s.
     private func followStart(_ e: Hosted, since: Date = Date()) {
         guard e.starting, let page = e.page, !page.isClosed else { return }
@@ -600,7 +669,12 @@ final class AgentMainView {
         }
         e.starting = false
         onEvent?("started \(e.tabID)")
-        if let c = e.controller { refresh(c) }
+        if let c = e.controller {
+            // The row leaves the task's name for the page's own title now (startingName is nil from here).
+            if Self.hasRealTitle(page) { c.store.updateTab(e.tabID, title: page.title) }
+            c.refreshRow(e.tabID)
+            refresh(c)
+        }
     }
 
     /// A parked page's title or address changed: the person's row follows.

@@ -120,12 +120,17 @@ extension AgentParallelCheck {
                                         var counts: [Int] = []
                                         func next(_ i: Int) {
                                             guard i < order.count else {
-                                                // s1's second click lands while its page is parked after several Space switches: it's lost on
-                                                // origin/main too (agentpanescope's report, Left). AIRC_SPACES_STRICT=1 asserts it (the repro).
-                                                let strict = ProcessInfo.processInfo.environment["AIRC_SPACES_STRICT"] == "1"
+                                                // agentparkclick: s1's second click lands while its page is parked after several Space switches
+                                                // (it parked at Space B's laid-out size and came back at A's, so the click was refused as a
+                                                // stale look). Asserted by default; AIRC_SPACES_STRICT=0 only notes it.
+                                                let strict = ProcessInfo.processInfo.environment["AIRC_SPACES_STRICT"] != "0"
                                                 let ok = zip(order, counts).allSatisfy { name, n in name == "s1" && !strict ? n >= 1 : n == 2 }
-                                                check(ok, "spaces: each page counted its own task's clicks (\(zip(order, counts).map { "\($0) \($1)" })\(strict ? "" : "; s1's second click: the known parked-page loss, not asserted"))")
-                                                if !strict, let n = counts.first { note("agentparallel \(engine): spaces: s1 counted \(n) of 2 (known: a page parked across Space switches misses a later agent click)") }
+                                                check(ok, "spaces: each page counted its own task's clicks (\(zip(order, counts).map { "\($0) \($1)" })\(strict ? "" : "; s1's second click not asserted (AIRC_SPACES_STRICT=0)"))")
+                                                // No click of any task was refused for a page change the person never made (no scroll, no resize).
+                                                let refused = runs.sorted(by: { $0.key < $1.key }).flatMap { name, r in
+                                                    r.steps.filter { $0.detail?.contains("The page moved since your last look") == true }.map { _ in name }
+                                                }
+                                                check(refused.isEmpty, "spaces: no agent click was refused as a stale look after the Space switches (\(refused.isEmpty ? "none" : refused.joined(separator: ", ")))")
                                                 if !ok || ProcessInfo.processInfo.environment["AIRC_SPACES_DIAG"] == "1" { spaceDiagnostics(t0, runs) }
                                                 main.onEvent = mainBefore
                                                 return finishSpaces(a, pane, aSpace, bSpace, runs, shown: shown, done)

@@ -868,7 +868,10 @@ final class TabRowView: SidebarRowView {
             }
         } else if let tab {
             drifted = false
-            text = tidied ?? (engineTab?.title.isEmpty == false ? engineTab!.title : tab.displayTitle)
+            // agentparkclick: an agent task's new tab says the task's name until its first page, also while it's shown
+            // (the live page's own title is "about:blank" then).
+            text = tidied ?? AgentMainView.shared.startingName(engineTab)
+                ?? (engineTab?.title.isEmpty == false ? engineTab!.title : tab.displayTitle)
             setTitle(NSAttributedString(string: text, attributes: [.foregroundColor: titleColor, .font: AircFont.row.appFont]))
         }
         showTidyOriginal(tidied != nil, entry: entry, engineTab: engineTab)

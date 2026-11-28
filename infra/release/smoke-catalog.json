@@ -977,8 +977,8 @@
     "AIRC_AGENTMAIN_ONLY=blankask"
    ],
    "engines": {
-    "chromium": 6,
-    "webkit": 6
+    "chromium": 7,
+    "webkit": 7
    },
    "seconds": {
     "chromium": 15,
@@ -2345,11 +2345,11 @@
    "mode": "real",
    "tag": "-spaces",
    "env": [
-    "AIRC_AGENTPARALLEL_ONLY=spaces,panefocus"
+    "AIRC_AGENTPARALLEL_ONLY=spaces,panefocus,askswitch"
    ],
    "engines": {
-    "chromium": 44,
-    "webkit": 44
+    "chromium": 53,
+    "webkit": 53
    },
    "limit": 600,
    "seconds": {
@@ -2358,8 +2358,10 @@
    },
    "paths": [
     "S/Agent/Pane/AgentPane*.swift",
-    "S/Agent/AgentTaskCenter.swift"
-   ]
+    "S/Agent/AgentTaskCenter.swift",
+    "S/Agent/AgentMainView.swift"
+   ],
+   "note": "agentparkclick: spaces asserts s1's parked-page clicks (strict by default) and no stale-look refusal; askswitch (7) the asked Space."
   },
   {
    "id": "capture-bg",

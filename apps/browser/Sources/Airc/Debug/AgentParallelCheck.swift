@@ -37,6 +37,8 @@ extension SnapshotRunner {
         // agentpanescope (AgentPaneSpaces.swift): the pane per window and Space, the field keeping the keys.
         if AgentParallelCheck.only?.contains("spaces") == true { step { done in m.caseSpaces(done) } }
         if AgentParallelCheck.only?.contains("panefocus") == true { step { done in m.caseFocus(done) } }
+        // agentparkclick (AgentParkClick.swift): asked, then a Space switch before the page exists.
+        if AgentParallelCheck.only?.contains("askswitch") == true { step { done in m.caseAskSwitch(done) } }
         run { m.finish() }
     }
 }

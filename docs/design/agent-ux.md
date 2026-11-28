@@ -179,7 +179,15 @@ windows and Watch, unchanged.
 - **Switching away:** the page parks in the run's agent window (off screen, kept visible as Watch's pages are, at the same
   size), so the agent keeps going and the pane's live card shows it; the Today row follows its title. Picking the row,
   the card, Take over or "needs you" moves the same page back (no reload). Several agent tabs: each is a Today tab; only
-  the selected one is in the main view.
+  the selected one is in the main view. A Space switch parks it at its own Space's size (agentparkclick): the new
+  Space's layout (its pane open or closed) resizes the page before the switch hides it, and a park at that size made
+  the page come back at another size than the agent's last look, so its next click was refused as a stale look.
+- **The asked Space:** a task's page goes to the Space it was asked in. When the window has left that Space before
+  the agent window opens (asked, then ⌥⌘→ at once), the page is a parked row there and the window stays where it is;
+  tabs the agent opens later go next to its page, in that page's Space (agentparallel `askswitch`).
+- **The new tab's name:** until the first page has a title of its own, the row says the task's name, shown or parked
+  (the row prefers a shown page's live title, which is "about:blank" in Chromium then; agentmain `blankask` reads the
+  drawn row).
 - **Idle rest (agentparkcpu):** a page in an agent window (parked, or an outside app's) that no tool call, agent input,
   Watch or card copy has needed for 5 s goes back to the engine's own behaviour for a window off screen: no frames, no
   rAF (WebKit: occlusion detection on again; Chromium: focus emulation off; then the window's occlusion is re-read).

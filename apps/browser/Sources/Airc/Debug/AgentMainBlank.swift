@@ -51,6 +51,8 @@ extension AgentMainCheck {
     /// agentpanescope (shotask2's finding): ⌘T → "Ask Airc to…" → Return with Codex (the fake `codex`, its first turn
     /// held 2.5 s as a real one's start is): the new task's Today row has the task's name from the first frame it exists
     /// (sampled every ~16 ms), never "about:blank" or an address, until the page's own title arrives.
+    /// agentparkclick (aidemo5: the store was right, the drawn row read "about:blank" ~0.8 s on the shown path): also the
+    /// row's drawn label, and ⌘T and the typing are real keys in a dedicated session.
     func caseBlankAsk(_ done: @escaping () -> Void) {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("airc-blankask-\(getpid())", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -79,6 +81,10 @@ extension AgentMainCheck {
             c.window.makeKeyAndOrderFront(nil)
             let before = Set(c.store.state.tabs.keys)
             var rows: [String] = [], firstRow: String?, sampling = true, tabID: String?
+            var drawn: [String] = [], firstDrawn: String?, input = "posted"
+            func label(_ id: String) -> String? {
+                c.pageView(for: c.currentSpaceID)?.rows.values.lazy.compactMap { $0 as? TabRowView }.first { $0.tabID == id }?.spokenTitle
+            }
             func tick() {
                 guard sampling else { return }
                 if tabID == nil { tabID = c.store.state.tabs.values.first { !before.contains($0.id) && $0.isToday }?.id }
@@ -86,13 +92,33 @@ extension AgentMainCheck {
                     // What the row shows (an empty title shows the address).
                     if firstRow == nil { firstRow = t.displayTitle }
                     if rows.last != t.displayTitle { rows.append(t.displayTitle) }
+                    // What the row draws (the live page's title wins over the store's for a shown page).
+                    if let l = label(id) {
+                        if firstDrawn == nil { firstDrawn = l }
+                        if drawn.last != l { drawn.append(l) }
+                    }
                 }
                 after(0.016, tick)
             }
-            c.openCommandBar(mode: .newTab)
-            after(0.3) { [self] in
-                c.commandBar?.type(task)
-                after(0.6) { [self] in
+            func openBar(_ then: @escaping () -> Void) {
+                guard k.real, c.window.isKeyWindow, NSApp.isActive else { c.openCommandBar(mode: .newTab); return after(0.3, then) }
+                k.key("cmd+t") { [self] ok in
+                    after(0.4) { [self] in
+                        if !ok || c.commandBar == nil { c.openCommandBar(mode: .newTab) } else { input = "real ⌘T" }
+                        then()
+                    }
+                }
+            }
+            func typeTask(_ then: @escaping () -> Void) {
+                guard input != "posted", let keys = UIDriverClient.keys(typing: task) else { c.commandBar?.type(task); return after(0.6, then) }
+                UIDriverClient.press(keys, pid: getpid()) { [self] ok, _ in
+                    DispatchQueue.main.async { [self] in
+                        if ok { input += " + typing" } else { c.commandBar?.type(task) }
+                        after(0.6, then)
+                    }
+                }
+            }
+            openBar { typeTask { [self] in
                     let results = c.commandBar?.results ?? []
                     guard let i = results.firstIndex(where: { $0.title == CommandBarView.agentRowTitle }) else {
                         check(false, "blankask: ⌘T offers “Ask Airc to…” (\(results.map(\.title).joined(separator: " | ")))")
@@ -110,6 +136,9 @@ extension AgentMainCheck {
                                         check(run.cliKind == .codex, "blankask: the task runs on Codex (\(run.cliKind?.rawValue ?? "no CLI")) [\(k.real ? "real keys" : "posted keys")]")
                                         check(firstRow == title, "blankask: ⌘T Ask → Codex: the new Today row has the task's name from its first frame (“\(firstRow ?? "no row")”)")
                                         check(blankish.isEmpty && rows.first == title, "blankask: … never about:blank or an address before the page's title (rows: “\(rows.joined(separator: "” → “"))”)")
+                                        let drawnBlank = drawn.filter { $0.isEmpty || $0.hasPrefix("about:") || $0.hasPrefix("http") || $0.contains("127.0.0.1") }
+                                        check(firstDrawn == title && drawnBlank.isEmpty && !drawn.isEmpty,
+                                              "blankask: … and the row the person sees draws the task's name from its first frame, never about:blank or an address (drawn: “\(drawn.joined(separator: "” → “"))”) [\(input)]")
                                         let t = entry.flatMap { c.store.tab($0.tabID)?.title } ?? ""
                                         check(t.hasPrefix("Tally") || t.hasPrefix("Counted"), "blankask: … then the page's own title (“\(t)”)")
                                         k.untilIdle(15) { restore(); done() }
@@ -121,8 +150,7 @@ extension AgentMainCheck {
                         k.barKey("down", next)
                     }
                     next()
-                }
-            }
+                } }
         }
     }
 }

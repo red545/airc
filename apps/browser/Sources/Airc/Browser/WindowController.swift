@@ -1799,6 +1799,9 @@ final class WindowController: NSObject, NSWindowDelegate {
     }
 
     private func applySpace(_ spaceID: String, refreshesChrome: Bool = true) {
+        // agentparkclick: a task page shown here keeps its own Space's size when it parks (the new Space's pane state
+        // lays the window out below, before the show that hides it).
+        if spaceID != currentSpaceID { AgentMainView.shared.spaceWillSwitch(in: self) }
         currentSpaceID = spaceID
         MainActor.assumeIsolated { BlockingNotices.profileChanged(in: self) }
         store.selectSpace(spaceID, deferred: true)
@@ -2016,7 +2019,9 @@ extension WindowController: EngineTabDelegate {
         guard let id = tabID(for: page) else { return }
         recordHistory(id, page)
         if persist {
-            store.updateTab(id, url: page.url?.absoluteString, title: page.title.isEmpty ? nil : page.title,
+            // agentparkclick: an agent task's new tab keeps the task's name until its first page (not "about:blank").
+            let name = AgentMainView.shared.startingName(page)
+            store.updateTab(id, url: page.url?.absoluteString, title: name ?? (page.title.isEmpty ? nil : page.title),
                             faviconURL: page.faviconURL?.absoluteString)
         }
         refreshRow(id)
