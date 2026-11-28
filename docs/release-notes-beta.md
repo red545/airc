@@ -1,16 +1,26 @@
-# Airc 0.1.65 public beta
+# Airc 0.1.66 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update lets Airc Agent tasks in the background rest when nothing needs them, so they barely use any power, and
-makes finished tasks' cards show their page. It includes everything from 0.1.64. The release manifest records the
-exact build, source and checksums.
+This update adds Inspect Element to every page's right-click menu with the Safari engine, and opens links from other
+apps sooner with Chromium. It includes everything from 0.1.65. The release manifest records the exact build, source
+and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.64
+## New since 0.1.65
+
+- **Inspect Element on every page with the Safari engine.** With the Safari engine (WebKit), right-click (or
+  Control-click) any page and choose Inspect Element to open Web Inspector at that element. Before, the menu only had
+  it after you had pressed ⌥⌘I on that page. Web Inspector opens attached to the window, stays with its tab when you
+  switch tabs, and ⌥⌘I closes it. Each profile remembers where you keep it; private windows remember nothing.
+- **Links from other apps open sooner with Chromium.** When you click a link in another app while Airc is closed, the
+  page now shows sooner with the Chromium engine: Airc sets up less before its first window, and gets the rest ready
+  while the page loads. Ad blocking is still ready before the page asks for anything.
+
+## Included from 0.1.65
 
 - **Background agent tasks barely use any power now.** When an Airc Agent task works in a tab you're not looking at
   (or one you started with ⌥↩), its page now rests whenever the agent hasn't needed it for 5 seconds, and wakes the
@@ -947,3 +957,5 @@ Source: `53d0867e341dcf3eb6e0d4b5f32d7063f02a5cfd`. Build: `202611261832`. Chann
 Source: `1c1488b03c738328b3d6ef429c13d017eba42461`. Build: `202611270639`. Channel: stable. Engine: official.
 
 Source: `1345a27f4fbf0b14eb6181f394716cf503ee1b66`. Build: `202611271438`. Channel: stable. Engine: official.
+
+Source: `1432c7e839263ba8cdc5992b5fba92ef85938e12`. Build: `202611280036`. Channel: stable. Engine: official.

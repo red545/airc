@@ -2,6 +2,23 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.66",
+      "highlights": [
+        {
+          "title": "Inspect Element",
+          "lead": "Inspect Element on every page with the Safari engine",
+          "detail": "With the Safari engine, right-click any page and choose Inspect Element: Web Inspector opens in the window at that element and stays with its tab when you switch.",
+          "icon": "hammer"
+        },
+        {
+          "title": "Links open sooner",
+          "lead": "Links from other apps open sooner with Chromium",
+          "detail": "With the Chromium engine, a link you click in another app while Airc is closed now shows its page sooner.",
+          "icon": "link"
+        }
+      ]
+    },
+    {
       "version": "0.1.65",
       "highlights": [
         {

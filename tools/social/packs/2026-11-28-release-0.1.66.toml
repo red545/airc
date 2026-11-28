@@ -1,0 +1,26 @@
+# Airc 0.1.66 (release078; notes on main e9361370). LIVE 2026-11-28 01:25Z, public release v0.1.66. Claims from its
+# approved notes.
+slug = "2026-11-28-release-0.1.66"
+title = "Airc 0.1.66: Inspect Element on every page with the Safari engine"
+kind = "release"
+since = "0.1.66"
+tag = ""
+summary = """
+One short text post: Inspect Element on every page with the Safari engine (from a user's request).
+"""
+order = """
+1. The next free 10:30 UTC.
+"""
+checked = """
+- Notes: with the Safari engine, right-click (or Control-click) any page → Inspect Element opens Web Inspector at that
+  element (before, only after ⌥⌘I on that page); attached to the window, stays with its tab, ⌥⌘I closes it; each
+  profile remembers where you keep it; private windows remember nothing. release078: it came from a user's request.
+- Don't claim (release078): Chromium DevTools docking at the bottom by default; a WebKit link-speed change. The
+  Chromium link-speed line isn't posted (small).
+"""
+
+[[post]]
+label = "Inspect Element with the Safari engine"
+text = """
+You asked, it's in: with Airc's Safari engine, right-click any page and choose Inspect Element, and Web Inspector opens right at that element, attached to the window. It stays with its tab, and ⌥⌘I closes it. New in Airc 0.1.66.
+"""

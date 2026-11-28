@@ -838,5 +838,17 @@
     "detail": "With the Chromium engine, a link you click in another app while Airc starts now shows its page a little sooner.",
     "action": "none",
     "image": null
+  },
+  "Inspect Element on every page with the Safari engine": {
+    "title": "Inspect Element",
+    "detail": "With the Safari engine, right-click any page and choose Inspect Element: Web Inspector opens in the window at that element and stays with its tab when you switch.",
+    "action": "none",
+    "image": null
+  },
+  "Links from other apps open sooner with Chromium": {
+    "title": "Links open sooner",
+    "detail": "With the Chromium engine, a link you click in another app while Airc is closed now shows its page sooner.",
+    "action": "none",
+    "image": null
   }
 }
