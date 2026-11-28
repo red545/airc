@@ -1,0 +1,27 @@
+# Airc 0.1.67 (release079). LIVE on stable 2026-11-28 07:46Z (feeds). Claims from its approved notes. Plan only once
+# the public repo shows v0.1.67 (owner rule). At that point also: swap aidemo6's X cut into 2026-11-23-agent-demo
+# (its Today row shows the task's name from the start, as 0.1.67 does).
+slug = "2026-11-28-release-0.1.67"
+title = "Airc 0.1.67: the Agent pane follows your Spaces"
+kind = "release"
+since = "0.1.67"
+tag = ""
+summary = """
+One short text post: each Space in a window has its own Agent pane (task and draft); tasks keep running across Spaces.
+"""
+order = """
+1. The next free 10:30 UTC after the public tag.
+"""
+checked = """
+- Notes: each Space in a window has its own Agent pane, keeping the task you last had open there and what you were
+  typing; a Space without one shows a new, empty task; tasks keep running in another Space; a new window starts empty.
+  Agent clicks keep working across Space switches; a task asked for just before a switch opens in the Space you asked
+  it in. Typing goes into the pane when it opens. New tasks' tabs show their name from the start.
+- Don't claim (release079): the empty-card frame fix (agentblankframes), not in 0.1.67.
+"""
+
+[[post]]
+label = "The Agent pane follows your Spaces"
+text = """
+Airc's Agent pane now follows your Spaces: each Space keeps its own task and whatever you were typing. Switch Spaces and the pane switches with you, while every task keeps running. Beta, new in Airc 0.1.67.
+"""

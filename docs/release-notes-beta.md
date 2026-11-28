@@ -1,16 +1,31 @@
-# Airc 0.1.66 public beta
+# Airc 0.1.67 public beta
 
 Airc is an Arc-style browser with a native macOS interface on Chromium 156.0.8078.109.
-This update adds Inspect Element to every page's right-click menu with the Safari engine, and opens links from other
-apps sooner with Chromium. It includes everything from 0.1.65. The release manifest records the exact build, source
-and checksums.
+This update makes the Agent pane follow your Spaces, keeps the agent's clicks working after you switch Spaces, and
+names new agent tasks right away. It includes everything from 0.1.66. The release manifest records the exact build,
+source and checksums.
 
 - **Mac:** Apple silicon only, macOS 14 or later. Tested on macOS 26.
 - **Installing:** open the signed, notarized DMG and drag Airc to Applications.
 - **Updates:** Stable checks automatically. Choose Nightly in Settings → General to try newer builds.
   Switching back never downgrades your data.
 
-## New since 0.1.65
+## New since 0.1.66
+
+- **The Agent pane follows your Spaces.** Each Space in a window now has its own Agent pane. It keeps the task you
+  last had open there and anything you were typing in its field. Switch Spaces and the pane shows that Space's task;
+  a Space without one shows a new, empty task. Tasks keep running while you are in another Space, and a new window
+  starts with an empty pane.
+- **Agent clicks keep working after you switch Spaces.** When the Airc Agent was working on a page and you switched
+  to another Space and back, its next click could be refused with "the page moved since your last look". Its clicks
+  now keep working across Space switches. A task you ask for just before you switch Spaces now opens in the Space you
+  asked it in.
+- **Typing goes into the Agent pane when it opens.** When the Agent pane opens, what you type goes into its message
+  field, even if the page next to it tries to take the keyboard.
+- **New agent tasks show their name right away.** A new task's tab in Today, including one you start with Ask in ⌘T,
+  shows the task's name from the start instead of "about:blank", until its first page has a title.
+
+## Included from 0.1.66
 
 - **Inspect Element on every page with the Safari engine.** With the Safari engine (WebKit), right-click (or
   Control-click) any page and choose Inspect Element to open Web Inspector at that element. Before, the menu only had
@@ -959,3 +974,5 @@ Source: `1c1488b03c738328b3d6ef429c13d017eba42461`. Build: `202611270639`. Chann
 Source: `1345a27f4fbf0b14eb6181f394716cf503ee1b66`. Build: `202611271438`. Channel: stable. Engine: official.
 
 Source: `1432c7e839263ba8cdc5992b5fba92ef85938e12`. Build: `202611280036`. Channel: stable. Engine: official.
+
+Source: `d029dfcd70bcf5d8f0a93237d4d73fad5b934ad3`. Build: `202611280700`. Channel: stable. Engine: official.

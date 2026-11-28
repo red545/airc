@@ -850,5 +850,29 @@
     "detail": "With the Chromium engine, a link you click in another app while Airc is closed now shows its page sooner.",
     "action": "none",
     "image": null
+  },
+  "The Agent pane follows your Spaces": {
+    "title": "Agent pane per Space",
+    "detail": "Each Space in a window keeps its own Agent pane: the task you had open there and what you were typing. Switch Spaces and the pane switches with you.",
+    "action": "none",
+    "image": null
+  },
+  "Agent clicks keep working after you switch Spaces": {
+    "title": "Agents across Spaces",
+    "detail": "The Airc Agent's clicks keep working after you switch Spaces, and a task you ask for just before switching opens in the Space you asked it in.",
+    "action": "none",
+    "image": null
+  },
+  "Typing goes into the Agent pane when it opens": {
+    "title": "Typing in the Agent pane",
+    "detail": "When the Agent pane opens, what you type goes into its message field, even if the page next to it tries to take the keyboard.",
+    "action": "none",
+    "image": null
+  },
+  "New agent tasks show their name right away": {
+    "title": "Task names right away",
+    "detail": "A new agent task's tab in Today, also one you start with Ask in ⌘T, shows the task's name from the start instead of \"about:blank\".",
+    "action": "none",
+    "image": null
   }
 }
