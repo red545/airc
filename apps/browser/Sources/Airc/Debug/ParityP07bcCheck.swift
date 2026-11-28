@@ -166,7 +166,9 @@ extension SnapshotRunner {
             settings.values.siteSearch.setDefault(siteIDs["Loop Find"], for: profile().id)
             AskAIRoute.testTemplates = [.chatGPT: base() + "/chat?q=%s"]
             var o = InstantLinksResolver.Options()
-            o.fetchTimeout = 2.5
+            // The product's own 8 s for the results page: a hidden Chromium page load took over 2.5 s at load ~70 (0.1.63
+            // and 0.1.66 tails: .timeout fell back to a normal search). The too-slow cases below set 2.5 s themselves.
+            o.fetchTimeout = 8
             o.modelTimeout = 2
             InstantLinksFeature.testOptions = o
             InstantLinksFeature.testModel = model
@@ -316,12 +318,12 @@ extension SnapshotRunner {
             check(bar?.instantStateLabel == "finding" && bar?.results.first?.title == "Finding the best result…",
                   "\(tag): ⇧↵ shows Finding the best result… (\(bar?.instantStateLabel ?? "-"))")
         }
-        waitFor(8) { bar?.instantStateLabel == "preview" }
+        waitFor(12) { bar?.instantStateLabel == "preview" }
         run { [self] in
             let plan = bar?.instantPreview
             let urls = plan?.links.map(\.url.absoluteString) ?? []
             check(urls == [base() + "/r/tram28"] && plan?.picker == .firstResults && model.asked.isEmpty,
-                  "\(tag): the first organic result, ads, scripts, data and files left out, no model asked (\(urls))")
+                  "\(tag): the first organic result, ads, scripts, data and files left out, no model asked (\(urls); state \(bar?.instantStateLabel ?? "no bar"); outcome \(InstantLinksFeature.lastOutcome.map { "\($0)" } ?? "none"))")
             check(plan?.searchURL.absoluteString == base() + "/find?q=tram+guides" && requested("/find"),
                   "\(tag): looked up with the profile's default search (\(plan?.searchURL.absoluteString ?? "-"))")
             check(bar?.results.first?.title == "Tram 28 guide" && bar?.results.last?.subtitle == "Search Loop Find instead",
@@ -338,7 +340,7 @@ extension SnapshotRunner {
         typeText("top 3 tram guides")
         run { [self] in check(bar?.results.contains { $0.title == "Open the Top 3 Results" } == true, "\(tag): \"top 3\": Open the Top 3 Results") }
         shiftReturn()
-        waitFor(8) { bar?.instantStateLabel == "preview" }
+        waitFor(12) { bar?.instantStateLabel == "preview" }
         run { [self] in
             let urls = bar?.instantPreview?.links.map(\.url.absoluteString) ?? []
             check(urls == ["28", "15", "12"].map { base() + "/r/tram" + $0 } && bar?.results.first?.title == "Open 3 Results",
@@ -356,7 +358,7 @@ extension SnapshotRunner {
         openBar()
         typeText("top 9 tram guides")
         shiftReturn()
-        waitFor(8) { bar?.instantStateLabel == "preview" }
+        waitFor(12) { bar?.instantStateLabel == "preview" }
         run { [self] in
             check(bar?.instantPreview?.links.count == InstantLinks.maxLinks && bar?.instantPreview?.requested == InstantLinks.maxLinks,
                   "\(tag): \"top 9\" stops at \(InstantLinks.maxLinks) (\(bar?.instantPreview?.links.count ?? 0))")
@@ -373,7 +375,7 @@ extension SnapshotRunner {
         openBar()
         typeText("tram guide plain")
         shiftReturn()
-        waitFor(8) { bar?.instantStateLabel == "preview" || self.c.commandBar == nil }
+        waitFor(12) { bar?.instantStateLabel == "preview" || self.c.commandBar == nil }
         run { [self] in
             let plan = bar?.instantPreview
             check(plan?.picker == .model && plan?.links.map(\.url.absoluteString) == [base() + "/r/tram15"],
@@ -388,7 +390,7 @@ extension SnapshotRunner {
         typeText("tram guide plain")
         run { [self] in lock.withLock { requests.removeAll() } }
         shiftReturn()
-        waitFor(8) { self.c.commandBar == nil }
+        waitFor(12) { self.c.commandBar == nil }
         waitFor(8) { shownURL().contains("/plain?q=") }
         run { [self] in
             check(InstantLinksFeature.lastOutcome == .search(URL(string: base() + "/plain?q=tram+guide+plain"), .declined)
@@ -397,7 +399,12 @@ extension SnapshotRunner {
             model.declines = false
         }
 
-        // Too slow, then cancelled.
+        // Too slow, then cancelled: a 2.5 s fetch limit against the 6 s page, so the timeout is what's tested.
+        run {
+            var o = InstantLinksFeature.testOptions ?? InstantLinksResolver.Options()
+            o.fetchTimeout = 2.5
+            InstantLinksFeature.testOptions = o
+        }
         setDefault("Loop Slow")
         openBar()
         typeText("slow trams")

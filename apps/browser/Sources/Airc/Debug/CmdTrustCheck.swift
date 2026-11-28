@@ -162,9 +162,18 @@ extension SnapshotRunner {
         }
         // The news site: only the engine's favicon database has its icon.
         type("derstandard")
+        // The icon lands off the main thread; wait for it (up to 5 s more) instead of reading at a fixed 1.2 s, and say
+        // how long it took (0.1.66 tail: WebKit read the tile at 1.2 s once in ~16 runs, at load ~12).
+        let newsRow = { [self] () -> CommandRowView? in
+            bar().flatMap { b in zip(b.results, b.rowViewsForTesting).first { $0.0.page?.contains("derstandard.at") == true }?.1 }
+        }
+        var iconWait = Date()
+        run { iconWait = Date() }
+        step { [self] done in waitUntil({ newsRow()?.iconStateForTesting == "image" }, timeout: 5) { done() } }
         run { [self] in
             let b = bar()
-            let v = b.flatMap { b in zip(b.results, b.rowViewsForTesting).first { $0.0.page?.contains("derstandard.at") == true }?.1 }
+            let v = newsRow()
+            note("cmdtrust (\(tag)): derstandard.at's icon state \(v?.iconStateForTesting ?? "no row") 1.2 s + \(String(format: "%.2f", Date().timeIntervalSince(iconWait))) s after typing")
             say(v?.iconStateForTesting == "image", "a site only the engine's database knows shows its icon (\(describe(b)))")
             say(SiteIcons.shared.databaseReads >= 1, "the database was read off the main thread (\(SiteIcons.shared.databaseReads) batch(es))")
         }
