@@ -53,7 +53,7 @@ final class AgentPaneTimeline: ObservableObject {
 
     private func stateChanged(_ s: AgentRunCenter.State) {
         defer { lastState = s }
-        guard lastState.isActive, !s.isActive, let prompt = run?.steps.last(where: { $0.kind == .user }) else { return }
+        guard lastState.isActive, !s.isActive, let prompt = run?.steps.last(where: { $0.kind == .user && !$0.midRun }) else { return }
         ends[prompt.id] = Date()
         revision += 1
     }
@@ -119,11 +119,12 @@ enum AgentPaneItem: Identifiable, Equatable {
         var items: [AgentPaneItem] = []
         var runs: [[AgentStep]] = []
         for s in steps {
-            if s.kind == .user || runs.isEmpty { runs.append([s]) } else { runs[runs.count - 1].append(s) }
+            // agentflow: a note sent while it worked stays in its run (only a prompt starts one).
+            if s.kind == .user && !s.midRun || runs.isEmpty { runs.append([s]) } else { runs[runs.count - 1].append(s) }
         }
         for (n, run) in runs.enumerated() {
             let live = active && n == runs.count - 1
-            let prompt = run.first(where: { $0.kind == .user })
+            let prompt = run.first(where: { $0.kind == .user && !$0.midRun })
             let actions = run.filter { $0.kind == .action }
             var folded = false
             var group: [StepRow] = []
@@ -480,7 +481,7 @@ final class AgentPaneModel: ObservableObject {
     }
 
     var title: String {
-        guard let first = run.steps.first(where: { $0.kind == .user })?.text else { return connected ? "New task" : "Airc Agent" }
+        guard let first = run.steps.first(where: { $0.kind == .user && !$0.midRun })?.text else { return connected ? "New task" : "Airc Agent" }
         return AgentTaskTitle.make(first)
     }
 
@@ -510,7 +511,7 @@ final class AgentPaneModel: ObservableObject {
         }
     }
 
-    private var lastUserText: String? { run.steps.last(where: { $0.kind == .user })?.text }
+    private var lastUserText: String? { run.steps.last(where: { $0.kind == .user && !$0.midRun })?.text }
 
     var items: [AgentPaneItem] {
         var items = AgentPaneItem.make(run.steps, active: run.state.isActive, timeline: timeline)
@@ -583,9 +584,40 @@ final class AgentPaneModel: ObservableObject {
             text = ""
             return after { self.ask("Not like that: " + typed) }
         }
+        // agentflow (design §3): while it works, ↩ sends at the next step: a pending bubble until the agent gets it.
+        if run.isBusy {
+            run.queueNote(typed)
+            text = ""
+            return
+        }
         guard run.canSend else { return }
         text = ""
         ask(typed)
+    }
+
+    /// ⌘↩: while it works, stop the current step at once and send the field now (anything still pending goes first).
+    func sendNow() {
+        let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard run.isBusy, run.approval == nil, connected else { return send() }
+        guard !typed.isEmpty else { return }
+        text = ""
+        run.stop()
+        after { self.ask(typed) }
+    }
+
+    /// A pending bubble's ✎ (or a click on it): its text back in the field, out of the queue.
+    func editNote(_ id: UUID) {
+        guard let t = run.takeNote(id) else { return }
+        text = text.isEmpty ? t : t + "\n" + text
+        pane?.focus()
+    }
+
+    func removeNote(_ id: UUID) { run.removeNote(id) }
+
+    /// Under the field while a message would wait for the next step.
+    var sendHint: String? {
+        guard run.isBusy, run.approval == nil, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return "↩ sends at the next step · ⌘↩ now"
     }
 
     /// The Command Bar's task: sent now if the agent is free and connected, else left in the field.

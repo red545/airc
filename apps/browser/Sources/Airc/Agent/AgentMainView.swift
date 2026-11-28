@@ -142,7 +142,7 @@ final class AgentMainView {
         follow()
         starts[run.taskID] = Start(controller: c, tabID: tabID, background: background, spaceID: c.currentSpaceID)
         if !background { latestAsk[ObjectIdentifier(c)] = run.taskID }
-        released[run.taskID] = nil
+        // agentflow: a stopped task's tab is kept (`released`): its follow-up goes on there (windowOpened).
         takenOvers[run.taskID] = nil
     }
 
@@ -170,9 +170,13 @@ final class AgentMainView {
     func windowOpened(_ w: AgentWindow) {
         let task = w.taskID ?? ""
         var start = starts.removeValue(forKey: task)
-        // Continue after a stop: the same tab, which the person still has.
-        if start == nil, let r = released[task], let c = r.controller.c, c.engineTab(for: r.tabID) != nil {
-            start = Start(controller: c, tabID: r.tabID)
+        // Continue after a stop: the same tab, which the person still has. agentflow: a follow-up after a stop too, asked
+        // in that tab's window and Space (the pane, a task view, ⌘T): it goes on in that tab, no new Today row.
+        if start?.tabID == nil, start?.background != true, let r = released[task], let c = r.controller.c,
+           start == nil || (start?.controller === c && c.store.tab(r.tabID)?.spaceID == c.currentSpaceID),
+           c.engineTab(for: r.tabID) != nil {
+            start = Start(controller: c, tabID: r.tabID, spaceID: start?.spaceID)
+            onEvent?("reuse \(r.tabID)")
         }
         released[task] = nil
         follow()
@@ -614,7 +618,7 @@ final class AgentMainView {
         if r == nil, let last = latestAsk[ObjectIdentifier(c)].flatMap({ tasks.run(task: $0) }), last.runWindowID == nil || last.runWindowID == w.id {
             r = last
         }
-        return r?.steps.first { $0.kind == .user }.map { AgentTaskTitle.make($0.text) }
+        return r?.steps.first { $0.kind == .user && !$0.midRun }.map { AgentTaskTitle.make($0.text) }
     }
 
     /// While the page is blank, its row says the task's name (the person's window writes the page's address there).
@@ -776,4 +780,18 @@ final class AgentMainView {
     func chromeView(_ c: WindowController) -> AgentMainChromeView? { chromes[ObjectIdentifier(c)] }
     func modeShown(_ c: WindowController) -> AgentMainChromeView.Mode { mode(c) }
     #endif
+}
+
+// MARK: - The task's own tab (agentflow)
+
+extension AgentMainView {
+    /// The tab of `c` that is this task's page now: its hosted page, the page the person took over, or the tab a stopped
+    /// run left. Opening the task (a Recent card, Show all, ⌘T) shows that tab instead of making another row for it.
+    func taskTab(_ run: AgentRunCenter, in c: WindowController) -> String? {
+        if let e = entry(for: run), e.controller === c, c.store.tab(e.tabID) != nil { return e.tabID }
+        for r in [takenOvers[run.taskID], released[run.taskID]].compactMap({ $0 }) where r.controller.c === c {
+            if c.store.tab(r.tabID) != nil, c.engineTab(for: r.tabID) != nil { return r.tabID }
+        }
+        return nil
+    }
 }

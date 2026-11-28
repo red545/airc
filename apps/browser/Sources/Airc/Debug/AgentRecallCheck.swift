@@ -122,7 +122,7 @@ final class AgentRecallCheck {
         CommandBarView.startAgentTask(recallPrompt, attached: [], in: c)
         wait({ !self.run.state.isActive && self.k.fake.requests(for: "recall") >= 3 }, 45) { [self] in
             // agentmainview: an Ask start shows the task's page in the main view; its task view opens from the folder.
-            if let id = recorder.currentID { AgentTasksPage.openTask(id, in: c) }
+            if let id = recorder.currentID { AgentTasksPage.openTask(id, in: c, view: true) }
             wait({ AgentTasksURL.taskID(self.c.store.tab(self.c.shownTabID)?.url) != nil }, 6) { [self] in
             check(run.state == .done, "the task runs to the end (\(run.state))")
             let id = recorder.currentID
@@ -263,7 +263,7 @@ final class AgentRecallCheck {
         let keys = Set(thumbs.store.keys(task: r.id))
         check(keys.contains(AgentTaskPictureStore.card) && keys.count >= 2, "its pictures are on disk (\(keys.count))")
         check(recorder.tasks.contains { $0.title == AgentTaskTitle.make(tabsPrompt) } == false, "the deleted task stays deleted")
-        AgentTasksPage.openTask(r.id, in: c)
+        AgentTasksPage.openTask(r.id, in: c, view: true)
         _ = thumbs.task(r.id)   // what a Recent tasks card asks for
         wait({ self.inTask("agenttask.result.picture") && self.thumbs.inMemory(task: r.id) }, 8) { [self] in after(1.0) { [self] in
             check(inTask("agenttask.result.picture") && pictureDrawn(), "the “Opened …” step shows its picture again (from disk), drawn (not blank)")

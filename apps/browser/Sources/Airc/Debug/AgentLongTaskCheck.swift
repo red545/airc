@@ -147,7 +147,7 @@ final class AgentLongTaskCheck {
         wait({ AgentTaskRecorder.shared.tasks.first(where: { $0.id == id })?.status == .done }, 5) { [self] in
         let status = AgentTaskRecorder.shared.tasks.first(where: { $0.id == id })?.status
         check(status == .done, "its task row says Done (\(status?.label ?? "no row"))")
-        AgentTasksPage.openTask(id, in: c)
+        AgentTasksPage.openTask(id, in: c, view: true)
         wait({ AgentTasksPage.existing(self.c.shownTabID)?.task.taskID == id }, 6) { [self] in
             k.after(0.6) { [self] in
                 guard let page = AgentTasksPage.existing(c.shownTabID) else { check(false, "the task view opens"); return done() }

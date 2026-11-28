@@ -127,10 +127,10 @@ final class AgentTaskViewModel: ObservableObject {
             var raw: [AgentTaskLine.Raw] = []
             var runs: [[AgentStep]] = []
             for s in run.steps {
-                if s.kind == .user || runs.isEmpty { runs.append([s]) } else { runs[runs.count - 1].append(s) }
+                if s.kind == .user && !s.midRun || runs.isEmpty { runs.append([s]) } else { runs[runs.count - 1].append(s) }
             }
             for r in runs {
-                if let p = r.first(where: { $0.kind == .user }) {
+                if let p = r.first(where: { $0.kind == .user && !$0.midRun }) {
                     let actions = r.filter { $0.kind == .action }
                     summaries[p.id.uuidString] = AgentPaneItem.summaryLine(r, prompt: p, actions: actions, timeline: timeline)
                         .replacingOccurrences(of: "Done in ", with: "Worked for ")
@@ -188,9 +188,30 @@ final class AgentTaskViewModel: ObservableObject {
             text = ""
             return after { self.ask(c, "Not like that: " + typed) }
         }
+        // agentflow (design §3): while it works, ↩ sends at the next step (a pending line until the agent gets it).
+        if isCurrent, run.isBusy {
+            run.queueNote(typed)
+            text = ""
+            return
+        }
         guard run.canSend else { return }
         text = ""
         ask(c, typed)
+    }
+
+    /// ⌘↩: stop the current step and send now.
+    func sendNow() {
+        let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isCurrent, run.isBusy, run.approval == nil, AgentRunCenter.hasKey, let c = controller else { return send() }
+        guard !typed.isEmpty else { return }
+        text = ""
+        run.stop()
+        after { self.ask(c, typed) }
+    }
+
+    func editNote(_ id: UUID) {
+        guard let t = run.takeNote(id) else { return }
+        text = text.isEmpty ? t : t + "\n" + text
     }
 
     /// A reply to this task: the same conversation while it has one this launch; a task from an earlier launch can't be
@@ -409,6 +430,7 @@ struct AgentTaskViewRoot: View {
     private var composer: some View {
         VStack(spacing: 6) {
             if model.isCurrent, let a = run.approval { AgentTaskApproval(run: run, request: a).transition(.move(edge: .bottom).combined(with: .opacity)) }
+            if model.isCurrent, !run.pendingNotes.isEmpty { AgentTaskPendingNotes(model: model) }
             AgentTaskComposer(model: model)
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: run.approval)
@@ -754,6 +776,35 @@ struct AgentTaskApproval: View {
     }
 }
 
+/// agentflow: what the person sent while it works, not delivered yet (✎ back into the field, ✕ don't send).
+struct AgentTaskPendingNotes: View {
+    @ObservedObject var model: AgentTaskViewModel
+    @Environment(\.aircTheme) private var theme
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            ForEach(model.run.pendingNotes) { n in
+                HStack(spacing: 8) {
+                    Spacer(minLength: 40)
+                    Text(n.text).aircFont(AircFont.body).foregroundStyle(theme.surfaceText.color.opacity(0.72)).lineLimit(3)
+                        .padding(.horizontal, 11).padding(.vertical, 7)
+                        .background(RoundedRectangle(cornerRadius: 12).strokeBorder(theme.surfaceBorder.color, style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
+                        .onTapGesture { model.editNote(n.id) }
+                    Button { model.editNote(n.id) } label: { Image(systemName: "pencil").font(.system(size: 10, weight: .medium)) }
+                        .buttonStyle(.plain).help("Edit").accessibilityLabel("Edit")
+                    Button { model.run.removeNote(n.id) } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)) }
+                        .buttonStyle(.plain).help("Don't send").accessibilityLabel("Don't send").testAnchor("agenttask.pending.remove")
+                }
+                .foregroundStyle(theme.surfaceTextTertiary.color)
+            }
+            Text(model.run.isBusy ? "Sends at the next step · ⌘↩ sends now" : "Sends with your next message")
+                .aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextTertiary.color)
+        }
+        .padding(.bottom, 6)
+        .testAnchor("agenttask.pending")
+    }
+}
+
 /// "Reply, @ for context", the chips under it, and Send ↑ / Stop ■.
 struct AgentTaskComposer: View {
     @ObservedObject var model: AgentTaskViewModel
@@ -770,6 +821,11 @@ struct AgentTaskComposer: View {
                     .lineLimit(1...8)
                     .focused($focused)
                     .onSubmit { model.send() }
+                    .onKeyPress(.return, phases: .down) { press in
+                        guard press.modifiers.contains(.command), !press.modifiers.contains(.shift) else { return .ignored }
+                        model.sendNow()
+                        return .handled
+                    }
                     .onChange(of: model.text) { _, t in
                         // "@": the + menu's tabs (the shown page first).
                         if t.hasSuffix("@"), let c = model.controller, let p = AgentAskContext.shownPage(of: c), !model.attached.contains(p) {

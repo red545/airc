@@ -897,7 +897,7 @@ final class TabRowView: SidebarRowView {
 
         favicon.set(image: engineTab?.favicon, url: tab?.faviconURL ?? item?.faviconURL,
                     fallbackPage: url, palette: palette,
-                    symbol: NoteURL.isNote(url) ? "note.text" : EaselURL.isEasel(url) ? "scribble.variable" : WhatsNewURL.isPage(url) ? "sparkles" : (drifted && faviconHovered) ? "arrow.uturn.backward" : nil)
+                    symbol: NoteURL.isNote(url) ? "note.text" : EaselURL.isEasel(url) ? "scribble.variable" : WhatsNewURL.isPage(url) || AgentTasksURL.isPage(url) ? "sparkles" : (drifted && faviconHovered) ? "arrow.uturn.backward" : nil)
         developerSite = DeveloperMode.shared.applies(url)
         if !showsSpinner { favicon.alphaValue = (item != nil && isUnloaded) ? 0.5 : 1 }
         // A custom icon wins, except while the favicon is the "Back to pinned URL" arrow. A Today tab has its own (S03).

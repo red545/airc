@@ -138,6 +138,14 @@ Items:
   Stop), ⌘. Stop. While running: ↩ sends the text **at the next step** (delivered at the next turn boundary, no
   interruption; shown as a pending bubble you can edit or remove until it's delivered); **⌘↩ interrupts** (stops the
   current turn at once, then sends). Hint under the field: "↩ send at the next step · ⌘↩ interrupt".
+  *Built (agentflow):* `AgentRunCenter.pendingNotes` (AgentRun.swift). API keys: the notes go into the user message that
+  carries the step's tool results (`addToolResults` note), or, when the turn was the final answer, as one more user turn.
+  Claude Code and Codex: appended as a text block to the next tool call's MCP answer; after the CLI's last tool call, as
+  its next turn in the same session. Each note becomes the person's own line (`AgentStep.midRun`: it doesn't start a new
+  run of the transcript). Stop keeps undelivered notes ("Sends with your next message"); the next prompt sends them first,
+  as their own lines, never glued onto the prompt. The pane's bubble: dashed outline, "Sends at the next step", ✎ (back
+  into the field) and ✕; the task view lists them above its composer. The hint reads "↩ sends at the next step · ⌘↩
+  now" and shows only with text in the field; Send ↑ sits beside ■ then.
 - Drafts survive closing the pane and switching tabs.
 
 **Empty states.**
@@ -165,7 +173,11 @@ windows and Watch, unchanged.
 - **Start** (✦, ⌥⌘A, ⌘T Ask, the task view's composer): the task's page opens as a new Today tab of the current Space (its
   profile; else that profile's first Space), selected, titled with the page, full size and live. The pane opens beside it.
   A task about the page the person is on ("this page", "this form", "summarise…", with the page chip attached) works in
-  that very tab. A follow-up or Continue goes on in the same tab.
+  that very tab. A follow-up or Continue goes on in the same tab, also after a Stop (agentflow: the stopped run's tab is
+  kept in `released` until the next agent window opens, when the follow-up is asked in that tab's window and Space).
+- **Opening a task** (its row, a Recent tasks card, ⌘T, All tasks' rows go to the task view in that tab): while the
+  task's page is a tab of the window (`AgentMainView.taskTab`), that tab with the pane on the task; otherwise its task
+  view in the Space's one ✦ `airc://agents` tab (reused, never a second).
 - **Glow and bar** (Agent/AgentMainViewChrome.swift): over the page inside the card's rounded clip (no layout shift), an
   inner glow in the Space's accent (breathing only while a tool call runs; Reduce Motion: static), a 34 pt capsule bar at
   the top ("Airc Agent is using this tab · Take over · Stop"; "… is waiting for your OK"; after Take over "You're using

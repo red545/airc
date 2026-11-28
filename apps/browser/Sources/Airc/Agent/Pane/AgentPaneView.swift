@@ -152,6 +152,8 @@ struct AgentPaneView: View {
                     } else if run.state == .running, !model.lastItemIsSteps {
                         AgentPaneThinking().id("thinking")
                     }
+                    // agentflow: sent while it works, not delivered yet.
+                    ForEach(run.pendingNotes) { n in AgentPanePendingNote(note: n, model: model).id("pending-\(n.id)") }
                     // Why the run ended, once, after its last step and next to the composer (nosteplimit: it was a
                     // red banner at the top, a gap, and the same line again at the bottom).
                     if let p = model.problem { problem(p).id("problem") }
@@ -164,6 +166,7 @@ struct AgentPaneView: View {
             // the field (nosteplimit).
             .defaultScrollAnchor(.bottom)
             .onChange(of: run.steps.count) { _, _ in withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom") } }
+            .onChange(of: run.pendingNotes.count) { _, _ in withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom") } }
             .onChange(of: run.partial.count / 80) { _, _ in proxy.scrollTo("bottom") }
             .onChange(of: run.state) { _, _ in withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom") } }
         }
@@ -753,6 +756,46 @@ struct AgentPaneApproval: View {
     }
 }
 
+// MARK: Send at the next step
+
+/// A message sent while the agent works (agentflow): the prompt's bubble, dimmed, with "Sends at the next step", ✎ (back
+/// into the field) and ✕ (removed), until the agent gets it.
+struct AgentPanePendingNote: View {
+    let note: AgentRunCenter.PendingNote
+    @ObservedObject var model: AgentPaneModel
+    @Environment(\.aircTheme) private var theme
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 3) {
+            HStack {
+                Spacer(minLength: 40)
+                Button { model.editNote(note.id) } label: {
+                    Text(note.text).aircFont(AircFont.body).foregroundStyle(theme.surfaceText.color.opacity(0.72))
+                        .fixedSize(horizontal: false, vertical: true).multilineTextAlignment(.leading)
+                        .padding(.horizontal, 11).padding(.vertical, 8)
+                        .background(RoundedRectangle(cornerRadius: 12).strokeBorder(theme.surfaceBorder.color, style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
+                        .contentShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+                .help("Edit")
+                .testAnchor("agentpane.pending.text")
+            }
+            HStack(spacing: 8) {
+                Image(systemName: "clock").font(.system(size: 9))
+                Text(model.run.isBusy ? "Sends at the next step" : "Sends with your next message").aircFont(AircFont.caption)
+                Button { model.editNote(note.id) } label: { Image(systemName: "pencil").font(.system(size: 10, weight: .medium)) }
+                    .buttonStyle(.plain).help("Edit").accessibilityLabel("Edit").testAnchor("agentpane.pending.edit")
+                Button { model.removeNote(note.id) } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)) }
+                    .buttonStyle(.plain).help("Don't send").accessibilityLabel("Don't send").testAnchor("agentpane.pending.remove")
+            }
+            .foregroundStyle(theme.surfaceTextTertiary.color)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Not sent yet: \(note.text)")
+        .testAnchor("agentpane.pending")
+    }
+}
+
 // MARK: Composer
 
 struct AgentPaneComposer: View {
@@ -771,6 +814,12 @@ struct AgentPaneComposer: View {
                     .lineLimit(2...8)
                     .focused($focused)
                     .onSubmit { model.send() }
+                    // agentflow: ⌘↩ interrupts and sends now (↩ waits for the next step).
+                    .onKeyPress(.return, phases: .down) { press in
+                        guard press.modifiers.contains(.command), !press.modifiers.contains(.shift) else { return .ignored }
+                        model.sendNow()
+                        return .handled
+                    }
                     .onKeyPress(.upArrow) {
                         guard model.text.isEmpty else { return .ignored }
                         model.recall()
@@ -792,6 +841,9 @@ struct AgentPaneComposer: View {
                     .testAnchor("agentpane.progress")
                 }
                 sendButton
+            }
+            if let h = model.sendHint, !model.armedStop {
+                Text(h).aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextTertiary.color).testAnchor("agentpane.sendhint")
             }
             if model.armedStop {
                 Text("Press Esc again to stop").aircFont(AircFont.caption).foregroundStyle(theme.surfaceTextTertiary.color)
@@ -871,6 +923,8 @@ struct AgentPaneComposer: View {
 
     @ViewBuilder private var sendButton: some View {
         if run.state.isActive && run.approval == nil {
+            // agentflow: with text in the field, ↑ sends it at the next step (■ stays for Stop).
+            if !model.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { arrowButton(help: "Send at the next step (↩)") }
             Button { model.stop() } label: {
                 // The glyph in the surface colour on a text-coloured circle: dark on light, light on dark (onAccent was white on
                 // white in dark Spaces).
@@ -883,16 +937,20 @@ struct AgentPaneComposer: View {
             .accessibilityLabel("Stop")
             .testAnchor("agentpane.stop")
         } else {
-            let empty = model.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            Button { model.send() } label: {
-                Image(systemName: "arrow.up").font(.system(size: 12, weight: .bold)).foregroundStyle(theme.onAccent.color)
-                    .frame(width: 28, height: 28).background(Circle().fill(theme.accent.color.opacity(empty ? 0.4 : 1)))
-            }
-            .buttonStyle(.plain)
-            .disabled(empty)
-            .help("Send (↩)")
-            .accessibilityLabel("Send")
-            .testAnchor("agentpane.send")
+            arrowButton(help: "Send (↩)")
         }
+    }
+
+    private func arrowButton(help: String) -> some View {
+        let empty = model.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return Button { model.send() } label: {
+            Image(systemName: "arrow.up").font(.system(size: 12, weight: .bold)).foregroundStyle(theme.onAccent.color)
+                .frame(width: 28, height: 28).background(Circle().fill(theme.accent.color.opacity(empty ? 0.4 : 1)))
+        }
+        .buttonStyle(.plain)
+        .disabled(empty)
+        .help(help)
+        .accessibilityLabel("Send")
+        .testAnchor("agentpane.send")
     }
 }

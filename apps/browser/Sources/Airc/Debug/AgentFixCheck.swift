@@ -74,7 +74,7 @@ extension AgentPane2Check {
                 wait({ self.run.approval != nil }, 20) { [self] in
                     guard run.approval != nil else { check(false, "agentfix route [⌘T Ask]: the agent asks before paying"); return finish() }
                     // agentmainview: an Ask start shows the task's page in B's main view; its task view opens from the folder.
-                    if let id = AgentTaskRecorder.shared.currentID { AgentTasksPage.openTask(id, in: b) }
+                    if let id = AgentTaskRecorder.shared.currentID { AgentTasksPage.openTask(id, in: b, view: true) }
                     check(run.profileID == profile, "agentfix route [⌘T Ask]: the task runs in B's profile")
                     // The person is in window A when the click comes.
                     a.window.makeKeyAndOrderFront(nil)

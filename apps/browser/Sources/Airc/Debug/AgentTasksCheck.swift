@@ -25,6 +25,7 @@ extension SnapshotRunner {
         step { done in t.caseAskMode(done) }
         step { done in t.caseTaskView(done) }
         step { done in t.caseReply(done) }
+        step { done in t.caseFlowTaskView(done) }   // agentflow (AgentFlowCheck.swift)
         step { done in t.caseSidebar(done) }
         step { done in t.caseShowAll(done) }
         step { done in t.caseRecent(done) }
@@ -172,7 +173,7 @@ final class AgentTasksCheck {
                                                   "Return in Ask starts the task: its page is the selected tab, the pane beside it [\(how)]")
                                             check(c.commandBar?.isParked != false, "… the bar closes")
                                             check(k.firstUserText(k.fake.bodies("ask").first).contains("/home.html"), "… with the attached page's address for the model")
-                                            if let id = recorder.currentID { AgentTasksPage.openTask(id, in: c) }
+                                            if let id = recorder.currentID { AgentTasksPage.openTask(id, in: c, view: true) }
                                             wait({ AgentTasksURL.taskID(self.c.store.tab(self.c.shownTabID)?.url) != nil }, 6) { [self] in
                                                 let id = AgentTasksURL.taskID(c.store.tab(c.shownTabID)?.url)
                                                 taskID = id
@@ -306,9 +307,19 @@ final class AgentTasksCheck {
                     let all = c.sidebar.agents.model.tasks.map(\.id)
                     check(Set(all).count == all.count, "agentrows: every task in the folder once (\(all.count) rows)")
                     let row = TestAnchors.view("agents-task-\(id)", in: c.sidebar.agents)
+                    // agentflow: the finished task's page is still a tab here: the row shows that tab with the pane on the
+                    // task (design §7), and makes no other Today row.
+                    let own = AgentTaskCenter.shared.run(task: id).flatMap { AgentMainView.shared.taskTab($0, in: self.c) }
+                    let rows = c.store.state.tabs.values.filter { $0.spaceID == self.c.currentSpaceID }.count
                     click(row, "the unread task row", fallback: { self.c.sidebar.agents.openTask(id) }) { [self] how in
-                        wait({ AgentTasksURL.taskID(self.c.store.tab(self.c.shownTabID)?.url) == id }, 4) { [self] in
-                            check(AgentTasksURL.taskID(c.store.tab(c.shownTabID)?.url) == id, "a click on the row opens its task view [\(how) click]")
+                        wait({ own.map { self.c.shownTabID == $0 } ?? (AgentTasksURL.taskID(self.c.store.tab(self.c.shownTabID)?.url) == id) }, 4) { [self] in
+                            if let own {
+                                check(c.shownTabID == own && AgentPaneController.pane(of: c)?.isShown == true && AgentPaneController.pane(of: c)?.model.run.taskID == id,
+                                      "agentflow: a click on the row shows the task's own tab, the pane on the task [\(how) click]")
+                                check(c.store.state.tabs.values.filter { $0.spaceID == c.currentSpaceID }.count == rows, "agentflow: … and makes no Today row (\(rows) tabs)")
+                            } else {
+                                check(AgentTasksURL.taskID(c.store.tab(c.shownTabID)?.url) == id, "a click on the row opens its task view [\(how) click]")
+                            }
                             after(0.6) { [self] in
                                 check(recorder.tasks.first { $0.id == id }?.unread == false && !inSidebar("agents-task-unread"), "… and the dot goes")
                                 done()
@@ -343,9 +354,19 @@ final class AgentTasksCheck {
                         shot(bar, "agenttasks-recent")
                         guard let first = cards.first else { return done() }
                         let target = recorder.tasks.first { $0.spaceID == c.currentSpaceID }?.id
+                        let own = target.flatMap { AgentTaskCenter.shared.run(task: $0) }.flatMap { AgentMainView.shared.taskTab($0, in: self.c) }
+                        let rows = c.store.state.tabs.values.filter { $0.spaceID == self.c.currentSpaceID }.count
                         click(first, "the first card", fallback: { if let t = target, let r = self.recorder.tasks.first(where: { $0.id == t }) { bar.askPanel?.model.openTask?(r) } }) { [self] how in
-                            wait({ AgentTasksURL.taskID(self.c.store.tab(self.c.shownTabID)?.url) != nil }, 4) { [self] in
-                                check(AgentTasksURL.taskID(c.store.tab(c.shownTabID)?.url) == target, "a card opens its task view [\(how) click]")
+                            wait({ own.map { self.c.shownTabID == $0 } ?? (AgentTasksURL.taskID(self.c.store.tab(self.c.shownTabID)?.url) != nil) }, 4) { [self] in
+                                if let own {
+                                    // agentflow: the task's page is a tab here: the card shows it, the pane on the task.
+                                    check(c.shownTabID == own && AgentPaneController.pane(of: c)?.model.run.taskID == target,
+                                          "agentflow: a card shows its task's own tab with the pane on it [\(how) click]")
+                                    check(c.store.state.tabs.values.filter { $0.spaceID == c.currentSpaceID }.count == rows,
+                                          "agentflow: … no new Today row (\(rows) tabs before, \(c.store.state.tabs.values.filter { $0.spaceID == c.currentSpaceID }.count) after)")
+                                } else {
+                                    check(AgentTasksURL.taskID(c.store.tab(c.shownTabID)?.url) == target, "a card opens its task view [\(how) click]")
+                                }
                                 done()
                             }
                         }
@@ -365,7 +386,7 @@ final class AgentTasksCheck {
         k.untilApproval { [self] in
             // agentmainview: an Ask start shows the task's page in the main view; its task view is a click away.
             check(AgentMainView.shared.runShown(in: c), "an Ask start puts the task's page in the main view")
-            if let id = recorder.currentID { AgentTasksPage.openTask(id, in: c) }
+            if let id = recorder.currentID { AgentTasksPage.openTask(id, in: c, view: true) }
             after(0.8) { [self] in
                 check(AgentTasksURL.taskID(c.store.tab(c.shownTabID)?.url) == recorder.currentID, "the task's view is shown (opened)")
                 check(inTask("agenttask.approval"), "the approval card is in the task view: \(run.approval?.title ?? "none")")
@@ -411,7 +432,7 @@ final class AgentTasksCheck {
                 check(after.ok, "agentrows: waiting: still one row with the approval in front (\(after.detail))")
                 AgentPaneController.pane(of: c)?.close()
                 c.sidebar.agents.closeApproval()
-                AgentTasksPage.openTask(id, in: c)
+                AgentTasksPage.openTask(id, in: c, view: true)
                 self.after(0.8) { [self] in
                     check(inTask("agenttask.approval"), "agentrows: back in the task view, the approval card still asks")
                     done()
@@ -457,7 +478,7 @@ final class AgentTasksCheck {
         CommandBarView.startAgentTask("Pay for the order again", attached: [], in: c)
         k.untilApproval { [self] in
             // agentmainview: the task view is a click away from an Ask start.
-            if let id = recorder.currentID { AgentTasksPage.openTask(id, in: c) }
+            if let id = recorder.currentID { AgentTasksPage.openTask(id, in: c, view: true) }
             after(0.8) { [self] in
                 guard let h = taskHost else { check(false, "the task view for Allow once"); return done() }
                 k.press("agenttask.allow", "Allow once", in: h, fallback: { self.run.answerApproval(allow: true) }) { [self] how in

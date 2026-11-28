@@ -21,6 +21,8 @@ extension SnapshotRunner {
             step { done in k.caseButton(done) }
             step { done in k.caseCLI(.claudeCode, done) }
             step { done in k.caseCLI(.codex, done) }
+            step { done in k.caseFlowCLI(.claudeCode, done) }   // agentflow (AgentFlowCheck.swift)
+            step { done in k.caseFlowCLI(.codex, done) }
             step { done in k.caseSignedOutTurn(done) }
             step { done in k.caseKey(done) }
             step { done in k.caseHandBack(done) }

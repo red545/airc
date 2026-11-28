@@ -91,7 +91,7 @@ final class AgentTaskRecorder: ObservableObject {
         }
         // A private window's conversation is never a task (docs/design/agent-ux.md §1): no record, no pictures.
         if live[key] == nil, run.privateWindow { return }
-        if live[key] == nil, let first = steps.first(where: { $0.kind == .user }) { makeRecord(run, prompt: first.text, status: .running) }
+        if live[key] == nil, let first = steps.first(where: { $0.kind == .user && !$0.midRun }) { makeRecord(run, prompt: first.text, status: .running) }
         queueSave(run)
     }
 
@@ -240,9 +240,18 @@ final class AgentTasksPage: CardDocument {
         host.applyTheme()
     }
 
-    /// A task in this Space's agents tab (reused if open, else a new tab), shown.
+    /// A task in this Space's agents tab (reused if open, else a new tab), shown. agentflow: a task of this launch whose
+    /// page is a tab of this window opens there instead, with the pane on the task, so a task never has two rows.
+    /// `view`: always the task view (the All tasks list opens it in that same tab; checks of the view itself).
     @discardableResult
-    static func openTask(_ id: String, in c: WindowController) -> String? {
+    static func openTask(_ id: String, in c: WindowController, view: Bool = false) -> String? {
+        if !view, AgentUI.usesPane, let run = AgentTaskCenter.shared.run(task: id), let tab = AgentMainView.shared.taskTab(run, in: c) {
+            AgentTaskRecorder.shared.markSeen(id)
+            if c.shownTabID != tab { c.show(tab) }
+            AgentPaneController.show(c, task: run)
+            AgentCenter.shared.onEvent?("task opens its own tab \(tab)")
+            return tab
+        }
         let title = AgentTaskRecorder.shared.tasks.first { $0.id == id }?.title ?? AgentTasksURL.title
         let url = AgentTasksURL.task(id)
         let tabID: String
@@ -358,7 +367,7 @@ final class AgentTasksPageModel: ObservableObject {
             return
         }
         // asidepass: the task opens in this tab, as a full task view.
-        AgentTasksPage.openTask(row.id, in: c)
+        AgentTasksPage.openTask(row.id, in: c, view: true)
     }
 }
 

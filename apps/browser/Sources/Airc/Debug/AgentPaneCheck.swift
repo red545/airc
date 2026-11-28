@@ -25,6 +25,7 @@ extension SnapshotRunner {
         step { done in k.caseApproval(done) }
         step { done in k.caseRowPopover(done) }
         step { done in k.caseStop(done) }
+        step { done in k.caseFlow(done) }   // agentflow (AgentFlowCheck.swift): send at the next step, follow-up after Stop
         step { done in k.caseTakeOver(done) }
         step { done in k.caseError(done) }
         step { done in k.caseTasksPage(done) }

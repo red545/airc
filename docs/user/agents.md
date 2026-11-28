@@ -43,7 +43,10 @@ works in that tab itself. The pane beside it shows each step as one line with th
 
 When it's done, the steps fold into "Done in … · N steps", and
 the sites it used are chips under the answer. The task also shows in the sidebar's **Agents** folder; when it waits for
-your OK and the pane is closed, its row says so and asks there. **◷** in the pane lists all tasks (`airc://agents`).
+your OK and the pane is closed, its row says so and asks there. **◷** in the pane lists all tasks (`airc://agents`, one
+✦ tab per Space, reused).
+Opening a task from its row, a Recent tasks card or ⌘T while its page is still a tab of the window shows that tab with
+the task in the pane, so a task never gets a second tab.
 
 - **Your own AI.** **Use your ChatGPT subscription** (through your own Codex: **Sign in with ChatGPT**), **your own Claude
   Code** (it uses your Claude account), or an **API key** (Anthropic or OpenAI). Airc never sees your sign-in. The first
@@ -87,6 +90,12 @@ your OK and the pane is closed, its row says so and asks there. **◷** in the p
   AI › Agent › Stop after** to 25, 50, 100 or 200 steps (it's Off by default); at the cap, **Continue** gives it that
   many more. If something goes wrong, the pane says what once, under the last step, and offers the next step: **Try
   again** or **Use … instead** (another provider that's ready).
+- **Tell it something while it works.** Type in the field and press ↩: the message waits under the steps ("Sends at
+  the next step") and the agent reads it at its next step, or right after its answer if it was already writing one. Click
+  the message (or ✎) to edit it, ✕ not to send it. **⌘↩** stops what it's doing and sends the message now. If you stop
+  the task first, the message stays ("Sends with your next message") and goes with your reply, as its own line.
+- **Follow-ups stay in the task's tab.** A reply after it's done, after you stopped it, or after **Continue** goes on in
+  the same tab; no new tab is opened for it.
 - **Pages can't give it orders.** What a page says is never an instruction. When a page contains text aimed at an AI
   agent, the pane shows "The page asked the agent to: …", and the agent doesn't follow it.
 - **Never use these sites.** Sites listed in Settings › AI › Agent stop the agent before it acts there.

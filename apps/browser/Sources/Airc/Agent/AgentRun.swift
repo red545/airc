@@ -13,6 +13,9 @@ struct AgentStep: Identifiable, Equatable {
     var memoryLine: AgentMemoryLine?
     /// agentrecall: what a "Searched your history" step found (the task view's result rows).
     var found: [AgentTaskRecord.Entry.Found]?
+    /// agentflow: a message the person sent while the task worked, delivered at a step (it doesn't start a new run of the
+    /// transcript the way a prompt does).
+    var midRun = false
 }
 
 /// A risky action waiting for the person's yes (the approval card).
@@ -162,6 +165,61 @@ final class AgentRunCenter: ObservableObject {
     private var tools: [AgentToolSpec] { (bridge?.specs ?? []) + (memoryOn ? [Self.rememberTool] : []) }
 
     var canSend: Bool { !state.isActive && queuedPrompt == nil }
+
+    // MARK: Send at the next step (agentflow, docs/design/agent-ux.md §3)
+
+    /// A message the person sent while the task works: a pending bubble (✕ removes it, a click edits it) until the agent
+    /// gets it at its next step. Never glued onto another message.
+    struct PendingNote: Identifiable, Equatable {
+        let id = UUID()
+        let text: String
+    }
+    @Published private(set) var pendingNotes: [PendingNote] = []
+
+    /// ↩ while the task works, waits for an OK or waits for a free slot.
+    func queueNote(_ text: String) {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }
+        pendingNotes.append(PendingNote(text: t))
+        event("note queued \(pendingNotes.count)")
+    }
+
+    func removeNote(_ id: UUID) {
+        guard pendingNotes.contains(where: { $0.id == id }) else { return }
+        pendingNotes.removeAll { $0.id == id }
+        event("note removed")
+    }
+
+    /// The note leaves the queue for the field (to edit it).
+    func takeNote(_ id: UUID) -> String? {
+        guard let i = pendingNotes.firstIndex(where: { $0.id == id }) else { return nil }
+        event("note edited")
+        return pendingNotes.remove(at: i).text
+    }
+
+    /// What the model gets for the person's notes (each also becomes their own line in the transcript).
+    static func noteText(_ notes: [String]) -> String {
+        let body = notes.count == 1 ? notes[0] : notes.map { "- " + $0 }.joined(separator: "\n")
+        return "The person sent this while you worked (from them, not from a page):\n" + body
+    }
+
+    /// The queue is delivered now: the person's lines join the transcript and the model's text is returned.
+    private func deliverNotes() -> String? {
+        guard !pendingNotes.isEmpty else { return nil }
+        let notes = pendingNotes.map(\.text)
+        pendingNotes = []
+        for t in notes { steps.append(AgentStep(kind: .user, text: t, midRun: true)) }
+        event("note delivered \(notes.count)")
+        return Self.noteText(notes)
+    }
+
+    /// The CLI's tool answer with the person's notes after it (Claude Code and Codex read them at that step).
+    private func withNotes(_ r: AgentResult) -> AgentResult {
+        guard state.isActive, stopRequested == nil, let note = deliverNotes() else { return r }
+        var r = r
+        r.content.append(["type": "text", "text": note])
+        return r
+    }
     /// Running, waiting for an OK, or queued for a free slot.
     var isBusy: Bool { state.isActive || queuedPrompt != nil }
     /// The run's agent window (its Agents folder row's), while it has one.
@@ -211,7 +269,16 @@ final class AgentRunCenter: ObservableObject {
         if privateWindow != self.privateWindow { reset(keepSteps: true) }
         self.privateWindow = privateWindow
         let settings = AgentModelSettings.shared
-        if let kind = settings.values.backend.cli { return askCLI(task, kind: kind, profileID: profileID, profileName: profileName) }
+        // agentflow: notes sent while the last run worked that it never got (it stopped first): their own lines, before
+        // this prompt, and the model gets them with it.
+        let notes = pendingNotes.map(\.text)
+        if !notes.isEmpty {
+            pendingNotes = []
+            for t in notes { steps.append(AgentStep(kind: .user, text: t, midRun: true)) }
+            event("note delivered \(notes.count)")
+        }
+        let before = notes.isEmpty ? "" : Self.noteText(notes) + "\n\n"
+        if let kind = settings.values.backend.cli { return askCLI(task, kind: kind, profileID: profileID, profileName: profileName, before: before) }
         let provider = settings.values.provider
         guard let key = settings.key(provider), !key.isEmpty else {
             steps.append(AgentStep(kind: .error, text: "Connect your AI first: Settings › AI › Agent."))
@@ -233,7 +300,7 @@ final class AgentRunCenter: ObservableObject {
             memoryUsed = m.used
             event("memory used \(m.used.joined(separator: ","))")
         }
-        conversation?.addUser(lead + task)
+        conversation?.addUser(lead + before + task)
         steps.append(AgentStep(kind: .user, text: task))
         beginBudget()
         state = .running
@@ -257,8 +324,8 @@ final class AgentRunCenter: ObservableObject {
     func continueRun() {
         if cli != nil { return continueCLI() }
         guard case .stopped = state, let conversation, let key = AgentModelSettings.shared.key(conversation.provider) else { return }
-        conversation.addUser("Continue the task.")
         steps.append(AgentStep(kind: .info, text: "Continuing."))
+        conversation.addUser("Continue the task." + (deliverNotes().map { "\n\n" + $0 } ?? ""))
         beginBudget()
         state = .running
         stopRequested = nil
@@ -322,6 +389,7 @@ final class AgentRunCenter: ObservableObject {
         if queuedPrompt != nil { AgentTaskCenter.shared.dequeue(self) }
         stop()
         reset(keepSteps: false)
+        pendingNotes = []
         privateWindow = false
         approval = nil
         decide = nil
@@ -437,6 +505,11 @@ final class AgentRunCenter: ObservableObject {
                 switch t.stop {
                 case .done:
                     if !said.isEmpty { self.steps.append(AgentStep(kind: .final, text: said)) }
+                    // agentflow: the person wrote while this last turn ran: the task goes on with it.
+                    if self.stopRequested == nil, let note = self.deliverNotes() {
+                        conversation.addUser(note)
+                        return self.turn(key: key)
+                    }
                     self.end(.done)
                 case .toolUse:
                     if !said.isEmpty { self.steps.append(AgentStep(kind: .say, text: said)) }
@@ -461,7 +534,9 @@ final class AgentRunCenter: ObservableObject {
         var rest = rest
         guard let call = rest.popFirst() else {
             inFlight = nil
-            conversation.addToolResults(outputs, note: notes.isEmpty ? nil : notes.joined(separator: "\n"))
+            // agentflow: the person's notes go with this step's answers, so the next turn reads them.
+            let all = notes + (stopRequested == nil ? deliverNotes().map { [$0] } ?? [] : [])
+            conversation.addToolResults(outputs, note: all.isEmpty ? nil : all.joined(separator: "\n\n"))
             if let why = stopRequested { return end(.stopped(why)) }
             return turn(key: key)
         }
@@ -739,7 +814,7 @@ extension AgentRunCenter {
 
     /// A task for the person's CLI. Its status is checked first (cached for 30 s); a CLI that isn't installed or logged in
     /// ends the task with what to do about it.
-    fileprivate func askCLI(_ task: String, kind: AgentCLIKind, profileID: String, profileName: String) {
+    fileprivate func askCLI(_ task: String, kind: AgentCLIKind, profileID: String, profileName: String, before: String = "") {
         if self.profileID != profileID || cliKind != kind || conversation != nil { reset(keepSteps: true) }
         self.profileID = profileID
         self.profileName = profileName
@@ -759,7 +834,7 @@ extension AgentRunCenter {
                 self.event("cli status \(status.summary(kind))")
                 return self.fail(status.summary(kind) + (status.fix(kind).map { ". " + $0 } ?? "."))
             }
-            self.openCLIWindow(task: task) { self.cliSend(task, kind: kind, path: path) }
+            self.openCLIWindow(task: task) { self.cliSend(before + task, kind: kind, path: path) }
         }
     }
 
@@ -769,7 +844,7 @@ extension AgentRunCenter {
         beginBudget()
         state = .running
         stopRequested = nil
-        openCLIWindow(task: nil) { self.cliSend("Continue the task.", kind: kind, path: path) }
+        openCLIWindow(task: nil) { self.cliSend("Continue the task." + (self.deliverNotes().map { "\n\n" + $0 } ?? ""), kind: kind, path: path) }
     }
 
     private func openCLIWindow(task: String?, _ then: @escaping () -> Void) {
@@ -813,7 +888,8 @@ extension AgentRunCenter {
             return AgentTool(name: spec.name, description: spec.description, schema: spec.schema, readOnly: readOnly,
                              destructive: false) { [weak self] args, _, done in
                 guard let self else { return done(.error("Airc's agent isn't running.")) }
-                self.gateCLI(spec.name, args, done)
+                // agentflow: notes the person sent meanwhile go with this call's answer.
+                self.gateCLI(spec.name, args) { [weak self] r in done(self?.withNotes(r) ?? r) }
             }
         }
     }
@@ -905,6 +981,15 @@ extension AgentRunCenter {
             case .completed:
                 if !t.text.isEmpty { steps.append(AgentStep(kind: .final, text: t.text)) }
                 if let why = stopRequested { return end(.stopped(why)) }
+                // agentflow: the person wrote after the CLI's last tool call: its next turn, in the same session.
+                if !pendingNotes.isEmpty, let path = cli?.executable {
+                    return DispatchQueue.main.async { [weak self] in
+                        guard let self, self.state.isActive, self.stopRequested == nil, self.cliKind == kind else { return }
+                        guard let note = self.deliverNotes() else { return self.end(.done) }
+                        self.event("note turn")
+                        self.cliSend(note, kind: kind, path: path)
+                    }
+                }
                 end(.done)
             case .interrupted:
                 end(.stopped(stopRequested ?? "Stopped."))
