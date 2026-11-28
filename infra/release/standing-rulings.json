@@ -6,28 +6,32 @@
    "regex": "^FAIL agentpane2 chromium: needs you \\[(✦ in a full-screen window|notification, from a full-screen window)\\]",
    "max": 3,
    "ruled": "lead 2026-11-27T05:34Z",
-   "why": "posted-only known limit: \"✦ in a full-screen window\" passes with real input (4/4); the notification case has no real-input path (the posted click handler lacks the system activation). Covers the subset runs -ux3 and -needsyou."
+   "why": "posted-only known limit: \"✦ in a full-screen window\" passes with real input (4/4); the notification case has no real-input path (the posted click handler lacks the system activation). Covers the subset runs -ux3 and -needsyou.",
+   "lifted": "lead 2026-11-28T14:09Z: fixed by tailreds 9623a74b (needsyou 87/0 x3 both engines, agentpane2 posted 221/0 both)"
   },
   {
    "target": "webkit-agentpane2-posted",
    "regex": "^FAIL agentpane2 webkit: needs you \\[(✦ in a full-screen window|notification, from a full-screen window)\\]",
    "max": 3,
    "ruled": "lead 2026-11-27T05:34Z",
-   "why": "posted-only known limit: \"✦ in a full-screen window\" passes with real input (4/4); the notification case has no real-input path (the posted click handler lacks the system activation). Covers the subset runs -ux3 and -needsyou."
+   "why": "posted-only known limit: \"✦ in a full-screen window\" passes with real input (4/4); the notification case has no real-input path (the posted click handler lacks the system activation). Covers the subset runs -ux3 and -needsyou.",
+   "lifted": "lead 2026-11-28T14:09Z: fixed by tailreds 9623a74b (needsyou 87/0 x3 both engines, agentpane2 posted 221/0 both)"
   },
   {
    "target": "chromium-agentpane2-real",
    "regex": "^FAIL agentpane2 chromium: needs you \\[notification, from a full-screen window\\] \\[posted: the notification's click handler\\]",
    "max": 1,
    "ruled": "lead 2026-11-27T05:34Z",
-   "why": "the real run still calls the posted notification click handler (no real notification click exists). Covers the subset run -agentfix."
+   "why": "the real run still calls the posted notification click handler (no real notification click exists). Covers the subset run -agentfix.",
+   "lifted": "lead 2026-11-28T14:09Z: fixed by tailreds 9623a74b (needsyou 87/0 x3 both engines, agentpane2 posted 221/0 both)"
   },
   {
    "target": "webkit-agentpane2-real",
    "regex": "^FAIL agentpane2 webkit: needs you \\[notification, from a full-screen window\\] \\[posted: the notification's click handler\\]",
    "max": 1,
    "ruled": "lead 2026-11-27T05:34Z",
-   "why": "the real run still calls the posted notification click handler (no real notification click exists). Covers the subset run -agentfix."
+   "why": "the real run still calls the posted notification click handler (no real notification click exists). Covers the subset run -agentfix.",
+   "lifted": "lead 2026-11-28T14:09Z: fixed by tailreds 9623a74b (needsyou 87/0 x3 both engines, agentpane2 posted 221/0 both)"
   },
   {
    "target": "webkit-cbfocus-tfg-A",

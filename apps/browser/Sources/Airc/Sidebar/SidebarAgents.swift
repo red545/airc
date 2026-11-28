@@ -214,6 +214,13 @@ final class SidebarAgentsView: NSView {
     /// the approval is answered anywhere (one answer clears all).
     func showApproval(_ run: AgentRunCenter, at rowFrame: CGRect, open: @escaping () -> Void) {
         guard approvalPopover?.isShown != true, let host, window != nil, rowFrame.height > 0, let a = run.approval else { return }
+        // Never again for an approval the person was just taken to (a needs-you landing closed every row popover for
+        // it, AgentAttention.go): re-opened on another window right after the landing, e.g. a full-screen one, it kept
+        // macOS on that Space (tailreds, agentpane2 "✦ / notification from a full-screen window").
+        if AgentAttention.landed(onApproval: a.id) {
+            AgentCenter.shared.onEvent?("attention-row-approval not shown in #\(window?.windowNumber ?? 0): landed on it")
+            return
+        }
         let p = NSPopover()
         p.behavior = .applicationDefined
         p.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -227,10 +234,12 @@ final class SidebarAgentsView: NSView {
         p.contentSize = v.fittingSize
         approvalPopover = p
         p.show(relativeTo: rowFrame, of: host, preferredEdge: controller?.sidebarOnRight == true ? .minX : .maxX)
+        AgentCenter.shared.onEvent?("attention-row-approval shown in #\(window?.windowNumber ?? 0)")
         approvalSub = run.$approval.dropFirst().sink { [weak self] new in if new?.id != a.id { self?.closeApproval() } }
     }
 
     func closeApproval() {
+        if approvalPopover != nil { AgentCenter.shared.onEvent?("attention-row-approval closed in #\(window?.windowNumber ?? 0)") }
         approvalSub = nil
         approvalPopover?.close()
         approvalPopover = nil

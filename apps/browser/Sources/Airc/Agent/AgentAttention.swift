@@ -231,6 +231,9 @@ enum AgentAttention {
         }
     }
 
+    /// The person's last needs-you landing was this approval (its row popovers stay closed: SidebarAgentsView.showApproval).
+    static func landed(onApproval id: UUID) -> Bool { lastLanded == "approval-" + id.uuidString }
+
     static func go(_ it: Item, from: String) {
         lastLanded = it.id
         LandingFocus.supersede()
@@ -238,12 +241,17 @@ enum AgentAttention {
             AgentCenter.shared.onEvent?("attention \(from) \(it.id): no window")
             return
         }
+        // An approval: every window's row popover for it closes first, not only this window's, and none re-opens for it
+        // (SidebarAgentsView.showApproval, landed(onApproval:)). Since agentparallel each waiting task's row shows it in
+        // any window whose pane isn't on that task; one re-opened on a full-screen window right after the landing kept
+        // macOS on that Space instead of going to the task's window (tailreds; agentpane2 "✦ / notification from a
+        // full-screen window"). The pane answers it now.
+        if it.kind == .approval { for w in AgentCenter.shared.app?.controllers ?? [] { w.sidebar.agents.closeApproval() } }
         switchSpace(c, for: it)
         bringToFront(c)
         switch it.kind {
         case .approval:
             if c.sidebar.agents.watch != nil { c.sidebar.agents.closeWatch() }
-            c.sidebar.agents.closeApproval()
             let p = run(of: it).map { AgentPaneController.show(c, task: $0) } ?? AgentPaneController.show(c)
             p.focusApproval()
         case .page:
