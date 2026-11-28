@@ -2,6 +2,35 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.1.67",
+      "highlights": [
+        {
+          "title": "Agent pane per Space",
+          "lead": "The Agent pane follows your Spaces",
+          "detail": "Each Space in a window keeps its own Agent pane: the task you had open there and what you were typing. Switch Spaces and the pane switches with you.",
+          "icon": "rectangle.stack"
+        },
+        {
+          "title": "Agents across Spaces",
+          "lead": "Agent clicks keep working after you switch Spaces",
+          "detail": "The Airc Agent's clicks keep working after you switch Spaces, and a task you ask for just before switching opens in the Space you asked it in.",
+          "icon": "hand.point.up.left"
+        },
+        {
+          "title": "Typing in the Agent pane",
+          "lead": "Typing goes into the Agent pane when it opens",
+          "detail": "When the Agent pane opens, what you type goes into its message field, even if the page next to it tries to take the keyboard.",
+          "icon": "keyboard"
+        },
+        {
+          "title": "Task names right away",
+          "lead": "New agent tasks show their name right away",
+          "detail": "A new agent task's tab in Today, also one you start with Ask in ⌘T, shows the task's name from the start instead of \"about:blank\".",
+          "icon": "tag"
+        }
+      ]
+    },
+    {
       "version": "0.1.66",
       "highlights": [
         {
