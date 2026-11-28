@@ -85,12 +85,7 @@ it reads as part of the window (Arc's split view look), not a panel floating ove
 Below 900 pt window width the pane overlays the content card (same card, with a shadow) instead of squeezing the page.
 Full-screen and the sidebar's hidden mode keep the pane. Open/closed and the shown task are per **window and Space**:
 switching Space shows that Space's last pane state (Arc keeps per-Space state the same way); switching tabs never
-changes it. Done (agentpanescope): each Space of a window keeps the task its pane showed last and the field's text; a
-Space with none (or whose task was let go) shows the empty new-task state. Tasks run on whichever Space shows them; ✎ New,
-a task row or card, ⌘T Ask and "needs you" (which switches to the task's Space first) act in the Space they're used in.
-When the pane opens or takes a task, its field has the keys and keeps them for 2 s: a page that takes them back without
-the person acting (a late WebKit refocus) gives them back, at most 3 times; a click, a shortcut, Tab/Return/Esc, another
-tab in the main view or anything other than the page taking the keys ends that.
+changes it.
 
 **Expand (⤢).** Shows the task in the content area as a full tab-like view (transcript centred at 720 pt, live pages as
 cards on the right). For long reading; the pane closes while expanded. ⤢ again or Esc returns.
@@ -333,8 +328,7 @@ transcript (red outline), task status `.failed`/`.paused`, row glyph !.
   Desktop stays only in Settings › Agents (connector setup), not in the pane.
 - `AgentRunCenter` (one run) becomes `AgentTaskCenter` (many tasks, each with runs); approvals keyed by task. Done
   (agentparallel): one `AgentRunCenter` per task, `AgentTaskCenter` keeps them (finished ones too, up to 8, for
-  follow-ups); the pane shows one task per window and Space (its ✎ New makes an empty one and leaves the running ones alone; the
-per-Space memory since agentpanescope).
+  follow-ups); the pane shows one task per window (its ✎ New makes an empty one and leaves the running ones alone).
 - The Agents folder's "Airc Agent · site" rows become task rows (§7), with pages as children; agentrows' work on
   external-app rows (no row until a real action, titles, auto-close) applies unchanged.
 - The Command Bar row shows for any ready provider, not only with an API key.
@@ -398,8 +392,3 @@ The pane needs these from every backend (API, Claude Code, Codex), as one Swift 
   test launches otherwise switch Chromium's occlusion off): parked-task CPU (app, engine processes, our pages) with the
   idle rest off and on in alternating rounds, resting pages draw no frames and wake on a tool call, the pane's card
   keeps its page live; the agent's looks after an idle wait, rest off vs on.
-  Opt-in (agentpanescope, `AIRC_AGENTPARALLEL_ONLY=spaces,panefocus`, real input): two Spaces of one window with a task
-  each, switched back and forth with ⌥⌘→/⌥⌘← (each Space's pane shows its own task or the empty state, open/closed and the
-  field's text per Space, ✎ New, a row pick, ⌘T Ask and ⌥↩ stay in their Space, a new window starts empty, every task
-  finishes with its own answer and page counts); the field gets the keys back from a page that refocuses right after
-  the pane opened, a page that keeps refocusing wins after 3 tries, and a real click on the page keeps the keys there.

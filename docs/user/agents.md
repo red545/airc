@@ -38,8 +38,6 @@ works in that tab itself. The pane beside it shows each step as one line with th
   › AI › Agent; 0 for no limit); more wait as **Queued** and start by themselves when one ends. In the Command Bar,
   **⌥↩** starts a task in the background: its page becomes a row in Today and nothing else moves. Tasks never switch your
   Space or take another window to the front by themselves.
-- **Each Space keeps its own task in the pane.** Switch Spaces and the pane shows the task you last had there (or a new,
-  empty one); come back and yours is still there, with whatever you'd typed. Tasks keep running whichever Space you're in.
 
 When it's done, the steps fold into "Done in … · N steps", and
 the sites it used are chips under the answer. The task also shows in the sidebar's **Agents** folder; when it waits for

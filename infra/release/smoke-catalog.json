@@ -968,28 +968,6 @@
    ]
   },
   {
-   "id": "agentmain-real-blankask",
-   "kind": "agents",
-   "script": "agentmain",
-   "mode": "real",
-   "tag": "-blankask",
-   "env": [
-    "AIRC_AGENTMAIN_ONLY=blankask"
-   ],
-   "engines": {
-    "chromium": 6,
-    "webkit": 6
-   },
-   "seconds": {
-    "chromium": 15,
-    "webkit": 15
-   },
-   "paths": [
-    "S/Agent/AgentMainView*.swift",
-    "S/CommandBar/CommandBarAsk.swift"
-   ]
-  },
-  {
    "id": "agentwatch2-real",
    "kind": "agents",
    "script": "agentwatch2",
@@ -2337,29 +2315,6 @@
     "K/AgentTasks.swift"
    ],
    "note": "agentparallel (0.1.64): three+stop 28, approvals+429 18, windows 8, queue 7 per engine; idle is a timing case (idlecpu). seconds are an estimate until a tail measures them."
-  },
-  {
-   "id": "agentparallel-real-spaces",
-   "kind": "agents",
-   "script": "agentparallel",
-   "mode": "real",
-   "tag": "-spaces",
-   "env": [
-    "AIRC_AGENTPARALLEL_ONLY=spaces,panefocus"
-   ],
-   "engines": {
-    "chromium": 44,
-    "webkit": 44
-   },
-   "limit": 600,
-   "seconds": {
-    "chromium": 75,
-    "webkit": 75
-   },
-   "paths": [
-    "S/Agent/Pane/AgentPane*.swift",
-    "S/Agent/AgentTaskCenter.swift"
-   ]
   },
   {
    "id": "capture-bg",

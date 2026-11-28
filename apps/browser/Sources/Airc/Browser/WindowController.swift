@@ -1457,12 +1457,11 @@ final class WindowController: NSObject, NSWindowDelegate {
     /// without reloading: the engine moves it into this window (same profile only). False when it can't (another
     /// profile, an engine that can't move pages); nothing has changed then.
     @discardableResult
-    /// `title`: the row's title while the page has none (an agent task's name before its first page, agentpanescope).
-    func adoptMovedPage(_ page: EngineTab, inSpace spaceID: String, title rowTitle: String? = nil) -> Bool {
+    func adoptMovedPage(_ page: EngineTab, inSpace spaceID: String) -> Bool {
         guard let space = store.space(spaceID), let profile = profiles.engineProfile(for: space.profileID),
               page.profile === profile, !page.isClosed else { return false }
         do { try engineWindow.moveTab(page, profile: profile, to: engineWindow.hostView) } catch { return false }
-        let title = page.title.isEmpty ? (rowTitle ?? page.title) : page.title
+        let title = page.title
         guard let t = try? store.openTab(url: page.url?.absoluteString ?? "about:blank", inSpace: spaceID, title: title) else {
             page.close()
             return false

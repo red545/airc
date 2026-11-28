@@ -34,9 +34,6 @@ extension SnapshotRunner {
         if AgentParallelCheck.only?.contains("parkstep") == true { step { done in m.caseParkStep(done) } }
         if AgentParallelCheck.only?.contains("cardframe") == true { step { done in m.caseCardFrame(done) } }
         if AgentParallelCheck.only?.contains("cardrepro") == true { step { done in m.caseCardRepro(done) } }
-        // agentpanescope (AgentPaneSpaces.swift): the pane per window and Space, the field keeping the keys.
-        if AgentParallelCheck.only?.contains("spaces") == true { step { done in m.caseSpaces(done) } }
-        if AgentParallelCheck.only?.contains("panefocus") == true { step { done in m.caseFocus(done) } }
         run { m.finish() }
     }
 }
@@ -53,8 +50,6 @@ final class AgentParallelCheck {
     var home: WindowController!
     /// Events of every task, with the task and the time.
     var events: [(task: String, event: String, at: Date)] = []
-    /// agentpanescope: the spaces case's Space switches and main-view events, with times.
-    var spaceLog: [(Date, String)] = []
 
     static var only: Set<String>? {
         ProcessInfo.processInfo.environment["AIRC_AGENTPARALLEL_ONLY"].map { Set($0.split(separator: ",").map(String.init)) }

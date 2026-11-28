@@ -361,48 +361,12 @@ final class AgentPaneModel: ObservableObject {
         var step: Step
     }
 
-    /// agentparallel: the task this pane shows in the window's current Space. Other tasks keep running; picking one
-    /// shows it. agentpanescope: each Space of the window remembers its own (`spaceChanged`).
+    /// agentparallel: the task this pane shows (per window and Space). Other tasks keep running; picking one shows it.
     @Published private(set) var run: AgentRunCenter
     var timeline: AgentPaneTimeline { run.timeline }
     /// Take overs of the tasks this pane showed (the banner belongs to its task).
     private var takenOvers: [ObjectIdentifier: TakenOver] = [:]
     private var runSubs: [AnyCancellable] = []
-
-    /// agentpanescope: what the pane showed in a Space the window left (docs/design/agent-ux.md §3: the shown task is
-    /// per window and Space). An empty task isn't kept (that Space gets the empty state again); the field's text is.
-    private struct SpaceState {
-        weak var run: AgentRunCenter?
-        var text: String
-    }
-    private var spaceStates: [String: SpaceState] = [:]
-    /// The Space `run` and `text` belong to.
-    private(set) var spaceID: String?
-
-    /// Whether this pane shows `r` now or keeps it for another of its window's Spaces (an empty draft it keeps isn't
-    /// handed to another pane or forgotten).
-    func holds(_ r: AgentRunCenter) -> Bool { run === r || spaceStates.values.contains { $0.run === r } }
-
-    /// The window switched Space: the pane keeps the old Space's task and text, and shows the new Space's (its last
-    /// task if it's still there, else the empty state). Tasks keep running whichever Space shows them.
-    func spaceChanged(to id: String) {
-        guard id != spaceID else { return }
-        defer { spaceID = id }
-        guard let old = spaceID else { return }
-        spaceStates[old] = SpaceState(run: run.steps.isEmpty && !run.isBusy ? nil : run, text: text)
-        let saved = spaceStates.removeValue(forKey: id)
-        let kept = saved?.run.flatMap { r in AgentTaskCenter.shared.runs.contains { $0 === r } ? r : nil }
-        if let kept {
-            show(kept)
-        } else if !run.steps.isEmpty || run.isBusy {
-            show(AgentTaskCenter.shared.draft(latest: false))
-        }
-        text = saved?.text ?? ""
-        AgentCenter.shared.onEvent?("pane-space \(id.prefix(8)): \(kept.map { "task \($0.taskID.prefix(8))" } ?? "empty")")
-    }
-
-    /// The window's first Space (the pane was made there).
-    func start(in id: String) { if spaceID == nil { spaceID = id } }
 
     init() {
         run = AgentTaskCenter.shared.draft()
@@ -845,8 +809,6 @@ final class AgentPaneModel: ObservableObject {
 
     /// Take over: the agent's page becomes this window's tab; the task waits for Hand back.
     func takeOver() {
-        // The page is the person's: its keys too (the field's focus keep ends).
-        pane?.endFocusKeep()
         if let c = controller, let h = AgentMainView.shared.takeOver(run, in: c) {
             // The page is already the person's tab in the main view: it's theirs at once, where it is.
             takenOver = TakenOver(title: h.title.isEmpty ? (h.url?.host ?? "the page") : h.title, url: h.url, tabID: h.tabID,
