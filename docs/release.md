@@ -182,7 +182,16 @@ print, so it also lowers that run's PASS want by one: a run whose only FAILs are
 strict: any other FAIL, a missing PASS beyond the excused lines, or more matches than MAX (then none is excused) is
 red. Each result in `gate-smokes.json` / `status/release-tail.json` records `want`, `want_effective` and the
 `allowances` it used, and the state's `allow` lists every rule the run had. The plan warns about an `--allow` ID
-that matches no run. Before a stage,
+that matches no run. A rule for a case also covers its subset cases (catalog `subset_of`: a rule for
+`chromium-agentpane2-posted` reaches `-posted-ux3` and `-posted-needsyou`).
+
+**Standing rulings** live in `infra/release/standing-rulings.json`: the lead's rulings that hold until they are
+lifted (target, regex, max, `ruled` with the queue.md time, `why`). `plan` and `run` add every entry without
+`lifted` by themselves, so later releases don't have to pass them again (0.1.65's tail went red because the
+release passed the 05:34Z ruling for the parent runs only). The plan marks them `standing`; a run uses the file as
+it is at run time, so a lifted ruling stops applying at once. Add one only from a lead ruling, never for a crash
+or hang line; lift one by setting `"lifted": "lead <time>: <why>"`. A release-only allowance stays on the command
+line. Before a stage,
 keep the test build's apps and scripts (about 0.7 GB) rather than deleting the work folder: the tail runs on them.
 See `infra/release/fast-gate.md`, "Changed-path smokes".
 

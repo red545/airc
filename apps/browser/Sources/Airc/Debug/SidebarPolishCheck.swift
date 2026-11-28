@@ -114,8 +114,18 @@ extension SnapshotRunner {
                     }
                     let verdict = r.dwellVerdicts[count]
                     let what = verdict.map { "refused: \($0.rawValue)" } ?? "revealed"
-                    if label == "real state", self.c.window.isKeyWindow {
-                        self.note("SKIP sidebarpolish reveal real state: the window is key (the owner clicked it?), \(what)")
+                    let p = self.c.root.convert(self.c.window.mouseLocationOutsideOfEventStream, from: nil)
+                    let pointerInStrip = !r.edgeView.isHidden && r.edgeView.frame.insetBy(dx: -1, dy: 0).contains(p)
+                    if label == "real state", self.c.window.isKeyWindow, !pointerInStrip {
+                        // The window came up key (on buildmac the launch inherits activation about half the time), so
+                        // the real gate's first refusal is the real pointer, which is outside the strip: the dwell
+                        // must still refuse, and the sidebar must stay hidden. One PASS line either way (0.1.65 tail:
+                        // the old SKIP here left the settingsux group one PASS short).
+                        self.check(verdict == .pointerLeft && !r.isRevealed,
+                                   "sidebarpolish reveal real state: \(what) after \(Int(DesignGaps.revealDelay * 1000)) ms "
+                                   + "(the window is key; want refused: \(SidebarRevealGate.Refusal.pointerLeft.rawValue), the real pointer is outside the strip)")
+                    } else if label == "real state", self.c.window.isKeyWindow {
+                        self.note("SKIP sidebarpolish reveal real state: the window is key and the real pointer is in the edge strip, \(what)")
                     } else {
                         self.check(verdict == expect && r.isRevealed == (expect == nil),
                                    "sidebarpolish reveal \(label): \(what) after \(Int(DesignGaps.revealDelay * 1000)) ms "

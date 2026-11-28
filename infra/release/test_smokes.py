@@ -68,6 +68,77 @@ class Judge(unittest.TestCase):
                          {'a': [('^FAIL x', 3)], 'b': [('FAIL 10:20 y', 1)]})
 
 
+class Standing(unittest.TestCase):
+    """A standing lead ruling joins every plan and run by itself and covers the case's subset runs (0.1.65's tail:
+    the 05:34Z full-screen lines were allowed for agentpane2-posted/-real but not for -ux3, -needsyou, -agentfix)."""
+    LINE = 'FAIL agentpane2 chromium: needs you [notification, from a full-screen window] [posted: x]'
+
+    def rulings(self, d, lifted=None):
+        f = Path(d) / 'standing.json'
+        f.write_text(json.dumps(dict(rulings=[
+            dict(target='chromium-agentpane2-posted', regex=r'^FAIL agentpane2 chromium: needs you \[notification', max=3,
+                 ruled='lead 2026-11-27T05:34Z', why='posted only', **({'lifted': lifted} if lifted else {})),
+            dict(target='y', regex='z', max=1, ruled='lead', why='w', lifted='lead: fixed')])))
+        return f
+
+    def test_subset_runs_inherit_the_parent_rule(self):
+        allow = smokes.parse_allow([r'chromium-agentpane2-posted=^FAIL agentpane2 chromium: needs you \[notification:3'])
+        sub = dict(case='agentpane2-posted-ux3', id='chromium-agentpane2-posted-ux3', engine='chromium', want=3,
+                   allow_env=None, subset_of='agentpane2-posted')
+        ok, _, _, left, allowed, info = smokes.judge(f'PASS a\nPASS b\n{self.LINE}\n', sub, allow)
+        self.assertTrue(ok); self.assertEqual(left, []); self.assertEqual(info['want_effective'], 2)
+        # without subset_of (as before): red
+        self.assertFalse(smokes.judge(f'PASS a\nPASS b\n{self.LINE}\n', dict(sub, subset_of=None), allow)[0])
+        # another engine's rule never covers it
+        other = smokes.parse_allow([r'webkit-agentpane2-posted=^FAIL agentpane2 chromium: needs you:3'])
+        self.assertFalse(smokes.judge(f'PASS a\nPASS b\n{self.LINE}\n', sub, other)[0])
+        # a case rule reaches subsets too; still strict on other FAILs
+        case = smokes.parse_allow([r'agentpane2-posted=needs you \[notification:3'])
+        self.assertTrue(smokes.judge(f'PASS a\nPASS b\n{self.LINE}\n', sub, case)[0])
+        self.assertFalse(smokes.judge(f'PASS a\nPASS b\n{self.LINE}\nFAIL other\n', sub, case)[0])
+
+    def test_catalog_runs_carry_subset_of(self):
+        cat = json.loads(smokes.CATALOG.read_text())
+        ux3 = next(c for c in cat['cases'] if c['id'] == 'agentpane2-posted-ux3')
+        self.assertEqual({r['subset_of'] for r in smokes.runs(ux3)}, {'agentpane2-posted'})
+
+    def test_standing_file_loads_only_active_rulings(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual([a['target'] for a in smokes.standing_rulings(self.rulings(d))], ['chromium-agentpane2-posted'])
+            self.assertEqual(smokes.standing_rulings(self.rulings(d, lifted='lead: fixed')), [])
+            self.assertEqual(smokes.standing_rulings(Path(d) / 'none.json'), [])
+            bad = Path(d) / 'bad.json'; bad.write_text(json.dumps(dict(rulings=[dict(target='x', regex='y')])))
+            with self.assertRaises(SystemExit):
+                smokes.standing_rulings(bad)      # no ruled/why: refused, never silently applied
+
+    def test_repo_standing_file_is_valid(self):
+        for a in smokes.standing_rulings():
+            self.assertFalse(smokes.CRITICAL.search(a['regex'].replace('\\', '')), a)   # never a crash/hang line
+            self.assertTrue(a['ruled'].startswith('lead'), a)
+        ids = {x for c in json.loads(smokes.CATALOG.read_text())['cases'] for r in smokes.runs(c) for x in (r['id'], r['case'])}
+        self.assertEqual([a['target'] for a in smokes.standing_rulings() if a['target'] not in ids], [])   # no typo'd target
+
+    def test_plan_carries_standing_rulings(self):
+        cat = dict(defaults=dict(overhead_seconds=0, idle_by_mode={}), signed=[], cases=[
+            dict(id='agentpane2-posted', kind='agents', script='agentpane2', mode='posted', tier='core',
+                 engines={'chromium': 9}, seconds={'chromium': 10}),
+            dict(id='agentpane2-posted-ux3', kind='agents', script='agentpane2', mode='posted', tag='-ux3',
+                 subset_of='agentpane2-posted', engines={'chromium': 3}, seconds={'chromium': 5})])
+        sel = dict(changed=[], ignored=[], engine=[], broad=[], unmapped=[], new_scripts=[], tail_first=[],
+                   picked=[dict(cat['cases'][0], reason=['core'])])
+        orig = (smokes.select, smokes.git, smokes.CATALOG, smokes.STANDING)
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / 'cat.json'; f.write_text(json.dumps(cat)); out = Path(d) / 'plan.json'
+            smokes.select, smokes.git, smokes.CATALOG, smokes.STANDING = (lambda *a: sel), (lambda *a: 'f' * 40), f, self.rulings(d)
+            try:
+                smokes.plan(SimpleNamespace(to='HEAD', base='b', extra=None, budget=0, json=str(out), allow=None))
+            finally:
+                smokes.select, smokes.git, smokes.CATALOG, smokes.STANDING = orig
+            p = json.loads(out.read_text())
+        self.assertEqual([(a['target'], a['standing']) for a in p['allow']], [('chromium-agentpane2-posted', 'lead 2026-11-27T05:34Z')])
+        self.assertEqual(p['allow_unknown'], [])
+        self.assertEqual([r['subset_of'] for r in p['tail']], ['agentpane2-posted'])
+
 class Headline(unittest.TestCase):
     def test_reason(self):
         old = {'a-bg': dict(id='a-bg', script='a', mode='bg', engines={'chromium': 5})}

@@ -12,6 +12,9 @@ release (--from, default: the last `Source:` line in docs/release-notes-beta.md)
 checks (the check is new or changed since the last release AND its own product paths changed) always run at the gate:
 the budget is raised by their cost and the plan says so. A lead-ruled --allow line (an exact FAIL line, at most MAX
 per run) excuses that FAIL and lowers the run's PASS want by the lines it excused; the plan/state json records it.
+A rule given for a case also covers its subset cases (catalog `subset_of`, e.g. agentpane2-posted → -ux3, -needsyou).
+STANDING rulings (standing-rulings.json, the lead's rulings that hold until lifted) join every plan and run by
+themselves, so a release never has to remember to pass them again.
 Everything else, timing smokes and
 the slow signed-build measurements run in the release's TAIL, after LIVE, on the same test build. A red tail blocks
 the next release (blockers); it never holds the release that made it. Crash/hang-class reds always stop.
@@ -32,6 +35,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 CATALOG = HERE / 'smoke-catalog.json'
+STANDING = HERE / 'standing-rulings.json'
 STATUS = Path(os.environ.get('AIRC_STATUS_DIR', Path.home() / 'arcfork/status'))
 HID_MODES = {'real', 'tfg', 'pfg', 'fp'}            # the UI driver posts HID input: resets the Mac's idle clock
 PREFIX = {'S/': 'apps/browser/Sources/Airc/', 'K/': 'packages/AircKit/Sources/AircKit/'}
@@ -303,7 +307,7 @@ def runs(case):
                    env=case.get('env', []), nf_env=case.get('nf_env', []), data=case.get('data'),
                    limit=case.get('limit', 600), after=case.get('after'), allow_env=case.get('allow_env'),
                    seconds=case.get('seconds', {}).get(engine, 60), idle=case.get('idle'),
-                   tier=case.get('tier'), reason=case.get('reason', []))
+                   tier=case.get('tier'), reason=case.get('reason', []), subset_of=case.get('subset_of'))
 
 
 def order(items, defaults):
@@ -374,9 +378,13 @@ def plan(args):
     out['budget_raised'] = dict(seconds=sum(x['seconds'] for x in raised), checks=raised,
                                 why='headline checks (new/changed since the last release, own paths changed) run before LIVE') if raised else None
     out['headline_unknown'] = [dict(id=c['id'], why=c['headline_unknown']) for c in sel['picked'] if c.get('headline_unknown')]
+    standing = standing_rulings()
     out['allow'] = [dict(target=t, regex=rx, max=mx) for t, rules in parse_allow(args.allow).items() for rx, mx in rules]
+    given = {(a['target'], a['regex'], a['max']) for a in out['allow']}
+    out['allow'] += [dict(target=a['target'], regex=a['regex'], max=a['max'], standing=a['ruled'])
+                     for a in standing if (a['target'], a['regex'], a['max']) not in given]
     ids = {x for r in gate + tail for x in (r['id'], r['case'])}
-    out['allow_unknown'] = [a['target'] for a in out['allow'] if a['target'] not in ids]
+    out['allow_unknown'] = [a['target'] for a in out['allow'] if a['target'] not in ids and not a.get('standing')]
     if args.json:
         Path(args.json).write_text(json.dumps(out, indent=1) + '\n')
     report(out, catalog)
@@ -407,8 +415,8 @@ def report(p, catalog):
     for x in p.get('headline_unknown', []):
         print(f"  HEADLINE? {x['id']}: {x['why']}")
     for a in p.get('allow', []):
-        print(f"  allowance (lowers the want by the lines it excuses): {a['target']} ≤ {a['max']}: {a['regex']}"
-              + ('   ← NO SUCH RUN OR CASE in this plan' if a['target'] in p.get('allow_unknown', []) else ''))
+        print(f"  allowance{' (STANDING, ' + a['standing'] + ')' if a.get('standing') else ''} (lowers the want by the lines it excuses): {a['target']} ≤ {a['max']}: {a['regex']}"
+              + ('   ← NO SUCH RUN OR CASE in this plan' if a['target'] in p.get('allow_unknown', []) and not a.get('standing') else ''))
     print(f"  ≈ {mmss(e['gate_smokes_s'])} min smokes ({mmss(e['gate_idle_waits_s'])} of it idle waits) + {mmss(e['signed_release_s'])} min signed-build smokes")
     print(f"\nTAIL (after LIVE, same test build; a red blocks the NEXT release): {len(p['tail'])} launches ≈ {e['tail_s'] / 3600:.1f} h "
           f"(idle waits {mmss(e['tail_idle_waits_s'])} min), incl. timing: " +
@@ -457,6 +465,28 @@ def remote_command(r, work):
     return name, None, None
 
 
+def standing_rulings(path=None):
+    """The lead's standing rulings (standing-rulings.json): every one without `lifted` applies to every later plan and
+    run until the lead lifts it. Each: target (case or run id), regex, max, ruled (who/when), why."""
+    f = Path(path or STANDING)
+    if not f.exists():
+        return []
+    out = []
+    for a in json.loads(f.read_text()).get('rulings', []):
+        if a.get('lifted'):
+            continue
+        for k in ('target', 'regex', 'ruled', 'why'):
+            if not a.get(k):
+                raise SystemExit(f'{f}: a standing ruling without {k!r}: {a}')
+        re.compile(a['regex'])
+        out.append(dict(a, max=int(a.get('max', 1))))
+    return out
+
+
+def allow_items(rules):
+    return [f"{a['target']}={a['regex']}:{a['max']}" for a in rules]
+
+
 def parse_allow(items):
     """--allow CASE_OR_RUN_ID=REGEX[:MAX] (MAX default 1) → {id: [(regex, max)]}."""
     allow = {}
@@ -482,7 +512,11 @@ def judge(text, r, allow):
         a = [i for i, l in enumerate(fails) if l.startswith('FAIL-ENV') and re.search(r['allow_env']['regex'], l)]
         if len(a) <= r['allow_env']['max']:
             taken.update(a)
-    for target in (r['case'], r['id']):
+    targets = [r['case'], r['id']]
+    if r.get('subset_of'):   # a ruling for the full case covers its subsets (same lines, fewer groups)
+        engine = r.get('engine') or r['id'][: -len(r['case']) - 1]
+        targets += [r['subset_of'], f"{engine}-{r['subset_of']}"]
+    for target in targets:
         for regex, mx in allow.get(target, []):
             a = [i for i, l in enumerate(fails) if i not in taken and re.search(regex, l)]
             if a:
@@ -502,8 +536,10 @@ def run(args):
     items = p[args.tier]
     out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
     log = out / 'smokes.log'
-    # the plan's allowances (set at the freeze) plus any given here
-    allow = parse_allow([f"{a['target']}={a['regex']}:{a['max']}" for a in p.get('allow', [])] + (args.allow or []))
+    # the plan's allowances (set at the freeze), the standing rulings as they are now, plus any given here
+    # (a standing ruling lifted since the freeze no longer applies: the plan's copy of it is dropped)
+    allow = parse_allow(allow_items([a for a in p.get('allow', []) if not a.get('standing')])
+                        + allow_items(standing_rulings()) + (args.allow or []))
     groups = {}
     for line in (Path(args.groups).read_text().splitlines() if args.groups else []):
         if line.strip() and not line.startswith('#'):

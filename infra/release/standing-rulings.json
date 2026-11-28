@@ -1,0 +1,61 @@
+{
+ "_doc": "The lead's standing rulings for release smokes. Each excuses at most `max` FAIL lines matching `regex` in the run or case `target` (and in its catalog subset_of cases), and lowers that run's PASS want by the lines it excuses (smokes.py judge). smokes.py plan and run add every entry without `lifted` by themselves, in every release, until the lead lifts it: set \"lifted\": \"lead <UTC time>: <why>\" and keep the entry for the record. Add an entry only from a lead ruling in queue.md and quote its time in `ruled`. Never for a crash, hang or watchdog line. A release-only allowance still goes on the command line (plan --allow).",
+ "rulings": [
+  {
+   "target": "chromium-agentpane2-posted",
+   "regex": "^FAIL agentpane2 chromium: needs you \\[(✦ in a full-screen window|notification, from a full-screen window)\\]",
+   "max": 3,
+   "ruled": "lead 2026-11-27T05:34Z",
+   "why": "posted-only known limit: \"✦ in a full-screen window\" passes with real input (4/4); the notification case has no real-input path (the posted click handler lacks the system activation). Covers the subset runs -ux3 and -needsyou."
+  },
+  {
+   "target": "webkit-agentpane2-posted",
+   "regex": "^FAIL agentpane2 webkit: needs you \\[(✦ in a full-screen window|notification, from a full-screen window)\\]",
+   "max": 3,
+   "ruled": "lead 2026-11-27T05:34Z",
+   "why": "posted-only known limit: \"✦ in a full-screen window\" passes with real input (4/4); the notification case has no real-input path (the posted click handler lacks the system activation). Covers the subset runs -ux3 and -needsyou."
+  },
+  {
+   "target": "chromium-agentpane2-real",
+   "regex": "^FAIL agentpane2 chromium: needs you \\[notification, from a full-screen window\\] \\[posted: the notification's click handler\\]",
+   "max": 1,
+   "ruled": "lead 2026-11-27T05:34Z",
+   "why": "the real run still calls the posted notification click handler (no real notification click exists). Covers the subset run -agentfix."
+  },
+  {
+   "target": "webkit-agentpane2-real",
+   "regex": "^FAIL agentpane2 webkit: needs you \\[notification, from a full-screen window\\] \\[posted: the notification's click handler\\]",
+   "max": 1,
+   "ruled": "lead 2026-11-27T05:34Z",
+   "why": "the real run still calls the posted notification click handler (no real notification click exists). Covers the subset run -agentfix."
+  },
+  {
+   "target": "webkit-cbfocus-tfg-A",
+   "regex": "^FAIL cbfocus \\(WebKit, fix\\) fullscreen: the field holds exactly “k i”, the first key included",
+   "max": 1,
+   "ruled": "lead 2026-11-25T17:22Z",
+   "why": "WebKit: a key typed during the ~0.7 s full-screen Space exit is sometimes lost (~1 in 5); known limit, the notes never promise the first key."
+  },
+  {
+   "target": "webkit-cbfocus-tfg-C",
+   "regex": "^FAIL cbfocus \\(WebKit, fix\\) fullscreen: the field holds exactly “k i”, the first key included",
+   "max": 1,
+   "ruled": "lead 2026-11-25T17:22Z",
+   "why": "WebKit: a key typed during the ~0.7 s full-screen Space exit is sometimes lost (~1 in 5); known limit, the notes never promise the first key."
+  },
+  {
+   "target": "webkit-agentmain-real-long",
+   "regex": "^FAIL agentmain webkit: … and at 8 per second, never a white or empty main view \\(1 of [0-9]+\\)$",
+   "max": 1,
+   "ruled": "lead known limit (pre-existing), listed in agentmainfix DONE 2026-11-25T17:21Z",
+   "why": "WebKit: one white sample at a navigation in ~1 of 2 long runs."
+  },
+  {
+   "target": "webkit-agentwatch2-real",
+   "regex": "^FAIL agentwatch2 webkit after: the page moves in Watch \\(the agent window off screen\\)$",
+   "max": 1,
+   "ruled": "lead known limit (pre-existing), listed in agentmainfix DONE 2026-11-25T17:21Z",
+   "why": "WebKit \"page moves in Watch\" flake (watchfix/agentrows/agentmainview had it)."
+  }
+ ]
+}
